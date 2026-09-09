@@ -389,6 +389,39 @@ cli
 
 cli
   .command(
+    "match-harness [site]",
+    "Install the matching-a-page gate harness (dev-guarded /dev/match/[uid] route + matching/ scripts) for a live-reference rebuild.",
+  )
+  .option("--ref <url>", "Reference (live) site URL the harness gates against — required")
+  .option("--cand <url>", "Candidate origin (default http://localhost:5173)")
+  .option("--matrix <list>", "Breakpoint matrix, comma-separated (default 1440,834,390)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        ref?: string;
+        cand?: string;
+        matrix?: string | number;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/match-harness.js")).runMatchHarnessCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
     "smoke-suite [site]",
     "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",
   )

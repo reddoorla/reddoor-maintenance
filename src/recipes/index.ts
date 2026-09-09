@@ -8,6 +8,7 @@ import { onboard, type OnboardOptions, type OnboardAudit } from "./onboard.js";
 import { a11yFixturesPage } from "./a11y-fixtures-page/index.js";
 import { healthEndpoint } from "./health-endpoint/index.js";
 import { smokeSuite } from "./smoke-suite/index.js";
+import { matchHarness } from "./match-harness/index.js";
 import {
   init,
   DEFAULT_INIT_STEPS,
@@ -27,6 +28,7 @@ export {
   a11yFixturesPage,
   healthEndpoint,
   smokeSuite,
+  matchHarness,
   init,
   DEFAULT_INIT_STEPS,
 };
