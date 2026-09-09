@@ -1310,16 +1310,17 @@ matching/*.png
 `;
 
 export const PRETTIERIGNORE_MARKER = "# reddoor-maint match-harness";
-export const PRETTIERIGNORE_BLOCK = `# Matching harness — recipe-owned CODE only. These files are the source the
-# \`match-harness\` recipe is cut from and are re-installed byte-for-byte across
-# sites whose printWidth differs from this repo's; formatting them per site
-# would make every future upgrade read as a hand edit. harness.json is one line
-# per page for the same reason — it is a table, not prose. Everything else under
-# matching/ (SPEC.md, LEDGER.md, spec-sections/, states/*.mjs) stays inside
-# \`prettier --check .\`. That is deliberately narrow: eslint does not lint
-# Markdown, so for SPEC.md, LEDGER.md and spec-sections/ prettier is the ONLY
-# style check there is, and a blanket \`matching/\` entry here would leave the
-# records with none.
+export const PRETTIERIGNORE_BLOCK = `# Matching harness — recipe-owned CODE only. These files are installed
+# byte-for-byte by the \`match-harness\` recipe and must stay that way across
+# sites whose printWidth differs; formatting them per site would make every
+# future upgrade read as a hand edit. harness.json is exempt for the same
+# reason: the recipe re-serialises it as pretty-printed two-space JSON on every
+# install, so a site's prettier would fight the recipe over it.
+#
+# Everything else under matching/ (SPEC.md, LEDGER.md, spec-sections/,
+# states/*.mjs) stays inside \`prettier --check .\`. That is deliberately narrow:
+# eslint does not lint Markdown, so for the records prettier is the ONLY style
+# check there is, and a blanket \`matching/\` entry would leave them with none.
 matching/*.mjs
 matching/*.sh
 matching/harness.json
