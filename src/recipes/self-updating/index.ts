@@ -8,9 +8,7 @@ import {
   RENOVATE_ACTION_CONFIG,
 } from "../sync-configs/renovate-action.js";
 import {
-  getRemoteUrl,
-  parseOwnerRepo,
-  isOwnerRepo,
+  resolveOwnerRepo,
   push as gitPush,
   branchName,
   checkoutBranch,
@@ -33,9 +31,10 @@ import {
 // node-version, permissions), so an exact-match heal against a static template
 // would strip those values in a green auto-mergeable PR — the armed clobber
 // the 2026-08-02 architecture review found. The starter clone owns ci.yml's
-// shape; Renovate bumps its pinned reusable-workflow ref per repo (proven:
-// its github-actions manager already updates action pins on fleet sites, and
-// reddoorla/.github publishes the tags it tracks).
+// shape. Its pinned reusable-workflow ref is sometimes bumped by Renovate
+// (v1.2.0 -> v1.3.0 across 17 repos, Jul-Aug 2026) but was not for v1.4.0 or
+// v1.4.1 — the latter was swept by hand on 2026-09-01 — so propagation is a
+// manual step to verify, never a guarantee.
 const SELF_UPDATING_CONFIGS = ["renovate-action", "renovate-config"] as const;
 
 // Reusable-workflow jobs report their check as "<caller-job> / <reusable-job>".
@@ -67,47 +66,12 @@ function sameConfigContents(current: string, canonical: string): boolean {
   return norm(current) === norm(canonical);
 }
 
-/**
- * Resolve the `owner/repo` this recipe will mutate. An explicit `site.gitRepo`
- * (from Airtable) wins; otherwise derive it from the checkout's `origin`.
- *
- * Returns `null` when there is no repo to act on (no `gitRepo`, no origin) — a
- * benign "nothing wired" state. THROWS when a repo value IS present but doesn't
- * match the strict `owner/repo` shape: this recipe writes the broad GitHub
- * token as a repo secret (plus branch protection / auto-merge) at this
- * identity, so an attacker/typo-controlled value must be rejected here, before
- * the first `gh` call, rather than passed through to `gh`.
- */
-async function resolveRepo(site: Site): Promise<string | null> {
-  if (site.gitRepo) {
-    if (!isOwnerRepo(site.gitRepo)) {
-      throw new Error(
-        `refusing to act on malformed repo identity: expected "owner/repo", got ${JSON.stringify(site.gitRepo)}`,
-      );
-    }
-    return site.gitRepo;
-  }
-  let fromOrigin: string | null;
-  try {
-    fromOrigin = parseOwnerRepo(await getRemoteUrl(site.path));
-  } catch {
-    return null;
-  }
-  if (fromOrigin === null) return null;
-  if (!isOwnerRepo(fromOrigin)) {
-    throw new Error(
-      `refusing to act on malformed repo identity from origin: ${JSON.stringify(fromOrigin)}`,
-    );
-  }
-  return fromOrigin;
-}
-
 export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Promise<RecipeResult> {
   const templates = templatesByName([...SELF_UPDATING_CONFIGS]);
 
   let repo: string | null;
   try {
-    repo = await resolveRepo(site);
+    repo = await resolveOwnerRepo(site);
   } catch (err) {
     // A malformed repo identity must abort before any `gh` write — surface it
     // as a recipe failure rather than letting the token reach an unintended repo.
@@ -117,7 +81,8 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
     return resultOf(
       site,
       "failed",
-      "no Git repo (set Airtable 'Git repo' or add an origin remote)",
+      "could not determine a GitHub repo for this site — set Airtable 'Git repo', or give " +
+        "the checkout an origin remote whose URL is a GitHub owner/repo",
     );
   }
 

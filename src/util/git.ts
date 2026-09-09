@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import type { Site } from "../types.js";
 
 const exec = promisify(execFile);
 
@@ -132,6 +133,48 @@ export function parseOwnerRepo(remoteUrl: string): string | null {
 export async function getRemoteUrl(cwd: string): Promise<string> {
   const { stdout } = await git(cwd, ["remote", "get-url", "origin"]);
   return stdout.trim();
+}
+
+/**
+ * Resolve the `owner/repo` a recipe will act on. An explicit `site.gitRepo`
+ * (Airtable, or a JSON inventory) wins; otherwise derive it from the checkout's
+ * `origin`.
+ *
+ * Returns `null` when there is nothing to act on (no `gitRepo`, no origin) — a
+ * benign "nothing wired" state. THROWS when a value IS present but does not
+ * match the strict `owner/repo` shape: callers write repo secrets, branch
+ * protection and pull requests at this identity, so a typo'd or
+ * attacker-controlled value must be rejected here, before the first `gh` call.
+ *
+ * Extracted from `self-updating`'s private `resolveRepo` because `prismic-ci`
+ * read `site.gitRepo` directly and therefore refused every POSITIONAL run with
+ * "no Git repo on this site" — `localPath()` (src/inventory/local.ts:11) builds
+ * `{ path, name }` and nothing else. A site being bootstrapped is exactly the
+ * case that has no Airtable row yet (`--fleet airtable` filters pre-launch
+ * statuses), so the positional path is the ONLY one `/new-site` can use.
+ */
+export async function resolveOwnerRepo(site: Site): Promise<string | null> {
+  if (site.gitRepo) {
+    if (!isOwnerRepo(site.gitRepo)) {
+      throw new Error(
+        `refusing to act on malformed repo identity: expected "owner/repo", got ${JSON.stringify(site.gitRepo)}`,
+      );
+    }
+    return site.gitRepo;
+  }
+  let fromOrigin: string | null;
+  try {
+    fromOrigin = parseOwnerRepo(await getRemoteUrl(site.path));
+  } catch {
+    return null;
+  }
+  if (fromOrigin === null) return null;
+  if (!isOwnerRepo(fromOrigin)) {
+    throw new Error(
+      `refusing to act on malformed repo identity from origin: ${JSON.stringify(fromOrigin)}`,
+    );
+  }
+  return fromOrigin;
 }
 
 /** Push a branch to origin, setting upstream. Throws on non-zero (execFile rejects). */

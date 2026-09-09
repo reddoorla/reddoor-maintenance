@@ -191,8 +191,15 @@ in anyone's voice.
 - `reddoorla/reddoor-starter-blux` — the **Blux track**: a full-history
   snapshot of the native repo at `82d93b0` that keeps the Blux render layer.
   It is the render mirror `src/blux` targets and the template for
-  `/new-site <slug> --track blux`. Forward-merge only (`git merge starter/main`
-  in that repo); never merge it back.
+  `/new-site <slug> --track blux`. **Cherry-pick, never `git merge starter/main`**
+  — the forward-merge rule this line used to carry was a landmine: native-ize
+  (reddoor-starter#106) deleted the whole Blux layer, so the merge applies those
+  deletions as clean, CONFLICT-FREE removals and strips `src/lib/blux*`, every
+  `Blux*` slice and the fidelity gates, with only `README.md` conflicting so
+  nothing warns you (verified 2026-09-01; the rule was replaced in that repo's
+  own README in reddoor-starter-blux#2 and reached its `CLAUDE.md` in #8). Adopt
+  a shared improvement with `git fetch starter && git cherry-pick <sha>`, and
+  never merge that repo back into this one.
 
 Design: `docs/superpowers/specs/2026-08-31-starter-track-split-design.md`.
 
