@@ -50,6 +50,61 @@ const exists = (cwd: string, rel: string) =>
 
 const run = promisify(execFile);
 
+/** THIS repo's prettier, standing in for a site's own. */
+const prettierBin = resolve(here, "../../node_modules/.bin/prettier");
+
+/** A spawn that runs a REAL prettier over exactly the paths the recipe passes,
+ *  in the site, so the site's `.prettierrc.json` AND its `.prettierignore` both
+ *  apply. The recording doubles prove which paths are handed over; this one
+ *  proves what a formatter does to them. */
+const realPrettierSpawn: SpawnFn = async (_cmd, args, opts) => {
+  const paths = args.filter((a) => !a.startsWith("-") && a !== "exec" && a !== "prettier");
+  try {
+    const { stdout, stderr } = await run(prettierBin, ["--write", ...paths], { cwd: opts?.cwd });
+    return { code: 0, stdout, stderr };
+  } catch (e) {
+    const err = e as { code?: number; stdout?: string; stderr?: string };
+    return {
+      code: typeof err.code === "number" ? err.code : 1,
+      stdout: err.stdout ?? "",
+      stderr: err.stderr ?? "",
+    };
+  }
+};
+
+/** A site whose prettier disagrees with the templates in every way that bites:
+ *  tabs, single quotes, no trailing comma. Measured 2026-09-09 across the 21
+ *  fleet clones with a prettier config: `erp-industrial` and
+ *  `welcome-to-the-flower-court` ship exactly this shape, `beachfront-dentistry`
+ *  and `1836dig` ship prettier's bare defaults (printWidth 80), and the other 17
+ *  set printWidth 100 — which happens to match the templates and would hide this
+ *  entirely. The site is left prettier-clean under its OWN config before the
+ *  install, so a later `prettier --check .` failure can only be what the recipe
+ *  wrote. */
+function foreignPrettierSite(): Promise<string> {
+  return copyFixtureToTmp(pristine, async (dir) => {
+    await writeFile(
+      join(dir, ".prettierrc.json"),
+      JSON.stringify(
+        {
+          plugins: [fileURLToPath(import.meta.resolve("prettier-plugin-svelte"))],
+          overrides: [{ files: "*.svelte", options: { parser: "svelte" } }],
+          useTabs: true,
+          singleQuote: true,
+          trailingComma: "none",
+          printWidth: 100,
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+    await run(prettierBin, ["--write", "."], { cwd: dir });
+  });
+}
+
+const owned = (o: "recipe" | "site") => MATCH_HARNESS_FILES.filter((f) => f.owner === o);
+
 /** A skill directory whose page-diff answers `--version` and nothing else.
  *  gate.sh's first preflight compares `page-diff --version` field 4 against the
  *  harness's REPORT_SCHEMA before anything else runs, so without this every
@@ -288,7 +343,7 @@ describe("recipes/match-harness", () => {
 
   // --- what is handed to the site's prettier
 
-  it("formats only what the site owns — never the recipe-owned harness code", async () => {
+  it("hands the site's prettier only files the SITE owns — never one the recipe owns", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     const calls: { cmd: string; args: readonly string[] }[] = [];
     const recordingSpawn: SpawnFn = async (cmd, args) => {
@@ -301,16 +356,130 @@ describe("recipes/match-harness", () => {
     const paths = calls[0]!.args.filter(
       (a) => !a.startsWith("-") && a !== "exec" && a !== "prettier",
     );
-    expect(paths.some((p) => p.startsWith("matching/"))).toBe(false);
-    expect([...paths].sort()).toEqual(
+
+    // GRANTS: every site-owned record the install wrote is handed over, so this
+    // cannot pass by handing prettier nothing at all.
+    expect([...paths].sort()).toEqual([...owned("site").map((f) => f.rel), "CLAUDE.md"].sort());
+    // DENIES: and not one recipe-owned file. Named individually so the failure
+    // message says which — the whole class, not the two that happen to reflow.
+    for (const f of owned("recipe"))
+      expect(paths, `${f.rel} is recipe-owned and must never be formatted`).not.toContain(f.rel);
+    // Neither ignore file: prettier has no parser for them.
+    expect(paths).not.toContain(".gitignore");
+    expect(paths).not.toContain(".prettierignore");
+  });
+
+  it("owns the route, its page and the fixture test; the site owns the records", () => {
+    // The two guards above and below are computed from `owner`, so a mislabelled
+    // file would move silently between them. This is the literal census.
+    expect(
+      owned("recipe")
+        .map((f) => f.rel)
+        .sort(),
+    ).toEqual(
       [
-        "CLAUDE.md",
-        "src/lib/site-pages.js",
+        "matching/build-spec.mjs",
+        "matching/census-count.mjs",
+        "matching/census.sh",
+        "matching/gate.sh",
+        "matching/harness.mjs",
+        "matching/next.mjs",
+        "matching/strikes.mjs",
         "src/lib/site-pages.test.ts",
         "src/routes/dev/match/[uid]/+page.server.ts",
         "src/routes/dev/match/[uid]/+page.svelte",
       ].sort(),
     );
+    expect(
+      owned("site")
+        .map((f) => f.rel)
+        .sort(),
+    ).toEqual(
+      [
+        "matching/LEDGER.md",
+        "matching/census-deviations.mjs",
+        "matching/floors.mjs",
+        "matching/harness.json",
+        "matching/spec-sections/_chrome.md",
+        "matching/spec-sections/_header.md",
+        "src/lib/site-pages.js",
+      ].sort(),
+    );
+  });
+
+  it("a site whose prettier config differs cannot break the NEXT upgrade", async () => {
+    const cwd = await foreignPrettierSite();
+
+    const first = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: realPrettierSpawn },
+    );
+    expect(first.status).toBe("applied");
+
+    // POSITIVE CONTROL: the formatter really ran, and really does disagree with
+    // the template style. site-pages.js is site-owned, sits in the same
+    // directory as a recipe-owned file, and comes back rewritten. Without this
+    // the case passes just as well when prettier never ran at all.
+    const sitePages = owned("site").find((f) => f.rel === "src/lib/site-pages.js")!;
+    expect(await read(cwd, sitePages.rel)).not.toBe(sitePages.template);
+
+    // And every recipe-owned file is still byte-identical to its template.
+    for (const f of owned("recipe"))
+      expect(await read(cwd, f.rel), `${f.rel} was reformatted on install`).toBe(f.template);
+
+    // So the second run has nothing to flag and nothing to do. Before the fix
+    // this reported three files "hand-edited" and could never upgrade them.
+    const second = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: realPrettierSpawn },
+    );
+    expect(second.status).toBe("noop");
+    expect(second.notes ?? "").not.toContain("differs from the shipped template");
+  });
+
+  it("puts every recipe-owned file in the site's .prettierignore, brackets escaped", async () => {
+    const cwd = await foreignPrettierSite();
+    await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn: realPrettierSpawn });
+    const prettier = await import("prettier");
+    const ignorePath = [join(cwd, ".gitignore"), join(cwd, ".prettierignore")];
+
+    for (const f of owned("recipe")) {
+      const info = await prettier.getFileInfo(join(cwd, f.rel), { ignorePath });
+      expect(info.ignored, `${f.rel} is not ignored by the site's own prettier`).toBe(true);
+    }
+    // CONTROL: the ignore stays narrow — a site record is still checked. eslint
+    // does not lint Markdown, so prettier is the only style check it has.
+    expect(
+      (await prettier.getFileInfo(join(cwd, "matching/LEDGER.md"), { ignorePath })).ignored,
+    ).toBe(false);
+
+    // The ignore is doing real work, not covering files that already match:
+    // read through the config this site resolves, BYPASSING the ignore, and the
+    // template fails. Otherwise "clean" and "ignored" look the same.
+    for (const rel of [
+      "src/routes/dev/match/[uid]/+page.server.ts",
+      "src/routes/dev/match/[uid]/+page.svelte",
+      "src/lib/site-pages.test.ts",
+    ]) {
+      const cfg = await prettier.resolveConfig(join(cwd, rel));
+      const tmpl = MATCH_HARNESS_FILES.find((f) => f.rel === rel)!.template;
+      expect(
+        await prettier.check(tmpl, { ...cfg, filepath: join(cwd, rel) }),
+        `${rel} already matches this site's style — the case would prove nothing`,
+      ).toBe(false);
+    }
+
+    // The point of all of it: the site's first `prettier --check .` is green.
+    const check = await run(prettierBin, ["--check", "."], { cwd }).then(
+      () => ({ code: 0 as number | string, out: "" }),
+      (e: { code?: number | string; stdout?: string; stderr?: string }) => ({
+        code: e.code ?? "no-exit-code",
+        out: `${e.stdout ?? ""}${e.stderr ?? ""}`,
+      }),
+    );
+    expect(check.code, check.out).toBe(0);
   });
 
   it("flags — but still commits — when the site's prettier cannot run", async () => {
@@ -575,10 +744,11 @@ describe("recipes/match-harness", () => {
   it("ships Markdown stubs that are already prettier-clean", async () => {
     const cwd = await install();
     const prettier = await import("prettier");
-    // The recipe hands prettier only what the SITE owns (src/ and CLAUDE.md) —
-    // matching/ is never formatted on install. These three stay inside a site's
-    // own `prettier --check .`, so an unformatted stub turns the first
-    // `pnpm verify` after install red.
+    // These three ARE handed to the site's prettier on install (they are site
+    // records). They are still authored clean because a site with no usable
+    // prettier gets the flagged degraded path and writes them unformatted, and
+    // because they stay inside that site's own `prettier --check .` forever
+    // after — an unformatted stub turns the first `pnpm verify` red either way.
     for (const rel of [
       "matching/spec-sections/_chrome.md",
       "matching/spec-sections/_header.md",

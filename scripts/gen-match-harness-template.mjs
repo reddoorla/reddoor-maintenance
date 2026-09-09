@@ -319,12 +319,25 @@ matching/*.json
 matching/*.png
 `;
 
-const PRETTIERIGNORE_BLOCK = `# Matching harness — recipe-owned CODE only. These files are installed
-# byte-for-byte by the \`match-harness\` recipe and must stay that way across
-# sites whose printWidth differs; formatting them per site would make every
-# future upgrade read as a hand edit. harness.json is exempt for the same
-# reason: the recipe re-serialises it as pretty-printed two-space JSON on every
-# install, so a site's prettier would fight the recipe over it.
+const PRETTIERIGNORE_BLOCK = `# Matching harness — every file the \`match-harness\` recipe OWNS. It installs
+# them byte-for-byte and byte-compares them on the next install, so a site whose
+# prettier config differs must not reformat them: a reformatted file is
+# indistinguishable from a hand edit, and the recipe refuses to overwrite a hand
+# edit. Measured on a \`useTabs\`/\`singleQuote\` site, all three src/ entries
+# below are rewritten by \`prettier --write .\`, and the next upgrade is refused
+# for all three.
+#
+# The bracketed route segment MUST stay backslash-escaped. This file is
+# gitignore glob syntax, in which \`[uid]\` is a CHARACTER CLASS matching one of
+# \`u\`, \`i\`, \`d\` — an unescaped entry silently ignores nothing at all.
+#
+# \`matching/*.mjs\` also catches two SITE-owned records (floors.mjs,
+# census-deviations.mjs). Accepted, not overlooked: eslint lints .mjs, so those
+# two keep a style check either way, and naming seven scripts instead of one
+# glob goes stale on the next script the harness gains.
+#
+# harness.json is here because it is a TABLE, not prose: it carries a
+# hand-chosen row layout that prettier reflows.
 #
 # Everything else under matching/ (SPEC.md, LEDGER.md, spec-sections/,
 # states/*.mjs) stays inside \`prettier --check .\`. That is deliberately narrow:
@@ -333,6 +346,9 @@ const PRETTIERIGNORE_BLOCK = `# Matching harness — recipe-owned CODE only. The
 matching/*.mjs
 matching/*.sh
 matching/harness.json
+src/routes/dev/match/\\[uid\\]/+page.server.ts
+src/routes/dev/match/\\[uid\\]/+page.svelte
+src/lib/site-pages.test.ts
 `;
 
 // mergeBlock emits `marker + "\n" + block`, so this opens with a blank line and

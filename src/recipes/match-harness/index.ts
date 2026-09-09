@@ -186,14 +186,22 @@ export async function matchHarness(
         }
       }
 
-      // Format only what the SITE owns. The harness CODE ships template-verbatim
-      // and is in .prettierignore: a site whose printWidth differs would
-      // otherwise reformat every recipe-owned script on install, and the
-      // byte-compare that makes the next upgrade possible would flag all of them
-      // as hand-edited. The Markdown stubs are NOT formatted here either, so
-      // they must be authored prettier-clean — they stay in `prettier --check .`
-      // (Task 15 case 13 is that check).
-      const toFormat = written.filter((p) => p.startsWith("src/") || p === "CLAUDE.md");
+      // Format only what the SITE owns, decided by OWNERSHIP and never by path.
+      // A recipe-owned file that a site's prettier reformats is indistinguishable
+      // from a hand edit on the next install, so planFileWrite flags it and the
+      // recipe can never upgrade it again. A path prefix cannot express that:
+      // three recipe-owned files live under src/. This is an ALLOW-list on
+      // purpose — a file added to MATCH_HARNESS_FILES is not formatted until its
+      // owner says "site", because the unsafe default is silent and permanent.
+      // The same files are in the .prettierignore block written above, which
+      // stops the site's OWN `prettier --write .` from doing the identical
+      // damage; that block and this filter must agree, and a test asserts it.
+      // CLAUDE.md is not in the file table — it is an append into a file the
+      // site owns — so it is named here.
+      const siteOwned = new Set(
+        MATCH_HARNESS_FILES.filter((f) => f.owner === "site").map((f) => f.rel),
+      );
+      const toFormat = written.filter((p) => siteOwned.has(p) || p === "CLAUDE.md");
       if (toFormat.length > 0 && !(await formatWithPrettier(deps.spawn, cwd, toFormat))) {
         notes.push(PRETTIER_FLAG_NOTE);
       }

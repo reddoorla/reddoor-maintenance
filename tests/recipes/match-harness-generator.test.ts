@@ -34,9 +34,15 @@ async function authoredBlock(name: string): Promise<string> {
   const m = new RegExp(`const ${name} = \`([\\s\\S]*?)\\n\`;`, "m").exec(src);
   const body = m?.[1];
   if (body === undefined) throw new Error(`could not find const ${name} in the generator`);
-  // The generator's own escaping, undone: it writes these into a template
-  // literal, so backticks and ${ are escaped in its source.
-  return body.replace(/\\`/g, "`").replace(/\\\$\{/g, "${") + "\n";
+  // The generator's own escaping, undone by the JS engine rather than by hand:
+  // these bodies ARE template literals in the generator's source, so evaluating
+  // one as a template literal is correct for every escape it can carry —
+  // backtick, ${, and the backslash-escaped `\[uid\]` glob in
+  // PRETTIERIGNORE_BLOCK, which a hand-rolled backtick/${ pass silently gets
+  // wrong. Same technique the generator's own round-trip check uses
+  // (scripts/gen-match-harness-template.mjs `embed`). Repo source only — never
+  // anything read from a site.
+  return new Function(`return \`${body}\n\`;`)() as string;
 }
 
 describe("match-harness generator agrees with the committed template", () => {
