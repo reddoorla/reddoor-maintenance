@@ -1542,6 +1542,19 @@ export async function load({ params }) {
 
   const docs = documents(devImg) as Array<{ uid: string; data: { slices?: unknown[] } }>;
   const doc = docs.find((d) => d.uid === params.uid);
+  // LOAD-BEARING PHRASE, and not only here. `launch`'s dev-guard denies on
+  // /no (matching )?assembly for/i (`src/recipes/launch.ts` UNGUARDED_TWIN_MARKER)
+  // against the DEPLOYED twin's body, because an unguarded twin asked for a uid
+  // it does not have returns a 404 rendered through the site's own +error.svelte
+  // — which is byte-for-byte the gate's PASS condition. This message is the only
+  // thing separating "the guard fired" from "this site has no such uid", so
+  // rewording it ("no document for", "unknown uid", dropping the phrase, or
+  // moving the 404 to an +error boundary that discards error.message) makes the
+  // gate FAIL OPEN and launch a site whose fixtures are public. The regex accepts
+  // two wordings today only because Beachfront's existing twin says "no matching
+  // assembly for" and this template says "no assembly for"; a THIRD wording is
+  // the failure case, not a fourth. Change this string and UNGUARDED_TWIN_MARKER
+  // in the same PR, or replace both with a machine-readable tell (issue #719).
   if (!doc)
     error(404, {
       message: `no assembly for "${params.uid}" (have: ${docs.map((d) => d.uid).join(", ") || "none"})`,
