@@ -69,8 +69,88 @@ export type LaunchDeps = {
  *  is gone" must not look the same to this gate. */
 const SITE_404_MARKER = /<h1[^>]*>\s*404\s*<\/h1>/i;
 
+/** The UNGUARDED twin's OWN refusal. `src/routes/dev/match/[uid]/+page.server.ts`
+ *  does `error(404, { message: \`no matching assembly for "${uid}" (have: ...)\` })`
+ *  for any uid absent from its assembly map — and that message renders through
+ *  the very same `+error.svelte` the guard's 404 uses, so it carries an
+ *  `<h1>404</h1>` too. On a site whose uid set lacks "home", a LIVE twin and a
+ *  guarded one are byte-indistinguishable to SITE_404_MARKER, and the check
+ *  could never fail. Verified on disk: beachfront-dentistry's copy of that route
+ *  imports `$app/environment` zero times.
+ *
+ *  BOTH wordings are covered. The on-disk twin says "no matching assembly for";
+ *  the `ROUTE_PAGE` template the `match-harness` recipe will install says "no
+ *  assembly for". A marker that knew only the first would go blind the moment
+ *  that recipe ships.
+ *
+ *  This is a DENY clause and only ever a deny — it can refuse a green, never
+ *  grant one. Widening it can only ever refuse a launch that would otherwise
+ *  have proceeded, so widening is always the safe direction here. */
+const UNGUARDED_TWIN_MARKER = /no (matching )?assembly for/i;
+
 const MATCH_ROUTE_DIR = "src/routes/dev/match";
-const MATCH_GUARD_FILE = "src/routes/dev/match/[uid]/+page.server.ts";
+
+/** Every placement a guard may legitimately take, most-preferred first. The
+ *  LAYOUT is the better one — it covers every child of `/dev/match`, present and
+ *  future — yet checking only the page file reported it as "would ship", which
+ *  penalised the correct fix. */
+const MATCH_GUARD_FILES = [
+  "src/routes/dev/match/+layout.server.ts",
+  "src/routes/dev/match/[uid]/+page.server.ts",
+] as const;
+
+/** Strip line and block comments so a COMMENTED-OUT guard cannot satisfy the
+ *  match — an import left in place above `// if (!dev) error(404);` is the
+ *  likeliest real-world state, and it used to pass. String and template literals
+ *  are skipped so a `//` inside a URL is not read as a comment; the residual
+ *  edge cases (a regex literal) can only over-strip, which denies rather than
+ *  grants. */
+function stripComments(source: string): string {
+  let out = "";
+  for (let i = 0; i < source.length;) {
+    const ch = source[i]!;
+    const next = source[i + 1];
+    if (ch === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      out += ch;
+      i++;
+      while (i < source.length) {
+        if (source[i] === "\\") {
+          out += source.slice(i, i + 2);
+          i += 2;
+          continue;
+        }
+        out += source[i]!;
+        i++;
+        if (source[i - 1] === ch) break;
+      }
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/** A guard is `$app/environment` + `if (!dev)` + an actual REFUSAL. Without the
+ *  third, `if (!dev) console.warn(...)` counted and the twin shipped anyway. */
+function carriesGuard(source: string): boolean {
+  const code = stripComments(source);
+  return (
+    code.includes("$app/environment") &&
+    /if\s*\(\s*!\s*dev\s*\)/.test(code) &&
+    (/\berror\s*\(\s*404/.test(code) || /\bthrow\b/.test(code))
+  );
+}
 
 /**
  * Pre-flight: a checkout that still carries the matching twin must carry the
@@ -87,26 +167,51 @@ export async function matchingDisposition(
   if (!existsSync(join(sitePath, MATCH_ROUTE_DIR))) {
     return { ok: true, message: `no ${MATCH_ROUTE_DIR} in this checkout` };
   }
-  let source: string;
-  try {
-    source = await readFile(join(sitePath, MATCH_GUARD_FILE), "utf-8");
-  } catch {
+  const read: string[] = [];
+  for (const rel of MATCH_GUARD_FILES) {
+    let source: string;
+    try {
+      source = await readFile(join(sitePath, rel), "utf-8");
+    } catch {
+      continue;
+    }
+    read.push(rel);
+    if (carriesGuard(source)) {
+      // Deliberately NOT "the twin is guarded in production". This function reads
+      // source text on disk; it cannot observe the deployed build, and a field
+      // that can only see configuration must not be named after the thing it
+      // cannot see. The deployed behaviour is the `dev-guard` step's job.
+      return {
+        ok: true,
+        message: `${rel} contains dev guard source — \`if (!dev)\` on \`$app/environment\` with a 404/throw (source text only; the deployed build is checked at the dev-guard step)`,
+      };
+    }
+  }
+  if (read.length === 0) {
     return {
       ok: false,
-      message: `${MATCH_ROUTE_DIR} exists but ${MATCH_GUARD_FILE} could not be read — the twin's disposition cannot be established`,
+      message: `${MATCH_ROUTE_DIR} exists but none of ${MATCH_GUARD_FILES.join(", ")} could be read — the twin's disposition cannot be established`,
     };
   }
-  if (!(source.includes("$app/environment") && /if\s*\(\s*!\s*dev\s*\)/.test(source))) {
-    return {
-      ok: false,
-      message: `${MATCH_GUARD_FILE} has no \`if (!dev)\` guard on \`$app/environment\` — the matching twin would ship`,
-    };
-  }
-  return { ok: true, message: `${MATCH_GUARD_FILE} carries the dev guard` };
+  return {
+    ok: false,
+    message: `none of ${read.join(", ")} carries an \`if (!dev)\` guard on \`$app/environment\` that actually refuses (\`error(404\` or \`throw\`), once comments are stripped — the matching twin would ship`,
+  };
 }
 
+/** Undici's defaults are 300s headers + 300s body, and the body timeout is an
+ *  INACTIVITY timer — so a trickling origin can hold this open for ~10 minutes,
+ *  AFTER the GitHub writes and a full Lighthouse audit have already run. Matches
+ *  the house idiom (audits/function-health.ts, audits/netlify-deploy.ts). An
+ *  abort rejects, and dev-guard treats a rejection as a refusal, which is the
+ *  correct reading: an origin that will not answer has proved nothing. */
+const PROBE_TIMEOUT_MS = 15_000;
+
 const defaultProbe = async (url: string): Promise<{ status: number; body: string }> => {
-  const res = await fetch(url, { redirect: "follow" });
+  const res = await fetch(url, {
+    redirect: "follow",
+    signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+  });
   return { status: res.status, body: await res.text() };
 };
 
@@ -205,18 +310,28 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
   }
 
   // 2b. The dev guard, on the DEPLOYED build. Two halves, both required:
-  //     /dev/match/home must 404 WITH this site's own error page, and
-  //     /dev/a11y-fixtures must answer 200. Without the second, a dead host, a
-  //     wrong url and a parked domain all "pass" the first — an absent error
-  //     granting a green, which is the one shape this fleet does not allow.
-  //     Reading the deployed url makes this a production-build check by
-  //     construction; no local build can substitute.
+  //     /dev/match/home must 404 WITH this site's own error page, and /health
+  //     must answer 200. Without the second, a dead host, a wrong url and a
+  //     parked domain all "pass" the first — an absent error granting a green,
+  //     which is the one shape this fleet does not allow. Reading the deployed
+  //     url makes this a production-build check by construction; no local build
+  //     can substitute.
+  //
+  //     The control is /health, NOT a /dev/* route. It used to be
+  //     /dev/a11y-fixtures, which made this gate require an unguarded dev page
+  //     to be publicly reachable in production — so the obvious class-fix for
+  //     "dev routes ship in production" (one src/routes/dev/+layout.server.ts
+  //     doing `if (!dev) error(404)`) would have taken the control down with it
+  //     and failed every correctly-guarded site. /health is a real production
+  //     endpoint shipped by the starter and present in all 23 starter-derived
+  //     repos, each declaring `prerender = false` — so a 200 from it is still a
+  //     live render/function path, not a static file served by the CDN.
   const origin = target.url.replace(/\/+$/, "");
   let twin: { status: number; body: string };
   let control: { status: number; body: string };
   try {
     twin = await probe(`${origin}/dev/match/home`);
-    control = await probe(`${origin}/dev/a11y-fixtures`);
+    control = await probe(`${origin}/health`);
   } catch (err) {
     steps.push({ name: "dev-guard", result: errorOf(err) });
     return stop();
@@ -226,7 +341,18 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
       name: "dev-guard",
       result: {
         kind: "error",
-        message: `${origin}/dev/a11y-fixtures answered ${control.status}, not 200 — the twin's 404 proves nothing (host down, wrong url, or the axe fixture route was deleted, in which case the a11y audit is measuring nothing either)`,
+        message: `${origin}/health answered ${control.status}, not 200 — the twin's 404 proves nothing (host down, wrong url, or the site's /health function is not deploying, in which case the function-health audit is failing too)`,
+      },
+    });
+    return stop();
+  }
+  const unguardedTell = twin.body.match(UNGUARDED_TWIN_MARKER);
+  if (unguardedTell) {
+    steps.push({
+      name: "dev-guard",
+      result: {
+        kind: "error",
+        message: `${origin}/dev/match/home answered ${twin.status} carrying the twin route's OWN "${unguardedTell[0]}" message — the twin is LIVE and merely has no assembly for the uid "home". That is not evidence of a dev guard.`,
       },
     });
     return stop();
@@ -248,7 +374,7 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
     name: "dev-guard",
     result: {
       kind: "probe",
-      message: `${origin}/dev/match/home 404 (site error page), /dev/a11y-fixtures 200`,
+      message: `${origin}/dev/match/home 404 (site error page), /health 200`,
     },
   });
 

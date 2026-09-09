@@ -69,7 +69,7 @@ function deps(base: ReturnType<typeof makeFakeBase>) {
     probe: async (url: string) => {
       if (url.endsWith("/dev/match/home"))
         return { status: 404, body: "<div><h1>404</h1><p>Not found</p></div>" };
-      return { status: 200, body: "<h1>Fixtures</h1>" };
+      return { status: 200, body: '{"ok":true,"prismic":"ok"}' };
     },
   };
 }
@@ -339,13 +339,159 @@ describe("recipes/launch", () => {
     const result = await launch(siteOf(), {
       ...deps(base),
       probe: async (url: string) =>
-        url.endsWith("/dev/match/home")
-          ? { status: 404, body: "<h1>404</h1>" }
-          : { status: 503, body: "" },
+        url.endsWith("/health") ? { status: 503, body: "" } : { status: 404, body: "<h1>404</h1>" },
     });
     expect(result.complete).toBe(false);
     const guard = result.steps.find((s) => s.name === "dev-guard");
     expect((guard?.result as { message: string }).message).toMatch(/proves nothing/);
+    expect((guard?.result as { message: string }).message).toMatch(
+      /https:\/\/acme\.example\.com\/health answered 503/,
+    );
+  });
+
+  it("uses /health as the liveness control, never a /dev route", async () => {
+    // The control has to be a route production is ALLOWED to serve. Probing
+    // /dev/a11y-fixtures made the gate require an unguarded dev page to be
+    // publicly reachable — so the class-fix for "dev routes ship in production"
+    // (one src/routes/dev/+layout.server.ts doing `if (!dev) error(404)`) would
+    // take the control down with it and fail every correctly-guarded site.
+    // Verified across the fleet: 23 of 23 starter-derived repos ship
+    // src/routes/health/+server.ts, every one declaring `prerender = false`, so
+    // a 200 from it still proves the render/function path is alive.
+    const base = makeFakeBase(websitesSeed());
+    const probed: string[] = [];
+    const result = await launch(siteOf(), {
+      ...deps(base),
+      probe: async (url: string) => {
+        probed.push(url);
+        if (url.endsWith("/dev/match/home"))
+          return { status: 404, body: "<div><h1>404</h1><p>Not found</p></div>" };
+        return { status: 200, body: '{"ok":true,"prismic":"ok"}' };
+      },
+    });
+
+    expect(result.complete).toBe(true);
+    expect(probed).toContain("https://acme.example.com/health");
+    expect(probed.some((u) => u.includes("/dev/a11y-fixtures"))).toBe(false);
+    const guard = result.steps.find((s) => s.name === "dev-guard");
+    expect((guard?.result as { message: string }).message).toContain("/health 200");
+  });
+
+  it('stops at dev-guard when the twin\'s 404 is its OWN "no matching assembly" refusal', async () => {
+    // The UNGUARDED twin (verified on disk: beachfront-dentistry's
+    // src/routes/dev/match/[uid]/+page.server.ts imports $app/environment zero
+    // times) answers `error(404, { message: 'no matching assembly for "..."' })`
+    // for any uid absent from its assembly map — rendered through the very same
+    // +error.svelte the guard's 404 uses, so it carries <h1>404</h1> too. On a
+    // site whose uid set lacks "home" the grant condition could never fail,
+    // guarded or not. The route's own message is the tell, and it is a DENY.
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch(siteOf(), {
+      ...deps(base),
+      probe: async (url: string) =>
+        url.endsWith("/dev/match/home")
+          ? {
+              status: 404,
+              body: '<h1>404</h1><p>no matching assembly for "home" (have: about, services)</p>',
+            }
+          : { status: 200, body: '{"ok":true}' },
+    });
+    expect(result.complete).toBe(false);
+    const guard = result.steps.find((s) => s.name === "dev-guard");
+    expect(guard?.result).toMatchObject({ kind: "error" });
+    expect((guard?.result as { message: string }).message).toMatch(/no matching assembly/i);
+    expect((guard?.result as { message: string }).message).toMatch(/not evidence of a dev guard/i);
+    // And nothing downstream ran: no draft, no Airtable write.
+    expect(result.steps.map((s) => s.name)).toEqual([
+      "matching-disposition",
+      "self-updating",
+      "dev-guard",
+    ]);
+  });
+
+  it('also denies the harness template\'s wording ("no assembly for")', async () => {
+    // Two wordings exist. beachfront-dentistry's on-disk twin says "no matching
+    // assembly for"; the ROUTE_PAGE template this same plan will install via
+    // `match-harness` says "no assembly for". A deny clause that only knew the
+    // first would go blind the moment the harness recipe ships.
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch(siteOf(), {
+      ...deps(base),
+      probe: async (url: string) =>
+        url.endsWith("/dev/match/home")
+          ? {
+              status: 404,
+              body: '<h1>404</h1><p>no assembly for "home" (have: about, contact)</p>',
+            }
+          : { status: 200, body: '{"ok":true}' },
+    });
+    expect(result.complete).toBe(false);
+    const guard = result.steps.find((s) => s.name === "dev-guard");
+    expect((guard?.result as { message: string }).message).toMatch(/not evidence of a dev guard/i);
+  });
+
+  it("refuses when the probe REJECTS — a network blip is never a pass", async () => {
+    // Every other test injects a resolving probe, so "a rejection reads as a
+    // refusal" was a claim from reading the code, not a pinned behaviour. It is
+    // also the shape the 15s AbortSignal produces on a stalled origin.
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch(siteOf(), {
+      ...deps(base),
+      probe: async () => {
+        throw new TypeError("fetch failed");
+      },
+    });
+    expect(result.complete).toBe(false);
+    const guard = result.steps.find((s) => s.name === "dev-guard");
+    expect(guard?.result).toMatchObject({ kind: "error", message: "fetch failed" });
+    // The chain stopped there: nothing was drafted, nothing written to Airtable.
+    expect(result.steps.map((s) => s.name)).toEqual([
+      "matching-disposition",
+      "self-updating",
+      "dev-guard",
+    ]);
+    expect(base.__calls.filter((c) => c.kind === "create" && c.table === "Reports")).toHaveLength(
+      0,
+    );
+  });
+
+  it("time-boxes the default probe so a trickling origin cannot stall the chain", async () => {
+    // The real defaultProbe, not an injected one. Undici's defaults are 300s
+    // headers + 300s body, and the body timeout is an INACTIVITY timer — so a
+    // trickling origin could hold the launch chain for ~10 minutes AFTER the
+    // GitHub writes and a full Lighthouse audit had already run. Every other
+    // outbound fetch in this repo is timeboxed (audits/function-health.ts,
+    // audits/netlify-deploy.ts, ~15 call sites in prospect/).
+    const seen: Array<{ url: string; init: RequestInit | undefined }> = [];
+    global.fetch = vi.fn(async (input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      seen.push({ url, init });
+      if (url.endsWith("/dev/match/home"))
+        return {
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+          text: async () => "<div><h1>404</h1><p>Not found</p></div>",
+        };
+      return { ok: true, status: 200, statusText: "OK", text: async () => '{"ok":true}' };
+    }) as unknown as typeof global.fetch;
+
+    const base = makeFakeBase(websitesSeed());
+    const d = deps(base);
+    // NOTE: deps.probe deliberately omitted — this exercises defaultProbe.
+    const result = await launch(siteOf(), {
+      base: d.base,
+      bootstrap: d.bootstrap,
+      audit: d.audit,
+    });
+    expect(result.complete).toBe(true);
+
+    for (const path of ["/dev/match/home", "/health"]) {
+      const call = seen.find((c) => c.url.endsWith(path));
+      expect(call, `expected defaultProbe to fetch ${path}`).toBeDefined();
+      expect(call!.init?.signal).toBeInstanceOf(AbortSignal);
+      expect(call!.init?.redirect).toBe("follow");
+    }
   });
 
   it("stops before bootstrap when the checkout serves an unguarded /dev/match twin", async () => {
@@ -370,6 +516,94 @@ describe("recipes/launch", () => {
     expect(result.complete).toBe(false);
     expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition"]);
     expect(bootstrapped).toBe(false);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a COMMENTED-OUT dev guard (the likeliest real-world state)", async () => {
+    // Import left in place, guard commented out. Pre-hardening this PASSED:
+    // `includes("$app/environment")` matched the live import and the `if (!dev)`
+    // regex happily matched inside the comment.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-commented-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        'import { error } from "@sveltejs/kit";',
+        "export const prerender = false;",
+        "export async function load({ params }) {",
+        "  // temporarily disabled for the matching gates:",
+        '  // if (!dev) error(404, { message: "Not found" });',
+        "  return { uid: params.uid };",
+        "}",
+      ].join("\n"),
+    );
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(base));
+    expect(result.complete).toBe(false);
+    expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition"]);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a guard that does not actually refuse", async () => {
+    // `if (!dev) console.warn(...)` satisfied the old regex pair and shipped the
+    // twin anyway. A refusal (`error(404` or a `throw`) must co-occur.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-nowarn-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        "export const prerender = false;",
+        "export async function load({ params }) {",
+        '  if (!dev) console.warn("matching twin reached in production");',
+        "  return { uid: params.uid };",
+        "}",
+      ].join("\n"),
+    );
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(base));
+    expect(result.complete).toBe(false);
+    expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition"]);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("accepts a LAYOUT-level guard covering every child of /dev/match", async () => {
+    // A guard on src/routes/dev/match/+layout.server.ts covers the whole subtree
+    // and is the BETTER placement — yet the page-file-only check reported it as
+    // "would ship", penalising the correct fix.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-layout-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/+layout.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        'import { error } from "@sveltejs/kit";',
+        "export const prerender = false;",
+        "export function load() {",
+        '  if (!dev) error(404, { message: "Not found" });',
+        "}",
+      ].join("\n"),
+    );
+    // The page itself is the UNGUARDED beachfront-shaped twin.
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { error } from "@sveltejs/kit";',
+        "export const prerender = false;",
+        "export async function load({ params }) {",
+        '  if (!assemblies[params.uid]) error(404, { message: "no matching assembly" });',
+        "  return { uid: params.uid };",
+        "}",
+      ].join("\n"),
+    );
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(base));
+    expect(result.complete).toBe(true);
+    expect(result.steps[0]!.result).toMatchObject({
+      kind: "probe",
+      message: expect.stringContaining("+layout.server.ts"),
+    });
     await rm(dir, { recursive: true, force: true });
   });
 
