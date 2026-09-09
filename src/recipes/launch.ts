@@ -90,11 +90,30 @@ const UNGUARDED_TWIN_MARKER = /no (matching )?assembly for/i;
 
 const MATCH_ROUTE_DIR = "src/routes/dev/match";
 
-/** Every placement a guard may legitimately take, most-preferred first. The
- *  LAYOUT is the better one — it covers every child of `/dev/match`, present and
- *  future — yet checking only the page file reported it as "would ship", which
- *  penalised the correct fix. */
+/** Positive evidence that `sitePath` is a SvelteKit checkout at all. Without it,
+ *  the absence of MATCH_ROUTE_DIR is evidence of nothing: a path never cloned, a
+ *  stale clone, a mistyped site name and the wrong working directory all produce
+ *  exactly the same `false`, and `resolveSites` builds the path with
+ *  `localPath(resolve(cwd, site))` and no existence check of its own. This is
+ *  the filesystem twin of the `/health` control on the deployed gate — an absent
+ *  error must never be allowed to grant a green. */
+const CHECKOUT_MARKER = "src/routes";
+
+/** Every placement a guard may legitimately take, most-preferred first.
+ *
+ *  `src/routes/dev/+layout.server.ts` is the STRONGEST, and it is the fleet-wide
+ *  class-fix for "dev routes ship in production" (#717): one `load` doing
+ *  `if (!dev) error(404)` runs for every `/dev/*` route, `/dev/match/[uid]`
+ *  included. Reading only inside `/dev/match` reported such a site as "the
+ *  matching twin would ship" — untrue, and it penalised the better fix. It also
+ *  contradicted the deployed half of this same feature, which was deliberately
+ *  redesigned to survive that class-fix: see the `/health` comment at the
+ *  dev-guard step for why the 200 control was moved off `/dev/a11y-fixtures`.
+ *
+ *  Below it, the `/dev/match` layout covers every child of the twin, present and
+ *  future; the page file is the narrowest placement and so the last one tried. */
 const MATCH_GUARD_FILES = [
+  "src/routes/dev/+layout.server.ts",
   "src/routes/dev/match/+layout.server.ts",
   "src/routes/dev/match/[uid]/+page.server.ts",
 ] as const;
@@ -141,15 +160,102 @@ function stripComments(source: string): string {
   return out;
 }
 
-/** A guard is `$app/environment` + `if (!dev)` + an actual REFUSAL. Without the
- *  third, `if (!dev) console.warn(...)` counted and the twin shipped anyway. */
+/** Blank the CONTENTS of string and template literals, keeping the quote
+ *  characters, the newlines and the overall length. Only the guard scan uses
+ *  this — never the `$app/environment` check, whose whole subject is an import
+ *  specifier and therefore is itself a string literal.
+ *
+ *  It exists because `if (!dev) console.warn("this should throw error(404)")`
+ *  read as a refusal. Masking can only ever REMOVE candidate refusal tokens, so
+ *  it can only ever deny. Its own edge case is the same one `stripComments` has
+ *  — a regex literal containing a quote character opens a literal that never
+ *  closes — and there too the failure is over-masking, which denies. */
+function maskLiterals(code: string): string {
+  let out = "";
+  for (let i = 0; i < code.length;) {
+    const ch = code[i]!;
+    if (ch !== '"' && ch !== "'" && ch !== "`") {
+      out += ch;
+      i++;
+      continue;
+    }
+    out += ch;
+    i++;
+    while (i < code.length) {
+      const c = code[i]!;
+      if (c === "\\") {
+        out += "  ";
+        i += 2;
+        continue;
+      }
+      i++;
+      if (c === ch) {
+        out += c;
+        break;
+      }
+      out += c === "\n" ? "\n" : " ";
+    }
+  }
+  return out;
+}
+
+/** The statement or block the `if (...)` ending at `from` actually governs: a
+ *  braced block, or the single statement up to its terminating `;` — or, under
+ *  ASI, the end of its line. Bracket depth is tracked so
+ *  `error(404, {\n  message: "…"\n});` is ONE statement rather than three
+ *  fragments. Expects `code` to be comment-stripped and literal-masked, so every
+ *  bracket it sees is a real one. */
+function consequentAt(code: string, from: number): string {
+  let i = from;
+  while (i < code.length && /\s/.test(code[i]!)) i++;
+  const start = i;
+  if (code[i] === "{") {
+    let depth = 0;
+    for (; i < code.length; i++) {
+      if (code[i] === "{") depth++;
+      else if (code[i] === "}" && --depth === 0) return code.slice(start, i + 1);
+    }
+    return code.slice(start);
+  }
+  let depth = 0;
+  for (; i < code.length; i++) {
+    const ch = code[i]!;
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") {
+      if (depth === 0) return code.slice(start, i);
+      depth--;
+    } else if (depth === 0 && (ch === ";" || ch === "\n")) return code.slice(start, i);
+  }
+  return code.slice(start);
+}
+
+/** An actual refusal: SvelteKit's `error(404, …)`, or any `throw`. */
+const REFUSAL = /\berror\s*\(\s*404|\bthrow\b/;
+
+/** A guard is `$app/environment` + an `if (!dev)` **whose own branch refuses**.
+ *
+ *  The three conditions used to be ANDed across the WHOLE file, with nothing
+ *  tying the refusal to the `if`. Two shapes passed that should not have: a
+ *  warn-only `if (!dev)` alongside the route's own unrelated `throw` (the exact
+ *  half-fix this comment used to claim was closed), and a refusal occurring only
+ *  inside a string. Reading the guard's consequent, on literal-masked source, is
+ *  strictly narrower than the old whole-file grep — every input it rejects, the
+ *  old predicate also had to reject on `$app/environment` or `if (!dev)`, or was
+ *  a false pass. It can therefore only deny, never grant.
+ *
+ *  It is a contract with plan BC's `ROUTE_SERVER` template, which BC installs
+ *  and this pre-flight must accept; tests/recipes/launch.test.ts lifts that
+ *  template out of the plan and runs this predicate over it rather than
+ *  restating the pattern. */
 function carriesGuard(source: string): boolean {
   const code = stripComments(source);
-  return (
-    code.includes("$app/environment") &&
-    /if\s*\(\s*!\s*dev\s*\)/.test(code) &&
-    (/\berror\s*\(\s*404/.test(code) || /\bthrow\b/.test(code))
-  );
+  if (!code.includes("$app/environment")) return false;
+  const masked = maskLiterals(code);
+  const guards = /if\s*\(\s*!\s*dev\s*\)/g;
+  for (let m = guards.exec(masked); m; m = guards.exec(masked)) {
+    if (REFUSAL.test(consequentAt(masked, m.index + m[0].length))) return true;
+  }
+  return false;
 }
 
 /**
@@ -160,12 +266,26 @@ function carriesGuard(source: string): boolean {
  *
  * Filesystem only, and it runs BEFORE any GitHub write: a site that will fail
  * the deployed check should not first acquire branch protection and an audit.
+ *
+ * Liveness first. `src/routes` has to be there before a missing
+ * `src/routes/dev/match` may be read as "this site has no twin" — otherwise the
+ * pass is granted by an absence, and four separate operator errors produce that
+ * same absence. See CHECKOUT_MARKER.
  */
 export async function matchingDisposition(
   sitePath: string,
 ): Promise<{ ok: boolean; message: string }> {
+  if (!existsSync(join(sitePath, CHECKOUT_MARKER))) {
+    return {
+      ok: false,
+      message: `${sitePath} has no ${CHECKOUT_MARKER} — this is not a SvelteKit checkout (never cloned, a stale clone, a mistyped site name, or the wrong working directory), so the twin's disposition cannot be established`,
+    };
+  }
   if (!existsSync(join(sitePath, MATCH_ROUTE_DIR))) {
-    return { ok: true, message: `no ${MATCH_ROUTE_DIR} in this checkout` };
+    return {
+      ok: true,
+      message: `no ${MATCH_ROUTE_DIR} in this checkout (${CHECKOUT_MARKER} is present, so the absence is a real one)`,
+    };
   }
   const read: string[] = [];
   for (const rel of MATCH_GUARD_FILES) {
@@ -183,7 +303,7 @@ export async function matchingDisposition(
       // cannot see. The deployed behaviour is the `dev-guard` step's job.
       return {
         ok: true,
-        message: `${rel} contains dev guard source — \`if (!dev)\` on \`$app/environment\` with a 404/throw (source text only; the deployed build is checked at the dev-guard step)`,
+        message: `${rel} contains dev guard source — \`if (!dev)\` on \`$app/environment\` whose own branch refuses with a 404/throw (source text only; the deployed build is checked at the dev-guard step)`,
       };
     }
   }
@@ -195,7 +315,7 @@ export async function matchingDisposition(
   }
   return {
     ok: false,
-    message: `none of ${read.join(", ")} carries an \`if (!dev)\` guard on \`$app/environment\` that actually refuses (\`error(404\` or \`throw\`), once comments are stripped — the matching twin would ship`,
+    message: `none of ${read.join(", ")} carries an \`if (!dev)\` guard on \`$app/environment\` whose own branch refuses (\`error(404\` or \`throw\`), once comments are stripped and string contents masked — the matching twin would ship`,
   };
 }
 

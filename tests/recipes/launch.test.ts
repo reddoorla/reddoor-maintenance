@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterAll, beforeAll, beforeEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launch } from "../../src/recipes/launch.js";
+import { launch, matchingDisposition } from "../../src/recipes/launch.js";
 import type { AuditResult, RecipeResult, Site } from "../../src/types.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 
@@ -20,8 +21,46 @@ beforeEach(() => {
   process.env.AIRTABLE_BASE_ID = "app_test";
 });
 
+/** A real, empty SvelteKit checkout — `src/routes`, no `src/routes/dev/match`.
+ *  It has to exist on disk: `matchingDisposition` now requires positive evidence
+ *  that the path IS a checkout before it will read "no twin here" as a pass, so
+ *  the `/fake/acme` this used to return fails the pre-flight rather than sailing
+ *  through it, which is the point of that change. */
+let checkoutDir = "";
+
+beforeAll(async () => {
+  checkoutDir = await mkdtemp(join(tmpdir(), "launch-checkout-"));
+  await mkdir(join(checkoutDir, "src/routes"), { recursive: true });
+});
+
+afterAll(async () => {
+  await rm(checkoutDir, { recursive: true, force: true });
+});
+
 function siteOf(): Site {
-  return { path: "/fake/acme", name: "Acme Co" };
+  return { path: checkoutDir, name: "Acme Co" };
+}
+
+const BC_PLAN = new URL(
+  "../../docs/superpowers/plans/2026-09-08-webflow-pipeline-bc-harness.md",
+  import.meta.url,
+);
+
+/** Plan BC's `ROUTE_SERVER` template, lifted out of the plan rather than
+ *  restated here. `matchingDisposition` is a CONTRACT with that template — BC
+ *  installs it and the launch pre-flight has to accept it — and a copy of the
+ *  guard pasted into this file would let the two drift silently, which is the
+ *  failure the plan's own "import the predicate, do not restate the regex" note
+ *  is about. Extraction failing loudly is deliberate. */
+function bcRouteServerTemplate(): string {
+  const md = readFileSync(BC_PLAN, "utf-8");
+  const heading = "`ROUTE_SERVER` (`src/routes/dev/match/[uid]/+page.server.ts`):";
+  const at = md.indexOf(heading);
+  if (at === -1) throw new Error(`ROUTE_SERVER heading missing from ${BC_PLAN.pathname}`);
+  const open = md.indexOf("```ts\n", at);
+  const close = md.indexOf("\n```", open + 6);
+  if (open === -1 || close === -1) throw new Error("ROUTE_SERVER ts fence missing");
+  return md.slice(open + 6, close + 1);
 }
 
 /** A lighthouse AuditResult with real scores in the LHCI summary shape (floats in
@@ -621,6 +660,146 @@ describe("recipes/launch", () => {
       kind: "probe",
       message: expect.stringContaining("dev guard"),
     });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("accepts the guard one level UP, on src/routes/dev/+layout.server.ts (#717)", async () => {
+    // The fleet-wide class-fix for "dev routes ship in production" is ONE file:
+    // src/routes/dev/+layout.server.ts doing `if (!dev) error(404)`. Its load
+    // runs for /dev/match/[uid] as well, so such a site is guarded — and better
+    // guarded than one that patched only the twin. The dev-guard half of this
+    // feature was deliberately redesigned to survive that fix (the control moved
+    // off /dev/a11y-fixtures onto /health for exactly this reason); a filesystem
+    // half that reads only inside /dev/match contradicts it and reports the
+    // correct fix as "the matching twin would ship".
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-dev-layout-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/+layout.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        'import { error } from "@sveltejs/kit";',
+        "export function load() {",
+        '  if (!dev) error(404, { message: "Not found" });',
+        "}",
+      ].join("\n"),
+    );
+    // The twin itself is the UNGUARDED beachfront-shaped route.
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { error } from "@sveltejs/kit";',
+        "export const prerender = false;",
+        "export async function load({ params }) {",
+        '  if (!assemblies[params.uid]) error(404, { message: "no matching assembly" });',
+        "  return { uid: params.uid };",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({
+      ok: true,
+      message: expect.stringContaining("src/routes/dev/+layout.server.ts"),
+    });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("accepts a guard whose refusal sits in a BLOCK", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-block-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        'import { error } from "@sveltejs/kit";',
+        "export const prerender = false;",
+        "export async function load({ params }) {",
+        "  if (!dev) {",
+        '    error(404, { message: "Not found" });',
+        "  }",
+        "  return { uid: params.uid };",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: true });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a warn-only guard even when an unrelated throw follows it", async () => {
+    // The three conditions used to be ANDed across the WHOLE file, with nothing
+    // tying the refusal to the `if (!dev)`. Any `throw` anywhere in the file —
+    // here the route's own missing-document branch, three lines down and with no
+    // closing brace in between — granted the refusal the guard never makes. This
+    // is the exact half-fix the code comment claimed had already been closed.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-warn-then-throw-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        "export const prerender = false;",
+        "export async function load({ params }) {",
+        '  if (!dev) console.warn("matching twin reached in production");',
+        "  const doc = assemblies[params.uid];",
+        '  if (!doc) throw new Error("no matching assembly");',
+        "  return { uid: params.uid, doc };",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: false });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a refusal that exists only inside a string literal", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-string-refusal-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        "export const prerender = false;",
+        "export async function load({ params }) {",
+        '  if (!dev) console.warn("this should throw error(404, ...) and does not");',
+        "  return { uid: params.uid };",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: false });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("accepts plan BC's ROUTE_SERVER template — the predicate is a contract with it", async () => {
+    const source = bcRouteServerTemplate();
+    // Fail loudly if the extraction silently grabbed the wrong fence: an empty
+    // string would sail through the guard check as a plain `ok: false` and this
+    // test would then be measuring nothing.
+    expect(source).toContain("if (!dev) error(404");
+    expect(source).toContain("no assembly for");
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-bc-template-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(join(dir, "src/routes/dev/match/[uid]/+page.server.ts"), source);
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: true });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a path that is not a SvelteKit checkout at all", async () => {
+    // `resolveSites` does `localPath(resolve(cwd, site))` with no existence
+    // check, so a path never cloned, a stale clone, a typo'd site name and the
+    // wrong working directory all produce the same absent src/routes/dev/match —
+    // and that absence was being read as positive evidence of a pass. This is
+    // the shape the deployed gate closed by requiring /health to answer 200
+    // before its 404 could mean anything.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-not-a-checkout-"));
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining("disposition cannot be established"),
+    });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("passes a real checkout that simply carries no matching twin", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-no-twin-"));
+    await mkdir(join(dir, "src/routes"), { recursive: true });
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: true });
     await rm(dir, { recursive: true, force: true });
   });
 });
