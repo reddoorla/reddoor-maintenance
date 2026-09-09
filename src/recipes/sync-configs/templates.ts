@@ -81,9 +81,10 @@ export default createSvelteConfig({
 // PRs (the "armed clobber" the 2026-08-02 architecture review flagged; it was
 // this file's `ci` entry). Ownership is split instead: the STARTER clone
 // provides each site's ci.yml shape at bootstrap, and the pinned
-// reusable-workflow ref is swept BY HAND after each reddoorla/.github tag —
-// Renovate has never opened a PR for one (v1.4.1 was hand-swept across 21
-// repos on 2026-09-01). The caller job name `ci` + the
+// reusable-workflow ref is not reliably bumped for you — Renovate moved it
+// v1.2.0 -> v1.3.0 across 17 repos in Jul-Aug 2026, then proposed neither
+// v1.4.0 nor v1.4.1, and v1.4.1 was swept by hand across 21 repos on
+// 2026-09-01. The caller job name `ci` + the
 // reusable workflow's job `ci` produce the check context "ci / ci" —
 // REQUIRED_CHECK in src/recipes/self-updating/index.ts depends on that naming.
 

@@ -62,17 +62,20 @@ export const UNRESOLVED_PIN_SHA = "UNRESOLVED-publish-and-tag-reddoorla-dot-gith
  *
  * TO RE-RESOLVE after a future `reddoorla/.github` release: set `sha` to
  * `gh api repos/reddoorla/.github/commits/<tag> --jq .sha` and `tag` to that
- * tag — and then PROPAGATE, because NOTHING BUMPS AN INSTALLED PIN
- * AUTOMATICALLY. Renovate has never opened a github-actions PR for a
- * `reddoorla/.github` reusable-workflow ref on any site: v1.4.0 sat unadopted
- * for 18 days, v1.4.1 was tagged 2026-09-01 and ci.yml was swept BY HAND
- * (beachfront-dentistry#36), and on 2026-09-08 every installed
- * prismic-models.yml in the fleet still pinned v1.4.0. Propagation is three
- * steps: (1) re-resolve this constant, (2) release @reddoorla/maintenance,
- * (3) `reddoor-maint prismic-ci --fleet airtable` — gate 6 content-compares
- * the installed file and opens a corrective PR per stale repo — plus ONE
- * POSITIONAL RUN PER PRE-LAUNCH SITE, which the Airtable inventory excludes
- * (`src/inventory/airtable.ts` filters `building`/`launching`).
+ * tag — then VERIFY PROPAGATION rather than assuming it. Renovate does bump
+ * this ref: 17 site repos went v1.2.0 -> v1.3.0 between 2026-07-13 and
+ * 2026-08-10. It runs self-hosted here, so those PRs are authored by
+ * `tucksravin` on `renovate/*` branches — searching by author `app/renovate`
+ * returns nothing, and that nothing is not evidence. But it proposed neither
+ * of the last two tags for `ci.yml`: v1.4.0 (2026-08-14) was never offered,
+ * and v1.4.1 (2026-09-01) reached the fleet only because ci.yml was swept BY
+ * HAND across 21 repos that day (beachfront-dentistry#36). Treat propagation
+ * as three steps to run, not a guarantee: (1) re-resolve this constant,
+ * (2) release @reddoorla/maintenance, (3) `reddoor-maint prismic-ci --fleet
+ * airtable` — the already-delivered gate content-compares the installed file
+ * and opens a corrective PR per stale repo — plus ONE POSITIONAL RUN PER
+ * PRE-LAUNCH SITE, which the Airtable inventory excludes
+ * (`src/inventory/airtable.ts:50` filters `building`/`launching`).
  */
 export const REUSABLE_WORKFLOW_PIN: ReusableWorkflowPin = {
   sha: "558395431ddcb481ecba3dd84b78b38c338cfa03",
@@ -85,9 +88,9 @@ export const REUSABLE_WORKFLOW_PIN: ReusableWorkflowPin = {
  * A full 40-hex SHA and nothing else. Not a tag, not a branch: this repo pins
  * every `uses:` to a commit (see `src/recipes/sync-configs/templates.ts`, whose
  * renovate template spells out why — a retagged `@v3` runs attacker code with
- * whatever token the workflow holds). Nothing bumps the pin per repo when
- * `reddoorla/.github` tags a new version — Renovate has never opened a PR for
- * a reusable-workflow ref on a fleet site; see the propagation note on
+ * whatever token the workflow holds). Do not assume the pin bumps itself:
+ * Renovate has proposed this ref in the past but did not for either of the
+ * last two tags — see the propagation note on
  * {@link REUSABLE_WORKFLOW_PIN} above.
  */
 export function isPinResolved(pin: ReusableWorkflowPin): boolean {

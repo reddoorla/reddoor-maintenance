@@ -125,13 +125,20 @@ While it is unresolved, `isPinResolved()` is false and **`prismic-ci` refuses on
 
 ### After every `reddoorla/.github` tag
 
-**Nothing bumps an installed pin.** Renovate has never opened a github-actions PR for a `reddoorla/.github` reusable-workflow ref on any fleet site: v1.4.0 sat unadopted for 18 days, and v1.4.1 (tagged 2026-09-01) reached the fleet only because ci.yml was swept by hand across 21 repos. On 2026-09-08 every installed `prismic-models.yml` still pinned v1.4.0. (Deliberately worded without the phrase the pre-2026-09-08 comments used, so a grep for that phrase stays a reliable check that no instance of the old claim survives.)
+**Verify propagation; do not assume it.** Renovate does bump this ref — 17 site repos moved v1.2.0 → v1.3.0 between 2026-07-13 and 2026-08-10 — but it proposed neither of the last two tags for `ci.yml`. v1.4.0 (tagged 2026-08-14) was never offered, and v1.4.1 (2026-09-01) reached the fleet only because ci.yml was swept by hand across 21 repos that day.
+
+Two traps when checking this yourself:
+
+- **Renovate is self-hosted here** (`.github/workflows/renovate.yml`, with a PAT), so its pull requests are authored by `tucksravin` on `renovate/*` branches. `gh search prs --author app/renovate` returns nothing, and that nothing is not evidence — look for the head branch instead.
+- **`prismic-models.yml` and `ci.yml` are different callers with different histories.** `prismic-models.yml` took v1.4.0 two days after it was tagged, in all 8 repos that have the file. Only `ci.yml` skipped it. Check the caller you actually care about.
+
+Also worth knowing before you chase a version gap: `v1.4.0...v1.4.1` changed **only** `.github/workflows/ci.yml`. A `prismic-models.yml` caller pinned at either tag resolves to identical workflow content, so an older pin there is a cosmetic inconsistency, not a stale workflow. Compare the tags before treating a version difference as a defect.
 
 So a tag is three more steps, not one:
 
 1. Re-resolve `REUSABLE_WORKFLOW_PIN` in `src/recipes/prismic-ci/template.ts`.
 2. Release `@reddoorla/maintenance` (the recipe ships in the package).
-3. `reddoor-maint prismic-ci --fleet airtable` — gate 6 content-compares the installed workflow, so a stale pin is corrected by a fresh PR per repo — **plus one positional run per pre-launch site**, because `--fleet airtable` filters `building` and `launching` rows out of the inventory entirely.
+3. `reddoor-maint prismic-ci --fleet airtable` — the already-delivered gate content-compares the installed workflow, so a genuinely stale pin is corrected by a fresh PR per repo — **plus one positional run per pre-launch site**, because `--fleet airtable` filters `building` and `launching` rows out of the inventory entirely.
 
 Step 3 is the whole propagation mechanism. Skipping it leaves the fleet on whatever it installed the day it was bootstrapped.
 

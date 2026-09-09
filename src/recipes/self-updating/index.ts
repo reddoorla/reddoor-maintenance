@@ -31,12 +31,10 @@ import {
 // node-version, permissions), so an exact-match heal against a static template
 // would strip those values in a green auto-mergeable PR — the armed clobber
 // the 2026-08-02 architecture review found. The starter clone owns ci.yml's
-// shape, and its pinned reusable-workflow ref is swept BY HAND after each
-// reddoorla/.github tag. Renovate updates ordinary action pins on fleet sites
-// but has never opened a PR for a reddoorla/.github reusable-workflow ref —
-// v1.4.0 sat unadopted 18 days, v1.4.1 was hand-swept on 2026-09-01. The
-// earlier "(proven)" here was an inference from action pins, not an
-// observation of this ref.
+// shape. Its pinned reusable-workflow ref is sometimes bumped by Renovate
+// (v1.2.0 -> v1.3.0 across 17 repos, Jul-Aug 2026) but was not for v1.4.0 or
+// v1.4.1 — the latter was swept by hand on 2026-09-01 — so propagation is a
+// manual step to verify, never a guarantee.
 const SELF_UPDATING_CONFIGS = ["renovate-action", "renovate-config"] as const;
 
 // Reusable-workflow jobs report their check as "<caller-job> / <reusable-job>".
