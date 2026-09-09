@@ -116,13 +116,24 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
  * dashboard-queued draft (`reportType: "Launch"`) carrying the just-audited
  * Lighthouse scores, so `sendOne`'s `report.lighthouse` guard passes.
  *
- * Step-chain (mirrors `init`), stopping on the first error or `failed` recipe:
+ * EXECUTION order, stopping on the first error or `failed` recipe:
  *   0. matchingDisposition — filesystem pre-flight, BEFORE any GitHub write.
  *   1. selfUpdating — Renovate + protection (platform auto-merge OFF; ci.yml is the starter's).
- *   2. runAudits + write the scores to the site's Websites row (reuses the
- *      `audit --write-airtable` writer); the Lighthouse scores feed the draft.
- *  2b. dev-guard — the same twin, checked against the DEPLOYED url.
- *   3. createDraft — reportType "Launch", today's period, the audited scores.
+ *   2. audit — the Lighthouse scores that feed the draft are collected here.
+ *   3. the Websites-row lookup, which supplies the url the next step probes.
+ *  3b. dev-guard — the same twin, checked against the DEPLOYED url. It sits
+ *      BETWEEN collecting the scores and writing them, so a site that fails it
+ *      has been audited but leaves its Websites row untouched.
+ *   4. writeAuditsToAirtable — the `audit --write-airtable` writer.
+ *   5. createDraft — reportType "Launch", today's period, the audited scores.
+ *
+ * The REPORTED chain is deliberately not that order. The `audit` step is only
+ * pushed once its write succeeds (:261), so the emitted steps read
+ * `matching-disposition -> self-updating -> dev-guard -> audit -> draft`, which
+ * is what the CLI prints and what tests/recipes/launch.test.ts asserts. Do not
+ * renumber either list to match the other: one says when work happens, the
+ * other says what has been proved. Only step 0 precedes a GitHub write —
+ * dev-guard cannot, because it needs the row from step 3 to know the url.
  */
 export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchResult> {
   const label = siteLabel(site);
