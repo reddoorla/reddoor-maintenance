@@ -123,7 +123,10 @@ async function stubSkill(): Promise<string> {
 /** The body of a stub style-census.mjs. It answers census.sh's usage-banner
  *  preflight, then writes whatever STUB_CENSUS_MODE asks for: a completed
  *  census (`clean` / `dirty`), one that dies the way a closed dev server does
- *  (`crash`), or one over two pages that rendered no text at all (`blank`).
+ *  (`crash`), one over two pages that rendered no text at all (`blank`), one
+ *  whose --vw never took (`novw`), or one whose counts line and whose printed
+ *  rows disagree — the drift GUARD 2c exists for (`drift`, `ambdrift`) and the
+ *  legitimate truncation it must NOT mistake for drift (`truncated`).
  *  `crash` dies AFTER the banner on purpose — the preflight passes, so only the
  *  per-run evidence check can catch it. String.raw so the `\n`s reach the file
  *  as source, not as newlines in this one. */
@@ -139,19 +142,37 @@ if (!arg("--ref") || !arg("--cand")) {
 const mode = process.env.STUB_CENSUS_MODE ?? "clean";
 if (mode === "crash") throw new Error("page.goto: net::ERR_CONNECTION_REFUSED");
 const vw = Number(arg("--vw") ?? 1440);
+// novw: the --vw argument never took, so all three logs carry the SAME census.
+const shown = mode === "novw" ? 1440 : vw;
 const runs = mode === "blank" ? 0 : 12;
-const mismatches = mode === "dirty" ? 1 : 0;
-console.log("\n=== style census, viewport " + vw + " ===");
+// What the counts line REPORTS, which is not always what the rows below show.
+const DRIFTED = { drift: [3, 0], truncated: [137, 0], ambdrift: [0, 5] };
+const said = DRIFTED[mode] ?? [mode === "dirty" ? 1 : 0, 0];
+console.log("\n=== style census, viewport " + shown + " ===");
 console.log(
   "ref runs: " + runs + "   cand runs: " + runs +
-    "   mismatches: " + mismatches + "   ambiguous: 0",
+    "   mismatches: " + said[0] + "   ambiguous: " + said[1],
 );
-if (mismatches) {
-  console.log('\n  y=   100 "book an appointment"');
+// pad is the giveaway: style-census indents a row by TWO spaces and
+// census-count.mjs matches /^ {2}y=/, so one space is a parse the printer
+// disagrees with.
+const row = (y, pad) => {
+  console.log("\n" + pad + "y=" + String(y).padStart(6) + ' "book an appointment"');
   console.log("    ref:  Inter | 400 | 16px | 24px | ls=normal | none | rgb(0, 0, 0)");
   console.log("    cand: Inter | 400 | 11px | 24px | ls=normal | none | rgb(0, 255, 255)");
+};
+if (mode === "drift") {
+  for (const y of [100, 200, 300]) row(y, " ");
+} else if (mode === "truncated") {
+  for (let i = 1; i <= 100; i++) row(i * 10, "  ");
+  console.log("\n  … and 37 more (truncated print, all counted)");
+} else if (mode === "ambdrift") {
+  console.log("\n--- AMBIGUOUS (5): one side has extra elements carrying this");
+  for (const y of [100, 200, 300, 400, 500]) row(y, " ");
+} else if (said[0]) {
+  row(100, "  ");
 }
-process.exit(mismatches > 0 ? 1 : 0);
+process.exit(said[0] > 0 || said[1] > 0 ? 1 : 0);
 `;
 
 /** A skill directory holding only that stub. */
@@ -812,6 +833,107 @@ describe("recipes/match-harness", () => {
     expect(out).toMatch(/cannot read .*census-home-1440\.log/);
     expect(out).not.toMatch(/^0 0 0$/m);
     expect(code).toBe(2);
+  });
+
+  // --- GUARD 2c: the count reported is the count the census MEASURED
+  //
+  // The guards above all ask "did a census RUN?" and then report whatever
+  // census-count.mjs read out of the log, without ever comparing the two. That
+  // left the same false green one step along: a COMPLETE census whose counts
+  // line says `mismatches: 3`, whose `y=` rows carry one leading space instead
+  // of two, was reported as 0 and this gate printed "Phase 3 CLEAN", exit 0
+  // (measured 2026-09-09). The printer is versioned in the SKILL and the parser
+  // is copied into every site, so neither repo has to change for them to drift.
+
+  it("census.sh refuses a census whose counts line contradicts the rows it read", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "drift",
+    });
+    // both numbers, so the reader can see WHICH side to go and look at
+    expect(out).toMatch(/reports mismatches: 3 ambiguous: 0, but/);
+    expect(out).toMatch(/census-count\.mjs read 0 mismatch row\(s\) and 0 ambiguous/);
+    expect(out).toMatch(/CENSUS INCOMPLETE — 3 of 3 run\(s\) produced no usable census/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
+  });
+
+  it("census.sh refuses a log reporting ambiguous rows its reader did not find", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "ambdrift",
+    });
+    // mismatches agree at 0 here, so only the ambiguous leg can refuse this one
+    expect(out).toMatch(/reports mismatches: 0 ambiguous: 5, but/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
+  });
+
+  it("census.sh counts a truncated print rather than calling it drift", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "truncated",
+    });
+    // style-census prints at most 100 rows and states the remainder on its own
+    // line, so 100 read + 37 more == the 137 reported. The GRANT leg: without
+    // it GUARD 2c would refuse every census over 100 mismatches, which is a
+    // count it CAN honestly report.
+    expect(out).toMatch(/300 type mismatch\(es\) remain/);
+    expect(code).toBe(1);
+    expect(out).not.toMatch(/CENSUS INCOMPLETE|Phase 3 CLEAN/);
+  });
+
+  it("census.sh refuses runs whose header does not carry the viewport asked for", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "novw",
+    });
+    // 1440 is honest; 834 and 390 got the 1440 census under their own names,
+    // which is the failure a presence-only check cannot see
+    expect(out).toMatch(/CENSUS INCOMPLETE — 2 of 3 run\(s\) produced no usable census/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
+  });
+
+  it("census.sh refuses when census-count.mjs dies instead of returning counts", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    // census-deviations.mjs is SITE-owned: a site editing its own ledger into a
+    // syntax error takes census-count.mjs down with it, and it then prints
+    // nothing at all — which bash reads as zero.
+    await writeFile(
+      join(cwd, "matching/census-deviations.mjs"),
+      "export const DECLARED = [\n",
+      "utf-8",
+    );
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "clean",
+    });
+    expect(out).toMatch(/census-count\.mjs did not return three counts for/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
+  });
+
+  it("census.sh refuses an empty page table rather than reporting CLEAN over nothing", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    await patchHarness(cwd, { pages: {} });
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "clean",
+    });
+    expect(out).toMatch(/the page table is empty — refusing to report CLEAN/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
   });
 
   it("ships Markdown stubs that are already prettier-clean", async () => {

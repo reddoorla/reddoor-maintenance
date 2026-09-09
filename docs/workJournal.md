@@ -516,6 +516,8 @@ and `git status` stayed clean — regeneration is still a no-op.
 
 ## 2026-09-09 — PR #733's census.sh shipped a green nobody measured (#733, `feat/match-harness-recipe`)
 
+> Superseded in part by 2026-09-09 (last) — Verification found the eighth member of the class.
+
 `matching/census.sh` is one of the seven files this recipe copies **verbatim**
 into every site it installs, and #733 had 26 tests over it, none of them
 touching census. It reported `Phase 3 CLEAN — 0 undeclared type mismatches` and
@@ -838,3 +840,67 @@ describe needs a fresh install; and the eight `checkRef` cases share ONE install
 via `beforeAll`, re-seeding `harness.json` per case — safe while vitest runs a
 file's `it`s sequentially, and a `describe.concurrent` there would make them race
 over one file.
+
+## 2026-09-09 (last) — Verification found the eighth member of the class (#733, `feat/match-harness-recipe`, bf#58)
+
+Five agents designed fixes for PR #733's four blockers, five implemented them
+serially, five verified adversarially. Four held. The fifth — `census.sh` — did
+not, and the reason is worth more than the fix.
+
+The census entry above enumerated seven ways `census.sh` could print
+`Phase 3 CLEAN` over nothing, and closed all seven. The verifier found an
+eighth, and I reproduced it in a scratch site before touching anything: a
+**complete** census — header present, counts line present, `ref runs: 12
+cand runs: 12   mismatches: 3   ambiguous: 0` — whose `y=` rows carried one
+leading space instead of two printed `Phase 3 CLEAN — 0 undeclared type
+mismatches`, exit 0, over a log that says on its own second line there are
+three.
+
+GUARD 2 matched that counts line with `grep -qE`. That answers _is it there_.
+The number it contains was thrown away, and the count actually reported came
+from `census-count.mjs`'s row parse — two readers of the same artefact, and
+nothing comparing them. This is the shape CLAUDE.md names by example: each
+correction reintroducing the same shape one step along. The first fix demanded
+the artefact exist. It did not demand that the artefact and the number agree.
+
+**Why this is structural and not contrived.** The printer is `style-census.mjs`,
+versioned in the matching-a-page skill. The parser is `census-count.mjs`,
+copied byte-for-byte into every site the recipe installs. Neither repository has
+to change for them to drift, and `census-count.mjs:39` matches `/^ {2}y=/` —
+one space is the whole failure.
+
+**What the fix cost in reading, not in code.** GUARD 2c is fourteen lines, but
+the shape of the comparison came out of the printer's source and could not have
+been guessed. `style-census.mjs:175-177` truncates the mismatch print at 100
+rows and states the remainder on its own line; `:184` truncates ambiguous rows
+the same way and states **nothing**. So the identity is exact for mismatches —
+parsed + remainder == reported — and only a floor for ambiguous. An equality
+check written without reading that would have refused every census over 100
+mismatches: a count the gate can honestly report, called drift. That case is
+now a GRANT test, and dropping `+ ${more:-0}` from the arithmetic is the only
+mutation that reddens it.
+
+**A claim about coverage that was not backed.** The previous entry said the
+guards were proved to grant and not only to refuse, which was true. What it did
+not say — and what the verifier measured — is that three of the seven guard
+branches could be deleted with all eight census tests still green: GUARD 2's
+viewport-header half, GUARD 2b, and GUARD 3's empty-page-table arm. All three
+worked when driven by hand. So this was missing evidence, not broken code — but
+by this project's own rule that is the same failure, one report earlier.
+
+Six cases now cover the four branches. Each was mutation-proven at source: the
+mutation goes into beachfront's `matching/census.sh`, `template.ts` is
+regenerated, the suite runs. Six mutations, each reddening **exactly one test by
+name**, no collateral, then reverted and the suite re-confirmed at 64/64. The
+mutation was proved to have landed at the site under test by `grep -n` on the
+mutated line, not by a diff line count — that shortcut is exactly what let a
+mutation land on the wrong line earlier in this branch and read as applied.
+
+**The landing hazard, which is a process defect and not a code one.** The
+verifier flagged that `census.sh` is recipe-owned: the fix has to be made in
+beachfront and regenerated, so until beachfront merges it, regenerating from
+`main` silently reverts 118 lines with a clean exit 0 and the message
+`17 files, all round-trip verified`. That is bf#58, opened first and merged
+first, for exactly that reason. The invariant "regeneration from beachfront main
+is a no-op" is what this branch spent PR #56 establishing; it does not hold
+again until bf#58 lands.

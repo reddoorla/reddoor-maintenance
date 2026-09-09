@@ -479,6 +479,37 @@ while read -r page refpath candpath; do
       line="$line$(printf '%8s' '!!')"
       continue
     fi
+    # GUARD 2c — the number reported is the number the census MEASURED. GUARD 2
+    # matched the counts line for PRESENCE and threw its numbers away, so the
+    # count printed below came from census-count's row parse and nothing ever
+    # compared the two. Measured 2026-09-09: a COMPLETE census whose counts line
+    # said "mismatches: 3", whose \`y=\` rows carried one leading space instead of
+    # two (census-count.mjs:39 matches /^ {2}y=/), was reported as 0 and this
+    # gate printed "Phase 3 CLEAN — 0 undeclared type mismatches", exit 0. The
+    # printer lives in the SKILL (style-census.mjs:171-173) and the parser is
+    # copied into every site, so the two version independently and drift needs
+    # nobody to touch either repo.
+    #
+    # The identity is exact for mismatches: style-census prints at most 100 rows
+    # and states the remainder on its own line (style-census.mjs:175-177), so
+    # parsed + remainder == reported. Ambiguous rows are capped the same way
+    # (:184) but the remainder is NOT stated, so only a floor is checkable
+    # there — any is not none, and the parse may never exceed the report.
+    counts=$(grep -E "^ref runs: [1-9][0-9]* +cand runs: [1-9][0-9]* +mismatches: [0-9]+ +ambiguous: [0-9]+$" "$log" | tail -1)
+    said_m=\${counts##*mismatches: }
+    said_m=\${said_m%% *}
+    said_a=\${counts##*ambiguous: }
+    more=$(sed -n 's/^ *… and \\([0-9][0-9]*\\) more (truncated print, all counted)$/\\1/p' "$log" | tail -1)
+    if [ $((n + d + \${more:-0})) -ne "$said_m" ] ||
+      [ "$a" -gt "$said_a" ] ||
+      { [ "$said_a" -gt 0 ] && [ "$a" -eq 0 ]; }; then
+      BROKEN=$((BROKEN + 1))
+      echo "census.sh: $log reports mismatches: $said_m ambiguous: $said_a, but" >&2
+      echo "           census-count.mjs read $((n + d)) mismatch row(s)\${more:+ (+ $more truncated)} and $a ambiguous." >&2
+      echo "           The census and its reader disagree; there is no count to report." >&2
+      line="$line$(printf '%8s' '!!')"
+      continue
+    fi
     AMB=$((AMB + a))
     DECL=$((DECL + d))
     TOTAL=$((TOTAL + n))
