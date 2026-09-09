@@ -73,12 +73,12 @@ const realPrettierSpawn: SpawnFn = async (_cmd, args, opts) => {
 };
 
 /** A site whose prettier disagrees with the templates in every way that bites:
- *  tabs, single quotes, no trailing comma. Measured 2026-09-09 across the 21
- *  fleet clones with a prettier config: `erp-industrial` and
- *  `welcome-to-the-flower-court` ship exactly this shape, `beachfront-dentistry`
- *  and `1836dig` ship prettier's bare defaults (printWidth 80), and the other 17
- *  set printWidth 100 — which happens to match the templates and would hide this
- *  entirely. The site is left prettier-clean under its OWN config before the
+ *  tabs, single quotes, no trailing comma. Measured 2026-09-09 across the 19
+ *  clones in ~/Documents/GitHub that carry a prettier config: `erp-industrial`,
+ *  `gallerysonder` and `welcome-to-the-flower-court` ship exactly this shape,
+ *  `beachfront-dentistry` and `1836dig` ship prettier's bare defaults
+ *  (printWidth 80), and the remaining 14 set printWidth 100 — which happens to
+ *  match the templates and would hide this entirely. The site is left prettier-clean under its OWN config before the
  *  install, so a later `prettier --check .` failure can only be what the recipe
  *  wrote. */
 function foreignPrettierSite(): Promise<string> {
@@ -546,6 +546,16 @@ describe("recipes/match-harness", () => {
       (await prettier.getFileInfo(join(cwd, "matching/LEDGER.md"), { ignorePath })).ignored,
     ).toBe(false);
 
+    // harness.json is SITE-owned, so the loop above does not reach it, and its
+    // line in the block was removable with nothing going red. It is data the
+    // recipe seeds and the operator then edits by hand — the page table, the
+    // two hosts, the matrix — and re-flowing it is the one way this recipe can
+    // still churn a file it does not own.
+    expect(
+      (await prettier.getFileInfo(join(cwd, "matching/harness.json"), { ignorePath })).ignored,
+      "matching/harness.json is not ignored by the site's own prettier",
+    ).toBe(true);
+
     // The ignore is doing real work, not covering files that already match:
     // read through the config this site resolves, BYPASSING the ignore, and the
     // template fails. Otherwise "clean" and "ignored" look the same.
@@ -587,6 +597,26 @@ describe("recipes/match-harness", () => {
     expect(result.status).toBe("applied");
     expect(result.commits).toHaveLength(1);
     expect(result.notes).toContain(PRETTIER_FLAG_NOTE);
+  });
+
+  it("a run that wrote nothing is note-free, even with no prettier to run", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    const { calls, spawn } = recorder(0);
+    // No resolvePrettier override: the fixture has no node_modules, so the REAL
+    // resolver finds nothing and the format is skipped and flagged.
+    const first = await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn });
+    expect(first.status).toBe("applied");
+    expect(first.notes).toContain(PRETTIER_FLAG_NOTE);
+
+    const second = await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn });
+    // The emptiness guard, which nothing else measures. Drop
+    // `if (toFormat.length > 0)` and this run — which wrote no file and has
+    // nothing to format — still tells the operator to go and check CI's
+    // formatting. A note that fires on a no-op is a note that stops being read.
+    expect(second.status).toBe("noop");
+    expect(second.notes ?? "").not.toContain(PRETTIER_FLAG_NOTE);
+    // and nothing was spawned on either run: the skip is a skip
+    expect(calls).toHaveLength(0);
   });
 
   // --- the three marked blocks
@@ -1263,6 +1293,14 @@ export function documents(img) {
 }
 `;
 
+/** A fixture rigged to blow up the instant it is read, so "the guard ran FIRST"
+ *  becomes measurable rather than merely asserted in a test name. */
+const EXPLODING_PAGES = `export const lang = "en-us";
+export function documents() {
+  throw new Error("FIXTURE READ — the guard did not run first");
+}
+`;
+
 describe("the installed /dev/match route's production guard", () => {
   it("404s with the guard's OWN message when dev is false, before any fixture is read", async () => {
     const cwd = await install();
@@ -1278,6 +1316,20 @@ describe("the installed /dev/match route's production guard", () => {
     // guard (see tests/recipes/launch.test.ts). Matching only "404" would pass
     // on either.
     expect(out.body?.message).not.toMatch(/no assembly for/);
+  });
+
+  it("reads no fixture at all when dev is false — the guard is the FIRST statement", async () => {
+    const cwd = await install();
+    const out = await loadDevMatch(cwd, { dev: false, uid: "home", sitePages: EXPLODING_PAGES });
+
+    // The case above names an ORDER and cannot see one: moving the guard below
+    // `const docs = documents(devImg)` leaves it green, because the message is
+    // the same either way. Here the fixture throws the moment it is read, so a
+    // guard that ran second surfaces the fixture's error instead of the 404 —
+    // which is what the template's own "FIRST statement" comment claims.
+    expect(out.status).toBe(404);
+    expect(out.body?.message).toBe("Not found");
+    expect(out.message ?? "").not.toMatch(/FIXTURE READ/);
   });
 
   it("serves the site's assembly when dev is true — the guard is a switch, not a wall", async () => {
@@ -1369,6 +1421,19 @@ describe("the installed harness's checkRef preflight", () => {
       (origin) => checkRef({ ref: origin, refMark: "build-9f2a1c" }),
     );
     expect(out).toMatch(/REF REFUSED — GET .*→ HTTP 503, expected 200/);
+    expect(code).toBe(2);
+  });
+
+  it("refuses a 404 carrying refMark — the arm is not pinned by 503 alone", async () => {
+    // One value cannot tell `status !== 200` from `status >= 500`, and the
+    // narrowing is the likelier drift: a reference page that has MOVED answers
+    // 404, and a themed 404 served from the same build carries refMark, so the
+    // preflight whose whole thesis is "a 200 is not evidence" would GRANT it.
+    const { code, out } = await withServer(
+      (_req, res) => html(res, 404, "<html>build-9f2a1c</html>"),
+      (origin) => checkRef({ ref: origin, refMark: "build-9f2a1c" }),
+    );
+    expect(out).toMatch(/REF REFUSED — GET .*→ HTTP 404, expected 200/);
     expect(code).toBe(2);
   });
 
@@ -1569,11 +1634,13 @@ describe("what the recipe COMMITS", () => {
 
   it("still ignores the workspace the harness generates around those files", async () => {
     const cwd = await install();
-    // Two layers, and the list exercises both: `matching/*` is the only thing
-    // that catches a round's OUTPUT DIRECTORY (a per-extension rule matches one
-    // level and never reaches inside it) or a stray file with no listed
-    // extension; the `matching/*.log|json|png` lines are what would still hold
-    // if the first were ever relaxed.
+    // This list exercises ONE layer, not two. `matching/*` catches every path
+    // below, including a round's OUTPUT DIRECTORY (a per-extension rule matches
+    // one level and never reaches inside it) and a stray file with no listed
+    // extension — so deleting the `matching/*.log|json|png` lines leaves this
+    // green, measured. They are defence in depth for a future relaxation of the
+    // line above, and no honest test can redden their removal while it stands;
+    // #738 records that rather than papering over it with a vacuous assertion.
     const ignored = [
       "matching/out-smoke-home/report.json",
       "matching/out-smoke-home/ref-1440.png",
