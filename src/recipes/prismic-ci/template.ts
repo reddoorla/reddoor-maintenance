@@ -63,8 +63,10 @@ export const UNRESOLVED_PIN_SHA = "UNRESOLVED-publish-and-tag-reddoorla-dot-gith
  * TO RE-RESOLVE after a future `reddoorla/.github` release: set `sha` to
  * `gh api repos/reddoorla/.github/commits/<tag> --jq .sha` and `tag` to that
  * tag — then VERIFY PROPAGATION rather than assuming it. Renovate does bump
- * this ref: 17 site repos went v1.2.0 -> v1.3.0 between 2026-07-13 and
- * 2026-08-10. It runs self-hosted here and its author identity has already
+ * this ref: 17 site repos took v1.2.0 -> v1.3.0 in the weeks after v1.3.0
+ * was tagged 2026-07-14, on Renovate's weekly `renovate/all-minor-patch`
+ * branches (some of which were already open before the tag, so a PR's
+ * creation date can predate the version it ends up bumping). It runs self-hosted here and its author identity has already
  * changed once mid-window (operator PAT, authoring as `tucksravin`, until
  * 2026-08-02; `reddoor-renovate[bot]` since), so no single author filter
  * matches all 17 and `app/renovate` matches none of them. Search the

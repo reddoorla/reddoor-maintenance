@@ -125,7 +125,7 @@ While it is unresolved, `isPinResolved()` is false and **`prismic-ci` refuses on
 
 ### After every `reddoorla/.github` tag
 
-**Verify propagation; do not assume it.** Renovate does bump this ref — 17 site repos moved v1.2.0 → v1.3.0 between 2026-07-13 and 2026-08-10 — but it proposed neither of the last two tags for `ci.yml`. v1.4.0 (tagged 2026-08-14) was never offered, and v1.4.1 (2026-09-01) reached the fleet only because ci.yml was swept by hand across 21 repos that day.
+**Verify propagation; do not assume it.** Renovate does bump this ref — 17 site repos took v1.2.0 → v1.3.0 in the weeks after v1.3.0 was tagged 2026-07-14, on the weekly `renovate/all-minor-patch` branches — but it proposed neither of the last two tags for `ci.yml`. v1.4.0 (tagged 2026-08-14) was never offered, and v1.4.1 (2026-09-01) reached the fleet only because ci.yml was swept by hand across 21 repos that day.
 
 Two traps when checking this yourself:
 
