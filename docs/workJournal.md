@@ -699,3 +699,142 @@ reddening it honestly would need the real `defaultSpawn` to run a live install
 inside the unit suite. Recorded rather than papered over. And
 `resolveTargetPrettier` collapses EACCES to null, so "I could not look" and
 "the site has no prettier" raise the same note.
+
+## 2026-09-09 (later still) — the guards ran for the first time; 5 of checkRef's 8 arms were removable at once (#733, `feat/match-harness-recipe`)
+
+An adversarial review of #733 reported that of 35 mutations it applied, 25
+reddened nothing. I reproduced the ones this entry is about, and the shape of
+the finding held: everything the branch had proved was that the recipe **copied
+bytes** and that three installed scripts **refuse**. A refusal-only suite cannot
+tell a working guard from a guard that refuses everything, and it had never once
+touched the two guards with the largest blast radius.
+
+**The measurement, in one line each.** Deleting `if (!dev) error(404, { message:
+"Not found" });` from the shipped route template and regenerating left the ENTIRE
+suite green — 6358 passed / 4 skipped, nothing red. Removing five of `checkRef`'s
+refusal arms together (selfHosts, non-200, Location, missing refMark, candMark)
+also left the entire suite green: 6358 passed, 0 failed. `checkRef` is the
+preflight whose whole thesis is "a 200 is NOT evidence", and it could be reduced
+to `return { ok: true }` for every case the branch tested. Reverting the CLI
+command's `--matrix` presence test to the truthiness test its own source comment
+warns against — `opts.matrix ? … : undefined`, which silently drops `--matrix 0`
+and substitutes the default `[1440, 834, 390]` — also left all 6358 green,
+because `matchHarness` had never been reached through the command at all: the one
+CLI test naming it mocks `resolveSites` to an empty inventory and runs the
+argument handling over zero sites.
+
+**Why the byte tests could not have caught any of it.** The two cases that touch
+the route file compare the installed bytes with `MATCH_ROUTE_SERVER_TEMPLATE` —
+the same generated constant the mutation is applied to. They are a tautology
+under any mutation applied at the source, which is the only place a mutation to a
+generated file may be applied. The same is true of every case that loops
+`MATCH_HARNESS_FILES` to decide what to check: deleting a row deletes its own
+check.
+
+**What was added: 24 cases, 40 → 58 in `tests/recipes/match-harness.test.ts` plus
+a new 6-case `tests/cli/match-harness-command.test.ts`.** Each runs the INSTALLED
+artefact and pins ONE arm with every other arm arranged to pass, so a green is
+that arm and nothing else. Suite 6358 → 6382 passed (4 skipped, 6386 collected),
+479 → 480 files, ~50s.
+
+**Executing the route template turned out to be cheap, and it is the part worth
+copying.** The route is a `.ts` file with three bare specifiers and two type
+annotations. Supply the specifiers as three tiny packages under the tmp site's
+own `node_modules` — `$app/environment` (the switch under test, reading
+`process.env.MATCH_PROBE_DEV`), `@sveltejs/kit` (an `error` that throws what
+SvelteKit's throws), `$lib/site-pages.js` (a re-export of the site's real file) —
+and let Node strip the annotations natively. Nothing in the route is rewritten;
+what runs is the byte-for-byte template the recipe wrote. Both legs then exist:
+production must 404 with the guard's OWN `"Not found"` **while a `home` assembly
+is sitting there for a route that reached line 2 to return**, and dev must return
+that assembly with the route's own `devImg` applied (`{url, dimensions: {width:
+1600, height: 1067}}`, not the seed's asset id). The two 404s are deliberately
+distinguished — `"Not found"` from the guard versus `no assembly for "nope"
+(have: home)` from the route — which is the same distinction `launch`'s
+`dev-guard` step already refuses to conflate. Inverting the guard to `if (dev)`
+reddens all three.
+
+**Corrections to the review, each measured.**
+
+- **`checkRef` has EIGHT refusal arms, not six.** The review omits the
+  candidate-host equality test at harness.mjs:108 and the fetch-catch at
+  harness.mjs:112-114. All eight now have a case, plus the grant.
+- **The gitignore mutation as the review states it — "every `!matching/*`
+  negation removed" — already reddened two existing cases**, because both assert
+  the literal `!matching/PAUSED` (match-harness.test.ts:597 and :627). The real
+  hole was the seven GLOB negations with `!matching/PAUSED` left in place.
+- **That hole is also no longer what the review measured.** With
+  `!matching/*.sh|mjs|md` removed, 39 of 58 cases in the file go red — not one —
+  because `18d2a04` (this branch, earlier today) made the recipe itself refuse an
+  install git did not take, so `install()` throws for every case downstream. The
+  review's "left all 6337 green while 13 files were written and then ignored" was
+  true of the branch as it stood when the review ran, and is false now.
+- **Dropping `["STRIKES_MJS", …]` from the generator's COPIED table is likewise
+  no longer a silent mutation:** `de7fc7c`'s literal 10/7 ownership census
+  catches a count change. The new hand-written manifest is still worth its lines
+  — it pins the PATH TEXT, the ORDER and the OWNER of all 17 rows, where a census
+  only counts — but the honest claim is "sharper", not "the only thing that
+  catches it".
+- **The coverage figure is right and does not move.** The CLI command file
+  measures 60% statements / 27.5% branches / 16.66% functions / 75% lines both
+  before and after these six CLI cases, because they exec
+  `dist/cli/bin.js` and in-process v8 coverage does not follow a subprocess. The
+  pass criterion for that file is the mutation table, not the coverage table.
+  Whole-repo coverage 90.49 / 84.74 / 89.41 / 91.52 against floors 78 / 67 / 76 / 80.
+- **The review's "990 tests stay green" is the only figure in it that was wrong,
+  and it understates the case** — the number is 6358.
+
+**The production change the review bundled into this item had already landed.**
+It proposed adding `resolveTargetPrettier` to `match-harness` as part of this
+fix; that is `c8feb44`, committed earlier today with its own mutation proof and
+its own journal entry, along with the case the review numbered 19 ("spawns
+NOTHING when the site has no prettier of its own"). So this is 24 cases and no
+production change, not 25 and one. The review also said not to pass a
+`timeoutMs`; `c8feb44` passes one deliberately, because `src/audits/util/
+spawn.ts` only sets `detached` and installs a kill timer when a timeout is
+present, and an unbounded child in a client repo is the defect that commit
+exists to close.
+
+**Honest accounting.** One of the three new commit-surface cases is thinner than
+it looks. `GIT TRACKS every installed file` overlaps the pre-existing `every
+installed path is in HEAD's tree` almost completely — the mutation that reddens
+one reddens the other, plus 37 more. Its whole marginal value is that its
+expected list is hand-written rather than derived from `MATCH_HARNESS_FILES`, so
+it survives a row being deleted from the generated table. That is a real
+property, and it is a smaller one than the case's name suggests.
+
+**What is NOT closed, named rather than implied.** `matching/*.log`,
+`matching/*.json` and `matching/*.png` in `GITIGNORE_BLOCK` are unreachable as
+behaviour while `matching/*` stands above them: removing them changes nothing
+observable, and no honest test can redden that mutation. They are defence in
+depth for a future relaxation of the line above, and they are stated as such
+rather than covered. Nine further mutations from the review are deliberately left
+open and filed as an issue rather than fixed here: the seven COPIED constants in
+`template.ts` still have no round-trip guard (the generator test covers only the
+three AUTHORED blocks and says so in its own docblock); `census.sh`,
+`build-spec.mjs`, `census-count.mjs` and `strikes.mjs` are installed and never
+executed by any test — `strikes.mjs` in particular is the mechanism behind
+CLAUDE.md rule 3; `next.mjs`'s foreign-schema branch (58-61) and its
+masked/neutralised/truncated/off-threshold skip (62-69) are both reachable from
+exactly the fabricated corpus these new tests already write; `gate.sh`'s
+hyphenated-round-tag refusal (53-60) and its `SPEC_OPTIONAL=1` path (100-104);
+and the CLI command's `--fleet` prep path, which — unlike `prismic-ci:165-174` —
+has NO "the inventory resolved NO SITES" refusal, so `--fleet` over an empty
+inventory prints an empty string and exits 0. That last one is a hollow green of
+exactly the shape this repo's first rule is about, but it is a missing BEHAVIOUR
+rather than a missing test, so it belongs in its own PR.
+
+**Portability cost, recorded because it will be a confusing failure if it
+bites.** The three route cases import a `.ts` file in a subprocess and rely on
+Node stripping types natively — Node ≥ 22.6, on by default from 22.18 / 24.
+`.nvmrc` is 24.19.0 and every workflow pins node-version "24", so CI is safe, but
+`package.json` `engines` says `>=20`; a contributor on Node 20 gets three red
+route tests reading `the route probe did not run: <node error>`. Loud and
+correctly named rather than a silent pass, and the cheap fix if it happens is
+`node --experimental-strip-types probe-load.mjs`, a no-op on 24. Two smaller
+notes: the route probe writes `node_modules/` and `probe-load.mjs` INTO the tmp
+site after the recipe has committed, so anyone adding a git assertion to that
+describe needs a fresh install; and the eight `checkRef` cases share ONE install
+via `beforeAll`, re-seeding `harness.json` per case — safe while vitest runs a
+file's `it`s sequentially, and a `describe.concurrent` there would make them race
+over one file.

@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { chmod, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1000,5 +1000,476 @@ describe("recipes/match-harness", () => {
       for (const rel of MATCH_HARNESS_INSTALLED_PATHS)
         expect([rule, rel, tree.includes(rel)]).toEqual([rule, rel, true]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE GUARDS THE HARNESS IS FOR, EXECUTED.
+//
+// Everything above proves the recipe wrote bytes and that three scripts refuse.
+// A refusal-only suite cannot tell a working guard from a guard that refuses
+// everything, and it never touches the two guards with the largest blast radius:
+// the /dev/match route's production 404 and checkRef's "a 200 is not evidence".
+// Each case below runs the installed artefact and pins ONE arm — with every
+// other arm arranged to pass, so a green is that arm and nothing else.
+// ---------------------------------------------------------------------------
+
+/** Run `fn` against a throwaway origin. Returns whatever `fn` returns. */
+async function withServer<T>(
+  handler: (req: unknown, res: ServerResponse) => void,
+  fn: (origin: string) => Promise<T>,
+): Promise<T> {
+  const server = createServer(handler as never);
+  try {
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const { port } = server.address() as AddressInfo;
+    return await fn(`http://127.0.0.1:${port}`);
+  } finally {
+    await new Promise<void>((done) => server.close(() => done()));
+  }
+}
+
+const html = (
+  res: ServerResponse,
+  status: number,
+  body: string,
+  headers: Record<string, string> = {},
+) => {
+  res.writeHead(status, { "content-type": "text/html", ...headers });
+  res.end(body);
+};
+
+/**
+ * Execute the INSTALLED `/dev/match/[uid]` route's `load` with a chosen `dev`.
+ *
+ * The route file is NOT rewritten — Node strips its two type annotations
+ * natively, and what runs is the byte-for-byte template the recipe wrote. Only
+ * its three bare specifiers are supplied, as tiny packages under the site's own
+ * node_modules: `$app/environment` (the switch under test), `@sveltejs/kit` (an
+ * `error` that throws what SvelteKit's throws), and `$lib/site-pages.js` (a
+ * re-export of the site's real file).
+ */
+type LoadOutcome = {
+  ok: boolean;
+  data?: { uid: string; slices: Array<Record<string, unknown>> };
+  status?: number;
+  body?: { message?: string };
+  message?: string;
+};
+
+async function loadDevMatch(
+  cwd: string,
+  opts: { dev: boolean; uid: string; sitePages?: string },
+): Promise<LoadOutcome> {
+  const nm = join(cwd, "node_modules");
+  const put = async (rel: string, body: string): Promise<void> => {
+    await mkdir(dirname(join(nm, rel)), { recursive: true });
+    await writeFile(join(nm, rel), body, "utf-8");
+  };
+  await put(
+    "$app/package.json",
+    JSON.stringify({
+      name: "$app",
+      type: "module",
+      exports: { "./environment": "./environment.js" },
+    }),
+  );
+  await put("$app/environment.js", 'export const dev = process.env.MATCH_PROBE_DEV === "1";\n');
+  await put(
+    "$lib/package.json",
+    JSON.stringify({
+      name: "$lib",
+      type: "module",
+      exports: { "./site-pages.js": "./site-pages.js" },
+    }),
+  );
+  await put("$lib/site-pages.js", 'export * from "../../src/lib/site-pages.js";\n');
+  await put(
+    "@sveltejs/kit/package.json",
+    JSON.stringify({ name: "@sveltejs/kit", type: "module", exports: { ".": "./index.js" } }),
+  );
+  await put(
+    "@sveltejs/kit/index.js",
+    `export function error(status, body) {
+  const e = new Error(typeof body === "string" ? body : (body?.message ?? String(status)));
+  e.status = status;
+  e.body = body;
+  e.name = "HttpError";
+  throw e;
+}
+`,
+  );
+  if (opts.sitePages !== undefined)
+    await writeFile(join(cwd, "src/lib/site-pages.js"), opts.sitePages, "utf-8");
+  await writeFile(
+    join(cwd, "probe-load.mjs"),
+    `const mod = await import("./src/routes/dev/match/[uid]/+page.server.ts");
+try {
+  console.log(JSON.stringify({ ok: true, data: await mod.load({ params: { uid: process.argv[2] } }) }));
+} catch (e) {
+  console.log(JSON.stringify({ ok: false, status: e.status, body: e.body, message: e.message }));
+}
+`,
+    "utf-8",
+  );
+  const { code, out } = await runIn(cwd, "node", ["probe-load.mjs", opts.uid], {
+    MATCH_PROBE_DEV: opts.dev ? "1" : "0",
+  });
+  expect(code, `the route probe did not run: ${out}`).toBe(0);
+  return JSON.parse(out) as LoadOutcome;
+}
+
+/** One page assembly, so `dev === true` has something real to return. */
+const ONE_PAGE = `export const lang = "en-us";
+export function documents(img) {
+  return [
+    {
+      type: "page",
+      uid: "home",
+      title: "Home",
+      data: {
+        slices: [
+          {
+            slice_type: "hero",
+            variation: "default",
+            primary: { image: img("https://example.test/hero.jpg") },
+          },
+        ],
+      },
+    },
+  ];
+}
+`;
+
+describe("the installed /dev/match route's production guard", () => {
+  it("404s with the guard's OWN message when dev is false, before any fixture is read", async () => {
+    const cwd = await install();
+    const out = await loadDevMatch(cwd, { dev: false, uid: "home", sitePages: ONE_PAGE });
+
+    expect(out.ok).toBe(false);
+    expect(out.status).toBe(404);
+    expect(out.body?.message).toBe("Not found");
+    // THE POINT. The site-pages fixture above HAS a "home" assembly, so a route
+    // that reached line 2 would have returned it. And the route's own
+    // not-found — "no assembly for" — is a different 404 that the launch
+    // recipe's dev-guard step explicitly refuses to accept as evidence of this
+    // guard (see tests/recipes/launch.test.ts). Matching only "404" would pass
+    // on either.
+    expect(out.body?.message).not.toMatch(/no assembly for/);
+  });
+
+  it("serves the site's assembly when dev is true — the guard is a switch, not a wall", async () => {
+    const cwd = await install();
+    const out = await loadDevMatch(cwd, { dev: true, uid: "home", sitePages: ONE_PAGE });
+
+    expect(out.ok, `expected a render, got ${JSON.stringify(out)}`).toBe(true);
+    expect(out.data?.uid).toBe("home");
+    expect(out.data?.slices).toHaveLength(1);
+    // The route's own image resolver reached the document builder: `devImg`
+    // hands slices a `{url, dimensions}` rather than the seed's asset id.
+    const image = (out.data?.slices[0] as { primary: { image: Record<string, unknown> } }).primary
+      .image;
+    expect(image.url).toBe("https://example.test/hero.jpg");
+    expect(image.dimensions).toEqual({ width: 1600, height: 1067 });
+  });
+
+  it("404s in dev for a uid the site has no assembly for, and names the ones it has", async () => {
+    const cwd = await install();
+    const out = await loadDevMatch(cwd, { dev: true, uid: "nope", sitePages: ONE_PAGE });
+    expect(out.status).toBe(404);
+    expect(out.body?.message).toBe('no assembly for "nope" (have: home)');
+  });
+});
+
+describe("the installed harness's checkRef preflight", () => {
+  // One install, re-seeded per case from the harness.json the recipe wrote, so
+  // no case inherits another's config.
+  let cwd = "";
+  let seedCfg: Record<string, unknown> = {};
+
+  beforeAll(async () => {
+    cwd = await install();
+    seedCfg = JSON.parse(await read(cwd, "matching/harness.json")) as Record<string, unknown>;
+  });
+
+  /** Re-seed harness.json and ask the preflight the gate asks. */
+  async function checkRef(
+    patch: Record<string, unknown>,
+  ): Promise<{ code: number | string; out: string }> {
+    await writeFile(
+      join(cwd, "matching/harness.json"),
+      JSON.stringify({ ...seedCfg, ...patch }, null, 2) + "\n",
+      "utf-8",
+    );
+    return runIn(cwd, "node", ["matching/harness.mjs", "--check-ref"]);
+  }
+
+  it("GRANTS a reference that serves refMark, 200, no redirect and no candMark", async () => {
+    const { code, out } = await withServer(
+      (_req, res) => html(res, 200, "<html>build-9f2a1c</html>"),
+      (origin) => checkRef({ ref: origin, refMark: "build-9f2a1c" }),
+    );
+    expect(out).toMatch(/^REF OK/m);
+    expect(out).toMatch(/refMark present, candMark absent/);
+    expect(code).toBe(0);
+  });
+
+  it("refuses a REF host listed in selfHosts", async () => {
+    // No server: this arm fires before the fetch, and everything else is valid.
+    const { code, out } = await checkRef({
+      ref: "http://127.0.0.1:9",
+      refMark: "build-9f2a1c",
+      selfHosts: ["127.0.0.1:9"],
+    });
+    expect(out).toMatch(/REF REFUSED — REF host 127\.0\.0\.1:9 is in selfHosts/);
+    expect(code).toBe(2);
+  });
+
+  it("refuses a REF whose host equals the candidate's", async () => {
+    const { code, out } = await checkRef({
+      ref: "http://127.0.0.1:9",
+      cand: "http://127.0.0.1:9",
+      refMark: "build-9f2a1c",
+    });
+    expect(out).toMatch(/REF REFUSED — REF host 127\.0\.0\.1:9 equals CAND's host/);
+    expect(code).toBe(2);
+  });
+
+  it("refuses a reference that does not answer at all", async () => {
+    const { code, out } = await checkRef({ ref: "http://127.0.0.1:1", refMark: "build-9f2a1c" });
+    expect(out).toMatch(/REF REFUSED — GET http:\/\/127\.0\.0\.1:1\/ failed:/);
+    expect(code).toBe(2);
+  });
+
+  it("refuses a non-200 EVEN WHEN the body carries refMark", async () => {
+    const { code, out } = await withServer(
+      (_req, res) => html(res, 503, "<html>build-9f2a1c</html>"),
+      (origin) => checkRef({ ref: origin, refMark: "build-9f2a1c" }),
+    );
+    expect(out).toMatch(/REF REFUSED — GET .*→ HTTP 503, expected 200/);
+    expect(code).toBe(2);
+  });
+
+  it("refuses a 200 that carries a Location header — an answer that is really a redirect", async () => {
+    // Deliberately 200-with-Location, not 302: `redirect: "manual"` leaves a real
+    // 3xx as its own status, so the status arm above claims it first and this
+    // arm is only ever reached by a 200 that redirects anyway.
+    const { code, out } = await withServer(
+      (_req, res) => html(res, 200, "<html>build-9f2a1c</html>", { location: "/elsewhere" }),
+      (origin) => checkRef({ ref: origin, refMark: "build-9f2a1c" }),
+    );
+    expect(out).toMatch(/REF REFUSED — GET .*→ 200 redirect to \/elsewhere/);
+    expect(code).toBe(2);
+  });
+
+  it("refuses a 200 whose body does NOT carry refMark — a 200 is not evidence", async () => {
+    const { code, out } = await withServer(
+      (_req, res) => html(res, 200, "<html>some other site</html>"),
+      (origin) => checkRef({ ref: origin, refMark: "build-9f2a1c" }),
+    );
+    expect(out).toMatch(
+      /served 200 but WITHOUT refMark "build-9f2a1c" — that is not the reference/,
+    );
+    expect(code).toBe(2);
+  });
+
+  it("refuses a reference that carries candMark — the host has cut over to OUR build", async () => {
+    // refMark present too: without it this would refuse one arm earlier and the
+    // case would pass while proving nothing about candMark.
+    const { code, out } = await withServer(
+      (_req, res) => html(res, 200, "<html>build-9f2a1c /_app/immutable/x.js</html>"),
+      (origin) => checkRef({ ref: origin, refMark: "build-9f2a1c" }),
+    );
+    expect(out).toMatch(/contains candMark "_app\/immutable" — REF is serving OUR build/);
+    expect(code).toBe(2);
+  });
+});
+
+describe("the installed harness reports, not just refuses", () => {
+  /** A page-diff report next.mjs will actually count: current schema, the
+   *  harness's own threshold, no mask and not truncated. */
+  async function writeReport(
+    cwd: string,
+    dir: string,
+    regions: Array<{ viewport: number; label: string; mismatchFraction: number; pass: boolean }>,
+  ): Promise<void> {
+    await mkdir(join(cwd, "matching", dir), { recursive: true });
+    await writeFile(
+      join(cwd, "matching", dir, "report.json"),
+      JSON.stringify({
+        meta: {
+          schemaVersion: 1,
+          threshold: 0.1,
+          maxHeightDelta: 0.05,
+          mask: [],
+          neutralizeMedia: false,
+          maskPhotos: false,
+          truncated: false,
+        },
+        overallPass: regions.every((r) => r.pass),
+        regions: regions.map((r) => ({ ...r, heightDeltaFraction: 0 })),
+      }),
+      "utf-8",
+    );
+  }
+
+  const CORPUS = [
+    { viewport: 1440, label: "top", mismatchFraction: 0.5, pass: false },
+    { viewport: 834, label: "top", mismatchFraction: 0.01, pass: true },
+    { viewport: 390, label: "top", mismatchFraction: 0.02, pass: true },
+  ];
+
+  it("next.mjs SCORES a real corpus and names the worst region", async () => {
+    const cwd = await install();
+    await writeReport(cwd, "out-smoke-home", CORPUS);
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    // 3 = (0 anchors + 1) × 3 viewports, derived by harness.mjs from the seed.
+    expect(out).toMatch(/SCORE 2\/3 regions passing/);
+    expect(out).toMatch(/1 open failure\(s\) \+ 0 declared floor\(s\)/);
+    expect(out).toMatch(/NEXT: home — worst page/);
+    expect(out).toMatch(/@1440\s+top\s+pixels 50\.0%/);
+    expect(code).toBe(1); // work remains: rule 5's loop keeps going
+    expect(out).not.toMatch(/no parseable gate run/);
+  });
+
+  it("next.mjs exits 0 with no agenda once every region passes", async () => {
+    const cwd = await install();
+    await writeReport(
+      cwd,
+      "out-smoke-home",
+      CORPUS.map((r) => ({ ...r, mismatchFraction: 0.01, pass: true })),
+    );
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/SCORE 3\/3 regions passing/);
+    expect(out).toMatch(/No open geometry failures/);
+    expect(code).toBe(0);
+  });
+
+  it("the PAUSED switch silences the agenda a scoring corpus would otherwise produce", async () => {
+    const cwd = await install();
+    await writeReport(cwd, "out-smoke-home", CORPUS);
+    // Same corpus as the scoring case above, which exits 1 with a named region.
+    await writeFile(join(cwd, "matching/PAUSED"), "waiting on the operator\n", "utf-8");
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/MATCHING PAUSED — no agenda, and none is to be inferred/);
+    expect(out).toContain("waiting on the operator");
+    expect(out).not.toMatch(/SCORE/);
+    expect(out).not.toMatch(/NEXT:/);
+    expect(code).toBe(0);
+  });
+
+  it("gate.sh RUNS the page once the reference verifies and SPEC.md has its section", async () => {
+    const cwd = await install();
+    const skill = await stubSkill();
+    await writeFile(
+      join(cwd, "matching/SPEC.md"),
+      "# Reference spec\n\n## home\n\nOne section, so Phase 1 is done for this page.\n",
+      "utf-8",
+    );
+
+    const { code, out } = await withServer(
+      (_req, res) => html(res, 200, "REFMARK-OK"),
+      async (origin) => {
+        await patchHarness(cwd, { ref: origin, refMark: "REFMARK-OK" });
+        return runIn(cwd, "bash", ["matching/gate.sh", "smoke", "home"], {
+          MATCHING_SKILL_DIR: skill,
+        });
+      },
+    );
+
+    expect(out).toMatch(/REF OK/);
+    expect(out).toMatch(/########## home ##########/);
+    expect(out).toMatch(/home exit=0/);
+    expect(out).toMatch(/ALL DONE \(smoke\)/);
+    expect(code).toBe(0);
+    expect(out).not.toMatch(/REFUSED/);
+    expect(out).not.toMatch(/GATE INCOMPLETE/);
+  });
+});
+
+describe("what the recipe COMMITS", () => {
+  /** Paths git actually tracks under the site, from git itself. */
+  const tracked = (cwd: string): string[] =>
+    execFileSync("git", ["ls-files"], { cwd, encoding: "utf-8" }).trim().split("\n");
+
+  /**
+   * The shipped manifest, written out by hand.
+   *
+   * MATCH_HARNESS_FILES is generated, and every other case in this file loops it
+   * to decide what to check — so deleting a row deletes its own check and the
+   * suite stays green with a file no longer installed. This list is the
+   * independent side of that comparison: it has to be edited deliberately.
+   */
+  const MANIFEST: ReadonlyArray<[string, "recipe" | "site"]> = [
+    ["matching/harness.mjs", "recipe"],
+    ["matching/gate.sh", "recipe"],
+    ["matching/census.sh", "recipe"],
+    ["matching/next.mjs", "recipe"],
+    ["matching/strikes.mjs", "recipe"],
+    ["matching/build-spec.mjs", "recipe"],
+    ["matching/census-count.mjs", "recipe"],
+    ["matching/harness.json", "site"],
+    ["matching/floors.mjs", "site"],
+    ["matching/census-deviations.mjs", "site"],
+    ["matching/spec-sections/_chrome.md", "site"],
+    ["matching/spec-sections/_header.md", "site"],
+    ["matching/LEDGER.md", "site"],
+    ["src/routes/dev/match/[uid]/+page.server.ts", "recipe"],
+    ["src/routes/dev/match/[uid]/+page.svelte", "recipe"],
+    ["src/lib/site-pages.js", "site"],
+    ["src/lib/site-pages.test.ts", "recipe"],
+  ];
+
+  it("installs exactly the manifest, with the ownership each row was given", () => {
+    expect(MATCH_HARNESS_FILES.map((f) => [f.rel, f.owner])).toEqual(
+      MANIFEST.map(([rel, owner]) => [rel, owner]),
+    );
+  });
+
+  it("GIT TRACKS every installed file — the .gitignore block whitelists them back", async () => {
+    const cwd = await install();
+    const files = tracked(cwd);
+
+    // The whole point of the negations: `matching/*` ignores the directory, and
+    // every line after it puts the harness back. Every assertion elsewhere in
+    // this file reads the filesystem, where an ignored file looks identical to a
+    // committed one — and 13 of these 17 live under `matching/`.
+    for (const [rel] of MANIFEST) {
+      expect(files, `${rel} was written but not committed`).toContain(rel);
+    }
+    expect(files).toContain(".gitignore");
+    expect(files).toContain(".prettierignore");
+    expect(files).toContain("CLAUDE.md");
+  });
+
+  it("still ignores the workspace the harness generates around those files", async () => {
+    const cwd = await install();
+    // Two layers, and the list exercises both: `matching/*` is the only thing
+    // that catches a round's OUTPUT DIRECTORY (a per-extension rule matches one
+    // level and never reaches inside it) or a stray file with no listed
+    // extension; the `matching/*.log|json|png` lines are what would still hold
+    // if the first were ever relaxed.
+    const ignored = [
+      "matching/out-smoke-home/report.json",
+      "matching/out-smoke-home/ref-1440.png",
+      "matching/scratch.txt",
+      "matching/out-smoke-home.log",
+      "matching/probe.json",
+      "matching/x.png",
+    ];
+    for (const rel of ignored) {
+      await mkdir(dirname(join(cwd, rel)), { recursive: true });
+      await writeFile(join(cwd, rel), "x", "utf-8");
+    }
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    const files = tracked(cwd);
+    for (const rel of ignored) {
+      expect(files, `${rel} should have stayed ignored`).not.toContain(rel);
+    }
+    // …and the one JSON that is not workspace debris is still in.
+    expect(files).toContain("matching/harness.json");
   });
 });
