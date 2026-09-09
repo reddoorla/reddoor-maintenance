@@ -125,7 +125,7 @@ While it is unresolved, `isPinResolved()` is false and **`prismic-ci` refuses on
 
 ### After every `reddoorla/.github` tag
 
-**Nothing bumps an installed pin.** Renovate has never opened a github-actions PR for a `reddoorla/.github` reusable-workflow ref on any fleet site: v1.4.0 sat unadopted for 18 days, and v1.4.1 (tagged 2026-09-01) reached the fleet only because ci.yml was swept by hand across 21 repos. On 2026-09-08 every installed `prismic-models.yml` still pinned v1.4.0. (Worded on purpose without the phrase the old comments used — that string is the tripwire Step 7 greps for, and the correction must not re-trip it.)
+**Nothing bumps an installed pin.** Renovate has never opened a github-actions PR for a `reddoorla/.github` reusable-workflow ref on any fleet site: v1.4.0 sat unadopted for 18 days, and v1.4.1 (tagged 2026-09-01) reached the fleet only because ci.yml was swept by hand across 21 repos. On 2026-09-08 every installed `prismic-models.yml` still pinned v1.4.0. (Deliberately worded without the phrase the pre-2026-09-08 comments used, so a grep for that phrase stays a reliable check that no instance of the old claim survives.)
 
 So a tag is three more steps, not one:
 
