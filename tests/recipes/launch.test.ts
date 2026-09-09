@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { launch } from "../../src/recipes/launch.js";
 import type { AuditResult, RecipeResult, Site } from "../../src/types.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
@@ -63,6 +66,11 @@ function deps(base: ReturnType<typeof makeFakeBase>) {
       commits: ["abc123"],
     }),
     audit: async (): Promise<AuditResult[]> => [lighthouseResult()],
+    probe: async (url: string) => {
+      if (url.endsWith("/dev/match/home"))
+        return { status: 404, body: "<div><h1>404</h1><p>Not found</p></div>" };
+      return { status: 200, body: "<h1>Fixtures</h1>" };
+    },
   };
 }
 
@@ -72,7 +80,13 @@ describe("recipes/launch", () => {
     const result = await launch(siteOf(), deps(base));
 
     expect(result.complete).toBe(true);
-    expect(result.steps.map((s) => s.name)).toEqual(["self-updating", "audit", "draft"]);
+    expect(result.steps.map((s) => s.name)).toEqual([
+      "matching-disposition",
+      "self-updating",
+      "dev-guard",
+      "audit",
+      "draft",
+    ]);
   });
 
   it("creates a Launch draft carrying the audited Lighthouse scores", async () => {
@@ -289,5 +303,90 @@ describe("recipes/launch", () => {
         c.records[0]!.fields["Draft ready"] === true,
     );
     expect(draftReadyUpdate).toBeDefined();
+  });
+
+  it("stops at dev-guard when the matching twin still answers 200 in production", async () => {
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch(siteOf(), {
+      ...deps(base),
+      probe: async () => ({ status: 200, body: "<h1>Home</h1>" }),
+    });
+    expect(result.complete).toBe(false);
+    const guard = result.steps.find((s) => s.name === "dev-guard");
+    expect(guard?.result).toMatchObject({ kind: "error" });
+    expect((guard?.result as { message: string }).message).toMatch(/live in production/);
+  });
+
+  it("stops at dev-guard when the 404 is not this site's own error page", async () => {
+    // A parked domain, a CDN 404 and a deleted route all answer 404. Only the
+    // site's own +error.svelte renders <h1>404</h1>. Without the marker the guard
+    // would pass on a site that is simply gone.
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch(siteOf(), {
+      ...deps(base),
+      probe: async (url: string) =>
+        url.endsWith("/dev/match/home")
+          ? { status: 404, body: "<html><body>Page not found · Netlify</body></html>" }
+          : { status: 200, body: "<h1>Fixtures</h1>" },
+    });
+    expect(result.complete).toBe(false);
+    const guard = result.steps.find((s) => s.name === "dev-guard");
+    expect((guard?.result as { message: string }).message).toMatch(/own error page/);
+  });
+
+  it("stops at dev-guard when the liveness control does not answer 200", async () => {
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch(siteOf(), {
+      ...deps(base),
+      probe: async (url: string) =>
+        url.endsWith("/dev/match/home")
+          ? { status: 404, body: "<h1>404</h1>" }
+          : { status: 503, body: "" },
+    });
+    expect(result.complete).toBe(false);
+    const guard = result.steps.find((s) => s.name === "dev-guard");
+    expect((guard?.result as { message: string }).message).toMatch(/proves nothing/);
+  });
+
+  it("stops before bootstrap when the checkout serves an unguarded /dev/match twin", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      "export const prerender = false;\nexport async function load({ params }) {\n  return { uid: params.uid };\n}\n",
+    );
+    const base = makeFakeBase(websitesSeed());
+    let bootstrapped = false;
+    const result = await launch(
+      { path: dir, name: "Acme Co" },
+      {
+        ...deps(base),
+        bootstrap: async (): Promise<RecipeResult> => {
+          bootstrapped = true;
+          return { recipe: "self-updating", site: "Acme Co", status: "applied", commits: [] };
+        },
+      },
+    );
+    expect(result.complete).toBe(false);
+    expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition"]);
+    expect(bootstrapped).toBe(false);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("passes the pre-flight once the twin route carries the dev guard", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-ok-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      'import { dev } from "$app/environment";\nimport { error } from "@sveltejs/kit";\nexport const prerender = false;\nexport async function load({ params }) {\n  if (!dev) error(404, { message: "Not found" });\n  return { uid: params.uid };\n}\n',
+    );
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(base));
+    expect(result.complete).toBe(true);
+    expect(result.steps[0]!.result).toMatchObject({
+      kind: "probe",
+      message: expect.stringContaining("dev guard"),
+    });
+    await rm(dir, { recursive: true, force: true });
   });
 });

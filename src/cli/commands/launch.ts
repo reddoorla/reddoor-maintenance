@@ -6,7 +6,7 @@ export type LaunchCommandOptions = {
   cwd?: string;
 };
 
-function formatStep(name: string, r: LaunchStepResult): string {
+export function formatStep(name: string, r: LaunchStepResult): string {
   if (r.kind === "error") return `${name.padEnd(20)} error: ${r.message}`;
   if (r.kind === "audit") {
     const s = r.scores;
@@ -15,6 +15,7 @@ function formatStep(name: string, r: LaunchStepResult): string {
   if (r.kind === "draft") {
     return `${name.padEnd(20)} drafted ${r.report.reportId}`;
   }
+  if (r.kind === "probe") return `${name.padEnd(20)} ok — ${r.message}`;
   const rec = r.result;
   if (rec.status === "noop") return `${name.padEnd(20)} noop${rec.notes ? ` — ${rec.notes}` : ""}`;
   if (rec.status === "failed")

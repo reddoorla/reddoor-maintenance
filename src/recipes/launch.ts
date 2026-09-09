@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { AuditResult, RecipeResult, Site } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { selfUpdating } from "./self-updating/index.js";
@@ -26,6 +29,7 @@ export type LaunchStepResult =
   | { kind: "recipe"; result: RecipeResult }
   | { kind: "audit"; results: AuditResult[]; scores: LighthouseScores }
   | { kind: "draft"; report: ReportRow }
+  | { kind: "probe"; message: string }
   | { kind: "error"; message: string };
 
 export type LaunchResult = {
@@ -52,6 +56,58 @@ export type LaunchDeps = {
   /** #539 Phase 5: the Websites-row twin — launch writes the site's FIRST audit
    *  results and (on send) its launched status. Injected at the CLI root. */
   siteMirror?: SiteMirror;
+  /** HTTP probe for `dev-guard`. Defaults to global fetch. INJECTED in tests:
+   *  the suite stubs `global.fetch` for the Airtable attachment upload and that
+   *  stub answers 200 to everything — which is precisely the state this step
+   *  exists to fail on. */
+  probe?: (url: string) => Promise<{ status: number; body: string }>;
+};
+
+/** The site's OWN 404. `src/routes/+error.svelte` renders `<h1>{page.status}</h1>`,
+ *  so a real SvelteKit 404 from this app carries an `<h1>404</h1>`; a parked
+ *  domain, a CDN 404 and a dead host do not. "The route is gone" and "the site
+ *  is gone" must not look the same to this gate. */
+const SITE_404_MARKER = /<h1[^>]*>\s*404\s*<\/h1>/i;
+
+const MATCH_ROUTE_DIR = "src/routes/dev/match";
+const MATCH_GUARD_FILE = "src/routes/dev/match/[uid]/+page.server.ts";
+
+/**
+ * Pre-flight: a checkout that still carries the matching twin must carry the
+ * dev guard the `match-harness` recipe installs with it. Nothing is deleted at
+ * launch — the harness stays for the next round — so the guard is the whole
+ * mechanism keeping `/dev/match/*` off the production build.
+ *
+ * Filesystem only, and it runs BEFORE any GitHub write: a site that will fail
+ * the deployed check should not first acquire branch protection and an audit.
+ */
+export async function matchingDisposition(
+  sitePath: string,
+): Promise<{ ok: boolean; message: string }> {
+  if (!existsSync(join(sitePath, MATCH_ROUTE_DIR))) {
+    return { ok: true, message: `no ${MATCH_ROUTE_DIR} in this checkout` };
+  }
+  let source: string;
+  try {
+    source = await readFile(join(sitePath, MATCH_GUARD_FILE), "utf-8");
+  } catch {
+    return {
+      ok: false,
+      message: `${MATCH_ROUTE_DIR} exists but ${MATCH_GUARD_FILE} could not be read — the twin's disposition cannot be established`,
+    };
+  }
+  if (!(source.includes("$app/environment") && /if\s*\(\s*!\s*dev\s*\)/.test(source))) {
+    return {
+      ok: false,
+      message: `${MATCH_GUARD_FILE} has no \`if (!dev)\` guard on \`$app/environment\` — the matching twin would ship`,
+    };
+  }
+  return { ok: true, message: `${MATCH_GUARD_FILE} carries the dev guard` };
+}
+
+const defaultProbe = async (url: string): Promise<{ status: number; body: string }> => {
+  const res = await fetch(url, { redirect: "follow" });
+  return { status: res.status, body: await res.text() };
 };
 
 /**
@@ -61,9 +117,11 @@ export type LaunchDeps = {
  * Lighthouse scores, so `sendOne`'s `report.lighthouse` guard passes.
  *
  * Step-chain (mirrors `init`), stopping on the first error or `failed` recipe:
+ *   0. matchingDisposition — filesystem pre-flight, BEFORE any GitHub write.
  *   1. selfUpdating — Renovate + protection (platform auto-merge OFF; ci.yml is the starter's).
  *   2. runAudits + write the scores to the site's Websites row (reuses the
  *      `audit --write-airtable` writer); the Lighthouse scores feed the draft.
+ *  2b. dev-guard — the same twin, checked against the DEPLOYED url.
  *   3. createDraft — reportType "Launch", today's period, the audited scores.
  */
 export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchResult> {
@@ -71,9 +129,20 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
   const bootstrap = deps.bootstrap ?? selfUpdating;
   const audit = deps.audit ?? runAudits;
   const base = deps.base ?? openBase(readAirtableConfig());
+  const probe = deps.probe ?? defaultProbe;
 
   const steps: Array<{ name: string; result: LaunchStepResult }> = [];
   const stop = (): LaunchResult => ({ site: label, steps, complete: false });
+
+  // 0. Matching disposition — filesystem, before any GitHub write.
+  const disposition = await matchingDisposition(site.path);
+  steps.push({
+    name: "matching-disposition",
+    result: disposition.ok
+      ? { kind: "probe", message: disposition.message }
+      : { kind: "error", message: disposition.message },
+  });
+  if (!disposition.ok) return stop();
 
   // 1. Bootstrap.
   let recipe: RecipeResult;
@@ -123,6 +192,55 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
     });
     return stop();
   }
+
+  // 2b. The dev guard, on the DEPLOYED build. Two halves, both required:
+  //     /dev/match/home must 404 WITH this site's own error page, and
+  //     /dev/a11y-fixtures must answer 200. Without the second, a dead host, a
+  //     wrong url and a parked domain all "pass" the first — an absent error
+  //     granting a green, which is the one shape this fleet does not allow.
+  //     Reading the deployed url makes this a production-build check by
+  //     construction; no local build can substitute.
+  const origin = target.url.replace(/\/+$/, "");
+  let twin: { status: number; body: string };
+  let control: { status: number; body: string };
+  try {
+    twin = await probe(`${origin}/dev/match/home`);
+    control = await probe(`${origin}/dev/a11y-fixtures`);
+  } catch (err) {
+    steps.push({ name: "dev-guard", result: errorOf(err) });
+    return stop();
+  }
+  if (control.status !== 200) {
+    steps.push({
+      name: "dev-guard",
+      result: {
+        kind: "error",
+        message: `${origin}/dev/a11y-fixtures answered ${control.status}, not 200 — the twin's 404 proves nothing (host down, wrong url, or the axe fixture route was deleted, in which case the a11y audit is measuring nothing either)`,
+      },
+    });
+    return stop();
+  }
+  if (twin.status !== 404 || !SITE_404_MARKER.test(twin.body)) {
+    steps.push({
+      name: "dev-guard",
+      result: {
+        kind: "error",
+        message:
+          twin.status === 404
+            ? `${origin}/dev/match/home 404s, but not with this site's own error page — cannot tell the guard from a dead route`
+            : `${origin}/dev/match/home answered ${twin.status} — the matching twin is live in production`,
+      },
+    });
+    return stop();
+  }
+  steps.push({
+    name: "dev-guard",
+    result: {
+      kind: "probe",
+      message: `${origin}/dev/match/home 404 (site error page), /dev/a11y-fixtures 200`,
+    },
+  });
+
   try {
     const auditWrite = await writeAuditsToAirtable({
       base,
