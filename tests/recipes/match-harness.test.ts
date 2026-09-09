@@ -3,7 +3,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -22,7 +22,7 @@ import {
   GATE_SH_TEMPLATE,
   LEDGER_MD_TEMPLATE,
 } from "../../src/recipes/match-harness/template.js";
-import type { SpawnFn } from "../../src/audits/util/spawn.js";
+import type { SpawnFn, SpawnOptions } from "../../src/audits/util/spawn.js";
 import { PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 
@@ -343,19 +343,33 @@ describe("recipes/match-harness", () => {
 
   // --- what is handed to the site's prettier
 
+  /** Records every spawn the recipe makes. `SITE_PRETTIER` stands in for a
+   *  populated `node_modules/.bin` so these cases can assert the absolute-path
+   *  invocation without installing ~20 devDependencies into the fixture. */
+  const SITE_PRETTIER = "/site/node_modules/.bin/prettier";
+  type Call = { cmd: string; args: readonly string[]; opts?: SpawnOptions };
+  function recorder(code = 0): { calls: Call[]; spawn: SpawnFn } {
+    const calls: Call[] = [];
+    const spawn: SpawnFn = async (cmd, args, opts) => {
+      calls.push({ cmd, args, ...(opts !== undefined ? { opts } : {}) });
+      return { code, stdout: "", stderr: "" };
+    };
+    return { calls, spawn };
+  }
+
   it("hands the site's prettier only files the SITE owns — never one the recipe owns", async () => {
     const cwd = await copyFixtureToTmp(pristine);
-    const calls: { cmd: string; args: readonly string[] }[] = [];
-    const recordingSpawn: SpawnFn = async (cmd, args) => {
-      calls.push({ cmd, args });
-      return { code: 0, stdout: "", stderr: "" };
-    };
-    await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn: recordingSpawn });
+    const { calls, spawn } = recorder();
+    await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn, resolvePrettier: async () => SITE_PRETTIER },
+    );
 
     expect(calls).toHaveLength(1);
-    const paths = calls[0]!.args.filter(
-      (a) => !a.startsWith("-") && a !== "exec" && a !== "prettier",
-    );
+    // No `exec`/`prettier` filter: after the fix there is no `pnpm exec` argv to
+    // strip, so a re-introduced one shows up here as two extra "paths".
+    const paths = calls[0]!.args.filter((a) => !a.startsWith("-"));
 
     // GRANTS: every site-owned record the install wrote is handed over, so this
     // cannot pass by handing prettier nothing at all.
@@ -367,6 +381,58 @@ describe("recipes/match-harness", () => {
     // Neither ignore file: prettier has no parser for them.
     expect(paths).not.toContain(".gitignore");
     expect(paths).not.toContain(".prettierignore");
+  });
+
+  it("runs the SITE's own prettier by absolute path, under a timeout — never `pnpm exec`", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    const { calls, spawn } = recorder();
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn, resolvePrettier: async () => SITE_PRETTIER },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cmd).toBe(SITE_PRETTIER);
+    expect(calls[0]!.args[0]).toBe("--write");
+    expect(calls[0]!.args).not.toContain("exec");
+    // Without a timeout the fleet's default spawn never detaches and never
+    // kills: an implicit install in a client repo would run unbounded.
+    expect(calls[0]!.opts?.timeoutMs).toBe(60_000);
+    expect(calls[0]!.opts?.cwd).toBe(cwd);
+    // The green is positive: the target's own prettier ran and exited 0, so
+    // there is nothing to flag.
+    expect(result.status).toBe("applied");
+    expect(result.notes ?? "").not.toContain(PRETTIER_FLAG_NOTE);
+  });
+
+  it("resolves that prettier from the checkout itself when none is injected", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    // node_modules must be ignored first or the clean-tree gate throws on it.
+    await seed(cwd, ".gitignore", "node_modules\n");
+    await mkdir(join(cwd, "node_modules", ".bin"), { recursive: true });
+    await writeFile(join(cwd, "node_modules", ".bin", "prettier"), "#!/bin/sh\nexit 0\n", "utf-8");
+    const { calls, spawn } = recorder();
+
+    await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn });
+
+    // Not merely "not pnpm": the exact binary inside THIS checkout.
+    expect(calls.map((c) => c.cmd)).toEqual([
+      await realpath(join(cwd, "node_modules", ".bin", "prettier")),
+    ]);
+  });
+
+  it("never shells out into a clone with no prettier: it skips, flags, and still commits", async () => {
+    // The fleet path exactly — `prepareFleetSites` clones and never installs,
+    // so every site arrives without node_modules. Nothing may run there.
+    const cwd = await copyFixtureToTmp(pristine);
+    const { calls, spawn } = recorder();
+    const result = await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn });
+
+    expect(calls).toEqual([]);
+    expect(result.status).toBe("applied");
+    expect(result.commits).toHaveLength(1);
+    expect(result.notes).toContain(PRETTIER_FLAG_NOTE);
   });
 
   it("owns the route, its page and the fixture test; the site owns the records", () => {
@@ -413,7 +479,7 @@ describe("recipes/match-harness", () => {
     const first = await matchHarness(
       { path: cwd },
       { ref: "https://ref.test" },
-      { spawn: realPrettierSpawn },
+      { spawn: realPrettierSpawn, resolvePrettier: async () => prettierBin },
     );
     expect(first.status).toBe("applied");
 
@@ -433,7 +499,7 @@ describe("recipes/match-harness", () => {
     const second = await matchHarness(
       { path: cwd },
       { ref: "https://ref.test" },
-      { spawn: realPrettierSpawn },
+      { spawn: realPrettierSpawn, resolvePrettier: async () => prettierBin },
     );
     expect(second.status).toBe("noop");
     expect(second.notes ?? "").not.toContain("differs from the shipped template");
@@ -441,7 +507,11 @@ describe("recipes/match-harness", () => {
 
   it("puts every recipe-owned file in the site's .prettierignore, brackets escaped", async () => {
     const cwd = await foreignPrettierSite();
-    await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn: realPrettierSpawn });
+    await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: realPrettierSpawn, resolvePrettier: async () => prettierBin },
+    );
     const prettier = await import("prettier");
     const ignorePath = [join(cwd, ".gitignore"), join(cwd, ".prettierignore")];
 
@@ -484,12 +554,15 @@ describe("recipes/match-harness", () => {
 
   it("flags — but still commits — when the site's prettier cannot run", async () => {
     const cwd = await copyFixtureToTmp(pristine);
-    const failingSpawn: SpawnFn = async () => ({ code: 1, stdout: "", stderr: "boom" });
+    const { calls, spawn } = recorder(1);
     const result = await matchHarness(
       { path: cwd },
       { ref: "https://ref.test" },
-      { spawn: failingSpawn },
+      { spawn, resolvePrettier: async () => SITE_PRETTIER },
     );
+    // Distinct from the skip case above: prettier WAS found and WAS run, and it
+    // is its non-zero exit — not its absence — that raises the flag.
+    expect(calls).toHaveLength(1);
     expect(result.status).toBe("applied");
     expect(result.commits).toHaveLength(1);
     expect(result.notes).toContain(PRETTIER_FLAG_NOTE);

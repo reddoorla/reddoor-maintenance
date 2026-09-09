@@ -604,3 +604,98 @@ The two greps are also a real coupling to the skill's output format — if a
 future style-census reformats its counts line, census.sh refuses every run and
 exits 2. That is the correct direction to fail and it is loud, but it will read
 as a false alarm, and the fix then is to update the greps, not delete them.
+
+## 2026-09-09 (later) — match-harness ran an unbounded `pnpm exec` inside every fleet clone (#733, `feat/match-harness-recipe`)
+
+The recipe's format step called `formatWithPrettier(deps.spawn, cwd, toFormat)`
+with neither `bin` nor `timeoutMs`. `_prettier.ts:90-94` turns that into
+`pnpm exec prettier --write …`, and `src/audits/util/spawn.ts` sets `detached`
+(line 91) and installs its kill timer (line 136) only when `timeoutMs` is
+present — so it ran with no timeout, no process group, and nothing to kill.
+
+**The fleet is the normal input here, not an edge case.** `prepareFleetSites`
+calls `cloneIfNeeded`, and `grep -rn 'pnpm\|install' src/cli/fleet/clone-if-needed.ts`
+exits 1 — the file contains neither token. A cloned site has no `node_modules`.
+Recorded from the pre-fix code against a fixture with none, the recipe's single
+spawn was `cmd: "pnpm"`, `args: ["exec", "prettier", "--write", …8 paths]`,
+`opts: { cwd }` — no `timeoutMs` key at all. That is an unrequested full install
+in a live client repo, which is also how a swept `pnpm-lock.yaml` would have got
+into the recipe's commit. And `_prettier.ts:44-58` already records what happens
+next in a repo that does not depend on prettier: `pnpm exec` falls through to
+the CALLING repo's binary and exits 0, reporting success for a format the target
+never did — the false green this project's first rule forbids.
+
+The fix is `prismic-ci`'s, line for line (`src/recipes/prismic-ci/index.ts:285-294`):
+resolve the target's own prettier POSITIVELY with `resolveTargetPrettier(cwd)`,
+run it by absolute path under `PRETTIER_TIMEOUT_MS = 60_000` (the same budget as
+`prismic-ci:41` and `src/prismic/models/write.ts:328`), and when it resolves to
+null push the flag note and spawn nothing. Skip-with-a-note was chosen over
+"install then format" because installing is an unrequested mutation of ~20 live
+client repos, and over "format anyway" for the reason above. `resolvePrettier`
+is injectable on `MatchHarnessDeps` exactly as on `PrismicCiDeps`, because
+without it the new cases could only be written against a fixture with ~20
+devDependencies installed.
+
+**Two existing tests were measuring the wrong thing, and one would have gone
+green while doing it.** The real-prettier cases from the ownership fix earlier
+today (`a site whose prettier config differs…`, `puts every recipe-owned file in
+the site's .prettierignore…`) run against `foreignPrettierSite()`, which has no
+`node_modules` — after the fix nothing would have formatted, and their positive
+control (`site-pages.js` comes back rewritten) would have failed outright. They
+now inject the stand-in bin. Worse: `flags — but still commits — when the site's
+prettier cannot run` would have kept PASSING, because the skip path raises the
+same note — it would have measured "prettier was absent" under a name claiming
+"prettier ran and failed". It now injects a bin too and asserts the spawn
+happened, so the two paths are distinct cases.
+
+**Grant-side evidence, since a guard proven only to refuse is not proven.** Two
+of the five cases are grants: one asserts the spawn HAPPENED with the resolved
+absolute `cmd`, `--write` first, no `exec` argument, `cwd` = the site,
+`timeoutMs` = 60_000, status `applied` and NO flag note; the other injects
+nothing and asserts the production default spawns the exact `realpath` of the
+prettier inside that checkout. Without the second, the rest would prove only
+that the injected fake is wired up. Two constraints found by running it: the
+`node_modules` case must commit a `.gitignore` first or `withRecipe`'s
+`git status --porcelain` check throws on the untracked directory, and the
+expectation must be `await realpath(…)` — `mkdtemp` hands back `/var/folders/…`,
+which on macOS is a symlink to `/private/var/…`, and `resolveTargetPrettier`
+returns the realpath.
+
+**The honest cost.** Every fleet site now carries the prettier flag note,
+because a fresh clone has nothing to run. That is the intended outcome and it
+must not be "fixed" by suppressing the note — the exposure is bounded (the
+formatted set is only the site-owned records plus CLAUDE.md, all shipped
+prettier-clean), and the operator reads CI's format job per site instead. A
+`true` from this step also now means less than it looks: "the binary at
+`<repoRoot>/node_modules/.bin/prettier` exited 0", not "the files match the
+site's CI config" — a stale `node_modules` formats with a stale prettier and
+still reports true. `prismic-ci` guards its analogue with a byte re-compare;
+match-harness cannot, because its formatted files are expected to change.
+
+**Found here, not fixed here.** The defect class is three call sites, not one:
+`grep -rn formatWithPrettier src/` gives `match-harness/index.ts` (fixed),
+`health-endpoint/index.ts:83` and `smoke-suite/index.ts:224`, all three omitting
+both options. Both siblings are equally fleet-reachable —
+`src/cli/commands/health-endpoint.ts:37,42` and `smoke-suite.ts:37,42` call
+`prepareFleetSites` then `runRecipeOverSites`, the same two lines as
+`match-harness.ts:42,65` — so they run the identical unbounded `pnpm exec` in
+every cloned client repo today, on `main`. Filed as #737 rather than folded in,
+because
+each needs its own mutation-proven surgery and stacking two unrelated recipe
+fixes into a draft feature PR is the batching mistake this file already records.
+(`src/cli/commands/prismic-models.ts:842` is NOT an instance: it forwards
+`fmtOpts`, and `src/prismic/models/write.ts:563` supplies both.) Also:
+`_prettier.ts:60-64` says timeoutMs-omitted is "the historical behaviour of this
+helper's two recipe callers" — that sentence was FALSE on this branch, where
+three callers omitted it. This fix makes it true again by coincidence, and
+fixing the two siblings will make it false the other way; whoever does them
+should correct the sentence in the same PR.
+
+**What no test here covers.** The swept `pnpm-lock.yaml` is closed _causally_ —
+nothing is spawned in the target at all, and one case asserts `calls` is `[]` —
+not by an assertion on the committed file list. A `not.toContain("pnpm-lock.yaml")`
+would be vacuous against a faked spawn and would pass on the pre-fix code too;
+reddening it honestly would need the real `defaultSpawn` to run a live install
+inside the unit suite. Recorded rather than papered over. And
+`resolveTargetPrettier` collapses EACCES to null, so "I could not look" and
+"the site has no prettier" raise the same note.

@@ -4,7 +4,7 @@ import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { ignoreRulesFor, pathsMissingFromHead } from "../../util/git.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
-import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
 import {
   MATCH_HARNESS_FILES,
   MATCH_HARNESS_PREVIOUS,
@@ -16,6 +16,11 @@ import {
   CLAUDE_MD_MARKER,
   CLAUDE_MD_BLOCK,
 } from "./template.js";
+
+/** How long the target's own prettier gets. Also what makes the fleet's default
+ *  spawn detach the child, so the kill reaches prettier and not just a wrapper.
+ *  Same budget as `prismic-ci` and the Prismic pull-down path. */
+const PRETTIER_TIMEOUT_MS = 60_000;
 
 export type MatchHarnessOptions = {
   /** The live reference URL the harness gates against. Required — a harness
@@ -32,6 +37,9 @@ export type MatchHarnessDeps = {
   /** Previously shipped renders per relative path; injectable so the
    *  safe-replace path is testable before a second version exists. */
   previous?: Readonly<Record<string, readonly string[]>>;
+  /** Resolve the TARGET repo's own prettier. Injected so a test can assert the
+   *  absolute-path spawn without a populated `node_modules`. */
+  resolvePrettier?: (repoRoot: string) => Promise<string | null>;
 };
 
 type Plan = { ref: string; cand: string; matrix: number[] };
@@ -202,8 +210,28 @@ export async function matchHarness(
         MATCH_HARNESS_FILES.filter((f) => f.owner === "site").map((f) => f.rel),
       );
       const toFormat = written.filter((p) => siteOwned.has(p) || p === "CLAUDE.md");
-      if (toFormat.length > 0 && !(await formatWithPrettier(deps.spawn, cwd, toFormat))) {
-        notes.push(PRETTIER_FLAG_NOTE);
+
+      // Run the SITE's own prettier, resolved POSITIVELY and invoked by absolute
+      // path. `pnpm exec prettier` here would first run a full, unbounded
+      // `pnpm install` in the client's checkout — which on `--fleet` is the
+      // NORMAL path, because `prepareFleetSites` clones and never installs — and
+      // would then, in a repo whose install left no prettier of its own, fall
+      // through to the CALLING repo's binary and exit 0, reporting success for a
+      // format the target never did. A `true` from here must mean the target's
+      // own prettier ran, so nothing about which binary runs is left to
+      // resolution.
+      if (toFormat.length > 0) {
+        const bin = await (deps.resolvePrettier ?? resolveTargetPrettier)(cwd);
+        if (bin === null) {
+          notes.push(PRETTIER_FLAG_NOTE);
+        } else if (
+          !(await formatWithPrettier(deps.spawn, cwd, toFormat, {
+            bin,
+            timeoutMs: PRETTIER_TIMEOUT_MS,
+          }))
+        ) {
+          notes.push(PRETTIER_FLAG_NOTE);
+        }
       }
 
       await commit(
