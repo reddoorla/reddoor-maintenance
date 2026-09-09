@@ -65,6 +65,47 @@ async function stubSkill(): Promise<string> {
   return dir;
 }
 
+/** The body of a stub style-census.mjs. It answers census.sh's usage-banner
+ *  preflight, then writes whatever STUB_CENSUS_MODE asks for: a completed
+ *  census (`clean` / `dirty`), one that dies the way a closed dev server does
+ *  (`crash`), or one over two pages that rendered no text at all (`blank`).
+ *  `crash` dies AFTER the banner on purpose — the preflight passes, so only the
+ *  per-run evidence check can catch it. String.raw so the `\n`s reach the file
+ *  as source, not as newlines in this one. */
+const STUB_CENSUS = String.raw`
+const arg = (f) => {
+  const i = process.argv.indexOf(f);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+};
+if (!arg("--ref") || !arg("--cand")) {
+  console.error("usage: node style-census.mjs --ref <url> --cand <url> [--vw 1440]");
+  process.exit(2);
+}
+const mode = process.env.STUB_CENSUS_MODE ?? "clean";
+if (mode === "crash") throw new Error("page.goto: net::ERR_CONNECTION_REFUSED");
+const vw = Number(arg("--vw") ?? 1440);
+const runs = mode === "blank" ? 0 : 12;
+const mismatches = mode === "dirty" ? 1 : 0;
+console.log("\n=== style census, viewport " + vw + " ===");
+console.log(
+  "ref runs: " + runs + "   cand runs: " + runs +
+    "   mismatches: " + mismatches + "   ambiguous: 0",
+);
+if (mismatches) {
+  console.log('\n  y=   100 "book an appointment"');
+  console.log("    ref:  Inter | 400 | 16px | 24px | ls=normal | none | rgb(0, 0, 0)");
+  console.log("    cand: Inter | 400 | 11px | 24px | ls=normal | none | rgb(0, 255, 255)");
+}
+process.exit(mismatches > 0 ? 1 : 0);
+`;
+
+/** A skill directory holding only that stub. */
+async function stubCensusSkill(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "match-census-"));
+  await writeFile(join(dir, "style-census.mjs"), STUB_CENSUS, "utf-8");
+  return dir;
+}
+
 /** Rewrite fields of the installed site's harness.json. */
 async function patchHarness(cwd: string, patch: Record<string, unknown>): Promise<void> {
   const p = join(cwd, "matching/harness.json");
@@ -417,6 +458,118 @@ describe("recipes/match-harness", () => {
     } finally {
       await new Promise<void>((done) => server.close(() => done()));
     }
+  });
+
+  // --- census.sh: a CLEAN must come from a census that RAN
+  //
+  // It did not. With style-census.mjs absent, all three runs died on module
+  // resolution, census-count.mjs read each crash log as "0 0 0", and this gate
+  // printed "Phase 3 CLEAN" and exited 0. The first case below is the load
+  // bearing one: it is the only one that proves the guards can still say yes,
+  // and a guard proven only to refuse is not proven.
+
+  it("census.sh reports CLEAN when the census ran and found nothing", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "clean",
+    });
+    expect(out).toMatch(/Phase 3 CLEAN/);
+    // the count of runs the green is made of, so a green over nothing reads
+    // differently from a green over the matrix
+    expect(out).toMatch(/3 censused run\(s\) over 1 page\(s\)/);
+    expect(code).toBe(0);
+  });
+
+  it("census.sh still fails on the mismatches a completed census found", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "dirty",
+    });
+    expect(out).toMatch(/3 type mismatch\(es\) remain/);
+    expect(code).toBe(1);
+    expect(out).not.toMatch(/Phase 3 CLEAN|CENSUS INCOMPLETE/);
+  });
+
+  it("census.sh refuses when every run died — the green this guard exists for", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "crash",
+    });
+    expect(out).toMatch(/CENSUS INCOMPLETE — 3 of 3 run\(s\) produced no usable census/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
+  });
+
+  it("census.sh refuses two pages that rendered no text — they agree perfectly", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "blank",
+    });
+    expect(out).toMatch(/CENSUS INCOMPLETE — 3 of 3 run\(s\) produced no usable census/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
+  });
+
+  it("census.sh refuses when style-census.mjs is not installed at all", async () => {
+    const cwd = await install();
+    const empty = await mkdtemp(join(tmpdir(), "match-noskill-"));
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: empty,
+    });
+    expect(out).toMatch(/no style-census at .*style-census\.mjs/);
+    expect(code).toBe(2);
+    // THAT refusal: the existence probe, before a single run was spent. Every
+    // guard in this file exits 2, so a case that asserted only the code would
+    // pass with the probe deleted.
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
+    expect(out).not.toMatch(/did not answer with a style-census/);
+    expect(out).not.toMatch(/CENSUS INCOMPLETE/);
+  });
+
+  it("census.sh refuses a style-census that will not answer its usage banner", async () => {
+    const cwd = await install();
+    const mute = await mkdtemp(join(tmpdir(), "match-mute-"));
+    await writeFile(join(mute, "style-census.mjs"), "process.exit(0);\n", "utf-8");
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: mute,
+    });
+    expect(out).toMatch(/did not answer with a style-census --ref\/--cand\/--vw usage/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
+    // the preflight caught it, so no run was spent on it
+    expect(out).not.toMatch(/CENSUS INCOMPLETE/);
+  });
+
+  it("census.sh refuses a page name that matches nothing, and names the vocabulary", async () => {
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh", "hom"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "clean",
+    });
+    expect(out).toMatch(/"hom" matches no page — refusing to report CLEAN/);
+    expect(out).toMatch(/known pages: home/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/Phase 3 CLEAN/);
+  });
+
+  it("census-count.mjs refuses a log it cannot read rather than counting it as zero", async () => {
+    const cwd = await install();
+    const { code, out } = await runIn(cwd, "node", [
+      "matching/census-count.mjs",
+      "matching/census-home-1440.log",
+    ]);
+    expect(out).toMatch(/cannot read .*census-home-1440\.log/);
+    expect(out).not.toMatch(/^0 0 0$/m);
+    expect(code).toBe(2);
   });
 
   it("ships Markdown stubs that are already prettier-clean", async () => {
