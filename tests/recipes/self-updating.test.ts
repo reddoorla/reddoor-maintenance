@@ -621,7 +621,7 @@ describe("selfUpdating recipe", () => {
     const { gh } = fakeGitHub();
     const r = await selfUpdating({ path: dir, name: "r" }, { github: gh });
     expect(r.status).toBe("failed");
-    expect(r.notes).toContain("no Git repo");
+    expect(r.notes).toMatch(/could not determine/i);
   });
 
   it("refuses a malformed gitRepo without making any gh call (token-to-attacker-repo guard)", async () => {

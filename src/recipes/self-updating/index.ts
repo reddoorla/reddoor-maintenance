@@ -80,7 +80,8 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
     return resultOf(
       site,
       "failed",
-      "no Git repo (set Airtable 'Git repo' or add an origin remote)",
+      "could not determine a GitHub repo for this site — set Airtable 'Git repo', or give " +
+        "the checkout an origin remote whose URL is a GitHub owner/repo",
     );
   }
 
