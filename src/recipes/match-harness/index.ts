@@ -1,7 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
+import { ignoreRulesFor, pathsMissingFromHead } from "../../util/git.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
 import {
@@ -80,6 +81,25 @@ export function planFileWrite(
   return "flag";
 }
 
+/** The three files the recipe APPENDS a marked block to rather than writing whole. */
+const APPENDED_BLOCKS = [
+  [".gitignore", GITIGNORE_MARKER, GITIGNORE_BLOCK],
+  [".prettierignore", PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK],
+  ["CLAUDE.md", CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK],
+] as const;
+
+/**
+ * Every path the installed harness requires to be IN THE COMMIT — deliberately
+ * the whole manifest, NOT the paths written on this run. A re-run skips every
+ * file already byte-correct on disk, so a check over the written delta would
+ * find nothing missing and report a second hollow "applied" over the same
+ * half-install.
+ */
+export const MATCH_HARNESS_INSTALLED_PATHS: readonly string[] = [
+  ...MATCH_HARNESS_FILES.map((f) => f.rel),
+  ...APPENDED_BLOCKS.map(([rel]) => rel),
+];
+
 /**
  * Installs the matching harness into a site: the dev-guarded `/dev/match/[uid]`
  * route, a `site-pages.js` scaffold and its fixture-vs-model test,
@@ -118,6 +138,10 @@ export async function matchHarness(
     apply: async (planned, { commit, cwd }) => {
       const notes: string[] = [];
       const written: string[] = [];
+      /** For every path this run writes: what was there BEFORE (null = the file
+       *  did not exist). The refusal below restores from this, so a refused run
+       *  leaves the checkout byte-identical to how it found it. */
+      const before = new Map<string, string | null>();
       const previousAll = deps.previous ?? MATCH_HARNESS_PREVIOUS;
 
       for (const f of MATCH_HARNESS_FILES) {
@@ -144,20 +168,19 @@ export async function matchHarness(
         }
         if (action === "skip") continue;
         await mkdir(dirname(target), { recursive: true });
+        before.set(f.rel, existing);
         await writeFile(target, template, "utf-8");
         written.push(f.rel);
         if (action === "replace") notes.push(`${f.rel} upgraded from a previous version`);
       }
 
       // Three appended blocks, each idempotent on its own marker.
-      for (const [rel, marker, block] of [
-        [".gitignore", GITIGNORE_MARKER, GITIGNORE_BLOCK],
-        [".prettierignore", PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK],
-        ["CLAUDE.md", CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK],
-      ] as const) {
+      for (const [rel, marker, block] of APPENDED_BLOCKS) {
         const path = join(cwd, rel);
-        const merged = mergeBlock(await readIfExists(path), marker, block);
+        const existing = await readIfExists(path);
+        const merged = mergeBlock(existing, marker, block);
         if (merged !== null) {
+          before.set(rel, existing);
           await writeFile(path, merged, "utf-8");
           written.push(rel);
         }
@@ -178,6 +201,59 @@ export async function matchHarness(
       await commit(
         "feat: install the matching harness (/dev/match route + matching/ gate scripts)",
       );
+
+      // POSITIVE EVIDENCE that the install is real: every installed path is
+      // FOUND in HEAD's tree. `git add -A` honours the site's .gitignore and
+      // exits 0 either way, and git cannot re-include a file whose PARENT
+      // DIRECTORY is excluded — so a site that already ignores `matching/`
+      // (or `**/matching/`, `/matching`, `src/lib/site-pages.js`, …) gets the
+      // files on disk, nothing in the commit, and — before this check — a
+      // result of "applied", plus 83 lines of CLAUDE.md rules naming scripts
+      // that exist on no other machine.
+      const missing = await pathsMissingFromHead(cwd, MATCH_HARNESS_INSTALLED_PATHS);
+      if (missing.length > 0) {
+        const rules = await ignoreRulesFor(cwd, missing);
+        const sources = [...new Set(rules.map((r) => r.split("\t")[0]!))];
+        const explained = new Set(rules.map((r) => r.split("\t")[1] ?? ""));
+        const unexplained = missing.filter((p) => !explained.has(p));
+
+        // Put the checkout back exactly as we found it. Only paths THIS RUN
+        // wrote and git then refused are touched: one that reached the commit
+        // is left to withRecipe's force-checkout, and one we never wrote is
+        // never ours. `git checkout -f` cannot do this job — these paths are
+        // ignored, so git does not know they exist.
+        const removed: string[] = [];
+        for (const rel of written.filter((p) => missing.includes(p))) {
+          const prev = before.get(rel);
+          if (prev === undefined) continue;
+          if (prev === null) {
+            await rm(join(cwd, rel), { force: true });
+            removed.push(rel);
+          } else {
+            await writeFile(join(cwd, rel), prev, "utf-8");
+          }
+        }
+        // Deepest-first, so `matching/spec-sections` goes before `matching`.
+        // rmdir refuses a non-empty directory, which is exactly the guard wanted.
+        for (const d of [...new Set(removed.map(dirname))].sort((a, b) => b.length - a.length)) {
+          if (d !== ".") await rmdir(join(cwd, d)).catch(() => undefined);
+        }
+
+        return {
+          kind: "failed",
+          notes:
+            `the harness was NOT installed: ${missing.length} of ${MATCH_HARNESS_INSTALLED_PATHS.length} paths git refused to track, so a fresh clone, CI and the next agent get a harness that does not exist. ` +
+            `Absent from the commit: ${missing.join(", ")}. ` +
+            (sources.length > 0
+              ? `Excluded by ${sources.join(", ")} — narrow or remove those rules and re-run. `
+              : "") +
+            (unexplained.length > 0
+              ? `No ignore rule matched ${unexplained.join(", ")} — check .git/info/exclude, core.excludesFile, and whether the directory is a nested repository. `
+              : "") +
+            "Everything this run wrote to those paths has been put back as it was.",
+        };
+      }
+
       return notes.length > 0 ? { kind: "ok", notes: notes.join("; ") } : { kind: "ok" };
     },
   });

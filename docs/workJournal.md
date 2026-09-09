@@ -392,3 +392,124 @@ stale, evaporated once I compared the tags and found v1.4.1 touched only
 Seven claims between this session and a concurrent one turned out wrong tonight,
 two of them corrections to corrections, and this package is what ~30 client repos
 build against. The PR is open for a human.
+
+## 2026-09-09 — match-harness reported "applied" for an install git silently dropped (#733)
+
+`matchHarness` writes 17 template files and appends a marked block to three more
+— 20 installed paths, 13 of them under `matching/`, 4 under `src/` — and commits
+the lot through the shared `commit()` in `src/util/git.ts`, which stages with
+`git add -A`. `git add -A` honours the site's `.gitignore` and exits 0 either
+way, and git cannot re-include a file whose **parent directory** is excluded. So
+on a site whose committed `.gitignore` already carries `matching/`, I measured:
+13 of the 20 paths on disk, **0** of them in the commit, `git add -A` exit 0,
+`git commit` exit 0, and a `RecipeResult` of `applied`. Nothing in the recipe
+observed what landed. What the operator was left with is worse than nothing: a
+`/dev/match/[uid]` route and a `src/lib/site-pages.test.ts` that DID commit, and
+83 lines of CLAUDE.md rules instructing the next agent to run `matching/gate.sh`,
+`matching/next.mjs` and `matching/harness.json` — files that existed on one
+machine and on no other clone, CI runner or agent.
+
+Measured, one rule at a time, against a real repo (site rule first, then the
+recipe's own appended block, then `git add -A && git commit && git ls-tree -r`):
+`matching/` drops 13; `**/matching/` drops 13; `/matching` drops 13;
+`src/routes/dev/` drops 2; `*.test.ts` drops 1; `src/lib/site-pages.js` drops 1;
+`CLAUDE.md` drops 1; `*.md` drops 3.
+
+**The belief corrected on contact.** The class as it was handed to me included
+`*.sh` and `*.mjs`. Both install correctly — measured 0 of 20 missing. The
+reason is the recipe's own block: it appends `matching/*` followed by
+`!matching/*.sh` / `!matching/*.mjs`, which come AFTER the site's rule (last
+match wins) and, crucially, the `matching` directory itself is not excluded, so
+git still descends into it. That is exactly why the pre-write ignore preflight I
+designed first — `git check-ignore` in `plan()`, before a byte is written, which
+is the friendlier failure and leaves zero residue — was built, tested and
+abandoned: it would refuse two configurations that work. The question "will git
+take this?" is only answerable after the final `.gitignore` exists, which is
+where the check now lives. There is a negative-control test for this
+(`a site-wide *.sh / *.mjs ignore is NOT the defect`) whose only job is to go
+red if someone re-adds that preflight.
+
+**The recipe's own block is a member of the class.** `!matching/*.md` does not
+reach a nested path, so a site-wide `*.md` shadows `matching/spec-sections/_chrome.md`
+and `_header.md` — two of the record stubs the recipe itself ships — plus
+`CLAUDE.md`. That is the 3 above.
+
+**Why FAIL and not FLAG.** A note would have left exit 0:
+`src/cli/commands/match-harness.ts:74` turns only `status === "failed"` into
+exit 1. A flag on a half-install that ships CLAUDE.md rules for absent scripts is
+the same defect one step along.
+
+**Why the manifest and not this run's writes.** A re-run over an unfixed site
+re-writes everything, so "run it twice" does NOT discriminate — I checked, and a
+delta check stayed green on it. The case that separates them is the one an
+operator actually reaches by hand-copying a harness from another site (which is
+how it arrived at beachfront-dentistry): every `matching/` file already
+byte-correct on disk, so `planFileWrite` returns `skip` for all 13 and the run
+writes NONE of them. A delta check finds nothing missing and reports a second
+hollow "applied" over a commit that contains none of them. The manifest check
+still refuses. That test — "refuses when the files are ALREADY on disk and
+ignored" — is the only one of the seven that reddens when the check is switched
+to `written`, and it is the reason the check is derived from
+`MATCH_HARNESS_FILES` + `APPENDED_BLOCKS` rather than hand-listed.
+
+**Positive evidence, both halves.** `pathsMissingFromHead` counts a path as
+installed only when it is FOUND in `git ls-tree -r -z --name-only HEAD`; a git
+failure yields an empty tree, so an error can only ever DENY. The half that is
+easy to skip is the grant, so both halves were mutation-measured rather than
+predicted. Neutering the guard so it never fires reddens 6 tests and leaves BOTH
+positive controls green — which is exactly the hole a guard proven only to
+refuse leaves open. Making the primitive refuse everything (`return [...paths]`)
+reddens 21, including "every installed path is in HEAD's tree after a clean
+install (the guard GRANTS)", "installs for real once the ignore rule is gone",
+"a site-wide \*.sh / \*.mjs ignore is NOT the defect" and all 15 pre-existing
+tests in the file. Only that second mutation proves the guard can say yes.
+
+Two numbers I wrote into this entry before running the mutations were wrong and
+are corrected above: I had "19 tests" (it is 21) and "all five refusal tests
+would stay green" under that mutation — in fact two of the five go red, for the
+wrong reason (over-refusal changes the notes they assert on), and three stay
+green. Both came from copying predicted counts instead of measuring.
+
+Also worth not walking twice: the obvious way to write the delete-the-guard
+mutation, `if (false && missing.length > 0)`, does not fail the tests — it fails
+`pnpm build`, because TypeScript drops control-flow narrowing inside statically
+unreachable code and `prev` widens back to `string | null | undefined` at the
+`writeFile` call. vitest's globalSetup rebuilds `dist` when it is stale, so a
+mutation that does not type-check produces "No test files found" and zero named
+failures. `if (missing.length < 0)` is the mutation that actually runs.
+
+Two mechanics worth not rediscovering. `git ls-tree` **without** `--full-tree`
+is prefix-relative to `cwd` (measured: from a subdirectory it prints
+`inner/deep.txt`, with `--full-tree` `sub/inner/deep.txt`), which is what makes
+the comparison correct if `site.path` is ever a repo subdirectory — do not add
+the flag. And `-z` is load-bearing for non-ASCII: without it `ls-tree` prints
+`"caf\303\251.txt"`, which would read as missing.
+
+**Refusing does not leave the site dirty.** `withRecipe`'s failure path
+force-checks-out the operator's branch and deletes the recipe branch, which
+cleans up everything git _tracked_ — but these paths are ignored, so git does not
+know they exist. The refusal therefore puts back, itself, every path this run
+wrote and git then refused: prior content restored, or the file deleted if we
+created it from nothing, then `rmdir` (deepest-first, non-empty refused) on the
+directories that leaves empty. Asserted with a `shasum` snapshot of every file
+before and after. Deliberately narrow: a file the operator already had on disk
+that git refuses is left alone — it was there before the run.
+
+**What this does not cover, and is not fixed here.** The check is presence, not
+content: a path in HEAD with the wrong bytes passes, because `planFileWrite`
+already owns content. `commit()` is shared, so every recipe that creates a NEW
+path has the same shape available to it — I did not enumerate which others create
+paths a site plausibly ignores. `withRecipe` still returns `commits: [sha]` on
+the failed path for a commit `restoreAfterFailure` then deletes with the branch;
+`formatResult` does not print commits for a failure so nothing user-visible lies,
+but a programmatic consumer gets a dangling SHA. On a detached HEAD `withRecipe`
+captures `original = null` and skips the restore entirely, so the half-install
+commit stays on the maint branch (the result is still "failed" with full notes).
+And `git()` uses `execFile`'s default 1 MB `maxBuffer`, shared with the existing
+`listTrackedFiles`: on a site whose HEAD tree exceeds that, `ls-tree` rejects and
+the guard refuses a good install. Fail-closed, but a false refusal. All four are
+pre-existing or out of this PR's scope; none is fixed here.
+
+No change was needed in `beachfront-dentistry`. I re-ran
+`node scripts/gen-match-harness-template.mjs` against its `main` after the fix
+and `git status` stayed clean — regeneration is still a no-op.

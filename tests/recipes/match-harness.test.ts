@@ -7,7 +7,10 @@ import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
-import { matchHarness } from "../../src/recipes/match-harness/index.js";
+import {
+  matchHarness,
+  MATCH_HARNESS_INSTALLED_PATHS,
+} from "../../src/recipes/match-harness/index.js";
 import {
   MATCH_HARNESS_FILES,
   GITIGNORE_MARKER,
@@ -432,6 +435,174 @@ describe("recipes/match-harness", () => {
         await prettier.check(await readFile(join(cwd, rel), "utf-8"), { parser: "markdown" }),
         `${rel} is not prettier-clean`,
       ).toBe(true);
+    }
+  });
+
+  // --- git must actually TAKE the install, not merely not-error on `git add -A`
+  //     (blocker on #733: a site that already ignores a harness path got
+  //     "applied" with nothing in the commit).
+
+  /** A site whose committed .gitignore is exactly `body`. */
+  async function siteIgnoring(body: string): Promise<string> {
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".gitignore", body);
+    return cwd;
+  }
+
+  const headTree = (cwd: string): string[] =>
+    execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "HEAD"], {
+      cwd,
+      encoding: "utf-8",
+    })
+      .split("\0")
+      .filter(Boolean);
+
+  const gitOut = (cwd: string, args: string[]): string =>
+    execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+
+  it("every installed path is in HEAD's tree after a clean install (the guard GRANTS)", async () => {
+    const cwd = await install();
+    const tree = headTree(cwd);
+    // Positive half. Without this, a typo in the manifest would make the guard
+    // refuse EVERY install and the refusal tests below would still be green.
+    for (const rel of MATCH_HARNESS_INSTALLED_PATHS) expect(tree).toContain(rel);
+    expect(MATCH_HARNESS_INSTALLED_PATHS).toHaveLength(MATCH_HARNESS_FILES.length + 3);
+  });
+
+  it("refuses when the site already ignores matching/, and names the rule", async () => {
+    const cwd = await siteIgnoring("node_modules/\nmatching/\n");
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("failed");
+    expect(result.notes).toContain("matching/gate.sh");
+    expect(result.notes).toContain("matching/harness.json");
+    expect(result.notes).toContain(".gitignore:2:matching/");
+    // ...and the refusal is TRUE: HEAD really does not carry them.
+    expect(headTree(cwd)).not.toContain("matching/gate.sh");
+    // The operator is left exactly where they started.
+    expect(gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe("main");
+    expect(gitOut(cwd, ["status", "--porcelain"])).toBe("");
+    expect(await exists(cwd, "matching")).toBe(false);
+  });
+
+  it("refuses for a shadowed src/ path too — the class is any pattern, not matching/", async () => {
+    const cwd = await siteIgnoring("node_modules/\nsrc/lib/site-pages.js\n");
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("failed");
+    expect(result.notes).toContain("src/lib/site-pages.js");
+    expect(result.notes).toContain(".gitignore:2:src/lib/site-pages.js");
+    expect(result.notes).not.toContain("matching/gate.sh");
+  });
+
+  it("refuses when the files are ALREADY on disk and ignored — nothing is written this run", async () => {
+    // The state an operator reaches by hand-copying a harness from another site
+    // (which is how this one arrived at beachfront-dentistry). Every matching/
+    // path is byte-correct on disk, so planFileWrite returns "skip" and the run
+    // WRITES none of them. A check over this run's writes finds nothing missing
+    // and reports "applied" over a commit that contains none of them.
+    const donor = await install();
+    const cwd = await siteIgnoring("node_modules/\nmatching/\n");
+    const seeded = MATCH_HARNESS_FILES.filter((f) => f.rel.startsWith("matching/"));
+    for (const f of seeded) {
+      await mkdir(dirname(join(cwd, f.rel)), { recursive: true });
+      await writeFile(join(cwd, f.rel), await read(donor, f.rel), "utf-8");
+    }
+    // Ignored, so the tree is still clean and the recipe will run.
+    expect(gitOut(cwd, ["status", "--porcelain"])).toBe("");
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("failed");
+    expect(result.notes).toContain("matching/gate.sh");
+    expect(result.notes).toContain("matching/harness.json");
+    // The recipe did not write them, so it must not delete them either.
+    expect(await exists(cwd, "matching/gate.sh")).toBe(true);
+  });
+
+  it("still refuses on a re-run — the check is the manifest, not this run's writes", async () => {
+    const cwd = await siteIgnoring("node_modules/\nmatching/\n");
+    const first = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(first.status).toBe("failed");
+    // Second run over the same unfixed site. A check over the paths WRITTEN
+    // this run would pass here and report "applied" over the same half-install.
+    const second = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(second.status).toBe("failed");
+    expect(second.notes).toContain("matching/gate.sh");
+  });
+
+  it("installs for real once the ignore rule is gone", async () => {
+    const cwd = await siteIgnoring("node_modules/\nmatching/\n");
+    expect(
+      (await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn: noopSpawn })).status,
+    ).toBe("failed");
+    await seed(cwd, ".gitignore", "node_modules/\n");
+    const again = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(again.status).toBe("applied");
+    const tree = headTree(cwd);
+    for (const rel of MATCH_HARNESS_INSTALLED_PATHS) expect(tree).toContain(rel);
+  });
+
+  it("a refused run leaves the checkout byte-identical to how it found it", async () => {
+    const cwd = await siteIgnoring("node_modules/\n*.md\n");
+    const snap = () =>
+      execFileSync(
+        "bash",
+        ["-c", `find . -path ./.git -prune -o -type f -print | LC_ALL=C sort | xargs shasum`],
+        { cwd, encoding: "utf-8" },
+      );
+    const start = snap();
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    // *.md shadows CLAUDE.md and matching/spec-sections/*.md — the block's
+    // `!matching/*.md` does not reach a nested path, and nothing re-includes
+    // CLAUDE.md at all.
+    expect(result.status).toBe("failed");
+    expect(result.notes).toContain("CLAUDE.md");
+    expect(result.notes).toContain("matching/spec-sections/_chrome.md");
+    expect(snap()).toBe(start);
+    expect(gitOut(cwd, ["status", "--porcelain"])).toBe("");
+  });
+
+  it("a site-wide *.sh / *.mjs ignore is NOT the defect — the block re-includes them", async () => {
+    // Verified against git: the recipe appends `!matching/*.sh` / `!matching/*.mjs`
+    // AFTER the site's rule and the parent directory is not excluded, so these
+    // install for real. A pre-WRITE ignore check would refuse both.
+    for (const rule of ["*.sh", "*.mjs"]) {
+      const cwd = await siteIgnoring(`node_modules/\n${rule}\n`);
+      const result = await matchHarness(
+        { path: cwd },
+        { ref: "https://ref.test" },
+        { spawn: noopSpawn },
+      );
+      expect([rule, result.status]).toEqual([rule, "applied"]);
+      const tree = headTree(cwd);
+      for (const rel of MATCH_HARNESS_INSTALLED_PATHS)
+        expect([rule, rel, tree.includes(rel)]).toEqual([rule, rel, true]);
     }
   });
 });
