@@ -1247,7 +1247,7 @@ pnpm build
 pnpm preview --port 4173 >"$TMPDIR/preview.log" 2>&1 & PREVIEW=$!
 # Readiness probe, not a timer: `sleep` is blocked in this environment, and a
 # fixed wait either burns time or measures a server that is not listening yet.
-curl -sf --retry 30 --retry-delay 1 --retry-connrefused -o /dev/null http://localhost:4173/dev/a11y-fixtures || echo "preview never came up — see $TMPDIR/preview.log"
+curl -sf --retry 30 --retry-delay 1 --retry-connrefused -o /dev/null http://localhost:4173/health || echo "preview never came up — see $TMPDIR/preview.log"
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:4173/dev/match/home
 kill "$PREVIEW"
 ```
@@ -1283,9 +1283,9 @@ export async function load({ params, fetch, cookies }) {
 ```bash
 pnpm build
 pnpm preview --port 4173 >"$TMPDIR/preview.log" 2>&1 & PREVIEW=$!
-curl -sf --retry 30 --retry-delay 1 --retry-connrefused -o /dev/null http://localhost:4173/dev/a11y-fixtures || echo "preview never came up — see $TMPDIR/preview.log"
+curl -sf --retry 30 --retry-delay 1 --retry-connrefused -o /dev/null http://localhost:4173/health || echo "preview never came up — see $TMPDIR/preview.log"
 curl -s -o /dev/null -w 'prod=%{http_code}\n' http://localhost:4173/dev/match/home
-curl -s -o /dev/null -w 'control=%{http_code}\n' http://localhost:4173/dev/a11y-fixtures
+curl -s -o /dev/null -w 'control=%{http_code}\n' http://localhost:4173/health
 kill "$PREVIEW"
 ```
 
@@ -1298,8 +1298,8 @@ git add src/routes/dev/match && git commit -m "fix: the matching gate surface 40
 
 /dev/match renders fixture assemblies and queries Prismic; it shipped with every
 build. \`if (!dev) error(404)\` is the first statement of load, so nothing below
-it is reachable. Verified on a real build, with /dev/a11y-fixtures as the 200
-control — a 404 from a broken build is not evidence.
+it is reachable. Verified on a real build, with /health as the 200 control —
+a 404 from a broken build is not evidence.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1536,11 +1536,25 @@ const devImg = (u: string) => ({
 export async function load({ params }) {
   // FIRST statement: everything below reads fixtures that must not be reachable
   // from a production build. The launch recipe asserts this route 404s on the
-  // deployed URL, with /dev/a11y-fixtures as the 200 control.
+  // deployed URL, with /health as the 200 control — never a dev route, which
+  // the dev-layout guard this comment exists to encourage would delete.
   if (!dev) error(404, { message: "Not found" });
 
   const docs = documents(devImg) as Array<{ uid: string; data: { slices?: unknown[] } }>;
   const doc = docs.find((d) => d.uid === params.uid);
+  // LOAD-BEARING PHRASE, and not only here. `launch`'s dev-guard denies on
+  // /no (matching )?assembly for/i (`src/recipes/launch.ts` UNGUARDED_TWIN_MARKER)
+  // against the DEPLOYED twin's body, because an unguarded twin asked for a uid
+  // it does not have returns a 404 rendered through the site's own +error.svelte
+  // — which is byte-for-byte the gate's PASS condition. This message is the only
+  // thing separating "the guard fired" from "this site has no such uid", so
+  // rewording it ("no document for", "unknown uid", dropping the phrase, or
+  // moving the 404 to an +error boundary that discards error.message) makes the
+  // gate FAIL OPEN and launch a site whose fixtures are public. The regex accepts
+  // two wordings today only because Beachfront's existing twin says "no matching
+  // assembly for" and this template says "no assembly for"; a THIRD wording is
+  // the failure case, not a fourth. Change this string and UNGUARDED_TWIN_MARKER
+  // in the same PR, or replace both with a machine-readable tell (issue #719).
   if (!doc)
     error(404, {
       message: `no assembly for "${params.uid}" (have: ${docs.map((d) => d.uid).join(", ") || "none"})`,
@@ -2531,7 +2545,7 @@ only `mismatchFraction` and `pass` and every report has both.
 that has never existed in this repo. And `/dev/match/[uid]` — which renders
 fixture assemblies and queries Prismic — was shipping in production builds; it
 now 404s outside dev, verified on `pnpm build && pnpm preview` with
-`/dev/a11y-fixtures` as the 200 control, because a 404 from a broken build
+`/health` as the 200 control, because a 404 from a broken build
 proves nothing.
 
 **Also today.** `customtypes/settings/index.json` got a one-word label change on
@@ -2571,20 +2585,20 @@ first real consumer is `matching/harness.mjs`, installed by
 
 The C3 gate (Beachfront), all from the repo root with the dev server **not** running:
 
-| #   | Command                                                                                                                                                                                                                                            | Expected artefact                                                                                                                                             |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `node matching/harness.mjs --table \| diff - "$TMPDIR/gate-rows.tsv"`                                                                                                                                                                              | no output, exit 0 — nine rows byte-identical to the deleted `run` lines                                                                                       |
-| 2   | `node --input-type=module -e 'import{TOTALS}from"./matching/harness.mjs";console.log(JSON.stringify(TOTALS))'`                                                                                                                                     | `{"team":15,"svc":15,"qa":15,"home":27,"yfv":24,"our-team":15,"services":15,"atd":15,"contact":12}`                                                           |
-| 3   | `bash matching/gate.sh x-y`                                                                                                                                                                                                                        | the hyphen refusal, exit 2                                                                                                                                    |
-| 4   | `SPEC_OPTIONAL=1 bash matching/gate.sh smoke home`                                                                                                                                                                                                 | `REF REFUSED — GET https://beachfront-dentistry.webflow.io/ → HTTP 404, expected 200`, exit 2, and **no** `matching/out-smoke-home/`                          |
-| 5   | `node matching/next.mjs`                                                                                                                                                                                                                           | `MATCHING PAUSED — no agenda, and none is to be inferred.`, exit 0                                                                                            |
-| 6   | with `PAUSED` and the 726-entry `out-*` corpus moved aside, a fixture report at `schemaVersion: 99`                                                                                                                                                | `next: 1 page(s) have no run at report schema 1 … (home)`, exit 2; flipping the fixture to `1` prints `SCORE 0/27 regions passing` and exits 1                |
-| 6b  | the same, corpus restored                                                                                                                                                                                                                          | `next: 9 page(s) have no run at report schema 1 …`, exit 2 — no historical report carries the field                                                           |
-| 7   | `grep -c gate-chrome matching/gate.sh; ls matching/sweep*.sh`                                                                                                                                                                                      | `0`; `No such file or directory`                                                                                                                              |
-| 7b  | `git check-ignore -v matching/harness.json \|\| echo TRACKED`                                                                                                                                                                                      | `TRACKED` — the table survives a fresh clone                                                                                                                  |
-| 7c  | `grep -ci beachfront matching/gate.sh matching/census.sh matching/build-spec.mjs`                                                                                                                                                                  | `0` on each — the three files Task 12 copies verbatim name no site                                                                                            |
-| 8   | `pnpm lint && pnpm check && pnpm test:unit && pnpm build`                                                                                                                                                                                          | all green (Beachfront has no `verify` script)                                                                                                                 |
-| 9   | `pnpm preview --port 4173 & PREVIEW=$!`, `curl -sf --retry 30 --retry-delay 1 --retry-connrefused …/dev/a11y-fixtures` as the readiness probe, then `curl -w '%{http_code}'` on `/dev/match/home` and `/dev/a11y-fixtures`, then `kill "$PREVIEW"` | `404` and `200`. Keep the PID — a backgrounded subshell is not a job, `kill %1` fails, and the surviving server makes the next run measure the previous build |
+| #   | Command                                                                                                                                                                                                                      | Expected artefact                                                                                                                                             |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `node matching/harness.mjs --table \| diff - "$TMPDIR/gate-rows.tsv"`                                                                                                                                                        | no output, exit 0 — nine rows byte-identical to the deleted `run` lines                                                                                       |
+| 2   | `node --input-type=module -e 'import{TOTALS}from"./matching/harness.mjs";console.log(JSON.stringify(TOTALS))'`                                                                                                               | `{"team":15,"svc":15,"qa":15,"home":27,"yfv":24,"our-team":15,"services":15,"atd":15,"contact":12}`                                                           |
+| 3   | `bash matching/gate.sh x-y`                                                                                                                                                                                                  | the hyphen refusal, exit 2                                                                                                                                    |
+| 4   | `SPEC_OPTIONAL=1 bash matching/gate.sh smoke home`                                                                                                                                                                           | `REF REFUSED — GET https://beachfront-dentistry.webflow.io/ → HTTP 404, expected 200`, exit 2, and **no** `matching/out-smoke-home/`                          |
+| 5   | `node matching/next.mjs`                                                                                                                                                                                                     | `MATCHING PAUSED — no agenda, and none is to be inferred.`, exit 0                                                                                            |
+| 6   | with `PAUSED` and the 726-entry `out-*` corpus moved aside, a fixture report at `schemaVersion: 99`                                                                                                                          | `next: 1 page(s) have no run at report schema 1 … (home)`, exit 2; flipping the fixture to `1` prints `SCORE 0/27 regions passing` and exits 1                |
+| 6b  | the same, corpus restored                                                                                                                                                                                                    | `next: 9 page(s) have no run at report schema 1 …`, exit 2 — no historical report carries the field                                                           |
+| 7   | `grep -c gate-chrome matching/gate.sh; ls matching/sweep*.sh`                                                                                                                                                                | `0`; `No such file or directory`                                                                                                                              |
+| 7b  | `git check-ignore -v matching/harness.json \|\| echo TRACKED`                                                                                                                                                                | `TRACKED` — the table survives a fresh clone                                                                                                                  |
+| 7c  | `grep -ci beachfront matching/gate.sh matching/census.sh matching/build-spec.mjs`                                                                                                                                            | `0` on each — the three files Task 12 copies verbatim name no site                                                                                            |
+| 8   | `pnpm lint && pnpm check && pnpm test:unit && pnpm build`                                                                                                                                                                    | all green (Beachfront has no `verify` script)                                                                                                                 |
+| 9   | `pnpm preview --port 4173 & PREVIEW=$!`, `curl -sf --retry 30 --retry-delay 1 --retry-connrefused …/health` as the readiness probe, then `curl -w '%{http_code}'` on `/dev/match/home` and `/health`, then `kill "$PREVIEW"` | `404` and `200`. Keep the PID — a backgrounded subshell is not a job, `kill %1` fails, and the surviving server makes the next run measure the previous build |
 
 The C2 gate (maintenance):
 
