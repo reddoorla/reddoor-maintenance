@@ -66,6 +66,14 @@ Existing methods (`openPullRequest`, `enableRepoAutoMerge`, `protectBranch`,
 recipe that must ensure repo settings without touching the working tree. The
 function builds its `RecipeResult` directly.
 
+> Superseded in part on 2026-09-08 by `feat/prismic-ci-positional-and-launch-guard`.
+> `resolveRepo` is now the shared `resolveOwnerRepo` in `src/util/git.ts`, and the
+> `!repo` branch no longer says "no Git repo" — it reports that an identity could not
+> be **determined**, because that one `null` has three distinct causes and the old
+> remedy was wrong for two of them. See
+> [#712](https://github.com/reddoorla/reddoor-maintenance/issues/712). The pseudocode
+> below is left as written; it records the design as it stood.
+
 ```
 selfUpdating(site, deps = {}):
   repo = resolveRepo(site)            // site.gitRepo else origin remote
