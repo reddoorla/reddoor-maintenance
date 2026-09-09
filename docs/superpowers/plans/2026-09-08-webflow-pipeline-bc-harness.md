@@ -376,10 +376,10 @@ process.exit(same ? 0 : 1);'
 //   node matching/harness.mjs --env        shell-safe KEY='value' lines
 //   node matching/harness.mjs --table      key<TAB>ref<TAB>cand<TAB>anchors
 //   node matching/harness.mjs --check-ref  the D11 preflight; exit 2 on failure
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const DIR = new URL(".", import.meta.url).pathname;
 const CFG = JSON.parse(readFileSync(join(DIR, "harness.json"), "utf8"));
@@ -466,9 +466,18 @@ export async function checkRef() {
   return { ok: true, why: `${REF}/ → 200, no redirect, refMark present, candMark absent` };
 }
 
-// CLI. pathToFileURL rather than a string compare: a path needing percent-
-// encoding makes the naive form silently no-op (page-diff.mjs:184-189).
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// CLI. realpath BOTH sides. `import.meta.url` is the module's REAL path — Node
+// resolves symlinks unless --preserve-symlinks — while `process.argv[1]` is
+// whatever the caller typed. So a plain compare, INCLUDING the pathToFileURL
+// form, is false whenever any component of the invoked path is a symlink: the
+// guard never fires, `--check-ref` prints nothing and exits 0, and a caller
+// reads that silence as "REF is fine" against a reference that may 404. That is
+// the fail-open this preflight exists to prevent, arrived at through the
+// preflight itself. page-diff.mjs:184-189 documents exactly this and
+// lib/is-main.mjs fixes it; inlined here because harness.mjs must not depend on
+// the skill's node_modules.
+const invokedAs = process.argv[1] ? realpathSync(process.argv[1]) : null;
+if (invokedAs && realpathSync(fileURLToPath(import.meta.url)) === invokedAs) {
   const mode = process.argv[2];
   const q = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
   if (mode === "--env") {
