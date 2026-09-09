@@ -296,3 +296,99 @@ progress doc: T3-08 dropped, T4-15 to be a marked test payload behind a per-run
 flag when it is built, and screenshots to be a Turso BLOB rather than base64 in
 `result_json` — Airtable's attachment URLs, the other candidate, are signed and
 expire, and a prospect opens their report weeks after we send it.
+
+## 2026-09-08 (later still) — A recipe that could not run on a new site, and two gates that granted greens from absences (`feat/prismic-ci-positional-and-launch-guard`)
+
+Plan E Tasks 1–6, executed to open the PR. Sixteen commits. The code is small;
+almost everything worth recording is what the reviews found, because five of the
+seven defects on this branch were introduced by the plan itself or by the fixes
+for earlier ones.
+
+**The actual bug.** `reddoor-maint prismic-ci <path>` had never worked. The
+positional inventory provider builds `{ path, name }` and nothing else
+(`src/inventory/local.ts:11`), the recipe read `site.gitRepo` directly, so every
+positional run refused with "no Git repo on this site". A site being bootstrapped
+is precisely the case with no Airtable row — `--fleet airtable` filters
+`building` and `launching` out — so the only path `/new-site` could use was the
+one that did not work. `self-updating` had already solved it with a private
+`resolveRepo`; that is now the shared `resolveOwnerRepo` in `src/util/git.ts`,
+byte-identical in the move (verified by diffing the two bodies, not by reading
+them).
+
+**The message that told operators to do two impossible things.** Both callers
+reported a `null` identity as "no Git repo (set Airtable 'Git repo' or add an
+origin remote)". An origin of `git@github.com:espada.git` — owner omitted —
+resolves to `null` **without throwing**, via `parseOwnerRepo` returning null for
+fewer than two segments rather than via the catch. So the operator is told to add
+an origin remote they already have, and to set an Airtable row a pre-launch site
+does not have. Both callers now say the identity could not be **determined**. The
+second caller was found only by grepping for the string after fixing the first —
+the class rule working exactly as written.
+
+**A claim corrected in one direction, then in the other.** Five comments across
+four files said Renovate's github-actions manager bumps the installed
+reusable-workflow pin. The plan's replacement said Renovate has **never** done
+so. That is false: 17 site repos took v1.2.0 → v1.3.0 in the weeks after that tag
+(`reddoorla/espada#40` is the diff, on a `renovate/all-minor-patch` branch). The
+search that produced "never" was `--author app/renovate`, which returns zero rows
+because Renovate is self-hosted here and its PRs are authored by the operator
+before 2026-08-02 and by `reddoor-renovate[bot]` after — a well-formed query, no
+error, confident empty set. The shipped claim is the narrow true one: it bumped
+this ref before, proposed neither of the last two tags, so propagation must be
+verified rather than assumed. A supplied "verified fact" about the author name
+was itself stale by the same mechanism and was caught during implementation.
+
+**Both new launch gates granted a green from an absence.** This is the part worth
+re-reading later.
+
+`dev-guard` refuses to draft while a site's `/dev/match` twin is live, by
+requiring `/dev/match/home` to answer 404 with the site's own error page. The
+unguarded twin answers 404 for **any uid absent from its assembly map**, through
+the same `+error.svelte`. On a site whose uids do not include `home`, the check
+could never fail — guarded or not. Closed with a deny clause on the route's own
+"no assembly for" message; a deny can only ever refuse, so widening it is safe.
+The deny's wording is itself a weak coupling to a string in another package's
+template, recorded as #719 and commented at both ends.
+
+Its liveness control was `/dev/a11y-fixtures`. The premise (every native site
+ships it) was true and the conclusion was still wrong: it made the gate depend on
+an unguarded dev route being publicly reachable, so the fleet-wide fix for
+dev-routes-in-production would have deleted the control and failed every launch.
+Moved to `/health`. That reversal is the most transferable thing here — the
+premise was never the problem.
+
+Then the same shape turned up one layer down, in the fix's own sibling.
+`matchingDisposition` ANDed three greps across a whole file, so a twin needed
+only an `$app/environment` import and a non-refusing `if (!dev)` to pass while
+fully live — and Beachfront's real twin already carries `error(404` for its own
+unrelated reason, leaving exactly one missing import between it and a false pass.
+It now extracts the actual consequent of each `if (!dev)` and tests only that.
+It also rejected the very `src/routes/dev/+layout.server.ts` guard that the
+`/health` move had been made to accommodate: one half of the feature hardened for
+a fix the other half refused.
+
+**Numbers, exactly.** `pnpm verify` exit 0, 6310 passed / 4 skipped across 479
+files, against a 6282-test baseline at `969c6cb`. Five instances of the Renovate
+claim removed, one deliberately kept (`prismic-ci/template.ts:38` is true — the
+manager does _read_ a `uses:` tag). 54 of 55 `/dev` routes across 23 repos ship
+unguarded (#717).
+
+**Two honest limits on what shipped.** The comment stripper under-strips a regex
+literal containing a quote, and the literal masker then blanks the same region —
+two bugs cancelling, so that shape now produces a false _negative_, blocking a
+launch on a correctly guarded file. Stated as such in the code rather than
+claimed as a direction guarantee. And `matchingDisposition` remains a source
+check named as one; it cannot observe the deployed build, which is what
+`dev-guard` is for.
+
+**Issues opened rather than fixed here:** #712 (identity provenance), #713
+(push target vs PR target), #717 (unguarded dev routes), #719 (machine-readable
+tell), #723 (gate coverage gaps), #724 (a third owner/repo validator). #714 was
+opened and closed by me the same night — its premise, that a v1.4.0 pin was
+stale, evaporated once I compared the tags and found v1.4.1 touched only
+`ci.yml`.
+
+**Not merged by the agent that wrote it.** The plan marks the merge GREEN tier.
+Seven claims between this session and a concurrent one turned out wrong tonight,
+two of them corrections to corrections, and this package is what ~30 client repos
+build against. The PR is open for a human.
