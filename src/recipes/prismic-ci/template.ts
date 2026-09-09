@@ -64,9 +64,12 @@ export const UNRESOLVED_PIN_SHA = "UNRESOLVED-publish-and-tag-reddoorla-dot-gith
  * `gh api repos/reddoorla/.github/commits/<tag> --jq .sha` and `tag` to that
  * tag — then VERIFY PROPAGATION rather than assuming it. Renovate does bump
  * this ref: 17 site repos went v1.2.0 -> v1.3.0 between 2026-07-13 and
- * 2026-08-10. It runs self-hosted here, so those PRs are authored by
- * `tucksravin` on `renovate/*` branches — searching by author `app/renovate`
- * returns nothing, and that nothing is not evidence. But it proposed neither
+ * 2026-08-10. It runs self-hosted here and its author identity has already
+ * changed once mid-window (operator PAT, authoring as `tucksravin`, until
+ * 2026-08-02; `reddoor-renovate[bot]` since), so no single author filter
+ * matches all 17 and `app/renovate` matches none of them. Search the
+ * `renovate/*` head branch, not an author; an empty author-filtered search
+ * is not evidence. But it proposed neither
  * of the last two tags for `ci.yml`: v1.4.0 (2026-08-14) was never offered,
  * and v1.4.1 (2026-09-01) reached the fleet only because ci.yml was swept BY
  * HAND across 21 repos that day (beachfront-dentistry#36). Treat propagation

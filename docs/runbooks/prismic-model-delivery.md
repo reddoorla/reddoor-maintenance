@@ -129,7 +129,7 @@ While it is unresolved, `isPinResolved()` is false and **`prismic-ci` refuses on
 
 Two traps when checking this yourself:
 
-- **Renovate is self-hosted here** (`.github/workflows/renovate.yml`, with a PAT), so its pull requests are authored by `tucksravin` on `renovate/*` branches. `gh search prs --author app/renovate` returns nothing, and that nothing is not evidence — look for the head branch instead.
+- **Renovate is self-hosted here** (`.github/workflows/renovate.yml`), so it is never the hosted `app/renovate` bot: `gh search prs --author app/renovate` returns nothing, and that nothing is not evidence. Its identity has also already changed once. The workflow ran on an operator PAT and authored as `tucksravin` until `5179e3e` (2026-08-02) switched it to a `reddoor-renovate` GitHub App token; it has authored as `reddoor-renovate[bot]` ever since. The v1.2.0 → v1.3.0 window straddles that switch, so **no single author matches all 17 PRs** — search the head branch instead: `gh search prs --owner reddoorla -H renovate/all-minor-patch`.
 - **`prismic-models.yml` and `ci.yml` are different callers with different histories.** `prismic-models.yml` took v1.4.0 two days after it was tagged, in all 8 repos that have the file. Only `ci.yml` skipped it. Check the caller you actually care about.
 
 Also worth knowing before you chase a version gap: `v1.4.0...v1.4.1` changed **only** `.github/workflows/ci.yml`. A `prismic-models.yml` caller pinned at either tag resolves to identical workflow content, so an older pin there is a cosmetic inconsistency, not a stale workflow. Compare the tags before treating a version difference as a defect.
