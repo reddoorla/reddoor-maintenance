@@ -34,7 +34,7 @@ Referred to below as `$MAINT`, `$SKILLS`, `$STARTER`, `$BF`. Never commit on `ma
 2. The decisions name three homes for the Renovate-propagation correction (prismic-ci template, runbook, sync-configs templates). Grep finds a **fourth**: `src/recipes/self-updating/index.ts:36-38` makes the same claim about the same refs. The starter's "enumerate the defect class before fixing an instance" rule applies, so Task 3 fixes all four. Flagged rather than silently extended.
 3. Plan A's installability test forbids any `/Users/<name>/` path in a tracked skill file, so plan A must already have replaced `matching-a-page/SKILL.md:173`'s absolute `file://` playwright import to go green. Task 8 Step 1 greps for it and treats an already-correct line as done rather than editing it twice.
 4. `$REDDOOR_REPOS` (default `$HOME/Documents/GitHub`) is plan A's rewrite of the `~/Documents/GitHub` literals in `new-site/SKILL.md` lines 20, 71, 84. Task 7 Step 1 greps which form the file actually uses and matches it — new prose must never introduce a second convention.
-5. Every native site in the fleet ships `/dev/a11y-fixtures` (verified on reddoor-starter, beachfront-dentistry and vida-legacy-foundation, all three have `src/routes/dev/a11y-fixtures/`), so it is a sound liveness control for the `dev-guard` probe. A site that deleted it fails the control — correctly, because the axe audit is then measuring nothing either.
+5. The `dev-guard` probe's liveness control is **`/health`**, not `/dev/a11y-fixtures`. Every starter-derived repo ships `src/routes/health/+server.ts` with an explicit `export const prerender = false` (verified here on reddoor-starter, beachfront-dentistry and vida-legacy-foundation; the 29-navy session counted 23 of 23), so a 200 is a live function invocation rather than a static file served off a CDN. **This decision was overturned in implementation — `bebf445`.** Its first form used `/dev/a11y-fixtures`, which every native site does ship; the premise was true and the conclusion still wrong, because it makes the launch gate depend on an unguarded dev route staying publicly reachable on a client's production site. The obvious class-fix for dev routes shipping in production — one `src/routes/dev/+layout.server.ts` with `if (!dev) error(404)` — would delete the control and make every correctly-guarded site fail its launch, reported as "host down, wrong url, or the axe fixture route was deleted". A gate whose liveness signal is removed by fixing the defect the gate exists to police is not a sound control.
 6. Beachfront's `PRISMIC_WRITE_TOKEN` was present on 2026-08-14, the workflow is active with zero runs, and the 2026-09-08 nightly reported `38 model(s) match Prismic` at `f1a4155` (current `main`). Task 11 re-checks all three before opening the PR rather than trusting this line.
 7. `29 NAVY`'s token env name is `PRISMIC_TOKEN_29_NAVY` (`prismicTokenEnvName`, `src/prismic/models/token.ts:27-38`: upper-case, non-alphanumerics to `_`, trimmed).
 
@@ -423,11 +423,16 @@ After:
  * TO RE-RESOLVE after a future `reddoorla/.github` release: set `sha` to
  * `gh api repos/reddoorla/.github/commits/<tag> --jq .sha` and `tag` to that
  * tag — and then PROPAGATE, because NOTHING BUMPS AN INSTALLED PIN
- * AUTOMATICALLY. Renovate has never opened a github-actions PR for a
- * `reddoorla/.github` reusable-workflow ref on any site: v1.4.0 sat unadopted
- * for 18 days, v1.4.1 was tagged 2026-09-01 and ci.yml was swept BY HAND
- * (beachfront-dentistry#36), and on 2026-09-08 every installed
- * prismic-models.yml in the fleet still pinned v1.4.0. Propagation is three
+ * AUTOMATICALLY — and Renovate here is unreliable rather than absent. It HAS
+ * bumped this exact ref (espada#40, v1.2.0 -> v1.3.0, merged 2026-07-26; 17
+ * repos moved on that tag), but proposed NEITHER v1.4.0 nor v1.4.1 for the
+ * ci.yml caller, which was swept BY HAND (beachfront-dentistry#36). Do not
+ * look for those PRs by author: Renovate runs self-hosted here with a PAT, so
+ * its PRs are authored by `tucksravin` and an `app/renovate` filter returns a
+ * confident empty set. Filter on the head branch `renovate/*`. (The installed
+ * prismic-models.yml files still pinning v1.4.0 are NOT stale: `gh api
+ * repos/reddoorla/.github/compare/v1.4.0...v1.4.1` returns only ci.yml, so
+ * that file is byte-identical across the tags.) Propagation is three
  * steps: (1) re-resolve this constant, (2) release @reddoorla/maintenance,
  * (3) `reddoor-maint prismic-ci --fleet airtable` — gate 6 content-compares
  * the installed file and opens a corrective PR per stale repo — plus ONE
@@ -450,8 +455,8 @@ After:
 
 ```ts
  * whatever token the workflow holds). Nothing bumps the pin per repo when
- * `reddoorla/.github` tags a new version — Renovate has never opened a PR for
- * a reusable-workflow ref on a fleet site; see the propagation note on
+ * `reddoorla/.github` tags a new version — Renovate bumps this ref only
+ * sometimes and skipped the last two tags; see the propagation note on
  * {@link REUSABLE_WORKFLOW_PIN} above.
 ```
 
@@ -471,9 +476,10 @@ After:
 ```ts
 // this file's `ci` entry). Ownership is split instead: the STARTER clone
 // provides each site's ci.yml shape at bootstrap, and the pinned
-// reusable-workflow ref is swept BY HAND after each reddoorla/.github tag —
-// Renovate has never opened a PR for one (v1.4.1 was hand-swept across 21
-// repos on 2026-09-01). The caller job name `ci` + the
+// reusable-workflow ref is VERIFIED after each reddoorla/.github tag —
+// Renovate bumps it only sometimes (it did for v1.3.0; not for v1.4.0 or
+// v1.4.1, which was hand-swept across 21 repos on 2026-09-01). The caller
+// job name `ci` + the
 ```
 
 - [ ] **Step 5: `self-updating/index.ts` — replace lines 35-38**
@@ -491,12 +497,12 @@ After:
 
 ```ts
 // the 2026-08-02 architecture review found. The starter clone owns ci.yml's
-// shape, and its pinned reusable-workflow ref is swept BY HAND after each
-// reddoorla/.github tag. Renovate updates ordinary action pins on fleet sites
-// but has never opened a PR for a reddoorla/.github reusable-workflow ref —
-// v1.4.0 sat unadopted 18 days, v1.4.1 was hand-swept on 2026-09-01. The
-// earlier "(proven)" here was an inference from action pins, not an
-// observation of this ref.
+// shape, and its pinned reusable-workflow ref must be VERIFIED after each
+// reddoorla/.github tag rather than assumed. Renovate does bump this ref
+// sometimes — espada#40 carried v1.2.0 -> v1.3.0 on 2026-07-26 — but it
+// proposed neither v1.4.0 nor v1.4.1, and v1.4.1 was hand-swept on
+// 2026-09-01. The earlier "(proven)" was an inference from ordinary action
+// pins rather than an observation of this ref; the fix is to observe it.
 ```
 
 - [ ] **Step 6: The runbook — line 122's last sentence, plus a new subsection**
@@ -506,7 +512,7 @@ Replace the trailing `Nothing else changes. Renovate's github-actions manager bu
 ```markdown
 ### After every `reddoorla/.github` tag
 
-**Nothing bumps an installed pin.** Renovate has never opened a github-actions PR for a `reddoorla/.github` reusable-workflow ref on any fleet site: v1.4.0 sat unadopted for 18 days, and v1.4.1 (tagged 2026-09-01) reached the fleet only because ci.yml was swept by hand across 21 repos. On 2026-09-08 every installed `prismic-models.yml` still pinned v1.4.0. (Worded without the phrase "Renovate's github-actions manager" on purpose — that string is the tripwire Step 7 greps for, and the correction must not re-trip it.)
+**Never assume an installed pin was bumped — verify it.** Renovate bumps this ref only sometimes: it carried v1.2.0 → v1.3.0 across the fleet in July (espada#40, merged 2026-07-26), then proposed neither v1.4.0 nor v1.4.1, and v1.4.1 reached the fleet only because ci.yml was swept by hand across 21 repos. Two traps when you check. Renovate runs self-hosted here with a PAT, so its PRs are authored by `tucksravin` — an author-filtered search returns a confident empty set, so filter on the head branch `renovate/*` instead. And an older pin is not by itself staleness: every installed `prismic-models.yml` still pins v1.4.0 and that is CORRECT, because `gh api repos/reddoorla/.github/compare/v1.4.0...v1.4.1` returns only `ci.yml` — prismic-models.yml is byte-identical across the two tags. (Worded without the phrase "Renovate's github-actions manager" on purpose — that string is the tripwire Step 7 greps for, and the correction must not re-trip it.)
 
 So a tag is three more steps, not one:
 
@@ -786,9 +792,13 @@ Then, between the Websites-row lookup's closing `}` (:125) and `try { const audi
 ```ts
 // 2b. The dev guard, on the DEPLOYED build. Two halves, both required:
 //     /dev/match/home must 404 WITH this site's own error page, and
-//     /dev/a11y-fixtures must answer 200. Without the second, a dead host, a
-//     wrong url and a parked domain all "pass" the first — an absent error
-//     granting a green, which is the one shape this fleet does not allow.
+//     /health must answer 200. Without the second, a dead host, a wrong url
+//     and a parked domain all "pass" the first — an absent error granting a
+//     green, which is the one shape this fleet does not allow. /health and
+//     NOT a dev route: every starter-derived repo ships it with
+//     `export const prerender = false`, so a 200 is a live invocation — and a
+//     dev-route control would be deleted by the very dev-layout guard this
+//     check exists to encourage.
 //     Reading the deployed url makes this a production-build check by
 //     construction; no local build can substitute.
 const origin = target.url.replace(/\/+$/, "");
@@ -796,7 +806,7 @@ let twin: { status: number; body: string };
 let control: { status: number; body: string };
 try {
   twin = await probe(`${origin}/dev/match/home`);
-  control = await probe(`${origin}/dev/a11y-fixtures`);
+  control = await probe(`${origin}/health`);
 } catch (err) {
   steps.push({ name: "dev-guard", result: errorOf(err) });
   return stop();
@@ -806,7 +816,7 @@ if (control.status !== 200) {
     name: "dev-guard",
     result: {
       kind: "error",
-      message: `${origin}/dev/a11y-fixtures answered ${control.status}, not 200 — the twin's 404 proves nothing (host down, wrong url, or the axe fixture route was deleted, in which case the a11y audit is measuring nothing either)`,
+      message: `${origin}/health answered ${control.status}, not 200 — the twin's 404 proves nothing (host down, wrong url, or the site is not serving functions)`,
     },
   });
   return stop();
@@ -828,7 +838,7 @@ steps.push({
   name: "dev-guard",
   result: {
     kind: "probe",
-    message: `${origin}/dev/match/home 404 (site error page), /dev/a11y-fixtures 200`,
+    message: `${origin}/dev/match/home 404 (site error page), /health 200`,
   },
 });
 ```
@@ -963,9 +973,9 @@ cd "$MAINT" && cat > .changeset/prismic-ci-positional-and-launch-guard.md <<'EOF
 
 `reddoor-maint prismic-ci <path>` always failed with "no Git repo on this site": the positional inventory provider builds `{ path, name }` and nothing else, and the recipe read `site.gitRepo` directly. A site being bootstrapped is exactly the case with no Airtable row — `--fleet airtable` filters `building` and `launching` out — so the positional path was the only one `/new-site` could use, and it did not work. `resolveOwnerRepo` (extracted from `self-updating`, now shared in `src/util/git.ts`) derives `owner/repo` from `origin` when no explicit identity is set, and still throws rather than passing a malformed one to `gh` — malformed meaning a value that is not two clean `owner/repo` segments, or one carrying a `..` traversal (an origin of `https://github.com/ok/../evil` parses to `../evil` and is rejected). A missing origin is not malformed: that returns `null` and the recipe reports "no Git repo".
 
-`launch` gains two disposition steps. `matching-disposition` runs first, on the filesystem: a checkout carrying `src/routes/dev/match` without the `if (!dev)` guard stops the chain before any GitHub write. `dev-guard` runs against the DEPLOYED url and requires both halves of a positive result — `/dev/match/home` must answer 404 **with this site's own error page**, and `/dev/a11y-fixtures` must answer 200 as the liveness control. A dead host, a wrong url and a parked domain fail the second, so none of them can pass the first.
+`launch` gains two disposition steps. `matching-disposition` runs first, on the filesystem: a checkout carrying `src/routes/dev/match` without the `if (!dev)` guard stops the chain before any GitHub write. `dev-guard` runs against the DEPLOYED url and requires both halves of a positive result — `/dev/match/home` must answer 404 **with this site's own error page**, and `/health` must answer 200 as the liveness control. A dead host, a wrong url and a parked domain fail the second, so none of them can pass the first.
 
-Also corrected: Renovate does not bump an installed reusable-workflow pin. It never has for a `reddoorla/.github` ref — v1.4.0 sat unadopted 18 days, v1.4.1 was hand-swept across 21 repos. The claim was written down **five times across four files** (twice in `prismic-ci/template.ts`, once each in `sync-configs/templates.ts`, `self-updating/index.ts` and the delivery runbook); all five are fixed. Propagation is re-resolve → release → re-run `prismic-ci` fleet-wide plus positionally per pre-launch site.
+Also corrected: Renovate bumps an installed reusable-workflow pin only sometimes. It carried v1.2.0 → v1.3.0 across 17 repos in July, then proposed neither v1.4.0 nor v1.4.1, and v1.4.1 was hand-swept across 21 repos. The claim was written down **five times across four files** (twice in `prismic-ci/template.ts`, once each in `sync-configs/templates.ts`, `self-updating/index.ts` and the delivery runbook); all five are fixed. Propagation is re-resolve → release → re-run `prismic-ci` fleet-wide plus positionally per pre-launch site.
 EOF
 pnpm exec prettier --write .changeset/prismic-ci-positional-and-launch-guard.md
 ```
@@ -998,7 +1008,7 @@ gh pr create -R reddoorla/reddoor-maintenance --base main \
 Spec C5 of `docs/superpowers/specs/2026-09-08-webflow-rebuild-pipeline-design.md`.
 
 - `resolveOwnerRepo` shared in `src/util/git.ts`; `self-updating`'s private copy deleted; `prismic-ci` uses it, so `reddoor-maint prismic-ci <path>` works on a site that has no Airtable row yet.
-- `launch` gains `matching-disposition` (filesystem, before any GitHub write) and `dev-guard` (deployed url: `/dev/match/home` → 404 with the site's own error page, `/dev/a11y-fixtures` → 200 as the liveness control).
+- `launch` gains `matching-disposition` (filesystem, before any GitHub write) and `dev-guard` (deployed url: `/dev/match/home` → 404 with the site's own error page, `/health` → 200 as the liveness control).
 - Renovate does not bump an installed pin — the claim was written five times across four files (twice in `prismic-ci/template.ts`, once each in `sync-configs/templates.ts`, `self-updating/index.ts` and the runbook, which now carries an "After every `reddoorla/.github` tag" section). One mention at `template.ts:38` is true and deliberately untouched.
 - `CLAUDE.md`: the blux track is cherry-pick only.
 
@@ -1305,7 +1315,7 @@ next round needs it — and three things change instead.
 1. **Prove the twin is inert in production.** The `/dev/match/[uid]` route the
    recipe installs is guarded by `if (!dev) error(404, …)`, and the launch
    recipe checks it on the DEPLOYED build: `/dev/match/home` must answer 404
-   **with the site's own error page** while `/dev/a11y-fixtures` answers 200.
+   **with the site's own error page** while `/health` answers 200.
    `launch` stops on anything else, and its `matching-disposition` pre-flight
    fails a checkout that carries `src/routes/dev/match` without the guard.
 2. **Flip the candidate paths from twins to real routes.** In `harness.json`,
@@ -1697,20 +1707,27 @@ off production. The obvious check — "does `/dev/match/home` 404?" — passes o
 dead host, a parked domain and a typo'd Airtable url. So the step requires two
 artefacts only a working system produces: a 404 **carrying this site's own error
 page** (`+error.svelte` renders `<h1>{page.status}</h1>`; a CDN 404 does not),
-and a 200 from `/dev/a11y-fixtures` as a liveness control. The marker half was
-proved load-bearing by deleting it and watching the "not this site's own error
-page" test go red. A `matching-disposition` pre-flight runs first, on the
+and a 200 from `/health` as a liveness control — not from a dev route, which
+the dev-layout guard that fixes the underlying defect would delete, turning
+every correctly-guarded site into a launch failure. The marker half was proved
+load-bearing by deleting it and watching the "not this site's own error page"
+test go red. A `matching-disposition` pre-flight runs first, on the
 filesystem, so a checkout whose twin has no `if (!dev)` guard stops before
 acquiring branch protection and an audit.
 
-**A claim corrected five times, in four files.** The prismic-ci template, the
-runbook, the sync-configs comment and `self-updating` all said Renovate bumps an
-installed `uses:` pin. It does not, and never has for a `reddoorla/.github`
-reusable-workflow ref: v1.4.0 sat unadopted 18 days, v1.4.1 reached the fleet
-only because ci.yml was swept by hand across 21 repos, and on 2026-09-08 every
-installed `prismic-models.yml` still pinned v1.4.0. `self-updating`'s version
-even said "(proven)", which was an inference from ordinary action pins, not an
-observation of this ref. Propagation is re-resolve → release → re-run
+**A claim corrected five times in four files — and then corrected again.** The
+prismic-ci template, the runbook, the sync-configs comment and `self-updating`
+all said Renovate bumps an installed `uses:` pin, and `self-updating`'s version
+even said "(proven)", which was an inference from ordinary action pins rather
+than an observation of this ref. The first correction replaced that with
+"Renovate has never opened a PR for one", which is ALSO false: espada#40 carried
+v1.2.0 → v1.3.0 on 2026-07-26 and 17 repos moved on that tag. That second wrong
+claim came from an author-filtered search — Renovate runs self-hosted here with
+a PAT and authors as `tucksravin`, so the query returned a confident empty set
+and the empty set was read as history. The true statement is narrower, and is
+the only one worth pasting anywhere: Renovate bumps this ref sometimes, proposed
+neither of the last two tags, and so propagation must be VERIFIED after every
+release rather than assumed. Propagation is re-resolve → release → re-run
 `prismic-ci` fleet-wide **plus one positional run per pre-launch site**, and the
 runbook now says so under a heading someone looking for it will find.
 
