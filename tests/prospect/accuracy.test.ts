@@ -116,6 +116,38 @@ describe("backstopAbsent — never accuse an engine of inventing what the site p
     expect(out?.nearbyMention).toBe("Marcus Z. Whitfield");
   });
 
+  it("does not call a legal name 'nearby' because the site says the company's own name", () => {
+    // reddoorla.com, 2026-09-09. The engine claimed "The company's legal name
+    // is Reddoor Creative, LLC". `llc` appears NOWHERE on that site — 0 hits
+    // across all 20 pages — but the token is 3 characters, under MIN_TOKEN, so
+    // it was dropped before matching. What remained was "reddoor" and
+    // "creative": the business's own name, 72 and 54 times, on every page.
+    //
+    // The verdict stayed `absent`, which is right. The `nearbyMention` was
+    // noise, and it is offered to the reader as "something related your site
+    // DOES say" — so the moment anything renders it, the report states as fact
+    // that the site says a phrase it has never contained.
+    //
+    // An INITIAL is safe to drop from a name. A word is not.
+    const site = "Reddoor Creative. We make brands. © Reddoor Creative 2006-2026.";
+    const terms = new Map([[assertion().claim, ["Reddoor Creative, LLC"]]]);
+    const [out] = backstopAbsent([assertion()], site, terms, true);
+    expect(out?.verdict).toBe("absent");
+    expect(out?.nearbyMention).toBeNull();
+  });
+
+  it("cannot claim absence on a partially-read site just because a term scattered", () => {
+    // The module's own guarantee: "When the site was too large to send whole,
+    // `absent` cannot be claimed at all." The scattered branch returns before
+    // that check, so a near-miss on a name smuggled an `absent` past it — the
+    // one verdict a partial read is not allowed to reach.
+    const site = "Meet Your Team. Dr. Priya Raman. Dr. Marcus Whitfield.";
+    const terms = new Map([[assertion().claim, ["Marcus Z. Whitfield"]]]);
+    const [out] = backstopAbsent([assertion()], site, terms, false);
+    expect(out?.verdict).toBe("unverified");
+    expect(out?.nearbyMention).toBe("Marcus Z. Whitfield");
+  });
+
   it("prefers an exact hit over a scattered one, whatever order the terms arrive in", () => {
     const site = "Dr. Marcus Whitfield. The practice was formerly known as Bayside Dental.";
     const terms = new Map([[assertion().claim, ["Marcus Z. Whitfield", "formerly known"]]]);

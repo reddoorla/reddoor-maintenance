@@ -339,7 +339,26 @@ function distinctive(terms: string[]): string[] {
     });
 }
 
-const MIN_TOKEN = 5;
+/**
+ * The shortest token a scattered match is allowed to IGNORE, exclusive.
+ *
+ * A scattered match asks "does the site mention the words of this phrase, even
+ * if not together". Some tokens can be skipped without changing what is being
+ * asked: a middle initial in "Marcus Z. Whitfield" is punctuation, and the site
+ * listing "Dr. Marcus Whitfield" plainly is the same person.
+ *
+ * At 5 this dropped WORDS, not initials, and on reddoorla.com that emptied a
+ * claim of its content. "Reddoor Creative, LLC" lost `llc` — the only token
+ * carrying the claim, and absent from all 20 pages — leaving "reddoor" and
+ * "creative", the business's own name, 72 and 54 times over. The phrase matched
+ * itself out of the site's letterhead and the report offered that as something
+ * related the site does say.
+ *
+ * 3 keeps every word and drops only initials and single digits. It is the same
+ * rule `distinctive` already states one screen up — a topic is not an answer —
+ * applied to the tokens rather than the term.
+ */
+const MIN_TOKEN = 3;
 
 /**
  * Two different questions, deliberately not collapsed into one.
@@ -404,16 +423,24 @@ export function backstopAbsent(
       scattered ??= term.trim();
     }
 
-    if (scattered !== null) return { ...a, nearbyMention: scattered };
-
+    // The partial-read guard comes FIRST, and unconditionally. The guarantee
+    // above is that `absent` cannot be claimed of a site we did not read whole,
+    // and a near miss is not an exception to it — it is a weaker signal than no
+    // miss at all. Returning on `scattered` before this check let exactly that
+    // verdict through. The near miss is carried either way: it is the most
+    // useful line in the row, and it belongs to the evidence, not the verdict.
     if (!siteFullyRead) {
       return {
         ...a,
         verdict: "unverified" as const,
+        nearbyMention: scattered,
         unverifiedReason:
           "The site was larger than we read in one pass, so we cannot say this is absent from it.",
       };
     }
+
+    if (scattered !== null) return { ...a, nearbyMention: scattered };
+
     return a;
   });
 }
