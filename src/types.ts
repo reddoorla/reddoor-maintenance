@@ -40,6 +40,7 @@ export type RecipeName =
   | "smoke-suite"
   | "self-updating"
   | "prismic-ci"
+  | "match-harness"
   | "init";
 
 export type ConfigName =

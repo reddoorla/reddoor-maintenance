@@ -64,6 +64,8 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
     "Bootstrap Renovate + repo protection (writes renovate configs via PR, wires ruleset, disables platform auto-merge; ci.yml comes from the starter and is deliberately not managed).",
   "prismic-ci":
     "Add the Prismic model delivery workflow to a site via PR (dry delta comment on PRs, push to Prismic on merge to main).",
+  "match-harness":
+    "Install the matching-a-page gate harness (dev-guarded /dev/match/[uid] route + matching/ scripts) for a live-reference rebuild.",
   init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → health-endpoint → smoke-suite → audit).",
 };
 
