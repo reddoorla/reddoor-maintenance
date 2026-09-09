@@ -78,7 +78,16 @@ species; it was considered and rejected.
   auditing Beachfront's scripts: `beachfront-dentistry.webflow.io` now 404s on
   every path and `www.beachfrontdentistry.com` 301s to our own Netlify build,
   so Beachfront's paused campaign cannot be resumed against a live reference
-  and three of its tools had been comparing the candidate with itself. Every
+  and its tools had been comparing the candidate with itself. (**The figure
+  first written here, "three of its tools", is wrong — see #728.** Measured
+  2026-09-09 across all 230 top-level scripts in `beachfront-dentistry/
+matching/`: 33 assign a REF variable to `beachfrontdentistry.com` or `www.`,
+  and 184 reference that host at all. Only five name the webflow.io host, and
+  it 404s — so no script in that directory currently gates against a live
+  reference. The "since 2026-08-10" date is also unsupportable from the tree:
+  all of them entered git in one bulk commit, `c10a05b`, and nothing records
+  when each began self-comparing. The decision below is unaffected, and if
+  anything understated.) Every
   harness install therefore ships a fail-closed preflight (200, no redirect,
   reference fingerprint present, candidate fingerprint absent), and Phase 0
   captures the reference **with its assets** into `matching/spec/`. Gating
