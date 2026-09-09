@@ -8,7 +8,12 @@ import {
   createBranch,
   commit,
   branchName,
+  ignoreRulesFor,
+  pathsMissingFromHead,
 } from "../../src/util/git.js";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { copyFixtureToTmp } from "../recipes/_helpers/site-tmpdir.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -68,5 +73,46 @@ describe("util/git", () => {
     await createBranch(cwd, "maint/test-20260520T000001Z");
     const sha = await commit(cwd, "noop commit");
     expect(sha).toBeNull();
+  });
+
+  /** A repo with one tracked file and one that .gitignore keeps out. */
+  async function repoWithIgnoredFile(): Promise<string> {
+    const cwd = await mkdtemp(join(tmpdir(), "reddoor-git-"));
+    execFileSync("git", ["init", "--initial-branch=main"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "t@reddoor.local"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "t"], { cwd, stdio: "ignore" });
+    await writeFile(join(cwd, ".gitignore"), "secret/\n", "utf-8");
+    await writeFile(join(cwd, "kept.txt"), "k", "utf-8");
+    execFileSync("mkdir", ["-p", join(cwd, "secret")]);
+    await writeFile(join(cwd, "secret/dropped.txt"), "d", "utf-8");
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "initial"], { cwd, stdio: "ignore" });
+    return cwd;
+  }
+
+  it("pathsMissingFromHead finds what `git add -A` silently dropped, and nothing else", async () => {
+    const cwd = await repoWithIgnoredFile();
+    // `git add -A` exited 0 and staged neither the ignored file nor an error.
+    expect(await pathsMissingFromHead(cwd, ["kept.txt", ".gitignore"])).toEqual([]);
+    expect(await pathsMissingFromHead(cwd, ["kept.txt", "secret/dropped.txt"])).toEqual([
+      "secret/dropped.txt",
+    ]);
+  });
+
+  it("pathsMissingFromHead reports everything missing when there is no HEAD", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "reddoor-git-"));
+    execFileSync("git", ["init", "--initial-branch=main"], { cwd, stdio: "ignore" });
+    // An error may only ever DENY. A git failure must never read as "present".
+    expect(await pathsMissingFromHead(cwd, ["a.txt", "b.txt"])).toEqual(["a.txt", "b.txt"]);
+  });
+
+  it("ignoreRulesFor names the rule, and returns [] rather than throwing when none matches", async () => {
+    const cwd = await repoWithIgnoredFile();
+    expect(await ignoreRulesFor(cwd, ["secret/dropped.txt"])).toEqual([
+      ".gitignore:1:secret/\tsecret/dropped.txt",
+    ]);
+    // `git check-ignore` EXITS 1 when nothing matches; the caller is already
+    // reporting a failure and must not lose it to a throw from the diagnosis.
+    expect(await ignoreRulesFor(cwd, ["kept.txt"])).toEqual([]);
   });
 });

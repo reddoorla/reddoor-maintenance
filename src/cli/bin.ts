@@ -64,6 +64,8 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
     "Bootstrap Renovate + repo protection (writes renovate configs via PR, wires ruleset, disables platform auto-merge; ci.yml comes from the starter and is deliberately not managed).",
   "prismic-ci":
     "Add the Prismic model delivery workflow to a site via PR (dry delta comment on PRs, push to Prismic on merge to main).",
+  "match-harness":
+    "Install the matching-a-page gate harness (dev-guarded /dev/match/[uid] route + matching/ scripts) for a live-reference rebuild.",
   init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → health-endpoint → smoke-suite → audit).",
 };
 
@@ -381,6 +383,39 @@ cli
       runOrExit(
         async () =>
           (await import("./commands/health-endpoint.js")).runHealthEndpointCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "match-harness [site]",
+    "Install the matching-a-page gate harness (dev-guarded /dev/match/[uid] route + matching/ scripts) for a live-reference rebuild.",
+  )
+  .option("--ref <url>", "Reference (live) site URL the harness gates against — required")
+  .option("--cand <url>", "Candidate origin (default http://localhost:5173)")
+  .option("--matrix <list>", "Breakpoint matrix, comma-separated (default 1440,834,390)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        ref?: string;
+        cand?: string;
+        matrix?: string | number;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/match-harness.js")).runMatchHarnessCommand(site, opts),
         opts,
       ),
   );

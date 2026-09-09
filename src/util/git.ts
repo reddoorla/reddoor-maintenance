@@ -74,6 +74,54 @@ export async function removeFromIndex(cwd: string, paths: string[]): Promise<voi
 }
 
 /**
+ * The subset of `paths` that is NOT in HEAD's tree — what a fresh clone would
+ * NOT get. POSITIVE evidence: a path counts as installed only when it is FOUND
+ * in `git ls-tree`'s output. `git add -A` honours .gitignore and exits 0 either
+ * way, so "staging did not error" proves nothing about what landed.
+ *
+ * `-z`, because `ls-tree` C-quotes any path outside core.quotePath's safe set
+ * (`"caf\303\251.txt"`), which would read as missing. NOT `--full-tree`:
+ * without it `ls-tree` reports paths relative to `cwd`, the same base the
+ * caller's relative paths use.
+ *
+ * A git failure (no HEAD yet, not a repo) yields an EMPTY tree, so every path
+ * comes back missing. An error may only ever DENY.
+ */
+export async function pathsMissingFromHead(
+  cwd: string,
+  paths: readonly string[],
+): Promise<string[]> {
+  if (paths.length === 0) return [];
+  let inTree: Set<string>;
+  try {
+    const { stdout } = await git(cwd, ["ls-tree", "-r", "-z", "--name-only", "HEAD"]);
+    inTree = new Set(stdout.split("\0").filter((p) => p.length > 0));
+  } catch {
+    inTree = new Set();
+  }
+  return paths.filter((p) => !inTree.has(p));
+}
+
+/**
+ * Why git is excluding `paths`: `<source>:<line>:<pattern>\t<path>` rows from
+ * `git check-ignore -v --no-index`. A path with no row is absent for some other
+ * reason (a nested repository, say) and the caller must say so rather than
+ * guess. Never throws: check-ignore exits 1 when NOTHING matches and 128 on
+ * error, and both must read as "no rule found" — the caller is already
+ * reporting a failure and must not lose it to a second one.
+ */
+export async function ignoreRulesFor(cwd: string, paths: readonly string[]): Promise<string[]> {
+  if (paths.length === 0) return [];
+  let out: string;
+  try {
+    ({ stdout: out } = await git(cwd, ["check-ignore", "-v", "--no-index", "--", ...paths]));
+  } catch (err) {
+    out = (err as { stdout?: string }).stdout ?? "";
+  }
+  return out.split("\n").filter((l) => l.length > 0);
+}
+
+/**
  * Stages all current changes and commits with `message`. Returns the commit SHA,
  * or `null` if there was nothing to commit.
  */
