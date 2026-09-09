@@ -617,7 +617,7 @@ describe("selfUpdating recipe", () => {
 
   it("fails when there is no git repo", async () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
-    // no git init, no gitRepo → resolveRepo returns null
+    // no git init, no gitRepo → resolveOwnerRepo returns null
     const { gh } = fakeGitHub();
     const r = await selfUpdating({ path: dir, name: "r" }, { github: gh });
     expect(r.status).toBe("failed");

@@ -12,9 +12,9 @@ import {
   createBranch,
   currentBranch,
   deleteBranch,
-  isOwnerRepo,
   isWorkingTreeClean,
   push as gitPush,
+  resolveOwnerRepo,
 } from "../../util/git.js";
 import { siteLabel } from "../../util/site.js";
 import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
@@ -106,19 +106,24 @@ function sameWorkflow(current: string, canonical: string): boolean {
  * exports no delete path.
  */
 export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<RecipeResult> {
-  // 1. Repo identity. `failed`, not `noop`: a rollout that silently skips a site
+  // 1. Repo identity — from Airtable's 'Git repo' or, on a positional run, the
+  //    checkout's origin. `failed`, not `noop`: a rollout that silently skips a site
   //    is the failure this whole recipe is guarding against one level up. The
   //    strict shape check runs BEFORE the first `gh` call, so a typo'd or
   //    attacker-controlled value can never be interpolated into an API path.
-  const repo = site.gitRepo;
-  if (!repo) {
-    return resultOf(site, "failed", "no Git repo on this site (set Airtable 'Git repo')");
+  let repo: string | null;
+  try {
+    repo = await resolveOwnerRepo(site);
+  } catch (err) {
+    // A malformed identity aborts before any `gh` write — surfaced as a recipe
+    // failure rather than being interpolated into an API path.
+    return resultOf(site, "failed", messageOf(err));
   }
-  if (!isOwnerRepo(repo)) {
+  if (!repo) {
     return resultOf(
       site,
       "failed",
-      `refusing to act on malformed repo identity: expected "owner/repo", got ${JSON.stringify(repo)}`,
+      "no Git repo (set Airtable 'Git repo' or add an origin remote)",
     );
   }
 

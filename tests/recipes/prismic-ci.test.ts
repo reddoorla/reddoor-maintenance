@@ -285,6 +285,35 @@ describe("prismicCi", () => {
     expect(d.github!.secretExists).not.toHaveBeenCalled();
   });
 
+  it("resolves the repo from origin when the site has no gitRepo (the positional path)", async () => {
+    // `reddoor-maint prismic-ci <path>` builds a Site with no gitRepo at all
+    // (src/inventory/local.ts:11). Before resolveOwnerRepo this ALWAYS failed
+    // with "no Git repo on this site", which is why /new-site could never install
+    // model delivery on a site that has no Airtable row yet.
+    await prismicSite();
+    git(["remote", "add", "origin", "https://github.com/reddoorla/espada.git"]);
+    const { d } = deps();
+    const r = await prismicCi({ path: dir, name: "Espada" }, d);
+    expect(r.status).toBe("applied");
+    expect(d.github!.secretExists).toHaveBeenCalledWith("reddoorla/espada", SECRET);
+  });
+
+  it("fails on a malformed origin rather than letting it reach gh", async () => {
+    await prismicSite();
+    // Same fixture as the git-owner-repo test, for the same reason: this origin
+    // parses to "../evil" and is rejected by isOwnerRepo's explicit `..` check
+    // (src/util/git.ts:100). Do NOT use `.../ok/--evil` here — `-` is inside
+    // OWNER_REPO_RE's class (git.ts:94), so "ok/--evil" is ACCEPTED and the recipe
+    // would proceed to call secretExists("ok/--evil", SECRET), failing both
+    // assertions below permanently rather than red-then-green.
+    git(["remote", "add", "origin", "https://github.com/ok/../evil"]);
+    const { d } = deps();
+    const r = await prismicCi({ path: dir, name: "Espada" }, d);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/from origin/);
+    expect(d.github!.secretExists).not.toHaveBeenCalled();
+  });
+
   it("noops on a repo with no Prismic config", async () => {
     await seedRepo();
     const { d } = deps();
