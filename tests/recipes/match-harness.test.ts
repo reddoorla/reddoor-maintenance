@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { execFileSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
 import { matchHarness } from "../../src/recipes/match-harness/index.js";
@@ -35,6 +39,66 @@ async function seed(cwd: string, rel: string, content: string): Promise<void> {
 
 const read = (cwd: string, rel: string) => readFile(join(cwd, rel), "utf-8");
 const occurrences = (haystack: string, needle: string) => haystack.split(needle).length - 1;
+const exists = (cwd: string, rel: string) =>
+  stat(join(cwd, rel)).then(
+    () => true,
+    () => false,
+  );
+
+const run = promisify(execFile);
+
+/** A skill directory whose page-diff answers `--version` and nothing else.
+ *  gate.sh's first preflight compares `page-diff --version` field 4 against the
+ *  harness's REPORT_SCHEMA before anything else runs, so without this every
+ *  gate.sh case below would exit 2 for the wrong reason. */
+async function stubSkill(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "match-skill-"));
+  await writeFile(
+    join(dir, "page-diff.mjs"),
+    '#!/usr/bin/env node\nconsole.log("page-diff 0.0.0 report-schema 1");\n',
+    "utf-8",
+  );
+  await chmod(join(dir, "page-diff.mjs"), 0o755);
+  return dir;
+}
+
+/** Rewrite fields of the installed site's harness.json. */
+async function patchHarness(cwd: string, patch: Record<string, unknown>): Promise<void> {
+  const p = join(cwd, "matching/harness.json");
+  const j = JSON.parse(await readFile(p, "utf-8")) as Record<string, unknown>;
+  await writeFile(p, JSON.stringify({ ...j, ...patch }, null, 2) + "\n", "utf-8");
+}
+
+/** Run a command inside the installed site. Resolves either way: these gates
+ *  are SUPPOSED to refuse, and the assertion is about which refusal — a helper
+ *  that only ever rejected would make "exit 2 for some other reason" look the
+ *  same as the refusal under test. */
+async function runIn(
+  cwd: string,
+  cmd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = {},
+): Promise<{ code: number | string; out: string }> {
+  try {
+    const { stdout, stderr } = await run(cmd, args, { cwd, env: { ...process.env, ...env } });
+    return { code: 0, out: `${stdout}${stderr}` };
+  } catch (e) {
+    const err = e as { code?: number | string; stdout?: string; stderr?: string };
+    return { code: err.code ?? "no-exit-code", out: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+  }
+}
+
+/** Install the harness into a fresh copy of the pristine fixture. */
+async function install(): Promise<string> {
+  const cwd = await copyFixtureToTmp(pristine);
+  const result = await matchHarness(
+    { path: cwd },
+    { ref: "https://ref.test" },
+    { spawn: noopSpawn },
+  );
+  expect(result.status).toBe("applied");
+  return cwd;
+}
 
 describe("recipes/match-harness", () => {
   it("installs every template file on a clean site, in one commit", async () => {
@@ -94,6 +158,11 @@ describe("recipes/match-harness", () => {
       expect(result.commits).toEqual([]);
       expect(result.notes).toContain("--ref <url> is required");
     }
+    // "writes nothing" means the whole install, not one file: assert the
+    // directory the recipe would have had to create is absent, so the case
+    // cannot pass because only harness.mjs happened to be skipped.
+    expect(await exists(cwd, "matching")).toBe(false);
+    expect(await exists(cwd, "src/routes/dev/match/[uid]/+page.svelte")).toBe(false);
     await expect(read(cwd, "matching/harness.mjs")).rejects.toThrow();
   });
 
@@ -276,6 +345,93 @@ describe("recipes/match-harness", () => {
     for (const f of MATCH_HARNESS_FILES) {
       if (f.rel === "matching/harness.json") continue;
       expect(await read(cwd, f.rel)).toBe(f.template);
+    }
+  });
+
+  // --- the installed harness EXECUTES
+  //
+  // Everything above proves the recipe copied bytes. The three cases below
+  // shell out into the installed site and prove the copied thing runs: each
+  // must refuse for its own stated reason, not merely exit non-zero.
+
+  it("next.mjs refuses on an empty corpus rather than reporting a score", async () => {
+    const cwd = await install();
+
+    // The pause switch is the FIRST thing next.mjs evaluates and exits 0 on. If
+    // the recipe ever installed a PAUSED file this case would pass without
+    // reaching the guard it is actually about.
+    expect(await exists(cwd, "matching/PAUSED")).toBe(false);
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/no parseable gate run/);
+    expect(code).toBe(2);
+    // not a module-resolution or JSON-parse crash dressed up as a refusal
+    expect(out).not.toMatch(/Cannot find module|SyntaxError|ERR_MODULE_NOT_FOUND/);
+  });
+
+  it("gate.sh refuses the seeded reference: refMark is empty until someone names one", async () => {
+    const cwd = await install();
+    const skill = await stubSkill();
+
+    const { code, out } = await runIn(cwd, "bash", ["matching/gate.sh", "smoke", "home"], {
+      MATCHING_SKILL_DIR: skill,
+    });
+    expect(out).toMatch(/refMark is empty/);
+    expect(code).toBe(2);
+    // The seed ships refMark: "" on purpose — a fresh install cannot produce a
+    // score until someone names a string only the reference serves. Prove it is
+    // THAT refusal: the schema preflight was passed, and Phase 1 was never
+    // reached.
+    expect(out).not.toMatch(/report schema/);
+    expect(out).not.toMatch(/REFUSED: no '## home' section/);
+  });
+
+  it("gate.sh reaches the Phase 1 refusal once the reference verifies", async () => {
+    const cwd = await install();
+    const skill = await stubSkill();
+
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("REFMARK-OK");
+    });
+    try {
+      await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+      const { port } = server.address() as AddressInfo;
+      await patchHarness(cwd, { ref: `http://127.0.0.1:${port}`, refMark: "REFMARK-OK" });
+
+      const { code, out } = await runIn(cwd, "bash", ["matching/gate.sh", "smoke", "home"], {
+        MATCHING_SKILL_DIR: skill,
+      });
+      // Same exit code as the case above, a DIFFERENT refusal: --check-ref now
+      // passes, so the run gets as far as the spec preflight. This is the
+      // sentence the matching skill's gate names, produced by the template on a
+      // site that has never had a spec written.
+      expect(out).toMatch(/REFUSED: no '## home' section in matching\/SPEC\.md/);
+      expect(out).toMatch(/GATE INCOMPLETE \(smoke\)/);
+      expect(code).toBe(2);
+      expect(out).not.toMatch(/refMark is empty/);
+      expect(out).not.toMatch(/refusing to gate against an unverified reference/);
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  });
+
+  it("ships Markdown stubs that are already prettier-clean", async () => {
+    const cwd = await install();
+    const prettier = await import("prettier");
+    // The recipe hands prettier only what the SITE owns (src/ and CLAUDE.md) —
+    // matching/ is never formatted on install. These three stay inside a site's
+    // own `prettier --check .`, so an unformatted stub turns the first
+    // `pnpm verify` after install red.
+    for (const rel of [
+      "matching/spec-sections/_chrome.md",
+      "matching/spec-sections/_header.md",
+      "matching/LEDGER.md",
+    ]) {
+      expect(
+        await prettier.check(await readFile(join(cwd, rel), "utf-8"), { parser: "markdown" }),
+        `${rel} is not prettier-clean`,
+      ).toBe(true);
     }
   });
 });

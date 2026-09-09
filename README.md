@@ -151,6 +151,37 @@ Pre-flights that the site is on pnpm (refuses with a clear remediation if `packa
 
 The full 7-step Svelte 4 → 5 migration: bump framework versions, migrate `svelte.config.js`, run the official `svelte-migrate` codemod, run `@tailwindcss/upgrade`, apply gotcha codemods over `src/**/*.svelte`, verify with `pnpm install` + `pnpm run check`, and write a `MIGRATION_SVELTE_5.md` summary. Each step is its own commit; the file leaves a record of what ran and what may need manual review.
 
+### `match-harness` _(standalone — not part of `init`)_
+
+Installs the matching harness used to rebuild a site against a live reference (a Webflow or Blux original), in one commit on its own branch.
+
+```bash
+reddoor-maint match-harness --ref https://client.webflow.io
+reddoor-maint match-harness acme --ref https://acme.webflow.io --cand http://localhost:4173
+reddoor-maint match-harness --fleet airtable --ref https://client.webflow.io --matrix 1440,834,390
+```
+
+`--ref` is **required**. The harness gates against a live reference; with no reference it can only ever report an absence of errors, so the recipe refuses instead of installing something that goes green on nothing. `--cand` defaults to `http://localhost:5173` and `--matrix` to `1440,834,390`.
+
+What lands, and who owns it:
+
+| Installed                                                                                                           | Owner                                             |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `matching/harness.json`                                                                                             | **site** — the page table, hosts, matrix, marks   |
+| `matching/harness.mjs`                                                                                              | recipe — the only reader of `harness.json`        |
+| `matching/gate.sh`, `census.sh`                                                                                     | recipe — the geometry and style gates             |
+| `matching/next.mjs`, `strikes.mjs`, `build-spec.mjs`, `census-count.mjs`                                            | recipe — round protocol                           |
+| `matching/floors.mjs`, `census-deviations.mjs`, `LEDGER.md`, `spec-sections/_header.md`, `spec-sections/_chrome.md` | **site** — the records                            |
+| `src/routes/dev/match/[uid]/+page.server.ts`, `+page.svelte`                                                        | recipe — the dev-guarded candidate twin           |
+| `src/lib/site-pages.js` / `site-pages.test.ts`                                                                      | **site** scaffold / recipe test                   |
+| `.gitignore`, `.prettierignore`, `CLAUDE.md`                                                                        | marked blocks appended, once, on their own marker |
+
+**Edit `matching/harness.json`, never `matching/harness.mjs`.** `harness.json` is the data — the page table, the reference and candidate origins, the breakpoint matrix, the threshold, and the `refMark` / `candMark` / `selfHosts` the reference preflight uses. `harness.mjs` is the read layer every gate goes through, and the recipe owns its bytes: it is byte-compared on the next run, safe-replaced when it still matches a shipped version, and FLAGGED and left alone when it does not. A hand edit there is never silently reverted — and never silently kept as though it were ours either.
+
+Site-owned files are install-if-absent and are never rewritten. Re-running is a `noop`: the three appended blocks are idempotent on their markers, and every installed file that still matches its template is skipped.
+
+Two things a fresh install deliberately will **not** do until the operator acts. `harness.json` ships `refMark: ""`, so `gate.sh` refuses before spending a run — a 200 is not evidence that a host is the reference, and a production host repointed at our own build answers 200 too. And no page has a `matching/SPEC.md` section yet, so the Phase 1 preflight refuses geometry rounds. Both are fail-closed on purpose.
+
 ---
 
 ## Audits

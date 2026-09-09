@@ -8,8 +8,9 @@ export type HarnessFile = { rel: string; template: string; owner: OwnedBy };
 export const HARNESS_MJS_RELATIVE = "matching/harness.mjs";
 export const HARNESS_MJS_TEMPLATE = `// The single source for everything the matching gates need to know about this
 // site. DATA lives in matching/harness.json (site-edited); this file is the
-// READ LAYER — edit harness.json, not this. (It is written to be cut into a
-// \`reddoor-maint match-harness\` recipe; that recipe does not exist yet.)
+// READ LAYER — edit harness.json, not this. (It is installed and upgraded by
+// the \`reddoor-maint match-harness\` recipe, which owns these bytes: a hand
+// edit here is flagged on the next run and never silently overwritten.)
 //
 // It exists because the page table, the two hosts, the matrix, the threshold
 // and the skill path were hand-copied all over matching/. Re-measured
@@ -189,8 +190,9 @@ export const GATE_SH_RELATIVE = "matching/gate.sh";
 export const GATE_SH_TEMPLATE = `#!/usr/bin/env bash
 # The matching gate. This file is generic — everything specific to a site lives
 # in matching/harness.json (the data) and matching/LEDGER.md (the why). It is
-# written to be cut into a \`reddoor-maint match-harness\` recipe; as of
-# 2026-09-09 that recipe does not exist, so this copy is installed by hand.
+# installed and upgraded by the \`reddoor-maint match-harness\` recipe, which
+# owns these bytes: a hand edit here is flagged on the next run, never
+# silently overwritten.
 #
 #   bash matching/gate.sh <round-tag> [page ...]
 #
@@ -253,8 +255,11 @@ WANT=("$@")
 # every region then scores near zero against itself. --check-ref requires an
 # artefact only the reference serves (harness.json refMark) and refuses a
 # redirect, a host listed in selfHosts, and a body carrying candMark. Measured
-# on this site 2026-09-09: 33 of its 230 top-level matching scripts still assign
-# REF a host that is our own build.
+# on the site this harness was cut from, 2026-09-09 AFTER the consolidation:
+# 12 of its 214 top-level matching scripts still assign REF a host listed in
+# selfHosts — i.e. compare the candidate with itself. It was 33 of 229 before.
+# (This comment read "33 of its 230" while sitting in the post-consolidation
+# tree, contradicting harness.mjs's 12 three files away.)
 if ! node "$(dirname "$0")/harness.mjs" --check-ref; then
   echo "gate.sh: refusing to gate against an unverified reference." >&2
   exit 2
@@ -1311,8 +1316,10 @@ export const PRETTIERIGNORE_BLOCK = `# Matching harness — recipe-owned CODE on
 # would make every future upgrade read as a hand edit. harness.json is one line
 # per page for the same reason — it is a table, not prose. Everything else under
 # matching/ (SPEC.md, LEDGER.md, spec-sections/, states/*.mjs) stays inside
-# \`prettier --check .\`; eslint already ignores this whole directory
-# (eslint.config.js:52), so that is the only style check the records have.
+# \`prettier --check .\`. That is deliberately narrow: eslint does not lint
+# Markdown, so for SPEC.md, LEDGER.md and spec-sections/ prettier is the ONLY
+# style check there is, and a blanket \`matching/\` entry here would leave the
+# records with none.
 matching/*.mjs
 matching/*.sh
 matching/harness.json

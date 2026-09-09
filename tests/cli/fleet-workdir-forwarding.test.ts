@@ -14,6 +14,7 @@ import { runBumpDepsCommand } from "../../src/cli/commands/bump-deps.js";
 import { runConvertToPnpmCommand } from "../../src/cli/commands/convert-to-pnpm.js";
 import { runSyncConfigsCommand } from "../../src/cli/commands/sync-configs.js";
 import { runUpgradeCommand } from "../../src/cli/commands/upgrade.js";
+import { runMatchHarnessCommand } from "../../src/cli/commands/match-harness.js";
 
 const OPTS = { fleet: "airtable", workdir: "/custom/workdir" } as const;
 
@@ -28,6 +29,7 @@ const commands: Array<[string, () => Promise<unknown>]> = [
   ["convert-to-pnpm", () => runConvertToPnpmCommand(undefined, { ...OPTS })],
   ["sync-configs", () => runSyncConfigsCommand(undefined, { ...OPTS })],
   ["upgrade", () => runUpgradeCommand("svelte-4-to-5", undefined, { ...OPTS })],
+  ["match-harness", () => runMatchHarnessCommand(undefined, { ...OPTS, ref: "https://ref.test" })],
 ];
 
 describe("fleet recipe commands forward --workdir to resolveSites (--fleet airtable)", () => {
