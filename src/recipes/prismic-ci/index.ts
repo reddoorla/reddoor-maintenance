@@ -117,13 +117,14 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
   } catch (err) {
     // A malformed identity aborts before any `gh` write — surfaced as a recipe
     // failure rather than being interpolated into an API path.
-    return resultOf(site, "failed", messageOf(err));
+    return resultOf(site, "failed", `could not resolve the repo identity: ${messageOf(err)}`);
   }
   if (!repo) {
     return resultOf(
       site,
       "failed",
-      "no Git repo (set Airtable 'Git repo' or add an origin remote)",
+      "could not determine a GitHub repo for this site — set Airtable 'Git repo', or give " +
+        "the checkout an origin remote whose URL is a GitHub owner/repo",
     );
   }
 

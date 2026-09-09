@@ -314,6 +314,21 @@ describe("prismicCi", () => {
     expect(d.github!.secretExists).not.toHaveBeenCalled();
   });
 
+  it("reports an undetermined identity, not an absent one, when origin has no owner", async () => {
+    // parseOwnerRepo returns null for a URL with fewer than two path segments —
+    // a separate null path from the catch (see #712). The operator here HAS an
+    // origin remote and has no Airtable row, so "add an origin remote" and "set
+    // Airtable 'Git repo'" were both dead ends. The message must not assert that
+    // no repo exists, only that one could not be determined.
+    await prismicSite();
+    git(["remote", "add", "origin", "git@github.com:espada.git"]);
+    const { d } = deps();
+    const r = await prismicCi({ path: dir, name: "Espada" }, d);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/could not determine/i);
+    expect(d.github!.secretExists).not.toHaveBeenCalled();
+  });
+
   it("noops on a repo with no Prismic config", async () => {
     await seedRepo();
     const { d } = deps();
