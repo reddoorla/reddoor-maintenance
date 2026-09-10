@@ -47,11 +47,29 @@ output is consumed by three other composed sentences.
 So an override on a health row changes the GENERATED text of those downstream
 sentences. That invalidates the stored `original` of any override already saved
 against them, and plan A's stale-original guard then correctly withholds the
-second edit. The operator sees an earlier edit quietly revert, and nothing says
-why.
+second edit. The operator sees their downstream edit quietly revert, and nothing
+says why.
 
-The guard is doing its job. The problem is that the editing UI can create this
-situation without noticing.
+**It degrades better than the paragraph above first claimed**, and the
+difference matters. Verified by execution on 2026-09-09: a withheld override
+falls back to the REGENERATED sentence, which already embeds the operator's
+upstream edit — not to the stale text from before that edit. Measured:
+
+```text
+fix.why BEFORE  "One viewport meta tag in the head of every page. Without the
+                 one tag that tells a phone how wide the page is…"
+fix.why AFTER   "One viewport meta tag in the head of every page. NEW DETAIL."
+                 (the operator's row edit, carried through; their separate
+                  edit to this sentence withheld)
+```
+
+So the report stays internally consistent rather than half-edited. What is lost
+is the operator's second, downstream edit — never coherence. That is the good
+version of this failure, and it is worth knowing before someone tries to
+"fix" it by loosening the guard.
+
+The guard is doing its job. The problem is only that the editing UI can create
+this situation without noticing.
 
 **What Task 3 and Task 5 must do about it:**
 
