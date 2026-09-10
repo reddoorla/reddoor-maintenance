@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { ESLint } from "eslint";
 import { createEslintConfig } from "../../src/configs/eslint.js";
 
 describe("configs/eslint", () => {
@@ -63,5 +64,35 @@ describe("configs/eslint", () => {
     const ignores = config.flatMap((c) => ("ignores" in c && c.ignores ? c.ignores : []));
     expect(ignores).toContain("docs/superpowers/");
     expect(ignores).toContain("scratchpad/");
+  });
+
+  it("ignores the Phase 0 reference capture but keeps the harness scripts linted", async () => {
+    // Behavioural on purpose, not a string-presence assertion. `matching/` and
+    // `matching/spec*` both contain the substring the capture needs, and both
+    // un-lint files that must stay linted — only resolving the ignore for real
+    // tells them apart. `isPathIgnored` stats nothing, so this needs no fixture
+    // tree on disk.
+    const eslint = new ESLint({
+      cwd: process.cwd(),
+      overrideConfigFile: true,
+      baseConfig: createEslintConfig({ svelteConfig: {} }),
+    });
+
+    // The capture: third-party bundles the site never wrote.
+    expect(await eslint.isPathIgnored("matching/spec/js/jquery-3.5.1.min.js")).toBe(true);
+    expect(await eslint.isPathIgnored("matching/spec/js/webflow.schunk.js")).toBe(true);
+    // The harness's scratch workspace, from the same .gitignore block.
+    expect(await eslint.isPathIgnored("scratch-diff-home/diff.js")).toBe(true);
+
+    // Ours, one directory up. `matching/` would take these too.
+    expect(await eslint.isPathIgnored("matching/probe-inventory.mjs")).toBe(false);
+    expect(await eslint.isPathIgnored("matching/states/home.mjs")).toBe(false);
+    // Tracked, and NOT the capture. `matching/spec*` would take this.
+    expect(await eslint.isPathIgnored("matching/spec-sections/build.mjs")).toBe(false);
+    // Control. `isPathIgnored` also returns true for a path no config's `files`
+    // matched, so without this a `false` above could not be read as "not in the
+    // ignore list". Measured: with a bare `[{ ignores }]` config even
+    // `src/lib/a.ts` comes back ignored.
+    expect(await eslint.isPathIgnored("src/lib/site-pages.js")).toBe(false);
   });
 });

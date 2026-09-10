@@ -74,6 +74,32 @@ export function createEslintConfig(opts: CreateEslintConfigOptions): Linter.Conf
         // disk locally, so `pnpm lint` would otherwise try to parse them.
         "docs/superpowers/",
         "scratchpad/",
+        // Third member of that class: the match-harness Phase 0 reference
+        // capture. `matching/capture-reference.mjs` downloads the live site's
+        // own HTML/CSS/JS byte-for-byte into a fixed `matching/spec` (line 31,
+        // `const OUT = "matching/spec"` — a const, not configurable), so eslint
+        // gets handed third-party minified bundles. Measured on 29 Navy's first
+        // capture: 745 errors, `pnpm verify` red — Webflow's two chunks 377 and
+        // 78, jQuery 3.5.1 290.
+        //
+        // `prettier --check .` survives the same files, but only by accident of
+        // prettier 3 defaulting --ignore-path to `.gitignore`, which the recipe's
+        // block fills with `matching/*`. Eslint flat config reads no ignore file
+        // at all, and `.prettierignore` does NOT list the capture: measured,
+        // `prettier --check matching/spec --ignore-path .prettierignore` flags
+        // five files. That asymmetry is the whole bug.
+        //
+        // SCOPED TO `matching/spec/`, deliberately NOT `matching/`. The probes,
+        // gate scripts and site records under `matching/` are ours and must stay
+        // linted — beachfront-dentistry ignores `matching/` wholesale and has
+        // un-linted its own `adv-verify-svc*.mjs` that way. The narrowness cuts
+        // both ways: `matching/spec*` also swallows the TRACKED
+        // `matching/spec-sections/`.
+        "matching/spec/",
+        // Same class, same generated .gitignore block: the harness's scratch
+        // diff workspace. Included on class grounds, NOT on a reproduced signal
+        // — nothing in the harness writes it and no clone has one on disk.
+        "scratch-diff*/",
       ],
     },
   ] as Linter.Config[];
