@@ -222,15 +222,35 @@ export type SetOverridesResult =
  * `JSON.stringify` would have used, so a round trip is stable and diffs stay
  * legible.
  *
- * EXTRA KEYS ON AN ENTRY ARE DROPPED — stated here because "validate, then
- * serialise the caller's object" left it undefined, and it silently stored them.
- * Only `original` and `text` mean anything downstream (the website matches
- * `original` against the generated string before it substitutes `text`), so a
- * third key is at best noise re-served on every fetch of the report. Dropping
- * rather than rejecting also keeps the cheap forward-compatible case working: an
- * editor that starts sending a field this schema has not learned yet still saves
- * the operator's words. It is the entry's OWN keys that are dropped; an unknown
- * top-level key is a whole override and is validated like any other.
+ * EXTRA KEYS ON AN ENTRY ARE DROPPED, and that is a POLICY, not something
+ * building the map here forces. A third design satisfies both halves at once:
+ * build from the validated fields AND reject any entry carrying a key other than
+ * `original` and `text`. Under it the `toJSON` gap, the double-read gap and the
+ * extra keys all close by construction exactly as they do now, and a cycle or a
+ * BigInt in a third key comes back `invalid` — because the third key is itself
+ * the rejection reason, not because `JSON.stringify` threw on it. Dropping and
+ * rejecting are therefore independent of building; the choice is DROP, and this
+ * is the argument for it rather than a consequence of the rewrite.
+ *
+ * The consumer reads `original` and `text` and nothing else — the website
+ * matches `original` against the generated string before it substitutes `text`.
+ * An entry key nobody reads is dead weight re-served on every fetch of the
+ * report out of a metered store, which is the same cost `OVERRIDES_MAX_LEN`
+ * exists to bound; so the answer to a third key is to stop storing it, not to
+ * refuse the operator's words over it. Dropping also keeps the cheap
+ * forward-compatible case working: an editor that starts sending a field this
+ * schema has not learned yet still saves what was typed.
+ *
+ * The line that drop stops at is the one this file already draws: it is the
+ * ENTRY's own keys that are dropped. An unknown TOP-LEVEL key is a whole
+ * override — operator content — and is validated like any other, never silently
+ * discarded. The `__proto__` rule below is that same distinction reaching the
+ * opposite verdict, for the same reason.
+ *
+ * The drop IS silent, and that is the cost being accepted: a map is stored that
+ * is not byte-identical to the one sent, and the caller is told `updated` all
+ * the same. It is acceptable only because what differs is always fields nobody
+ * reads — it would not be acceptable for anything a reader could miss.
  *
  * This runs BEFORE the read, the same order `setReportCommentary` uses, so a
  * malformed body costs no round trip.
@@ -243,6 +263,13 @@ export type SetOverridesResult =
  * gain. Nothing downstream will notice a non-JSON value here; it would simply
  * break every subsequent fetch of that report. So: validate on the way in,
  * once, and never store anything this function has not approved.
+ *
+ * "Only place" is about MALFORMEDNESS, and is not a claim that no other limit is
+ * needed. `OVERRIDES_MAX_LEN` bounds the string that gets STORED, never the
+ * request body: a POST carrying megabytes of junk in keys nobody reads is parsed
+ * in full and walked in full, and then stores 33 bytes and answers `updated`.
+ * Bounding the body is the HTTP route's job, with a body limit there — not a
+ * second check here.
  *
  * Both null guards are load-bearing, because `typeof null === "object"`: the
  * outer one keeps `Object.entries(null)` from throwing, and the inner one keeps
@@ -261,12 +288,25 @@ export type SetOverridesResult =
  * like `{}`, which is the only property this validator's consumer cares about,
  * and refusing it would reject a legitimate map for a reason invisible in JSON.
  *
+ * A CROSS-REALM plain object is rejected, though, because its prototype is the
+ * OTHER realm's `Object.prototype` and an identity comparison sees a stranger.
+ * Nothing produces one today — a route handler's `JSON.parse` builds its objects
+ * in this realm — and rejecting is the safe direction, but it would be a mystery
+ * to a future worker-thread or `vm` consumer handed a map across the boundary.
+ *
  * A `__proto__` KEY is rejected rather than stripped. `JSON.parse` makes it an
  * ordinary own property, and stored verbatim a consumer doing
  * `Object.assign({}, parsed)` does get its prototype replaced — the consumer
  * here is the website, a separate codebase, and this function's whole premise is
- * that nothing downstream will check. Stripping it silently would be a second
- * way to report success for something that was not stored.
+ * that nothing downstream will check.
+ *
+ * It is rejected rather than stripped for the distinction above, not for any
+ * general rule against silent drops — such a rule would condemn the entry-key
+ * drop in the same breath. `__proto__` at the TOP level is a whole override, so
+ * stripping it would discard operator content and still report `updated`, on a
+ * report that quietly lost an edit. An entry key is read by nobody, so dropping
+ * one loses nothing. One rule, applied consistently, with opposite outcomes for
+ * a stated reason.
  */
 function buildOverrideMap(v: unknown): OverrideMap | null {
   if (v === null || typeof v !== "object") return null;
@@ -288,13 +328,24 @@ function buildOverrideMap(v: unknown): OverrideMap | null {
  * The exact string that will be stored, or null when the input is malformed.
  *
  * Building and serialising are one step, inside one try, because READING the
- * caller's object can throw on an input that is otherwise well-formed: a
- * throwing getter throws in `Object.entries`, or in the destructuring of an
- * entry, before anything has been validated. `setProspectAuditOverrides` is
- * typed to return one of three statuses, and an escaping TypeError is a fourth
- * outcome its callers have no branch for. A value that cannot be read is
- * malformed input, not an exceptional condition — and the caller already has a
- * branch for malformed input.
+ * caller's object can throw on an input that is otherwise well-formed. There are
+ * three such paths through `buildOverrideMap`, and the try covers all of them:
+ *
+ *   1. `Object.entries(v)` — an enumerable getter on the map itself, or a
+ *      Proxy's `ownKeys` / `getOwnPropertyDescriptor` trap.
+ *   2. `const { original, text } = entry` — a getter on the ENTRY, which throws
+ *      after the map has been walked and before either field is validated.
+ *   3. `built[key] = { original, text }` — `built` starts as `{}`, so the
+ *      assignment walks `Object.prototype`, and a setter poisoned there under
+ *      that key name throws on the WRITE rather than on any read.
+ *
+ * `Object.getPrototypeOf(v)` and `Object.hasOwn(v, "__proto__")` are two more,
+ * both trappable on a Proxy and both ahead of the walk.
+ *
+ * `setProspectAuditOverrides` is typed to return one of three statuses, and an
+ * escaping TypeError is a fourth outcome its callers have no branch for. A value
+ * that cannot be read is malformed input, not an exceptional condition — and the
+ * caller already has a branch for malformed input.
  *
  * `JSON.stringify` itself can no longer throw here: it is handed a plain object
  * of plain `{ original, text }` string pairs, which has no cycle, no BigInt and
@@ -307,6 +358,9 @@ function buildOverrideMap(v: unknown): OverrideMap | null {
  * The size cap is measured HERE, on the CONSTRUCTED string: that is the string
  * that gets stored and re-served, an entry count says nothing about it, and the
  * caller's object may be arbitrarily larger than the pairs taken out of it.
+ * Which is also what it is NOT: a request-body limit. An oversized body is
+ * parsed and walked in full before 33 bytes are stored and `updated` returned,
+ * so whoever writes the HTTP route still owes it a body limit of its own.
  */
 function serialiseOverrides(overrides: OverrideMap): string | null {
   let json: string;

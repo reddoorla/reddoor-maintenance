@@ -222,10 +222,21 @@ describe("listRecentProspectAudits", () => {
   });
 
   it("carries edited_at and opened_at back from a real write", async () => {
-    // The listing's two new columns were proven only by type-level literals: a
-    // select that dropped one would still typecheck (the row type would just
-    // narrow) and still pass. This runs the query against a real database after
-    // a real edit and a real open.
+    // What the declared `ProspectAuditListItem` return type already pins is
+    // WHICH columns the select has to name, so dropping one is not the
+    // regression left for a test: removing `edited_at` from the select is
+    //
+    //   error TS2322: Property 'edited_at' is missing in type '{ status:
+    //   string; url: string; id: string; created_at: string; token: string;
+    //   business: string | null; opened_at: string | null; }' but required in
+    //   type 'ProspectAuditListItem'
+    //
+    // and `pnpm build` — which vitest's global setup runs — dies in the dts
+    // build before a single test does. What the type CANNOT see is a select
+    // that still SATISFIES it while returning the wrong data, and that is what
+    // this test guards. Proven with exactly that: aliasing `business as
+    // edited_at` typechecks clean (tsc exit 0) and reds the assertion below
+    // with "expected 'Example Co' to match /^\d{4}-\d{2}-\d{2}T/".
     const { token } = await createProspectAudit(db, {
       url: "https://example.com",
       business: "Example Co",

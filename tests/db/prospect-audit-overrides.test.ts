@@ -292,15 +292,29 @@ describe("setProspectAuditOverrides — the stored map is the map that was valid
     expect(reads).toBe(1);
   });
 
-  it("preserves key order, so a round trip is stable and a diff stays legible", async () => {
+  it("preserves PROPERTY order, not insertion order, so a round trip is stable", async () => {
+    // Property order is what `Object.entries` and `JSON.stringify` both use, and
+    // it is not the order the keys were written: an integer-like key sorts ahead
+    // of every string key, so "2" comes back FIRST however late it went in. This
+    // is identical to the previous implementation and moot for the real key
+    // space (`composed:headlineFinding` and its siblings are never integer-like)
+    // — but a fixture of four string keys cannot tell the two orders apart, so
+    // it was asserting insertion order and only ever seeing property order
+    // agree. One integer-like key separates them.
     const { db, token } = await seed();
-    const keys = ["z", "a", "m", "b"];
+    const inserted = ["z", "a", "2", "m", "b"];
     const map: OverrideMap = {};
-    for (const k of keys) map[k] = { original: `o-${k}`, text: `t-${k}` };
+    for (const k of inserted) map[k] = { original: `o-${k}`, text: `t-${k}` };
     const res = await setProspectAuditOverrides(db, token, map);
     expect(res.status).toBe("updated");
     const row = await getProspectAuditByToken(db, token);
-    expect(Object.keys(JSON.parse(row!.overrides_json!) as OverrideMap)).toEqual(keys);
+    expect(Object.keys(JSON.parse(row!.overrides_json!) as OverrideMap)).toEqual([
+      "2",
+      "z",
+      "a",
+      "m",
+      "b",
+    ]);
   });
 
   it("drops a circular reference in an extra key instead of refusing the write", async () => {
@@ -324,6 +338,27 @@ describe("setProspectAuditOverrides — the stored map is the map that was valid
     expect(res.status).toBe("updated");
     const row = await getProspectAuditByToken(db, token);
     expect(row!.overrides_json).toBe(PAIR);
+  });
+});
+
+describe("setProspectAuditOverrides — the extra-key policy is DROP, not reject", () => {
+  it("an unknown key on an entry is accepted and dropped, never refused", async () => {
+    // The policy pinned AS a policy, rather than left to be inferred from the
+    // incidental cases that happen to exercise it (the cycle and the BigInt,
+    // whose statuses flipped with the rewrite). Dropping is NOT forced by
+    // building the stored map out of the validated fields: a validator that
+    // built the same way and REJECTED any entry key other than `original` and
+    // `text` would close every one of the same gaps. Drop was chosen because
+    // nothing downstream reads a third key, and this is the test that fails if
+    // someone later turns the choice into a rejection without saying so.
+    const { db, token } = await seed();
+    const res = await setProspectAuditOverrides(db, token, {
+      k: { original: "a", text: "b", futureField: "a field this schema has not learned yet" },
+    } as unknown as OverrideMap);
+    expect(res.status).toBe("updated");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBe('{"k":{"original":"a","text":"b"}}');
+    expect(row!.edited_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });
 
@@ -395,8 +430,11 @@ describe("setProspectAuditOverrides — __proto__", () => {
     // Built through JSON.parse, exactly as the route's body arrives: that makes
     // `__proto__` an ordinary own key rather than a prototype assignment. Stored
     // verbatim, a consumer doing `Object.assign({}, parsed)` DOES get its
-    // prototype replaced. Rejected, not stripped — a silent strip is a second
-    // way to report success for something that was not stored.
+    // prototype replaced. Rejected rather than stripped for the distinction the
+    // validator draws, not for a general rule against silent drops — a rule like
+    // that would condemn the entry-key drop above. A TOP-LEVEL key is a whole
+    // override, so stripping one would discard operator content and still say
+    // `updated`; an entry key is read by nobody, so dropping one loses nothing.
     const { db, token } = await seed();
     const map = JSON.parse(
       '{"__proto__":{"original":"a","text":"b"},"ok":{"original":"c","text":"d"}}',
