@@ -193,8 +193,16 @@ describe("touchProspectAuditOpened — coalescing", () => {
   it("does not rewrite opened_at on an immediate second open", async () => {
     const { db, token } = await seed();
     await touchProspectAuditOpened(db, token);
-    const first = (await getProspectAuditByToken(db, token))!.opened_at;
-    expect(first).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect((await getProspectAuditByToken(db, token))!.opened_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    // Backdated one second — still deep inside the window, so nothing about
+    // what is being tested changes, but far enough that a write WOULD move the
+    // value by a visible amount. Without this the calls below can all land in
+    // the same millisecond, and then the assertion compares a timestamp to
+    // itself and passes against an UNCOALESCED function. It did red under
+    // mutation without the backdate, but by luck rather than by design, and a
+    // check that needs luck to fail is not evidence.
+    const first = await backdateOpenedAt(db, token, 1000);
 
     await touchProspectAuditOpened(db, token);
     await touchProspectAuditOpened(db, token);
