@@ -25,7 +25,14 @@ export const config: Config = {
 };
 
 /**
- * Ceiling on the REQUEST BODY, in bytes on the wire.
+ * Ceiling on the REQUEST BODY, in UTF-8 bytes of the body as this handler reads
+ * it — `Buffer.byteLength(await req.text())`, which is the DECODED body, not
+ * whatever arrived on the socket. The two are the same under identity encoding,
+ * which is everything the website proxy sends. They are not the same under
+ * `content-encoding: gzip`, where the declared `content-length` is a compressed
+ * size being checked against a decompressed budget. That is a mismatch rather
+ * than a hole: undici does not decompress request bodies, so such a body reaches
+ * `JSON.parse` still compressed and is refused as `bad-json`.
  *
  * This is the limit `setProspectAuditOverrides` says belongs here and nowhere
  * else. Its own `OVERRIDES_MAX_LEN` bounds the string that gets STORED, and its
@@ -51,8 +58,9 @@ export const config: Config = {
  * forwards. It is not a guarantee for every body that could store legally, and
  * the difference was measured rather than assumed. A client that escapes
  * non-ASCII as `\uXXXX` sends six bytes per stored unit, not three, and a
- * maximal CJK map written that way is 3 071 806 bytes — refused here, accepted
- * by the storage layer. And because `buildOverrideMap` DROPS unknown keys per
+ * maximal CJK map written that way runs to roughly 3 MB — the exact figure moves
+ * with the shape of the map, so treat it as an order of magnitude, not a
+ * constant — which is refused here and accepted by the storage layer. And because `buildOverrideMap` DROPS unknown keys per
  * entry (deliberately, so a future editor sending a field this schema has not
  * learned still saves what was typed), a body can be arbitrarily large relative
  * to what it stores. Neither is reachable from the only caller that exists. If
@@ -79,8 +87,15 @@ function json(body: unknown, status: number): Response {
  * The bearer token from an Authorization header, or "" for anything else.
  *
  * Case-insensitive on the SCHEME, because RFC 7235 says the scheme is
- * case-insensitive and a caller sending `bearer ` is not an attacker. The token
- * itself is matched exactly, by `tokenMatches` below.
+ * case-insensitive and a caller sending `bearer ` is not an attacker.
+ *
+ * Whitespace AROUND the token is stripped too — the header is trimmed, and so is
+ * the captured value — so `Bearer   s3cret  ` presents as `s3cret` and is
+ * accepted. Measured, not assumed: that request returns 200. What survives the
+ * strip is then compared byte for byte by `tokenMatches`, against a
+ * `PROSPECT_EDIT_TOKEN` trimmed the same way, so both sides agree on what
+ * surrounding whitespace means. Interior whitespace is part of the secret and is
+ * never touched.
  */
 function bearerToken(header: string | null): string {
   const m = /^bearer[ \t]+(.+)$/i.exec((header ?? "").trim());
@@ -115,16 +130,52 @@ function tokenMatches(given: string, expected: string): boolean {
 export default async (req: Request, ctx: Context): Promise<Response> => {
   if (req.method !== "POST") return json({ ok: false, error: "method-not-allowed" }, 405);
 
-  const expected = process.env.PROSPECT_EDIT_TOKEN;
-  if (!expected) {
-    console.error("[audit-report-overrides] PROSPECT_EDIT_TOKEN not set — refusing");
+  // TRIMMED, and that is not cosmetic. The presented token arrives trimmed (see
+  // `bearerToken`), so comparing it against an untrimmed environment value made
+  // a single stray newline unsurvivable: with `PROSPECT_EDIT_TOKEN="s3cret\n"`,
+  // `Bearer s3cret` 404s AND so does `Bearer s3cret\n`, because the presented
+  // side is trimmed either way. Both directions fail, the response is
+  // byte-identical to a wrong token and to a missing report, and there is no log
+  // on that path — so the operator sees an editor where every save 404s, with
+  // nothing in the function logs to say why. `openssl rand -base64 32` pasted
+  // into Netlify's environment UI is exactly how that newline arrives.
+  const configuredRaw = process.env.PROSPECT_EDIT_TOKEN ?? "";
+  const configured = configuredRaw.trim();
+  // A whitespace-only value is treated as unset rather than as a secret nothing
+  // can match: it fails closed loudly here instead of silently 404ing forever.
+  if (!configured) {
+    console.error("[audit-report-overrides] PROSPECT_EDIT_TOKEN not set or blank — refusing");
     return json({ ok: false, error: "unconfigured" }, 503);
   }
 
   const given = bearerToken(req.headers.get("authorization"));
   // The same answer as a missing report. An authorised caller always arrives
   // with the token, so nobody legitimate sees this.
-  if (!given || !tokenMatches(given, expected)) return json({ ok: false, error: "not-found" }, 404);
+  if (!given || !tokenMatches(given, configured))
+    return json({ ok: false, error: "not-found" }, 404);
+
+  // Deliberately AFTER the token check, not before it.
+  //
+  // The CONDITION is a property of the deployment — the environment value, which
+  // no caller can influence — so this reports a misconfiguration, never anything
+  // about a request. The PLACEMENT is what keeps it that way: sitting before the
+  // check, any unauthenticated POST could drive it, handing a stranger a lever on
+  // this deploy's logs and burying the one line the operator needs under noise
+  // from whoever is scanning today. Behind the check, only a caller holding the
+  // shared secret can emit it.
+  //
+  // Nothing is lost by waiting, because the trim above means whitespace can no
+  // longer be the REASON auth fails. A 404 here is now a genuinely different
+  // secret, which this line would not explain anyway; a 200 with stray
+  // whitespace is the case that needs saying out loud, and that is the case it
+  // fires on.
+  if (configuredRaw !== configured) {
+    console.warn(
+      "[audit-report-overrides] PROSPECT_EDIT_TOKEN has leading or trailing whitespace; " +
+        "it was trimmed before comparing and this request was accepted. Re-paste the value " +
+        "in the environment without the stray whitespace.",
+    );
+  }
 
   const token = ctx.params?.token;
   // Shape-check before the database, exactly as the read route does: anything
@@ -138,10 +189,12 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   // Both halves of the body cap, and neither is sufficient alone.
   //
-  // The declared length first, because it is the cheap one: it refuses a large
-  // upload without reading it. It is only ever a hint, though — `content-length`
-  // is absent under chunked transfer encoding, and a hostile caller can simply
-  // state a number that is not true.
+  // The declared length first, because it is the cheap one: it refuses to buffer
+  // a large upload INTO THIS FUNCTION. The upload itself has already been
+  // accepted by the platform by the time this handler runs, so nothing here
+  // spares the network — what it spares is this invocation's memory. It is only
+  // ever a hint, too: `content-length` is absent under chunked transfer
+  // encoding, and a hostile caller can simply state a number that is not true.
   const declared = req.headers.get("content-length");
   if (declared !== null) {
     const n = Number(declared);

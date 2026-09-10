@@ -146,10 +146,14 @@ function oversizedBody(bytes: number, padChar = "x"): string {
 describe("audit-report-overrides — the request body is bounded", () => {
   it("refuses a body over the cap with 413, and stores nothing", async () => {
     const { db, token } = await seed();
-    const res = await saveOverrides(
-      postRaw(oversizedBody(MAX_BODY_BYTES + 1_000), "s3cret"),
-      ctxFor(token),
-    );
+    const req = postRaw(oversizedBody(MAX_BODY_BYTES + 1_000), "s3cret");
+    // ASSERTED, not just noted: this test is named for the read-side byte check,
+    // and it only exercises that check while undici leaves `content-length` off
+    // a string body. If a Node upgrade starts emitting one, the header check
+    // would refuse this request first and the test would keep passing while
+    // silently testing the wrong guard. This reds instead.
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await saveOverrides(req, ctxFor(token));
     expect(res.status).toBe(413);
     const row = await getProspectAuditByToken(db, token);
     expect(row!.overrides_json).toBeNull();
@@ -204,7 +208,12 @@ describe("audit-report-overrides — the request body is bounded", () => {
     const body = oversizedBody(padChars, "一");
     expect(body.length).toBeLessThan(MAX_BODY_BYTES);
     expect(Buffer.byteLength(body, "utf8")).toBeGreaterThan(MAX_BODY_BYTES);
-    const res = await saveOverrides(postRaw(body, "s3cret"), ctxFor(token));
+    const req = postRaw(body, "s3cret");
+    // Same guard as above, and it matters more here: an emitted `content-length`
+    // would be the BYTE length, over the cap, so the header check would refuse
+    // this and the test would pass without ever reaching the code it names.
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await saveOverrides(req, ctxFor(token));
     expect(res.status).toBe(413);
     const row = await getProspectAuditByToken(db, token);
     expect(row!.overrides_json).toBeNull();
@@ -220,5 +229,120 @@ describe("audit-report-overrides — the request body is bounded", () => {
     // start refusing saves the storage layer would have accepted, and the 413
     // would look like a bug in the editor. This reds first instead.
     expect(MAX_BODY_BYTES).toBeGreaterThanOrEqual(OVERRIDES_MAX_LEN * 3 + 1_024);
+  });
+});
+
+/**
+ * The branches the route delegates rather than checks itself.
+ *
+ * This route hands `overrides` to `setProspectAuditOverrides` unvalidated on
+ * purpose — that function validates and BUILDS the stored map in one pass, and
+ * a second shape check here would be checking a different object from the one
+ * that gets serialised. These assertions are what make that delegation safe to
+ * keep: they fail if the storage layer ever stops covering a shape, which would
+ * otherwise surface as a 500 on a route that has no check of its own.
+ */
+describe("audit-report-overrides — delegated and configuration branches", () => {
+  const BAD_SHAPES: Array<[string, unknown]> = [
+    ["absent", undefined],
+    ["null", null],
+    ["an array", [{ original: "a", text: "b" }]],
+    ["a primitive", "nope"],
+    ["a number", 7],
+  ];
+
+  for (const [label, value] of BAD_SHAPES) {
+    it(`400s when overrides is ${label}, rather than 500ing`, async () => {
+      const { db, token } = await seed();
+      const res = await saveOverrides(post({ overrides: value }, "s3cret"), ctxFor(token));
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ ok: false, error: "bad-overrides" });
+      const row = await getProspectAuditByToken(db, token);
+      expect(row!.overrides_json).toBeNull();
+    });
+  }
+
+  it("404s an authorised save against a well-formed token no report has", async () => {
+    // Shape-valid (22 base64url chars) so it clears `isValidToken` and actually
+    // reaches the database — the one handler branch nothing else covers.
+    const ABSENT_TOKEN = "aB3-_xY9zQ1rS2tU4vW6xY";
+    const { db, token } = await seed();
+    expect(ABSENT_TOKEN).not.toBe(token);
+    const res = await saveOverrides(post({ overrides: MAP }, "s3cret"), ctxFor(ABSENT_TOKEN));
+    expect(res.status).toBe(404);
+    // The real report is untouched: a save aimed at a token that does not exist
+    // must not land on some other row.
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBeNull();
+  });
+
+  it("503s when TURSO_DATABASE_URL is missing", async () => {
+    const { token } = await seed();
+    delete process.env.TURSO_DATABASE_URL;
+    const res = await saveOverrides(post({ overrides: MAP }, "s3cret"), ctxFor(token));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ ok: false, error: "unconfigured" });
+  });
+});
+
+describe("audit-report-overrides — a pasted secret with stray whitespace", () => {
+  it("accepts the token the operator meant, and says the value needs cleaning", async () => {
+    const { db, token } = await seed();
+    // Exactly what `openssl rand -base64 32` pasted into an environment UI
+    // produces. Before this was handled, BOTH `Bearer s3cret` and the byte-exact
+    // `Bearer s3cret\n` 404d, indistinguishably from a wrong token.
+    process.env.PROSPECT_EDIT_TOKEN = "s3cret\n";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const res = await saveOverrides(post({ overrides: MAP }, "s3cret"), ctxFor(token));
+      expect(res.status).toBe(200);
+      const row = await getProspectAuditByToken(db, token);
+      expect(JSON.parse(row!.overrides_json!)).toEqual(MAP);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toContain("PROSPECT_EDIT_TOKEN");
+      expect(warn.mock.calls[0]![0]).toContain("whitespace");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stays silent on a clean value", async () => {
+    const { token } = await seed();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const res = await saveOverrides(post({ overrides: MAP }, "s3cret"), ctxFor(token));
+      expect(res.status).toBe(200);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("never lets an unauthenticated caller provoke the warning", async () => {
+    // The placement guarantee: the condition is about the deployment, but an
+    // unauthenticated POST must not be able to write to this deploy's logs.
+    const { token } = await seed();
+    process.env.PROSPECT_EDIT_TOKEN = "s3cret\n";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const res = await saveOverrides(post({ overrides: MAP }, "wrong"), ctxFor(token));
+      expect(res.status).toBe(404);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("treats a whitespace-only secret as unset, failing closed rather than 404ing forever", async () => {
+    const { token } = await seed();
+    process.env.PROSPECT_EDIT_TOKEN = "   ";
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const res = await saveOverrides(post({ overrides: MAP }, "   "), ctxFor(token));
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ ok: false, error: "unconfigured" });
+    } finally {
+      err.mockRestore();
+    }
   });
 });
