@@ -68,19 +68,26 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // `overrides_json` is validated on the way IN (`setProspectAuditOverrides`),
     // which is what makes this safe.
     //
-    // THIS SHAPE IS AHEAD OF PRODUCTION. THERE IS A DEPLOY GATE. The website
-    // tolerates both this wrapper and a bare report as of reddoor-website#176 —
-    // but as of 2026-09-10 #176 is on that repo's `staging` branch and NOT on
-    // `main`, whose `fetchReport` still ends `return (await res.json()) as
-    // AuditReport`. `reddoorla.com` builds `main` and `staging.reddoorla.com`
-    // builds `staging`, and a report link is `https://reddoorla.com/audit/
-    // {token}` by default (`src/prospect/report-url.ts`, with `REPORT_BASE_URL`
-    // unset). So shipping this route to production BEFORE #176 is promoted to
-    // the website's `main` breaks every live prospect report and the PDF
-    // leave-behind with it — `renderReportPdf` captures
-    // `reddoorla.com/audit/{token}/print`, which calls this same route
-    // server-side. It breaks SILENTLY, too: the old cast does not throw on the
-    // wrapper, it just yields a report whose every field is undefined.
+    // This shape was AHEAD OF PRODUCTION until 2026-09-10, and the gate is
+    // recorded rather than deleted because the same trap is one commit away
+    // any time this response changes again.
+    //
+    // The website tolerates both this wrapper and a bare report as of
+    // reddoor-website#176. That commit sat on that repo's `staging` branch for
+    // a day while `reddoorla.com` — which builds `main`, not `staging` — still
+    // ran a `fetchReport` ending `return (await res.json()) as AuditReport`.
+    // Shipping this route in that window would have broken every live prospect
+    // report and the PDF leave-behind with it, since `renderReportPdf`
+    // captures `reddoorla.com/audit/{token}/print` and that calls this same
+    // route server-side. And it would have broken SILENTLY: a cast does not
+    // throw on the wrapper, it just yields a report whose every field is
+    // undefined — blank pages, no 500, nothing a nightly would catch.
+    //
+    // Discharged by reddoor-website#178, which promoted `staging` to `main`;
+    // `reddoorla.com` published `db6702f` at 22:39 UTC that day. Before
+    // changing this response shape again, check what `reddoorla.com` is
+    // actually SERVING — merged is not deployed, and the branch that serves a
+    // report link is not the one most work lands on.
     const body =
       `{"report":${row.result_json},` +
       // `||`, not `??`, and deliberately: `??` passes an empty string straight
