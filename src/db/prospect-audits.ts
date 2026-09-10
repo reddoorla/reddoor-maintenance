@@ -293,6 +293,14 @@ function serialiseOverrides(overrides: OverrideMap): string | null {
  * and clears every override — an editor that can set but not unset traps the
  * operator in whatever they first typed.
  *
+ * LAST WRITE WINS, and two writers silently clobber each other: the second
+ * write replaces the first's whole map, with nothing to tell either of them it
+ * happened. That is accepted rather than overlooked — there is one operator
+ * team, and an editor is open for minutes, so the window is small and the cost
+ * of losing it is a paragraph retyped. If a second editor ever exists, the
+ * column an optimistic check would key on is `edited_at`: read it with the
+ * report, send it back with the write, refuse the write if it moved.
+ *
  * `result_json` stays untouched. There is still no way to write it.
  */
 export async function setProspectAuditOverrides(

@@ -148,6 +148,43 @@ describe("touchProspectAuditOpened", () => {
     const row = await getProspectAuditByToken(db, token);
     expect(row!.edited_at).toBeNull();
   });
+
+  it("leaves result_json, overrides_json and edited_at alone", async () => {
+    // The mirror of setProspectAuditOverrides' own "leaves result_json and
+    // opened_at alone": an open is a read by someone who is NOT editing, so it
+    // must not touch the report, the operator's edits, or when they were made.
+    const { db, token } = await seed();
+    await setProspectAuditOverrides(db, token, { k: { original: "a", text: "b" } });
+    const before = await getProspectAuditByToken(db, token);
+
+    await touchProspectAuditOpened(db, token);
+
+    const after = await getProspectAuditByToken(db, token);
+    expect(after!.result_json).toBe(before!.result_json);
+    expect(after!.overrides_json).toBe(before!.overrides_json);
+    expect(after!.edited_at).toBe(before!.edited_at);
+  });
+});
+
+describe("setProspectAuditOverrides — last write wins", () => {
+  it("a second write replaces the first wholesale rather than merging it", async () => {
+    // Pinned as a DECISION, not left as an accident: two concurrent operators
+    // silently clobber each other, and this is the test that would fail if
+    // someone later added a merge or an optimistic check without saying so.
+    const { db, token } = await seed();
+    await setProspectAuditOverrides(db, token, { a: { original: "1", text: "one" } });
+    const first = await getProspectAuditByToken(db, token);
+
+    await setProspectAuditOverrides(db, token, { b: { original: "2", text: "two" } });
+
+    const second = await getProspectAuditByToken(db, token);
+    const stored = JSON.parse(second!.overrides_json!) as Record<string, unknown>;
+    expect(stored).toEqual({ b: { original: "2", text: "two" } });
+    expect(stored).not.toHaveProperty("a");
+    // `edited_at` is the column an optimistic check would key on if a second
+    // editor ever exists: it moves forward on every write, including this one.
+    expect(Date.parse(second!.edited_at!)).toBeGreaterThanOrEqual(Date.parse(first!.edited_at!));
+  });
 });
 
 describe("setProspectAuditOverrides — inputs that are not plain objects", () => {
