@@ -24,7 +24,11 @@ vi.mock("../../src/db/client.js", async (importOriginal) => {
 });
 
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { createProspectAudit } from "../../src/db/prospect-audits.js";
+import {
+  createProspectAudit,
+  getProspectAuditByToken,
+  setProspectAuditOverrides,
+} from "../../src/db/prospect-audits.js";
 import auditReportJson, { config } from "../../netlify/functions/audit-report-json.mjs";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -62,8 +66,8 @@ describe("audit-report-json — serving a report", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
 
-    const body = (await res.json()) as { scores: { findability: number } };
-    expect(body.scores.findability).toBe(91);
+    const body = (await res.json()) as { report: { scores: { findability: number } } };
+    expect(body.report.scores.findability).toBe(91);
   });
 
   // The token in the URL means a shared cache holding this would hand one
@@ -84,8 +88,14 @@ describe("audit-report-json — serving a report", () => {
     expect(cache).not.toContain("public");
   });
 
-  // Served through untouched: parsing and re-serialising here would only add a
-  // failure mode between the database and the consumer.
+  // Still served through untouched, wrapper and all: the response is built by
+  // concatenation precisely so the stored bytes are never parsed and
+  // re-serialised, which would only add a failure mode between the database and
+  // the consumer. Asserting the WHOLE body against the exact wrapper — not a
+  // `toContain` — is what keeps that property under test: a route that parsed
+  // and re-stringified would still contain the same values, and would still
+  // pass a looser check, while re-ordering keys or dropping the exact spacing
+  // of what the operator's tooling stored.
   it("passes the stored JSON through byte-for-byte", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
@@ -98,7 +108,9 @@ describe("audit-report-json — serving a report", () => {
     });
 
     const res = await auditReportJson(req(), ctxFor(token));
-    expect(await res.text()).toBe(stored);
+    expect(await res.text()).toBe(
+      `{"report":${stored},"overrides":null,"editedAt":null,"openedAt":null}`,
+    );
   });
 });
 
@@ -161,5 +173,94 @@ describe("audit-report-json — routing", () => {
 
   it("is rate limited, like the public report route it mirrors", () => {
     expect(config.rateLimit).toBeDefined();
+  });
+});
+
+describe("audit-report-json — overrides", () => {
+  it("wraps the stored report and its overrides in one body", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const { token } = await createProspectAudit(db, {
+      url: "https://acme.example/",
+      business: "Acme Roofing",
+      resultJson: JSON.stringify({ url: "https://acme.example/", businessName: "Acme Roofing" }),
+    });
+    await setProspectAuditOverrides(db, token, {
+      "composed:headlineFinding": { original: "a", text: "b" },
+    });
+
+    const res = await auditReportJson(req(), ctxFor(token));
+    const body = (await res.json()) as {
+      report: unknown;
+      overrides: unknown;
+      editedAt: string | null;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.report).toEqual({ url: "https://acme.example/", businessName: "Acme Roofing" });
+    expect(body.overrides).toEqual({ "composed:headlineFinding": { original: "a", text: "b" } });
+    expect(body.editedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("serves overrides as null when the report has never been edited", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const { token } = await createProspectAudit(db, {
+      url: "https://acme.example/",
+      business: null,
+      resultJson: JSON.stringify({ url: "https://acme.example/" }),
+    });
+
+    const body = (await (await auditReportJson(req(), ctxFor(token))).json()) as {
+      overrides: unknown;
+      editedAt: string | null;
+    };
+    expect(body.overrides).toBeNull();
+    expect(body.editedAt).toBeNull();
+  });
+
+  it("never caches: an edit must not wait out a max-age", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const { token } = await createProspectAudit(db, {
+      url: "https://acme.example/",
+      business: null,
+      resultJson: JSON.stringify({ url: "https://acme.example/" }),
+    });
+
+    const res = await auditReportJson(req(), ctxFor(token));
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("stamps opened_at on a plain fetch", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const { token } = await createProspectAudit(db, {
+      url: "https://acme.example/",
+      business: null,
+      resultJson: JSON.stringify({ url: "https://acme.example/" }),
+    });
+
+    await auditReportJson(req(), ctxFor(token));
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.opened_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("does NOT stamp opened_at when the caller declares an edit session", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const { token } = await createProspectAudit(db, {
+      url: "https://acme.example/",
+      business: null,
+      resultJson: JSON.stringify({ url: "https://acme.example/" }),
+    });
+
+    const editing = new Request("https://ops.reddoor.test/api/audit-report/x", {
+      method: "GET",
+      headers: { "x-reddoor-edit-session": "1" },
+    });
+    await auditReportJson(editing, ctxFor(token));
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.opened_at).toBeNull();
   });
 });

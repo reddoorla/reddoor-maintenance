@@ -1,6 +1,10 @@
 import type { Context, Config } from "@netlify/functions";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { getProspectAuditByToken, isValidToken } from "../../src/db/prospect-audits.js";
+import {
+  getProspectAuditByToken,
+  isValidToken,
+  touchProspectAuditOpened,
+} from "../../src/db/prospect-audits.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
 // The JSON behind reddoorla.com/audit/{token}. The website renders the report
@@ -55,19 +59,46 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     const row = await getProspectAuditByToken(db, token);
     if (!row) return fail(404, "not-found");
 
-    // Passed through as stored. Parsing and re-serialising here would add a
-    // failure mode between the database and the consumer for no gain — the
-    // website types the payload against @reddoorla/maintenance/audit at its own
-    // boundary, which is where a shape check belongs.
-    return new Response(row.result_json, {
+    // Wrapped WITHOUT parsing. The reasoning that used to justify passing
+    // `result_json` through untouched still holds: parsing and re-serialising
+    // adds a failure mode between the database and the consumer for no gain —
+    // the website types the payload against @reddoorla/maintenance/audit at its
+    // own boundary, which is where a shape check belongs. So the wrapper is
+    // built by concatenation and the stored report is never deserialised here.
+    // `overrides_json` is validated on the way IN (`setProspectAuditOverrides`),
+    // which is what makes this safe.
+    //
+    // The website accepts both this shape and a bare report, so the two repos
+    // can deploy in either order without a broken window.
+    const body =
+      `{"report":${row.result_json},` +
+      `"overrides":${row.overrides_json ?? "null"},` +
+      `"editedAt":${JSON.stringify(row.edited_at)},` +
+      `"openedAt":${JSON.stringify(row.opened_at)}}`;
+
+    // Best effort, and deliberately not awaited into the failure path: knowing
+    // when a prospect last opened the report is useful, but not worth turning a
+    // read route into one that can 500. An edit session says so in a header and
+    // is skipped, so the operator's own previews do not drown the signal.
+    if (req.headers.get("x-reddoor-edit-session") !== "1") {
+      try {
+        await touchProspectAuditOpened(db, token);
+      } catch (err) {
+        console.error("[audit-report-json] could not stamp opened_at", err);
+      }
+    }
+
+    return new Response(body, {
       status: 200,
       headers: {
         "content-type": "application/json; charset=utf-8",
         "x-robots-tag": "noindex",
         // `private`, never `public`: the document names one business and
         // enumerates its weaknesses. A CDN or corporate proxy on the path must
-        // not retain a copy.
-        "cache-control": "private, max-age=300",
+        // not retain a copy. `no-store` rather than the old max-age=300,
+        // because an operator edit that takes five minutes to appear reads as
+        // a save that did not work.
+        "cache-control": "private, no-store",
       },
     });
   } catch (err) {
