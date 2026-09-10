@@ -1081,3 +1081,100 @@ precisely at this commit, because `MATCH_HARNESS_PREVIOUS` was `{}` until now �
 it holds one prior body each for harness.mjs, gate.sh and next.mjs so that 29
 Navy's already-installed copies are safe-replaced rather than flagged. HEAD's
 table was checked for fossils and is clean.
+
+## 2026-09-09 — The shared eslint config ignores the Phase 0 capture (#730, `fix/eslint-capture`)
+
+29 Navy's first `matching/capture-reference.mjs` run turned `pnpm verify` red
+with 745 eslint errors, and every one of them was in a file the site did not
+write. The decomposition, measured twice: 377 in Webflow's main bundle
+(`matching/spec/js/29navy-8c2435.b450607e.…js`), 78 in its schunk, 290 in
+`jquery-3.5.1.min.…js`. 377 + 78 + 290 = 745, three files, nothing else —
+mostly `'define' is not defined` and `no-unused-expressions`, which is what
+linting a minified third-party bundle looks like.
+
+**The belief corrected on contact.** The failure was read as an eslint quirk,
+and prettier was assumed to be covered by `.prettierignore`. It is not. Prettier
+3 defaults `--ignore-path` to `.gitignore`, and the match-harness recipe's
+generated block carries `matching/*` — that, and nothing else, is what keeps
+`prettier --check .` green over the same files. Run it as
+`prettier --check matching/spec --ignore-path .prettierignore` and five files go
+red. Eslint flat config reads no ignore file at all. **That asymmetry is the
+bug** — not anything about eslint's rules, and not anything about the capture.
+Two tools, one on-disk artifact, and only one of them was ever protected.
+
+**The scoping call, and the negative control that justifies it.** The obvious
+patch is `matching/`, and it is wrong: beachfront-dentistry ignores `matching/`
+wholesale and has thereby un-linted its own `adv-verify-svc*.mjs`. The
+less-obvious wrong answer is `matching/spec*`, which additionally swallows the
+**tracked** `matching/spec-sections/`. `matching/spec/` is the only form that
+takes the capture and leaves `probe-inventory.mjs`, `states/*.mjs` and
+`spec-sections/` linted. All three forms were measured against
+`ESLint.isPathIgnored`, not reasoned about — under `matching/` all three of ours
+flip to IGNORED, under `matching/spec*` only `spec-sections/` does.
+
+That is also why the new test is behavioural rather than a
+`toContain("matching/spec/")` string check. A string assertion passes happily
+for `matching/` and `matching/spec*` — both contain the substring, and both
+break the thing the entry exists to protect. Only resolving the ignore for real
+tells them apart. `isPathIgnored` stats nothing, so it needs no fixture tree.
+The test carries a control assertion (`src/lib/site-pages.js` is not ignored)
+because `isPathIgnored` also returns true for a path no config's `files`
+matched — with a bare `[{ ignores }]` config even `src/lib/a.ts` comes back
+ignored, so without the control a `false` above could not be read as "not in the
+ignore list".
+
+**Why the recipe installs nothing.** `eslint.config.js` is an EXACT-MATCH
+`sync-configs` template (`existing === t.contents`, no compliance predicate, and
+`eslint` is in the default `which` set), so any block the recipe appended would
+be deleted on the next default sync — the same clobber that ate MSOT's `$utils`
+alias and gallerysonder's security headers. And the recipe's only append idiom,
+`mergeBlock`, is a marker-plus-literal-text append to a line-oriented ignore
+file; there is no safe line-append into an ESM exported array (text after `];`
+parses fine and does nothing). The shared config is the only correct home. Do
+not walk this one twice.
+
+**The live consequence of that same fact.** 29 Navy is carrying a 915-byte
+`eslint.config.js` against the 177-byte template, so a routine
+`reddoor-maint sync-configs` before the version bump deletes the workaround and
+silently re-arms all 745. This fix does not close that window, it only makes it
+finite. The workaround must stay until the release lands and the site bumps.
+
+**Honest accounting on what this did NOT fix.** `reddoor-maint audit --only
+lint` still reports **fail** on 29 Navy, and will after this lands. Two
+independent defects in `src/audits/lint.ts`, both proven to predate the capture:
+its prettier half calls `prettier.check()` directly and consults neither
+`.prettierignore` nor `.gitignore` (proof: `src/prismicio-types.d.ts` is in
+29-navy's `.prettierignore` and is reported unformatted anyway), and its eslint
+half hands globally-ignored files to `lintFiles()` as explicit paths, costing a
+"File ignored because of a matching ignore pattern" warning each —
+`src/lib/slices/index.js`, ignored by the shared config since long before the
+capture existed, produces that warning today. #730 converts 745 errors into 3
+warnings there and leaves the prettier half red. **Do not read a green
+`pnpm verify` on 29 Navy as this class being closed.**
+
+Also not fixed, and each needs its own issue — **none of these are filed yet**,
+which is a debt this entry is recording rather than discharging: (1) the
+`lint.ts` audit above; (2) `eslint.config.js` arguably needs a compliance
+predicate (`contents.includes("createEslintConfig")`) the way `svelte.config.js`
+and `netlify.toml` have, so a site's legitimate local extension survives a sync;
+(3) `reddoor-starter-blux` carries a hand-inlined config that never received
+`docs/superpowers/` or `scratchpad/` either and will not receive this, so every
+`new-site --track blux` reproduces #730 on its first capture. 17 of 25 local
+repos consume `createEslintConfig`; the 8 that inline it are 1836dig,
+beachfront-dentistry, canvas-starter, data-dynamiq, reddoor-starter-blux,
+the-pointe, the-pointe-burbank, the-tower-burbank — and `the-pointe` is archived
+and cannot take a push, so `scripts/fleet-repos.sh --skipped` comes first if
+anyone sweeps those.
+
+`scratch-diff*/` went in on class grounds and is the weaker half of this change:
+same generated `.gitignore` block, same git-ignored-but-on-disk property, one
+line. It has **no reproduced signal** — nothing in the harness writes it and no
+clone on this machine has one. It is here because fixing this class one instance
+at a time is the documented expensive mistake, but a reviewer could drop it and
+#730 would still be complete.
+
+Nothing here changes what the capture _is_. `capture-reference.mjs` line 31
+hardcodes `const OUT = "matching/spec"`, and that hardcoding is exactly what
+makes a single fleet-wide ignore entry safe. If it ever becomes configurable
+this ignore silently stops matching and the 745 come back with no test to catch
+it.
