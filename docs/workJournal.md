@@ -1787,3 +1787,58 @@ Worth knowing about the signal itself: corporate email link scanners fetch
 links, so `opened_at` will sometimes say a prospect opened a report when a
 scanner did. That is a larger threat to its honesty than the fact that anyone
 holding the token can spoof the header that suppresses it.
+
+## 2026-09-10 — The override layer is live, and three probes that proved nothing first (#762, `e614e03`)
+
+> Follows the entry above it, which left the website promotion open as the
+> operator's call. It landed the same evening.
+
+`reddoor-website#178` promoted `staging` to `main` and `reddoorla.com`
+published `db6702f` at 22:39 UTC, which discharged the deploy gate task 4 was
+being held behind. #762 merged at 22:57 and the ops app published `e614e03` at
+22:58:34. The comment in `audit-report-json.mts` was rewritten before the merge
+rather than deleted: the gate is now a record of a trap that is one commit away
+any time that response shape changes again, and the line worth keeping from it
+is that **merged is not deployed, and the branch that serves a report link is
+not the one most work lands on.**
+
+**Proven live, against production, not against a preview.** The deployed API
+returns `["report","overrides","editedAt","openedAt"]`, HTTP 200,
+`cache-control: private,no-store`. The fetch carried `x-reddoor-edit-session: 1`
+and `opened_at` was `null` before and `null` after — so the skip works in
+production, and the probe cost the operator nothing in signal. Both
+`/audit/{token}` and `/audit/{token}/print` return 200 with substantial rendered
+content.
+
+**But the first three ways I tried to prove the page renders the payload all
+proved nothing, and the controls are what caught it.** Worth writing down
+because each looked convincing:
+
+- _Does the page name the business?_ Contaminated. The audit is of
+  `reddoorla.com`, and "Reddoor" is in the marketing site's own nav and footer,
+  so the check passes whatever the payload contains.
+- _Does the page contain the report's check copy?_ Contaminated, and this one is
+  structural: the design doc already says check labels and reasons "live in
+  source across both repos". A hit could be website-resident copy rather than
+  payload-derived, so the match is meaningless.
+- _Does the page render this run's measured scores?_ Inconclusive, and only
+  because a control was included. Three of four scores matched — but the control
+  number, chosen precisely because it is _not_ one of this run's scores, matched
+  too. Bare number-matching against a 119 KB document proves nothing. Without
+  the control this would have been reported as a pass.
+
+What finally discriminated was the **hydration payload**, because it is what the
+server's `load()` produced rather than what a component chose to display:
+`overrides` is present, `editedAt`/`openedAt` are absent, and a nonsense control
+key is absent. The old code would have shown the opposite — the wrapper's own
+keys sitting where the report should be, because `as AuditReport` is a cast that
+cannot fail. That asymmetry is the proof.
+
+The general lesson is the repo's own rule pointing at probes rather than at
+gates: a probe run only against the state you expect cannot tell you anything.
+Every one of these was one control away from being an overstated claim, and the
+scores probe actually was one until the control ran.
+
+Still not proven, and not provable yet: that an _edited_ line survives to the
+page and the PDF. That needs the save endpoint (task 5) to exist before there is
+any override to render. Task 10 stays open.
