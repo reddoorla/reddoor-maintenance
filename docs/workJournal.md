@@ -1017,3 +1017,67 @@ overridable, and a string appearing twice on the page is skipped rather than
 guessed. Plan B's last task requires measuring how many lines that leaves
 unresolvable and recording the number, because "any rendered line" is the goal
 and that count is the distance from it.
+
+## 2026-09-09 — The gate said ALL DONE over runs that never happened (#744, `fix/gate-false-green`)
+
+Found by _using_ the `match-harness` recipe rather than reviewing it. Three
+adversarial review rounds on #733 did not surface this; installing the harness on
+29 Navy and running the real gate against a real reference did, in one command:
+
+```
+########## home ##########
+home exit=1
+ALL DONE (smoke)
+```
+
+exit 0, and no `report.json` written. `gate.sh:120` was `echo "$page exit=$?"` —
+it printed the status and discarded it, and the only non-zero paths out of the
+script were the two preflight exits and the missing-SPEC branch. Every page-diff
+in the table could fail and the gate still reported completion.
+
+`next.mjs` caught the total-failure case and not the partial one: its denominator
+summed `TOTALS[p]` over the pages that produced a parseable report, so a page
+whose page-diff crashed contributed to neither numerator nor denominator. Eight
+of nine pages could print `SCORE 160/160 regions passing` while the ninth was
+never measured. That is the recipe's own changeset sentence — "a wrong
+denominator makes the score a lie in the flattering direction" — arriving from
+the other direction.
+
+The fix demands an artefact per run rather than trusting a status: a new
+`harness.mjs --check-run <page> <out-dir> <startedAt-iso>` that the gate asks
+after every page, and a scorer that names what it could not measure instead of
+dropping it. The freshness arm exists because `lib/report.mjs` mkdir -p's the
+output directory and never clears it, so a crashed re-run under a tag used
+before leaves the previous round's report byte-identical — requiring
+`report.json` alone would have reproduced the same green one step along.
+
+**What adversarial verification then caught, which is the more useful half.**
+The code was right on every leg; its evidence was not. Four of `uncountable()`'s
+six arms had no case at all, and deleting `if (m.truncated) return "truncated";`
+left the whole suite green at 81/81 — restoring the exact false green over a
+report page-diff itself describes as unscorable. Every arm is now proven through
+**both** callers and by **narrowing** rather than deleting, because deletion is
+the weakest mutation available and it is the one the first round used. Seven
+mutations, seven single-arm reds by name, 95/95 at the end.
+
+The freshness arm had the same shape of hole: `at < since` has no slack, but the
+only stale fixture was dated 2020-01-01, so widening it to a full day of slack
+survived — a six-year-old report is refused either way. The case that pins the
+boundary is a report written one second before the run started, which is exactly
+the crashed-re-run the guard's comment describes.
+
+**A trap in the mutation workflow itself, worth more than the tests.** The
+documented loop — edit beachfront, regenerate, test, revert beachfront,
+regenerate — does not restore `template.ts`. The generator carries the existing
+`MATCH_HARNESS_PREVIOUS` forward and appends the current on-disk body to it
+(`scripts/gen-match-harness-template.mjs:502`, `:580-588`), so the second
+regeneration files the **mutant** as a legitimate prior release. Measured: one
+mutate/revert cycle left `template.ts` 693 lines larger than HEAD carrying two
+copies of the predicate, and regenerating again did not shrink it. A committed
+fossil would make the recipe silently safe-replace a site carrying that exact
+broken file instead of flagging it as hand-edited. The only correct revert is
+`git checkout -- src/recipes/match-harness/template.ts`. This became dangerous
+precisely at this commit, because `MATCH_HARNESS_PREVIOUS` was `{}` until now —
+it holds one prior body each for harness.mjs, gate.sh and next.mjs so that 29
+Navy's already-installed copies are safe-replaced rather than flagged. HEAD's
+table was checked for fossils and is clean.

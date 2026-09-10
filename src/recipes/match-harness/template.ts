@@ -38,6 +38,9 @@ export const HARNESS_MJS_TEMPLATE = `// The single source for everything the mat
 //   node matching/harness.mjs --env        shell-safe KEY='value' lines
 //   node matching/harness.mjs --table      key<TAB>ref<TAB>cand<TAB>anchors
 //   node matching/harness.mjs --check-ref  the D11 preflight; exit 2 on failure
+//   node matching/harness.mjs --check-run <page> <out-dir> <startedAt-iso>
+//                                         did THIS run leave a countable report?
+//                                         exit 2 when it did not
 import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -138,6 +141,160 @@ export async function checkRef() {
   return { ok: true, why: \`\${REF}/ → 200, no redirect, refMark present, candMark absent\` };
 }
 
+/**
+ * Would next.mjs COUNT a run with this meta? Returns the reason it would not,
+ * as a string, or null when it would.
+ *
+ * A reason string and not a boolean, because the two callers must tell the
+ * cases apart: next.mjs treats "schema" as a page BLANKED (it has its own
+ * message and its own exit) and merely skips the rest of the diagnostics,
+ * while gate.sh prints whatever this says.
+ *
+ * It lives HERE rather than inside next.mjs because gate.sh now asks the same
+ * question, and a question asked twice drifts: a gate that greens a run
+ * next.mjs then drops is the same false green one step along. census.sh's
+ * GUARD 2c (census.sh:153-168) records exactly that drift between
+ * style-census's printer and census-count.mjs's parser — a COMPLETE census
+ * reported as 0 mismatches because the two had versioned apart.
+ */
+export function uncountable(m) {
+  // Missing schemaVersion means "written before the field existed" = 0. It is
+  // not an error on its own; it is only fatal when it would blank a page,
+  // which is next.mjs's call to make, not this predicate's.
+  if ((m.schemaVersion ?? 0) !== REPORT_SCHEMA) return "schema";
+  // A masked / media-neutralised run is a DIAGNOSTIC, never the state of the
+  // page. An --mask-photos probe of yfv made \`top\` @834 read 43.9% while the
+  // real gate had it passing at 1.3%.
+  if ((m.mask?.length ?? 0) > 0) return \`mask=[\${m.mask.join(", ")}]\`;
+  if (m.neutralizeMedia) return "neutralize-media";
+  if (m.maskPhotos) return "mask-photos";
+  if (m.truncated) return "truncated";
+  if (m.threshold !== THRESHOLD) return \`threshold \${m.threshold} != \${THRESHOLD}\`;
+  return null;
+}
+
+/**
+ * Did THIS run of page-diff leave a report the scorer will actually count?
+ *
+ * gate.sh cannot use page-diff's exit status for this. page-diff exits 1 for a
+ * region that legitimately FAILED (page-diff.mjs:227) and node exits 1 for the
+ * bare \`throw e\` one line below it, so the status cannot tell a finding from a
+ * crash-before-looking — census.sh:17-32 records the same shape for
+ * style-census. Measured on 29 Navy with the reference alive and no dev
+ * server: every page-diff died in \`page.goto\`, the gate printed \`home exit=1\`
+ * and \`ALL DONE\`, exited 0, and wrote no report at all.
+ *
+ * So the evidence is the artefact only a completed run leaves: the report
+ * next.mjs will read, fresh, over the matrix and anchors the table declares.
+ * Cheapest and most specific arm first.
+ */
+export function checkRun(page, dir, startedAt) {
+  const path = join(dir, "report.json");
+  let report;
+  try {
+    report = JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    if (e.code === "ENOENT")
+      return { ok: false, why: \`\${path}: no report.json — the run wrote nothing\` };
+    return { ok: false, why: \`\${path}: \${e.message}\` };
+  }
+  const meta = report.meta ?? {};
+
+  const uncount = uncountable(meta);
+  if (uncount)
+    return { ok: false, why: \`\${path}: next.mjs would not count this run (\${uncount})\` };
+
+  // FRESHNESS. lib/report.mjs:45 is \`mkdirSync(outDir, {recursive:true})\` and
+  // nothing ever clears the directory, so a crashed re-run under a tag used
+  // before leaves the PREVIOUS round's report exactly where it was — measured
+  // 2026-09-09, sha unchanged across the crash. Requiring report.json without
+  // this arm reproduces the green one step along. meta.generatedAt is built
+  // after \`finally { await browser.close() }\` (page-diff.mjs:163-176), so it
+  // is an artefact of the run that wrote it and not of the file's mtime.
+  const since = Date.parse(startedAt);
+  // NOT skipped when startedAt is unusable: a fail-open default is the exact
+  // shape this guard exists to stop.
+  if (!Number.isFinite(since))
+    return {
+      ok: false,
+      why: \`startedAt \${JSON.stringify(startedAt)} is not a timestamp — cannot tell this run's report from a previous round's\`,
+    };
+  const at = Date.parse(meta.generatedAt ?? "");
+  if (!Number.isFinite(at))
+    return {
+      ok: false,
+      why: \`\${path}: no usable meta.generatedAt — cannot tell this run's report from a previous round's\`,
+    };
+  if (at < since)
+    return {
+      ok: false,
+      why: \`\${path}: STALE — written \${meta.generatedAt}, this run started \${startedAt}. page-diff never cleared the directory.\`,
+    };
+
+  // COVERAGE — what the run was ASKED for, against the table.
+  const vws = meta.viewports ?? [];
+  if (vws.join(",") !== MATRIX.join(","))
+    return {
+      ok: false,
+      why: \`\${path}: ran viewports [\${vws.join(",")}], harness.json matrix is [\${MATRIX.join(",")}]\`,
+    };
+  const secs = meta.sections ?? [];
+  const want = byKey[page]?.anchors ?? [];
+  if (secs.join("\\0") !== want.join("\\0"))
+    return {
+      ok: false,
+      why: \`\${path}: ran sections [\${secs.join(" | ")}], harness.json anchors are [\${want.join(" | ")}]\`,
+    };
+
+  // ...and what it actually PRODUCED. Every viewport the run says it covered
+  // has to appear in the regions. Deliberately compared against the run's own
+  // meta.viewports and not against MATRIX: the arm above owns "the run used the
+  // wrong matrix", and folding the two together would make either one
+  // unfalsifiable on its own.
+  if (!Array.isArray(report.regions) || report.regions.length === 0)
+    return { ok: false, why: \`\${path}: no regions — nothing was compared\` };
+  const seen = new Set(report.regions.map((r) => r.viewport));
+  const missing = vws.filter((v) => !seen.has(v));
+  if (missing.length)
+    return {
+      ok: false,
+      why: \`\${path}: no region at viewport(s) [\${missing.join(",")}] — the run covered [\${[...seen].join(",")}]\`,
+    };
+
+  // With anchors the region count is an exact identity: page-diff cuts one
+  // region before the first anchor plus one per anchor, at every viewport
+  // (regionsFromAnchors, page-diff.mjs:105-109). Measured over the 298 clean
+  // gate-shaped runs in the corpus this harness was cut from, all of them
+  // anchored: regions.length === (sections + 1) * viewports holds 298/298,
+  // while regions.length === TOTALS[page] holds only 260/298 — the 38 are
+  // legitimately narrower HAND rounds. So the identity is checked against the
+  // run's OWN meta and the matrix/anchors are checked against the table above.
+  //
+  // WITHOUT anchors there is no such identity, and asserting one is a FALSE
+  // REFUSAL of the shape every new site starts in. page-diff falls back to each
+  // page's own <section> boxes and, with none, an even four-row grid
+  // (splitRegions, page-diff.mjs:103-110), so the count is data-dependent and
+  // the two pages need not even agree. Measured 2026-09-09 against the real
+  // page-diff on a seed harness (anchors: [], matrix of 4): 16 regions labelled
+  // grid-0-0 … grid-3-0, not the 4 this identity predicted. The 298/298 above
+  // was measured over anchored runs only and never covered this case.
+  if (secs.length) {
+    const expected = (secs.length + 1) * vws.length;
+    if (report.regions.length !== expected)
+      return {
+        ok: false,
+        why: \`\${path}: \${report.regions.length} region(s), expected \${expected} = (\${secs.length} anchors + 1) x \${vws.length} viewport(s)\`,
+      };
+  }
+
+  // A green that STATES what it is made of, so a green over nothing reads
+  // differently from a green over the matrix (census.sh:219's habit).
+  return {
+    ok: true,
+    why: \`\${report.regions.length} region(s) over \${vws.length} viewport(s), written \${meta.generatedAt}\`,
+  };
+}
+
 // CLI. Both sides go through realpathSync. \`import.meta.url\` is ALREADY the
 // resolved real path (node resolves symlinks unless --preserve-symlinks) while
 // process.argv[1] is the path as typed, so a plain pathToFileURL compare goes
@@ -179,8 +336,19 @@ if (isMain()) {
     const r = await checkRef();
     console.log(\`\${r.ok ? "REF OK" : "REF REFUSED"} — \${r.why}\`);
     process.exit(r.ok ? 0 : 2);
+  } else if (mode === "--check-run") {
+    // startedAt is REQUIRED, never defaulted: an optional one is a fail-open
+    // door in the one guard that decides whether a page was measured at all.
+    const [page, dir, startedAt] = process.argv.slice(3);
+    if (!page || !dir || !startedAt) {
+      console.error("usage: harness.mjs --check-run <page> <out-dir> <startedAt-iso>");
+      process.exit(2);
+    }
+    const r = checkRun(page, dir, startedAt);
+    console.log(\`\${r.ok ? "RUN OK" : "NO RUN"} — \${r.why}\`);
+    process.exit(r.ok ? 0 : 2);
   } else {
-    console.error("usage: harness.mjs --env | --table | --check-ref");
+    console.error("usage: harness.mjs --env | --table | --check-ref | --check-run");
     process.exit(2);
   }
 }
@@ -250,6 +418,17 @@ esac
 shift || true
 WANT=("$@")
 
+# What this round actually measured. These are read by the terminal block far
+# below, and the page loop is \`done < <(...)\` — process substitution, NOT a
+# pipe — precisely so they survive it (gate.sh's own note at the loop, and
+# census.sh:193-198, record the same trap). Converting that loop to a pipe
+# would leave every counter here reading 0, which is the green this file now
+# exists to stop.
+MEASURED=0
+ATTEMPTED=0
+UNMEASURED=""
+SEEN=""
+
 # Fail closed on the reference before spending a single run. A 200 is NOT
 # evidence: a production host that has cut over to OUR build answers 200, and
 # every region then scores near zero against itself. --check-ref requires an
@@ -280,6 +459,9 @@ has_spec() { # page
 
 run() { # tag refpath candpath sections
   local page="$1" refpath="$2" candpath="$3" sections="$4"
+  # BEFORE the WANT filter, so the known-page list stays complete even when
+  # WANT matches nothing and there is a typo to name. Mirrors census.sh:107.
+  SEEN="$SEEN $page"
   if [ \${#WANT[@]} -gt 0 ]; then
     local hit=0
     for w in "\${WANT[@]}"; do [ "$w" = "$page" ] && hit=1; done
@@ -302,11 +484,35 @@ run() { # tag refpath candpath sections
     fi
   fi
   echo "########## $page ##########"
+  # Same clock source and same format as page-diff's own meta.generatedAt, so
+  # the freshness comparison below is between two ISO strings from one clock.
+  local started
+  started="$(node -e 'process.stdout.write(new Date().toISOString())')"
   node "$PD" --ref "$REF$refpath" --cand "$CAND$candpath" \\
     --viewports "$MATRIX" --threshold "$THRESHOLD" \\
     --sections "$sections" --out "matching/out-$TAG-$page" \\
     > "matching/out-$TAG-$page.log" 2>&1
-  echo "$page exit=$?"
+  # IMMEDIATELY after the invocation. Any command in between — the echo
+  # included — destroys $?.
+  local status=$?
+  echo "$page exit=$status"
+  ATTEMPTED=$((ATTEMPTED + 1))
+  # $status may DENY a green; it may never GRANT one, and here it does neither.
+  # page-diff exits 1 for a region that legitimately FAILED (page-diff.mjs:227)
+  # and node exits 1 for the bare \`throw e\` below it, so the status cannot tell
+  # a finding from a crash before it looked — and a matching round's steady
+  # state IS a failing gate, so denying on it would break every normal round.
+  # Measured on 29 Navy with the reference alive and no dev server: \`home
+  # exit=1\`, \`ALL DONE\`, exit 0, and no matching/out-*-home/ written at all.
+  # What only a completed run leaves is the report next.mjs will count.
+  # census.sh:17-32 is the same argument for style-census.
+  local evidence
+  if evidence="$(node "$(dirname "$0")/harness.mjs" --check-run "$page" "matching/out-$TAG-$page" "$started" 2>&1)"; then
+    MEASURED=$((MEASURED + 1))
+  else
+    UNMEASURED="$UNMEASURED $page"
+    echo "  NOT MEASURED: $evidence"
+  fi
 }
 
 # The page table is matching/harness.json. Process substitution, NOT a pipe:
@@ -316,14 +522,48 @@ while IFS=$'\\t' read -r key refpath candpath anchors; do
   run "$key" "$refpath" "$candpath" "$anchors"
 done < <(node "$(dirname "$0")/harness.mjs" --table)
 
+# BOTH kinds of incompleteness are reported in one run: a page refused before
+# it ran, and a page that ran and left nothing countable. Exiting on the first
+# would hide the second from an operator who then fixes only what was printed.
+INCOMPLETE=0
+if [ -n "$UNMEASURED" ]; then
+  echo
+  echo "GATE INCOMPLETE ($TAG) — $((ATTEMPTED - MEASURED)) of $ATTEMPTED page(s) produced no"
+  echo "countable report:$UNMEASURED"
+  echo "Those pages have NOT been measured. next.mjs drops an unreported page from"
+  echo "BOTH sides of the score, so the pages that did report would read as the"
+  echo "whole site. Full runs: matching/out-$TAG-<page>.log"
+  INCOMPLETE=1
+fi
 if [ "\${FAILED_PREFLIGHT:-0}" = "1" ]; then
   echo
   echo "GATE INCOMPLETE ($TAG) — one or more pages were refused for a missing"
   echo "SPEC.md section. Those pages have NOT been measured; do not report a"
   echo "score for them."
+  INCOMPLETE=1
+fi
+if [ "$INCOMPLETE" = "1" ]; then
   exit 2
 fi
-echo "ALL DONE ($TAG)"
+# A green over ZERO pages is still a green. Measured: \`gate.sh nosuch
+# nosuchpage\` printed ALL DONE and exited 0 having run nothing and printed no
+# page header at all. census.sh:199-209 refuses exactly this shape, and
+# strikes.mjs:147-156 was written because a typo silently greened rule 3 on six
+# of nine pages.
+if [ "$ATTEMPTED" -eq 0 ]; then
+  if [ -n "$SEEN" ]; then
+    echo "gate.sh: \\"\${WANT[*]:-}\\" matches no page — refusing to report ALL DONE." >&2
+    echo "         known pages:$SEEN" >&2
+  else
+    echo "gate.sh: the page table is empty — refusing to report ALL DONE." >&2
+    echo "         node matching/harness.mjs --table printed no rows; check" >&2
+    echo "         \\"pages\\" in matching/harness.json." >&2
+  fi
+  exit 2
+fi
+# A green that STATES what it is made of (census.sh:219), so a green over
+# nothing cannot read like a green over the table.
+echo "ALL DONE ($TAG) — $MEASURED of $ATTEMPTED page(s) measured, each one counted."
 `;
 
 export const CENSUS_SH_RELATIVE = "matching/census.sh";
@@ -591,7 +831,7 @@ if (existsSync(PAUSE)) {
 }
 
 import { FLOORS, ACCEPTED } from "./floors.mjs";
-import { TOTALS, THRESHOLD, MAX_HEIGHT_DELTA, REPORT_SCHEMA } from "./harness.mjs";
+import { TOTALS, THRESHOLD, MAX_HEIGHT_DELTA, REPORT_SCHEMA, uncountable } from "./harness.mjs";
 
 // Reports written by a different page-diff, by page key. Kept rather than
 // dropped: silently ignoring them is how a page vanishes from the score.
@@ -612,22 +852,19 @@ for (const d of readdirSync(DIR).filter((d) => d.startsWith("out-"))) {
   // A masked / media-neutralised run is a DIAGNOSTIC, never the state of the
   // page. Picking one up as "latest" silently reports scores nobody can ship —
   // it happened immediately: an --mask-photos probe of yfv made \`top\` @834 read
-  // 43.9% here while the real gate had it passing at 1.3%.
-  const meta = report.meta ?? {};
-  // Missing schemaVersion means "written before the field existed" = 0. It is
-  // not an error on its own; it is only fatal when it would blank a page.
-  if ((meta.schemaVersion ?? 0) !== REPORT_SCHEMA) {
+  // 43.9% here while the real gate had it passing at 1.3%. Missing
+  // schemaVersion means "written before the field existed" = 0; it is not an
+  // error on its own, only when it would blank a page.
+  //
+  // The predicate itself lives in harness.mjs now, because gate.sh asks the
+  // same question per run and two copies of one question drift — a gate that
+  // greens a run this file then drops is the same false green one step along.
+  const why = uncountable(report.meta ?? {});
+  if (why === "schema") {
     schemaMismatch.add(m[1]);
     continue;
   }
-  if (
-    (meta.mask?.length ?? 0) > 0 ||
-    meta.neutralizeMedia ||
-    meta.maskPhotos ||
-    meta.truncated
-  )
-    continue;
-  if (meta.threshold !== THRESHOLD) continue;
+  if (why) continue;
   const prev = latest.get(m[1]);
   if (!prev || mtime > prev.mtime) latest.set(m[1], { dir: d, mtime, report });
 }
@@ -686,19 +923,51 @@ const scored = [...latest.entries()]
   }))
   .sort((a, b) => a.pass / a.total - b.pass / b.total);
 
+// The denominator is the DECLARED site, not the pages that happened to report.
+// Summed over \`scored\` it shrank to match the numerator: 8 of 9 pages reporting
+// read SCORE 160/160 while the ninth, whose page-diff had crashed, was in
+// neither the numerator nor the denominator nor the list below. harness.mjs:61-67
+// already gives the reason — "a wrong denominator makes the score a lie in the
+// flattering direction" — and that fix was applied per REGION (\`total:
+// TOTALS[p]\`) and never per PAGE.
+const unmeasured = Object.keys(TOTALS)
+  .filter((p) => !latest.has(p))
+  .sort();
 const sum = scored.reduce((a, s) => a + s.pass, 0);
-const max = scored.reduce((a, s) => a + s.total, 0);
-console.log(\`SCORE \${sum}/\${max} regions passing\\n\`);
+const max = Object.values(TOTALS).reduce((a, t) => a + t, 0);
 console.log(
-  scored
-    .map((s) => \`  \${s.p.padEnd(9)} \${String(s.pass).padStart(2)}/\${s.total}\`)
-    .join("\\n"),
+  \`SCORE \${sum}/\${max} regions passing\` +
+    (unmeasured.length ? \` — \${unmeasured.length} page(s) NOT MEASURED\` : "") +
+    "\\n",
+);
+console.log(
+  [
+    ...scored.map((s) => \`  \${s.p.padEnd(9)} \${String(s.pass).padStart(2)}/\${s.total}\`),
+    // \`?/N\`, never \`0/N\`: an unmeasured page is not a page that scored zero,
+    // and printing zero would be a different lie.
+    ...unmeasured.map((p) => \`  \${p.padEnd(9)}  ?/\${TOTALS[p]}   NOT MEASURED\`),
+  ].join("\\n"),
 );
 
 if (accepted.length) {
   console.log(\`\\nOperator-ACCEPTED failures (left failing on purpose):\`);
   for (const a of accepted)
     console.log(\`  \${a.page} @\${a.vw} "\${a.label}" — \${a.why.slice(0, 96)}…\`);
+}
+
+// BEFORE the \`!rows.length\` branch, and deliberately so: an unmeasured page
+// contributes no failing region, so that branch would print "Backlog is empty"
+// and exit 0 over a page nobody had looked at. Exit 2 matches the two guards
+// above (\`blanked\`, \`latest.size === 0\`) — neither "clean" nor "work remains"
+// but "this cannot be scored", the one answer rule 5's while-it-exits-1 loop
+// cannot swallow. The score print stays above it so the partial state is still
+// visible.
+if (unmeasured.length) {
+  console.error(
+    \`\\nnext: \${unmeasured.length} page(s) have no countable gate run — \${unmeasured.join(", ")}.\\n\` +
+      \`      Re-run: bash matching/gate.sh <tag> \${unmeasured.join(" ")}\`,
+  );
+  process.exit(2);
 }
 
 if (!rows.length) {
@@ -1420,10 +1689,525 @@ export const MATCH_HARNESS_FILES: readonly HarnessFile[] = [
   { rel: SITE_PAGES_TEST_RELATIVE, template: SITE_PAGES_TEST_TEMPLATE, owner: "recipe" },
 ];
 
-/** Renders previously shipped by this recipe, per relative path. A file that
- *  byte-matches one of these is SAFE-REPLACED on re-run; anything else that
- *  differs is flagged, never overwritten. Empty at v1 — nothing has shipped. */
-export const MATCH_HARNESS_PREVIOUS: Readonly<Record<string, readonly string[]>> = {};
+/** Renders previously shipped by this recipe, per relative path, NEWEST
+ *  FIRST. A file that byte-matches one of these is SAFE-REPLACED on re-run;
+ *  anything else that differs is flagged, never overwritten (index.ts:88-89).
+ *
+ *  Carried forward from the committed template.ts on every regeneration — the
+ *  generator reads the bodies this repo last shipped before overwriting them,
+ *  and every recipe-owned file whose body changed gains its old one here. It
+ *  said "Empty at v1 — nothing has shipped" while 29-navy was already running
+ *  the v1 render, so the first upgrade would have been FLAGGED on every
+ *  installed site and the broken file kept. */
+export const MATCH_HARNESS_PREVIOUS: Readonly<Record<string, readonly string[]>> = {
+  "matching/harness.mjs": [
+    `// The single source for everything the matching gates need to know about this
+// site. DATA lives in matching/harness.json (site-edited); this file is the
+// READ LAYER — edit harness.json, not this. (It is installed and upgraded by
+// the \`reddoor-maint match-harness\` recipe, which owns these bytes: a hand
+// edit here is flagged on the next run and never silently overwritten.)
+//
+// It exists because the page table, the two hosts, the matrix, the threshold
+// and the skill path were hand-copied all over matching/. Re-measured
+// 2026-09-09 AFTER the six-probe conversion, over the 216 tracked scripts under
+// matching/ (214 top-level — 212 .mjs + 2 .sh — plus 2 in states/):
+//
+//   • a hand-typed copy of the page table (three or more gate keys sitting next
+//     to their route): 8 files. Exactly ONE of them, probe-chrome-count.mjs,
+//     still carries all nine rows; probe-anchors.mjs carries five; the other
+//     six are three-row detail triples (team/svc/qa).
+//   • the skill path (~/.claude/skills/matching-a-page): 193 copies
+//   • the viewport matrix (1440/834/390): 51 copies
+//   • REF pointed at a host listed in selfHosts — i.e. comparing the candidate
+//     with itself: 12 scripts, one of which (probe-chrome-count.mjs) is also
+//     the last nine-row table carrier
+//
+// The first bullet read "the nine-row page table: 5 copies — gate.sh,
+// probe-anchor-parity.mjs, sweep-all10.sh, sweep-all16.sh, sweep-final.sh" when
+// it was written here at 922dde3. It was wrong within the hour and wrong on two
+// counts: 4e2cd7b took the table out of gate.sh, and the list never named
+// states/index.mjs or probe-chrome-count.mjs, which were both carrying nine-row
+// copies at the time. A census is a claim about code; it has to be measured
+// against the tree, not recalled.
+//
+//   node matching/harness.mjs --env        shell-safe KEY='value' lines
+//   node matching/harness.mjs --table      key<TAB>ref<TAB>cand<TAB>anchors
+//   node matching/harness.mjs --check-ref  the D11 preflight; exit 2 on failure
+import { readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+// fileURLToPath, not URL#pathname: pathname is percent-encoded, so a checkout
+// under a directory with a space in it would resolve to a path that does not
+// exist.
+const DIR = fileURLToPath(new URL(".", import.meta.url));
+const CFG = JSON.parse(readFileSync(join(DIR, "harness.json"), "utf8"));
+
+// Env overrides exist for one-off probes only. They are NOT how a site is
+// configured — harness.json is, so that what a gate ran against is committed.
+export const REF = process.env.MATCH_REF ?? CFG.ref;
+export const CAND = process.env.MATCH_CAND ?? process.env.CAND_BASE ?? CFG.cand;
+export const MATRIX = CFG.matrix;
+export const THRESHOLD = CFG.threshold;
+export const MAX_HEIGHT_DELTA = CFG.maxHeightDelta;
+export const REF_MARK = CFG.refMark;
+export const CAND_MARK = CFG.candMark;
+export const SELF_HOSTS = CFG.selfHosts ?? [];
+
+/** One record per gated page, in harness.json order. \`key\` is the gate key
+ *  (out-<TAG>-<key>, the SPEC heading, spec-sections/<key>.md); \`uid\` is the
+ *  Prismic uid or null where the page has no /dev/match twin. */
+export const PAGES = Object.entries(CFG.pages).map(([key, p]) => ({ key, ...p }));
+export const byKey = Object.fromEntries(PAGES.map((p) => [p.key, p]));
+
+// DERIVED, never hand-typed: page-diff cuts one region before the first anchor
+// ("top") plus one per anchor, at every viewport. The old hand-written map went
+// stale the moment an anchor list changed, and a wrong denominator makes the
+// score a lie in the flattering direction.
+export const TOTALS = Object.fromEntries(
+  PAGES.map((p) => [p.key, (p.anchors.length + 1) * MATRIX.length]),
+);
+
+/** The SPEC.md heading predicate, shared by gate.sh's preflight and
+ *  build-spec.mjs so a section can never build fine and then refuse at the
+ *  gate. Matches the key followed by any non-key character (\`## team\` matches,
+ *  \`## teamfoo\` does not, \`## our-team\` cannot match \`team\`). */
+export const specHeadingRe = (key) => new RegExp(\`^##+ +\${key}([^A-Za-z0-9_-]|$)\`, "m");
+
+export const SKILL_DIR =
+  process.env.MATCHING_SKILL_DIR ?? join(homedir(), ".claude/skills/matching-a-page");
+export const PD = join(SKILL_DIR, "page-diff.mjs");
+export const SC = join(SKILL_DIR, "style-census.mjs");
+export const PLAYWRIGHT = pathToFileURL(join(SKILL_DIR, "node_modules/playwright/index.mjs")).href;
+
+/** The report format this site's scripts can read, so gate.sh can compare it
+ *  with \`page-diff --version\` before spending a run and next.mjs can refuse
+ *  rather than quietly drop a page whose newest report came from another
+ *  schema. Both do that now — gate.sh preflights \`page-diff --version\` against
+ *  this value before spending a run, and next.mjs counts a foreign-schema
+ *  report as MISSING rather than skipping it. (This said "neither does that
+ *  yet" — true at 922dde3 where it was written, false from 4e2cd7b, which
+ *  gave gate.sh the preflight and did not come back here.) Checked 2026-09-09
+ *  against the installed skill: \`page-diff --version\` → \`page-diff 0.1.0
+ *  report-schema 1\`. */
+export const REPORT_SCHEMA = 1;
+
+/**
+ * Fail-closed reference preflight. A 200 is NOT evidence: a host that has been
+ * repointed at our own build answers 200, and so does a staging host serving a
+ * 404 page. Both have happened on a real site — see the dated measurement in
+ * LEDGER.md. A pass here requires an artefact only the reference produces.
+ */
+export async function checkRef() {
+  if (!REF_MARK) {
+    return {
+      ok: false,
+      why: "harness.json refMark is empty — set it to a string only the reference serves (a Webflow site id, a build hash). A 200 is not evidence.",
+    };
+  }
+  const host = new URL(REF).host;
+  if (SELF_HOSTS.includes(host)) return { ok: false, why: \`REF host \${host} is in selfHosts\` };
+  if (host === new URL(CAND).host) return { ok: false, why: \`REF host \${host} equals CAND's host\` };
+  let res;
+  try {
+    res = await fetch(\`\${REF}/\`, { redirect: "manual" });
+  } catch (e) {
+    return { ok: false, why: \`GET \${REF}/ failed: \${e.message}\` };
+  }
+  if (res.status !== 200)
+    return { ok: false, why: \`GET \${REF}/ → HTTP \${res.status}, expected 200\` };
+  const loc = res.headers.get("location");
+  if (loc) return { ok: false, why: \`GET \${REF}/ → \${res.status} redirect to \${loc}\` };
+  const body = await res.text();
+  if (!body.includes(REF_MARK))
+    return {
+      ok: false,
+      why: \`\${REF}/ served 200 but WITHOUT refMark \${JSON.stringify(REF_MARK)} — that is not the reference\`,
+    };
+  if (CAND_MARK && body.includes(CAND_MARK))
+    return {
+      ok: false,
+      why: \`\${REF}/ contains candMark \${JSON.stringify(CAND_MARK)} — REF is serving OUR build\`,
+    };
+  return { ok: true, why: \`\${REF}/ → 200, no redirect, refMark present, candMark absent\` };
+}
+
+// CLI. Both sides go through realpathSync. \`import.meta.url\` is ALREADY the
+// resolved real path (node resolves symlinks unless --preserve-symlinks) while
+// process.argv[1] is the path as typed, so a plain pathToFileURL compare goes
+// false the moment any component of the invoked path is a symlink — and then
+// the CLI prints nothing and exits 0, which every caller reads as success.
+// page-diff.mjs:184-189 records exactly that defect and the same fix: "The
+// pathToFileURL compare that replaced the old template string is still false
+// whenever ANY component of the invoked path is a symlink — which is how this
+// skill is installed now (~/.claude/skills/matching-a-page -> the claude-skills
+// checkout). isMain() resolves the real path on both sides."
+const isMain = () => {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+};
+
+if (isMain()) {
+  const mode = process.argv[2];
+  const q = (v) => \`'\${String(v).replace(/'/g, \`'\\\\''\`)}'\`;
+  if (mode === "--env") {
+    const pairs = [
+      ["REF", REF],
+      ["CAND", CAND],
+      ["MATRIX", MATRIX.join(",")],
+      ["VIEWPORTS_SP", MATRIX.join(" ")],
+      ["THRESHOLD", THRESHOLD],
+      ["MAX_HEIGHT_DELTA", MAX_HEIGHT_DELTA],
+      ["PD", PD],
+      ["SC", SC],
+      ["REPORT_SCHEMA", REPORT_SCHEMA],
+    ];
+    for (const [k, v] of pairs) console.log(\`\${k}=\${q(v)}\`);
+  } else if (mode === "--table") {
+    for (const p of PAGES) console.log([p.key, p.ref, p.cand, p.anchors.join(",")].join("\\t"));
+  } else if (mode === "--check-ref") {
+    const r = await checkRef();
+    console.log(\`\${r.ok ? "REF OK" : "REF REFUSED"} — \${r.why}\`);
+    process.exit(r.ok ? 0 : 2);
+  } else {
+    console.error("usage: harness.mjs --env | --table | --check-ref");
+    process.exit(2);
+  }
+}
+`,
+  ],
+  "matching/gate.sh": [
+    `#!/usr/bin/env bash
+# The matching gate. This file is generic — everything specific to a site lives
+# in matching/harness.json (the data) and matching/LEDGER.md (the why). It is
+# installed and upgraded by the \`reddoor-maint match-harness\` recipe, which
+# owns these bytes: a hand edit here is flagged on the next run, never
+# silently overwritten.
+#
+#   bash matching/gate.sh <round-tag> [page ...]
+#
+# Runs page-diff for every page in the table (or just the named ones) at the
+# full breakpoint matrix and writes matching/out-<round-tag>-<page>/.
+#
+# The matrix, the anchor lists, the reference and the candidate are DATA. Why a
+# site chose them — which live breakpoint band hid what, why an anchor is a
+# heading and not a button label — belongs in matching/LEDGER.md, which is dated
+# and append-only, because JSON holds no comments.
+#
+# NO MASKS and the threshold from harness.json everywhere: the numbers stay
+# honest and a known floor stays visible as its own region. A media-neutralised
+# secondary read is \`node "$PD" ... --neutralize-media\`; next.mjs ignores such
+# runs on purpose (next.mjs:57-64).
+#
+# PREFLIGHT (see the matching rules in CLAUDE.md): a page with no section in
+# matching/SPEC.md has not had Phase 1 done, and its geometry must not be
+# touched. Skipping the spec is how a reference's root-font ladder and its
+# per-component height ladders get found reactively, after the region has
+# already failed several rounds. This refuses the run instead of trusting anyone
+# to remember.
+set -u
+# Everything configurable lives in matching/harness.json; harness.mjs is the one
+# reader. --env emits shell-safe assignments (REF, CAND, MATRIX, VIEWPORTS_SP,
+# THRESHOLD, MAX_HEIGHT_DELTA, PD, SC, REPORT_SCHEMA).
+eval "$(node "$(dirname "$0")/harness.mjs" --env)"
+
+# The skill must be able to write reports this site's scripts can read. Cheap,
+# local, and it fails before any browser starts.
+PD_SCHEMA="$(node "$PD" --version 2>/dev/null | awk '{print $4}')"
+if [ "$PD_SCHEMA" != "$REPORT_SCHEMA" ]; then
+  echo "gate.sh: page-diff writes report schema '\${PD_SCHEMA:-none}', this harness reads $REPORT_SCHEMA." >&2
+  echo "         Update matching/harness.mjs REPORT_SCHEMA or the matching-a-page skill." >&2
+  exit 2
+fi
+SPEC="$(dirname "$0")/SPEC.md"
+TAG="\${1:?usage: gate.sh <round-tag> [page ...]}"
+# The tag must not contain a hyphen. Output dirs are "out-<TAG>-<page>", and
+# next.mjs recovers the page with /^out-[^-]+-(.+)$/ — it splits on the FIRST
+# hyphen, so a tag like "r-forms-2026-08-07" yields the page key
+# "forms-2026-08-07-yfv" and that run is silently never counted. It cannot split
+# on the last hyphen instead, because page keys have hyphens of their own
+# ("our-team", "ask-the-doctor"). Failing here is the cheap end of that: a
+# mis-tagged round otherwise LOOKS green because next.mjs keeps reading an older
+# report for the page you just changed. (Cost this once, 2026-08-07.)
+case "$TAG" in
+  *-*)
+    echo "gate.sh: round tag must not contain a hyphen (got '$TAG')." >&2
+    echo "         out-<TAG>-<page> is parsed on the first hyphen, so a" >&2
+    echo "         hyphenated tag hides the run from next.mjs. Try '\${TAG//-/}'." >&2
+    exit 2
+    ;;
+esac
+shift || true
+WANT=("$@")
+
+# Fail closed on the reference before spending a single run. A 200 is NOT
+# evidence: a production host that has cut over to OUR build answers 200, and
+# every region then scores near zero against itself. --check-ref requires an
+# artefact only the reference serves (harness.json refMark) and refuses a
+# redirect, a host listed in selfHosts, and a body carrying candMark. Measured
+# on the site this harness was cut from, 2026-09-09 AFTER the consolidation:
+# 12 of its 214 top-level matching scripts still assign REF a host listed in
+# selfHosts — i.e. compare the candidate with itself. It was 33 of 229 before.
+# (This comment read "33 of its 230" while sitting in the post-consolidation
+# tree, contradicting harness.mjs's 12 three files away.)
+if ! node "$(dirname "$0")/harness.mjs" --check-ref; then
+  echo "gate.sh: refusing to gate against an unverified reference." >&2
+  exit 2
+fi
+
+# Set SPEC_OPTIONAL=1 only for a read-only baseline sweep of pages you are not
+# about to edit. It is recorded in the round tag so the exemption is visible.
+SPEC_OPTIONAL="\${SPEC_OPTIONAL:-0}"
+
+has_spec() { # page
+  # NB: the obvious \`( |$|\\b)\` guard is rejected by ugrep as an empty
+  # subexpression, and a preflight that errors out fails CLOSED — it refused all
+  # 9 pages while SPEC.md was complete. Match the page key followed by any
+  # non-key character (so \`## team\` matches but \`## teamfoo\` does not; \`##
+  # our-team\` cannot match \`team\` because the key must follow the spaces).
+  [ -f "$SPEC" ] && grep -qE "^##+ +$1([^A-Za-z0-9_-]|$)" "$SPEC"
+}
+
+run() { # tag refpath candpath sections
+  local page="$1" refpath="$2" candpath="$3" sections="$4"
+  if [ \${#WANT[@]} -gt 0 ]; then
+    local hit=0
+    for w in "\${WANT[@]}"; do [ "$w" = "$page" ] && hit=1; done
+    [ $hit -eq 1 ] || return 0
+  fi
+  if ! has_spec "$page"; then
+    if [ "$SPEC_OPTIONAL" = "1" ]; then
+      echo "########## $page ##########"
+      echo "WARNING: no '## $page' section in matching/SPEC.md — Phase 1 not done."
+      echo "         Running anyway because SPEC_OPTIONAL=1 (baseline read only)."
+      echo "         Do NOT apply geometry fixes off this run."
+    else
+      echo "########## $page ##########"
+      echo "REFUSED: no '## $page' section in matching/SPEC.md."
+      echo "         Phase 1 (section census + per-section spec, read from"
+      echo "         matching/spec/) comes before geometry."
+      echo "         See CLAUDE.md rule 2. SPEC_OPTIONAL=1 for a baseline read."
+      FAILED_PREFLIGHT=1
+      return 0
+    fi
+  fi
+  echo "########## $page ##########"
+  node "$PD" --ref "$REF$refpath" --cand "$CAND$candpath" \\
+    --viewports "$MATRIX" --threshold "$THRESHOLD" \\
+    --sections "$sections" --out "matching/out-$TAG-$page" \\
+    > "matching/out-$TAG-$page.log" 2>&1
+  echo "$page exit=$?"
+}
+
+# The page table is matching/harness.json. Process substitution, NOT a pipe:
+# a pipe would run this loop in a subshell and FAILED_PREFLIGHT would not
+# survive to the check below, so a refused page would exit 0.
+while IFS=$'\\t' read -r key refpath candpath anchors; do
+  run "$key" "$refpath" "$candpath" "$anchors"
+done < <(node "$(dirname "$0")/harness.mjs" --table)
+
+if [ "\${FAILED_PREFLIGHT:-0}" = "1" ]; then
+  echo
+  echo "GATE INCOMPLETE ($TAG) — one or more pages were refused for a missing"
+  echo "SPEC.md section. Those pages have NOT been measured; do not report a"
+  echo "score for them."
+  exit 2
+fi
+echo "ALL DONE ($TAG)"
+`,
+  ],
+  "matching/next.mjs": [
+    `// What is still broken, ranked. Exits 1 while work remains.
+//
+//   node matching/next.mjs
+//
+// Round protocol step 0 (repo CLAUDE.md rule 5). A commit is a CHECKPOINT, not
+// a stopping point: after committing, run this. If it exits 1 there is a named
+// next action and the round continues without handing control back.
+//
+// Reads the most recent gate log per page rather than the whole corpus, so it
+// reflects HEAD rather than history (that is strikes.mjs's job).
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+const DIR = new URL(".", import.meta.url).pathname;
+
+// PAUSE SWITCH. While matching/PAUSED exists this hands out no agenda and
+// exits 0. It is deliberately the FIRST thing that runs: no report is read, no
+// score is printed, nothing tempting is put on screen to argue with.
+//
+// Why an exit code and not a note somewhere: rule 5 is a LOOP — "after
+// committing, run next.mjs; while it exits 1 there is a named next action and
+// the round continues". A pause written as prose loses to that loop, because
+// the loop is mechanical and the prose is not. Exiting 0 satisfies rule 5
+// truthfully rather than suspending it: there is no next action.
+const PAUSE = join(DIR, "PAUSED");
+if (existsSync(PAUSE)) {
+  console.log("MATCHING PAUSED — no agenda, and none is to be inferred.\\n");
+  console.log(readFileSync(PAUSE, "utf8").trimEnd());
+  process.exit(0);
+}
+
+import { FLOORS, ACCEPTED } from "./floors.mjs";
+import { TOTALS, THRESHOLD, MAX_HEIGHT_DELTA, REPORT_SCHEMA } from "./harness.mjs";
+
+// Reports written by a different page-diff, by page key. Kept rather than
+// dropped: silently ignoring them is how a page vanishes from the score.
+const schemaMismatch = new Set();
+
+const latest = new Map();
+for (const d of readdirSync(DIR).filter((d) => d.startsWith("out-"))) {
+  const m = /^out-[^-]+-(.+)$/.exec(d);
+  if (!m || !TOTALS[m[1]]) continue;
+  let report, mtime;
+  try {
+    const p = join(DIR, d, "report.json");
+    report = JSON.parse(readFileSync(p, "utf8"));
+    mtime = statSync(p).mtimeMs;
+  } catch {
+    continue;
+  }
+  // A masked / media-neutralised run is a DIAGNOSTIC, never the state of the
+  // page. Picking one up as "latest" silently reports scores nobody can ship —
+  // it happened immediately: an --mask-photos probe of yfv made \`top\` @834 read
+  // 43.9% here while the real gate had it passing at 1.3%.
+  const meta = report.meta ?? {};
+  // Missing schemaVersion means "written before the field existed" = 0. It is
+  // not an error on its own; it is only fatal when it would blank a page.
+  if ((meta.schemaVersion ?? 0) !== REPORT_SCHEMA) {
+    schemaMismatch.add(m[1]);
+    continue;
+  }
+  if (
+    (meta.mask?.length ?? 0) > 0 ||
+    meta.neutralizeMedia ||
+    meta.maskPhotos ||
+    meta.truncated
+  )
+    continue;
+  if (meta.threshold !== THRESHOLD) continue;
+  const prev = latest.get(m[1]);
+  if (!prev || mtime > prev.mtime) latest.set(m[1], { dir: d, mtime, report });
+}
+
+const blanked = [...schemaMismatch].filter((p) => !latest.has(p));
+if (blanked.length) {
+  console.error(
+    \`next: \${blanked.length} page(s) have no run at report schema \${REPORT_SCHEMA} — \` +
+      \`their newest reports came from a different page-diff (\${blanked.sort().join(", ")}).\\n\` +
+      \`      Re-run: bash matching/gate.sh <tag> \${blanked.sort().join(" ")}\`,
+  );
+  process.exit(2);
+}
+if (latest.size === 0) {
+  console.error(
+    "next: no parseable gate run under matching/ — refusing to report a score.\\n" +
+      "      Run bash matching/gate.sh <tag> first.",
+  );
+  process.exit(2);
+}
+
+const rows = [];
+const accepted = [];
+let openTotal = 0;
+let floorTotal = 0;
+for (const [page, { dir, report }] of latest) {
+  const fails = report.regions.filter((r) => !r.pass);
+  for (const f of fails) {
+    const floor = FLOORS.find((fl) => fl.match(f, page));
+    if (floor) {
+      floorTotal++;
+      continue;
+    }
+    const ack = ACCEPTED.find((a) => a.match(f, page));
+    if (ack) {
+      accepted.push({ page, vw: f.viewport, label: f.label, why: ack.why });
+      continue;
+    }
+    openTotal++;
+    rows.push({
+      page,
+      vw: f.viewport,
+      label: f.label,
+      mm: f.mismatchFraction,
+      dh: f.heightDeltaFraction ?? 0,
+      dir,
+    });
+  }
+}
+
+const scored = [...latest.entries()]
+  .map(([p, v]) => ({
+    p,
+    pass: v.report.regions.filter((r) => r.pass).length,
+    total: TOTALS[p],
+  }))
+  .sort((a, b) => a.pass / a.total - b.pass / b.total);
+
+const sum = scored.reduce((a, s) => a + s.pass, 0);
+const max = scored.reduce((a, s) => a + s.total, 0);
+console.log(\`SCORE \${sum}/\${max} regions passing\\n\`);
+console.log(
+  scored
+    .map((s) => \`  \${s.p.padEnd(9)} \${String(s.pass).padStart(2)}/\${s.total}\`)
+    .join("\\n"),
+);
+
+if (accepted.length) {
+  console.log(\`\\nOperator-ACCEPTED failures (left failing on purpose):\`);
+  for (const a of accepted)
+    console.log(\`  \${a.page} @\${a.vw} "\${a.label}" — \${a.why.slice(0, 96)}…\`);
+}
+
+if (!rows.length) {
+  console.log(
+    \`\\nNo open geometry failures. \${floorTotal} declared floor(s) remain.\`,
+  );
+  console.log(
+    "Backlog is empty — Phases 5 (states) and 6 (adversarial review) are what is left.",
+  );
+  process.exit(0);
+}
+
+// Worst page first, then worst region inside it: fix where the model is most wrong.
+const worst = scored[0].p;
+rows.sort(
+  (a, b) =>
+    (a.page === worst ? -1 : 0) - (b.page === worst ? -1 : 0) || b.mm - a.mm,
+);
+
+console.log(
+  \`\\n\${openTotal} open failure(s) + \${floorTotal} declared floor(s).\`,
+);
+console.log(\`\\nNEXT: \${worst} — worst page. Its open regions:\\n\`);
+for (const r of rows.filter((r) => r.page === worst)) {
+  const why = [];
+  if (r.mm > THRESHOLD) why.push(\`pixels \${(r.mm * 100).toFixed(1)}%\`);
+  if (Math.abs(r.dh) > MAX_HEIGHT_DELTA)
+    why.push(\`height \${(r.dh * 100).toFixed(1)}%\`);
+  console.log(
+    \`  @\${String(r.vw).padEnd(5)} \${r.label.slice(0, 44).padEnd(45)} \${why.join(" + ")}\`,
+  );
+}
+console.log(\`\\nBefore treating any of these as geometry:\`);
+console.log(
+  \`  node matching/probe-anchor-parity.mjs \${worst}   # is the gate cutting comparably?\`,
+);
+console.log(
+  \`  node matching/strikes.mjs \${worst}               # has it stalled? then change the MODEL\`,
+);
+console.log(
+  \`\\nRound continues. Do not hand back control with work outstanding.\`,
+);
+process.exit(1);
+`,
+  ],
+};
 
 export const GITIGNORE_MARKER =
   "# reddoor-maint match-harness: scripts + records tracked, workspace ignored";

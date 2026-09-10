@@ -21,6 +21,7 @@ import {
   CLAUDE_MD_BLOCK,
   GATE_SH_TEMPLATE,
   LEDGER_MD_TEMPLATE,
+  MATCH_HARNESS_PREVIOUS,
 } from "../../src/recipes/match-harness/template.js";
 import type { SpawnFn, SpawnOptions } from "../../src/audits/util/spawn.js";
 import { PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
@@ -120,6 +121,97 @@ async function stubSkill(): Promise<string> {
   return dir;
 }
 
+/** The body of a stub page-diff.mjs. It answers gate.sh's schema preflight
+ *  (`--version`, field 4) exactly as stubSkill does — without that every case
+ *  below would refuse for the wrong reason, before the run under test — and
+ *  then behaves per STUB_PD_MODE: a completed run whose regions all pass
+ *  (`ok`), a completed run with one region failing (`fail` — a LEGITIMATE
+ *  failing round, exit 1), a run that dies before it writes anything
+ *  (`crash`), a report covering only the first viewport (`narrow`), one that
+ *  SAYS it covered the matrix and produced regions at the first viewport only
+ *  (`onevw`), one region short of what its anchors declare (`dropped`), a
+ *  complete report dated 2020 (`past`), and a photo-masked diagnostic
+ *  (`photos`).
+ *  `crash` dies AFTER the --version banner on purpose — the preflight passes,
+ *  so only the per-run evidence check can catch it, the same trick STUB_CENSUS
+ *  uses. */
+const STUB_PAGE_DIFF = String.raw`
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const arg = (f) => {
+  const i = process.argv.indexOf(f);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+};
+if (process.argv.includes("--version")) {
+  console.log("page-diff 0.0.0 report-schema 1");
+  process.exit(0);
+}
+const mode = process.env.STUB_PD_MODE ?? "ok";
+if (mode === "crash") throw new Error("page.goto: net::ERR_CONNECTION_REFUSED");
+
+const out = arg("--out") ?? "./out";
+const rawVw = arg("--viewports") ?? "";
+const rawSec = arg("--sections") ?? "";
+const viewports = rawVw ? rawVw.split(",").map(Number) : [];
+const sections = rawSec ? rawSec.split(",").map((s) => s.trim()) : [];
+// narrow: the run only got round to the first viewport, so its report is
+// internally consistent and still covers less than the matrix asked for.
+const vws = mode === "narrow" ? viewports.slice(0, 1) : viewports;
+const regions = [];
+for (const vw of vws)
+  for (const label of ["top", ...sections])
+    regions.push({
+      viewport: vw,
+      label,
+      mismatchFraction: 0.01,
+      heightDeltaFraction: 0,
+      pass: true,
+    });
+if (mode === "fail" && regions.length) {
+  regions[0].pass = false;
+  regions[0].mismatchFraction = 0.5;
+}
+// onevw: meta says the whole matrix, the regions only reach the first viewport.
+const kept =
+  mode === "onevw" ? regions.filter((r) => r.viewport === vws[0]) : regions.slice();
+// dropped: an anchor resolved on the reference and produced no region — 4 of
+// the corpus's own reports have exactly this shape.
+if (mode === "dropped") kept.pop();
+const overallPass = kept.every((r) => r.pass);
+mkdirSync(out, { recursive: true });
+writeFileSync(
+  join(out, "report.json"),
+  JSON.stringify({
+    meta: {
+      schemaVersion: 1,
+      generatedAt:
+        mode === "past" ? "2020-01-01T00:00:00.000Z" : new Date().toISOString(),
+      viewports: vws,
+      threshold: Number(arg("--threshold") ?? 0.1),
+      maxHeightDelta: 0.05,
+      sections,
+      mask: [],
+      masked: [],
+      neutralizeMedia: false,
+      maskPhotos: mode === "photos",
+      truncated: false,
+    },
+    overallPass,
+    regions: kept,
+  }),
+);
+process.exit(overallPass ? 0 : 1);
+`;
+
+/** A skill directory holding only that stub. */
+async function stubPageDiff(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "match-pd-"));
+  await writeFile(join(dir, "page-diff.mjs"), STUB_PAGE_DIFF, "utf-8");
+  await chmod(join(dir, "page-diff.mjs"), 0o755);
+  return dir;
+}
+
 /** The body of a stub style-census.mjs. It answers census.sh's usage-banner
  *  preflight, then writes whatever STUB_CENSUS_MODE asks for: a completed
  *  census (`clean` / `dirty`), one that dies the way a closed dev server does
@@ -187,6 +279,34 @@ async function patchHarness(cwd: string, patch: Record<string, unknown>): Promis
   const p = join(cwd, "matching/harness.json");
   const j = JSON.parse(await readFile(p, "utf-8")) as Record<string, unknown>;
   await writeFile(p, JSON.stringify({ ...j, ...patch }, null, 2) + "\n", "utf-8");
+}
+
+/** Give the seed's one page a real anchor list, the way a site does after
+ *  Phase 1. The seed ships `anchors: []`, under which page-diff cuts a grid
+ *  rather than "top + one per anchor" — so the two shapes are separate cases. */
+async function patchHarnessAnchors(cwd: string, anchors: string[]): Promise<void> {
+  const p = join(cwd, "matching/harness.json");
+  const j = JSON.parse(await readFile(p, "utf-8")) as {
+    pages: Record<string, Record<string, unknown> | undefined>;
+  };
+  const home = j.pages.home;
+  if (!home) throw new Error("the seed's `home` page is missing from harness.json");
+  home.anchors = anchors;
+  await writeFile(p, JSON.stringify(j, null, 2) + "\n", "utf-8");
+}
+
+/** Install extra rows in the page table by duplicating the seed's `home`
+ *  entry, so TOTALS declares more pages than a fixture measures. */
+async function patchHarnessPages(cwd: string, keys: string[]): Promise<void> {
+  const p = join(cwd, "matching/harness.json");
+  const j = JSON.parse(await readFile(p, "utf-8")) as {
+    pages: Record<string, Record<string, unknown> | undefined>;
+  };
+  const home = j.pages.home;
+  if (!home) throw new Error("the seed's `home` page is missing from harness.json");
+  for (const k of keys)
+    j.pages[k] = { ...home, uid: k, ref: `/${k}`, cand: `/dev/match/${k}`, anchors: [] };
+  await writeFile(p, JSON.stringify(j, null, 2) + "\n", "utf-8");
 }
 
 /** Run a command inside the installed site. Resolves either way: these gates
@@ -301,6 +421,50 @@ describe("recipes/match-harness", () => {
     expect(result.status).toBe("applied");
     expect(await read(cwd, "matching/gate.sh")).toBe(GATE_SH_TEMPLATE);
     expect(result.notes).toContain("matching/gate.sh upgraded from a previous version");
+  });
+
+  // --- and the table that mechanism reads is not empty
+  //
+  // It was: MATCH_HARNESS_PREVIOUS shipped as `{}` under the comment "Empty at
+  // v1 — nothing has shipped", which was already false — 29-navy carried the v1
+  // render byte-identical. With an empty table planFileWrite returns "flag" for
+  // every site that has the recipe installed (index.ts:88-89), so a fix to a
+  // recipe-owned script reaches none of them and each keeps the broken file
+  // under the note "differs from the shipped template … (hand-edited?)".
+
+  /** The pre-fix gate.sh: the one whose ALL DONE is unconditional and uncounted. */
+  const shippedV1Gate = (): string | undefined =>
+    (MATCH_HARNESS_PREVIOUS["matching/gate.sh"] ?? []).find((b) =>
+      b.endsWith('\necho "ALL DONE ($TAG)"\n'),
+    );
+
+  it("carries the render it previously shipped forward, per recipe-owned path", async () => {
+    expect(Object.keys(MATCH_HARNESS_PREVIOUS)).toContain("matching/gate.sh");
+    const v1 = shippedV1Gate();
+    expect(v1, "no entry looks like the pre-fix gate.sh").toBeDefined();
+    // ...and it really is the OLD body, not a copy of the current template.
+    expect(v1).not.toContain("page(s) measured");
+    expect(v1).not.toContain("--check-run");
+    expect(GATE_SH_TEMPLATE).not.toBe(v1);
+  });
+
+  it("UPGRADES a site running the shipped v1 gate.sh rather than flagging it", async () => {
+    const v1 = shippedV1Gate();
+    expect(v1).toBeDefined();
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, "matching/gate.sh", v1 as string);
+
+    // No injected `previous`: this run must consult the REAL shipped table,
+    // which is what an installed site's upgrade actually goes through.
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(await read(cwd, "matching/gate.sh")).toBe(GATE_SH_TEMPLATE);
+    expect(result.notes).toContain("matching/gate.sh upgraded from a previous version");
+    expect(result.notes).not.toContain("differs from the shipped template");
   });
 
   it("flags a hand-edited recipe-owned script and leaves it byte-for-byte alone", async () => {
@@ -1474,11 +1638,14 @@ describe("the installed harness's checkRef preflight", () => {
 
 describe("the installed harness reports, not just refuses", () => {
   /** A page-diff report next.mjs will actually count: current schema, the
-   *  harness's own threshold, no mask and not truncated. */
+   *  harness's own threshold, no mask and not truncated. `meta` overrides
+   *  fields of that default — a case that needs an UNcountable run states
+   *  exactly which field makes it so. */
   async function writeReport(
     cwd: string,
     dir: string,
     regions: Array<{ viewport: number; label: string; mismatchFraction: number; pass: boolean }>,
+    meta: Record<string, unknown> = {},
   ): Promise<void> {
     await mkdir(join(cwd, "matching", dir), { recursive: true });
     await writeFile(
@@ -1492,6 +1659,7 @@ describe("the installed harness reports, not just refuses", () => {
           neutralizeMedia: false,
           maskPhotos: false,
           truncated: false,
+          ...meta,
         },
         overallPass: regions.every((r) => r.pass),
         regions: regions.map((r) => ({ ...r, heightDeltaFraction: 0 })),
@@ -1499,6 +1667,42 @@ describe("the installed harness reports, not just refuses", () => {
       "utf-8",
     );
   }
+
+  /** SPEC.md carrying a `## <page>` section for each named page, so gate.sh's
+   *  Phase 1 preflight passes and the run under test is actually reached. */
+  async function writeSpec(cwd: string, pages: string[]): Promise<void> {
+    await writeFile(
+      join(cwd, "matching/SPEC.md"),
+      "# Reference spec\n\n" +
+        pages.map((p) => `## ${p}\n\nOne section, so Phase 1 is done for this page.\n`).join("\n"),
+      "utf-8",
+    );
+  }
+
+  /** Drive gate.sh inside an installed site against a live reference, with a
+   *  stub page-diff in `mode`. */
+  async function gate(
+    cwd: string,
+    mode: string,
+    args: string[] = ["smoke", "home"],
+  ): Promise<{ code: number | string; out: string }> {
+    const skill = await stubPageDiff();
+    return withServer(
+      (_req, res) => html(res, 200, "REFMARK-OK"),
+      async (origin) => {
+        await patchHarness(cwd, { ref: origin, refMark: "REFMARK-OK" });
+        return runIn(cwd, "bash", ["matching/gate.sh", ...args], {
+          MATCHING_SKILL_DIR: skill,
+          STUB_PD_MODE: mode,
+        });
+      },
+    );
+  }
+
+  /** Every region passing, at the harness's own threshold. */
+  const allPass = (
+    rs: Array<{ viewport: number; label: string; mismatchFraction: number; pass: boolean }>,
+  ) => rs.map((r) => ({ ...r, mismatchFraction: 0.01, pass: true }));
 
   const CORPUS = [
     { viewport: 1440, label: "top", mismatchFraction: 0.5, pass: false },
@@ -1534,6 +1738,77 @@ describe("the installed harness reports, not just refuses", () => {
     expect(code).toBe(0);
   });
 
+  // --- next.mjs: a page that never ran is not subtracted from BOTH sides
+  //
+  // The denominator was summed over the pages that HAPPENED to report, so a
+  // page whose page-diff crashed contributed to neither the numerator nor the
+  // denominator: 8 of 9 pages could read SCORE 160/160 while the ninth was
+  // never measured, and `rows` being empty then printed "Backlog is empty".
+
+  it("next.mjs keeps a page it never measured in the denominator", async () => {
+    const cwd = await install();
+    await patchHarnessPages(cwd, ["other"]);
+    await writeReport(cwd, "out-smoke-home", allPass(CORPUS));
+
+    // Deliberately no exit-code assertion: the DENOMINATOR and the REFUSAL are
+    // separate arms and have to be separately provable. Deleting the refusal
+    // must redden the case below and leave this one green.
+    const { out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    // 6 = two declared pages x (0 anchors + 1) x 3 viewports. Summed over the
+    // pages that reported it would read 3/3 — a full score over half the site.
+    expect(out).toMatch(/SCORE 3\/6 regions passing — 1 page\(s\) NOT MEASURED/);
+    expect(out).toMatch(/other\s+\?\/3\s+NOT MEASURED/);
+    // ?/3, never 0/3: an unmeasured page is not a page that scored zero.
+    expect(out).not.toMatch(/other\s+0\/3/);
+  });
+
+  it("next.mjs refuses the backlog-empty green while a declared page has no run", async () => {
+    const cwd = await install();
+    await patchHarnessPages(cwd, ["other"]);
+    // Every region of the ONE page that reported passes, so `rows` is empty and
+    // the old code printed "Backlog is empty" and exited 0 over a page nobody
+    // had looked at.
+    await writeReport(cwd, "out-smoke-home", allPass(CORPUS));
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/have no countable gate run — other/);
+    expect(out).toMatch(/Re-run: bash matching\/gate\.sh <tag> other/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/No open geometry failures|Backlog is empty/);
+  });
+
+  it("next.mjs still reports and exits 0 when every declared page is measured and passing", async () => {
+    // THE GRANT. A refusal proven only to refuse is not proven.
+    const cwd = await install();
+    await patchHarnessPages(cwd, ["other"]);
+    await writeReport(cwd, "out-smoke-home", allPass(CORPUS));
+    await writeReport(cwd, "out-smoke-other", allPass(CORPUS));
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/SCORE 6\/6 regions passing/);
+    expect(out).toMatch(/No open geometry failures/);
+    expect(code).toBe(0);
+    expect(out).not.toMatch(/NOT MEASURED/);
+  });
+
+  it("next.mjs names a page whose only report ran at a different threshold, instead of dropping it from both sides", async () => {
+    // Two pages, not one: with a single page and no countable report at all,
+    // the empty-corpus guard above claims the run first and this arm is never
+    // reached. This is the case that proves next.mjs asks the SHARED predicate
+    // in harness.mjs rather than a leftover inline copy.
+    const cwd = await install();
+    await patchHarnessPages(cwd, ["other"]);
+    await patchHarness(cwd, { threshold: 0.2 });
+    await writeReport(cwd, "out-smoke-home", allPass(CORPUS), { threshold: 0.2 });
+    await writeReport(cwd, "out-smoke-other", allPass(CORPUS), { threshold: 0.1 });
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/other\s+\?\/3\s+NOT MEASURED/);
+    expect(out).toMatch(/have no countable gate run — other/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/SCORE 6\/6/);
+  });
+
   it("the PAUSED switch silences the agenda a scoring corpus would otherwise produce", async () => {
     const cwd = await install();
     await writeReport(cwd, "out-smoke-home", CORPUS);
@@ -1549,31 +1824,312 @@ describe("the installed harness reports, not just refuses", () => {
   });
 
   it("gate.sh RUNS the page once the reference verifies and SPEC.md has its section", async () => {
+    // THE LOAD-BEARING GRANT — a guard proven only to refuse is not proven.
+    //
+    // This case used to drive stubSkill(), a page-diff that answers --version
+    // and NOTHING else: it writes no report, exits 0, and the gate printed ALL
+    // DONE over it. That is exactly the false green now under test, so the stub
+    // is a real one and the green has to state what it is made of.
     const cwd = await install();
-    const skill = await stubSkill();
-    await writeFile(
-      join(cwd, "matching/SPEC.md"),
-      "# Reference spec\n\n## home\n\nOne section, so Phase 1 is done for this page.\n",
-      "utf-8",
-    );
+    await writeSpec(cwd, ["home"]);
 
-    const { code, out } = await withServer(
-      (_req, res) => html(res, 200, "REFMARK-OK"),
-      async (origin) => {
-        await patchHarness(cwd, { ref: origin, refMark: "REFMARK-OK" });
-        return runIn(cwd, "bash", ["matching/gate.sh", "smoke", "home"], {
-          MATCHING_SKILL_DIR: skill,
-        });
-      },
-    );
+    const { code, out } = await gate(cwd, "ok");
 
     expect(out).toMatch(/REF OK/);
     expect(out).toMatch(/########## home ##########/);
     expect(out).toMatch(/home exit=0/);
-    expect(out).toMatch(/ALL DONE \(smoke\)/);
+    expect(out).toMatch(/ALL DONE \(smoke\) — 1 of 1 page\(s\) measured/);
     expect(code).toBe(0);
     expect(out).not.toMatch(/REFUSED/);
-    expect(out).not.toMatch(/GATE INCOMPLETE/);
+    expect(out).not.toMatch(/NOT MEASURED|GATE INCOMPLETE/);
+  });
+
+  // --- gate.sh: ALL DONE has to be produced by runs that HAPPENED
+  //
+  // It was not. `echo "$page exit=$?"` printed the status and discarded it, and
+  // ALL DONE was unconditional: measured on a real site with the reference
+  // alive and no dev server, every page-diff died before writing anything and
+  // the gate printed `home exit=1` / `ALL DONE (smoke)` and exited 0.
+
+  it("gate.sh refuses when a page-diff wrote no report — the ALL DONE this guard exists for", async () => {
+    const cwd = await install();
+    await writeSpec(cwd, ["home"]);
+
+    const { code, out } = await gate(cwd, "crash");
+    expect(out).toMatch(/home exit=1/);
+    expect(out).toMatch(/GATE INCOMPLETE \(smoke\) — 1 of 1 page\(s\) produced no/);
+    expect(out).toMatch(/NOT MEASURED/);
+    expect(out).toMatch(/no report\.json/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/ALL DONE/);
+  });
+
+  it("gate.sh still finishes for a page that RAN and failed — the gate measures, next.mjs scores", async () => {
+    // THE CASE THAT STOPS THE WRONG FIX. page-diff exits 1 for a region that
+    // legitimately FAILED and 1 for a crash before it looked, so propagating
+    // $? as a pass/fail signal would break every normal round — a matching
+    // round's steady state is a failing gate.
+    const cwd = await install();
+    await writeSpec(cwd, ["home"]);
+
+    const { code, out } = await gate(cwd, "fail");
+    expect(out).toMatch(/home exit=1/);
+    expect(out).toMatch(/ALL DONE \(smoke\) — 1 of 1 page\(s\) measured/);
+    expect(code).toBe(0);
+    expect(out).not.toMatch(/NOT MEASURED|GATE INCOMPLETE/);
+  });
+
+  it("gate.sh refuses a report left over from a previous round under the same tag", async () => {
+    // THE SAME-SHAPE-ONE-STEP-ALONG CASE. lib/report.mjs mkdir -p's the output
+    // directory and never clears it, so a crashed re-run under a tag used
+    // before leaves the previous round's report byte-identical — and "require
+    // report.json" alone would green on it.
+    const cwd = await install();
+    await writeSpec(cwd, ["home"]);
+    await writeReport(cwd, "out-smoke-home", allPass(CORPUS), {
+      generatedAt: "2020-01-01T00:00:00.000Z",
+      viewports: [1440, 834, 390],
+      sections: [],
+    });
+
+    const { code, out } = await gate(cwd, "crash");
+    expect(out).toMatch(/STALE — written 2020-01-01/);
+    expect(out).toMatch(/GATE INCOMPLETE/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/ALL DONE/);
+
+    // The freshness evidence is meta.generatedAt, not the file's mtime: this
+    // arm's report is written by the run itself, seconds old on disk, and dated
+    // 2020. An mtime check would grant it.
+    const cwd2 = await install();
+    await writeSpec(cwd2, ["home"]);
+    const past = await gate(cwd2, "past", ["fresh", "home"]);
+    expect(past.out).toMatch(/STALE — written 2020-01-01/);
+    expect(past.code).toBe(2);
+    expect(past.out).not.toMatch(/ALL DONE/);
+
+    // startedAt is REQUIRED. An optional third argument would be a fail-open
+    // door in exactly the guard this case is about.
+    const usage = await runIn(cwd, "node", [
+      "matching/harness.mjs",
+      "--check-run",
+      "home",
+      "matching/out-smoke-home",
+    ]);
+    expect(usage.out).toMatch(/usage: harness\.mjs --check-run <page> <out-dir> <startedAt-iso>/);
+    expect(usage.code).toBe(2);
+  });
+
+  // --- uncountable(): every arm, through BOTH callers
+  //
+  // The predicate is shared between harness.mjs's --check-run (which gate.sh
+  // asks per run) and next.mjs (which scores). The changeset claims the two
+  // "cannot drift about what counts" — that claim is only true for the arms
+  // something exercises. Four of the six had no case at all: DELETING
+  // `if (m.truncated) return "truncated";` left the whole suite green, and a
+  // real page-diff report carrying meta.truncated then scored as if the tail
+  // had been measured. Deletion is also the weakest mutation available; each
+  // arm below is proven by NARROWING its own condition, not by removing it.
+  const UNCOUNTABLE_ARMS: Array<{ what: string; meta: Record<string, unknown>; why: RegExp }> = [
+    {
+      what: "a run at a schema this scorer does not speak",
+      meta: { schemaVersion: 99 },
+      why: /schema/,
+    },
+    { what: "a --mask diagnostic", meta: { mask: ["hero"] }, why: /mask=\[hero\]/ },
+    { what: "a media-neutralised run", meta: { neutralizeMedia: true }, why: /neutralize-media/ },
+    { what: "a --mask-photos probe", meta: { maskPhotos: true }, why: /mask-photos/ },
+    { what: "a truncated run", meta: { truncated: true }, why: /truncated/ },
+    {
+      what: "a run at someone else's threshold",
+      meta: { threshold: 0.25 },
+      why: /threshold 0\.25 != 0\.1/,
+    },
+  ];
+
+  for (const arm of UNCOUNTABLE_ARMS) {
+    it(`--check-run refuses ${arm.what}, and names why`, async () => {
+      const cwd = await install();
+      const started = new Date(Date.now() - 60_000).toISOString();
+      await writeReport(cwd, "out-arm-home", allPass(CORPUS), {
+        generatedAt: new Date().toISOString(),
+        viewports: [1440, 834, 390],
+        sections: [],
+        ...arm.meta,
+      });
+      const { code, out } = await runIn(cwd, "node", [
+        "matching/harness.mjs",
+        "--check-run",
+        "home",
+        "matching/out-arm-home",
+        started,
+      ]);
+      // the GRANT half is the sibling case below: this report is otherwise
+      // perfectly countable, so only the one field under test can refuse it
+      expect(out).toMatch(/next\.mjs would not count this run/);
+      expect(out).toMatch(arm.why);
+      expect(code).toBe(2);
+    });
+
+    it(`next.mjs will not score ${arm.what} either — one predicate, two callers`, async () => {
+      const cwd = await install();
+      await writeReport(cwd, "out-arm-home", allPass(CORPUS), {
+        generatedAt: new Date().toISOString(),
+        viewports: [1440, 834, 390],
+        sections: [],
+        ...arm.meta,
+      });
+      const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+      // whatever the arm, the run must not reach the score. Two shapes are
+      // legal: the schema arm blanks the page by name, every other arm leaves
+      // no parseable run at all.
+      expect(out).toMatch(/no parseable gate run|no run at report schema/);
+      expect(out).not.toMatch(/SCORE /);
+      expect(code).toBe(2);
+    });
+  }
+
+  it("--check-run GRANTS the same report once nothing makes it uncountable", async () => {
+    // Without this the six refusals above are satisfied by a guard that refuses
+    // everything. Same fixture, no meta override.
+    const cwd = await install();
+    const started = new Date(Date.now() - 60_000).toISOString();
+    await writeReport(cwd, "out-arm-home", allPass(CORPUS), {
+      generatedAt: new Date().toISOString(),
+      viewports: [1440, 834, 390],
+      sections: [],
+    });
+    const { code, out } = await runIn(cwd, "node", [
+      "matching/harness.mjs",
+      "--check-run",
+      "home",
+      "matching/out-arm-home",
+      started,
+    ]);
+    expect(out).toMatch(/region\(s\) over 3 viewport\(s\), written /);
+    expect(out).not.toMatch(/would not count/);
+    expect(code).toBe(0);
+  });
+
+  it("--check-run refuses a report one second older than the run, not just a 2020 one", async () => {
+    // The freshness arm is `at < since`, with no slack. The only stale fixture
+    // in this file is dated 2020, so widening the comparison to
+    // `at < since - 86400000` — a day of slack — survives it: a six-year-old
+    // report is refused either way. A report written ONE SECOND before the run
+    // started is the case the guard's own comment describes (a crashed re-run
+    // under a tag used before), and it is the one that pins the boundary.
+    const cwd = await install();
+    const started = new Date();
+    await writeReport(cwd, "out-fresh-home", allPass(CORPUS), {
+      generatedAt: new Date(started.getTime() - 1000).toISOString(),
+      viewports: [1440, 834, 390],
+      sections: [],
+    });
+    const { code, out } = await runIn(cwd, "node", [
+      "matching/harness.mjs",
+      "--check-run",
+      "home",
+      "matching/out-fresh-home",
+      started.toISOString(),
+    ]);
+    expect(out).toMatch(/STALE — written /);
+    expect(code).toBe(2);
+  });
+
+  it("gate.sh checks an anchored run's region count, and still GRANTS the right one", async () => {
+    // With anchors, page-diff cuts one region before the first anchor plus one
+    // per anchor at every viewport (regionsFromAnchors), so the count is an
+    // exact identity — 298/298 over the corpus this harness was cut from. Four
+    // of that corpus's own reports are a section short, which reads as a
+    // non-pass rather than as a region nobody measured.
+    const cwd = await install();
+    await writeSpec(cwd, ["home"]);
+    await patchHarnessAnchors(cwd, ["Alpha", "Beta"]);
+
+    const short = await gate(cwd, "dropped");
+    expect(short.out).toMatch(/8 region\(s\), expected 9 = \(2 anchors \+ 1\) x 3 viewport\(s\)/);
+    expect(short.code).toBe(2);
+    expect(short.out).not.toMatch(/ALL DONE/);
+
+    // ...and the same anchored page, complete, is GRANTED — the identity has to
+    // be able to say yes, and the anchor list has to compare equal to the table.
+    const ok = await install();
+    await writeSpec(ok, ["home"]);
+    await patchHarnessAnchors(ok, ["Alpha", "Beta"]);
+    const full = await gate(ok, "ok");
+    expect(full.out).toMatch(/ALL DONE \(smoke\) — 1 of 1 page\(s\) measured/);
+    expect(full.code).toBe(0);
+  });
+
+  it("gate.sh refuses an ANCHORLESS run that produced regions at one viewport only", async () => {
+    // The seed ships `anchors: []`, and with none page-diff falls back to each
+    // page's own <section> boxes — or, with none of those, an even four-row grid
+    // (splitRegions). Measured against the real page-diff on a seed harness with
+    // a matrix of 4: 16 regions labelled grid-0-0 … grid-3-0, not the 4 an
+    // anchors+1 identity predicts. So the anchorless shape gets no count
+    // identity, and its coverage evidence is that every viewport the run claims
+    // is actually represented.
+    const cwd = await install();
+    await writeSpec(cwd, ["home"]);
+
+    const { code, out } = await gate(cwd, "onevw");
+    expect(out).toMatch(/no region at viewport\(s\) \[834,390\] — the run covered \[1440\]/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/ALL DONE/);
+    // NOT the anchors identity: with zero anchors there is none to appeal to.
+    expect(out).not.toMatch(/anchors \+ 1\)/);
+  });
+
+  it("gate.sh refuses a report from a narrower run than the matrix asked for", async () => {
+    const cwd = await install();
+    await writeSpec(cwd, ["home"]);
+
+    const { code, out } = await gate(cwd, "narrow");
+    expect(out).toMatch(/ran viewports \[1440\], harness\.json matrix is \[1440,834,390\]/);
+    expect(out).toMatch(/GATE INCOMPLETE/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/ALL DONE/);
+  });
+
+  it("gate.sh refuses a page name that matches nothing rather than reporting ALL DONE over zero pages", async () => {
+    // Measured: `gate.sh nosuch nosuchpage` printed ALL DONE and exited 0
+    // having run nothing and printed no page header. census.sh:199-209 and
+    // strikes.mjs:147-156 already refuse exactly this.
+    const cwd = await install();
+    await writeSpec(cwd, ["home"]);
+
+    const { code, out } = await gate(cwd, "ok", ["smoke", "nosuchpage"]);
+    expect(out).toMatch(/matches no page — refusing to report ALL DONE/);
+    expect(out).toMatch(/known pages: *home/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/ALL DONE \(/);
+    expect(out).not.toMatch(/########## /);
+  });
+
+  it("gate.sh and next.mjs agree on what counts: a mask-photos run is refused by the gate and named by the scorer", async () => {
+    // THE DRIFT GUARD. census.sh's GUARD 2c records what happens when a printer
+    // and its reader ask the same question twice: they drift, and a gate that
+    // greens a run next.mjs then drops is the same false green one step along.
+    const cwd = await install();
+    await patchHarnessPages(cwd, ["other"]);
+    await writeSpec(cwd, ["home", "other"]);
+    // A second page with a countable report, so next.mjs gets past its
+    // empty-corpus guard and the question is what it does with THIS page.
+    await writeReport(cwd, "out-seed-other", allPass(CORPUS));
+
+    // expect.soft on BOTH arms deliberately: a hard assertion on the gate arm
+    // short-circuits the case, and then a mutation to the shared predicate
+    // looks like it broke one caller when it broke both. Removing a branch from
+    // uncountable() has to redden the gate AND the scorer in one run — if only
+    // one goes red they are not sharing the predicate.
+    const g = await gate(cwd, "photos");
+    expect.soft(g.out).toMatch(/NOT MEASURED: .*mask-photos/);
+    expect.soft(g.code).toBe(2);
+    expect.soft(g.out).not.toMatch(/ALL DONE \(/);
+
+    const n = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect.soft(n.out).toMatch(/home\s+\?\/3\s+NOT MEASURED/);
+    expect.soft(n.code).toBe(2);
   });
 });
 
