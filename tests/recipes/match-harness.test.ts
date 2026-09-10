@@ -1920,6 +1920,122 @@ describe("the installed harness reports, not just refuses", () => {
     expect(usage.code).toBe(2);
   });
 
+  // --- uncountable(): every arm, through BOTH callers
+  //
+  // The predicate is shared between harness.mjs's --check-run (which gate.sh
+  // asks per run) and next.mjs (which scores). The changeset claims the two
+  // "cannot drift about what counts" — that claim is only true for the arms
+  // something exercises. Four of the six had no case at all: DELETING
+  // `if (m.truncated) return "truncated";` left the whole suite green, and a
+  // real page-diff report carrying meta.truncated then scored as if the tail
+  // had been measured. Deletion is also the weakest mutation available; each
+  // arm below is proven by NARROWING its own condition, not by removing it.
+  const UNCOUNTABLE_ARMS: Array<{ what: string; meta: Record<string, unknown>; why: RegExp }> = [
+    {
+      what: "a run at a schema this scorer does not speak",
+      meta: { schemaVersion: 99 },
+      why: /schema/,
+    },
+    { what: "a --mask diagnostic", meta: { mask: ["hero"] }, why: /mask=\[hero\]/ },
+    { what: "a media-neutralised run", meta: { neutralizeMedia: true }, why: /neutralize-media/ },
+    { what: "a --mask-photos probe", meta: { maskPhotos: true }, why: /mask-photos/ },
+    { what: "a truncated run", meta: { truncated: true }, why: /truncated/ },
+    {
+      what: "a run at someone else's threshold",
+      meta: { threshold: 0.25 },
+      why: /threshold 0\.25 != 0\.1/,
+    },
+  ];
+
+  for (const arm of UNCOUNTABLE_ARMS) {
+    it(`--check-run refuses ${arm.what}, and names why`, async () => {
+      const cwd = await install();
+      const started = new Date(Date.now() - 60_000).toISOString();
+      await writeReport(cwd, "out-arm-home", allPass(CORPUS), {
+        generatedAt: new Date().toISOString(),
+        viewports: [1440, 834, 390],
+        sections: [],
+        ...arm.meta,
+      });
+      const { code, out } = await runIn(cwd, "node", [
+        "matching/harness.mjs",
+        "--check-run",
+        "home",
+        "matching/out-arm-home",
+        started,
+      ]);
+      // the GRANT half is the sibling case below: this report is otherwise
+      // perfectly countable, so only the one field under test can refuse it
+      expect(out).toMatch(/next\.mjs would not count this run/);
+      expect(out).toMatch(arm.why);
+      expect(code).toBe(2);
+    });
+
+    it(`next.mjs will not score ${arm.what} either — one predicate, two callers`, async () => {
+      const cwd = await install();
+      await writeReport(cwd, "out-arm-home", allPass(CORPUS), {
+        generatedAt: new Date().toISOString(),
+        viewports: [1440, 834, 390],
+        sections: [],
+        ...arm.meta,
+      });
+      const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+      // whatever the arm, the run must not reach the score. Two shapes are
+      // legal: the schema arm blanks the page by name, every other arm leaves
+      // no parseable run at all.
+      expect(out).toMatch(/no parseable gate run|no run at report schema/);
+      expect(out).not.toMatch(/SCORE /);
+      expect(code).toBe(2);
+    });
+  }
+
+  it("--check-run GRANTS the same report once nothing makes it uncountable", async () => {
+    // Without this the six refusals above are satisfied by a guard that refuses
+    // everything. Same fixture, no meta override.
+    const cwd = await install();
+    const started = new Date(Date.now() - 60_000).toISOString();
+    await writeReport(cwd, "out-arm-home", allPass(CORPUS), {
+      generatedAt: new Date().toISOString(),
+      viewports: [1440, 834, 390],
+      sections: [],
+    });
+    const { code, out } = await runIn(cwd, "node", [
+      "matching/harness.mjs",
+      "--check-run",
+      "home",
+      "matching/out-arm-home",
+      started,
+    ]);
+    expect(out).toMatch(/region\(s\) over 3 viewport\(s\), written /);
+    expect(out).not.toMatch(/would not count/);
+    expect(code).toBe(0);
+  });
+
+  it("--check-run refuses a report one second older than the run, not just a 2020 one", async () => {
+    // The freshness arm is `at < since`, with no slack. The only stale fixture
+    // in this file is dated 2020, so widening the comparison to
+    // `at < since - 86400000` — a day of slack — survives it: a six-year-old
+    // report is refused either way. A report written ONE SECOND before the run
+    // started is the case the guard's own comment describes (a crashed re-run
+    // under a tag used before), and it is the one that pins the boundary.
+    const cwd = await install();
+    const started = new Date();
+    await writeReport(cwd, "out-fresh-home", allPass(CORPUS), {
+      generatedAt: new Date(started.getTime() - 1000).toISOString(),
+      viewports: [1440, 834, 390],
+      sections: [],
+    });
+    const { code, out } = await runIn(cwd, "node", [
+      "matching/harness.mjs",
+      "--check-run",
+      "home",
+      "matching/out-fresh-home",
+      started.toISOString(),
+    ]);
+    expect(out).toMatch(/STALE — written /);
+    expect(code).toBe(2);
+  });
+
   it("gate.sh checks an anchored run's region count, and still GRANTS the right one", async () => {
     // With anchors, page-diff cuts one region before the first anchor plus one
     // per anchor at every viewport (regionsFromAnchors), so the count is an
