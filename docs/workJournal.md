@@ -973,3 +973,47 @@ cookie. I recommended a narrower edit scope and was overruled with the tradeoff
 stated; the design implements the broad scope in full and keeps it honest by
 storing the original text beside every override rather than by restricting what
 can change. Nothing is built yet.
+
+## 2026-09-09 — Report edits: spec approved, split into two plans (#743, `docs/superpowers/plans/2026-09-09-report-edits-{a,b}-*.md`)
+
+Follows the entry above, which ends "nothing is built yet". Still true; this is
+the plan for building it.
+
+Split at the seam where the feature stops needing a UI. **Plan A** is the
+override layer: three columns, a wrapped API response, and application in
+`toReportView` plus the composed-sentence functions. It ends with overrides
+written by `curl` and proven to change both the web report and the print page,
+which is working software with no editor. **Plan B** is edit mode: the private
+edit address, the key-for-cookie exchange, the click-to-edit layer and the save
+proxy.
+
+Three things the spec got wrong, all caught while writing the plans against the
+real code:
+
+- **Three migrations, not one with three statements.** `migrate.ts` treats
+  `duplicate column name` as already-applied, and that recovery is only sound one
+  statement at a time. A three-statement migration that added column one and lost
+  its marker would be marked applied on the re-run and leave two columns
+  permanently missing. Migration 0013 states the rule; the spec ignored it.
+- **The key paths omitted the stage wrapper.** Every stage is a `StageResult`, so
+  it is `siteChecks.data[12].why`, not `siteChecks[12].why`. Fixed in the spec
+  before it merged.
+- **The composed functions need no signature change.** All six already take
+  `view: ReportView`, so the override map rides on the view. The spec proposed
+  passing a map into each one.
+
+And one thing worth writing down because it inverts the usual instinct:
+**positional keys are safe here.** `fixes[2].why` is normally fragile because a
+regeneration reorders the list. `result_json` is write-once and a re-audit mints
+a new token with no overrides, so there is no drift for a key to survive.
+Content-hashed addressing would have been machinery for a problem that cannot
+occur. The plans keep a cheap `original`-text check anyway, mutation-tested,
+because a guard defending an assumption is the one place the assumption gets
+checked.
+
+The honest limit, stated in plan B rather than discovered later: the edit layer
+resolves a line by matching rendered text against the values the view knows are
+overridable, and a string appearing twice on the page is skipped rather than
+guessed. Plan B's last task requires measuring how many lines that leaves
+unresolvable and recording the number, because "any rendered line" is the goal
+and that count is the distance from it.
