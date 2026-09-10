@@ -88,12 +88,22 @@ jobs:
       # sweep would have reported four live sites as MISSING a token, and the fix
       # would have looked like a credentials problem rather than a naming one.
       #
-      # 15 repositories, 15 distinct derived names, no collision on either axis
-      # (same measurement). The list is deliberately WIDER than strictly necessary
-      # where membership is uncertain: an extra name is inert, a missing one is a
-      # site the operator never mints a secret for. Take the names from
-      # `node dist/cli/bin.js prismic-models <site> --tokens`, which derives them
-      # from the site's own config and is the only authority here.
+      # 16 repositories, 16 distinct derived names, no collision on either axis.
+      # The first 15 were measured 2026-08-13; 29-navy was added 2026-09-09 and the
+      # no-collision property re-checked then. The list is deliberately WIDER than
+      # strictly necessary where membership is uncertain: an extra name is inert, a
+      # missing one is a site the operator never mints a secret for.
+      #
+      # AN ENV LINE HERE IS NOT COVERAGE. `--fleet airtable` resolves only sites whose
+      # Airtable Status is `maintained` (ACTIVE_STATUSES minus PRE_LAUNCH_STATUSES), so
+      # 29-navy, alamo-anatomy, hedloc and the-pointe-burbank all carry a line here and
+      # are NOT swept — measured 2026-09-09: resolveSites returned 13 sites, none of
+      # them. The line exists so the credential is already in place the night a site's
+      # Status flips to `maintained`, instead of that first sweep reporting it
+      # token-missing.
+      #
+      # Take the names from `node dist/cli/bin.js prismic-models <site> --tokens`,
+      # which derives them from the site's own config and is the only authority here.
       - name: Sweep the fleet for Prismic model drift
         timeout-minutes: 30
         env:
@@ -104,6 +114,7 @@ jobs:
           # would exit 1 as an outage before checking a single site.
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          PRISMIC_TOKEN_29_NAVY: ${{ secrets.PRISMIC_TOKEN_29_NAVY }}
           PRISMIC_TOKEN_48BB12D1: ${{ secrets.PRISMIC_TOKEN_48BB12D1 }}
           PRISMIC_TOKEN_ALAMO_ANATOMY: ${{ secrets.PRISMIC_TOKEN_ALAMO_ANATOMY }}
           PRISMIC_TOKEN_CALTEX_LANDING: ${{ secrets.PRISMIC_TOKEN_CALTEX_LANDING }}

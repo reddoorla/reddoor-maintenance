@@ -328,6 +328,18 @@ describe("fleet-prismic-drift — the per-repository token env block", () => {
       expect(names).toContain(prismicTokenEnvName(repositoryName));
     }
   });
+  // A CENTRAL SECRET NOBODY CONSUMES. PRISMIC_TOKEN_29_NAVY was minted per the
+  // runbook's step 4 and sat in this repo's secrets with no env line to read it, so
+  // the night 29 Navy's Status flips to `maintained` the sweep's FIRST run would
+  // report it token-missing and write `unknown`. This does NOT make any of these
+  // sites swept — `--fleet airtable` excludes pre-launch, which is why all four are
+  // still dark; it pre-positions the credential so go-live is not also a token bug.
+  it("carries the pre-launch repositories whose central secret is already minted", () => {
+    const names = tokens.map(([n]) => n);
+    for (const repositoryName of ["29-navy", "alamo-anatomy", "hedloc", "the-pointe-burbank"]) {
+      expect(names).toContain(prismicTokenEnvName(repositoryName));
+    }
+  });
 
   // Fleet mode sets `allowGenericToken: false` precisely because ONE generic token
   // in the environment, while iterating every repository in the fleet, attaches
