@@ -210,7 +210,7 @@ describe("audit-report-overrides — the request body is bounded", () => {
     expect(row!.overrides_json).toBeNull();
   });
 
-  it("leaves room for any map the storage layer would actually accept", async () => {
+  it("leaves room for a canonically-serialised map at the storage limit", async () => {
     // The invariant behind the number, asserted rather than left in a comment.
     // OVERRIDES_MAX_LEN counts UTF-16 code units of the STORED string; this cap
     // counts UTF-8 bytes on the wire, and the worst-case ratio between them is

@@ -35,9 +35,9 @@ export const config: Config = {
  * route's job, with a body limit there — not a second check here." Until this
  * existed, that paragraph described a guard that did not.
  *
- * The number is reasoned from the storage cap rather than picked: the body gate
- * must never refuse a map the storage layer would have accepted, or a legitimate
- * save fails with a 413 that looks like a broken editor. The two count different
+ * The number is reasoned from the storage cap rather than picked: a body gate
+ * that refuses a map the storage layer would have accepted fails a legitimate
+ * save with a 413 that looks like a broken editor. The two count different
  * things — `OVERRIDES_MAX_LEN` is 512 000 UTF-16 code units of the constructed
  * JSON, this is UTF-8 bytes on the wire — and the worst-case ratio between them
  * is 3, at a BMP character outside Latin-1 (CJK is one code unit and three
@@ -45,6 +45,18 @@ export const config: Config = {
  * largest storable map can weigh 512 000 x 3 = 1 536 000 bytes, and 2 MiB clears
  * it with 561 152 bytes left over for the `{"overrides":...}` wrapper and any
  * whitespace a pretty-printing caller sends.
+ *
+ * That headroom is stated for the body a caller ACTUALLY SENDS TODAY: the
+ * canonical `JSON.stringify` of the map, which is what the website proxy
+ * forwards. It is not a guarantee for every body that could store legally, and
+ * the difference was measured rather than assumed. A client that escapes
+ * non-ASCII as `\uXXXX` sends six bytes per stored unit, not three, and a
+ * maximal CJK map written that way is 3 071 806 bytes — refused here, accepted
+ * by the storage layer. And because `buildOverrideMap` DROPS unknown keys per
+ * entry (deliberately, so a future editor sending a field this schema has not
+ * learned still saves what was typed), a body can be arbitrarily large relative
+ * to what it stores. Neither is reachable from the only caller that exists. If
+ * a second one ever appears, this is the number to revisit.
  *
  * Written as a literal and NOT computed from OVERRIDES_MAX_LEN, deliberately: a
  * derived cap would silently follow the storage limit up to 15 MiB if someone
