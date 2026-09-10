@@ -23,6 +23,8 @@ function recentItem(over: Partial<ProspectAuditListItem> = {}): ProspectAuditLis
     business: "Acme Roofing",
     status: "complete",
     created_at: "2026-08-25T12:00:00.000Z",
+    edited_at: null,
+    opened_at: null,
     ...over,
   };
 }

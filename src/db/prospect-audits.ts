@@ -98,6 +98,13 @@ export type ProspectAuditRow = {
   created_at: string;
   status: string;
   result_json: string;
+  /** The operator's edits as stored JSON, or null when this report has never
+   *  been edited. Deliberately NOT parsed here: the JSON route concatenates
+   *  this string into its response body as-is, so the row hands back exactly
+   *  what was validated on the way in. */
+  overrides_json: string | null;
+  edited_at: string | null;
+  opened_at: string | null;
 };
 
 export async function getProspectAuditByToken(
@@ -106,7 +113,17 @@ export async function getProspectAuditByToken(
 ): Promise<ProspectAuditRow | null> {
   const row = await db
     .selectFrom("prospect_audits")
-    .select(["id", "url", "business", "created_at", "status", "result_json"])
+    .select([
+      "id",
+      "url",
+      "business",
+      "created_at",
+      "status",
+      "result_json",
+      "overrides_json",
+      "edited_at",
+      "opened_at",
+    ])
     .where("token", "=", token)
     .executeTakeFirst();
   return row ?? null;
@@ -123,6 +140,11 @@ export type ProspectAuditListItem = {
   business: string | null;
   status: string;
   created_at: string;
+  /** Whether an operator has edited this report, and when someone last opened
+   *  it — both cheap TEXT columns, and the two facts the listing needs to show
+   *  an "edited" marker without reading `overrides_json`. */
+  edited_at: string | null;
+  opened_at: string | null;
 };
 
 /** Ceiling on `listRecentProspectAudits`' `limit`, enforced defensively (a
@@ -148,8 +170,87 @@ export async function listRecentProspectAudits(
 ): Promise<ProspectAuditListItem[]> {
   return db
     .selectFrom("prospect_audits")
-    .select(["id", "token", "url", "business", "status", "created_at"])
+    .select(["id", "token", "url", "business", "status", "created_at", "edited_at", "opened_at"])
     .orderBy("created_at", "desc")
     .limit(clampLimit(limit))
+    .execute();
+}
+
+/** One replaced string and the generated text it replaced. */
+export type Override = { original: string; text: string };
+export type OverrideMap = Record<string, Override>;
+
+export type SetOverridesResult =
+  | { status: "updated"; token: string }
+  | { status: "invalid"; token: string }
+  | { status: "not-found"; token: string };
+
+/**
+ * Reject anything that is not a flat map of `{ original, text }` string pairs.
+ *
+ * This runs BEFORE the read, the same order `setReportCommentary` uses, so a
+ * malformed body costs no round trip. It is also the only thing standing
+ * between a hand-crafted POST and a stored value that would corrupt the JSON
+ * route's response: that route concatenates `overrides_json` into a body
+ * WITHOUT parsing it, so a non-JSON value stored here would break every
+ * subsequent fetch of the report. Validate on the way in, once.
+ *
+ * Both null guards are load-bearing, because `typeof null === "object"`: the
+ * outer one keeps `Object.values(null)` from throwing, and the inner one keeps
+ * a null ENTRY from being read for `.original` — the exact input that crashed
+ * the website's own override layer during its review.
+ */
+function isOverrideMap(v: unknown): v is OverrideMap {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+  return Object.values(v as Record<string, unknown>).every(
+    (e) =>
+      e !== null &&
+      typeof e === "object" &&
+      !Array.isArray(e) &&
+      typeof (e as Override).original === "string" &&
+      typeof (e as Override).text === "string",
+  );
+}
+
+/**
+ * Replace one report's override map wholesale and stamp `edited_at`.
+ *
+ * Whole-map rather than per-key: the caller always holds the complete map, and
+ * a partial write has no way to express a deletion. An empty map is legitimate
+ * and clears every override — an editor that can set but not unset traps the
+ * operator in whatever they first typed.
+ *
+ * `result_json` stays untouched. There is still no way to write it.
+ */
+export async function setProspectAuditOverrides(
+  db: Db,
+  token: string,
+  overrides: OverrideMap,
+): Promise<SetOverridesResult> {
+  if (!isOverrideMap(overrides)) return { status: "invalid", token };
+
+  const existing = await getProspectAuditByToken(db, token);
+  if (!existing) return { status: "not-found", token };
+
+  await db
+    .updateTable("prospect_audits")
+    .set({ overrides_json: JSON.stringify(overrides), edited_at: new Date().toISOString() })
+    .where("token", "=", token)
+    .execute();
+  return { status: "updated", token };
+}
+
+/**
+ * Record that a report was opened by someone who is not editing it.
+ *
+ * Best effort by contract: the caller must not let a failure here fail the
+ * response. Knowing when a prospect last looked is useful; it is not worth
+ * turning a read route into one that can 500.
+ */
+export async function touchProspectAuditOpened(db: Db, token: string): Promise<void> {
+  await db
+    .updateTable("prospect_audits")
+    .set({ opened_at: new Date().toISOString() })
+    .where("token", "=", token)
     .execute();
 }

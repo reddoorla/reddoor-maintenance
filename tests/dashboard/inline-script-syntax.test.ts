@@ -252,6 +252,8 @@ describe("dashboard inline <script> blocks parse", () => {
             business: `O'Brien & Sons "Ltd"`,
             created_at: "2026-08-25T10:00:00.000Z",
             status: "complete",
+            edited_at: null,
+            opened_at: null,
           },
         ],
         now: NOW,
