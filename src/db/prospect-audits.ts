@@ -99,9 +99,9 @@ export type ProspectAuditRow = {
   status: string;
   result_json: string;
   /** The operator's edits as stored JSON, or null when this report has never
-   *  been edited. Deliberately NOT parsed here: the JSON route concatenates
-   *  this string into its response body as-is, so the row hands back exactly
-   *  what was validated on the way in. */
+   *  been edited. Deliberately NOT parsed here: the JSON route will place this
+   *  string into its response body as-is, exactly as it already does with
+   *  `result_json`, so the row hands back what was validated on the way in. */
   overrides_json: string | null;
   edited_at: string | null;
   opened_at: string | null;
@@ -189,11 +189,16 @@ export type SetOverridesResult =
  * Reject anything that is not a flat map of `{ original, text }` string pairs.
  *
  * This runs BEFORE the read, the same order `setReportCommentary` uses, so a
- * malformed body costs no round trip. It is also the only thing standing
- * between a hand-crafted POST and a stored value that would corrupt the JSON
- * route's response: that route concatenates `overrides_json` into a body
- * WITHOUT parsing it, so a non-JSON value stored here would break every
- * subsequent fetch of the report. Validate on the way in, once.
+ * malformed body costs no round trip.
+ *
+ * It is also the ONLY place a malformed value can be caught. The JSON route
+ * never parses what it serves — today it returns `result_json` untouched, and
+ * once it carries overrides too it will place this string into the body the
+ * same way, for the reason its own comment gives: parsing and re-serialising
+ * there would add a failure mode between the database and the consumer for no
+ * gain. Nothing downstream will notice a non-JSON value here; it would simply
+ * break every subsequent fetch of that report. So: validate on the way in,
+ * once, and never store anything this function has not approved.
  *
  * Both null guards are load-bearing, because `typeof null === "object"`: the
  * outer one keeps `Object.values(null)` from throwing, and the inner one keeps
