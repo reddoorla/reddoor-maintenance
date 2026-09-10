@@ -417,16 +417,41 @@ export async function setProspectAuditOverrides(
 }
 
 /**
+ * How stale `opened_at` must be before an open rewrites it.
+ *
+ * The operator signal is "has the prospect read this, and roughly when" — a
+ * question five-minute resolution answers exactly as well as per-request
+ * resolution does. Everything below the window is refresh noise.
+ */
+export const OPENED_AT_COALESCE_MS = 5 * 60 * 1000;
+
+/**
  * Record that a report was opened by someone who is not editing it.
  *
  * Best effort by contract: the caller must not let a failure here fail the
  * response. Knowing when a prospect last looked is useful; it is not worth
  * turning a read route into one that can 500.
+ *
+ * COALESCED, and that is a safety property rather than an optimisation. The
+ * route that calls this is unauthenticated and rate-limited at 120 req/min per
+ * IP, so without the window one token holder can drive ~172 000 writes a day
+ * from a single address — into a Turso project shared by the entire fleet,
+ * configured `overages: false`, where crossing quota BLOCKS READS AND WRITES
+ * for every site at once and where capacity is not alarmed. A read route that
+ * amplifies into unbounded writes against that is an outage vector, not a
+ * billing detail. With the window, a refresh costs nothing and the amplifier
+ * is gone.
+ *
+ * The window lives in the WHERE clause, not in a read-then-write in the caller:
+ * one round trip, and two concurrent opens cannot both decide to write.
  */
 export async function touchProspectAuditOpened(db: Db, token: string): Promise<void> {
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - OPENED_AT_COALESCE_MS).toISOString();
   await db
     .updateTable("prospect_audits")
-    .set({ opened_at: new Date().toISOString() })
+    .set({ opened_at: now.toISOString() })
     .where("token", "=", token)
+    .where((eb) => eb.or([eb("opened_at", "is", null), eb("opened_at", "<", staleBefore)]))
     .execute();
 }
