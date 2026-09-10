@@ -68,18 +68,56 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // `overrides_json` is validated on the way IN (`setProspectAuditOverrides`),
     // which is what makes this safe.
     //
-    // The website accepts both this shape and a bare report, so the two repos
-    // can deploy in either order without a broken window.
+    // THIS SHAPE IS AHEAD OF PRODUCTION. THERE IS A DEPLOY GATE. The website
+    // tolerates both this wrapper and a bare report as of reddoor-website#176 —
+    // but as of 2026-09-10 #176 is on that repo's `staging` branch and NOT on
+    // `main`, whose `fetchReport` still ends `return (await res.json()) as
+    // AuditReport`. `reddoorla.com` builds `main` and `staging.reddoorla.com`
+    // builds `staging`, and a report link is `https://reddoorla.com/audit/
+    // {token}` by default (`src/prospect/report-url.ts`, with `REPORT_BASE_URL`
+    // unset). So shipping this route to production BEFORE #176 is promoted to
+    // the website's `main` breaks every live prospect report and the PDF
+    // leave-behind with it — `renderReportPdf` captures
+    // `reddoorla.com/audit/{token}/print`, which calls this same route
+    // server-side. It breaks SILENTLY, too: the old cast does not throw on the
+    // wrapper, it just yields a report whose every field is undefined.
     const body =
       `{"report":${row.result_json},` +
-      `"overrides":${row.overrides_json ?? "null"},` +
-      `"editedAt":${JSON.stringify(row.edited_at)},` +
-      `"openedAt":${JSON.stringify(row.opened_at)}}`;
+      // `||`, not `??`, and deliberately: `??` passes an empty string straight
+      // through, which would emit `"overrides":,` and take the whole REPORT
+      // down with invalid JSON rather than just losing the overrides. `""` is
+      // not valid JSON, so `||` can never reject a legitimate value here.
+      `"overrides":${row.overrides_json || "null"},` +
+      // `?? null` before stringify: `JSON.stringify(undefined)` returns
+      // undefined, not a string, and would interpolate the bare word
+      // `undefined` into the body if either column ever became optional.
+      `"editedAt":${JSON.stringify(row.edited_at ?? null)},` +
+      `"openedAt":${JSON.stringify(row.opened_at ?? null)}}`;
 
-    // Best effort, and deliberately not awaited into the failure path: knowing
-    // when a prospect last opened the report is useful, but not worth turning a
-    // read route into one that can 500. An edit session says so in a header and
-    // is skipped, so the operator's own previews do not drown the signal.
+    // Awaited on purpose, with only its FAILURE swallowed. A Netlify function
+    // can be frozen the moment it responds, so a fire-and-forget write here
+    // would be silently lost; and knowing when a prospect last opened the
+    // report is useful but not worth turning a read route into one that can
+    // 500. Awaiting does put a Turso write on the response path — accepted,
+    // not overlooked: this route already awaits Turso on the same connection
+    // for `getProspectAuditByToken` above, so a store slow enough to matter has
+    // already delayed the response before the stamp is reached. The stamp
+    // roughly doubles an existing exposure rather than introducing a new class
+    // of one, and `touchProspectAuditOpened` coalesces, so the common refresh
+    // does not write at all.
+    //
+    // `x-reddoor-edit-session` is a CROSS-REPO CONTRACT: reddoor-website's
+    // report editor sends it so the operator's own previews do not drown the
+    // signal. It is not a shared constant — the website cannot take a
+    // `@reddoorla/maintenance` bump right now (see the comment atop its
+    // `src/lib/report/fetch.ts`) — so if the two spellings ever drift this
+    // DEGRADES SILENTLY: nothing errors, the skip just stops working and
+    // `opened_at` quietly starts recording operator previews as prospect reads.
+    //
+    // And an honest caveat about the signal itself: corporate email link
+    // scanners fetch links, so `opened_at` will sometimes say "opened" when
+    // nobody read anything. That is a bigger threat to this field's honesty
+    // than the fact that the header is trivially spoofable.
     if (req.headers.get("x-reddoor-edit-session") !== "1") {
       try {
         await touchProspectAuditOpened(db, token);

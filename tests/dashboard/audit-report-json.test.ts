@@ -268,8 +268,53 @@ describe("audit-report-json — overrides", () => {
       method: "GET",
       headers: { "x-reddoor-edit-session": "1" },
     });
-    await auditReportJson(editing, ctxFor(token));
+    const res = await auditReportJson(editing, ctxFor(token));
+    // A 404, a 503 or a 502 out of `handlerError` would ALSO leave opened_at
+    // null. Without this the test stays green on a route that served nothing.
+    expect(res.status).toBe(200);
     const row = await getProspectAuditByToken(db, token);
     expect(row!.opened_at).toBeNull();
+  });
+
+  // The one test that makes the body's `openedAt` OBSERVABLE. Every other test
+  // here builds a row whose opened_at is still null when the body is built, so
+  // they all assert `"openedAt":null` and a route that simply hardcoded that
+  // would pass the entire file. Mutation-proven: hardcoding `"openedAt":null`
+  // reds this test and only this one.
+  //
+  // It also pins an ordering fact nothing else records: the body is built from
+  // the row BEFORE the stamp is written, so a plain fetch returns the PREVIOUS
+  // open time, never its own. The operator's edit-session fetch — which does
+  // not stamp at all — is therefore the one that shows the prospect's true last
+  // open, which is exactly the reading the report editor wants.
+  it("reports the open time a previous fetch wrote", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const { token } = await createProspectAudit(db, {
+      url: "https://acme.example/",
+      business: null,
+      resultJson: JSON.stringify({ url: "https://acme.example/" }),
+    });
+
+    // The prospect opens it. This stamps, and its own body still says null.
+    const first = await auditReportJson(req(), ctxFor(token));
+    const firstBody = (await first.json()) as { openedAt: string | null };
+    expect(firstBody.openedAt).toBeNull();
+
+    const stamped = (await getProspectAuditByToken(db, token))!.opened_at;
+    expect(stamped).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    // The operator opens the editor. No stamp, and the body carries the
+    // prospect's open time — a real timestamp, not merely "defined".
+    const editing = new Request("https://ops.reddoor.test/api/audit-report/x", {
+      method: "GET",
+      headers: { "x-reddoor-edit-session": "1" },
+    });
+    const second = await auditReportJson(editing, ctxFor(token));
+    const body = (await second.json()) as { openedAt: string | null };
+
+    expect(second.status).toBe(200);
+    expect(body.openedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(body.openedAt).toBe(stamped);
   });
 });
