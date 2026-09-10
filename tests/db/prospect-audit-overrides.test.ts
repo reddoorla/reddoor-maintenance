@@ -3,6 +3,7 @@ import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   createProspectAudit,
   getProspectAuditByToken,
+  OPENED_AT_COALESCE_MS,
   OVERRIDES_MAX_LEN,
   setProspectAuditOverrides,
   touchProspectAuditOpened,
@@ -163,6 +164,95 @@ describe("touchProspectAuditOpened", () => {
     expect(after!.result_json).toBe(before!.result_json);
     expect(after!.overrides_json).toBe(before!.overrides_json);
     expect(after!.edited_at).toBe(before!.edited_at);
+  });
+});
+
+/** Backdate opened_at by hand. Cheaper and far steadier than sleeping or
+ *  injecting a clock: the window lives in a SQL comparison against a stored
+ *  string, so moving the stored value is the same experiment as moving time. */
+async function backdateOpenedAt(
+  db: Awaited<ReturnType<typeof openDb>>,
+  token: string,
+  msAgo: number,
+): Promise<string> {
+  const when = new Date(Date.now() - msAgo).toISOString();
+  await db
+    .updateTable("prospect_audits")
+    .set({ opened_at: when })
+    .where("token", "=", token)
+    .execute();
+  return when;
+}
+
+describe("touchProspectAuditOpened — coalescing", () => {
+  // Not an optimisation. The route calling this is unauthenticated and rate
+  // limited at 120 req/min/IP, so an uncoalesced stamp lets one token holder
+  // drive ~172 000 writes a day into a Turso project the whole fleet shares,
+  // with `overages: false` — where crossing quota blocks reads AND writes for
+  // every site at once. These tests are what keep that closed.
+  it("does not rewrite opened_at on an immediate second open", async () => {
+    const { db, token } = await seed();
+    await touchProspectAuditOpened(db, token);
+    const first = (await getProspectAuditByToken(db, token))!.opened_at;
+    expect(first).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    await touchProspectAuditOpened(db, token);
+    await touchProspectAuditOpened(db, token);
+    await touchProspectAuditOpened(db, token);
+
+    expect((await getProspectAuditByToken(db, token))!.opened_at).toBe(first);
+  });
+
+  it("still stamps once the window has passed", async () => {
+    const { db, token } = await seed();
+    // One second the far side of the window, so the test asserts the boundary
+    // rather than some comfortable multiple of it.
+    const stale = await backdateOpenedAt(db, token, OPENED_AT_COALESCE_MS + 1000);
+
+    await touchProspectAuditOpened(db, token);
+
+    const after = (await getProspectAuditByToken(db, token))!.opened_at;
+    expect(after).not.toBe(stale);
+    expect(Date.parse(after!)).toBeGreaterThan(Date.parse(stale));
+  });
+
+  it("holds an open that is inside the window, right up to the edge", async () => {
+    // The other side of the same boundary: a value one second INSIDE the window
+    // must not move. Without this the "still stamps" test above is satisfied by
+    // a function that always writes.
+    const { db, token } = await seed();
+    const recent = await backdateOpenedAt(db, token, OPENED_AT_COALESCE_MS - 1000);
+
+    await touchProspectAuditOpened(db, token);
+
+    expect((await getProspectAuditByToken(db, token))!.opened_at).toBe(recent);
+  });
+
+  it("always stamps a report nobody has opened yet", async () => {
+    // The NULL arm of the condition, which is the one that matters most: a
+    // report's first open must never be lost to the window.
+    const { db, token } = await seed();
+    expect((await getProspectAuditByToken(db, token))!.opened_at).toBeNull();
+    await touchProspectAuditOpened(db, token);
+    expect((await getProspectAuditByToken(db, token))!.opened_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("coalescing is scoped to the token, and does not shield another report", async () => {
+    // A window keyed on the wrong thing would let one busy report suppress
+    // another's first open entirely.
+    const { db, token } = await seed();
+    const other = await createProspectAudit(db, {
+      url: "https://other.test/",
+      business: null,
+      resultJson: "{}",
+    });
+
+    await touchProspectAuditOpened(db, token);
+    await touchProspectAuditOpened(db, other.token);
+
+    expect((await getProspectAuditByToken(db, other.token))!.opened_at).toMatch(
+      /^\d{4}-\d{2}-\d{2}T/,
+    );
   });
 });
 
