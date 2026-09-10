@@ -1695,3 +1695,95 @@ isolation, and it reproduces at HEAD with this branch's changes stashed. The
 `beforeAll` carries `60_000`; the `afterAll` has no explicit timeout. CI on
 `main` is green across the last eight runs, so this is local, on a machine that
 had 43 stray Chrome processes.
+
+## 2026-09-10 — The report route serves its overrides, and a deploy gate nobody had checked (`feat/report-json-serves-overrides`)
+
+Task 4 of the override-layer plan. `/api/audit-report/:token` now returns
+`{report, overrides, editedAt, openedAt}` instead of the bare stored string,
+built by string concatenation so `result_json` is still never parsed here.
+
+**The finding is not the route. It is that the plan's precondition was unmet and
+nothing in either repository would have said so.** The plan states "Task 1 must
+be deployed first" — the website's tolerance for both response shapes. It was
+merged, and it was live, on `staging` only. Checked against the Netlify API
+rather than inferred: `reddoorla.com` builds `main`, `staging.reddoorla.com`
+builds `staging`, and `reddoorla.com` was publishing `c662da3`, which is
+`origin/main` exactly. `main`'s `fetchReport` still ends
+`return (await res.json()) as AuditReport`.
+
+That last line is why this was worth an hour. It is a **cast, not a parse**, so
+handed the wrapper it does not throw. It yields a report object whose every
+field is `undefined`. A premature deploy would not have produced a 500 or an
+error page or anything a nightly would catch — it would have produced blank
+reports, silently, on every prospect link already sitting in an inbox, and on
+the PDF leave-behind with them, since `renderReportPdf` captures
+`reddoorla.com/audit/{token}/print` and that calls this same route server-side.
+The website is the only consumer; there is no third thing to break.
+
+Measured, so the next person does not re-derive it: `main..staging` is 36
+commits, `staging..main` is 4. A cherry-pick of `f8fe1c1` (the compat commit
+alone, no design changes) onto `main` applies 5 of 6 files clean; the sixth is a
+dev-only `+page.server.ts` that `main` does not have, so it drops. On `main`
+with it applied: 415/415 unit tests, production build succeeds. Note the first
+run of that probe failed 37 of 38 test files with `TSCONFIG_ERROR` — the absent
+generated `.svelte-kit/tsconfig.json` on a fresh worktree, not a real failure.
+`svelte-kit sync` first, always.
+
+The promotion itself is the operator's: it would ship OG cards on every page and
+Tim's round-1 portfolio pin while his round-2 tweaks sit in an open PR.
+
+**Two vacuous tests, the same shape, both caught in review.** This is the third
+and fourth instance of the pattern the last entry named.
+
+`passes the stored JSON through byte-for-byte` built its fixture with
+`JSON.stringify`. For canonical input, a route written as
+`JSON.stringify({report: JSON.parse(stored), …})` emits a byte-identical body —
+so the test passed against precisely the implementation it exists to forbid. It
+predated this change and was already vacuous; concatenation is what made it
+load-bearing. Fixed with a hand-written non-canonical fixture: spaces after `:`
+and `,`, and `1.50`, which comes back `1.5`. Mutation-proven, and the comment
+now says the literal must not be tidied back into a `stringify` call.
+
+`openedAt` was never observed in the body in its non-null state. **Hardcoding
+`"openedAt":null` in the route passed all 16 tests.** Fixed with a test that
+reads back the timestamp a previous fetch wrote; under mutation it reds and
+nothing else does, which also proves the 16 were blind to it.
+
+A third, milder one shipped and was then hardened here: the coalescing hold test
+compared ISO timestamps at millisecond resolution, so four calls landing inside
+one millisecond would have compared a timestamp to itself. It did red under
+mutation — by luck, not design. Backdated a second, now deterministic.
+
+**A read route that amplified into writes.** `touchProspectAuditOpened` stamped
+on every GET of a route that is unauthenticated by design and rate-limited at
+120 req/min per IP: ~172,000 writes a day from a single address, into the Turso
+project the whole fleet shares, configured `overages: false`, where crossing
+quota blocks reads **and** writes for every site at once and where capacity is
+not alarmed. That is an outage vector, not a billing detail. Coalesced to a
+five-minute window inside the `WHERE` clause rather than a read-then-write in
+the caller — one round trip, so two concurrent opens cannot both decide to
+write. A refresh now costs nothing.
+
+**Two suggestions declined, recorded so they are not re-litigated.** A timeout
+race on the stamp: the route already awaits Turso on the same connection for
+`getProspectAuditByToken` immediately above, so a store slow enough to matter
+has already delayed the response before the stamp is reached. The stamp doubles
+an existing exposure rather than introducing a new class of one; accepted, and
+said so in the code. And exporting `x-reddoor-edit-session` as a shared constant:
+right in principle, unavailable in fact, because the website cannot move past
+`@reddoorla/maintenance@^0.83.0` without breaking the a11y job's dev server in
+CI. A constant the consumer cannot import buys nothing, so the header is
+documented as a cross-repo contract that degrades **silently** — if the two
+drift, the skip quietly stops working and `opened_at` starts recording operator
+previews as prospect reads.
+
+**A belief corrected on contact.** I told the implementer that
+`setProspectAuditOverrides` returns `"updated" | "invalid" | "not-found"`. It
+returns `{status, token}` objects, and the plan says so correctly at line 501 —
+the subagent reported the plan as wrong, and the plan was right. I came within
+one edit of correcting a correct document on an agent's say-so.
+
+Worth knowing about the signal itself: corporate email link scanners fetch
+links, so `opened_at` will sometimes say a prospect opened a report when a
+scanner did. That is a larger threat to its honesty than the fact that anyone
+holding the token can spoof the header that suppresses it.
