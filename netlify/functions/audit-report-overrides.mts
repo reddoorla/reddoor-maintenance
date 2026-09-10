@@ -24,6 +24,38 @@ export const config: Config = {
   rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
+/**
+ * Ceiling on the REQUEST BODY, in bytes on the wire.
+ *
+ * This is the limit `setProspectAuditOverrides` says belongs here and nowhere
+ * else. Its own `OVERRIDES_MAX_LEN` bounds the string that gets STORED, and its
+ * comment is explicit that this leaves the body unbounded: "a POST carrying
+ * megabytes of junk in keys nobody reads is parsed in full and walked in full,
+ * and then stores 33 bytes and answers `updated`. Bounding the body is the HTTP
+ * route's job, with a body limit there — not a second check here." Until this
+ * existed, that paragraph described a guard that did not.
+ *
+ * The number is reasoned from the storage cap rather than picked: the body gate
+ * must never refuse a map the storage layer would have accepted, or a legitimate
+ * save fails with a 413 that looks like a broken editor. The two count different
+ * things — `OVERRIDES_MAX_LEN` is 512 000 UTF-16 code units of the constructed
+ * JSON, this is UTF-8 bytes on the wire — and the worst-case ratio between them
+ * is 3, at a BMP character outside Latin-1 (CJK is one code unit and three
+ * bytes; an astral character is two units and four bytes, so only 2). So the
+ * largest storable map can weigh 512 000 x 3 = 1 536 000 bytes, and 2 MiB clears
+ * it with 561 152 bytes left over for the `{"overrides":...}` wrapper and any
+ * whitespace a pretty-printing caller sends.
+ *
+ * Written as a literal and NOT computed from OVERRIDES_MAX_LEN, deliberately: a
+ * derived cap would silently follow the storage limit up to 15 MiB if someone
+ * ever raised it to 5 MB, which is exactly the size decision a human should be
+ * made to look at. Instead the relationship is asserted in
+ * tests/dashboard/audit-report-overrides.test.ts, so raising OVERRIDES_MAX_LEN
+ * without revisiting this number reds a test rather than either refusing
+ * legitimate saves or quietly widening what this route will read.
+ */
+export const MAX_BODY_BYTES = 2 * 1024 * 1024;
+
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -92,9 +124,37 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return json({ ok: false, error: "unconfigured" }, 503);
   }
 
+  // Both halves of the body cap, and neither is sufficient alone.
+  //
+  // The declared length first, because it is the cheap one: it refuses a large
+  // upload without reading it. It is only ever a hint, though — `content-length`
+  // is absent under chunked transfer encoding, and a hostile caller can simply
+  // state a number that is not true.
+  const declared = req.headers.get("content-length");
+  if (declared !== null) {
+    const n = Number(declared);
+    if (Number.isFinite(n) && n > MAX_BODY_BYTES) {
+      return json({ ok: false, error: "body-too-large" }, 413);
+    }
+  }
+
+  // So the bytes actually read are measured too, and that is the check doing the
+  // real work. BYTE length, not `String.length`: this guards against what
+  // arrives on the wire, where a CJK character is three bytes and a
+  // `.length`-based cap would admit three times the intended payload.
+  let text: string;
+  try {
+    text = await req.text();
+  } catch {
+    return json({ ok: false, error: "bad-json" }, 400);
+  }
+  if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) {
+    return json({ ok: false, error: "body-too-large" }, 413);
+  }
+
   let body: unknown;
   try {
-    body = await req.json();
+    body = JSON.parse(text) as unknown;
   } catch {
     return json({ ok: false, error: "bad-json" }, 400);
   }
