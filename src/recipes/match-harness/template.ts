@@ -69,12 +69,64 @@ export const SELF_HOSTS = CFG.selfHosts ?? [];
 export const PAGES = Object.entries(CFG.pages).map(([key, p]) => ({ key, ...p }));
 export const byKey = Object.fromEntries(PAGES.map((p) => [p.key, p]));
 
+/** Can this page's region count be PREDICTED at all? It needs anchors — see
+ *  TOTALS below — AND a matrix to measure them at. Exported beside TOTALS
+ *  rather than left for each consumer to re-derive, because "remember to ask
+ *  first" is exactly what failed: checkRun remembered, next.mjs did not, for
+ *  two releases.
+ *
+ *  \`MATRIX.length > 0\` is not defensive padding. TOTALS is
+ *  \`(anchors + 1) * MATRIX.length\`, so an ANCHORED page with \`matrix: []\`
+ *  yields 0 — truthy-adjacent, arithmetically fatal. Measured on a page with 3
+ *  anchors, an empty matrix and 8 passing regions: without this clause the
+ *  scorer printed \`SCORE 8/0 regions passing\` and \`Backlog is empty — Phases 5
+ *  and 6 are what is left\`, exit 0. The absurd fraction would be questioned;
+ *  the sentence would not. \`pass/0\` is also Infinity, so such a page sorts
+ *  BEST and can never be named \`worst\` — the same ranking bug this change set
+ *  removed for unanchored pages, one input along. */
+export const scorable = (key) =>
+  (byKey[key]?.anchors?.length ?? 0) > 0 && MATRIX.length > 0;
+
+/** WHY a page is not scorable, in the words of the thing that is actually
+ *  missing. A refusal that states a cause it did not check is the shape
+ *  CLAUDE.md names: a field must never be named after something it cannot
+ *  observe. "no anchors" printed for a page carrying three of them sends the
+ *  operator to edit the one part of harness.json that was already right. */
+export const unscorableWhy = (key) =>
+  (byKey[key]?.anchors?.length ?? 0) === 0
+    ? "no anchors"
+    : MATRIX.length === 0
+      ? "matrix is empty"
+      : null;
+
 // DERIVED, never hand-typed: page-diff cuts one region before the first anchor
 // ("top") plus one per anchor, at every viewport. The old hand-written map went
 // stale the moment an anchor list changed, and a wrong denominator makes the
 // score a lie in the flattering direction.
+//
+// THAT IDENTITY HOLDS ONLY WITH ANCHORS. \`splitRegions\` (page-diff.mjs:103-110)
+// only cuts by anchor when there are anchors to cut by; with none it falls back
+// to the page's own <section> boxes, and with none of those to an even four-row
+// grid (lib/regions.mjs:27-35, gridRows = 4, labels \`grid-<r>-<c>\`). So the
+// count is DATA-DEPENDENT, the two pages need not even agree, and no formula
+// over anchors can predict it.
+//
+// \`checkRun\` below already reaches this conclusion — its \`if (secs.length)\`
+// guard declines to assert a region count without anchors, and says why. That
+// fix was applied to the VALIDATOR and never carried to the DENOMINATOR, so
+// next.mjs went on dividing a real pass count by an imaginary total. Measured
+// 2026-09-09 on a seed harness (anchors: [], matrix of 3): page-diff produced
+// 12 grid regions, all passing, and next.mjs printed \`SCORE 12/3 regions
+// passing\` followed by "Backlog is empty — Phases 5 and 6 are what is left",
+// exit 0. On a matrix of 4 the same seed prints \`SCORE 16/4\`. The absurd
+// fraction would have been questioned; the sentence would not.
+//
+// So an unpredictable page gets NO NUMBER — \`null\`, not a plausible-looking
+// integer. That is a SIGNAL, not a barrier: \`a + null\` is \`a\`, so a consumer
+// that sums TOTALS without asking \`scorable()\` still gets a too-small
+// denominator. The barrier is \`scorable()\` plus next.mjs's exit-2 refusal.
 export const TOTALS = Object.fromEntries(
-  PAGES.map((p) => [p.key, (p.anchors.length + 1) * MATRIX.length]),
+  PAGES.map((p) => [p.key, scorable(p.key) ? (p.anchors.length + 1) * MATRIX.length : null]),
 );
 
 /** The SPEC.md heading predicate, shared by gate.sh's preflight and
@@ -831,7 +883,16 @@ if (existsSync(PAUSE)) {
 }
 
 import { FLOORS, ACCEPTED } from "./floors.mjs";
-import { TOTALS, THRESHOLD, MAX_HEIGHT_DELTA, REPORT_SCHEMA, uncountable } from "./harness.mjs";
+import {
+  TOTALS,
+  THRESHOLD,
+  MAX_HEIGHT_DELTA,
+  REPORT_SCHEMA,
+  uncountable,
+  scorable,
+  unscorableWhy,
+  byKey,
+} from "./harness.mjs";
 
 // Reports written by a different page-diff, by page key. Kept rather than
 // dropped: silently ignoring them is how a page vanishes from the score.
@@ -840,7 +901,12 @@ const schemaMismatch = new Set();
 const latest = new Map();
 for (const d of readdirSync(DIR).filter((d) => d.startsWith("out-"))) {
   const m = /^out-[^-]+-(.+)$/.exec(d);
-  if (!m || !TOTALS[m[1]]) continue;
+  // Membership in the page table is asked of the TABLE. \`!TOTALS[m[1]]\` was a
+  // NUMBER standing in for a fact: it is null for an unanchored page and 0 for
+  // an empty matrix, and either dropped the page out of \`latest\` while
+  // \`Object.keys(TOTALS)\` still listed it — so a gate run that had just
+  // SUCCEEDED came back as "no countable gate run".
+  if (!m || !byKey[m[1]]) continue;
   let report, mtime;
   try {
     const p = join(DIR, d, "report.json");
@@ -915,7 +981,22 @@ for (const [page, { dir, report }] of latest) {
   }
 }
 
+// Pages that REPORTED but cannot be scored: no anchors, so their regions are
+// whatever page-diff's fallback cut and there is no model for one to be right
+// against. Kept separate from \`scored\` and never ranked with it.
+const unscorable = [...latest.entries()]
+  .filter(([p]) => !scorable(p))
+  .map(([p, v]) => ({ p, regions: v.report.regions.length }))
+  .sort((a, b) => a.p.localeCompare(b.p));
+
+// \`.filter(scorable)\` before \`.map\`, because the sort below divides by \`total\`
+// and an unanchored page's ratio is NOT BOUNDED BY 1. A passing one scored
+// 16/4 = 4.0 and sorted LAST, i.e. best, so \`worst\` could never name the one
+// page whose Phase 1 was not done; a failing one scored 0/4 = 0.0, sorted
+// FIRST, and put \`grid-0-0\`, \`grid-1-0\` … on the agenda — an instruction to fix
+// geometry against regions page-diff invented.
 const scored = [...latest.entries()]
+  .filter(([p]) => scorable(p))
   .map(([p, v]) => ({
     p,
     pass: v.report.regions.filter((r) => r.pass).length,
@@ -934,18 +1015,38 @@ const unmeasured = Object.keys(TOTALS)
   .filter((p) => !latest.has(p))
   .sort();
 const sum = scored.reduce((a, s) => a + s.pass, 0);
-const max = Object.values(TOTALS).reduce((a, t) => a + t, 0);
+// Summed EXPLICITLY over the scorable pages rather than over TOTALS' values:
+// \`a + null\` is silently \`a\`, and a denominator that is right only because of a
+// coercion is the same lie one refactor away.
+const pagesAll = Object.keys(TOTALS).length;
+const pagesScorable = Object.keys(TOTALS).filter((p) => scorable(p)).length;
+const max = Object.keys(TOTALS).reduce((a, p) => a + (scorable(p) ? TOTALS[p] : 0), 0);
+
+// A score is printed only if SOMETHING can carry one. \`SCORE 0/0\` is a third
+// lie and the one that reads best of all, so it is never printed: with nothing
+// scorable the line says so in words and gives no fraction to quote.
 console.log(
-  \`SCORE \${sum}/\${max} regions passing\` +
-    (unmeasured.length ? \` — \${unmeasured.length} page(s) NOT MEASURED\` : "") +
-    "\\n",
+  (pagesScorable === 0
+    ? \`NO SCORE — 0 of \${pagesAll} page(s) can carry one.\`
+    : \`SCORE \${sum}/\${max} regions passing over \${pagesScorable} of \${pagesAll} page(s)\` +
+      (unmeasured.length ? \` — \${unmeasured.length} page(s) NOT MEASURED\` : "")) + "\\n",
 );
 console.log(
   [
     ...scored.map((s) => \`  \${s.p.padEnd(9)} \${String(s.pass).padStart(2)}/\${s.total}\`),
+    // The run's OWN region count, as EVIDENCE FOR THE REFUSAL — it proves a run
+    // happened and explains why it cannot be scored, so a refusal is not
+    // mistaken for a crash. The pass FRACTION is deliberately withheld: it is
+    // the number with no referent, and the number that gets quoted.
+    ...unscorable.map(
+      (u) =>
+        \`  \${u.p.padEnd(9)} \${String(u.regions).padStart(2)} region(s)  NOT SCORABLE — \${unscorableWhy(u.p)}\`,
+    ),
     // \`?/N\`, never \`0/N\`: an unmeasured page is not a page that scored zero,
-    // and printing zero would be a different lie.
-    ...unmeasured.map((p) => \`  \${p.padEnd(9)}  ?/\${TOTALS[p]}   NOT MEASURED\`),
+    // and printing zero would be a different lie. \`?/?\` when the page is ALSO
+    // unanchored — \`?/null\` would name the denominator "null", which is worse
+    // than the number it replaced.
+    ...unmeasured.map((p) => \`  \${p.padEnd(9)}  ?/\${TOTALS[p] ?? "?"}   NOT MEASURED\`),
   ].join("\\n"),
 );
 
@@ -962,6 +1063,29 @@ if (accepted.length) {
 // but "this cannot be scored", the one answer rule 5's while-it-exits-1 loop
 // cannot swallow. The score print stays above it so the partial state is still
 // visible.
+// A page with no anchors has not finished Phase 1, so a score has no referent
+// and this refuses to invent one — the same answer \`refMark: ""\` gets from
+// checkRef and an absent \`## <page>\` SPEC section gets from gate.sh. All three
+// are seed sentinels, and this was the one that failed OPEN. Repo CLAUDE.md
+// rule 1's corollary is the whole argument: a field that can only observe
+// configuration must never be named after the thing it cannot observe, and
+// "12 of 12 grid rows passed" observes a screenshot cut into quarters, not a
+// design anyone specced.
+//
+// PRINTED here, EXITED below: \`unmeasured\` and \`unscorable\` are different pages
+// with different remedies, and exiting inside the first block would hide the
+// second from an operator who then fixes only what was printed.
+if (unscorable.length) {
+  console.error(
+    \`\\nnext: \${unscorable.length} page(s) have no anchors, so their regions are page-diff's own\\n\` +
+      \`      fallback cut and cannot be scored — \` +
+      unscorable.map((u) => \`\${u.p} (\${u.regions} region(s))\`).join(", ") +
+      \`.\\n      Set "anchors" for them in matching/harness.json to section texts that exist on\\n\` +
+      \`      BOTH the reference and the candidate, then re-run: bash matching/gate.sh <tag> \` +
+      unscorable.map((u) => u.p).join(" "),
+  );
+}
+
 if (unmeasured.length) {
   console.error(
     \`\\nnext: \${unmeasured.length} page(s) have no countable gate run — \${unmeasured.join(", ")}.\\n\` +
@@ -969,6 +1093,9 @@ if (unmeasured.length) {
   );
   process.exit(2);
 }
+
+// See above: deliberately a second statement, not an \`else\`.
+if (unscorable.length) process.exit(2);
 
 if (!rows.length) {
   console.log(
@@ -981,6 +1108,16 @@ if (!rows.length) {
 }
 
 // Worst page first, then worst region inside it: fix where the model is most wrong.
+//
+// INVARIANT, documented rather than guarded because no test could redden a
+// guard here: \`scored[0]\` is safe because \`scored\` is empty only when every
+// page in \`latest\` is unanchored — and that means \`unscorable.length > 0\`, so
+// the exit above already fired. (\`latest\` being empty is caught further up.)
+// \`rows\` likewise still contains unanchored pages' failing regions; they are
+// never printed because that same exit fires first. Both facts depend on the
+// exit staying ABOVE this line — a second filter here would be a second place
+// to keep in sync, which is how checkRun and next.mjs drifted apart to begin
+// with. If that exit ever moves, this becomes a TypeError.
 const worst = scored[0].p;
 rows.sort(
   (a, b) =>
@@ -1689,19 +1826,7 @@ export const MATCH_HARNESS_FILES: readonly HarnessFile[] = [
   { rel: SITE_PAGES_TEST_RELATIVE, template: SITE_PAGES_TEST_TEMPLATE, owner: "recipe" },
 ];
 
-/** Renders previously shipped by this recipe, per relative path, NEWEST
- *  FIRST. A file that byte-matches one of these is SAFE-REPLACED on re-run;
- *  anything else that differs is flagged, never overwritten (index.ts:88-89).
- *
- *  Carried forward from the committed template.ts on every regeneration — the
- *  generator reads the bodies this repo last shipped before overwriting them,
- *  and every recipe-owned file whose body changed gains its old one here. It
- *  said "Empty at v1 — nothing has shipped" while 29-navy was already running
- *  the v1 render, so the first upgrade would have been FLAGGED on every
- *  installed site and the broken file kept. */
-export const MATCH_HARNESS_PREVIOUS: Readonly<Record<string, readonly string[]>> = {
-  "matching/harness.mjs": [
-    `// The single source for everything the matching gates need to know about this
+const HARNESS_MJS_PREV_0_95_0 = `// The single source for everything the matching gates need to know about this
 // site. DATA lives in matching/harness.json (site-edited); this file is the
 // READ LAYER — edit harness.json, not this. (It is installed and upgraded by
 // the \`reddoor-maint match-harness\` recipe, which owns these bytes: a hand
@@ -1879,10 +2004,9 @@ if (isMain()) {
     process.exit(2);
   }
 }
-`,
-  ],
-  "matching/gate.sh": [
-    `#!/usr/bin/env bash
+`;
+
+const GATE_SH_PREV_0_95_0 = `#!/usr/bin/env bash
 # The matching gate. This file is generic — everything specific to a site lives
 # in matching/harness.json (the data) and matching/LEDGER.md (the why). It is
 # installed and upgraded by the \`reddoor-maint match-harness\` recipe, which
@@ -2019,10 +2143,9 @@ if [ "\${FAILED_PREFLIGHT:-0}" = "1" ]; then
   exit 2
 fi
 echo "ALL DONE ($TAG)"
-`,
-  ],
-  "matching/next.mjs": [
-    `// What is still broken, ranked. Exits 1 while work remains.
+`;
+
+const NEXT_MJS_PREV_0_95_0 = `// What is still broken, ranked. Exits 1 while work remains.
 //
 //   node matching/next.mjs
 //
@@ -2205,9 +2328,40 @@ console.log(
   \`\\nRound continues. Do not hand back control with work outstanding.\`,
 );
 process.exit(1);
-`,
-  ],
+`;
+
+/** Renders previously shipped by this recipe, per relative path. A file that
+ *  byte-matches one of these is SAFE-REPLACED on re-run; anything else that
+ *  differs is flagged, never overwritten.
+ *
+ *  Sourced from scripts/match-harness-previous/<version>/ — the TAGGED
+ *  release bodies, never re-derived from the source site. */
+export const MATCH_HARNESS_PREVIOUS: Readonly<Record<string, readonly string[]>> = {
+  "matching/harness.mjs": [HARNESS_MJS_PREV_0_95_0],
+  "matching/gate.sh": [GATE_SH_PREV_0_95_0],
+  "matching/next.mjs": [NEXT_MJS_PREV_0_95_0],
 };
+
+/** Scripts that must upgrade TOGETHER or not at all. Measured, both ways:
+ *  a new next.mjs against an old harness.mjs dies with "does not provide an
+ *  export named 'uncountable'" — it does not degrade, it does not load; and
+ *  an old harness.mjs given a new gate.sh's `--check-run` prints its usage
+ *  banner and exits 2, which gate.sh reads as NOT MEASURED for every page
+ *  before printing GATE INCOMPLETE. So one hand-edited file in the set, with
+ *  per-file independence, upgrades the others around it into a harness that
+ *  cannot run — and a bricked harness is worse than an un-upgraded one.
+ *
+ *  Derived by grep: every copied script except census-count.mjs depends on
+ *  harness.mjs, by ESM import (next, strikes, build-spec) or CLI (gate,
+ *  census). */
+export const MATCH_HARNESS_COUPLED: readonly string[] = [
+  "matching/harness.mjs",
+  "matching/gate.sh",
+  "matching/census.sh",
+  "matching/next.mjs",
+  "matching/strikes.mjs",
+  "matching/build-spec.mjs",
+];
 
 export const GITIGNORE_MARKER =
   "# reddoor-maint match-harness: scripts + records tracked, workspace ignored";

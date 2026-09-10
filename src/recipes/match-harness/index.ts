@@ -8,6 +8,7 @@ import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from ".
 import {
   MATCH_HARNESS_FILES,
   MATCH_HARNESS_PREVIOUS,
+  MATCH_HARNESS_COUPLED,
   HARNESS_JSON_RELATIVE,
   GITIGNORE_MARKER,
   GITIGNORE_BLOCK,
@@ -209,6 +210,12 @@ export const MATCH_HARNESS_INSTALLED_PATHS: readonly string[] = [
  * Install-if-absent throughout. Files a site edits are never rewritten. A
  * recipe-owned script that matches a previously shipped render is safe-replaced;
  * one that has been hand-edited is FLAGGED in the notes and left alone.
+ *
+ * ONE EXCEPTION TO PER-FILE INDEPENDENCE: the scripts in MATCH_HARNESS_COUPLED
+ * upgrade as a SET. If any one of them is hand-edited, none of them is written,
+ * because gate.sh calls `harness.mjs --check-run` and next.mjs imports from
+ * harness.mjs — upgrading the others around a pinned one leaves a harness that
+ * cannot run at all. See the measurement on MATCH_HARNESS_COUPLED.
  */
 export async function matchHarness(
   site: Site,
@@ -245,6 +252,15 @@ export async function matchHarness(
       const previousAll = deps.previous ?? MATCH_HARNESS_PREVIOUS;
       const blockPreviousAll = deps.blockPrevious ?? MATCH_HARNESS_BLOCK_PREVIOUS;
 
+      // PASS 1 — decide everything, write nothing. The coupled-set demotion
+      // below needs the whole picture before the first byte is written.
+      type Planned = {
+        f: (typeof MATCH_HARNESS_FILES)[number];
+        template: string;
+        existing: string | null;
+        action: ReturnType<typeof planFileWrite>;
+      };
+      const plans: Planned[] = [];
       for (const f of MATCH_HARNESS_FILES) {
         const target = join(cwd, f.rel);
         let template = f.template;
@@ -260,14 +276,58 @@ export async function matchHarness(
           template = JSON.stringify(seed, null, 2) + "\n";
         }
         const existing = await readIfExists(target);
-        const action = planFileWrite(existing, template, f.owner, previousAll[f.rel] ?? []);
+        plans.push({
+          f,
+          template,
+          existing,
+          action: planFileWrite(existing, template, f.owner, previousAll[f.rel] ?? []),
+        });
+      }
+
+      // The coupled set moves together or not at all. Two deliberate limits,
+      // both of them the difference between a guard and an outage:
+      //
+      // ONLY `flag` demotes. `skip` means the file is already byte-correct, and
+      // treating that as a flag would make every re-run refuse itself and the
+      // recipe permanently inert — the demotion's own failure mode is
+      // OVER-refusal, so its test has to GRANT an upgrade, not merely deny one.
+      //
+      // ONLY `replace` is demoted. A file that is ABSENT cannot be "left
+      // alone": there is nothing to preserve, and skipping the write leaves the
+      // site with no harness at all rather than an old one. The hazard being
+      // guarded is upgrading HALF of an installed set past a pinned member;
+      // writing a missing file is the only action that makes the set exist.
+      // (Measured: demoting `write` too broke a fresh install alongside one
+      // hand-edited script — 16 files silently unwritten, then a failed run.)
+      const coupled = new Set(MATCH_HARNESS_COUPLED);
+      const blockedBy = plans
+        .filter((p) => coupled.has(p.f.rel) && p.action === "flag")
+        .map((p) => p.f.rel);
+      const demoted = plans.filter(
+        (p) => coupled.has(p.f.rel) && p.action === "replace" && !blockedBy.includes(p.f.rel),
+      );
+      if (blockedBy.length > 0 && demoted.length > 0) {
+        for (const p of demoted) p.action = "flag";
+        notes.push(
+          `${blockedBy.join(", ")} differs from the shipped template, so the whole coupled set ` +
+            `was left alone: ${MATCH_HARNESS_COUPLED.join(", ")} upgrade together. ` +
+            `matching/gate.sh calls \`harness.mjs --check-run\` and matching/next.mjs imports from ` +
+            `harness.mjs, so upgrading one without the others leaves a harness that cannot run.`,
+        );
+      }
+
+      // PASS 2 — write.
+      const demotedRels = new Set(demoted.map((p) => p.f.rel));
+      for (const { f, template, existing, action } of plans) {
         if (action === "flag") {
+          if (demotedRels.has(f.rel)) continue; // named in the set note above
           notes.push(
             `${f.rel} differs from the shipped template and was left alone (hand-edited?)`,
           );
           continue;
         }
         if (action === "skip") continue;
+        const target = join(cwd, f.rel);
         await mkdir(dirname(target), { recursive: true });
         before.set(f.rel, existing);
         await writeFile(target, template, "utf-8");

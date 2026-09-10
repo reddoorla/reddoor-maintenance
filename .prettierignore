@@ -4,3 +4,11 @@ tests/fixtures/
 docs/morning-reports/
 tests/blux/fixtures/*.html
 tests/webflow/fixtures/
+
+# Previously SHIPPED renders of the match-harness recipe. These are frozen
+# artifacts, not source: MATCH_HARNESS_PREVIOUS compares an installed site's
+# file against them byte-for-byte (normalize() forgives only CRLF and trailing
+# whitespace), so reformatting one would stop matching every site that installed
+# that version — the file would be flagged as hand-edited and left broken,
+# which is exactly the failure #751's migration exists to repair.
+scripts/match-harness-previous/

@@ -1404,3 +1404,211 @@ migration is exact-byte: a site whose CLAUDE.md block was reflowed (a
 `proseWrap` today) matches no candidate and is FLAGGED with a note naming the
 file. It is never silently skipped and never overwritten, but a human reconciles
 it once. Both carried in #753.
+
+## 2026-09-10 — next.mjs scored 12/3 and called the backlog empty, and the table of
+
+shipped bodies stopped feeding on itself (#751, #753, `fix/p751`)
+
+`next.mjs` divided a real pass count by an imaginary denominator on the exact
+shape every new site starts in. `harness.mjs` derived `TOTALS[page]` as
+`(anchors.length + 1) * MATRIX.length`, which is an exact identity for an
+ANCHORED run and nothing at all without anchors: `splitRegions`
+(page-diff.mjs:103-110) cuts by anchor only when there are anchors, falling back
+to the page's own `<section>` boxes and then to an even four-row grid
+(lib/regions.mjs:27-35, `gridRows = 4`, labels `grid-<r>-<c>`).
+
+Measured, not recalled. On the untouched recipe seed (`anchors: []`, matrix
+`[1440, 834, 390]`) page-diff produces 12 grid regions; `next.mjs` printed
+`SCORE 12/3 regions passing`, then `No open geometry failures. 0 declared
+floor(s) remain.` and `Backlog is empty — Phases 5 (states) and 6 (adversarial
+review) are what is left.`, exit 0. On 29-navy's matrix of four the same seed
+prints `SCORE 16/4`. The absurd fraction is the harmless half — someone
+questions `16/4`. Nobody questions "Backlog is empty", and it prints from the
+same run.
+
+**The belief this corrects, and it is the expensive one.** Two tests asserted
+the defect as correct behaviour and had done since the recipe shipped:
+`next.mjs SCORES a real corpus and names the worst region` asserted `SCORE 2/3`
+over `anchors: []`, with the comment `// 3 = (0 anchors + 1) × 3 viewports,
+derived by harness.mjs from the seed` — the false derivation written down as
+fact — and `next.mjs exits 0 with no agenda once every region passes` asserted
+`SCORE 3/3` plus `No open geometry failures`, exit 0, which IS the issue,
+greened. They passed because the fixture supplied exactly 3 regions and the
+fiction `(0 + 1) × 3` is also 3. The fiction and the fact coincided, so nothing
+looked wrong. Both fixtures now use 12 regions against a fiction of 3
+specifically so the two numbers can never agree again, and that constraint is
+written into a comment in the test file because it is the whole reason this
+shipped.
+
+**The answer already existed twenty lines below the bug.** `checkRun`'s
+`if (secs.length)` guard already declines to assert a region count without
+anchors, and already writes down why — same fallback, same measurement, dated
+2026-09-09. The fix reached the VALIDATOR and was never carried to the
+DENOMINATOR. Choosing anything else now would have been answering one question
+two ways in one file.
+
+**Understated in the issue: the ranking, not just the number.** `scored` sorted
+by `pass / total`, and an unanchored page's ratio is not bounded by 1. A passing
+one scored `16/4 = 4.0` and sorted LAST, i.e. best, so `const worst =
+scored[0].p` could never name the one page whose Phase 1 was not done. A failing
+one scored `0/3 = 0.0`, sorted FIRST, and printed `NEXT: about — worst page`
+with an agenda of `grid-0-0`, `grid-1-0` … — an instruction to fix geometry
+against regions page-diff invented. Reproduced before the fix and again by
+mutation after it.
+
+The fix REFUSES rather than relabels: `scorable(key)` beside `TOTALS`,
+`TOTALS = null` for a page whose count cannot be predicted, unscorable pages
+filtered out of the ranking, the run's OWN region count printed as evidence for
+the refusal (`home  12 region(s)  NOT SCORABLE — no anchors`), and exit 2. The
+pass fraction is deliberately withheld — it is the number with no referent and
+the number that gets quoted into a status line. With nothing scorable it prints
+`NO SCORE — 0 of N page(s) have anchors` rather than `SCORE 0/0`, which is a
+third lie and the one that reads best of all. Scoring the grid and labelling it
+was rejected: "12 of 12 grid rows passed" is arithmetically honest and
+semantically empty, and the label is prose beside a figure. Where a genuine
+pre-Phase-1 baseline read is wanted, `SPEC_OPTIONAL=1` already exists and
+already prints "Do NOT apply geometry fixes off this run."
+
+Honest accounting on `null`: it does not poison arithmetic. `a + null` is `a`,
+so a consumer that sums `TOTALS` without asking `scorable()` still gets a
+too-small denominator — flattering, the direction the comment above `TOTALS`
+warns about. `null` is a signal chosen for loud printing and
+JSON-representability; the barrier is the predicate and the exit-2 guard. That
+`0/null` really does print when the ranking filter is removed was seen during
+mutation, which is the best argument for the signal being loud.
+
+**A standing rule was wrong on this branch, and it is worth correcting.** The
+session rule says `MATCH_HARNESS_PREVIOUS` "is live now — PREVIOUS is no longer
+empty", and that the generator carries it forward and APPENDS the on-disk body,
+so a regenerate-after-revert silently ships the mutant as a prior release. On
+`fix/p751` none of that was true: `git log --oneline --
+scripts/gen-match-harness-template.mjs` has exactly one commit (`9cd0e49`),
+which hardcoded `export const MATCH_HARNESS_PREVIOUS … = {};` with the comment
+"Empty at v1 — nothing has shipped", and template.ts:1426 confirmed `= {}`.
+Regeneration was measured to be byte-idempotent. The `git checkout --` habit is
+still right and was followed for all eleven mutations, but its stated mechanism
+did not exist. After this PR the first half becomes true — PREVIOUS is populated
+— and the second half still will not be: the generator reads committed files
+under `scripts/match-harness-previous/<version>/`, never the working tree, so it
+cannot absorb a mutant.
+
+**Migration was the half that decides whether the fix reaches anyone.**
+`@reddoorla/maintenance@0.95.0` is already published and installed. Run against
+the real `planFileWrite`, a stock 0.95.0 install with `PREVIOUS = {}` returns
+`flag`: the file is left byte-for-byte alone and the run adds the note
+`matching/next.mjs differs from the shipped template and was left alone
+(hand-edited?)`. The site would keep the broken `next.mjs` forever AND be
+accused of an edit it never made. With the 0.95.0 body present it returns
+`replace`. The prior bodies were extracted once from `git show
+v0.95.0:src/recipes/match-harness/template.ts` — verified byte-equal under
+`normalize()` to what 29-navy, a real 0.95.0 install, has on disk — and
+committed under `scripts/match-harness-previous/0.95.0/` so they are auditable
+in git rather than a 17 KB literal nobody can review.
+
+**Coupled set, measured in both directions.** Because the scripts are copied
+verbatim from beachfront and beachfront has drifted, 0.95.1 necessarily ships
+that drift: `harness.mjs`, `gate.sh` and `next.mjs` differ from 0.95.0 while the
+other four copied files are byte-identical and need no PREVIOUS entry. A new
+`next.mjs` against a 0.95.0 `harness.mjs` dies with `SyntaxError: The requested
+module './harness.mjs' does not provide an export named 'scorable'` — it does
+not degrade, it does not load. A 0.95.0 `harness.mjs` given the new `gate.sh`'s
+call answers `usage: harness.mjs --env | --table | --check-ref` and exits 2,
+which gate.sh reads as NOT MEASURED for every page. So `planFileWrite`'s
+per-file independence was itself the hazard, and `MATCH_HARNESS_COUPLED` plus a
+two-pass install now demote the whole set to `flag` when any member is
+hand-edited.
+
+**A guard that over-refused, caught by an existing test rather than by
+thinking.** The first version demoted `write` as well as `replace`. On a fresh
+site with one hand-edited script that silently withheld sixteen files and turned
+the install into a failure — `flags a hand-edited recipe-owned script and leaves
+it byte-for-byte alone` went red. A file that is ABSENT cannot be "left alone":
+there is nothing to preserve and skipping the write leaves no harness at all.
+Narrowed to `replace` only. This is exactly the over-refusal failure mode the
+plan named as the new code's own risk, and it took eleven minutes to hit.
+
+**The drift also broke a gate test, correctly.** `gate.sh RUNS the page once the
+reference verifies` went red after regeneration: the new `gate.sh` no longer
+trusts page-diff's exit status and calls `harness.mjs --check-run`, which demands
+a real `report.json` that is fresh, countable and covers the matrix asked for.
+The test's stub page-diff printed a version string and wrote nothing, so every
+page came back NOT MEASURED. The stub now writes the artefact a working run
+produces. That is the gate getting stricter in the right direction — the test's
+green used to be the absence of an error and now requires evidence.
+
+Eleven mutations, each proven landed with `grep -n` on the mutated text and each
+measured by the NAME of the test that reddened. Two discriminated exactly one
+test: narrowing the exit to `unscorable.length && !scored.length` reddened only
+the mixed-corpus test, and narrowing the coupled demotion to `blockedBy.length >
+1` reddened only the hand-edited-set test while the clean-upgrade test stayed
+green — which is the asymmetry that matters, because that guard's failure mode
+is over-refusal and its test has to GRANT an upgrade, not merely deny one.
+
+Two predictions in the plan were wrong and are recorded as such. Narrowing the
+unscorable guard to `> 1` was predicted to redden only the single-page refusal;
+it reddened the mixed-corpus test too, because that corpus also has exactly one
+unanchored page. And dropping `next.mjs` from the PREVIOUS table was predicted
+to redden the upgrade test on `differs from the shipped template`; it reddened
+it on `expected 'noop' to be 'applied'` instead, because the coupled-set demotion
+turned a partial upgrade into a total refusal — the missing entry became MORE
+visible than predicted, not less.
+
+Found and NOT fixed here, and each needs an issue rather than this paragraph:
+`matrix: []` makes `TOTALS[p]` zero for an ANCHORED page and `pass/0` is
+Infinity — the same class, a different input, and `harness.json` has no
+validation pass at all; the coupled-set mechanism is a per-recipe list where the
+general shape (a recipe shipping an interdependent set) recurs; and
+`SPEC_OPTIONAL=1`'s per-page "do not apply geometry fixes off this run" and
+`next.mjs`'s site-wide claim still do not talk to each other.
+
+**Found 2026-09-09; landed 2026-09-10, by which point the branch had grown a
+second subject.** Two things happened to it in between, and both are worth more
+than the original fix.
+
+**The refusal had to GRANT as well as deny.** `scorable(key)` started as "has
+anchors"; verification found a second way to have no referent — an EMPTY MATRIX,
+where `TOTALS` is `(anchors + 1) * 0 = 0` and the score reads `SCORE 8/0`. So
+`scorable` now requires both, and `unscorableWhy` names which one is missing,
+because a refusal that cannot say why is indistinguishable from a crash. Three
+legs measured: empty matrix → `NOT SCORABLE — matrix is empty`; no anchors →
+`NOT SCORABLE — no anchors`; both present → `SCORE 8/8`, exit 0. That last one
+is the load-bearing case. A guard whose failure mode is over-refusal is only
+proven by a green it GRANTS, and this file's own rule 1 says an error matcher
+may never do more than deny.
+
+**Two mutants survived the first verification pass, and both were about what the
+operator is TOLD rather than what is written.** Deleting
+`if (demotedRels.has(f.rel)) continue;` makes the coupled-set demotion also emit
+a per-file "differs from the shipped template … (hand-edited?)" note for the two
+files nobody touched — sending an operator to diff two files against a template
+they already match. The existing test could not see it: it asserted the set note
+NAMES all three files, and the false accusation names them too. The per-file note
+is additive, so the assertion had to be about what is absent. Summing the score
+over `latest` instead of `scored` puts an unscorable page's regions in the
+numerator; the existing test had that page FAILING every region, so the wrong sum
+added zero and nothing moved. The new case makes those 12 invented regions PASS
+and the mutant prints `SCORE 17/6` — a numerator counting regions the denominator
+has never contained. **Both existing tests were green against both mutants
+because of the DATA they used, not because of what they asserted.**
+
+**The table of previously shipped bodies was feeding on itself.** `main` grew a
+carry-forward mechanism that reads bodies out of the committed `template.ts` on
+every regeneration — automatic, which is the appeal, and self-feeding, which is
+the problem: whatever sits in `template.ts` becomes a "previously shipped
+release" on the next run. Mutate, regenerate, revert, regenerate, and the mutant
+is now an entry. Measured on this branch: one such cycle added 693 lines and two
+copies of the same predicate, and nothing failed. Entries in that table are the
+bodies `planFileWrite` REPLACES WITHOUT ASKING, so a wrong one silently
+overwrites a real site's file — the highest-blast-radius data the recipe carries.
+It now comes from `scripts/match-harness-previous/<version>/`, copied from a
+published tag and never re-derived. The cost is a manual step at release time.
+
+**Proven lossless before the swap, both directions.** The three v0.95.0 bodies
+are byte-identical (sha256, first 16) to what 29 Navy has installed today:
+`f20982b377f501e9` gate.sh, `04305ae48d656b25` harness.mjs, `07fab93206564d29`
+next.mjs. And running the real `planFileWrite` against 29 Navy's actual files
+under BOTH mechanisms plans `replace` for all three, `skip` for the other
+fourteen, and `flag` for none. A mechanism swap on this table is exactly the
+change where "the tests pass" is not the question — the question is whether the
+fleet's upgrade path still resolves, and that is a measurement against a real
+site, not a fixture.
