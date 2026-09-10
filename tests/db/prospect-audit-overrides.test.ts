@@ -3,6 +3,7 @@ import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   createProspectAudit,
   getProspectAuditByToken,
+  OVERRIDES_MAX_LEN,
   setProspectAuditOverrides,
   touchProspectAuditOpened,
 } from "../../src/db/prospect-audits.js";
@@ -145,6 +146,153 @@ describe("touchProspectAuditOpened", () => {
     const { db, token } = await seed();
     await touchProspectAuditOpened(db, token);
     const row = await getProspectAuditByToken(db, token);
+    expect(row!.edited_at).toBeNull();
+  });
+});
+
+describe("setProspectAuditOverrides — inputs that are not plain objects", () => {
+  // `Object.values()` on a Map, a Set or a Date returns [], and `[].every(...)`
+  // is vacuously true — so a validator that only walks the values approves all
+  // three, reports "updated", and stamps edited_at over a value the caller
+  // never meant to store. Measured before the fix: the Map and the Set stored
+  // `{}`, and the Date stored a JSON STRING where the map should be.
+  it("refuses a Map without storing the empty object it serialises to", async () => {
+    const { db, token } = await seed();
+    const res = await setProspectAuditOverrides(
+      db,
+      token,
+      new Map([["k", { original: "a", text: "b" }]]) as unknown as OverrideMap,
+    );
+    expect(res.status).toBe("invalid");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBeNull();
+    expect(row!.edited_at).toBeNull();
+  });
+
+  it("refuses a Set", async () => {
+    const { db, token } = await seed();
+    const res = await setProspectAuditOverrides(
+      db,
+      token,
+      new Set([{ original: "a", text: "b" }]) as unknown as OverrideMap,
+    );
+    expect(res.status).toBe("invalid");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBeNull();
+    expect(row!.edited_at).toBeNull();
+  });
+
+  it("refuses a Date, which would be stored as a bare JSON string", async () => {
+    const { db, token } = await seed();
+    const res = await setProspectAuditOverrides(
+      db,
+      token,
+      new Date("2026-01-01T00:00:00.000Z") as unknown as OverrideMap,
+    );
+    expect(res.status).toBe("invalid");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBeNull();
+    expect(row!.edited_at).toBeNull();
+  });
+
+  it("accepts a null-prototype object, which is a plain object for JSON purposes", async () => {
+    // `Object.create(null)` stringifies exactly like `{}` — the prototype check
+    // must not turn a legitimate map into a rejection.
+    const { db, token } = await seed();
+    const map = Object.create(null) as OverrideMap;
+    map.k = { original: "a", text: "b" };
+    const res = await setProspectAuditOverrides(db, token, map);
+    expect(res.status).toBe("updated");
+    const row = await getProspectAuditByToken(db, token);
+    expect(JSON.parse(row!.overrides_json!)).toEqual({ k: { original: "a", text: "b" } });
+  });
+});
+
+describe("setProspectAuditOverrides — values that pass validation but cannot serialise", () => {
+  it("refuses a circular structure instead of throwing", async () => {
+    const { db, token } = await seed();
+    const entry: Record<string, unknown> = { original: "a", text: "b" };
+    entry.self = entry;
+    const res = await setProspectAuditOverrides(db, token, { k: entry } as unknown as OverrideMap);
+    expect(res.status).toBe("invalid");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBeNull();
+    expect(row!.edited_at).toBeNull();
+  });
+
+  it("refuses a BigInt inside an otherwise-valid entry instead of throwing", async () => {
+    const { db, token } = await seed();
+    const res = await setProspectAuditOverrides(db, token, {
+      k: { original: "a", text: "b", n: 1n },
+    } as unknown as OverrideMap);
+    expect(res.status).toBe("invalid");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBeNull();
+    expect(row!.edited_at).toBeNull();
+  });
+
+  it("refuses a throwing getter, whose error escapes validation itself", async () => {
+    const { db, token } = await seed();
+    const map = {};
+    Object.defineProperty(map, "k", {
+      enumerable: true,
+      get() {
+        throw new Error("getter boom");
+      },
+    });
+    const res = await setProspectAuditOverrides(db, token, map as OverrideMap);
+    expect(res.status).toBe("invalid");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBeNull();
+  });
+});
+
+describe("setProspectAuditOverrides — the size cap", () => {
+  /** A map whose serialised JSON is EXACTLY `target` characters long: every
+   *  added "x" adds one character to the string, so the padding is the target
+   *  minus the length of the same map with an empty `text`. */
+  function mapOfSerialisedLength(target: number): OverrideMap {
+    const base = JSON.stringify({ k: { original: "", text: "" } }).length;
+    return { k: { original: "", text: "x".repeat(target - base) } };
+  }
+
+  it("refuses a map one character over the cap", async () => {
+    const { db, token } = await seed();
+    const map = mapOfSerialisedLength(OVERRIDES_MAX_LEN + 1);
+    expect(JSON.stringify(map).length).toBe(OVERRIDES_MAX_LEN + 1);
+    const res = await setProspectAuditOverrides(db, token, map);
+    expect(res.status).toBe("invalid");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBeNull();
+    expect(row!.edited_at).toBeNull();
+  });
+
+  it("accepts a map exactly at the cap", async () => {
+    const { db, token } = await seed();
+    const map = mapOfSerialisedLength(OVERRIDES_MAX_LEN);
+    expect(JSON.stringify(map).length).toBe(OVERRIDES_MAX_LEN);
+    const res = await setProspectAuditOverrides(db, token, map);
+    expect(res.status).toBe("updated");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json!.length).toBe(OVERRIDES_MAX_LEN);
+  });
+});
+
+describe("setProspectAuditOverrides — __proto__", () => {
+  it("refuses a map carrying a __proto__ key rather than storing or stripping it", async () => {
+    // Built through JSON.parse, exactly as the route's body arrives: that makes
+    // `__proto__` an ordinary own key rather than a prototype assignment. Stored
+    // verbatim, a consumer doing `Object.assign({}, parsed)` DOES get its
+    // prototype replaced. Rejected, not stripped — a silent strip is a second
+    // way to report success for something that was not stored.
+    const { db, token } = await seed();
+    const map = JSON.parse(
+      '{"__proto__":{"original":"a","text":"b"},"ok":{"original":"c","text":"d"}}',
+    ) as OverrideMap;
+    const res = await setProspectAuditOverrides(db, token, map);
+    expect(res.status).toBe("invalid");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBeNull();
     expect(row!.edited_at).toBeNull();
   });
 });

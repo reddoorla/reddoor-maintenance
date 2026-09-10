@@ -180,6 +180,25 @@ export async function listRecentProspectAudits(
 export type Override = { original: string; text: string };
 export type OverrideMap = Record<string, Override>;
 
+/**
+ * Ceiling on one report's override map, measured on the SERIALISED JSON rather
+ * than on the entry count — one entry holding a megabyte is the case that
+ * matters, and the string is what actually gets stored and re-served.
+ *
+ * The arithmetic, not a round number: the report carries roughly 227 editable
+ * strings (the check battery alone, before fixes, claims and goal copy). An
+ * operator who replaced every one of them, at around 300 characters of
+ * `original` plus 300 of `text` each, writes on the order of 136 KB. This is
+ * about four times that worst realistic case, which leaves the honest editor
+ * unbounded in practice while still bounding a hand-crafted POST.
+ *
+ * The bound matters more here than it does for the sibling `setReportCommentary`
+ * (2 000 characters): commentary is read when a report is composed, whereas this
+ * value is served back inline on every fetch of the report, out of a metered
+ * store. 2 288 891 characters were accepted in a single write before this cap.
+ */
+export const OVERRIDES_MAX_LEN = 512_000;
+
 export type SetOverridesResult =
   | { status: "updated"; token: string }
   | { status: "invalid"; token: string }
@@ -204,9 +223,31 @@ export type SetOverridesResult =
  * outer one keeps `Object.values(null)` from throwing, and the inner one keeps
  * a null ENTRY from being read for `.original` — the exact input that crashed
  * the website's own override layer during its review.
+ *
+ * The PROTOTYPE check is the one that stops this function passing vacuously.
+ * `Object.values()` on a Map, a Set or a Date returns `[]`, and `[].every(...)`
+ * is true, so walking only the entries approved all three: a Map stored `{}` and
+ * silently discarded every override in it, and a Date stored a bare JSON string
+ * where a map belongs — each reporting "updated" and stamping `edited_at`.
+ * Arrays fall out of the same check (`Array.prototype !== Object.prototype`), so
+ * there is no separate `Array.isArray` guard on the outer value.
+ *
+ * `Object.create(null)` IS accepted: a null-prototype object serialises exactly
+ * like `{}`, which is the only property this validator's consumer cares about,
+ * and refusing it would reject a legitimate map for a reason invisible in JSON.
+ *
+ * A `__proto__` KEY is rejected rather than stripped. `JSON.parse` makes it an
+ * ordinary own property, and stored verbatim a consumer doing
+ * `Object.assign({}, parsed)` does get its prototype replaced — the consumer
+ * here is the website, a separate codebase, and this function's whole premise is
+ * that nothing downstream will check. Stripping it silently would be a second
+ * way to report success for something that was not stored.
  */
 function isOverrideMap(v: unknown): v is OverrideMap {
-  if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v === null || typeof v !== "object") return false;
+  const proto = Object.getPrototypeOf(v) as unknown;
+  if (proto !== Object.prototype && proto !== null) return false;
+  if (Object.hasOwn(v, "__proto__")) return false;
   return Object.values(v as Record<string, unknown>).every(
     (e) =>
       e !== null &&
@@ -215,6 +256,33 @@ function isOverrideMap(v: unknown): v is OverrideMap {
       typeof (e as Override).original === "string" &&
       typeof (e as Override).text === "string",
   );
+}
+
+/**
+ * The exact string that will be stored, or null when the input is malformed.
+ *
+ * Validation and serialisation are one step, inside one try, because both can
+ * throw on an input that is otherwise well-formed: a circular reference or a
+ * BigInt inside a valid-looking entry throws in `JSON.stringify`, and a throwing
+ * getter throws in `Object.values` during validation itself. `setProspectAudit-
+ * Overrides` is typed to return one of three statuses, and an escaping TypeError
+ * is a fourth outcome its callers have no branch for. A value that cannot be
+ * serialised is malformed input, not an exceptional condition — and the caller
+ * already has a branch for malformed input.
+ *
+ * The size cap is measured HERE, on the serialised string, for the same reason:
+ * the string is what gets stored and re-served, and an entry count says nothing
+ * about it.
+ */
+function serialiseOverrides(overrides: OverrideMap): string | null {
+  let json: string;
+  try {
+    if (!isOverrideMap(overrides)) return null;
+    json = JSON.stringify(overrides);
+  } catch {
+    return null;
+  }
+  return json.length > OVERRIDES_MAX_LEN ? null : json;
 }
 
 /**
@@ -232,14 +300,15 @@ export async function setProspectAuditOverrides(
   token: string,
   overrides: OverrideMap,
 ): Promise<SetOverridesResult> {
-  if (!isOverrideMap(overrides)) return { status: "invalid", token };
+  const serialised = serialiseOverrides(overrides);
+  if (serialised === null) return { status: "invalid", token };
 
   const existing = await getProspectAuditByToken(db, token);
   if (!existing) return { status: "not-found", token };
 
   await db
     .updateTable("prospect_audits")
-    .set({ overrides_json: JSON.stringify(overrides), edited_at: new Date().toISOString() })
+    .set({ overrides_json: serialised, edited_at: new Date().toISOString() })
     .where("token", "=", token)
     .execute();
   return { status: "updated", token };
