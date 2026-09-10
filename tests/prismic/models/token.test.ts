@@ -23,6 +23,15 @@ describe("prismicTokenEnvName", () => {
   it("handles a hash-shaped repository name", () => {
     expect(prismicTokenEnvName("48bb12d1")).toBe("PRISMIC_TOKEN_48BB12D1");
   });
+  // 29-navy is the fleet's first repository name whose LEADING characters are digits
+  // AND which carries a separator. Legal only because the literal prefix comes first:
+  // a suffix rule would yield `29_NAVY_PRISMIC_TOKEN`, which is neither a legal shell
+  // identifier nor a legal GitHub secret name.
+  it("keeps a digit-leading repository name a legal identifier", () => {
+    const name = prismicTokenEnvName("29-navy");
+    expect(name).toBe("PRISMIC_TOKEN_29_NAVY");
+    expect(name).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/);
+  });
 
   // A name with no alphanumerics collapses to the bare prefix, so EVERY such
   // name would share one env var — two sites silently reading one credential,

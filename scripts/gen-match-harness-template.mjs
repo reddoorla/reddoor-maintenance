@@ -7,12 +7,19 @@
 // (default: beachfront-dentistry, the PR this recipe was cut from). The rest are
 // authored here because they are stubs, not code with a source of truth.
 //
+// MATCH_HARNESS_PREVIOUS is built from scripts/match-harness-previous/<version>/,
+// which holds the bodies of PREVIOUSLY TAGGED RELEASES and is NEVER re-derived
+// from the source repo — the source repo has moved on, and a "previous" render
+// taken from it would match no site on earth. Add a version directory when you
+// ship; the files in it are extracted once from `git show <tag>:…/template.ts`
+// and then never touched again.
+//
 // Do NOT hand-edit template.ts: escaping backticks and ${ by hand is exactly the
 // kind of silent corruption a round-trip check exists to catch, and it is checked
 // below for every constant before anything is written.
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -461,61 +468,6 @@ const AUTHORED = [
   ["SITE_PAGES_TEST", "src/lib/site-pages.test.ts", SITE_PAGES_TEST],
 ];
 
-/**
- * What this repo LAST SHIPPED, read out of the committed template.ts before it
- * is overwritten: the rendered body of every file, and the existing
- * MATCH_HARNESS_PREVIOUS table.
- *
- * This is what makes the recipe able to upgrade a site it has already
- * installed. index.ts:88-89 safe-replaces a recipe-owned file that byte-matches
- * a previously shipped render and FLAGS anything else that differs, so with an
- * empty table every installed site keeps whatever it has forever — the note
- * says "differs from the shipped template and was left alone (hand-edited?)"
- * and the fix never lands. The table read "Empty at v1 — nothing has shipped"
- * while 29-navy was already running the v1 render.
- *
- * The module is IMPORTED rather than regex-scraped: it is this repo's own
- * generated file, its only TypeScript is erasable type annotations, and node
- * strips those natively. Recovering the bodies by hand instead means undoing
- * the backtick / ${ escaping by hand, which is exactly the silent corruption
- * `embed`'s round-trip check exists to catch — and which
- * tests/recipes/match-harness-generator.test.ts:35-43 records getting
- * `\[uid\]` wrong.
- */
-async function readShipped(file) {
-  if (!existsSync(file)) return { byRel: {}, previous: {} };
-  let mod;
-  try {
-    mod = await import(pathToFileURL(file).href);
-  } catch (e) {
-    // Fail CLOSED. Treating an unreadable template.ts as "nothing has shipped"
-    // would silently empty MATCH_HARNESS_PREVIOUS and un-upgrade every site.
-    throw new Error(
-      `could not read the committed ${file} (${e.message}).\n` +
-        `Node must be able to import a .ts module with erasable type annotations ` +
-        `(node >= 22.18). Refusing to write a template with no shipped history.`,
-      { cause: e },
-    );
-  }
-  const byRel = Object.fromEntries((mod.MATCH_HARNESS_FILES ?? []).map((f) => [f.rel, f]));
-  const previous = Object.fromEntries(
-    Object.entries(mod.MATCH_HARNESS_PREVIOUS ?? {}).map(([rel, list]) => [rel, [...list]]),
-  );
-  return { byRel, previous };
-}
-
-const shipped = await readShipped(OUT);
-
-/** Record the body this repo shipped for `rel` before this run changed it,
- *  newest first and never duplicated. Site-owned records are excluded: they are
- *  never rewritten and never flagged, so a history of them buys nothing. */
-function carryForward(previous, rel, owner, body) {
-  if (owner !== "recipe") return;
-  const was = shipped.byRel[rel]?.template;
-  if (was === undefined || was === body) return;
-  previous[rel] = [was, ...(previous[rel] ?? []).filter((prev) => prev !== was)];
-}
-
 /** Escape a file body for embedding in a TS template literal, then prove the
  *  escape round-trips. A corrupted template is silent: it installs and only
  *  fails when someone runs the script months later. */
@@ -537,12 +489,10 @@ const parts = [
   ``,
 ];
 const files = [];
-const previous = { ...shipped.previous };
 for (const [name, rel] of COPIED) {
   const body = readFileSync(join(SRC, rel), "utf8");
   parts.push(`export const ${name}_RELATIVE = ${JSON.stringify(rel)};`);
   parts.push(`export const ${name}_TEMPLATE = \`${embed(name, body)}\`;`, ``);
-  carryForward(previous, rel, "recipe", body);
   files.push([name, "recipe"]);
 }
 for (const [name, rel, body] of AUTHORED) {
@@ -551,11 +501,8 @@ for (const [name, rel, body] of AUTHORED) {
   // harness.json, floors, census-deviations, the spec sections, LEDGER and
   // site-pages.js are records a site edits; the rest are recipe-owned.
   const siteOwned = /HARNESS_JSON|FLOORS|CENSUS_DEVIATIONS|SPEC_|LEDGER|SITE_PAGES_JS/.test(name);
-  carryForward(previous, rel, siteOwned ? "site" : "recipe", body);
   files.push([name, siteOwned ? "site" : "recipe"]);
 }
-/** Paths that carry a shipped history, in table order. */
-const carried = Object.entries(previous).filter(([, bodies]) => bodies.length);
 
 parts.push(
   `export const MATCH_HARNESS_FILES: readonly HarnessFile[] = [`,
@@ -564,28 +511,100 @@ parts.push(
   ),
   `];`,
   ``,
-  `/** Renders previously shipped by this recipe, per relative path, NEWEST`,
-  ` *  FIRST. A file that byte-matches one of these is SAFE-REPLACED on re-run;`,
-  ` *  anything else that differs is flagged, never overwritten (index.ts:88-89).`,
+);
+
+// ---------------------------------------------------------------------------
+// MATCH_HARNESS_PREVIOUS. Every tagged release whose body for a file DIFFERS
+// from the one being written now needs an entry, or a site running that release
+// gets `flag` — its file left broken forever, plus a note accusing it of a hand
+// edit it never made. Measured against the real planFileWrite for #751: with
+// PREVIOUS = {} a stock 0.95.0 install flags; with the 0.95.0 body present it
+// replaces.
+//
+// REPLACES a carry-forward mechanism that read the bodies out of the COMMITTED
+// template.ts on every regeneration. That was automatic, which is its whole
+// appeal, and it is self-feeding: whatever sits in template.ts becomes a
+// "previously shipped release" on the next run. Regenerate against a mutated or
+// dirty source, notice, fix it, regenerate again — and the wrong body is now an
+// entry in this table. Entries here are the bodies `planFileWrite` REPLACES
+// WITHOUT ASKING, so a wrong one silently overwrites a real site's file; this is
+// the highest-blast-radius data the recipe carries. Measured on this branch: one
+// mutate/regenerate/revert cycle added 693 lines and two copies of the same
+// predicate, and nothing failed.
+//
+// So a body's provenance is a PUBLISHED TAG — `git show v0.95.0:<path>` — copied
+// into scripts/match-harness-previous/<version>/ once and never touched again.
+// The cost is a manual step at release time; the history it records cannot be
+// fabricated by a bad regeneration. Carried across from the mechanism it
+// replaces, because it is the reason the table exists at all: it read "Empty at
+// v1 — nothing has shipped" while 29-navy was already running the v1 render.
+// ---------------------------------------------------------------------------
+const PREV_ROOT = join(HERE, "match-harness-previous");
+const currentBody = new Map(files.map(([n]) => [n, null]));
+for (const [name, rel] of COPIED) currentBody.set(name, readFileSync(join(SRC, rel), "utf8"));
+
+const prevVersions = existsSync(PREV_ROOT)
+  ? readdirSync(PREV_ROOT, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort()
+  : [];
+const prevConsts = [];
+const prevByRel = new Map();
+for (const version of prevVersions) {
+  for (const [name, rel] of COPIED) {
+    const path = join(PREV_ROOT, version, rel);
+    if (!existsSync(path)) continue;
+    const body = readFileSync(path, "utf8");
+    // A prior render identical to the current one needs no entry: planFileWrite
+    // returns `skip` for it before `previous` is ever consulted.
+    if (body === currentBody.get(name)) continue;
+    const constName = `${name}_PREV_${version.replace(/[.-]/g, "_")}`;
+    // Same round-trip proof as every other constant. A corrupted PREVIOUS is
+    // the WORST kind of silent: it does not fail here, it fails as a spurious
+    // `flag` on somebody's site months later.
+    prevConsts.push(`const ${constName} = \`${embed(constName, body)}\`;`, ``);
+    if (!prevByRel.has(rel)) prevByRel.set(rel, []);
+    prevByRel.get(rel).push(constName);
+  }
+}
+
+parts.push(
+  ...prevConsts,
+  `/** Renders previously shipped by this recipe, per relative path. A file that`,
+  ` *  byte-matches one of these is SAFE-REPLACED on re-run; anything else that`,
+  ` *  differs is flagged, never overwritten.`,
   ` *`,
-  ` *  Carried forward from the committed template.ts on every regeneration — the`,
-  ` *  generator reads the bodies this repo last shipped before overwriting them,`,
-  ` *  and every recipe-owned file whose body changed gains its old one here. It`,
-  ` *  said "Empty at v1 — nothing has shipped" while 29-navy was already running`,
-  ` *  the v1 render, so the first upgrade would have been FLAGGED on every`,
-  ` *  installed site and the broken file kept. */`,
-  // `{}` on one line when empty, `{\n…\n}` when not: prettier checks this file.
-  ...(carried.length
-    ? [
-        `export const MATCH_HARNESS_PREVIOUS: Readonly<Record<string, readonly string[]>> = {`,
-        ...carried.flatMap(([rel, bodies]) => [
-          `  ${JSON.stringify(rel)}: [`,
-          ...bodies.map((body) => `    \`${embed(`PREVIOUS ${rel}`, body)}\`,`),
-          `  ],`,
-        ]),
-        `};`,
-      ]
-    : [`export const MATCH_HARNESS_PREVIOUS: Readonly<Record<string, readonly string[]>> = {};`]),
+  ` *  Sourced from scripts/match-harness-previous/<version>/ — the TAGGED`,
+  ` *  release bodies, never re-derived from the source site. */`,
+  `export const MATCH_HARNESS_PREVIOUS: Readonly<Record<string, readonly string[]>> = {`,
+  ...[...prevByRel.entries()].map(
+    ([rel, names]) => `  ${JSON.stringify(rel)}: [${names.join(", ")}],`,
+  ),
+  `};`,
+  ``,
+  `/** Scripts that must upgrade TOGETHER or not at all. Measured, both ways:`,
+  ` *  a new next.mjs against an old harness.mjs dies with "does not provide an`,
+  ` *  export named 'uncountable'" — it does not degrade, it does not load; and`,
+  ` *  an old harness.mjs given a new gate.sh's \`--check-run\` prints its usage`,
+  ` *  banner and exits 2, which gate.sh reads as NOT MEASURED for every page`,
+  ` *  before printing GATE INCOMPLETE. So one hand-edited file in the set, with`,
+  ` *  per-file independence, upgrades the others around it into a harness that`,
+  ` *  cannot run — and a bricked harness is worse than an un-upgraded one.`,
+  ` *`,
+  ` *  Derived by grep: every copied script except census-count.mjs depends on`,
+  ` *  harness.mjs, by ESM import (next, strikes, build-spec) or CLI (gate,`,
+  ` *  census). */`,
+  `export const MATCH_HARNESS_COUPLED: readonly string[] = [`,
+  ...[
+    "matching/harness.mjs",
+    "matching/gate.sh",
+    "matching/census.sh",
+    "matching/next.mjs",
+    "matching/strikes.mjs",
+    "matching/build-spec.mjs",
+  ].map((r) => `  ${JSON.stringify(r)},`),
+  `];`,
   ``,
   `export const GITIGNORE_MARKER =`,
   `  "# reddoor-maint match-harness: scripts + records tracked, workspace ignored";`,
@@ -600,8 +619,13 @@ parts.push(
 );
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, parts.join("\n"), "utf8");
+const carried = [...prevByRel.entries()];
 console.log(
   `wrote ${OUT} — ${files.length} files, all round-trip verified; ` +
     `${carried.length} path(s) carry a shipped history` +
-    (carried.length ? ` (${carried.map(([r, b]) => `${r}:${b.length}`).join(", ")})` : ""),
+    (carried.length
+      ? ` (${carried.map(([rel, names]) => `${rel}:${names.length}`).join(", ")})`
+      : "") +
+    `; sourced from ${prevVersions.length} tagged release(s): ` +
+    (prevVersions.join(", ") || "none"),
 );

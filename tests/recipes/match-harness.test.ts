@@ -9,7 +9,11 @@ import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
 import {
   matchHarness,
+  planBlockWrite,
   MATCH_HARNESS_INSTALLED_PATHS,
+  GITIGNORE_END_MARKER,
+  PRETTIERIGNORE_END_MARKER,
+  CLAUDE_MD_END_MARKER,
 } from "../../src/recipes/match-harness/index.js";
 import {
   MATCH_HARNESS_FILES,
@@ -106,15 +110,77 @@ function foreignPrettierSite(): Promise<string> {
 
 const owned = (o: "recipe" | "site") => MATCH_HARNESS_FILES.filter((f) => f.owner === o);
 
-/** A skill directory whose page-diff answers `--version` and nothing else.
- *  gate.sh's first preflight compares `page-diff --version` field 4 against the
- *  harness's REPORT_SCHEMA before anything else runs, so without this every
- *  gate.sh case below would exit 2 for the wrong reason. */
-async function stubSkill(): Promise<string> {
+/** A skill directory whose page-diff answers `--version` AND writes a report.
+ *
+ *  Two preflights depend on it. gate.sh compares `page-diff --version` field 4
+ *  against the harness's REPORT_SCHEMA before anything runs, so without the
+ *  version line every gate.sh case below exits 2 for the wrong reason. And
+ *  gate.sh no longer trusts page-diff's EXIT STATUS as evidence that a page was
+ *  measured — it calls `harness.mjs --check-run`, which demands a real
+ *  report.json that is fresh, countable, and covers the matrix it was asked
+ *  for. A stub that only printed a version made every page NOT MEASURED.
+ *
+ *  So the stub produces the artefact a working run produces, which is the point:
+ *  the green now requires evidence rather than the absence of an error. `mode`
+ *  picks what the run "found" — every region passing, or one failing at the
+ *  widest viewport. */
+async function stubSkill(mode: "pass" | "fail" = "pass"): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "match-skill-"));
+  const body = String.raw`#!/usr/bin/env node
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+if (process.argv.includes("--version")) {
+  console.log("page-diff 0.0.0 report-schema 1");
+  process.exit(0);
+}
+const arg = (f) => {
+  const i = process.argv.indexOf(f);
+  return i === -1 ? undefined : process.argv[i + 1];
+};
+const out = arg("--out");
+const viewports = (arg("--viewports") ?? "").split(",").filter(Boolean).map(Number);
+const sections = (arg("--sections") ?? "").split(",").filter(Boolean);
+const labels = ["top", ...sections];
+const FAIL = MODE === "fail";
+const regions = viewports.flatMap((viewport) =>
+  labels.map((label) => {
+    const bad = FAIL && viewport === viewports[0] && label === "top";
+    return {
+      viewport,
+      label,
+      mismatchFraction: bad ? 0.5 : 0.001,
+      heightDeltaFraction: 0,
+      pass: !bad,
+    };
+  }),
+);
+mkdirSync(out, { recursive: true });
+writeFileSync(
+  join(out, "report.json"),
+  JSON.stringify({
+    meta: {
+      schemaVersion: 1,
+      // page-diff writes this AFTER the browser closes, so it is an artefact of
+      // the run. checkRun compares it against the timestamp gate.sh took before
+      // invoking us, which is how a previous round's leftover report is caught.
+      generatedAt: new Date().toISOString(),
+      threshold: Number(arg("--threshold")),
+      viewports,
+      sections,
+      mask: [],
+      neutralizeMedia: false,
+      maskPhotos: false,
+      truncated: false,
+    },
+    overallPass: regions.every((r) => r.pass),
+    regions,
+  }),
+);
+process.exit(regions.every((r) => r.pass) ? 0 : 1);
+`;
   await writeFile(
     join(dir, "page-diff.mjs"),
-    '#!/usr/bin/env node\nconsole.log("page-diff 0.0.0 report-schema 1");\n',
+    body.replace('const FAIL = MODE === "fail";', `const FAIL = ${mode === "fail"};`),
     "utf-8",
   );
   await chmod(join(dir, "page-diff.mjs"), 0o755);
@@ -792,11 +858,18 @@ describe("recipes/match-harness", () => {
       await expect(read(cwd, rel)).rejects.toThrow();
     }
     await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn: noopSpawn });
-    expect(await read(cwd, ".gitignore")).toBe(`${GITIGNORE_MARKER}\n${GITIGNORE_BLOCK}`);
-    expect(await read(cwd, ".prettierignore")).toBe(
-      `${PRETTIERIGNORE_MARKER}\n${PRETTIERIGNORE_BLOCK}`,
+    // ...and its TERMINATOR. The marker alone only says where the region
+    // begins; without an end the region can never be replaced, only appended
+    // after, which is what #739 was.
+    expect(await read(cwd, ".gitignore")).toBe(
+      `${GITIGNORE_MARKER}\n${GITIGNORE_BLOCK}\n${GITIGNORE_END_MARKER}\n`,
     );
-    expect(await read(cwd, "CLAUDE.md")).toBe(`${CLAUDE_MD_MARKER}\n${CLAUDE_MD_BLOCK}`);
+    expect(await read(cwd, ".prettierignore")).toBe(
+      `${PRETTIERIGNORE_MARKER}\n${PRETTIERIGNORE_BLOCK}\n${PRETTIERIGNORE_END_MARKER}\n`,
+    );
+    expect(await read(cwd, "CLAUDE.md")).toBe(
+      `${CLAUDE_MD_MARKER}\n${CLAUDE_MD_BLOCK}\n${CLAUDE_MD_END_MARKER}\n`,
+    );
   });
 
   it("appends to a present merge target without disturbing what was there", async () => {
@@ -1319,6 +1392,309 @@ describe("recipes/match-harness", () => {
   });
 });
 
+// --- #739: a marked block on a site that ALREADY carries one
+//
+// `mergeBlock` returned null the instant the marker was present, so the block's
+// CONTENTS could never change on a site that had already installed. That is not
+// merely stale prose. The .gitignore block is a NEGATED WHITELIST over
+// `matching/*`, so any harness file at a path it does not re-include is absent
+// from the commit — which makes `pathsMissingFromHead` refuse the whole install
+// and revert it. The remedy, widening the whitelist, was the exact thing the
+// marker check made unreachable. 0.95.0 is published and one site has already
+// installed a v1 block, so preventing this for FRESH installs would have fixed
+// nothing: the recovery path for an un-terminated v1 region is the point.
+
+/** A plausible PREVIOUS render of the .prettierignore block: the shipped one
+ *  with the harness.json entry under a different name. Deliberately neither a
+ *  sub- nor a super-string of the current block — a superstring would be read
+ *  as "the current block, followed by the site's own tail", which is a
+ *  different case with a different correct answer. */
+const PRETTIERIGNORE_V1 = PRETTIERIGNORE_BLOCK.replace(
+  "matching/harness.json\n",
+  "matching/harness-config.json\n",
+);
+
+/** What `mergeGitignore` (sync-configs) appends AFTER this recipe's block, into
+ *  both .gitignore and .prettierignore. The region must therefore never be
+ *  assumed to run to end-of-file: 29 Navy happens to have nothing after its
+ *  blocks, which is exactly the accident that makes that rule look safe. */
+const SYNC_CONFIGS_TAIL = "# canonical entries from @reddoorla/maintenance sync-configs\ndist/\n";
+
+/** The shape 0.95.0 shipped: a start marker, a body, and nothing at all to say
+ *  where the body ends. */
+const v1Region = (marker: string, body: string) => `${marker}\n${body}`;
+
+/** The shape this version ships, and the only shape it can update in place. */
+const region = (marker: string, body: string, end: string) => `${marker}\n${body}\n${end}\n`;
+
+describe("a marked block on a site that already carries one (#739)", () => {
+  it("widens a pristine v1 block on an already-installed site, and touches nothing else in the file", async () => {
+    expect(PRETTIERIGNORE_V1).not.toBe(PRETTIERIGNORE_BLOCK); // the v1 render really did differ
+
+    const seeded =
+      "pnpm-lock.yaml\n\n" + v1Region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_V1) + SYNC_CONFIGS_TAIL;
+    const expected =
+      "pnpm-lock.yaml\n\n" +
+      region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK, PRETTIERIGNORE_END_MARKER) +
+      SYNC_CONFIGS_TAIL;
+
+    // The plan, and the exact bytes it would write.
+    expect(
+      planBlockWrite(
+        seeded,
+        PRETTIERIGNORE_MARKER,
+        PRETTIERIGNORE_END_MARKER,
+        PRETTIERIGNORE_BLOCK,
+        [PRETTIERIGNORE_V1],
+      ),
+    ).toEqual({ action: "replace", content: expected });
+
+    // And the same seed through the recipe, end to end.
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn, blockPrevious: { ".prettierignore": [PRETTIERIGNORE_V1] } },
+    );
+    expect(result.status).toBe("applied");
+
+    const after = await read(cwd, ".prettierignore");
+    // Whole-file equality, not toContain: an offset bug that ate a byte on
+    // either side of the region would satisfy every containment assertion.
+    expect(after).toBe(expected);
+    // The widened entry landed, the v1 spelling is gone, and the site's own
+    // tail — which a "the marker runs to EOF" rule would have eaten — survives.
+    expect(after).toContain("\nmatching/harness.json\n");
+    expect(after).not.toContain("matching/harness-config.json");
+    expect(after).toContain(SYNC_CONFIGS_TAIL);
+    expect(after.startsWith("pnpm-lock.yaml\n")).toBe(true);
+    expect(occurrences(after, PRETTIERIGNORE_MARKER)).toBe(1);
+    expect(result.notes).toContain(".prettierignore");
+    expect(result.notes).toContain("upgraded from a previous version");
+  });
+
+  it("leaves a hand-edited v1 block exactly as it found it, and says so", async () => {
+    // An edit INSIDE the region. Text appended AFTER the shipped bytes is the
+    // site's own tail and is legitimately preserved, so it would prove nothing.
+    const handEdited = PRETTIERIGNORE_V1.replace("matching/*.sh\n", "");
+    expect(handEdited).not.toBe(PRETTIERIGNORE_V1);
+    const seeded = v1Region(PRETTIERIGNORE_MARKER, handEdited);
+
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn, blockPrevious: { ".prettierignore": [PRETTIERIGNORE_V1] } },
+    );
+    expect(result.status).toBe("applied"); // the other 16 files still install
+
+    const after = await read(cwd, ".prettierignore");
+    expect(after).toBe(seeded); // byte-for-byte as we found it
+    expect(after).not.toContain(PRETTIERIGNORE_END_MARKER); // not terminated either
+    expect(occurrences(after, PRETTIERIGNORE_MARKER)).toBe(1); // and no second block
+    expect(result.notes).toContain(".prettierignore");
+    expect(result.notes).toContain("left alone");
+    expect(result.notes).not.toContain(".prettierignore's match-harness block upgraded");
+  });
+
+  // --- The state 0.95.1 LEAVES every site in.
+  //
+  // Every case above seeds a v1 region: a marker with no terminator. That is
+  // the shape 0.95.0 shipped and the shape 0.95.1 exists to migrate away from.
+  // Once it has run the fleet, the v1 recovery loop at the bottom of
+  // planBlockWrite is dead on every site, and the marker-AND-terminator branch
+  // is the ONLY path left — so the next version's ability to correct anything
+  // at all rests entirely on these two arms.
+
+  it("a terminated region carrying a previous release is upgraded in place, tail intact", async () => {
+    const seeded =
+      "pnpm-lock.yaml\n\n" +
+      region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_V1, PRETTIERIGNORE_END_MARKER) +
+      SYNC_CONFIGS_TAIL;
+    const expected =
+      "pnpm-lock.yaml\n\n" +
+      region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK, PRETTIERIGNORE_END_MARKER) +
+      SYNC_CONFIGS_TAIL;
+    // This is what makes it a different case from every test above it.
+    expect(seeded).toContain(PRETTIERIGNORE_END_MARKER);
+
+    expect(
+      planBlockWrite(
+        seeded,
+        PRETTIERIGNORE_MARKER,
+        PRETTIERIGNORE_END_MARKER,
+        PRETTIERIGNORE_BLOCK,
+        [PRETTIERIGNORE_V1],
+      ),
+    ).toEqual({ action: "replace", content: expected });
+
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn, blockPrevious: { ".prettierignore": [PRETTIERIGNORE_V1] } },
+    );
+    expect(result.status).toBe("applied");
+
+    const after = await read(cwd, ".prettierignore");
+    expect(after).toBe(expected);
+    expect(occurrences(after, PRETTIERIGNORE_MARKER)).toBe(1);
+    expect(occurrences(after, PRETTIERIGNORE_END_MARKER)).toBe(1);
+    expect(after).toContain(SYNC_CONFIGS_TAIL);
+    expect(after).not.toContain("matching/harness-config.json");
+    expect(result.notes).toContain("upgraded from a previous version");
+  });
+
+  it("a terminated region that was hand-edited is left exactly as found", async () => {
+    // An edit INSIDE the region, to the CURRENT block — so it matches neither
+    // what we ship now nor anything we shipped before.
+    const handEdited = PRETTIERIGNORE_BLOCK.replace("matching/*.sh\n", "");
+    expect(handEdited).not.toBe(PRETTIERIGNORE_BLOCK);
+    expect(handEdited).not.toBe(PRETTIERIGNORE_V1);
+    const seeded =
+      region(PRETTIERIGNORE_MARKER, handEdited, PRETTIERIGNORE_END_MARKER) + SYNC_CONFIGS_TAIL;
+
+    expect(
+      planBlockWrite(
+        seeded,
+        PRETTIERIGNORE_MARKER,
+        PRETTIERIGNORE_END_MARKER,
+        PRETTIERIGNORE_BLOCK,
+        [PRETTIERIGNORE_V1],
+      ),
+    ).toEqual({ action: "flag" });
+
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn, blockPrevious: { ".prettierignore": [PRETTIERIGNORE_V1] } },
+    );
+    expect(result.status).toBe("applied");
+    expect(await read(cwd, ".prettierignore")).toBe(seeded);
+    expect(result.notes).toContain(".prettierignore");
+    expect(result.notes).toContain("left alone");
+  });
+
+  it("never appends a second block, on a v1 site or a fifth run", async () => {
+    const cwd = await install();
+
+    const pairs: Array<[string, string, string]> = [
+      [".gitignore", GITIGNORE_MARKER, GITIGNORE_END_MARKER],
+      [".prettierignore", PRETTIERIGNORE_MARKER, PRETTIERIGNORE_END_MARKER],
+      ["CLAUDE.md", CLAUDE_MD_MARKER, CLAUDE_MD_END_MARKER],
+    ];
+
+    // Put all three files back into the shape 0.95.0 shipped.
+    await seed(cwd, ".gitignore", v1Region(GITIGNORE_MARKER, GITIGNORE_BLOCK));
+    await seed(cwd, ".prettierignore", v1Region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK));
+    await seed(cwd, "CLAUDE.md", v1Region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK));
+    for (const [rel, , end] of pairs)
+      expect(await read(cwd, rel), `${rel} was seeded already terminated`).not.toContain(end);
+
+    const migrated = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(migrated.status).toBe("applied");
+
+    for (let round = 3; round <= 5; round++) {
+      for (const [rel, start, end] of pairs) {
+        const text = await read(cwd, rel);
+        expect(occurrences(text, start), `${rel} start markers before round ${round}`).toBe(1);
+        expect(occurrences(text, end), `${rel} end markers before round ${round}`).toBe(1);
+      }
+      const again = await matchHarness(
+        { path: cwd },
+        { ref: "https://ref.test" },
+        { spawn: noopSpawn },
+      );
+      expect(again.status, `round ${round}`).toBe("noop");
+      expect(again.commits, `round ${round}`).toEqual([]);
+    }
+
+    // and the bodies came through the migration whole, not doubled
+    expect(occurrences(await read(cwd, "CLAUDE.md"), "### Round protocol")).toBe(1);
+    expect(occurrences(await read(cwd, ".gitignore"), "!matching/PAUSED")).toBe(1);
+  });
+
+  it("a v1 CLAUDE.md block is migrated in place, terminated, and its prose is not touched", async () => {
+    const prose = "# Site rules\n\nExisting prose the site owns.\n\n";
+    const cwd = await foreignPrettierSite();
+    await seed(cwd, "CLAUDE.md", prose + v1Region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK));
+
+    // No `blockPrevious` at all — this is the 0.95.1 reality. Nothing has been
+    // superseded yet, so the only thing that can recognise a v1 region is an
+    // exact match against the CURRENT block, and the migration write is
+    // content-neutral: three files, one line each.
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: realPrettierSpawn, resolvePrettier: async () => prettierBin },
+    );
+    expect(result.status).toBe("applied");
+    // CLAUDE.md is the one block handed to the SITE's own prettier, so this
+    // runs under a foreign config: anything that changed here, the recipe did.
+    expect(await read(cwd, "CLAUDE.md")).toBe(
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK, CLAUDE_MD_END_MARKER),
+    );
+    expect(occurrences(await read(cwd, "CLAUDE.md"), "### Round protocol")).toBe(1);
+    expect(result.notes).toContain("CLAUDE.md");
+    expect(result.notes).toContain("terminated");
+
+    const second = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: realPrettierSpawn, resolvePrettier: async () => prettierBin },
+    );
+    expect(second.status).toBe("noop");
+    expect(second.notes ?? "").not.toContain("CLAUDE.md");
+  });
+
+  it("an end marker can never be mistaken for a start marker", () => {
+    const pairs: Array<[string, string, string]> = [
+      ["GITIGNORE", GITIGNORE_MARKER, GITIGNORE_END_MARKER],
+      ["PRETTIERIGNORE", PRETTIERIGNORE_MARKER, PRETTIERIGNORE_END_MARKER],
+      ["CLAUDE_MD", CLAUDE_MD_MARKER, CLAUDE_MD_END_MARKER],
+    ];
+    for (const [name, start, end] of pairs) {
+      expect(start.length, `${name}_MARKER is empty`).toBeGreaterThan(0);
+      expect(end.length, `${name}_END_MARKER is empty`).toBeGreaterThan(0);
+      // `indexOf(marker)` is what anchors the region. A terminator that
+      // CONTAINED its own start marker could take that anchor, and every offset
+      // after it would be measured from the wrong end of the region.
+      expect(end.includes(start), `${name}_END_MARKER contains its start marker`).toBe(false);
+      expect(start.includes(end), `${name}_MARKER contains its end marker`).toBe(false);
+    }
+    const starts = pairs.map(([, start]) => start);
+    for (const [name, , end] of pairs)
+      expect(starts, `${name}_END_MARKER is also somebody's start marker`).not.toContain(end);
+  });
+
+  it("a mis-anchored marker degrades to a flag, never to a destructive write", async () => {
+    const seeded =
+      `# do not delete the ${PRETTIERIGNORE_MARKER} block below\n\n` +
+      v1Region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK);
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(await read(cwd, ".prettierignore")).toBe(seeded);
+    expect(result.notes).toContain(".prettierignore");
+    expect(result.notes).toContain("left alone");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // THE GUARDS THE HARNESS IS FOR, EXECUTED.
 //
@@ -1710,31 +2086,86 @@ describe("the installed harness reports, not just refuses", () => {
     { viewport: 390, label: "top", mismatchFraction: 0.02, pass: true },
   ];
 
+  /** Give a page the anchors Phase 1 is supposed to produce. next.mjs REFUSES
+   *  to score a page without them (#751), so every SCORING test has to supply
+   *  them — and every test that asserts the refusal must NOT. */
+  async function withAnchors(cwd: string, page: string, anchors: string[]): Promise<void> {
+    const p = join(cwd, "matching/harness.json");
+    const j = JSON.parse(await readFile(p, "utf-8")) as {
+      pages: Record<string, Record<string, unknown>>;
+    };
+    j.pages[page] = { ...(j.pages[page] ?? {}), anchors };
+    await writeFile(p, JSON.stringify(j, null, 2) + "\n", "utf-8");
+  }
+
+  /** page-diff's GRID FALLBACK: with no anchors it cuts each page into four
+   *  even rows per viewport (lib/regions.mjs gridRows = 4), so a 3-viewport
+   *  matrix yields 12 regions nobody specced.
+   *
+   *  12 is chosen so it can never coincide with the fake denominator
+   *  (0 anchors + 1) x 3 = 3. That coincidence is the whole reason #751
+   *  shipped green: the old fixture supplied exactly 3 regions, the fiction was
+   *  also 3, and the two numbers agreed by accident. Any future fixture in this
+   *  block must keep them distinct. */
+  const GRID_12 = [1440, 834, 390].flatMap((viewport) =>
+    [0, 1, 2, 3].map((r) => ({
+      viewport,
+      label: `grid-${r}-0`,
+      mismatchFraction: 0.001,
+      pass: true,
+    })),
+  );
+
+  /** One anchor ("Section A") => page-diff cuts `top` + `Section A` at each of
+   *  the 3 viewports = 6 regions. Matches the identity harness.mjs asserts. */
+  const CORPUS_ANCHORED = [1440, 834, 390].flatMap((viewport) =>
+    ["top", "Section A"].map((label) => ({
+      viewport,
+      label,
+      mismatchFraction: viewport === 1440 && label === "top" ? 0.5 : 0.01,
+      pass: !(viewport === 1440 && label === "top"),
+    })),
+  );
+
   it("next.mjs SCORES a real corpus and names the worst region", async () => {
     const cwd = await install();
-    await writeReport(cwd, "out-smoke-home", CORPUS);
+    // Anchors supplied on purpose. This test used to run on the seed's
+    // `anchors: []` and assert `SCORE 2/3`, with a comment deriving the 3 as
+    // "(0 anchors + 1) × 3 viewports". That derivation is the #751 defect
+    // stated as fact: without anchors page-diff does not cut by anchors at all.
+    // It passed because the fixture happened to supply 3 regions too.
+    await withAnchors(cwd, "home", ["Section A"]);
+    await writeReport(cwd, "out-smoke-home", CORPUS_ANCHORED);
 
     const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
-    // 3 = (0 anchors + 1) × 3 viewports, derived by harness.mjs from the seed.
-    expect(out).toMatch(/SCORE 2\/3 regions passing/);
+    // 6 = (1 anchor + 1) × 3 viewports — an identity that holds ONLY because
+    // the page is anchored, which is why the denominator may be predicted here.
+    expect(out).toMatch(/SCORE 5\/6 regions passing over 1 of 1 page\(s\)/);
     expect(out).toMatch(/1 open failure\(s\) \+ 0 declared floor\(s\)/);
     expect(out).toMatch(/NEXT: home — worst page/);
     expect(out).toMatch(/@1440\s+top\s+pixels 50\.0%/);
     expect(code).toBe(1); // work remains: rule 5's loop keeps going
     expect(out).not.toMatch(/no parseable gate run/);
+    expect(out).not.toMatch(/NOT SCORABLE/);
   });
 
   it("next.mjs exits 0 with no agenda once every region passes", async () => {
     const cwd = await install();
+    // Anchored, for the same reason as above: the previous version of this test
+    // asserted `SCORE 3/3` + "Backlog is empty" over a page with NO anchors,
+    // which is precisely the false green #751 reports. A clean run may only be
+    // claimed for a page Phase 1 actually finished.
+    await withAnchors(cwd, "home", ["Section A"]);
     await writeReport(
       cwd,
       "out-smoke-home",
-      CORPUS.map((r) => ({ ...r, mismatchFraction: 0.01, pass: true })),
+      CORPUS_ANCHORED.map((r) => ({ ...r, mismatchFraction: 0.01, pass: true })),
     );
 
     const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
-    expect(out).toMatch(/SCORE 3\/3 regions passing/);
+    expect(out).toMatch(/SCORE 6\/6 regions passing over 1 of 1 page\(s\)/);
     expect(out).toMatch(/No open geometry failures/);
+    expect(out).toMatch(/Backlog is empty/);
     expect(code).toBe(0);
   });
 
@@ -1748,27 +2179,36 @@ describe("the installed harness reports, not just refuses", () => {
   it("next.mjs keeps a page it never measured in the denominator", async () => {
     const cwd = await install();
     await patchHarnessPages(cwd, ["other"]);
-    await writeReport(cwd, "out-smoke-home", allPass(CORPUS));
+    // Both pages ANCHORED. #751 refuses to score a page without anchors, so a
+    // denominator case has to be built on pages that can carry a score at all;
+    // the refusal itself is proven separately, below.
+    await withAnchors(cwd, "home", ["Section A"]);
+    await withAnchors(cwd, "other", ["Section A"]);
+    await writeReport(cwd, "out-smoke-home", allPass(CORPUS_ANCHORED));
 
     // Deliberately no exit-code assertion: the DENOMINATOR and the REFUSAL are
     // separate arms and have to be separately provable. Deleting the refusal
     // must redden the case below and leave this one green.
     const { out } = await runIn(cwd, "node", ["matching/next.mjs"]);
-    // 6 = two declared pages x (0 anchors + 1) x 3 viewports. Summed over the
-    // pages that reported it would read 3/3 — a full score over half the site.
-    expect(out).toMatch(/SCORE 3\/6 regions passing — 1 page\(s\) NOT MEASURED/);
-    expect(out).toMatch(/other\s+\?\/3\s+NOT MEASURED/);
-    // ?/3, never 0/3: an unmeasured page is not a page that scored zero.
-    expect(out).not.toMatch(/other\s+0\/3/);
+    // 12 = two declared pages x (1 anchor + 1) x 3 viewports. Summed over the
+    // pages that reported it would read 6/6 — a full score over half the site.
+    expect(out).toMatch(
+      /SCORE 6\/12 regions passing over 2 of 2 page\(s\) — 1 page\(s\) NOT MEASURED/,
+    );
+    expect(out).toMatch(/other\s+\?\/6\s+NOT MEASURED/);
+    // ?/6, never 0/6: an unmeasured page is not a page that scored zero.
+    expect(out).not.toMatch(/other\s+0\/6/);
   });
 
   it("next.mjs refuses the backlog-empty green while a declared page has no run", async () => {
     const cwd = await install();
     await patchHarnessPages(cwd, ["other"]);
+    await withAnchors(cwd, "home", ["Section A"]);
+    await withAnchors(cwd, "other", ["Section A"]);
     // Every region of the ONE page that reported passes, so `rows` is empty and
     // the old code printed "Backlog is empty" and exited 0 over a page nobody
     // had looked at.
-    await writeReport(cwd, "out-smoke-home", allPass(CORPUS));
+    await writeReport(cwd, "out-smoke-home", allPass(CORPUS_ANCHORED));
 
     const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
     expect(out).toMatch(/have no countable gate run — other/);
@@ -1781,11 +2221,13 @@ describe("the installed harness reports, not just refuses", () => {
     // THE GRANT. A refusal proven only to refuse is not proven.
     const cwd = await install();
     await patchHarnessPages(cwd, ["other"]);
-    await writeReport(cwd, "out-smoke-home", allPass(CORPUS));
-    await writeReport(cwd, "out-smoke-other", allPass(CORPUS));
+    await withAnchors(cwd, "home", ["Section A"]);
+    await withAnchors(cwd, "other", ["Section A"]);
+    await writeReport(cwd, "out-smoke-home", allPass(CORPUS_ANCHORED));
+    await writeReport(cwd, "out-smoke-other", allPass(CORPUS_ANCHORED));
 
     const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
-    expect(out).toMatch(/SCORE 6\/6 regions passing/);
+    expect(out).toMatch(/SCORE 12\/12 regions passing/);
     expect(out).toMatch(/No open geometry failures/);
     expect(code).toBe(0);
     expect(out).not.toMatch(/NOT MEASURED/);
@@ -1799,19 +2241,23 @@ describe("the installed harness reports, not just refuses", () => {
     const cwd = await install();
     await patchHarnessPages(cwd, ["other"]);
     await patchHarness(cwd, { threshold: 0.2 });
-    await writeReport(cwd, "out-smoke-home", allPass(CORPUS), { threshold: 0.2 });
-    await writeReport(cwd, "out-smoke-other", allPass(CORPUS), { threshold: 0.1 });
+    // After patchHarness, which rewrites the file this reads back.
+    await withAnchors(cwd, "home", ["Section A"]);
+    await withAnchors(cwd, "other", ["Section A"]);
+    await writeReport(cwd, "out-smoke-home", allPass(CORPUS_ANCHORED), { threshold: 0.2 });
+    await writeReport(cwd, "out-smoke-other", allPass(CORPUS_ANCHORED), { threshold: 0.1 });
 
     const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
-    expect(out).toMatch(/other\s+\?\/3\s+NOT MEASURED/);
+    expect(out).toMatch(/other\s+\?\/6\s+NOT MEASURED/);
     expect(out).toMatch(/have no countable gate run — other/);
     expect(code).toBe(2);
-    expect(out).not.toMatch(/SCORE 6\/6/);
+    expect(out).not.toMatch(/SCORE 12\/12/);
   });
 
   it("the PAUSED switch silences the agenda a scoring corpus would otherwise produce", async () => {
     const cwd = await install();
-    await writeReport(cwd, "out-smoke-home", CORPUS);
+    await withAnchors(cwd, "home", ["Section A"]);
+    await writeReport(cwd, "out-smoke-home", CORPUS_ANCHORED);
     // Same corpus as the scoring case above, which exits 1 with a named region.
     await writeFile(join(cwd, "matching/PAUSED"), "waiting on the operator\n", "utf-8");
 
@@ -2112,10 +2558,12 @@ describe("the installed harness reports, not just refuses", () => {
     // greens a run next.mjs then drops is the same false green one step along.
     const cwd = await install();
     await patchHarnessPages(cwd, ["other"]);
+    await withAnchors(cwd, "home", ["Section A"]);
+    await withAnchors(cwd, "other", ["Section A"]);
     await writeSpec(cwd, ["home", "other"]);
     // A second page with a countable report, so next.mjs gets past its
     // empty-corpus guard and the question is what it does with THIS page.
-    await writeReport(cwd, "out-seed-other", allPass(CORPUS));
+    await writeReport(cwd, "out-seed-other", allPass(CORPUS_ANCHORED));
 
     // expect.soft on BOTH arms deliberately: a hard assertion on the gate arm
     // short-circuits the case, and then a mutation to the shared predicate
@@ -2128,8 +2576,197 @@ describe("the installed harness reports, not just refuses", () => {
     expect.soft(g.out).not.toMatch(/ALL DONE \(/);
 
     const n = await runIn(cwd, "node", ["matching/next.mjs"]);
-    expect.soft(n.out).toMatch(/home\s+\?\/3\s+NOT MEASURED/);
+    expect.soft(n.out).toMatch(/home\s+\?\/6\s+NOT MEASURED/);
     expect.soft(n.code).toBe(2);
+  });
+
+  // ---------------------------------------------------------------------
+  // #751. A page with NO anchors has not finished Phase 1, so a score has no
+  // referent: page-diff falls back to an even four-row grid and next.mjs used
+  // to divide those real passes by the imaginary `(0 + 1) x viewports`, print
+  // `SCORE 12/3`, and then say "Backlog is empty". The absurd fraction would
+  // have been questioned; the sentence would not.
+  // ---------------------------------------------------------------------
+
+  it("next.mjs refuses an ANCHORED page whose matrix is empty, and says which", async () => {
+    // The regression this pair exists to stop. `scorable` was "has anchors",
+    // and TOTALS is `(anchors + 1) * MATRIX.length` — so an anchored page with
+    // `matrix: []` is 0, not null, and the sibling commit's correct move from
+    // `!TOTALS[page]` to `!byKey[page]` removed the accident that had been
+    // dropping it. Measured before the fix: `SCORE 8/0 regions passing` and
+    // "Backlog is empty", exit 0 — the same false green, one input along.
+    const cwd = await install();
+    await patchHarness(cwd, { matrix: [] });
+    await withAnchors(cwd, "home", ["Creative Lofts", "Residents"]);
+    await writeReport(cwd, "out-smoke-home", GRID_12);
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    // the reason must be the one that is TRUE: this page has two anchors, so
+    // "no anchors" would send the operator to edit the part that was right
+    expect(out).toMatch(/home\s+12 region\(s\)\s+NOT SCORABLE — matrix is empty/);
+    expect(out).not.toMatch(/NOT SCORABLE — no anchors/);
+    expect(code).toBe(2);
+    expect(out).not.toMatch(/SCORE \d+\/0/);
+    expect(out).not.toMatch(/Backlog is empty/);
+  });
+
+  it("next.mjs REFUSES to score a page with no anchors, and never calls the backlog empty", async () => {
+    const cwd = await install(); // the seed ships `anchors: []` — do NOT add any
+    await writeReport(cwd, "out-smoke-home", GRID_12);
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    // The run's OWN region count is printed as EVIDENCE FOR THE REFUSAL. The
+    // pass FRACTION is deliberately withheld: it is the number with no referent
+    // and the number that would get quoted into a status line.
+    expect(out).toMatch(/home\s+12 region\(s\)\s+NOT SCORABLE — no anchors/);
+    // \s+ spans the message's own line wrap; the phrase is what matters.
+    expect(out).toMatch(/have no anchors, so their regions are page-diff's own\s+fallback cut/);
+    expect(out).toMatch(/NO SCORE — 0 of 1 page\(s\) can carry one/);
+    expect(code).toBe(2);
+    // The false green, in both of its forms.
+    expect(out).not.toMatch(/Backlog is empty/);
+    expect(out).not.toMatch(/12\/3/);
+    // The report WAS read — this is what separates a refusal from the page
+    // being silently dropped out of `latest` by a falsy denominator.
+    expect(out).not.toMatch(/no parseable gate run/);
+    // A crash is not a refusal.
+    expect(out).not.toMatch(/Cannot find module|SyntaxError|ERR_MODULE_NOT_FOUND/);
+  });
+
+  it("an unanchored page cannot become the agenda: no grid region is ever named as work", async () => {
+    const cwd = await install();
+    await patchHarness(cwd, {
+      pages: {
+        home: { uid: "home", ref: "/", cand: "/dev/match/home", anchors: ["Section A"] },
+        about: { uid: "about", ref: "/about", cand: "/dev/match/about", anchors: [] },
+      },
+    });
+    await writeReport(cwd, "out-smoke-home", CORPUS_ANCHORED); // 5 pass / 1 fail of 6
+    await writeReport(
+      cwd,
+      "out-smoke-about",
+      GRID_12.map((r) => ({ ...r, mismatchFraction: 0.5, pass: false })),
+    );
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/SCORE 5\/6 regions passing over 1 of 2 page\(s\)/);
+    expect(out).toMatch(/about\s+12 region\(s\)\s+NOT SCORABLE — no anchors/);
+    // THE load-bearing pair, asserted BEFORE the exit code on purpose: when
+    // this regresses, the failure message should name the defect that came
+    // back, not an integer that happens to change with it. `scored` sorted by pass/total, and an unanchored
+    // page's ratio is not bounded by 1: a FAILING one scored 0/3 = 0.0, sorted
+    // first, and next.mjs printed "NEXT: about — worst page" with an agenda of
+    // grid-0-0, grid-1-0 … — instructing an agent to fix geometry against
+    // regions page-diff invented. (A PASSING one scored 16/4 = 4.0, sorted
+    // last, and `worst` could never name it.)
+    expect(out).not.toMatch(/NEXT: about/);
+    expect(out).not.toMatch(/grid-0-0/);
+    expect(code).toBe(2);
+  });
+
+  it("an unscorable page's passing regions stay out of the numerator", async () => {
+    // The case above has the unanchored page FAILING every region, so summing
+    // over the wrong collection adds zero and nothing visible changes. The
+    // numerator and the denominator are built from different collections
+    // (`scored` vs `TOTALS`), and only a page that is unscorable AND passing
+    // separates them: 12 invented regions, all green, over a denominator that
+    // has never counted them.
+    const cwd = await install();
+    await patchHarness(cwd, {
+      pages: {
+        home: { uid: "home", ref: "/", cand: "/dev/match/home", anchors: ["Section A"] },
+        about: { uid: "about", ref: "/about", cand: "/dev/match/about", anchors: [] },
+      },
+    });
+    await writeReport(cwd, "out-smoke-home", CORPUS_ANCHORED); // 5 pass / 1 fail of 6
+    await writeReport(
+      cwd,
+      "out-smoke-about",
+      GRID_12.map((r) => ({ ...r, mismatchFraction: 0.01, pass: true })),
+    );
+
+    const { out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/SCORE 5\/6 regions passing over 1 of 2 page\(s\)/);
+    // Measured with the numerator summed over every reporting page: SCORE 17/6.
+    expect(out).not.toMatch(/SCORE 17\/6/);
+    // And the general shape of that lie, not just this instance of it: a score
+    // whose numerator exceeds its denominator counts regions the denominator
+    // does not contain, and reads as better than perfect.
+    const m = out.match(/SCORE (\d+)\/(\d+)/);
+    expect(m, "no SCORE line to check").not.toBeNull();
+    expect(Number(m![1]), `numerator ${m![1]} exceeds denominator ${m![2]}`).toBeLessThanOrEqual(
+      Number(m![2]),
+    );
+    expect(out).toMatch(/about\s+12 region\(s\)\s+NOT SCORABLE — no anchors/);
+  });
+
+  it("an anchored page still scores exactly (anchors + 1) x viewports", async () => {
+    const cwd = await install();
+    await withAnchors(cwd, "home", ["Section A", "Section B"]);
+    // 3 x 3 = 9 regions; one fails at 1440.
+    const nine = [1440, 834, 390].flatMap((viewport) =>
+      ["top", "Section A", "Section B"].map((label) => ({
+        viewport,
+        label,
+        mismatchFraction: viewport === 1440 && label === "top" ? 0.5 : 0.01,
+        pass: !(viewport === 1440 && label === "top"),
+      })),
+    );
+    await writeReport(cwd, "out-smoke-home", nine);
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/SCORE 8\/9 regions passing over 1 of 1 page\(s\)/);
+    expect(out).toMatch(/NEXT: home — worst page/);
+    expect(out).toMatch(/@1440\s+top\s+pixels/);
+    expect(code).toBe(1);
+    // The refusal must not have widened into the case it exists to protect.
+    expect(out).not.toMatch(/NOT SCORABLE/);
+    expect(out).not.toMatch(/NO SCORE/);
+  });
+
+  it("a page that is both unanchored and unmeasured prints ?/?, never ?/null", async () => {
+    const cwd = await install();
+    await patchHarness(cwd, {
+      pages: {
+        home: { uid: "home", ref: "/", cand: "/dev/match/home", anchors: ["Section A"] },
+        about: { uid: "about", ref: "/about", cand: "/dev/match/about", anchors: [] },
+      },
+    });
+    // `home` reports in full; `about` has no out-* directory at all.
+    await writeReport(
+      cwd,
+      "out-smoke-home",
+      CORPUS_ANCHORED.map((r) => ({ ...r, mismatchFraction: 0.01, pass: true })),
+    );
+
+    const { code, out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).toMatch(/about\s+\?\/\?\s+NOT MEASURED/);
+    // TOTALS is null for an unanchored page. Interpolated raw, that reads as a
+    // denominator called "null" — worse than the number it replaced.
+    expect(out).not.toMatch(/\?\/null/);
+    expect(out).not.toMatch(/\?\/undefined/);
+    expect(out).not.toMatch(/\?\/NaN/);
+    expect(code).toBe(2);
+  });
+
+  it("TOTALS holds no number for a page it cannot predict", async () => {
+    const cwd = await install();
+    const probe = [
+      "-e",
+      "import('./matching/harness.mjs').then(m => console.log(JSON.stringify(m.TOTALS) + ' ' + m.scorable('home')))",
+    ];
+
+    // The ROOT, measured independently of next.mjs's guard: a consumer that
+    // forgets to ask `scorable()` must not be handed a plausible-looking
+    // integer. (Honest limit, on the record: `null` still coerces to 0 under
+    // `+`, so it is a SIGNAL, not a barrier. The barrier is the predicate and
+    // the exit-2 guard, both tested above.)
+    const seeded = await runIn(cwd, "node", probe);
+    expect(seeded.out.trim()).toBe('{"home":null} false');
+
+    await withAnchors(cwd, "home", ["A", "B"]);
+    const anchored = await runIn(cwd, "node", probe);
+    expect(anchored.out.trim()).toBe('{"home":9} true');
   });
 });
 
@@ -2216,5 +2853,113 @@ describe("what the recipe COMMITS", () => {
     }
     // …and the one JSON that is not workspace debris is still in.
     expect(files).toContain("matching/harness.json");
+  });
+});
+
+/**
+ * #751's migration half. @reddoorla/maintenance@0.95.0 is ALREADY PUBLISHED and
+ * already installed on real sites, so a fix that only changes the template
+ * reaches nobody: `planFileWrite` sees a file that matches neither the new
+ * template nor any entry in an EMPTY `MATCH_HARNESS_PREVIOUS`, and returns
+ * `flag` — the site keeps the broken next.mjs forever AND is told it hand-edited
+ * a file it never touched.
+ *
+ * These tests run against the REAL shipped `MATCH_HARNESS_PREVIOUS` (no
+ * `previous` injection), because the table being correct in the published
+ * artifact is the thing under test.
+ */
+describe("a 0.95.0 install upgrades every coupled script together, or upgrades none", () => {
+  const prevRoot = resolve(here, "../../scripts/match-harness-previous/0.95.0");
+  const COUPLED_CHANGED = ["matching/harness.mjs", "matching/gate.sh", "matching/next.mjs"];
+
+  /** A site holding the exact 0.95.0 bodies, committed — i.e. what a real site
+   *  that ran `reddoor-maint match-harness` at 0.95.0 has on disk today. */
+  async function at0950(): Promise<string> {
+    const cwd = await install();
+    for (const rel of COUPLED_CHANGED) {
+      await writeFile(join(cwd, rel), await readFile(join(prevRoot, rel), "utf-8"), "utf-8");
+    }
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "as installed at 0.95.0"], { cwd, stdio: "ignore" });
+    return cwd;
+  }
+
+  const templateFor = (rel: string) => {
+    const f = MATCH_HARNESS_FILES.find((x) => x.rel === rel);
+    if (!f) throw new Error(`no template for ${rel}`);
+    return f.template;
+  };
+
+  it("upgrades an untouched 0.95.0 harness in place", async () => {
+    const cwd = await at0950();
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+
+    // GRANTS, rather than merely failing to deny. An error matcher may only
+    // ever deny a green: this asymmetry is deliberate, because the coupled-set
+    // demotion's own failure mode is over-refusal — if `skip` were ever treated
+    // as a flag, a re-run would refuse itself and the recipe would go inert.
+    expect(result.status).toBe("applied");
+    for (const rel of COUPLED_CHANGED) {
+      expect(await read(cwd, rel), `${rel} should have been upgraded`).toBe(templateFor(rel));
+    }
+    expect(result.notes).toMatch(/upgraded from a previous version/);
+    expect(result.notes).not.toMatch(/differs from the shipped template/);
+
+    // And the upgraded set actually RUNS. `next.mjs` imports `uncountable` and
+    // `scorable` from harness.mjs; against a 0.95.0 harness.mjs it does not
+    // degrade, it does not load at all.
+    const { out } = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(out).not.toMatch(/does not provide an export named/);
+    expect(out).not.toMatch(/ERR_MODULE_NOT_FOUND/);
+  });
+
+  it("leaves the WHOLE set alone when any one of its scripts was hand-edited", async () => {
+    const cwd = await at0950();
+    // One genuine hand edit, in one file of the set.
+    await writeFile(
+      join(cwd, "matching/gate.sh"),
+      (await read(cwd, "matching/gate.sh")) + "\n# operator's own line\n",
+      "utf-8",
+    );
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "hand edit"], { cwd, stdio: "ignore" });
+    const beforeAll = await Promise.all(COUPLED_CHANGED.map((rel) => read(cwd, rel)));
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+
+    // Not just gate.sh: harness.mjs and next.mjs must NOT upgrade around it.
+    // gate.sh calls `harness.mjs --check-run` and next.mjs imports from it —
+    // measured both ways, a partial upgrade leaves a harness that cannot run,
+    // and a bricked harness is worse than an un-upgraded one.
+    for (const [i, rel] of COUPLED_CHANGED.entries()) {
+      expect(await read(cwd, rel), `${rel} should have been left alone`).toBe(beforeAll[i]);
+    }
+    expect(result.notes).toMatch(/upgrade together/);
+    expect(result.notes).toMatch(/matching\/harness\.mjs/);
+    expect(result.notes).toMatch(/matching\/next\.mjs/);
+
+    // WHAT THE OPERATOR IS TOLD, which the three assertions above cannot see.
+    // The set note itself names all three files, so matching those names is
+    // satisfied by a false accusation too — the per-file "(hand-edited?)" note
+    // is ADDITIVE. gate.sh really was hand-edited and is named. harness.mjs and
+    // next.mjs were not touched; being told they were sends the operator to
+    // diff two files against a template they already match.
+    expect(result.notes).toContain(
+      "matching/gate.sh differs from the shipped template and was left alone (hand-edited?)",
+    );
+    for (const rel of ["matching/harness.mjs", "matching/next.mjs"])
+      expect(result.notes ?? "", `${rel} was accused of an edit it never had`).not.toContain(
+        `${rel} differs from the shipped template and was left alone (hand-edited?)`,
+      );
+    expect(occurrences(result.notes ?? "", "(hand-edited?)")).toBe(1);
   });
 });

@@ -8,6 +8,7 @@ import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from ".
 import {
   MATCH_HARNESS_FILES,
   MATCH_HARNESS_PREVIOUS,
+  MATCH_HARNESS_COUPLED,
   HARNESS_JSON_RELATIVE,
   GITIGNORE_MARKER,
   GITIGNORE_BLOCK,
@@ -16,6 +17,7 @@ import {
   CLAUDE_MD_MARKER,
   CLAUDE_MD_BLOCK,
 } from "./template.js";
+import { MATCH_HARNESS_BLOCK_PREVIOUS } from "./previous.js";
 
 /** How long the target's own prettier gets. Also what makes the fleet's default
  *  spawn detach the child, so the kill reaches prettier and not just a wrapper.
@@ -37,6 +39,9 @@ export type MatchHarnessDeps = {
   /** Previously shipped renders per relative path; injectable so the
    *  safe-replace path is testable before a second version exists. */
   previous?: Readonly<Record<string, readonly string[]>>;
+  /** Previously shipped BLOCK bodies per target file; injectable for the same
+   *  reason, and empty in the shipped table until a body is superseded. */
+  blockPrevious?: Readonly<Record<string, readonly string[]>>;
   /** Resolve the TARGET repo's own prettier. Injected so a test can assert the
    *  absolute-path spawn without a populated `node_modules`. */
   resolvePrettier?: (repoRoot: string) => Promise<string | null>;
@@ -61,18 +66,86 @@ function normalize(s: string): string {
     .trim();
 }
 
+/** What to do with one marked block region. `flag` and `skip` never write.
+ *  One member per action, so `content` narrows on the discriminant alone. */
+export type BlockPlan =
+  | { action: "write"; content: string }
+  | { action: "replace"; content: string }
+  | { action: "terminate"; content: string }
+  | { action: "skip" }
+  | { action: "flag" };
+
 /**
- * Append `block` under `marker` unless the marker is already present. The only
- * append-to-existing-file idiom in this repo is mergeGitignore, and it cannot
- * express a negated whitelist (`matching/*` then `!matching/*.sh`) as one unit:
- * it compares entries by normalized presence, so the ordering that makes the
- * block work would be lost. This keeps the block whole and idempotent.
+ * Plan one marked block region. The only append-to-existing-file idiom in this
+ * repo is mergeGitignore, and it cannot express a negated whitelist
+ * (`matching/*` then `!matching/*.sh`) as one unit: it compares entries by
+ * normalized presence, so the ordering that makes the block work would be lost.
+ * So the block is kept whole — and, being whole, it needs an END as well as a
+ * start if it is ever to be CORRECTED rather than only appended.
+ *
+ * That was #739. The predecessor returned "already done" the instant the marker
+ * was present, which is right for "never append twice" and wrong for everything
+ * else: the block's CONTENTS could then never change on a site that had already
+ * installed. On `.gitignore` that is not staleness but a brick — the block is a
+ * negated whitelist, so a harness file at a path it does not re-include is
+ * absent from the commit, `pathsMissingFromHead` refuses the install, and the
+ * remedy (widen the whitelist) is the one edit that cannot land.
+ *
+ * Four states, and the third is the one that made this worth doing properly:
+ *
+ * - No marker: append the region, terminator included.
+ * - Marker AND terminator: the extent is KNOWN. Body still current -> skip.
+ *   Body byte-matches something we shipped before -> replace IN PLACE, keeping
+ *   everything before and after the region. Anything else -> flag, write
+ *   nothing.
+ * - Marker, NO terminator — every site installed from 0.95.0: the extent is not
+ *   known, so it is never guessed. A candidate qualifies only by matching
+ *   EXACTLY, byte-for-byte, at the exact offset the body starts; what follows
+ *   is the site's own and is preserved verbatim. Guessing end-of-file instead
+ *   would eat whatever mergeGitignore appended after us.
+ * - Anything unrecognised: flag. Anchoring is on the FIRST occurrence of the
+ *   marker, so a marker quoted in the site's own prose mis-anchors into text
+ *   that matches no candidate — which degrades to a flag, never to a write.
  */
-export function mergeBlock(existing: string | null, marker: string, block: string): string | null {
-  if (existing === null) return `${marker}\n${block}`;
-  if (existing.includes(marker)) return null;
-  const base = existing.endsWith("\n") ? existing : `${existing}\n`;
-  return `${base}\n${marker}\n${block}`;
+export function planBlockWrite(
+  existing: string | null,
+  marker: string,
+  endMarker: string,
+  block: string,
+  previous: readonly string[],
+): BlockPlan {
+  const region = `${marker}\n${block}\n${endMarker}`;
+  if (existing === null) return { action: "write", content: `${region}\n` };
+
+  const start = existing.indexOf(marker);
+  if (start === -1) {
+    const base = existing.endsWith("\n") ? existing : `${existing}\n`;
+    return { action: "write", content: `${base}\n${region}\n` };
+  }
+
+  const head = existing.slice(0, start);
+  const bodyStart = start + marker.length + 1;
+
+  const endAt = existing.indexOf(endMarker, bodyStart);
+  if (endAt !== -1) {
+    const body = existing.slice(bodyStart, endAt);
+    if (normalize(body) === normalize(block)) return { action: "skip" };
+    if (previous.some((p) => normalize(body) === normalize(p)))
+      return {
+        action: "replace",
+        content: head + region + existing.slice(endAt + endMarker.length),
+      };
+    return { action: "flag" };
+  }
+
+  for (const candidate of [block, ...previous]) {
+    if (!existing.startsWith(candidate, bodyStart)) continue;
+    const content = `${head}${region}\n${existing.slice(bodyStart + candidate.length)}`;
+    // Matching the CURRENT block means the bytes do not change at all and only
+    // the terminator is added — the migration write is content-neutral.
+    return candidate === block ? { action: "terminate", content } : { action: "replace", content };
+  }
+  return { action: "flag" };
 }
 
 /** What to do with one installed file. `flag` never writes. */
@@ -89,11 +162,31 @@ export function planFileWrite(
   return "flag";
 }
 
+/**
+ * Where each block region ENDS. Deliberately NOT in template.ts beside the
+ * start markers, and the split is a real smell being paid for on purpose:
+ * template.ts is GENERATED, and regenerating it today drags in undeclared drift
+ * from the source site and would flag three already-installed scripts forever.
+ * Reuniting them belongs to #753, which makes the generator's
+ * `MATCH_HARNESS_PREVIOUS` emission trustworthy enough to regenerate against.
+ * That table stays in template.ts and stays POPULATED in the meantime: it is
+ * what upgrades an installed site's gate.sh past #744, so pointing this recipe
+ * at an empty one un-ships that fix to every site already carrying the v1 gate.
+ *
+ * None of the three contains its own start marker as a substring — `# end
+ * reddoor-maint …` never yields `# reddoor-maint …` — which is what keeps
+ * `indexOf(marker)` from anchoring the region on its own terminator. A test
+ * asserts it in both directions.
+ */
+export const GITIGNORE_END_MARKER = "# end reddoor-maint match-harness";
+export const PRETTIERIGNORE_END_MARKER = "# end reddoor-maint match-harness";
+export const CLAUDE_MD_END_MARKER = "<!-- end reddoor-maint match-harness -->";
+
 /** The three files the recipe APPENDS a marked block to rather than writing whole. */
 const APPENDED_BLOCKS = [
-  [".gitignore", GITIGNORE_MARKER, GITIGNORE_BLOCK],
-  [".prettierignore", PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK],
-  ["CLAUDE.md", CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK],
+  [".gitignore", GITIGNORE_MARKER, GITIGNORE_END_MARKER, GITIGNORE_BLOCK],
+  [".prettierignore", PRETTIERIGNORE_MARKER, PRETTIERIGNORE_END_MARKER, PRETTIERIGNORE_BLOCK],
+  ["CLAUDE.md", CLAUDE_MD_MARKER, CLAUDE_MD_END_MARKER, CLAUDE_MD_BLOCK],
 ] as const;
 
 /**
@@ -117,6 +210,12 @@ export const MATCH_HARNESS_INSTALLED_PATHS: readonly string[] = [
  * Install-if-absent throughout. Files a site edits are never rewritten. A
  * recipe-owned script that matches a previously shipped render is safe-replaced;
  * one that has been hand-edited is FLAGGED in the notes and left alone.
+ *
+ * ONE EXCEPTION TO PER-FILE INDEPENDENCE: the scripts in MATCH_HARNESS_COUPLED
+ * upgrade as a SET. If any one of them is hand-edited, none of them is written,
+ * because gate.sh calls `harness.mjs --check-run` and next.mjs imports from
+ * harness.mjs — upgrading the others around a pinned one leaves a harness that
+ * cannot run at all. See the measurement on MATCH_HARNESS_COUPLED.
  */
 export async function matchHarness(
   site: Site,
@@ -151,7 +250,17 @@ export async function matchHarness(
        *  leaves the checkout byte-identical to how it found it. */
       const before = new Map<string, string | null>();
       const previousAll = deps.previous ?? MATCH_HARNESS_PREVIOUS;
+      const blockPreviousAll = deps.blockPrevious ?? MATCH_HARNESS_BLOCK_PREVIOUS;
 
+      // PASS 1 — decide everything, write nothing. The coupled-set demotion
+      // below needs the whole picture before the first byte is written.
+      type Planned = {
+        f: (typeof MATCH_HARNESS_FILES)[number];
+        template: string;
+        existing: string | null;
+        action: ReturnType<typeof planFileWrite>;
+      };
+      const plans: Planned[] = [];
       for (const f of MATCH_HARNESS_FILES) {
         const target = join(cwd, f.rel);
         let template = f.template;
@@ -167,14 +276,58 @@ export async function matchHarness(
           template = JSON.stringify(seed, null, 2) + "\n";
         }
         const existing = await readIfExists(target);
-        const action = planFileWrite(existing, template, f.owner, previousAll[f.rel] ?? []);
+        plans.push({
+          f,
+          template,
+          existing,
+          action: planFileWrite(existing, template, f.owner, previousAll[f.rel] ?? []),
+        });
+      }
+
+      // The coupled set moves together or not at all. Two deliberate limits,
+      // both of them the difference between a guard and an outage:
+      //
+      // ONLY `flag` demotes. `skip` means the file is already byte-correct, and
+      // treating that as a flag would make every re-run refuse itself and the
+      // recipe permanently inert — the demotion's own failure mode is
+      // OVER-refusal, so its test has to GRANT an upgrade, not merely deny one.
+      //
+      // ONLY `replace` is demoted. A file that is ABSENT cannot be "left
+      // alone": there is nothing to preserve, and skipping the write leaves the
+      // site with no harness at all rather than an old one. The hazard being
+      // guarded is upgrading HALF of an installed set past a pinned member;
+      // writing a missing file is the only action that makes the set exist.
+      // (Measured: demoting `write` too broke a fresh install alongside one
+      // hand-edited script — 16 files silently unwritten, then a failed run.)
+      const coupled = new Set(MATCH_HARNESS_COUPLED);
+      const blockedBy = plans
+        .filter((p) => coupled.has(p.f.rel) && p.action === "flag")
+        .map((p) => p.f.rel);
+      const demoted = plans.filter(
+        (p) => coupled.has(p.f.rel) && p.action === "replace" && !blockedBy.includes(p.f.rel),
+      );
+      if (blockedBy.length > 0 && demoted.length > 0) {
+        for (const p of demoted) p.action = "flag";
+        notes.push(
+          `${blockedBy.join(", ")} differs from the shipped template, so the whole coupled set ` +
+            `was left alone: ${MATCH_HARNESS_COUPLED.join(", ")} upgrade together. ` +
+            `matching/gate.sh calls \`harness.mjs --check-run\` and matching/next.mjs imports from ` +
+            `harness.mjs, so upgrading one without the others leaves a harness that cannot run.`,
+        );
+      }
+
+      // PASS 2 — write.
+      const demotedRels = new Set(demoted.map((p) => p.f.rel));
+      for (const { f, template, existing, action } of plans) {
         if (action === "flag") {
+          if (demotedRels.has(f.rel)) continue; // named in the set note above
           notes.push(
             `${f.rel} differs from the shipped template and was left alone (hand-edited?)`,
           );
           continue;
         }
         if (action === "skip") continue;
+        const target = join(cwd, f.rel);
         await mkdir(dirname(target), { recursive: true });
         before.set(f.rel, existing);
         await writeFile(target, template, "utf-8");
@@ -182,16 +335,37 @@ export async function matchHarness(
         if (action === "replace") notes.push(`${f.rel} upgraded from a previous version`);
       }
 
-      // Three appended blocks, each idempotent on its own marker.
-      for (const [rel, marker, block] of APPENDED_BLOCKS) {
+      // Three appended blocks, each a delimited region that is replaced in
+      // place when its body is one this recipe shipped, and flagged — never
+      // overwritten — when it is anything else.
+      for (const [rel, marker, endMarker, block] of APPENDED_BLOCKS) {
         const path = join(cwd, rel);
         const existing = await readIfExists(path);
-        const merged = mergeBlock(existing, marker, block);
-        if (merged !== null) {
-          before.set(rel, existing);
-          await writeFile(path, merged, "utf-8");
-          written.push(rel);
+        const plan = planBlockWrite(
+          existing,
+          marker,
+          endMarker,
+          block,
+          blockPreviousAll[rel] ?? [],
+        );
+        if (plan.action === "skip") continue;
+        if (plan.action === "flag") {
+          // Never enters `written`: not formatted, and not restored by the
+          // refusal path below, because this run did not touch it.
+          notes.push(
+            `${rel} carries a match-harness block that differs from every block this recipe has shipped, and was left alone (hand-edited?)`,
+          );
+          continue;
         }
+        before.set(rel, existing);
+        await writeFile(path, plan.content, "utf-8");
+        written.push(rel);
+        if (plan.action === "replace")
+          notes.push(`${rel}'s match-harness block upgraded from a previous version`);
+        if (plan.action === "terminate")
+          notes.push(
+            `${rel}'s match-harness block region was terminated so a future version can update it`,
+          );
       }
 
       // Format only what the SITE owns, decided by OWNERSHIP and never by path.

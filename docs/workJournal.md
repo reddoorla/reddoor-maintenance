@@ -1082,6 +1082,537 @@ it holds one prior body each for harness.mjs, gate.sh and next.mjs so that 29
 Navy's already-installed copies are safe-replaced rather than flagged. HEAD's
 table was checked for fossils and is clean.
 
+## 2026-09-09 — The shared eslint config ignores the Phase 0 capture (#730, `fix/eslint-capture`)
+
+29 Navy's first `matching/capture-reference.mjs` run turned `pnpm verify` red
+with 745 eslint errors, and every one of them was in a file the site did not
+write. The decomposition, measured twice: 377 in Webflow's main bundle
+(`matching/spec/js/29navy-8c2435.b450607e.…js`), 78 in its schunk, 290 in
+`jquery-3.5.1.min.…js`. 377 + 78 + 290 = 745, three files, nothing else —
+mostly `'define' is not defined` and `no-unused-expressions`, which is what
+linting a minified third-party bundle looks like.
+
+**The belief corrected on contact.** The failure was read as an eslint quirk,
+and prettier was assumed to be covered by `.prettierignore`. It is not. Prettier
+3 defaults `--ignore-path` to `.gitignore`, and the match-harness recipe's
+generated block carries `matching/*` — that, and nothing else, is what keeps
+`prettier --check .` green over the same files. Run it as
+`prettier --check matching/spec --ignore-path .prettierignore` and five files go
+red. Eslint flat config reads no ignore file at all. **That asymmetry is the
+bug** — not anything about eslint's rules, and not anything about the capture.
+Two tools, one on-disk artifact, and only one of them was ever protected.
+
+**The scoping call, and the negative control that justifies it.** The obvious
+patch is `matching/`, and it is wrong: beachfront-dentistry ignores `matching/`
+wholesale and has thereby un-linted its own `adv-verify-svc*.mjs`. The
+less-obvious wrong answer is `matching/spec*`, which additionally swallows the
+**tracked** `matching/spec-sections/`. `matching/spec/` is the only form that
+takes the capture and leaves `probe-inventory.mjs`, `states/*.mjs` and
+`spec-sections/` linted. All three forms were measured against
+`ESLint.isPathIgnored`, not reasoned about — under `matching/` all three of ours
+flip to IGNORED, under `matching/spec*` only `spec-sections/` does.
+
+That is also why the new test is behavioural rather than a
+`toContain("matching/spec/")` string check. A string assertion passes happily
+for `matching/` and `matching/spec*` — both contain the substring, and both
+break the thing the entry exists to protect. Only resolving the ignore for real
+tells them apart. `isPathIgnored` stats nothing, so it needs no fixture tree.
+The test carries a control assertion (`src/lib/site-pages.js` is not ignored)
+because `isPathIgnored` also returns true for a path no config's `files`
+matched — with a bare `[{ ignores }]` config even `src/lib/a.ts` comes back
+ignored, so without the control a `false` above could not be read as "not in the
+ignore list".
+
+**Why the recipe installs nothing.** `eslint.config.js` is an EXACT-MATCH
+`sync-configs` template (`existing === t.contents`, no compliance predicate, and
+`eslint` is in the default `which` set), so any block the recipe appended would
+be deleted on the next default sync — the same clobber that ate MSOT's `$utils`
+alias and gallerysonder's security headers. And the recipe's only append idiom,
+`mergeBlock`, is a marker-plus-literal-text append to a line-oriented ignore
+file; there is no safe line-append into an ESM exported array (text after `];`
+parses fine and does nothing). The shared config is the only correct home. Do
+not walk this one twice.
+
+**The live consequence of that same fact.** 29 Navy is carrying a 915-byte
+`eslint.config.js` against the 177-byte template, so a routine
+`reddoor-maint sync-configs` before the version bump deletes the workaround and
+silently re-arms all 745. This fix does not close that window, it only makes it
+finite. The workaround must stay until the release lands and the site bumps.
+
+**Honest accounting on what this did NOT fix.** `reddoor-maint audit --only
+lint` still reports **fail** on 29 Navy, and will after this lands. Two
+independent defects in `src/audits/lint.ts`, both proven to predate the capture:
+its prettier half calls `prettier.check()` directly and consults neither
+`.prettierignore` nor `.gitignore` (proof: `src/prismicio-types.d.ts` is in
+29-navy's `.prettierignore` and is reported unformatted anyway), and its eslint
+half hands globally-ignored files to `lintFiles()` as explicit paths, costing a
+"File ignored because of a matching ignore pattern" warning each —
+`src/lib/slices/index.js`, ignored by the shared config since long before the
+capture existed, produces that warning today. #730 converts 745 errors into 3
+warnings there and leaves the prettier half red. **Do not read a green
+`pnpm verify` on 29 Navy as this class being closed.**
+
+Also not fixed, and each needs its own issue — **none of these are filed yet**,
+which is a debt this entry is recording rather than discharging: (1) the
+`lint.ts` audit above; (2) `eslint.config.js` arguably needs a compliance
+predicate (`contents.includes("createEslintConfig")`) the way `svelte.config.js`
+and `netlify.toml` have, so a site's legitimate local extension survives a sync;
+(3) `reddoor-starter-blux` carries a hand-inlined config that never received
+`docs/superpowers/` or `scratchpad/` either and will not receive this, so every
+`new-site --track blux` reproduces #730 on its first capture. 17 of 25 local
+repos consume `createEslintConfig`; the 8 that inline it are 1836dig,
+beachfront-dentistry, canvas-starter, data-dynamiq, reddoor-starter-blux,
+the-pointe, the-pointe-burbank, the-tower-burbank — and `the-pointe` is archived
+and cannot take a push, so `scripts/fleet-repos.sh --skipped` comes first if
+anyone sweeps those.
+
+`scratch-diff*/` went in on class grounds and is the weaker half of this change:
+same generated `.gitignore` block, same git-ignored-but-on-disk property, one
+line. It has **no reproduced signal** — nothing in the harness writes it and no
+clone on this machine has one. It is here because fixing this class one instance
+at a time is the documented expensive mistake, but a reviewer could drop it and
+#730 would still be complete.
+
+Nothing here changes what the capture _is_. `capture-reference.mjs` line 31
+hardcodes `const OUT = "matching/spec"`, and that hardcoding is exactly what
+makes a single fleet-wide ignore entry safe. If it ever becomes configurable
+this ignore silently stops matching and the 745 come back with no test to catch
+it.
+
+## 2026-09-09 — A minted secret nobody read, and the coverage it does not buy (#746, `fix/drift-sweep`)
+
+`PRISMIC_TOKEN_29_NAVY` has existed as an Actions secret on this repo and
+nothing consumed it. Found as a set difference rather than by eye — 13
+`PRISMIC_TOKEN_*` secret names against the workflow's env lines, `comm -23`
+returning exactly one member. The reverse direction has three members
+(`REDDOOR_WIREFRAMER`, `THE_POINTE`, `THE_TOWER_BURBANK`), and those are the
+file's deliberate extra width, left alone: an extra name is inert, a missing one
+is a site the operator never mints a secret for.
+
+**The belief this corrects is the issue's own.** #746 reads as "29 Navy is not
+covered by the drift sweep, because its env line is missing", and the second
+clause is false. The env line was never what grants coverage. `--fleet airtable`
+resolves only sites whose Airtable Status is `maintained`, and 29 Navy's is
+`building`. The disproof was already running in production: alamo-anatomy,
+hedloc and the-pointe-burbank each have **both** the minted secret and the env
+line, and none of the three is swept. Last night's real run (34334202327) said
+so in its own words — "9 checked, 0 failed, 4 skipped (no Prismic config), of 13
+site(s)", `FLEET_WRITE_SUMMARY wrote=13 failed=0 total=13` — and none of those
+13 is any of them. Adding the line changes nothing tonight. It removes a latent
+go-live defect: the night a Status flips, the sweep has the credential instead
+of reporting the site token-missing and writing `unknown`.
+
+So the workflow now carries a paragraph saying exactly that, in the file where
+someone will otherwise read a 16-line env block as a 16-site coverage list. That
+is this repo's own corollary rule — a field that can only observe configuration
+must not be read as the thing it cannot observe — applied to a list of names.
+
+The issue's measurement was also wrong in a way worth recording: it said the env
+block held **eleven** entries. It held fifteen, confirmed twice (by `grep -c` and
+by the test helper's own `stepEnv` parser). A count read off a file once is not a
+measurement.
+
+**Two counts moved 15 → 16 and neither is test-guarded**, in the workflow comment
+and in the runbook. They were split by date rather than folded into the old
+measurement — the first 15 were measured 2026-08-13, 29-navy was added today —
+because extending "(same measurement)" over a repo that measurement never looked
+at is how a comment becomes confidently false. They will drift again on the next
+site; guarding the count with a test, or stating it in one place instead of two,
+is the durable fix and is not in this PR.
+
+**What CI cannot do here, stated plainly.** The class is "a central
+`PRISMIC_TOKEN_*` secret is minted but no env line consumes it". It has exactly
+one member today, and no unit test can enumerate GitHub secrets, so nothing in
+the suite can catch the next one. The only guard this change adds for the class
+is a sentence in the runbook directly beneath the mint command. A scheduled check
+diffing org secrets against the env block would close it properly; that needs
+`secrets: read` and a token decision, and wants its own issue.
+
+**Honest accounting on the second test.** `keeps a digit-leading repository name
+a legal identifier` did not go red before the fix and never could — it exercises
+`prismicTokenEnvName`, which the fix does not touch. It is characterization, not
+coverage. Its mutation (`PRISMIC_TOKEN_${slug}` → `${slug}_PRISMIC_TOKEN`) reddens
+ten tests including the pre-existing 48bb12d1 one, so it isolates nothing. And its
+second assertion — the `/^[A-Za-z_][A-Za-z0-9_]*$/` identifier check — is
+strictly implied by the `toBe` above it: any value satisfying the equality also
+satisfies the regex, so it can never fail on its own. It documents intent and
+adds no failure mode. Kept for the shape, and it would be the first thing to drop
+from a leaner diff.
+
+The mutation that does carry the fix is deleting the env line, which reddens
+`carries the pre-launch repositories whose central secret is already minted` and
+nothing else. Changing the same line's _value_ to another site's secret reddens
+the pre-existing cross-wiring guard while leaving the new test green — the
+separation that proves the two measure different properties.
+
+29 Navy is still dark after this, and two operator actions stand between it and
+coverage: the Status flip (a launch decision), and its Airtable `Git repo` cell,
+which is NULL and would make the clone throw outright the first night it is
+swept. Do the `Git repo` cell first, or both together — flipping Status alone
+makes the nightly noisier, not more correct.
+
+## 2026-09-10 — A match-harness block region gets an END, so an installed site can be corrected (#739, #753, `fix/p739`)
+
+`mergeBlock` returned `null` the instant its marker appeared in the target file.
+That is exactly right for "never append the block twice" and exactly wrong for
+everything else: the block's CONTENTS could then never change on a site that had
+already installed one. When #739 was filed the argument was "fix it before v1
+installs anywhere". That window has closed — 0.95.0 is published and 29 Navy
+carries all three blocks — so a fix that only helped fresh installs would have
+been worth nothing. The recovery path for an already-installed, un-terminated
+region is the whole design, not a compatibility shim bolted onto it.
+
+**The issue understates the harm, and it is worth writing down which way.** It
+reads as a staleness problem. On `.gitignore` it is an upgrade brick. That block
+is a negated whitelist over `matching/*`, so a harness file at any path it does
+not re-include — `matching/tools/x.mjs`, `matching/config.yml`, a future
+`matching/harness.ts` — is on disk, absent from the commit, and
+`pathsMissingFromHead` then refuses the ENTIRE install and reverts it. The
+remedy is to widen the whitelist. Widening the whitelist was the one edit
+`mergeBlock` made unreachable. So the recipe could brick itself on the next file
+it gains, with the fix sitting in a file it had promised never to touch again.
+
+**What landed.** `planBlockWrite(existing, marker, endMarker, block, previous)`
+— the two options the issue sketched, welded together, because each alone has a
+hole the other fills. A terminator makes the region addressable _from now on_;
+byte-matching against a previously shipped body is what makes the FIRST
+transition safe, on a v1 region that has no terminator to find. Four states: no
+marker → append the region; marker and terminator → skip if the body is current,
+replace in place if it matches something we shipped, flag otherwise; marker with
+NO terminator → walk `[block, ...previous]` and require
+`existing.startsWith(candidate, bodyStart)`, an exact byte match at the exact
+offset, with everything after it kept verbatim as the site's own tail.
+
+**"The region runs to end-of-file" was rejected on evidence, not taste.**
+`mergeGitignore` (sync-configs) appends its managed block at EOF into both
+`.gitignore` and `.prettierignore`. Run `sync-configs` after `match-harness` and
+an EOF-delimited replace eats the canonical fleet ignore entries. 29 Navy
+happens to have nothing after its blocks, which is precisely the accident that
+makes a bad rule look fine. T1 seeds that tail and asserts whole-file equality.
+
+**0.95.1 changes no block body at all.** Its entire job is to install the three
+terminators, which makes the first-ever exercise of a brand-new replace path a
+provably content-neutral write: one line per file. That scoping was forced by
+mechanics, not preference — the END markers had to go in the authored `index.ts`
+rather than beside the start markers in the generated `template.ts`, because
+regenerating `template.ts` today ships beachfront's undeclared drift (see
+below). The split is a real smell and the comment at the constants says so.
+
+**A belief the briefing carried, corrected on contact.** "`MATCH_HARNESS_PREVIOUS`
+is now non-empty, carrying one prior body each for harness.mjs, gate.sh and
+next.mjs" is false. It is `{}` at `template.ts:1426`, `{}` in the generator at
+`gen-match-harness-template.mjs:509`, and identical at `v0.95.0` and `main`. The
+generator never reads its own output — `OUT` appears once as a `join` and once
+in a `writeFileSync` — so there is no carry-forward mechanism in this tree at
+all. The standing rule that warns about it describes an intent, not the code.
+The hazard it names is real for any carry-forward design, which is why the new
+`previous.ts` is hand-authored and its header states the rule in the only form
+that cannot be got wrong: a body is recorded only when SUPERSEDED, and its
+source is a published git tag, never a working tree.
+
+**Measured, and it changes what the next session may safely do.** Beachfront —
+the verbatim source for the seven COPIED files — has drifted from the shipped
+template on three of them: `harness.mjs` 170 changed lines, `gate.sh` 76,
+`next.mjs` 67, **313 total** against beachfront `main` (`a7cee52`), and 429
+against `b53d1bc`, the open `fix/p751-unanchored-score` branch. So anyone who
+runs `node scripts/gen-match-harness-template.mjs` for any reason today ships
+313 lines of undeclared harness behaviour and — because `MATCH_HARNESS_PREVIOUS`
+is `{}` — flags all three files forever on 29 Navy. That is the whole other half
+of this defect class and it is **#753**, filed with the numbers, not left in a
+code comment.
+
+**Honest accounting on the tests.** Seven mutations, all narrowings, each proven
+landed with `grep -n` and measured by the NAME of the test that reddened. Three
+are worth keeping in mind:
+
+- Narrowing v1 recovery to a region that reaches EOF (`bodyStart +
+candidate.length !== existing.length`) reddened T1 _and nothing else_ — T4's
+  CLAUDE.md seed does end at EOF, so it stayed green. That asymmetry is the
+  check that the mutation landed where I thought it did, and it held.
+- Narrowing the `terminate` arm to `previous.length > 0` is the important one:
+  with the shipped `MATCH_HARNESS_BLOCK_PREVIOUS = {}`, no v1 site would ever be
+  terminated and the entire migration would be green and inert. It reddened T4
+  and T3 by name.
+- `lastIndexOf(marker)` instead of `indexOf` reddened only T6 — the mis-anchor
+  case, where the marker appears first inside the site's own prose. Anchoring on
+  the first occurrence means a mis-anchor degrades to `flag`, never to a write.
+
+**One process loss, recorded because it cost real time.** Reverting the first
+mutation with `git checkout -- src/recipes/match-harness/index.ts` deleted the
+entire uncommitted implementation, silently — the standing rule about reverting
+that way is written for the GENERATED `template.ts`, where HEAD is the truth, and
+it is exactly wrong for authored work that has not been committed yet. The three
+mutations that followed then "passed" against the original code and their reds
+were meaningless. Every mutation was re-run against a saved pristine copy, with
+`diff -q` after each revert as positive evidence the file came back byte-identical.
+
+**The tests were about the state this release ends, not the state it creates.**
+An adversarial verification pass found that `planBlockWrite`'s marker-AND-
+terminator branch — `index.ts:127-136` — was defended by no test anywhere in the
+repository. Every case above seeds a _v1_ region: a marker with no terminator,
+the shape 0.95.0 shipped. That is the shape this release exists to migrate away
+from, so the moment it has run the fleet, the v1 recovery loop those six tests
+exercise is dead on every site and the terminated branch is the only path left.
+Two mutants proved it: narrowing the previous-body match makes a terminated
+region un-upgradeable, reintroducing #739 one version along; returning `replace`
+where the code returns `flag` silently overwrites a hand-edited block. Both left
+the whole suite green. Two cases now seed a TERMINATED region and pin the two
+arms — upgrade-in-place with the site's own tail intact, and leave-alone — and
+each mutant now kills exactly the one test written for it and no other. The
+generalisable form: a migration's tests naturally describe the state it starts
+from, because that state is what the author has in front of them, and the state
+it _leaves every consumer in_ is the one that has to survive the next release.
+
+**A deprecation note and an import switch shipped together; the data migration
+they both depended on did not.** This branch introduced a hand-authored
+`previous.ts` on the argument that `template.ts` is generated and its
+`MATCH_HARNESS_PREVIOUS` therefore cannot be trusted to remember anything — true
+of the mechanism, and the reason #753 exists. What it also did was re-point
+`index.ts` at that new file's EMPTY table, while the populated one sat in
+`template.ts` with three entries and no importer. The bodies were supposed to
+move across in #753. Until they do, "the generated table is dead" is a statement
+about where the code is going, not about what the code does, and the recipe
+believed it a release early.
+
+Measured on rebase onto `e322ca5`: `pnpm verify` red, one failed test —
+`UPGRADES a site running the shipped v1 gate.sh rather than flagging it`. The
+diff is unambiguous about the cost: the site keeps a `gate.sh` with no
+`MEASURED`, `ATTEMPTED`, `UNMEASURED` or `SEEN`, which is the gate that said ALL
+DONE over runs that never happened. So #739 as first written would have
+un-shipped #744's fix to every site already carrying the v1 gate — a week after
+merging it. `previous.ts` now holds only the BLOCK table, which is genuinely new
+here and genuinely empty (0.95.1 changes no block body, only terminates them),
+and the file table stays where it is and stays populated.
+
+Worth its own line: of the two tests that touch the real shipped table, only one
+could see this. `carries the render it previously shipped forward, per
+recipe-owned path` imports `MATCH_HARNESS_PREVIOUS` from `template.js` and
+asserts its contents — so it stayed green throughout, because the table was
+still populated and still correct. Nothing about it observes which table the
+RECIPE reads. The one that caught it, `UPGRADES a site running the shipped v1
+gate.sh rather than flagging it`, runs `matchHarness` end to end with no
+injected `previous`, so the wiring is on the path. Two tests over the same
+export, one of them load-bearing: asserting a data table's contents is not
+coverage of the code that consumes it, and the difference is invisible until
+someone re-points the import.
+
+**What is NOT done.** Nothing detects an un-migrated site; the operator has to
+re-run `reddoor-maint match-harness 29-navy --ref <url>` once, and `--ref` is
+inert on a re-run because `harness.json` is site-owned and skipped. And the
+migration is exact-byte: a site whose CLAUDE.md block was reflowed (a
+`proseWrap: "always"` prettier config would do it — 0 of 18 fleet clones set
+`proseWrap` today) matches no candidate and is FLAGGED with a note naming the
+file. It is never silently skipped and never overwritten, but a human reconciles
+it once. Both carried in #753.
+
+## 2026-09-10 — next.mjs scored 12/3 and called the backlog empty, and the table of
+
+shipped bodies stopped feeding on itself (#751, #753, `fix/p751`)
+
+`next.mjs` divided a real pass count by an imaginary denominator on the exact
+shape every new site starts in. `harness.mjs` derived `TOTALS[page]` as
+`(anchors.length + 1) * MATRIX.length`, which is an exact identity for an
+ANCHORED run and nothing at all without anchors: `splitRegions`
+(page-diff.mjs:103-110) cuts by anchor only when there are anchors, falling back
+to the page's own `<section>` boxes and then to an even four-row grid
+(lib/regions.mjs:27-35, `gridRows = 4`, labels `grid-<r>-<c>`).
+
+Measured, not recalled. On the untouched recipe seed (`anchors: []`, matrix
+`[1440, 834, 390]`) page-diff produces 12 grid regions; `next.mjs` printed
+`SCORE 12/3 regions passing`, then `No open geometry failures. 0 declared
+floor(s) remain.` and `Backlog is empty — Phases 5 (states) and 6 (adversarial
+review) are what is left.`, exit 0. On 29-navy's matrix of four the same seed
+prints `SCORE 16/4`. The absurd fraction is the harmless half — someone
+questions `16/4`. Nobody questions "Backlog is empty", and it prints from the
+same run.
+
+**The belief this corrects, and it is the expensive one.** Two tests asserted
+the defect as correct behaviour and had done since the recipe shipped:
+`next.mjs SCORES a real corpus and names the worst region` asserted `SCORE 2/3`
+over `anchors: []`, with the comment `// 3 = (0 anchors + 1) × 3 viewports,
+derived by harness.mjs from the seed` — the false derivation written down as
+fact — and `next.mjs exits 0 with no agenda once every region passes` asserted
+`SCORE 3/3` plus `No open geometry failures`, exit 0, which IS the issue,
+greened. They passed because the fixture supplied exactly 3 regions and the
+fiction `(0 + 1) × 3` is also 3. The fiction and the fact coincided, so nothing
+looked wrong. Both fixtures now use 12 regions against a fiction of 3
+specifically so the two numbers can never agree again, and that constraint is
+written into a comment in the test file because it is the whole reason this
+shipped.
+
+**The answer already existed twenty lines below the bug.** `checkRun`'s
+`if (secs.length)` guard already declines to assert a region count without
+anchors, and already writes down why — same fallback, same measurement, dated
+2026-09-09. The fix reached the VALIDATOR and was never carried to the
+DENOMINATOR. Choosing anything else now would have been answering one question
+two ways in one file.
+
+**Understated in the issue: the ranking, not just the number.** `scored` sorted
+by `pass / total`, and an unanchored page's ratio is not bounded by 1. A passing
+one scored `16/4 = 4.0` and sorted LAST, i.e. best, so `const worst =
+scored[0].p` could never name the one page whose Phase 1 was not done. A failing
+one scored `0/3 = 0.0`, sorted FIRST, and printed `NEXT: about — worst page`
+with an agenda of `grid-0-0`, `grid-1-0` … — an instruction to fix geometry
+against regions page-diff invented. Reproduced before the fix and again by
+mutation after it.
+
+The fix REFUSES rather than relabels: `scorable(key)` beside `TOTALS`,
+`TOTALS = null` for a page whose count cannot be predicted, unscorable pages
+filtered out of the ranking, the run's OWN region count printed as evidence for
+the refusal (`home  12 region(s)  NOT SCORABLE — no anchors`), and exit 2. The
+pass fraction is deliberately withheld — it is the number with no referent and
+the number that gets quoted into a status line. With nothing scorable it prints
+`NO SCORE — 0 of N page(s) have anchors` rather than `SCORE 0/0`, which is a
+third lie and the one that reads best of all. Scoring the grid and labelling it
+was rejected: "12 of 12 grid rows passed" is arithmetically honest and
+semantically empty, and the label is prose beside a figure. Where a genuine
+pre-Phase-1 baseline read is wanted, `SPEC_OPTIONAL=1` already exists and
+already prints "Do NOT apply geometry fixes off this run."
+
+Honest accounting on `null`: it does not poison arithmetic. `a + null` is `a`,
+so a consumer that sums `TOTALS` without asking `scorable()` still gets a
+too-small denominator — flattering, the direction the comment above `TOTALS`
+warns about. `null` is a signal chosen for loud printing and
+JSON-representability; the barrier is the predicate and the exit-2 guard. That
+`0/null` really does print when the ranking filter is removed was seen during
+mutation, which is the best argument for the signal being loud.
+
+**A standing rule was wrong on this branch, and it is worth correcting.** The
+session rule says `MATCH_HARNESS_PREVIOUS` "is live now — PREVIOUS is no longer
+empty", and that the generator carries it forward and APPENDS the on-disk body,
+so a regenerate-after-revert silently ships the mutant as a prior release. On
+`fix/p751` none of that was true: `git log --oneline --
+scripts/gen-match-harness-template.mjs` has exactly one commit (`9cd0e49`),
+which hardcoded `export const MATCH_HARNESS_PREVIOUS … = {};` with the comment
+"Empty at v1 — nothing has shipped", and template.ts:1426 confirmed `= {}`.
+Regeneration was measured to be byte-idempotent. The `git checkout --` habit is
+still right and was followed for all eleven mutations, but its stated mechanism
+did not exist. After this PR the first half becomes true — PREVIOUS is populated
+— and the second half still will not be: the generator reads committed files
+under `scripts/match-harness-previous/<version>/`, never the working tree, so it
+cannot absorb a mutant.
+
+**Migration was the half that decides whether the fix reaches anyone.**
+`@reddoorla/maintenance@0.95.0` is already published and installed. Run against
+the real `planFileWrite`, a stock 0.95.0 install with `PREVIOUS = {}` returns
+`flag`: the file is left byte-for-byte alone and the run adds the note
+`matching/next.mjs differs from the shipped template and was left alone
+(hand-edited?)`. The site would keep the broken `next.mjs` forever AND be
+accused of an edit it never made. With the 0.95.0 body present it returns
+`replace`. The prior bodies were extracted once from `git show
+v0.95.0:src/recipes/match-harness/template.ts` — verified byte-equal under
+`normalize()` to what 29-navy, a real 0.95.0 install, has on disk — and
+committed under `scripts/match-harness-previous/0.95.0/` so they are auditable
+in git rather than a 17 KB literal nobody can review.
+
+**Coupled set, measured in both directions.** Because the scripts are copied
+verbatim from beachfront and beachfront has drifted, 0.95.1 necessarily ships
+that drift: `harness.mjs`, `gate.sh` and `next.mjs` differ from 0.95.0 while the
+other four copied files are byte-identical and need no PREVIOUS entry. A new
+`next.mjs` against a 0.95.0 `harness.mjs` dies with `SyntaxError: The requested
+module './harness.mjs' does not provide an export named 'scorable'` — it does
+not degrade, it does not load. A 0.95.0 `harness.mjs` given the new `gate.sh`'s
+call answers `usage: harness.mjs --env | --table | --check-ref` and exits 2,
+which gate.sh reads as NOT MEASURED for every page. So `planFileWrite`'s
+per-file independence was itself the hazard, and `MATCH_HARNESS_COUPLED` plus a
+two-pass install now demote the whole set to `flag` when any member is
+hand-edited.
+
+**A guard that over-refused, caught by an existing test rather than by
+thinking.** The first version demoted `write` as well as `replace`. On a fresh
+site with one hand-edited script that silently withheld sixteen files and turned
+the install into a failure — `flags a hand-edited recipe-owned script and leaves
+it byte-for-byte alone` went red. A file that is ABSENT cannot be "left alone":
+there is nothing to preserve and skipping the write leaves no harness at all.
+Narrowed to `replace` only. This is exactly the over-refusal failure mode the
+plan named as the new code's own risk, and it took eleven minutes to hit.
+
+**The drift also broke a gate test, correctly.** `gate.sh RUNS the page once the
+reference verifies` went red after regeneration: the new `gate.sh` no longer
+trusts page-diff's exit status and calls `harness.mjs --check-run`, which demands
+a real `report.json` that is fresh, countable and covers the matrix asked for.
+The test's stub page-diff printed a version string and wrote nothing, so every
+page came back NOT MEASURED. The stub now writes the artefact a working run
+produces. That is the gate getting stricter in the right direction — the test's
+green used to be the absence of an error and now requires evidence.
+
+Eleven mutations, each proven landed with `grep -n` on the mutated text and each
+measured by the NAME of the test that reddened. Two discriminated exactly one
+test: narrowing the exit to `unscorable.length && !scored.length` reddened only
+the mixed-corpus test, and narrowing the coupled demotion to `blockedBy.length >
+1` reddened only the hand-edited-set test while the clean-upgrade test stayed
+green — which is the asymmetry that matters, because that guard's failure mode
+is over-refusal and its test has to GRANT an upgrade, not merely deny one.
+
+Two predictions in the plan were wrong and are recorded as such. Narrowing the
+unscorable guard to `> 1` was predicted to redden only the single-page refusal;
+it reddened the mixed-corpus test too, because that corpus also has exactly one
+unanchored page. And dropping `next.mjs` from the PREVIOUS table was predicted
+to redden the upgrade test on `differs from the shipped template`; it reddened
+it on `expected 'noop' to be 'applied'` instead, because the coupled-set demotion
+turned a partial upgrade into a total refusal — the missing entry became MORE
+visible than predicted, not less.
+
+Found and NOT fixed here, and each needs an issue rather than this paragraph:
+`matrix: []` makes `TOTALS[p]` zero for an ANCHORED page and `pass/0` is
+Infinity — the same class, a different input, and `harness.json` has no
+validation pass at all; the coupled-set mechanism is a per-recipe list where the
+general shape (a recipe shipping an interdependent set) recurs; and
+`SPEC_OPTIONAL=1`'s per-page "do not apply geometry fixes off this run" and
+`next.mjs`'s site-wide claim still do not talk to each other.
+
+**Found 2026-09-09; landed 2026-09-10, by which point the branch had grown a
+second subject.** Two things happened to it in between, and both are worth more
+than the original fix.
+
+**The refusal had to GRANT as well as deny.** `scorable(key)` started as "has
+anchors"; verification found a second way to have no referent — an EMPTY MATRIX,
+where `TOTALS` is `(anchors + 1) * 0 = 0` and the score reads `SCORE 8/0`. So
+`scorable` now requires both, and `unscorableWhy` names which one is missing,
+because a refusal that cannot say why is indistinguishable from a crash. Three
+legs measured: empty matrix → `NOT SCORABLE — matrix is empty`; no anchors →
+`NOT SCORABLE — no anchors`; both present → `SCORE 8/8`, exit 0. That last one
+is the load-bearing case. A guard whose failure mode is over-refusal is only
+proven by a green it GRANTS, and this file's own rule 1 says an error matcher
+may never do more than deny.
+
+**Two mutants survived the first verification pass, and both were about what the
+operator is TOLD rather than what is written.** Deleting
+`if (demotedRels.has(f.rel)) continue;` makes the coupled-set demotion also emit
+a per-file "differs from the shipped template … (hand-edited?)" note for the two
+files nobody touched — sending an operator to diff two files against a template
+they already match. The existing test could not see it: it asserted the set note
+NAMES all three files, and the false accusation names them too. The per-file note
+is additive, so the assertion had to be about what is absent. Summing the score
+over `latest` instead of `scored` puts an unscorable page's regions in the
+numerator; the existing test had that page FAILING every region, so the wrong sum
+added zero and nothing moved. The new case makes those 12 invented regions PASS
+and the mutant prints `SCORE 17/6` — a numerator counting regions the denominator
+has never contained. **Both existing tests were green against both mutants
+because of the DATA they used, not because of what they asserted.**
+
+**The table of previously shipped bodies was feeding on itself.** `main` grew a
+carry-forward mechanism that reads bodies out of the committed `template.ts` on
+every regeneration — automatic, which is the appeal, and self-feeding, which is
+the problem: whatever sits in `template.ts` becomes a "previously shipped
+release" on the next run. Mutate, regenerate, revert, regenerate, and the mutant
+is now an entry. Measured on this branch: one such cycle added 693 lines and two
+copies of the same predicate, and nothing failed. Entries in that table are the
+bodies `planFileWrite` REPLACES WITHOUT ASKING, so a wrong one silently
+overwrites a real site's file — the highest-blast-radius data the recipe carries.
+It now comes from `scripts/match-harness-previous/<version>/`, copied from a
+published tag and never re-derived. The cost is a manual step at release time.
+
+**Proven lossless before the swap, both directions.** The three v0.95.0 bodies
+are byte-identical (sha256, first 16) to what 29 Navy has installed today:
+`f20982b377f501e9` gate.sh, `04305ae48d656b25` harness.mjs, `07fab93206564d29`
+next.mjs. And running the real `planFileWrite` against 29 Navy's actual files
+under BOTH mechanisms plans `replace` for all three, `skip` for the other
+fourteen, and `flag` for none. A mechanism swap on this table is exactly the
+change where "the tests pass" is not the question — the question is whether the
+fleet's upgrade path still resolves, and that is a measurement against a real
+site, not a fixture.
+
 ## 2026-09-10 — The prospect-report override store, and four instances of one bug (`feat/prospect-report-overrides`)
 
 Plan A's storage half: three columns on `prospect_audits`, a validator, two
