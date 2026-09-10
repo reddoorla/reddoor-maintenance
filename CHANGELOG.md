@@ -1,5 +1,184 @@
 # @reddoorla/maintenance
 
+## 0.95.1
+
+### Patch Changes
+
+- 9fe4c7e: match-harness: `next.mjs` refuses to score a page with no anchors (#751)
+
+  `TOTALS[page]` was `(anchors.length + 1) * MATRIX.length` — an identity that
+  holds only for an ANCHORED run. Without anchors `page-diff` falls back to an
+  even four-row grid, so on the shape every new site starts in (`anchors: []`) a
+  fresh install divided a real pass count by an imaginary denominator: `SCORE
+12/3 regions passing` on the default matrix, `16/4` on a matrix of four, then
+  `No open geometry failures` and `Backlog is empty — Phases 5 and 6 are what is
+left`, exit 0. A site whose page-diff produced a grid nobody specced read as a
+  finished Phase 4.
+
+  `harness.mjs` now exports `scorable(key)` and gives an unanchored page
+  `TOTALS = null` rather than a plausible-looking integer. `next.mjs` keeps such
+  pages out of the ranking, prints the run's own region count as evidence for the
+  refusal (`home  12 region(s)  NOT SCORABLE — no anchors`), and exits 2. The
+  pass fraction is deliberately withheld. A fresh install now behaves like the
+  seed's `refMark: ""`: it refuses until Phase 1 is actually done.
+
+  Also fixed, and not visible in the issue: an unanchored page's `pass / total`
+  ratio is not bounded by 1, so a passing one sorted BEST and could never be
+  named the worst page, while a FAILING one sorted first and printed `NEXT:
+<page> — worst page` with an agenda of `grid-0-0`, `grid-1-0` … — an
+  instruction to fix geometry against regions page-diff invented.
+
+  TWO THINGS THIS PATCH CARRIES THAT A PATCH NUMBER DOES NOT SUGGEST.
+
+  1. It is a patch by version number only. The recipe's scripts are copied
+     verbatim from their source site, which has moved ~360 lines ahead of 0.95.0
+     in `harness.mjs`, `gate.sh` and `next.mjs` — `uncountable`, `checkRun`,
+     gate.sh's `--check-run` evidence call and next.mjs's `unmeasured` guard.
+     Regenerating to fix #751 necessarily ships that drift too. It is all the
+     same class of hardening, but it was never reviewed as a release.
+
+  2. Those three files upgrade as a SET. Measured both ways: a new `next.mjs`
+     against an old `harness.mjs` dies with "does not provide an export named
+     'uncountable'" — it does not degrade, it does not load; and an old
+     `harness.mjs` given a new `gate.sh`'s `--check-run` prints its usage banner
+     and exits 2, which gate.sh reads as NOT MEASURED for every page before
+     printing GATE INCOMPLETE. `MATCH_HARNESS_COUPLED` plus a two-pass install
+     make them move together or not at all, so one hand-edited script can no
+     longer leave the others upgraded around it into a harness that cannot run.
+
+  MIGRATION. 0.95.0 is already published and installed, so a template-only fix
+  would have reached nobody: `planFileWrite` would `flag` every 0.95.0 file,
+  leave it broken, and add a note telling the site it hand-edited a file it never
+  touched. `MATCH_HARNESS_PREVIOUS` is therefore populated from
+  `scripts/match-harness-previous/0.95.0/`, extracted once from the tagged
+  template and verified byte-equal to a real install. An untouched 0.95.0 harness
+  now safe-replaces on a re-run of `reddoor-maint match-harness`;
+  `matching/harness.json` is site-owned and is never rewritten, so anchors,
+  matrix and refMark survive. A site that never re-runs the recipe keeps the old
+  behaviour — there is no push mechanism, and adding one is a fleet decision.
+
+- 0ade85e: The shared eslint config ignores the match-harness Phase 0 reference capture.
+
+  `matching/capture-reference.mjs` downloads the reference site's own HTML, CSS
+  and JavaScript byte-for-byte into `matching/spec/`. On 29 Navy's first capture
+  that handed eslint Webflow's two bundles and jQuery 3.5.1, and `pnpm verify`
+  went red with 745 errors — 377, 78 and 290 — `'define' is not defined` and
+  `no-unused-expressions` several hundred times over.
+
+  The ignores array already named this class in its own comment: artifacts that
+  are git-ignored in every repo but present on disk locally. `docs/superpowers/`
+  and `scratchpad/` were the first two members; `matching/spec/` is the third,
+  and `scratch-diff*/` from the same generated .gitignore block is included with
+  it rather than waiting for its own red.
+
+  `prettier --check .` never saw these files, which is why the failure looked
+  like an eslint quirk rather than a missing ignore: prettier 3 defaults
+  `--ignore-path` to `.gitignore`, and the recipe's block carries `matching/*`.
+  Eslint flat config reads no ignore file at all. `.prettierignore` does not
+  list the capture either — with `--ignore-path .prettierignore` prettier flags
+  five files under `matching/spec/`.
+
+  Scoped to `matching/spec/` and not `matching/`, which is the distinction that
+  matters. beachfront-dentistry ignores `matching/` wholesale and un-linted its
+  own probe scripts doing so; measured on 29 Navy, an unused const appended to
+  `matching/probe-inventory.mjs` still errors while `matching/spec/` is silent.
+  The trailing slash is load-bearing in the other direction too — `matching/spec*`
+  also swallows the tracked `matching/spec-sections/`.
+
+  This does not reach a site until the release lands and the site bumps its
+  dependency, so 29 Navy's local `eslint.config.js` workaround has to stay until
+  then. Note that `sync-configs` treats `eslint.config.js` as an exact-match
+  template, so a routine sync in that window would delete the workaround and
+  re-arm the failure.
+
+- 6f4f0a3: match-harness: the three marked blocks become a delimited region that can be corrected on a site that already installed one
+
+  `mergeBlock` returned "already done" the instant its marker was present, so the
+  block's CONTENTS could never change on an installed site (#739). On
+  `.gitignore` that is not staleness but a brick: the block is a negated whitelist
+  over `matching/*`, so any harness file at a path it does not re-include is
+  absent from the commit, `pathsMissingFromHead` refuses the whole install and
+  reverts it — and widening the whitelist was the one edit that could not land.
+
+  `planBlockWrite` replaces it. Each region now carries an END marker as well as a
+  start, so its extent is addressable; a body that byte-matches the current block
+  is skipped, one that matches a previously shipped body is replaced IN PLACE
+  (everything before and after the region preserved byte-for-byte), and anything
+  else is FLAGGED in the notes and left alone. The region is never assumed to run
+  to end-of-file, because `sync-configs` appends its own managed block after ours.
+
+  The whole point is the site that already installed from 0.95.0: an
+  un-terminated v1 region is recognised by an exact byte match at the exact offset
+  its body starts, and the tail after it is the site's own and is kept. So a
+  0.95.0 site re-runs the recipe once and gets one content-neutral commit — three
+  files, one terminator line each — after which every later block change lands in
+  place. This release changes no block body; installing the terminators is its
+  entire job.
+
+- efddbe9: `match-harness`: a green out of `gate.sh` and `next.mjs` now has to be produced by runs that happened.
+
+  The shipped `matching/gate.sh` printed `echo "$page exit=$?"` — the status, then thrown away — and reported `ALL DONE ($TAG)` unconditionally. Measured on 29 Navy against the real `page-diff`, with the reference alive and no dev server running:
+
+  ```
+  REF OK — https://www.29navy.com/ → 200, no redirect, refMark present, candMark absent
+  ########## home ##########
+  home exit=1
+  ALL DONE (repro1)
+  ```
+
+  Exit 0, and `matching/out-repro1-home/` was never created. Two cheaper variants of the same green: `gate.sh nosuch nosuchpage` printed `ALL DONE` having run nothing and printed no page header, and a crashed re-run under a tag used before leaves the previous round's report byte-identical (`lib/report.mjs` mkdir -p's the output directory and never clears it) — so "require report.json" on its own reproduces the green one step along.
+
+  `matching/next.mjs` summed its denominator over the pages that happened to report, so a page whose `page-diff` crashed was subtracted from both sides: eight of nine pages could read `SCORE 160/160` while the ninth was never measured, and an empty backlog then printed "Backlog is empty" and exited 0.
+
+  The exit status cannot be the fix. `page-diff` exits 1 for a region that legitimately FAILED and node exits 1 for an uncaught throw before it looked, so the status cannot tell a finding from a crash — and a matching round's steady state is a failing gate. The evidence is instead the artefact only a completed run leaves:
+
+  - **`harness.mjs`** gains `uncountable(meta)` — `next.mjs`'s own countability filter, moved here so the gate and the scorer cannot drift about what counts — and `checkRun(page, dir, startedAt)`: the report exists, it is countable, its `meta.generatedAt` is not older than this run, it ran the matrix and the anchors the table declares, and every viewport it claims is represented in its regions. A new `--check-run` CLI mode exposes it, with `startedAt` required rather than defaulted.
+  - **`gate.sh`** counts what it attempted and what it measured, prints `NOT MEASURED: <reason>` per page, ends with `GATE INCOMPLETE (tag) — N of M page(s) produced no countable report`, refuses a page argument that matches no row, and otherwise reports `ALL DONE (tag) — N of M page(s) measured, each one counted.`
+  - **`next.mjs`** takes its denominator from the DECLARED site, prints a `?/N   NOT MEASURED` row for every page with no countable run (never `0/N` — an unmeasured page is not a page that scored zero), and exits 2 rather than reporting an empty backlog while a declared page has never been looked at.
+
+  `MATCH_HARNESS_PREVIOUS` is no longer empty. It shipped as `{}` under the comment "Empty at v1 — nothing has shipped", which was already false, and with an empty table the recipe FLAGS every installed site's copy as possibly hand-edited and never upgrades it — so this fix would have reached none of them. The generator now reads the bodies the committed template last shipped before overwriting them, and carries each changed recipe-owned file's old body forward.
+
+  **Behaviour change to expect:** `next.mjs` exits 2, where it used to exit 0 or 1, the moment a page in `harness.json` has no countable report anywhere under `matching/`. That fires as soon as a page is added to the table before it is gated, which is the point.
+
+  **Not covered:** there is still no candidate preflight — the entire 29 Navy reproduction was "the dev server is down", discovered only after a full browser launch per page; `strikes.mjs` still prints `strikes: clear` for a declared page that has never produced a report; and `TOTALS` still assumes the anchored region model, so an anchorless page scores against the wrong denominator.
+
+- e322ca5: The nightly Prismic drift sweep now carries `PRISMIC_TOKEN_29_NAVY`, and the
+  runbook says that minting a central secret is only half the job.
+
+  `PRISMIC_TOKEN_29_NAVY` exists as an Actions secret on this repo and nothing
+  read it. Measured as a set difference, not by eye: 13 `PRISMIC_TOKEN_*` secrets
+  against the 15 env lines in `.github/workflows/fleet-prismic-drift.yml`, and
+  `comm -23` returned exactly one member — this one. `grep -n PRISMIC_TOKEN_29_NAVY`
+  on the workflow printed nothing. The name is right: `29-navy`'s Prismic
+  `repositoryName` is also `29-navy` (read from `origin/main`'s
+  `slicemachine.config.json`), and `prismicTokenEnvName` maps it to
+  `PRISMIC_TOKEN_29_NAVY` exactly. The leading digit survives only because the
+  literal prefix comes first — a suffix rule would yield `29_NAVY_PRISMIC_TOKEN`,
+  which is neither a legal shell identifier nor a legal GitHub secret name.
+
+  **This does not put 29 Navy in the sweep, and anyone reading it that way has
+  been misled.** The env line was never why the site is dark. `--fleet airtable`
+  resolves only sites whose Airtable Status is `maintained`, and 29 Navy's is
+  `building`. The proof is a controlled experiment already running in production:
+  alamo-anatomy, hedloc and the-pointe-burbank all have both the minted secret and
+  the env line, and none of the three is swept — last night's real run
+  (34334202327) reported "9 checked, 0 failed, 4 skipped (no Prismic config), of
+  13 site(s)" and none of those 13 was any of them. What this change removes is a
+  latent go-live defect: the night a Status flips to `maintained`, the sweep has
+  the credential instead of reporting the site token-missing and writing
+  `unknown`. Two operator actions still stand between 29 Navy and coverage — the
+  Status flip, which is a launch decision, and its Airtable `Git repo` cell, which
+  is NULL and would make the clone throw outright.
+
+  Nothing here contacts Prismic, so the secret is `PRESENT (not verified)` in the
+  doctor's own words; whether that token can read that repository is
+  unestablished.
+
+  The defect class is "a central `PRISMIC_TOKEN_*` secret is minted but no env
+  line consumes it". **CI cannot close it** — no test can enumerate GitHub
+  secrets — so the guard is a runbook step next to the mint command, not a test.
+  The two new tests guard the instance and the shape only.
+
 ## 0.95.0
 
 ### Minor Changes
