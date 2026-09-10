@@ -1250,3 +1250,157 @@ coverage: the Status flip (a launch decision), and its Airtable `Git repo` cell,
 which is NULL and would make the clone throw outright the first night it is
 swept. Do the `Git repo` cell first, or both together — flipping Status alone
 makes the nightly noisier, not more correct.
+
+## 2026-09-10 — A match-harness block region gets an END, so an installed site can be corrected (#739, #753, `fix/p739`)
+
+`mergeBlock` returned `null` the instant its marker appeared in the target file.
+That is exactly right for "never append the block twice" and exactly wrong for
+everything else: the block's CONTENTS could then never change on a site that had
+already installed one. When #739 was filed the argument was "fix it before v1
+installs anywhere". That window has closed — 0.95.0 is published and 29 Navy
+carries all three blocks — so a fix that only helped fresh installs would have
+been worth nothing. The recovery path for an already-installed, un-terminated
+region is the whole design, not a compatibility shim bolted onto it.
+
+**The issue understates the harm, and it is worth writing down which way.** It
+reads as a staleness problem. On `.gitignore` it is an upgrade brick. That block
+is a negated whitelist over `matching/*`, so a harness file at any path it does
+not re-include — `matching/tools/x.mjs`, `matching/config.yml`, a future
+`matching/harness.ts` — is on disk, absent from the commit, and
+`pathsMissingFromHead` then refuses the ENTIRE install and reverts it. The
+remedy is to widen the whitelist. Widening the whitelist was the one edit
+`mergeBlock` made unreachable. So the recipe could brick itself on the next file
+it gains, with the fix sitting in a file it had promised never to touch again.
+
+**What landed.** `planBlockWrite(existing, marker, endMarker, block, previous)`
+— the two options the issue sketched, welded together, because each alone has a
+hole the other fills. A terminator makes the region addressable _from now on_;
+byte-matching against a previously shipped body is what makes the FIRST
+transition safe, on a v1 region that has no terminator to find. Four states: no
+marker → append the region; marker and terminator → skip if the body is current,
+replace in place if it matches something we shipped, flag otherwise; marker with
+NO terminator → walk `[block, ...previous]` and require
+`existing.startsWith(candidate, bodyStart)`, an exact byte match at the exact
+offset, with everything after it kept verbatim as the site's own tail.
+
+**"The region runs to end-of-file" was rejected on evidence, not taste.**
+`mergeGitignore` (sync-configs) appends its managed block at EOF into both
+`.gitignore` and `.prettierignore`. Run `sync-configs` after `match-harness` and
+an EOF-delimited replace eats the canonical fleet ignore entries. 29 Navy
+happens to have nothing after its blocks, which is precisely the accident that
+makes a bad rule look fine. T1 seeds that tail and asserts whole-file equality.
+
+**0.95.1 changes no block body at all.** Its entire job is to install the three
+terminators, which makes the first-ever exercise of a brand-new replace path a
+provably content-neutral write: one line per file. That scoping was forced by
+mechanics, not preference — the END markers had to go in the authored `index.ts`
+rather than beside the start markers in the generated `template.ts`, because
+regenerating `template.ts` today ships beachfront's undeclared drift (see
+below). The split is a real smell and the comment at the constants says so.
+
+**A belief the briefing carried, corrected on contact.** "`MATCH_HARNESS_PREVIOUS`
+is now non-empty, carrying one prior body each for harness.mjs, gate.sh and
+next.mjs" is false. It is `{}` at `template.ts:1426`, `{}` in the generator at
+`gen-match-harness-template.mjs:509`, and identical at `v0.95.0` and `main`. The
+generator never reads its own output — `OUT` appears once as a `join` and once
+in a `writeFileSync` — so there is no carry-forward mechanism in this tree at
+all. The standing rule that warns about it describes an intent, not the code.
+The hazard it names is real for any carry-forward design, which is why the new
+`previous.ts` is hand-authored and its header states the rule in the only form
+that cannot be got wrong: a body is recorded only when SUPERSEDED, and its
+source is a published git tag, never a working tree.
+
+**Measured, and it changes what the next session may safely do.** Beachfront —
+the verbatim source for the seven COPIED files — has drifted from the shipped
+template on three of them: `harness.mjs` 170 changed lines, `gate.sh` 76,
+`next.mjs` 67, **313 total** against beachfront `main` (`a7cee52`), and 429
+against `b53d1bc`, the open `fix/p751-unanchored-score` branch. So anyone who
+runs `node scripts/gen-match-harness-template.mjs` for any reason today ships
+313 lines of undeclared harness behaviour and — because `MATCH_HARNESS_PREVIOUS`
+is `{}` — flags all three files forever on 29 Navy. That is the whole other half
+of this defect class and it is **#753**, filed with the numbers, not left in a
+code comment.
+
+**Honest accounting on the tests.** Seven mutations, all narrowings, each proven
+landed with `grep -n` and measured by the NAME of the test that reddened. Three
+are worth keeping in mind:
+
+- Narrowing v1 recovery to a region that reaches EOF (`bodyStart +
+candidate.length !== existing.length`) reddened T1 _and nothing else_ — T4's
+  CLAUDE.md seed does end at EOF, so it stayed green. That asymmetry is the
+  check that the mutation landed where I thought it did, and it held.
+- Narrowing the `terminate` arm to `previous.length > 0` is the important one:
+  with the shipped `MATCH_HARNESS_BLOCK_PREVIOUS = {}`, no v1 site would ever be
+  terminated and the entire migration would be green and inert. It reddened T4
+  and T3 by name.
+- `lastIndexOf(marker)` instead of `indexOf` reddened only T6 — the mis-anchor
+  case, where the marker appears first inside the site's own prose. Anchoring on
+  the first occurrence means a mis-anchor degrades to `flag`, never to a write.
+
+**One process loss, recorded because it cost real time.** Reverting the first
+mutation with `git checkout -- src/recipes/match-harness/index.ts` deleted the
+entire uncommitted implementation, silently — the standing rule about reverting
+that way is written for the GENERATED `template.ts`, where HEAD is the truth, and
+it is exactly wrong for authored work that has not been committed yet. The three
+mutations that followed then "passed" against the original code and their reds
+were meaningless. Every mutation was re-run against a saved pristine copy, with
+`diff -q` after each revert as positive evidence the file came back byte-identical.
+
+**The tests were about the state this release ends, not the state it creates.**
+An adversarial verification pass found that `planBlockWrite`'s marker-AND-
+terminator branch — `index.ts:127-136` — was defended by no test anywhere in the
+repository. Every case above seeds a _v1_ region: a marker with no terminator,
+the shape 0.95.0 shipped. That is the shape this release exists to migrate away
+from, so the moment it has run the fleet, the v1 recovery loop those six tests
+exercise is dead on every site and the terminated branch is the only path left.
+Two mutants proved it: narrowing the previous-body match makes a terminated
+region un-upgradeable, reintroducing #739 one version along; returning `replace`
+where the code returns `flag` silently overwrites a hand-edited block. Both left
+the whole suite green. Two cases now seed a TERMINATED region and pin the two
+arms — upgrade-in-place with the site's own tail intact, and leave-alone — and
+each mutant now kills exactly the one test written for it and no other. The
+generalisable form: a migration's tests naturally describe the state it starts
+from, because that state is what the author has in front of them, and the state
+it _leaves every consumer in_ is the one that has to survive the next release.
+
+**A deprecation note and an import switch shipped together; the data migration
+they both depended on did not.** This branch introduced a hand-authored
+`previous.ts` on the argument that `template.ts` is generated and its
+`MATCH_HARNESS_PREVIOUS` therefore cannot be trusted to remember anything — true
+of the mechanism, and the reason #753 exists. What it also did was re-point
+`index.ts` at that new file's EMPTY table, while the populated one sat in
+`template.ts` with three entries and no importer. The bodies were supposed to
+move across in #753. Until they do, "the generated table is dead" is a statement
+about where the code is going, not about what the code does, and the recipe
+believed it a release early.
+
+Measured on rebase onto `e322ca5`: `pnpm verify` red, one failed test —
+`UPGRADES a site running the shipped v1 gate.sh rather than flagging it`. The
+diff is unambiguous about the cost: the site keeps a `gate.sh` with no
+`MEASURED`, `ATTEMPTED`, `UNMEASURED` or `SEEN`, which is the gate that said ALL
+DONE over runs that never happened. So #739 as first written would have
+un-shipped #744's fix to every site already carrying the v1 gate — a week after
+merging it. `previous.ts` now holds only the BLOCK table, which is genuinely new
+here and genuinely empty (0.95.1 changes no block body, only terminates them),
+and the file table stays where it is and stays populated.
+
+Worth its own line: of the two tests that touch the real shipped table, only one
+could see this. `carries the render it previously shipped forward, per
+recipe-owned path` imports `MATCH_HARNESS_PREVIOUS` from `template.js` and
+asserts its contents — so it stayed green throughout, because the table was
+still populated and still correct. Nothing about it observes which table the
+RECIPE reads. The one that caught it, `UPGRADES a site running the shipped v1
+gate.sh rather than flagging it`, runs `matchHarness` end to end with no
+injected `previous`, so the wiring is on the path. Two tests over the same
+export, one of them load-bearing: asserting a data table's contents is not
+coverage of the code that consumes it, and the difference is invisible until
+someone re-points the import.
+
+**What is NOT done.** Nothing detects an un-migrated site; the operator has to
+re-run `reddoor-maint match-harness 29-navy --ref <url>` once, and `--ref` is
+inert on a re-run because `harness.json` is site-owned and skipped. And the
+migration is exact-byte: a site whose CLAUDE.md block was reflowed (a
+`proseWrap: "always"` prettier config would do it — 0 of 18 fleet clones set
+`proseWrap` today) matches no candidate and is FLAGGED with a note naming the
+file. It is never silently skipped and never overwritten, but a human reconciles
+it once. Both carried in #753.
