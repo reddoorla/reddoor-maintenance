@@ -9,7 +9,11 @@ import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
 import {
   matchHarness,
+  planBlockWrite,
   MATCH_HARNESS_INSTALLED_PATHS,
+  GITIGNORE_END_MARKER,
+  PRETTIERIGNORE_END_MARKER,
+  CLAUDE_MD_END_MARKER,
 } from "../../src/recipes/match-harness/index.js";
 import {
   MATCH_HARNESS_FILES,
@@ -792,11 +796,18 @@ describe("recipes/match-harness", () => {
       await expect(read(cwd, rel)).rejects.toThrow();
     }
     await matchHarness({ path: cwd }, { ref: "https://ref.test" }, { spawn: noopSpawn });
-    expect(await read(cwd, ".gitignore")).toBe(`${GITIGNORE_MARKER}\n${GITIGNORE_BLOCK}`);
-    expect(await read(cwd, ".prettierignore")).toBe(
-      `${PRETTIERIGNORE_MARKER}\n${PRETTIERIGNORE_BLOCK}`,
+    // ...and its TERMINATOR. The marker alone only says where the region
+    // begins; without an end the region can never be replaced, only appended
+    // after, which is what #739 was.
+    expect(await read(cwd, ".gitignore")).toBe(
+      `${GITIGNORE_MARKER}\n${GITIGNORE_BLOCK}\n${GITIGNORE_END_MARKER}\n`,
     );
-    expect(await read(cwd, "CLAUDE.md")).toBe(`${CLAUDE_MD_MARKER}\n${CLAUDE_MD_BLOCK}`);
+    expect(await read(cwd, ".prettierignore")).toBe(
+      `${PRETTIERIGNORE_MARKER}\n${PRETTIERIGNORE_BLOCK}\n${PRETTIERIGNORE_END_MARKER}\n`,
+    );
+    expect(await read(cwd, "CLAUDE.md")).toBe(
+      `${CLAUDE_MD_MARKER}\n${CLAUDE_MD_BLOCK}\n${CLAUDE_MD_END_MARKER}\n`,
+    );
   });
 
   it("appends to a present merge target without disturbing what was there", async () => {
@@ -1316,6 +1327,309 @@ describe("recipes/match-harness", () => {
       for (const rel of MATCH_HARNESS_INSTALLED_PATHS)
         expect([rule, rel, tree.includes(rel)]).toEqual([rule, rel, true]);
     }
+  });
+});
+
+// --- #739: a marked block on a site that ALREADY carries one
+//
+// `mergeBlock` returned null the instant the marker was present, so the block's
+// CONTENTS could never change on a site that had already installed. That is not
+// merely stale prose. The .gitignore block is a NEGATED WHITELIST over
+// `matching/*`, so any harness file at a path it does not re-include is absent
+// from the commit — which makes `pathsMissingFromHead` refuse the whole install
+// and revert it. The remedy, widening the whitelist, was the exact thing the
+// marker check made unreachable. 0.95.0 is published and one site has already
+// installed a v1 block, so preventing this for FRESH installs would have fixed
+// nothing: the recovery path for an un-terminated v1 region is the point.
+
+/** A plausible PREVIOUS render of the .prettierignore block: the shipped one
+ *  with the harness.json entry under a different name. Deliberately neither a
+ *  sub- nor a super-string of the current block — a superstring would be read
+ *  as "the current block, followed by the site's own tail", which is a
+ *  different case with a different correct answer. */
+const PRETTIERIGNORE_V1 = PRETTIERIGNORE_BLOCK.replace(
+  "matching/harness.json\n",
+  "matching/harness-config.json\n",
+);
+
+/** What `mergeGitignore` (sync-configs) appends AFTER this recipe's block, into
+ *  both .gitignore and .prettierignore. The region must therefore never be
+ *  assumed to run to end-of-file: 29 Navy happens to have nothing after its
+ *  blocks, which is exactly the accident that makes that rule look safe. */
+const SYNC_CONFIGS_TAIL = "# canonical entries from @reddoorla/maintenance sync-configs\ndist/\n";
+
+/** The shape 0.95.0 shipped: a start marker, a body, and nothing at all to say
+ *  where the body ends. */
+const v1Region = (marker: string, body: string) => `${marker}\n${body}`;
+
+/** The shape this version ships, and the only shape it can update in place. */
+const region = (marker: string, body: string, end: string) => `${marker}\n${body}\n${end}\n`;
+
+describe("a marked block on a site that already carries one (#739)", () => {
+  it("widens a pristine v1 block on an already-installed site, and touches nothing else in the file", async () => {
+    expect(PRETTIERIGNORE_V1).not.toBe(PRETTIERIGNORE_BLOCK); // the v1 render really did differ
+
+    const seeded =
+      "pnpm-lock.yaml\n\n" + v1Region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_V1) + SYNC_CONFIGS_TAIL;
+    const expected =
+      "pnpm-lock.yaml\n\n" +
+      region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK, PRETTIERIGNORE_END_MARKER) +
+      SYNC_CONFIGS_TAIL;
+
+    // The plan, and the exact bytes it would write.
+    expect(
+      planBlockWrite(
+        seeded,
+        PRETTIERIGNORE_MARKER,
+        PRETTIERIGNORE_END_MARKER,
+        PRETTIERIGNORE_BLOCK,
+        [PRETTIERIGNORE_V1],
+      ),
+    ).toEqual({ action: "replace", content: expected });
+
+    // And the same seed through the recipe, end to end.
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn, blockPrevious: { ".prettierignore": [PRETTIERIGNORE_V1] } },
+    );
+    expect(result.status).toBe("applied");
+
+    const after = await read(cwd, ".prettierignore");
+    // Whole-file equality, not toContain: an offset bug that ate a byte on
+    // either side of the region would satisfy every containment assertion.
+    expect(after).toBe(expected);
+    // The widened entry landed, the v1 spelling is gone, and the site's own
+    // tail — which a "the marker runs to EOF" rule would have eaten — survives.
+    expect(after).toContain("\nmatching/harness.json\n");
+    expect(after).not.toContain("matching/harness-config.json");
+    expect(after).toContain(SYNC_CONFIGS_TAIL);
+    expect(after.startsWith("pnpm-lock.yaml\n")).toBe(true);
+    expect(occurrences(after, PRETTIERIGNORE_MARKER)).toBe(1);
+    expect(result.notes).toContain(".prettierignore");
+    expect(result.notes).toContain("upgraded from a previous version");
+  });
+
+  it("leaves a hand-edited v1 block exactly as it found it, and says so", async () => {
+    // An edit INSIDE the region. Text appended AFTER the shipped bytes is the
+    // site's own tail and is legitimately preserved, so it would prove nothing.
+    const handEdited = PRETTIERIGNORE_V1.replace("matching/*.sh\n", "");
+    expect(handEdited).not.toBe(PRETTIERIGNORE_V1);
+    const seeded = v1Region(PRETTIERIGNORE_MARKER, handEdited);
+
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn, blockPrevious: { ".prettierignore": [PRETTIERIGNORE_V1] } },
+    );
+    expect(result.status).toBe("applied"); // the other 16 files still install
+
+    const after = await read(cwd, ".prettierignore");
+    expect(after).toBe(seeded); // byte-for-byte as we found it
+    expect(after).not.toContain(PRETTIERIGNORE_END_MARKER); // not terminated either
+    expect(occurrences(after, PRETTIERIGNORE_MARKER)).toBe(1); // and no second block
+    expect(result.notes).toContain(".prettierignore");
+    expect(result.notes).toContain("left alone");
+    expect(result.notes).not.toContain(".prettierignore's match-harness block upgraded");
+  });
+
+  // --- The state 0.95.1 LEAVES every site in.
+  //
+  // Every case above seeds a v1 region: a marker with no terminator. That is
+  // the shape 0.95.0 shipped and the shape 0.95.1 exists to migrate away from.
+  // Once it has run the fleet, the v1 recovery loop at the bottom of
+  // planBlockWrite is dead on every site, and the marker-AND-terminator branch
+  // is the ONLY path left — so the next version's ability to correct anything
+  // at all rests entirely on these two arms.
+
+  it("a terminated region carrying a previous release is upgraded in place, tail intact", async () => {
+    const seeded =
+      "pnpm-lock.yaml\n\n" +
+      region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_V1, PRETTIERIGNORE_END_MARKER) +
+      SYNC_CONFIGS_TAIL;
+    const expected =
+      "pnpm-lock.yaml\n\n" +
+      region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK, PRETTIERIGNORE_END_MARKER) +
+      SYNC_CONFIGS_TAIL;
+    // This is what makes it a different case from every test above it.
+    expect(seeded).toContain(PRETTIERIGNORE_END_MARKER);
+
+    expect(
+      planBlockWrite(
+        seeded,
+        PRETTIERIGNORE_MARKER,
+        PRETTIERIGNORE_END_MARKER,
+        PRETTIERIGNORE_BLOCK,
+        [PRETTIERIGNORE_V1],
+      ),
+    ).toEqual({ action: "replace", content: expected });
+
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn, blockPrevious: { ".prettierignore": [PRETTIERIGNORE_V1] } },
+    );
+    expect(result.status).toBe("applied");
+
+    const after = await read(cwd, ".prettierignore");
+    expect(after).toBe(expected);
+    expect(occurrences(after, PRETTIERIGNORE_MARKER)).toBe(1);
+    expect(occurrences(after, PRETTIERIGNORE_END_MARKER)).toBe(1);
+    expect(after).toContain(SYNC_CONFIGS_TAIL);
+    expect(after).not.toContain("matching/harness-config.json");
+    expect(result.notes).toContain("upgraded from a previous version");
+  });
+
+  it("a terminated region that was hand-edited is left exactly as found", async () => {
+    // An edit INSIDE the region, to the CURRENT block — so it matches neither
+    // what we ship now nor anything we shipped before.
+    const handEdited = PRETTIERIGNORE_BLOCK.replace("matching/*.sh\n", "");
+    expect(handEdited).not.toBe(PRETTIERIGNORE_BLOCK);
+    expect(handEdited).not.toBe(PRETTIERIGNORE_V1);
+    const seeded =
+      region(PRETTIERIGNORE_MARKER, handEdited, PRETTIERIGNORE_END_MARKER) + SYNC_CONFIGS_TAIL;
+
+    expect(
+      planBlockWrite(
+        seeded,
+        PRETTIERIGNORE_MARKER,
+        PRETTIERIGNORE_END_MARKER,
+        PRETTIERIGNORE_BLOCK,
+        [PRETTIERIGNORE_V1],
+      ),
+    ).toEqual({ action: "flag" });
+
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn, blockPrevious: { ".prettierignore": [PRETTIERIGNORE_V1] } },
+    );
+    expect(result.status).toBe("applied");
+    expect(await read(cwd, ".prettierignore")).toBe(seeded);
+    expect(result.notes).toContain(".prettierignore");
+    expect(result.notes).toContain("left alone");
+  });
+
+  it("never appends a second block, on a v1 site or a fifth run", async () => {
+    const cwd = await install();
+
+    const pairs: Array<[string, string, string]> = [
+      [".gitignore", GITIGNORE_MARKER, GITIGNORE_END_MARKER],
+      [".prettierignore", PRETTIERIGNORE_MARKER, PRETTIERIGNORE_END_MARKER],
+      ["CLAUDE.md", CLAUDE_MD_MARKER, CLAUDE_MD_END_MARKER],
+    ];
+
+    // Put all three files back into the shape 0.95.0 shipped.
+    await seed(cwd, ".gitignore", v1Region(GITIGNORE_MARKER, GITIGNORE_BLOCK));
+    await seed(cwd, ".prettierignore", v1Region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK));
+    await seed(cwd, "CLAUDE.md", v1Region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK));
+    for (const [rel, , end] of pairs)
+      expect(await read(cwd, rel), `${rel} was seeded already terminated`).not.toContain(end);
+
+    const migrated = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(migrated.status).toBe("applied");
+
+    for (let round = 3; round <= 5; round++) {
+      for (const [rel, start, end] of pairs) {
+        const text = await read(cwd, rel);
+        expect(occurrences(text, start), `${rel} start markers before round ${round}`).toBe(1);
+        expect(occurrences(text, end), `${rel} end markers before round ${round}`).toBe(1);
+      }
+      const again = await matchHarness(
+        { path: cwd },
+        { ref: "https://ref.test" },
+        { spawn: noopSpawn },
+      );
+      expect(again.status, `round ${round}`).toBe("noop");
+      expect(again.commits, `round ${round}`).toEqual([]);
+    }
+
+    // and the bodies came through the migration whole, not doubled
+    expect(occurrences(await read(cwd, "CLAUDE.md"), "### Round protocol")).toBe(1);
+    expect(occurrences(await read(cwd, ".gitignore"), "!matching/PAUSED")).toBe(1);
+  });
+
+  it("a v1 CLAUDE.md block is migrated in place, terminated, and its prose is not touched", async () => {
+    const prose = "# Site rules\n\nExisting prose the site owns.\n\n";
+    const cwd = await foreignPrettierSite();
+    await seed(cwd, "CLAUDE.md", prose + v1Region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK));
+
+    // No `blockPrevious` at all — this is the 0.95.1 reality. Nothing has been
+    // superseded yet, so the only thing that can recognise a v1 region is an
+    // exact match against the CURRENT block, and the migration write is
+    // content-neutral: three files, one line each.
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: realPrettierSpawn, resolvePrettier: async () => prettierBin },
+    );
+    expect(result.status).toBe("applied");
+    // CLAUDE.md is the one block handed to the SITE's own prettier, so this
+    // runs under a foreign config: anything that changed here, the recipe did.
+    expect(await read(cwd, "CLAUDE.md")).toBe(
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK, CLAUDE_MD_END_MARKER),
+    );
+    expect(occurrences(await read(cwd, "CLAUDE.md"), "### Round protocol")).toBe(1);
+    expect(result.notes).toContain("CLAUDE.md");
+    expect(result.notes).toContain("terminated");
+
+    const second = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: realPrettierSpawn, resolvePrettier: async () => prettierBin },
+    );
+    expect(second.status).toBe("noop");
+    expect(second.notes ?? "").not.toContain("CLAUDE.md");
+  });
+
+  it("an end marker can never be mistaken for a start marker", () => {
+    const pairs: Array<[string, string, string]> = [
+      ["GITIGNORE", GITIGNORE_MARKER, GITIGNORE_END_MARKER],
+      ["PRETTIERIGNORE", PRETTIERIGNORE_MARKER, PRETTIERIGNORE_END_MARKER],
+      ["CLAUDE_MD", CLAUDE_MD_MARKER, CLAUDE_MD_END_MARKER],
+    ];
+    for (const [name, start, end] of pairs) {
+      expect(start.length, `${name}_MARKER is empty`).toBeGreaterThan(0);
+      expect(end.length, `${name}_END_MARKER is empty`).toBeGreaterThan(0);
+      // `indexOf(marker)` is what anchors the region. A terminator that
+      // CONTAINED its own start marker could take that anchor, and every offset
+      // after it would be measured from the wrong end of the region.
+      expect(end.includes(start), `${name}_END_MARKER contains its start marker`).toBe(false);
+      expect(start.includes(end), `${name}_MARKER contains its end marker`).toBe(false);
+    }
+    const starts = pairs.map(([, start]) => start);
+    for (const [name, , end] of pairs)
+      expect(starts, `${name}_END_MARKER is also somebody's start marker`).not.toContain(end);
+  });
+
+  it("a mis-anchored marker degrades to a flag, never to a destructive write", async () => {
+    const seeded =
+      `# do not delete the ${PRETTIERIGNORE_MARKER} block below\n\n` +
+      v1Region(PRETTIERIGNORE_MARKER, PRETTIERIGNORE_BLOCK);
+    const cwd = await copyFixtureToTmp(pristine);
+    await seed(cwd, ".prettierignore", seeded);
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(await read(cwd, ".prettierignore")).toBe(seeded);
+    expect(result.notes).toContain(".prettierignore");
+    expect(result.notes).toContain("left alone");
   });
 });
 
