@@ -31,6 +31,44 @@ The rule, implemented in Task 3:
 - key already in `view.overrides` → `original` is `view.overrides[key].original`
 - key not in the map → `original` is the text currently rendered, which is the generated text
 
+## The second subtlety, found while building plan A
+
+**Overrides compose into each other, so editing one line can silently revert another.**
+
+Found 2026-09-09 while wiring the composed sentences. `healthRows` is not a leaf: its
+output is consumed by three other composed sentences.
+
+| Consumer          | What it builds from a health row                                |
+| ----------------- | --------------------------------------------------------------- |
+| `passes`          | its "Does it work" items, as `` `${row.label}: ${row.value}` `` |
+| `healthFixes`     | each fix's `why`, as `` `${spec.what} ${row.detail}` ``         |
+| `headlineFinding` | the `site-check` branch, printing `inline(r.label)`             |
+
+So an override on a health row changes the GENERATED text of those downstream
+sentences. That invalidates the stored `original` of any override already saved
+against them, and plan A's stale-original guard then correctly withholds the
+second edit. The operator sees an earlier edit quietly revert, and nothing says
+why.
+
+The guard is doing its job. The problem is that the editing UI can create this
+situation without noticing.
+
+**What Task 3 and Task 5 must do about it:**
+
+1. Capture originals in dependency order — health rows before anything derived
+   from them — so a single save never records an original that its own sibling
+   edit is about to invalidate.
+2. After a save, the edit layer re-reads targets from the fresh view anyway
+   (`invalidateAll` then re-wire), so a withheld override becomes visible as a
+   line that reverted rather than one that silently disagrees.
+3. Task 6's measurement should count withheld overrides, not just unresolvable
+   lines. A withheld override is the failure mode this section describes, and it
+   is invisible unless counted.
+
+This is inherent to letting any line be edited when some lines are built from
+others. It is not a defect in the override mechanism, and it is not fixable by
+tightening the guard — the guard is what makes it detectable at all.
+
 ## File Structure
 
 | File                                            | Responsibility                                                |
