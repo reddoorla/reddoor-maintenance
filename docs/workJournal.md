@@ -904,3 +904,72 @@ beachfront and regenerated, so until beachfront merges it, regenerating from
 first, for exactly that reason. The invariant "regeneration from beachfront main
 is a no-op" is what this branch spent PR #56 establishing; it does not hold
 again until bf#58 lands.
+
+## 2026-09-09 — A floating CTA, and designing the edit layer the prospect report never had (reddoor-website#174, `docs/superpowers/specs/2026-09-09-prospect-report-operator-edits-design.md`)
+
+The report gained a second offer of the conversation. In the slot the "back to
+where you were" control already owns, once the reader is past the hero and while
+the closing red band is off screen, a red-outline `Start a conversation` link
+sits bottom-right. Two `IntersectionObserver`s gate it, and the return button
+still wins the corner when both could show, so exactly one control is ever in
+the slot. Verified in a real browser on the preview and again on staging: empty
+at the top, the CTA at 45% depth, empty at the bottom, and an in-page jump swaps
+it for the return button. Colour measured `rgb(215, 25, 32)` on white, 24px from
+both edges.
+
+**The instrument failure, which is the part worth keeping.** CI on #174 first
+failed on `dl.google.com` returning a Hash Sum mismatch while installing
+Playwright's Chrome — upstream, not ours, and green on rerun. Then after the
+merge I checked whether staging had picked it up by grepping the served
+`_app/immutable` chunks for `closingInView`. Twenty polls over roughly seven
+minutes, every one "not yet". I was about to report staging as not deployed.
+
+The probe could never have passed. Locals are minified, and the report component
+lives in a chunk the page does not preload. Running the same probe against the
+deploy preview — which I had _already proven in a browser_ renders the button —
+found `closingInView`, `pastHero` and `Start a conversation` in **0 of 45**
+chunks. A control on a known-good input took under a minute and turned twenty
+confident measurements into zero. The browser check that had worked all along
+was the instrument; the staging page was fine, and the first empty browser read
+was a stale cached bundle, not a missing deploy.
+
+**Prismic for the report: investigated and ruled out on evidence.** Tucker asked
+whether an editable report could live in Prismic. The `reddoor-la` content API
+answers anonymous callers: `GET /api/v2` returns 200 and a document search with
+no credential returns `total_results_size: 80`. Five other fleet repositories
+(`gallerysonder`, `caltex-landing`, `hedloc`, `vida-legacy`,
+`the-pointe-burbank`) all return 200 unauthenticated too, so a private Prismic
+repo would be new ground for this fleet rather than a setting to flip. Against
+that, the audit's whole privacy model is that the 128-bit token in the URL _is_
+the credential, backed by three independent noindex guards and a `no-referrer`
+policy. Prospect audits are critical assessments of strangers' businesses that
+often name their competitors. Publishing those into an enumerable content API
+would undo all of it.
+
+**A belief corrected on contact.** I told Tucker the edit layer could live
+entirely in maintenance with no website change, because
+`audit-report-json.mts` hands `result_json` back byte for byte and the website
+is a dumb renderer of it. That holds only for the scope I recommended. Tucker
+chose "any rendered line", and the website _composes_ some sentences itself —
+`openingSummary`, `goalVerdict`, `headlineFinding`, `passes`, `collisionFix`,
+`HEALTH_FIXES` and every `healthRows` label. Those never exist in the stored
+payload, so no merge in maintenance can reach them. The clean one-repo property
+did not survive the scope decision, and saying so before designing around it was
+cheaper than discovering it in implementation.
+
+The reverse worry turned out to be unfounded and worth recording too. Tucker
+asked whether edits would show on the site or only in email. Only one thing
+reads a stored audit — the JSON route — the old `/r/{token}` renderer is now a
+301 to the site, `renderReportPdf()` is a headless capture of the site's own
+print page, and the audit email goes to a fixed `PROSPECT_AUDIT_RECIPIENTS` list
+rather than the prospect. So the site is the source and the PDF and email are
+both downstream of it. The only surface that would not inherit an edit is the
+local file `--out` writes, which is a run-time snapshot.
+
+Four decisions are Tucker's, recorded in the spec: any rendered line is
+editable, editing happens in place on the real report, there is no lock on send,
+and edit mode is unlocked by a separate path plus a key that converts to a
+cookie. I recommended a narrower edit scope and was overruled with the tradeoff
+stated; the design implements the broad scope in full and keeps it honest by
+storing the original text beside every override rather than by restricting what
+can change. Nothing is built yet.
