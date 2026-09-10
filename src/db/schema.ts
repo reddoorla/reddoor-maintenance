@@ -221,6 +221,14 @@ export interface ProspectAuditsTable {
   created_at: string;
   status: string;
   result_json: string;
+  /** Operator edits, `{ "<key>": { original, text } }` as JSON. Null on every
+   *  row written before migration 0015, and on any report never edited. */
+  overrides_json: string | null;
+  /** ISO-8601 of the last override write. Null when never edited. */
+  edited_at: string | null;
+  /** ISO-8601 of the last fetch that did NOT carry an edit session. Null when
+   *  nobody outside the edit flow has opened it. */
+  opened_at: string | null;
 }
 
 /** The digest's prior-run snapshot (migration 0011). One row, `id` = the

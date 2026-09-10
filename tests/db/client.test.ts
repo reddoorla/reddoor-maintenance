@@ -49,6 +49,9 @@ describe("openDb", () => {
       "0012_submissions_form_type_index",
       "0013_prospect_audits_site_key",
       "0014_prospect_audits_site_key_index",
+      "0015_prospect_audits_overrides",
+      "0016_prospect_audits_edited_at",
+      "0017_prospect_audits_opened_at",
     ]);
     await db.destroy();
   });
