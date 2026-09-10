@@ -98,6 +98,13 @@ export type ProspectAuditRow = {
   created_at: string;
   status: string;
   result_json: string;
+  /** The operator's edits as stored JSON, or null when this report has never
+   *  been edited. Deliberately NOT parsed here: the JSON route will place this
+   *  string into its response body as-is, exactly as it already does with
+   *  `result_json`, so the row hands back what was validated on the way in. */
+  overrides_json: string | null;
+  edited_at: string | null;
+  opened_at: string | null;
 };
 
 export async function getProspectAuditByToken(
@@ -106,7 +113,17 @@ export async function getProspectAuditByToken(
 ): Promise<ProspectAuditRow | null> {
   const row = await db
     .selectFrom("prospect_audits")
-    .select(["id", "url", "business", "created_at", "status", "result_json"])
+    .select([
+      "id",
+      "url",
+      "business",
+      "created_at",
+      "status",
+      "result_json",
+      "overrides_json",
+      "edited_at",
+      "opened_at",
+    ])
     .where("token", "=", token)
     .executeTakeFirst();
   return row ?? null;
@@ -123,6 +140,11 @@ export type ProspectAuditListItem = {
   business: string | null;
   status: string;
   created_at: string;
+  /** Whether an operator has edited this report, and when someone last opened
+   *  it — both cheap TEXT columns, and the two facts the listing needs to show
+   *  an "edited" marker without reading `overrides_json`. */
+  edited_at: string | null;
+  opened_at: string | null;
 };
 
 /** Ceiling on `listRecentProspectAudits`' `limit`, enforced defensively (a
@@ -148,8 +170,263 @@ export async function listRecentProspectAudits(
 ): Promise<ProspectAuditListItem[]> {
   return db
     .selectFrom("prospect_audits")
-    .select(["id", "token", "url", "business", "status", "created_at"])
+    .select(["id", "token", "url", "business", "status", "created_at", "edited_at", "opened_at"])
     .orderBy("created_at", "desc")
     .limit(clampLimit(limit))
+    .execute();
+}
+
+/** One replaced string and the generated text it replaced. */
+export type Override = { original: string; text: string };
+export type OverrideMap = Record<string, Override>;
+
+/**
+ * Ceiling on one report's override map, measured on the SERIALISED JSON rather
+ * than on the entry count — one entry holding a megabyte is the case that
+ * matters, and the string is what actually gets stored and re-served.
+ *
+ * The arithmetic, not a round number: the report carries roughly 227 editable
+ * strings (the check battery alone, before fixes, claims and goal copy). An
+ * operator who replaced every one of them, at around 300 characters of
+ * `original` plus 300 of `text` each, writes on the order of 136 KB. This is
+ * about four times that worst realistic case, which leaves the honest editor
+ * unbounded in practice while still bounding a hand-crafted POST.
+ *
+ * The bound matters more here than it does for the sibling `setReportCommentary`
+ * (2 000 characters): commentary is read when a report is composed, whereas this
+ * value is served back inline on every fetch of the report, out of a metered
+ * store. 2 288 891 characters were accepted in a single write before this cap.
+ */
+export const OVERRIDES_MAX_LEN = 512_000;
+
+export type SetOverridesResult =
+  | { status: "updated"; token: string }
+  | { status: "invalid"; token: string }
+  | { status: "not-found"; token: string };
+
+/**
+ * The map that will actually be stored — a fresh `{ original, text }` pair per
+ * entry, built out of the validated strings themselves — or null for anything
+ * that is not a flat map of `{ original, text }` string pairs.
+ *
+ * Validating and BUILDING are one step deliberately, and this function returns
+ * the map rather than a type guard for that reason. Every defect this code has
+ * had was the same shape: one object was checked and a different one was handed
+ * to `JSON.stringify`. `stringify` honours a `toJSON` method, so the entry
+ * `{ original: "a", text: "b", toJSON: () => 5 }` validated as a pair and stored
+ * `{"k":5}` — bytes this function never saw, in the one place that claims to be
+ * the only gate they can be caught at. Reading each field once and keeping what
+ * was read closes the gap by construction: what is stored IS what was approved,
+ * and a getter that would answer differently on a second read has no second
+ * read. Key order comes straight from `Object.entries`, which is the order
+ * `JSON.stringify` would have used, so a round trip is stable and diffs stay
+ * legible.
+ *
+ * EXTRA KEYS ON AN ENTRY ARE DROPPED, and that is a POLICY, not something
+ * building the map here forces. A third design satisfies both halves at once:
+ * build from the validated fields AND reject any entry carrying a key other than
+ * `original` and `text`. Under it the `toJSON` gap, the double-read gap and the
+ * extra keys all close by construction exactly as they do now, and a cycle or a
+ * BigInt in a third key comes back `invalid` — because the third key is itself
+ * the rejection reason, not because `JSON.stringify` threw on it. Dropping and
+ * rejecting are therefore independent of building; the choice is DROP, and this
+ * is the argument for it rather than a consequence of the rewrite.
+ *
+ * The consumer reads `original` and `text` and nothing else — the website
+ * matches `original` against the generated string before it substitutes `text`.
+ * An entry key nobody reads is dead weight re-served on every fetch of the
+ * report out of a metered store, which is the same cost `OVERRIDES_MAX_LEN`
+ * exists to bound; so the answer to a third key is to stop storing it, not to
+ * refuse the operator's words over it. Dropping also keeps the cheap
+ * forward-compatible case working: an editor that starts sending a field this
+ * schema has not learned yet still saves what was typed.
+ *
+ * The line that drop stops at is the one this file already draws: it is the
+ * ENTRY's own keys that are dropped. An unknown TOP-LEVEL key is a whole
+ * override — operator content — and is validated like any other, never silently
+ * discarded. The `__proto__` rule below is that same distinction reaching the
+ * opposite verdict, for the same reason.
+ *
+ * The drop IS silent, and that is the cost being accepted: a map is stored that
+ * is not byte-identical to the one sent, and the caller is told `updated` all
+ * the same. It is acceptable only because what differs is always fields nobody
+ * reads — it would not be acceptable for anything a reader could miss.
+ *
+ * This runs BEFORE the read, the same order `setReportCommentary` uses, so a
+ * malformed body costs no round trip.
+ *
+ * It is also the ONLY place a malformed value can be caught. The JSON route
+ * never parses what it serves — today it returns `result_json` untouched, and
+ * once it carries overrides too it will place this string into the body the
+ * same way, for the reason its own comment gives: parsing and re-serialising
+ * there would add a failure mode between the database and the consumer for no
+ * gain. Nothing downstream will notice a non-JSON value here; it would simply
+ * break every subsequent fetch of that report. So: validate on the way in,
+ * once, and never store anything this function has not approved.
+ *
+ * "Only place" is about MALFORMEDNESS, and is not a claim that no other limit is
+ * needed. `OVERRIDES_MAX_LEN` bounds the string that gets STORED, never the
+ * request body: a POST carrying megabytes of junk in keys nobody reads is parsed
+ * in full and walked in full, and then stores 33 bytes and answers `updated`.
+ * Bounding the body is the HTTP route's job, with a body limit there — not a
+ * second check here.
+ *
+ * Both null guards are load-bearing, because `typeof null === "object"`: the
+ * outer one keeps `Object.entries(null)` from throwing, and the inner one keeps
+ * a null ENTRY from being read for `.original` — the exact input that crashed
+ * the website's own override layer during its review.
+ *
+ * The PROTOTYPE check is the one that stops this function passing vacuously.
+ * `Object.entries()` on a Map, a Set or a Date returns `[]`, so an entry walk
+ * never runs its body and approved all three: a Map stored `{}` and silently
+ * discarded every override in it, and a Date stored a bare JSON string where a
+ * map belongs — each reporting "updated" and stamping `edited_at`.
+ * Arrays fall out of the same check (`Array.prototype !== Object.prototype`), so
+ * there is no separate `Array.isArray` guard on the outer value.
+ *
+ * `Object.create(null)` IS accepted: a null-prototype object serialises exactly
+ * like `{}`, which is the only property this validator's consumer cares about,
+ * and refusing it would reject a legitimate map for a reason invisible in JSON.
+ *
+ * A CROSS-REALM plain object is rejected, though, because its prototype is the
+ * OTHER realm's `Object.prototype` and an identity comparison sees a stranger.
+ * Nothing produces one today — a route handler's `JSON.parse` builds its objects
+ * in this realm — and rejecting is the safe direction, but it would be a mystery
+ * to a future worker-thread or `vm` consumer handed a map across the boundary.
+ *
+ * A `__proto__` KEY is rejected rather than stripped. `JSON.parse` makes it an
+ * ordinary own property, and stored verbatim a consumer doing
+ * `Object.assign({}, parsed)` does get its prototype replaced — the consumer
+ * here is the website, a separate codebase, and this function's whole premise is
+ * that nothing downstream will check.
+ *
+ * It is rejected rather than stripped for the distinction above, not for any
+ * general rule against silent drops — such a rule would condemn the entry-key
+ * drop in the same breath. `__proto__` at the TOP level is a whole override, so
+ * stripping it would discard operator content and still report `updated`, on a
+ * report that quietly lost an edit. An entry key is read by nobody, so dropping
+ * one loses nothing. One rule, applied consistently, with opposite outcomes for
+ * a stated reason.
+ */
+function buildOverrideMap(v: unknown): OverrideMap | null {
+  if (v === null || typeof v !== "object") return null;
+  const proto = Object.getPrototypeOf(v) as unknown;
+  if (proto !== Object.prototype && proto !== null) return null;
+  if (Object.hasOwn(v, "__proto__")) return null;
+  const built: OverrideMap = {};
+  for (const [key, entry] of Object.entries(v as Record<string, unknown>)) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return null;
+    // One read each, and the values that were read are the values that are kept.
+    const { original, text } = entry as Partial<Override>;
+    if (typeof original !== "string" || typeof text !== "string") return null;
+    built[key] = { original, text };
+  }
+  return built;
+}
+
+/**
+ * The exact string that will be stored, or null when the input is malformed.
+ *
+ * Building and serialising are one step, inside one try, because READING the
+ * caller's object can throw on an input that is otherwise well-formed. There are
+ * three such paths through `buildOverrideMap`, and the try covers all of them:
+ *
+ *   1. `Object.entries(v)` — an enumerable getter on the map itself, or a
+ *      Proxy's `ownKeys` / `getOwnPropertyDescriptor` trap.
+ *   2. `const { original, text } = entry` — a getter on the ENTRY, which throws
+ *      after the map has been walked and before either field is validated.
+ *   3. `built[key] = { original, text }` — `built` starts as `{}`, so the
+ *      assignment walks `Object.prototype`, and a setter poisoned there under
+ *      that key name throws on the WRITE rather than on any read.
+ *
+ * `Object.getPrototypeOf(v)` and `Object.hasOwn(v, "__proto__")` are two more,
+ * both trappable on a Proxy and both ahead of the walk.
+ *
+ * `setProspectAuditOverrides` is typed to return one of three statuses, and an
+ * escaping TypeError is a fourth outcome its callers have no branch for. A value
+ * that cannot be read is malformed input, not an exceptional condition — and the
+ * caller already has a branch for malformed input.
+ *
+ * `JSON.stringify` itself can no longer throw here: it is handed a plain object
+ * of plain `{ original, text }` string pairs, which has no cycle, no BigInt and
+ * no `toJSON` to honour. That used to be the other half of this try — a circular
+ * reference or a BigInt in a valid-looking entry threw — and both are now simply
+ * dropped with the rest of the entry's extra keys. The try stays wrapped around
+ * the whole thing anyway: the day a field that is not a string is added, this
+ * still returns `invalid` rather than throwing past the return type.
+ *
+ * The size cap is measured HERE, on the CONSTRUCTED string: that is the string
+ * that gets stored and re-served, an entry count says nothing about it, and the
+ * caller's object may be arbitrarily larger than the pairs taken out of it.
+ * Which is also what it is NOT: a request-body limit. An oversized body is
+ * parsed and walked in full before 33 bytes are stored and `updated` returned,
+ * so whoever writes the HTTP route still owes it a body limit of its own.
+ */
+function serialiseOverrides(overrides: OverrideMap): string | null {
+  let json: string;
+  try {
+    const built = buildOverrideMap(overrides);
+    if (built === null) return null;
+    json = JSON.stringify(built);
+  } catch {
+    return null;
+  }
+  return json.length > OVERRIDES_MAX_LEN ? null : json;
+}
+
+/**
+ * Replace one report's override map wholesale and stamp `edited_at`.
+ *
+ * Whole-map rather than per-key: the caller always holds the complete map, and
+ * a partial write has no way to express a deletion. An empty map is legitimate
+ * and clears every override — an editor that can set but not unset traps the
+ * operator in whatever they first typed.
+ *
+ * What is stored is REBUILT from the validated strings, not the object passed
+ * in, so an entry keeps its `original` and its `text` and nothing else: any
+ * other key on it is dropped rather than written through. See
+ * `buildOverrideMap` for why that is the contract.
+ *
+ * LAST WRITE WINS, and two writers silently clobber each other: the second
+ * write replaces the first's whole map, with nothing to tell either of them it
+ * happened. That is accepted rather than overlooked — there is one operator
+ * team, and an editor is open for minutes, so the window is small and the cost
+ * of losing it is a paragraph retyped. If a second editor ever exists, the
+ * column an optimistic check would key on is `edited_at`: read it with the
+ * report, send it back with the write, refuse the write if it moved.
+ *
+ * `result_json` stays untouched. There is still no way to write it.
+ */
+export async function setProspectAuditOverrides(
+  db: Db,
+  token: string,
+  overrides: OverrideMap,
+): Promise<SetOverridesResult> {
+  const serialised = serialiseOverrides(overrides);
+  if (serialised === null) return { status: "invalid", token };
+
+  const existing = await getProspectAuditByToken(db, token);
+  if (!existing) return { status: "not-found", token };
+
+  await db
+    .updateTable("prospect_audits")
+    .set({ overrides_json: serialised, edited_at: new Date().toISOString() })
+    .where("token", "=", token)
+    .execute();
+  return { status: "updated", token };
+}
+
+/**
+ * Record that a report was opened by someone who is not editing it.
+ *
+ * Best effort by contract: the caller must not let a failure here fail the
+ * response. Knowing when a prospect last looked is useful; it is not worth
+ * turning a read route into one that can 500.
+ */
+export async function touchProspectAuditOpened(db: Db, token: string): Promise<void> {
+  await db
+    .updateTable("prospect_audits")
+    .set({ opened_at: new Date().toISOString() })
+    .where("token", "=", token)
     .execute();
 }

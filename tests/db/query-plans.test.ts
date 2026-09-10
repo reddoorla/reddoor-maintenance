@@ -572,6 +572,20 @@ function scenarios(state: { createdId: string }): Scenario[] {
       covers: ["listRecentProspectAudits"],
       run: (db) => prospectAudits.listRecentProspectAudits(db, 5),
     },
+    {
+      name: "setProspectAuditOverrides (operator edits a report)",
+      covers: ["setProspectAuditOverrides"],
+      run: async (db) => {
+        await prospectAudits.setProspectAuditOverrides(db, prospectToken, {
+          "composed:headlineFinding": { original: "a", text: "b" },
+        });
+      },
+    },
+    {
+      name: "touchProspectAuditOpened (prospect opens /r/{token})",
+      covers: ["touchProspectAuditOpened"],
+      run: (db) => prospectAudits.touchProspectAuditOpened(db, prospectToken),
+    },
   ];
 }
 

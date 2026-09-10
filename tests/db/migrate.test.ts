@@ -21,6 +21,9 @@ describe("runMigrations", () => {
       "0012_submissions_form_type_index",
       "0013_prospect_audits_site_key",
       "0014_prospect_audits_site_key_index",
+      "0015_prospect_audits_overrides",
+      "0016_prospect_audits_edited_at",
+      "0017_prospect_audits_opened_at",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -53,6 +56,9 @@ describe("runMigrations", () => {
       "0012_submissions_form_type_index",
       "0013_prospect_audits_site_key",
       "0014_prospect_audits_site_key_index",
+      "0015_prospect_audits_overrides",
+      "0016_prospect_audits_edited_at",
+      "0017_prospect_audits_opened_at",
     ]);
   });
 
@@ -89,6 +95,9 @@ describe("runMigrations", () => {
       "0012_submissions_form_type_index",
       "0013_prospect_audits_site_key",
       "0014_prospect_audits_site_key_index",
+      "0015_prospect_audits_overrides",
+      "0016_prospect_audits_edited_at",
+      "0017_prospect_audits_opened_at",
     ]);
   });
 
@@ -128,6 +137,9 @@ describe("runMigrations", () => {
       "0012_submissions_form_type_index",
       "0013_prospect_audits_site_key",
       "0014_prospect_audits_site_key_index",
+      "0015_prospect_audits_overrides",
+      "0016_prospect_audits_edited_at",
+      "0017_prospect_audits_opened_at",
     ]);
   });
 });

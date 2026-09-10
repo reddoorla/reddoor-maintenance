@@ -8,6 +8,8 @@ import {
   isValidToken,
   listRecentProspectAudits,
   MAX_RECENT_PROSPECT_AUDITS,
+  setProspectAuditOverrides,
+  touchProspectAuditOpened,
 } from "../../src/db/prospect-audits.js";
 
 /** Insert a row with an EXPLICIT created_at, bypassing createProspectAudit's
@@ -196,5 +198,56 @@ describe("listRecentProspectAudits", () => {
 
   it("returns [] against an empty table", async () => {
     expect(await listRecentProspectAudits(db, 10)).toEqual([]);
+  });
+
+  it("returns NEITHER large JSON column, on a row that has both", async () => {
+    // `overrides_json` is excluded for exactly the reason `result_json` is —
+    // large, and useless to a list, which is why the listing carries `edited_at`
+    // instead. Nothing asserted its absence, so an edit adding it to the select
+    // would have passed the whole suite. Seeded through a real write, so the
+    // column is non-null and would show up if it were ever selected.
+    const { token } = await createProspectAudit(db, {
+      url: "https://example.com",
+      business: "Example Co",
+      resultJson: '{"scores":{}}',
+    });
+    await setProspectAuditOverrides(db, token, { k: { original: "a", text: "b" } });
+
+    const rows = await listRecentProspectAudits(db, 10);
+    expect(rows).toHaveLength(1);
+    for (const row of rows) {
+      expect(Object.keys(row)).not.toContain("overrides_json");
+      expect(Object.keys(row)).not.toContain("result_json");
+    }
+  });
+
+  it("carries edited_at and opened_at back from a real write", async () => {
+    // What the declared `ProspectAuditListItem` return type already pins is
+    // WHICH columns the select has to name, so dropping one is not the
+    // regression left for a test: removing `edited_at` from the select is
+    //
+    //   error TS2322: Property 'edited_at' is missing in type '{ status:
+    //   string; url: string; id: string; created_at: string; token: string;
+    //   business: string | null; opened_at: string | null; }' but required in
+    //   type 'ProspectAuditListItem'
+    //
+    // and `pnpm build` — which vitest's global setup runs — dies in the dts
+    // build before a single test does. What the type CANNOT see is a select
+    // that still SATISFIES it while returning the wrong data, and that is what
+    // this test guards. Proven with exactly that: aliasing `business as
+    // edited_at` typechecks clean (tsc exit 0) and reds the assertion below
+    // with "expected 'Example Co' to match /^\d{4}-\d{2}-\d{2}T/".
+    const { token } = await createProspectAudit(db, {
+      url: "https://example.com",
+      business: "Example Co",
+      resultJson: "{}",
+    });
+    await setProspectAuditOverrides(db, token, { k: { original: "a", text: "b" } });
+    await touchProspectAuditOpened(db, token);
+
+    const rows = await listRecentProspectAudits(db, 10);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.edited_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(rows[0]!.opened_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });

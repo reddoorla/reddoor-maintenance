@@ -1612,3 +1612,86 @@ fourteen, and `flag` for none. A mechanism swap on this table is exactly the
 change where "the tests pass" is not the question — the question is whether the
 fleet's upgrade path still resolves, and that is a measurement against a real
 site, not a fixture.
+
+## 2026-09-10 — The prospect-report override store, and four instances of one bug (`feat/prospect-report-overrides`)
+
+Plan A's storage half: three columns on `prospect_audits`, a validator, two
+writers. The website half shipped earlier the same day and is live on staging,
+accepting both the old bare-report response and the wrapped one it will get
+when the API task lands. Nothing serves overrides yet.
+
+**The migration split, proven rather than argued.** `overrides_json`,
+`edited_at` and `opened_at` are three separate `ADD COLUMN` migrations, not one
+with three statements. `migrate.ts` runs `executeMultiple(m.sql)` in a try,
+swallows any `duplicate column name`, then records the marker unconditionally.
+Constructed against the real runner:
+
+```
+COMBINED, crash mid-run + lost marker, re-run:
+  marker recorded=true; overrides_json=true edited_at=false opened_at=false
+  → marker says applied, two columns permanently missing
+SPLIT, same crash: all three applied, all markers present → survives
+```
+
+`executeMultiple` aborts at the failing statement and prior statements persist,
+so partial application is real and there is no wrapping transaction. 0003 and
+0013 already carried this rule; the spec violated it and was corrected.
+
+**One bug, four instances, and the pattern is the finding.** Every one had the
+same shape: **validate one object, serialise a different one.**
+
+- `Object.values()` on a non-plain object returns `[]`, and `[].every()` is
+  vacuously true. `new Map([...])` returned `updated`, stored `{}`, and stamped
+  `edited_at` — the operator's whole map discarded and reported as saved. A
+  `Date` stored as a bare JSON string.
+- A circular reference or `BigInt` inside a valid entry threw a `TypeError` out
+  of a function declared to return a three-way union.
+- No size cap: 2,288,891 characters accepted in one write, on a value re-served
+  on every view of that report from a metered store. The sibling operator-write
+  path caps at 2,000.
+- `__proto__` stored verbatim; after parsing, a consumer using `Object.assign`
+  measurably gets its prototype replaced, and the consumer is a separate repo.
+
+Fixing them individually treated symptoms. The close is to build the stored map
+from the fields the validator approved, so the stored bytes are the checked
+bytes by construction. A `toJSON` on an entry had survived all four fixes and
+stored `{"k":5}` for a pair that validated as `{original,text}`.
+
+None of these is reachable from the live path — the caller is an HTTP JSON body
+and `JSON.parse` produces only plain objects. They were fixed because this
+validator's stated contract is that it is the only place a malformed value can
+be caught, and a gate that passes on questions it cannot fail is the thing this
+repo has a rule about.
+
+**Two beliefs corrected on contact, both mine.**
+
+A test comment claimed a dropped column in the listing select "would still
+typecheck and still pass". It would not: the return type pins the columns, so
+it is `TS2322` and the build dies before a test runs. The commit message that
+introduced the comment had already disproved it at length. Commit messages are
+read once and comments are read forever, so the disproved version was the one
+that would have survived. The test is still worth having, for the regression it
+actually catches: a select that satisfies the type while returning wrong data,
+proved by aliasing `business as edited_at`, which typechecks clean and reds.
+
+And dropping unknown entry keys was justified as mutually exclusive with
+rejecting unserialisable input. It is not — build-from-validated-fields plus
+reject-unknown-keys satisfies both. Drop-versus-reject is an independent policy
+choice, and recording it as a forced consequence would have hidden that a
+decision was made. Drop stands, on the distinction the file already draws: an
+unknown TOP-LEVEL key is a whole override and is operator content, while an
+entry key is read by nobody.
+
+**Accepted, and now recorded as a decision rather than an accident:**
+`setProspectAuditOverrides` replaces the map wholesale, so two concurrent
+writers silently clobber each other. Fine for one operator team; `edited_at` is
+the column an optimistic check would key on if a second editor ever exists. It
+is pinned by a test so it stops being incidental.
+
+**Not ours, and worth a separate look.**
+`tests/prospect/interaction-harness.test.ts` fails its `afterAll` browser close
+with `Hook timed out in 10000ms` under full-suite load — 14/14 pass in
+isolation, and it reproduces at HEAD with this branch's changes stashed. The
+`beforeAll` carries `60_000`; the `afterAll` has no explicit timeout. CI on
+`main` is green across the last eight runs, so this is local, on a machine that
+had 43 stray Chrome processes.

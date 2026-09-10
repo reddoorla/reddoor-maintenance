@@ -393,4 +393,29 @@ export const MIGRATIONS: Migration[] = [
         ON prospect_audits (site_key, created_at DESC);
     `,
   },
+  {
+    // Operator edits on a prospect report. One JSON blob rather than a side
+    // table: the map is always read and written whole, and no query wants a
+    // single override in isolation. Same shape of decision as `result_json`.
+    //
+    // THREE MIGRATIONS, NOT ONE. Verified against migrate.ts: it runs
+    // `executeMultiple(m.sql)` inside a try, swallows any "duplicate column
+    // name" error, then records the marker unconditionally. That recovery is
+    // sound for ONE statement. With three, a crash partway through leaves the
+    // marker unwritten; the re-run's first statement then throws duplicate,
+    // executeMultiple aborts before the later statements, the catch swallows
+    // it, and the marker IS written — leaving the remaining columns
+    // permanently missing on a migration recorded as applied. Same rule as
+    // 0003 and 0013.
+    id: "0015_prospect_audits_overrides",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN overrides_json TEXT;`,
+  },
+  {
+    id: "0016_prospect_audits_edited_at",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN edited_at TEXT;`,
+  },
+  {
+    id: "0017_prospect_audits_opened_at",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN opened_at TEXT;`,
+  },
 ];
