@@ -92,14 +92,23 @@ describe("audit-report-json — serving a report", () => {
   // concatenation precisely so the stored bytes are never parsed and
   // re-serialised, which would only add a failure mode between the database and
   // the consumer. Asserting the WHOLE body against the exact wrapper — not a
-  // `toContain` — is what keeps that property under test: a route that parsed
-  // and re-stringified would still contain the same values, and would still
-  // pass a looser check, while re-ordering keys or dropping the exact spacing
-  // of what the operator's tooling stored.
+  // `toContain` — is half of what keeps that property under test.
+  //
+  // THE FIXTURE BELOW IS DELIBERATELY NON-CANONICAL JSON, and it is a hand-
+  // written string literal rather than a `JSON.stringify(...)` call ON PURPOSE.
+  // Do not "tidy" it back. This test used to build its fixture with
+  // `JSON.stringify`, and review found that made the assertion VACUOUS: for
+  // canonical input, a route written as
+  // `JSON.stringify({ report: JSON.parse(row.result_json), ... })` emits a
+  // byte-identical body, so the test passed against exactly the implementation
+  // it exists to forbid. Two things here survive concatenation and do not
+  // survive a parse/stringify round trip — the spaces after `:` and `,`, and
+  // `1.50`, which comes back as `1.5`. That is what makes a failure possible,
+  // and a test that cannot fail on its own subject is not evidence.
   it("passes the stored JSON through byte-for-byte", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
-    const stored = JSON.stringify({ url: "https://acme.example/", nested: { deep: [1, 2, 3] } });
+    const stored = '{"url": "https://acme.example/", "score": 1.50, "nested": {"deep": [1, 2, 3]}}';
     const { token } = await createProspectAudit(db, {
       url: "https://acme.example/",
       business: "Acme Roofing",
