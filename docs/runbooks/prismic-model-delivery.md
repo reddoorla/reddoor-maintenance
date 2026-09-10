@@ -59,7 +59,7 @@ The token is sent as `Authorization: Bearer <token>` plus a `repository: <reposi
 
 ### The names come from the Prismic repository, not the repo directory
 
-The central sweep needs one `PRISMIC_TOKEN_<PRISMIC REPOSITORY NAME>` per Prismic repository, upper-snaked. Fifteen of them today. Four do not match their GitHub repo's name, and they are exactly the four a list written from repo names gets wrong:
+The central sweep needs one `PRISMIC_TOKEN_<PRISMIC REPOSITORY NAME>` per Prismic repository, upper-snaked. Sixteen of them today. Four do not match their GitHub repo's name, and they are exactly the four a list written from repo names gets wrong:
 
 | GitHub repo                  | Prismic repository   | Secret                             |
 | ---------------------------- | -------------------- | ---------------------------------- |
@@ -99,6 +99,9 @@ Two destinations, two names, both deliberate:
   `gh secret set PRISMIC_WRITE_TOKEN --repo reddoorla/<repo>` — the generic name every site's code already reads, and what the reusable workflow declares as a required secret.
 - **Central**, for the nightly fleet sweep:
   `gh secret set PRISMIC_TOKEN_<REPOSITORY NAME> --repo reddoorla/reddoor-maintenance` — per Prismic repository, from the table/command above.
+
+  **Minting is only half of it.** A central secret is read by nothing until a matching line exists in the `env:` block of [`.github/workflows/fleet-prismic-drift.yml`](../../.github/workflows/fleet-prismic-drift.yml):
+  `PRISMIC_TOKEN_<REPOSITORY NAME>: ${{ secrets.PRISMIC_TOKEN_<REPOSITORY NAME> }}`. Add it in the same change as the mint. `PRISMIC_TOKEN_29_NAVY` was minted without one and sat unread until #746. No test can see this class — nothing in CI can enumerate GitHub secrets — so this step is the only guard.
 
 Fleet mode sets `allowGenericToken: false` and refuses `PRISMIC_WRITE_TOKEN` on purpose: one generic token in an environment that iterates every repository would attach the wrong client's credential to every site after the first.
 

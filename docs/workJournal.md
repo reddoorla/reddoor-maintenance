@@ -1178,3 +1178,75 @@ hardcodes `const OUT = "matching/spec"`, and that hardcoding is exactly what
 makes a single fleet-wide ignore entry safe. If it ever becomes configurable
 this ignore silently stops matching and the 745 come back with no test to catch
 it.
+
+## 2026-09-09 — A minted secret nobody read, and the coverage it does not buy (#746, `fix/drift-sweep`)
+
+`PRISMIC_TOKEN_29_NAVY` has existed as an Actions secret on this repo and
+nothing consumed it. Found as a set difference rather than by eye — 13
+`PRISMIC_TOKEN_*` secret names against the workflow's env lines, `comm -23`
+returning exactly one member. The reverse direction has three members
+(`REDDOOR_WIREFRAMER`, `THE_POINTE`, `THE_TOWER_BURBANK`), and those are the
+file's deliberate extra width, left alone: an extra name is inert, a missing one
+is a site the operator never mints a secret for.
+
+**The belief this corrects is the issue's own.** #746 reads as "29 Navy is not
+covered by the drift sweep, because its env line is missing", and the second
+clause is false. The env line was never what grants coverage. `--fleet airtable`
+resolves only sites whose Airtable Status is `maintained`, and 29 Navy's is
+`building`. The disproof was already running in production: alamo-anatomy,
+hedloc and the-pointe-burbank each have **both** the minted secret and the env
+line, and none of the three is swept. Last night's real run (34334202327) said
+so in its own words — "9 checked, 0 failed, 4 skipped (no Prismic config), of 13
+site(s)", `FLEET_WRITE_SUMMARY wrote=13 failed=0 total=13` — and none of those
+13 is any of them. Adding the line changes nothing tonight. It removes a latent
+go-live defect: the night a Status flips, the sweep has the credential instead
+of reporting the site token-missing and writing `unknown`.
+
+So the workflow now carries a paragraph saying exactly that, in the file where
+someone will otherwise read a 16-line env block as a 16-site coverage list. That
+is this repo's own corollary rule — a field that can only observe configuration
+must not be read as the thing it cannot observe — applied to a list of names.
+
+The issue's measurement was also wrong in a way worth recording: it said the env
+block held **eleven** entries. It held fifteen, confirmed twice (by `grep -c` and
+by the test helper's own `stepEnv` parser). A count read off a file once is not a
+measurement.
+
+**Two counts moved 15 → 16 and neither is test-guarded**, in the workflow comment
+and in the runbook. They were split by date rather than folded into the old
+measurement — the first 15 were measured 2026-08-13, 29-navy was added today —
+because extending "(same measurement)" over a repo that measurement never looked
+at is how a comment becomes confidently false. They will drift again on the next
+site; guarding the count with a test, or stating it in one place instead of two,
+is the durable fix and is not in this PR.
+
+**What CI cannot do here, stated plainly.** The class is "a central
+`PRISMIC_TOKEN_*` secret is minted but no env line consumes it". It has exactly
+one member today, and no unit test can enumerate GitHub secrets, so nothing in
+the suite can catch the next one. The only guard this change adds for the class
+is a sentence in the runbook directly beneath the mint command. A scheduled check
+diffing org secrets against the env block would close it properly; that needs
+`secrets: read` and a token decision, and wants its own issue.
+
+**Honest accounting on the second test.** `keeps a digit-leading repository name
+a legal identifier` did not go red before the fix and never could — it exercises
+`prismicTokenEnvName`, which the fix does not touch. It is characterization, not
+coverage. Its mutation (`PRISMIC_TOKEN_${slug}` → `${slug}_PRISMIC_TOKEN`) reddens
+ten tests including the pre-existing 48bb12d1 one, so it isolates nothing. And its
+second assertion — the `/^[A-Za-z_][A-Za-z0-9_]*$/` identifier check — is
+strictly implied by the `toBe` above it: any value satisfying the equality also
+satisfies the regex, so it can never fail on its own. It documents intent and
+adds no failure mode. Kept for the shape, and it would be the first thing to drop
+from a leaner diff.
+
+The mutation that does carry the fix is deleting the env line, which reddens
+`carries the pre-launch repositories whose central secret is already minted` and
+nothing else. Changing the same line's _value_ to another site's secret reddens
+the pre-existing cross-wiring guard while leaving the new test green — the
+separation that proves the two measure different properties.
+
+29 Navy is still dark after this, and two operator actions stand between it and
+coverage: the Status flip (a launch decision), and its Airtable `Git repo` cell,
+which is NULL and would make the clone throw outright the first night it is
+swept. Do the `Git repo` cell first, or both together — flipping Status alone
+makes the nightly noisier, not more correct.
