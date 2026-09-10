@@ -205,7 +205,32 @@ export type SetOverridesResult =
   | { status: "not-found"; token: string };
 
 /**
- * Reject anything that is not a flat map of `{ original, text }` string pairs.
+ * The map that will actually be stored — a fresh `{ original, text }` pair per
+ * entry, built out of the validated strings themselves — or null for anything
+ * that is not a flat map of `{ original, text }` string pairs.
+ *
+ * Validating and BUILDING are one step deliberately, and this function returns
+ * the map rather than a type guard for that reason. Every defect this code has
+ * had was the same shape: one object was checked and a different one was handed
+ * to `JSON.stringify`. `stringify` honours a `toJSON` method, so the entry
+ * `{ original: "a", text: "b", toJSON: () => 5 }` validated as a pair and stored
+ * `{"k":5}` — bytes this function never saw, in the one place that claims to be
+ * the only gate they can be caught at. Reading each field once and keeping what
+ * was read closes the gap by construction: what is stored IS what was approved,
+ * and a getter that would answer differently on a second read has no second
+ * read. Key order comes straight from `Object.entries`, which is the order
+ * `JSON.stringify` would have used, so a round trip is stable and diffs stay
+ * legible.
+ *
+ * EXTRA KEYS ON AN ENTRY ARE DROPPED — stated here because "validate, then
+ * serialise the caller's object" left it undefined, and it silently stored them.
+ * Only `original` and `text` mean anything downstream (the website matches
+ * `original` against the generated string before it substitutes `text`), so a
+ * third key is at best noise re-served on every fetch of the report. Dropping
+ * rather than rejecting also keeps the cheap forward-compatible case working: an
+ * editor that starts sending a field this schema has not learned yet still saves
+ * the operator's words. It is the entry's OWN keys that are dropped; an unknown
+ * top-level key is a whole override and is validated like any other.
  *
  * This runs BEFORE the read, the same order `setReportCommentary` uses, so a
  * malformed body costs no round trip.
@@ -220,15 +245,15 @@ export type SetOverridesResult =
  * once, and never store anything this function has not approved.
  *
  * Both null guards are load-bearing, because `typeof null === "object"`: the
- * outer one keeps `Object.values(null)` from throwing, and the inner one keeps
+ * outer one keeps `Object.entries(null)` from throwing, and the inner one keeps
  * a null ENTRY from being read for `.original` — the exact input that crashed
  * the website's own override layer during its review.
  *
  * The PROTOTYPE check is the one that stops this function passing vacuously.
- * `Object.values()` on a Map, a Set or a Date returns `[]`, and `[].every(...)`
- * is true, so walking only the entries approved all three: a Map stored `{}` and
- * silently discarded every override in it, and a Date stored a bare JSON string
- * where a map belongs — each reporting "updated" and stamping `edited_at`.
+ * `Object.entries()` on a Map, a Set or a Date returns `[]`, so an entry walk
+ * never runs its body and approved all three: a Map stored `{}` and silently
+ * discarded every override in it, and a Date stored a bare JSON string where a
+ * map belongs — each reporting "updated" and stamping `edited_at`.
  * Arrays fall out of the same check (`Array.prototype !== Object.prototype`), so
  * there is no separate `Array.isArray` guard on the outer value.
  *
@@ -243,42 +268,52 @@ export type SetOverridesResult =
  * that nothing downstream will check. Stripping it silently would be a second
  * way to report success for something that was not stored.
  */
-function isOverrideMap(v: unknown): v is OverrideMap {
-  if (v === null || typeof v !== "object") return false;
+function buildOverrideMap(v: unknown): OverrideMap | null {
+  if (v === null || typeof v !== "object") return null;
   const proto = Object.getPrototypeOf(v) as unknown;
-  if (proto !== Object.prototype && proto !== null) return false;
-  if (Object.hasOwn(v, "__proto__")) return false;
-  return Object.values(v as Record<string, unknown>).every(
-    (e) =>
-      e !== null &&
-      typeof e === "object" &&
-      !Array.isArray(e) &&
-      typeof (e as Override).original === "string" &&
-      typeof (e as Override).text === "string",
-  );
+  if (proto !== Object.prototype && proto !== null) return null;
+  if (Object.hasOwn(v, "__proto__")) return null;
+  const built: OverrideMap = {};
+  for (const [key, entry] of Object.entries(v as Record<string, unknown>)) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return null;
+    // One read each, and the values that were read are the values that are kept.
+    const { original, text } = entry as Partial<Override>;
+    if (typeof original !== "string" || typeof text !== "string") return null;
+    built[key] = { original, text };
+  }
+  return built;
 }
 
 /**
  * The exact string that will be stored, or null when the input is malformed.
  *
- * Validation and serialisation are one step, inside one try, because both can
- * throw on an input that is otherwise well-formed: a circular reference or a
- * BigInt inside a valid-looking entry throws in `JSON.stringify`, and a throwing
- * getter throws in `Object.values` during validation itself. `setProspectAudit-
- * Overrides` is typed to return one of three statuses, and an escaping TypeError
- * is a fourth outcome its callers have no branch for. A value that cannot be
- * serialised is malformed input, not an exceptional condition — and the caller
- * already has a branch for malformed input.
+ * Building and serialising are one step, inside one try, because READING the
+ * caller's object can throw on an input that is otherwise well-formed: a
+ * throwing getter throws in `Object.entries`, or in the destructuring of an
+ * entry, before anything has been validated. `setProspectAuditOverrides` is
+ * typed to return one of three statuses, and an escaping TypeError is a fourth
+ * outcome its callers have no branch for. A value that cannot be read is
+ * malformed input, not an exceptional condition — and the caller already has a
+ * branch for malformed input.
  *
- * The size cap is measured HERE, on the serialised string, for the same reason:
- * the string is what gets stored and re-served, and an entry count says nothing
- * about it.
+ * `JSON.stringify` itself can no longer throw here: it is handed a plain object
+ * of plain `{ original, text }` string pairs, which has no cycle, no BigInt and
+ * no `toJSON` to honour. That used to be the other half of this try — a circular
+ * reference or a BigInt in a valid-looking entry threw — and both are now simply
+ * dropped with the rest of the entry's extra keys. The try stays wrapped around
+ * the whole thing anyway: the day a field that is not a string is added, this
+ * still returns `invalid` rather than throwing past the return type.
+ *
+ * The size cap is measured HERE, on the CONSTRUCTED string: that is the string
+ * that gets stored and re-served, an entry count says nothing about it, and the
+ * caller's object may be arbitrarily larger than the pairs taken out of it.
  */
 function serialiseOverrides(overrides: OverrideMap): string | null {
   let json: string;
   try {
-    if (!isOverrideMap(overrides)) return null;
-    json = JSON.stringify(overrides);
+    const built = buildOverrideMap(overrides);
+    if (built === null) return null;
+    json = JSON.stringify(built);
   } catch {
     return null;
   }
@@ -292,6 +327,11 @@ function serialiseOverrides(overrides: OverrideMap): string | null {
  * a partial write has no way to express a deletion. An empty map is legitimate
  * and clears every override — an editor that can set but not unset traps the
  * operator in whatever they first typed.
+ *
+ * What is stored is REBUILT from the validated strings, not the object passed
+ * in, so an entry keeps its `original` and its `text` and nothing else: any
+ * other key on it is dropped rather than written through. See
+ * `buildOverrideMap` for why that is the contract.
  *
  * LAST WRITE WINS, and two writers silently clobber each other: the second
  * write replaces the first's whole map, with nothing to tell either of them it

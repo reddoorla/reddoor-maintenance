@@ -245,29 +245,89 @@ describe("setProspectAuditOverrides — inputs that are not plain objects", () =
   });
 });
 
-describe("setProspectAuditOverrides — values that pass validation but cannot serialise", () => {
-  it("refuses a circular structure instead of throwing", async () => {
+describe("setProspectAuditOverrides — the stored map is the map that was validated", () => {
+  // Every entry here goes through the gap between "what was checked" and "what
+  // was serialised": the validator approved one object and `JSON.stringify` was
+  // handed a different one. The stored map is now BUILT from the validated
+  // strings, so the two cannot differ.
+  const PAIR = '{"k":{"original":"a","text":"b"}}';
+
+  it("does not let an entry's toJSON choose the stored bytes", async () => {
+    // `JSON.stringify` honours `toJSON`, so this pair validated and stored
+    // `{"k":5}` — bytes the validator never saw, in the one place that claims to
+    // be the only gate a malformed value can be caught at.
+    const { db, token } = await seed();
+    const res = await setProspectAuditOverrides(db, token, {
+      k: { original: "a", text: "b", toJSON: () => 5 },
+    } as unknown as OverrideMap);
+    expect(res.status).toBe("updated");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBe(PAIR);
+  });
+
+  it("drops extra keys on an entry rather than storing them", async () => {
+    const { db, token } = await seed();
+    const res = await setProspectAuditOverrides(db, token, {
+      k: { original: "a", text: "b", note: "no override means this" },
+    } as unknown as OverrideMap);
+    expect(res.status).toBe("updated");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBe(PAIR);
+  });
+
+  it("reads each field once, so a getter cannot answer differently the second time", async () => {
+    // The narrow form of the same defect: validate on read one, serialise on
+    // read two, store a number where a string was approved.
+    const { db, token } = await seed();
+    let reads = 0;
+    const entry = { text: "b" };
+    Object.defineProperty(entry, "original", {
+      enumerable: true,
+      get: () => (reads++ === 0 ? "a" : 999),
+    });
+    const res = await setProspectAuditOverrides(db, token, { k: entry } as unknown as OverrideMap);
+    expect(res.status).toBe("updated");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBe(PAIR);
+    expect(reads).toBe(1);
+  });
+
+  it("preserves key order, so a round trip is stable and a diff stays legible", async () => {
+    const { db, token } = await seed();
+    const keys = ["z", "a", "m", "b"];
+    const map: OverrideMap = {};
+    for (const k of keys) map[k] = { original: `o-${k}`, text: `t-${k}` };
+    const res = await setProspectAuditOverrides(db, token, map);
+    expect(res.status).toBe("updated");
+    const row = await getProspectAuditByToken(db, token);
+    expect(Object.keys(JSON.parse(row!.overrides_json!) as OverrideMap)).toEqual(keys);
+  });
+
+  it("drops a circular reference in an extra key instead of refusing the write", async () => {
+    // This was `invalid` while the caller's own object was serialised, because
+    // the cycle threw in `JSON.stringify`. It lives in a key that is not part of
+    // an override; the validated pair is two strings and always serialises.
     const { db, token } = await seed();
     const entry: Record<string, unknown> = { original: "a", text: "b" };
     entry.self = entry;
     const res = await setProspectAuditOverrides(db, token, { k: entry } as unknown as OverrideMap);
-    expect(res.status).toBe("invalid");
+    expect(res.status).toBe("updated");
     const row = await getProspectAuditByToken(db, token);
-    expect(row!.overrides_json).toBeNull();
-    expect(row!.edited_at).toBeNull();
+    expect(row!.overrides_json).toBe(PAIR);
   });
 
-  it("refuses a BigInt inside an otherwise-valid entry instead of throwing", async () => {
+  it("drops a BigInt in an extra key instead of refusing the write", async () => {
     const { db, token } = await seed();
     const res = await setProspectAuditOverrides(db, token, {
       k: { original: "a", text: "b", n: 1n },
     } as unknown as OverrideMap);
-    expect(res.status).toBe("invalid");
+    expect(res.status).toBe("updated");
     const row = await getProspectAuditByToken(db, token);
-    expect(row!.overrides_json).toBeNull();
-    expect(row!.edited_at).toBeNull();
+    expect(row!.overrides_json).toBe(PAIR);
   });
+});
 
+describe("setProspectAuditOverrides — inputs that throw while they are read", () => {
   it("refuses a throwing getter, whose error escapes validation itself", async () => {
     const { db, token } = await seed();
     const map = {};
@@ -312,6 +372,21 @@ describe("setProspectAuditOverrides — the size cap", () => {
     expect(res.status).toBe("updated");
     const row = await getProspectAuditByToken(db, token);
     expect(row!.overrides_json!.length).toBe(OVERRIDES_MAX_LEN);
+  });
+
+  it("measures the cap on the constructed string, not on the caller's object", async () => {
+    // Both maps above serialise identically either way, so neither says WHICH
+    // string the cap is measured on. This one does: the caller's object is over
+    // the cap and the pair that gets stored is 33 characters.
+    const { db, token } = await seed();
+    const map = {
+      k: { original: "a", text: "b", junk: "x".repeat(OVERRIDES_MAX_LEN) },
+    } as unknown as OverrideMap;
+    expect(JSON.stringify(map).length).toBeGreaterThan(OVERRIDES_MAX_LEN);
+    const res = await setProspectAuditOverrides(db, token, map);
+    expect(res.status).toBe("updated");
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.overrides_json).toBe('{"k":{"original":"a","text":"b"}}');
   });
 });
 
