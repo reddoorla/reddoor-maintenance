@@ -255,10 +255,35 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     const hasAny = artifact.totalViolations > 0;
 
     const status: AuditResult["status"] = hasSerious ? "fail" : hasAny ? "warn" : "pass";
+
+    // Count the list that actually RAN (`axePages`), never the fixture defaults.
+    //
+    // This said `a11yRoutes.length` — the two fixtures — so every site that
+    // opted in via `package.json#reddoor.a11yRoutes` was told, on the one
+    // command an operator runs to confirm the opt-in worked, that its routes
+    // had not run. The output was byte-identical to before the key existed.
+    // vida-legacy-foundation added eight real routes and read "across 2
+    // routes"; all ten had been scanned the whole time (#697).
+    //
+    // The failure mode that invites is the expensive one — conclude the key is
+    // broken, revert it, and lose exactly the coverage it exists to provide.
+    // Scanning only fixtures is how a critical `image-alt` violation shipped to
+    // five production pages on gallerysonder with CI green.
+    const siteRouteCount = axePages.length - a11yRoutes.length;
+    // Name the split only when there is one: a site with no opt-in keeps its
+    // old summary byte-for-byte, and the confirmation appears exactly where it
+    // was missing. Saying "10 routes" alone would still leave an operator
+    // counting on their fingers to check their eight arrived.
+    const scanned =
+      siteRouteCount > 0
+        ? `${axePages.length} routes (${a11yRoutes.length} fixtures + ${siteRouteCount} from package.json)`
+        : `${axePages.length} routes`;
+    // The count was missing entirely from the fail path, so a failing run could
+    // not tell you how much it had covered either.
     const summary =
       status === "pass"
-        ? `a11y: 0 violations across ${a11yRoutes.length} routes (+${smokeRoutes.length} hydration smoke)`
-        : `a11y: ${artifact.totalViolations} violations`;
+        ? `a11y: 0 violations across ${scanned} (+${smokeRoutes.length} hydration smoke)`
+        : `a11y: ${artifact.totalViolations} violations across ${scanned}`;
 
     return {
       audit: "a11y",

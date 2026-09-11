@@ -378,3 +378,78 @@ describe("audits/a11y — per-site real routes", () => {
     expect(source()).not.toContain("not-an-array");
   });
 });
+
+// The summary string (#697). The merge above was always correct and always
+// tested; what nothing asserted was the sentence the operator actually reads,
+// which counted the fixture defaults instead of the list that ran. A site that
+// opted in was told its routes had not — identical output to before the key
+// existed — on the one command used to confirm the opt-in worked. Telling "2"
+// from "2 + 0" needs a fixture whose config contributes routes, which is why no
+// existing test could have caught it.
+describe("audits/a11y — what the summary reports", () => {
+  const writePkg = (dir: string, reddoor?: unknown) =>
+    writeFile(
+      join(dir, "package.json"),
+      JSON.stringify(reddoor ? { name: "site", reddoor } : { name: "site" }),
+    );
+
+  const clean = () => playwrightSpawn({ totalViolations: 0, byImpact: {} }, 0);
+
+  it("counts the routes that ran, not the fixture defaults", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/", "/es", "/about", "/es/about"] });
+    const result = await a11yAudit({ site: { path: cwd }, spawn: clean() });
+
+    // 2 fixtures + 4 configured. Before the fix this said "across 2 routes".
+    expect(result.summary).toContain("across 6 routes");
+    expect(result.summary).not.toContain("across 2 routes");
+  });
+
+  it("names the split, so the operator can see their own routes arrived", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/", "/es", "/about", "/es/about"] });
+    const result = await a11yAudit({ site: { path: cwd }, spawn: clean() });
+    expect(result.summary).toContain("(2 fixtures + 4 from package.json)");
+  });
+
+  it("leaves a site with no opt-in reading exactly as it did", async () => {
+    // The whole fleet bar a handful is this case, and it should not churn.
+    const cwd = await tmpSite();
+    await writePkg(cwd);
+    const result = await a11yAudit({ site: { path: cwd }, spawn: clean() });
+    expect(result.summary).toBe("a11y: 0 violations across 2 routes (+1 hydration smoke)");
+  });
+
+  it("reports coverage on the fail path too, which carried no count at all", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/", "/about"] });
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 2,
+          byImpact: { critical: 2 },
+          violations: [
+            { id: "image-alt", impact: "critical", route: "/" },
+            { id: "image-alt", impact: "critical", route: "/about" },
+          ],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    // Was bare "a11y: 2 violations" — no way to tell what it had covered.
+    expect(result.summary).toBe(
+      "a11y: 2 violations across 4 routes (2 fixtures + 2 from package.json)",
+    );
+  });
+
+  it("does not claim site routes when the key is present but unusable", async () => {
+    // readSiteConfig rejects a non-array; the summary must not then advertise a
+    // split that did not happen.
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: "not-an-array" });
+    const result = await a11yAudit({ site: { path: cwd }, spawn: clean() });
+    expect(result.summary).toBe("a11y: 0 violations across 2 routes (+1 hydration smoke)");
+  });
+});
