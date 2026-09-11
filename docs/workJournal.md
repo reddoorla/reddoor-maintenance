@@ -1842,3 +1842,47 @@ scores probe actually was one until the control ran.
 Still not proven, and not provable yet: that an _edited_ line survives to the
 page and the PDF. That needs the save endpoint (task 5) to exist before there is
 any override to render. Task 10 stays open.
+
+## 2026-09-11 — Plan A task 10 closed: an operator edit reaches a live report (`96a9008`, reddoor-website#181)
+
+The last open item in the override-layer plan, blocked since the feature began
+for a structural reason: nothing could write an override until the save
+endpoint existed, so there was never anything to prove rendered. #765 shipped
+it, `PROSPECT_EDIT_TOKEN` was set on the ops app and both marketing sites, and
+the ops app redeployed at 08:02 UTC to pick it up.
+
+Measured against `reddoorla.com`, on Reddoor's own audit, reverted immediately:
+
+```text
+PRECONDITION  original is on the live page ......... true
+1. SAVE       POST /api/audit-report/:token/overrides  200 {"ok":true}
+2. API        serves the override back, editedAt set .. true
+3. PAGE       renders the edit, original gone ........ true
+3b. PRINT     renders it too, so the PDF follows ..... true
+4. REVERT     mark gone, original restored ........... true
+```
+
+Step 3b matters more than it looks: the PDF leave-behind is a headless capture
+of the print route, so proving that route renders the override is what proves
+the emailed attachment carries it. Nothing in the email path needed changing.
+
+**The first run of this proof was a green-looking nothing, and that is the part
+worth keeping.** It chose `siteChecks.data[0].why` as its subject — a key whose
+text the report does not render. So "the edited text is not on the page" was
+true, and "the original is not on the page" was also true, and the output read
+as a clean failure of the feature. Nothing was wrong except the choice of
+subject. Of 230 candidate strings in that payload only 145 are rendered at all;
+checking that the original is on screen BEFORE editing it turns the same script
+from noise into proof. Generalised: a probe that does not verify its own subject
+is observable is not measuring the thing it names, and it will fail in the
+direction that looks like a real finding.
+
+**Two operational notes.** `opened_at` on that row stayed null throughout,
+because every probe fetch carried `x-reddoor-edit-session: 1` — the skip works
+in production, and the proof cost nothing in signal. And `edited_at` is now
+stamped on Reddoor's own audit row, which is the one piece of residue the revert
+does not clear; the column has no "never edited" state to return to once a save
+has happened.
+
+Entries above this one describe plan A as complete except task 10. It is now
+complete.
