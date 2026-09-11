@@ -105,3 +105,84 @@ describe("renderProspectAuditsPageHtml", () => {
     expect(html.indexOf("First Co")).toBeLessThan(html.indexOf("Second Co"));
   });
 });
+
+describe("prospect audits list — edit state", () => {
+  // The control. It passes today, before the feature exists, which is exactly
+  // why it is not the interesting one — but it is the regression guard that
+  // stops an untouched report from growing a meaningless "Edited —" line.
+  it("says nothing about editing on an untouched report", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({ audits: [item({ edited_at: null, opened_at: null })] }),
+    );
+    expect(html).not.toContain("Edited");
+    expect(html).not.toContain("Opened");
+  });
+
+  it("shows when a report was edited and when it was last opened", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({
+        audits: [
+          item({
+            edited_at: "2026-08-25T10:00:00.000Z",
+            opened_at: "2026-08-25T11:00:00.000Z",
+          }),
+        ],
+      }),
+    );
+    expect(html).toContain("Edited");
+    expect(html).toContain("Opened");
+  });
+
+  // The whole point of the feature. There is no lock on report edits by
+  // operator ruling, so this line is what replaces one: it is the case where a
+  // further edit rewrites a document the prospect has already formed a view on.
+  it("warns when a report was opened AFTER it was edited", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({
+        audits: [
+          item({
+            edited_at: "2026-08-25T10:00:00.000Z",
+            opened_at: "2026-08-25T11:00:00.000Z",
+          }),
+        ],
+      }),
+    );
+    expect(html).toContain("read since you edited");
+  });
+
+  // The opposite order must NOT warn, or the flag means nothing. Without this
+  // the warning could be hardcoded and every test above would still pass.
+  it("does not warn when the edit came after the last open", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({
+        audits: [
+          item({
+            edited_at: "2026-08-25T11:00:00.000Z",
+            opened_at: "2026-08-25T10:00:00.000Z",
+          }),
+        ],
+      }),
+    );
+    expect(html).toContain("Edited");
+    expect(html).toContain("Opened");
+    expect(html).not.toContain("read since you edited");
+  });
+
+  it("shows an open with no edit, and does not warn", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({ audits: [item({ edited_at: null, opened_at: "2026-08-25T11:00:00.000Z" })] }),
+    );
+    expect(html).toContain("Opened");
+    expect(html).not.toContain("Edited");
+    expect(html).not.toContain("read since you edited");
+  });
+
+  it("shows an edit nobody has opened yet", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({ audits: [item({ edited_at: "2026-08-25T11:00:00.000Z", opened_at: null })] }),
+    );
+    expect(html).toContain("Edited");
+    expect(html).not.toContain("Opened");
+    expect(html).not.toContain("read since you edited");
+  });
+});
