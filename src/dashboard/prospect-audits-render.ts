@@ -70,6 +70,12 @@ h2 { font-size: 1.1rem; margin: 1.75rem 0 0.75rem; }
 .audit-business { font-weight: 700; }
 .audit-url { font-size: 0.85rem; color: #666; word-break: break-all; }
 @media (prefers-color-scheme: dark) { .audit-url { color: #999; } }
+.edit-state { font-size: 0.85rem; color: #666; margin-top: 0.2rem; }
+.edit-state-warn { color: #b3261e; font-weight: 600; }
+@media (prefers-color-scheme: dark) {
+  .edit-state { color: #999; }
+  .edit-state-warn { color: #ff9a9a; }
+}
 .audit-when { font-size: 0.8rem; color: #999; margin-left: auto; }
 .audit-row-foot { margin-top: 0.4rem; font-size: 0.85rem; }
 .pill { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-weight: 700; }
@@ -143,6 +149,38 @@ function statusPill(status: string): string {
   return `<span class="pill ${cls}">${label}</span>`;
 }
 
+/**
+ * The edit state of one report, as a line the operator can act on.
+ *
+ * There is no lock on this feature: a report stays editable after the link goes
+ * out (operator ruling, 2026-09-09). What replaces a lock is this — showing
+ * whether the prospect has already read what you are about to change.
+ *
+ * "Read since you edited" is the case worth flagging, and it is the ONLY one
+ * flagged, because it is the only one where a further edit rewrites a document
+ * somebody has already formed a view on. The reverse order is ordinary: an edit
+ * after the last open just means the current wording is still unread.
+ *
+ * Both timestamps are ISO-8601 UTC written by `new Date().toISOString()`, which
+ * is fixed-width and zero-padded, so comparing them as strings orders them
+ * correctly. Using `relativeTimeFromNow` rather than the raw date because an
+ * operator reads "2 hours ago" faster than a date they have to subtract, and
+ * the row above already speaks that way.
+ *
+ * `opened_at` is best-effort and a corporate email scanner can fetch a link, so
+ * "opened" sometimes means a machine looked. It is a signal, not proof.
+ */
+function editState(a: ProspectAuditListItem, now: Date): string {
+  if (!a.edited_at && !a.opened_at) return "";
+  const bits: string[] = [];
+  if (a.edited_at) bits.push(`Edited ${escapeHtml(relativeTimeFromNow(a.edited_at, now))}`);
+  if (a.opened_at) bits.push(`Opened ${escapeHtml(relativeTimeFromNow(a.opened_at, now))}`);
+  if (a.edited_at && a.opened_at && a.opened_at > a.edited_at) {
+    bits.push(`<strong class="edit-state-warn">read since you edited</strong>`);
+  }
+  return `<div class="edit-state">${bits.join(" · ")}</div>`;
+}
+
 /** One row of the recent-audits list. Every field originating in the row is
  *  untrusted-ish (the business name was read off a stranger's site by a
  *  model) — escaped as text, and the audited url goes through `safeUrl`
@@ -170,6 +208,7 @@ function auditRow(a: ProspectAuditListItem, now: Date): string {
       <span class="audit-when">${when}</span>
     </div>
     ${urlLine}
+    ${editState(a, now)}
     <div class="audit-row-foot">${reportLink}</div>
   </div>`;
 }

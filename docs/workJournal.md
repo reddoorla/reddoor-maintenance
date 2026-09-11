@@ -1886,3 +1886,90 @@ has happened.
 
 Entries above this one describe plan A as complete except task 10. It is now
 complete.
+
+## 2026-09-11 — The cockpit shows edited and opened, and three instruments that lied about it (plan A task 6, `feat/cockpit-edit-state`)
+
+**This entry corrects the one above it.** That entry ends "Entries above this one
+describe plan A as complete except task 10. It is now complete." That was wrong
+when it was written: task 6 had not been built, and I had said plan A was
+complete twice before catching it. Plan A is complete as of _this_ entry, not
+that one.
+
+**Why task 6 is not decoration.** The operator ruling on 2026-09-09 was that a
+report stays editable after the link goes out — no lock on send. A lock is the
+usual way a system stops you rewriting a document somebody is already reading,
+and declining one leaves the job to the operator, who can only do it if the
+cockpit tells them. `opened_at` had been recorded in production since #762 and
+nothing anywhere surfaced it. A signal collected and never shown is
+indistinguishable from a signal never collected.
+
+So each row of the recent-audits list now carries a line:
+
+```text
+Edited 2 hours ago · Opened 40 minutes ago · read since you edited
+```
+
+Relative time rather than the plan's raw date slice, because the row above it
+already speaks that way and an operator reads "2 hours ago" faster than a date
+they have to subtract.
+
+**Only one ordering is flagged, and that is the design.** The warning fires when
+the last open came _after_ the last edit, because that is the only ordering where
+a further edit rewrites a document the prospect has already formed a view on. The
+reverse is ordinary: an edit after the last open just means the current wording
+is still unread, which is the normal state of a report being prepared.
+
+The plan specified no test for the reverse ordering. Without one the warning
+could have been hardcoded and every other test would still have passed, so a test
+for it was added. Mutation 1 — flip the comparison so it always warns — reds
+exactly that one test and nothing else, which is what proves the other five were
+never carrying it. Mutation 2 — delete the call site — reds five and correctly
+leaves green the sixth, "says nothing about editing on an untouched report",
+which asserts absence.
+
+**One caveat is recorded in the code because it limits what the feature means.**
+`opened_at` is best-effort, and corporate email link scanners fetch links, so
+"opened" will sometimes mean a machine looked. That is a larger threat to the
+field's honesty than the trivially spoofable header that keeps operator previews
+out of it. It is a signal, not proof, and the cockpit should not be read as
+saying a person read anything.
+
+**Three instruments lied today and all three were mine.**
+
+The gate command deadlocked the suite for eighteen minutes:
+`pnpm vitest run 2>&1 | grep -aE "Tests  |Test Files|FAIL" | head -3`. Three
+lines matched early, `head` exited, grep took SIGPIPE, and vitest hung behind the
+closed pipe producing nothing. The three matching lines were test _names_
+containing the word FAIL — "restores the operator's branch even when the PUSH
+FAILS", "FAILS on a zero-exit refusal too — the grep does not trust the exit
+code", "a per-site mirror FAILURE flips anyFailed". A summary filter whose
+pattern also matches the corpus it is summarising is not a filter, and `head` on
+the live end of a long-running pipe converts that mistake into a hang rather than
+a wrong answer. Write the whole output to a file; read the summary from the end.
+
+Then `pnpm -C <worktree> vitest run` reported `VITEST_EXIT=1` in forty seconds.
+It had not run a test — `spawn <path> EACCES`, pnpm having taken the directory as
+the command. A red that arrives faster than the suite can possibly run is a red
+about the harness, not the code.
+
+Then `prettier --check` failed on `e2eb.local.mts`, the task-10 end-to-end probe
+left sitting untracked in the worktree. Moved to the session scratchpad, where a
+probe belongs. It reads its key from `~/.config`, so nothing secret was ever in
+the tree.
+
+**And one real defect, found by reading the diff rather than by any gate.** The
+new function landed _between_ `auditRow`'s doc comment and `auditRow` itself,
+orphaning a paragraph about token handling and `isValidToken` onto a function
+that handles no tokens. Nothing type-checks or lints the claim that a JSDoc block
+still describes the function beneath it, and an inserted function is the ordinary
+way that claim stops being true.
+
+**Still open after this.** The address-bar property — that the edit key does not
+survive in the URL — remains the one claimed-but-unverified item; the Playwright
+test exists and has never been run with credentials. Three length-leaking token
+compares are still live (`verifyFormsToken` in `src/forms/token.ts`, and
+reddoor-website's `/api/meeting-outcome`), each one line. `handlerError` returns
+`text/plain` while the save endpoint returns JSON, so a 502 hands the editor a
+`SyntaxError` instead of a message. And the save endpoint's rate limit is
+`aggregateBy: ["ip"]`, which is one shared bucket for every operator because the
+requests arrive from the marketing site's single egress.
