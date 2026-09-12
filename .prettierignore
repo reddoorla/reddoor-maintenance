@@ -12,3 +12,6 @@ tests/webflow/fixtures/
 # that version — the file would be flagged as hand-edited and left broken,
 # which is exactly the failure #751's migration exists to repair.
 scripts/match-harness-previous/
+
+# Generated analysis data for the meta-week package (machine-written, not source)
+docs/meta-week/_data/
