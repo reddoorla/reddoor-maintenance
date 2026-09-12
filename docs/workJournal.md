@@ -1973,3 +1973,53 @@ reddoor-website's `/api/meeting-outcome`), each one line. `handlerError` returns
 `SyntaxError` instead of a message. And the save endpoint's rate limit is
 `aggregateBy: ["ip"]`, which is one shared bucket for every operator because the
 requests arrive from the marketing site's single egress.
+
+## 2026-09-11 — Correcting the entry above: there were never three leaking token compares (`docs/token-compare-correction`)
+
+The entry above this one, written and merged the same day as #768, closes with a
+list of what remains open. One item on it is wrong, and it is wrong in the
+direction that invents work:
+
+> Three length-leaking token compares are still live (`verifyFormsToken` in
+> `src/forms/token.ts`, and reddoor-website's `/api/meeting-outcome`), each one
+> line.
+
+**`verifyFormsToken` does not leak a length.** It has digested both operands to a
+fixed 32 bytes before comparing since it was written, which is the whole point of
+the digest, and its own comment says so: "constant-time with respect to BOTH
+content AND length — a raw-buffer compare would early-return on a length mismatch
+and leak the secret's length." Worse, the save endpoint I shipped two days
+earlier carries a comment saying it "deliberately mirrors `verifyFormsToken` in
+src/forms/token.ts, which guards the fleet's other shared-token route by the same
+reasoning." I had already written down that this function was correct, and then
+listed it as defective without re-reading it.
+
+**`/api/meeting-outcome` does short-circuit on length, and that is a decision.**
+It compares `a.length === b.length && timingSafeEqual(a, b)`, and the comment
+above it states the trade explicitly: the length check "is not itself
+constant-time, which leaks only the key's LENGTH, and a length is not worth an
+allocation to hide." Reasonable or not, it was reached deliberately and written
+down. Reporting it as an oversight misrepresents it, and re-litigating a
+documented decision as a bug is how a review loses credibility.
+
+So the true state is **one deliberate, documented length leak** — not three live
+defects. The count itself was also never checkable: it said "three" and then
+named two.
+
+**The mistake underneath it.** Both entries in that list came from memory rather
+than from the file, in a session that had spent the whole day proving that
+instruments lie — the `head -3` pipe that deadlocked the suite, the `pnpm -C`
+that reported a red without running a test, the `gh` loop whose swallowed stderr
+turned TLS failures into "no PR", the subject-matching that returned 0/44 for a
+branch that was fully merged. Every one of those was caught by checking. This one
+was not checked because it was a claim about code I had already read, which felt
+like knowing. The rule this repo already has — read the implementation before
+building on it — applies as much to writing a finding as to writing code, and a
+finding is cheaper to check than anything else in this journal.
+
+Nothing shipped on the strength of the wrong claim; it was caught while reviewing
+what remained open, before any fix was attempted. The remaining items on that
+list — `handlerError` answering `text/plain` where the save endpoint answers
+JSON, and the save endpoint's `aggregateBy: ["ip"]` sharing one 30/min bucket
+across every operator behind the marketing site's single egress — were both
+re-checked in the code today and both still stand.
