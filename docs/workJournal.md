@@ -1973,3 +1973,182 @@ reddoor-website's `/api/meeting-outcome`), each one line. `handlerError` returns
 `SyntaxError` instead of a message. And the save endpoint's rate limit is
 `aggregateBy: ["ip"]`, which is one shared bucket for every operator because the
 requests arrive from the marketing site's single egress.
+
+## 2026-09-12 — A meta-week evidence package, and three instruments of my own that lied first (`docs/meta-week-2026-09-12`)
+
+The operator asked for two things ahead of a "meta week": a priority list for
+working _on_ the system, and a complete retrospective of recent work to hand to
+Fable so that model could spend its effort on recommendations rather than on
+searching. The scope he chose was the maximal one on every axis — seven weeks
+(2026-07-30 → 2026-09-12), all 41 checkouts including personal and non-Reddoor
+work, and all four evidence sources: git/PRs, Claude Code transcripts, Actions
+history, and Discord + Airtable.
+
+The package is `docs/meta-week/`: nine documents, 23 research files (16,533
+lines), and 2.1 MB of machine-readable aggregates in `_data/` so any figure can
+be rechecked. It was built by three fan-out workflows — 9 agents surveying the
+current system, 13 reconstructing the seven weeks, 13 generating and then
+adversarially challenging priorities — totalling 39 agents, 2,229 tool calls and
+about 8.3M subagent tokens over roughly four hours.
+
+**What is worth keeping from this is not the package. It is that three of the
+instruments I built to measure the fleet were themselves wrong, in the exact
+shape this repo's top rule describes, and each was caught only by checking it
+against something already known.**
+
+The first was a silent false green of my own making. The `gh` census script ran
+to completion, exited 0, and wrote **zero rows** — every request had failed TLS
+verification (`x509: OSStatus -26276`) because the Bash sandbox routes through an
+intercepting proxy. Exit 0 over an empty file is indistinguishable from exit 0
+over a complete one unless you look at the row count. Re-run unsandboxed it
+returned 857 PRs and 3,437 runs. A later agent independently hit the same class:
+a `gh api ... 2>/dev/null` returning empty at exit 0 on a TLS failure, which
+nearly produced a confident "no sharp PRs exist".
+
+The second changed two published conclusions. My first metrics pass reported
+**5,692 operator prompts**. It is wrong: a resumed or compacted session rewrites
+its entire prior history into a new transcript file, so the same prompt is
+counted once per resumption. Keyed on message UUID the real figure is **2,693 —
+53% of the raw count was replay**. Deduplicating by text instead would have
+over-merged genuine repeats ("continue", "yes"), which is why the UUID was the
+right key and the obvious shortcut was not. Two conclusions flipped: Tuesday
+stopped being the busiest weekday and **Thursday** became it (549 unique prompts
+vs Tuesday's 529, with Mon–Thu nearly flat at 410–549 and the real signal being a
+**Friday cliff** at 174, lighter than either weekend day); and the Aug 24–26
+"spike" deflated from 1,470 prompts to 430, which makes Sep 1–5 (702 over five
+days) an equally intense stretch. The deflation is itself the finding: **replay
+volume tracks compaction**, and compaction peaked on precisely the days that
+looked busiest — 41 events on Aug 25, 37 on Aug 19. The raw number was partly
+measuring context thrash rather than work.
+
+The third was a right count with a wrong meaning. I reported **159 commits
+existing on no remote** and called it data-loss exposure. The count was correct;
+the characterisation was not. Broken down by _which ref holds them_, most are
+stash entries and archive tags: `reddoor-maintenance`'s 39 are 12 on three
+abandoned July `blux-migrate` branches plus **28 in stash**, and
+`la-homelessness-initiative`'s 19 are a single unpushed tag,
+`archive/generalized-legacy-svelte4`. Real unpushed _branch_ work across the
+fleet is about **38 commits**, not 159. A per-repo count conflates a stash with a
+lost branch; only a per-ref count does not. Separately, `rfp-analyze`'s 24 were
+pure artifact — `--not --remotes` counts everything when a repo has no remote
+refs at all.
+
+A fourth correction came from an agent, not from me: `octagonal-led-turn-counter`
+shows zero commits against 50.9 session-hours not because the work was abandoned
+but because **the directory is not a git repository**. No `.git`, nested or
+otherwise. Three days of work on one disk with no history and no remote. It is
+the only directory under `~/Documents/GitHub` in that state, and checking for it
+also confirmed the commit census missed nothing to nesting.
+
+**Honest accounting on method.** The fan-out did not find the most important
+things; the adversarial round did. Thirteen agents across eight analytical lenses
+produced 47 candidate priorities, and the challenge stage — a refuter, an
+evidence auditor and a completeness critic — found that **all 25 research
+candidates had missed 35 open Dependabot alerts (22 HIGH)**, and that there is an
+open issue _titled_ "Meta-work week", written by the operator, deferred to this
+week, with 0 comments in 17 days, which the entire slate had walked past. The
+evidence auditor also marked **zero** candidates UNSUPPORTED while catching five
+numbers that did not reproduce. If a future session budgets this kind of work,
+the lesson is to spend proportionally less on breadth of generation and more on
+challenge: parallel generation converges on the same blind spots.
+
+Two findings justified the exercise on their own. Five GitHub secret-scanning
+alerts are **open and untriaged across five public repos**, aged 11 to 99 days —
+four distinct secrets, three Google keys and one Stripe webhook signing secret.
+`reddoor-starter` and `reddoor-starter-blux` hold the **same** key (SHA-256
+prefix `530de1c69475`) at the **same** path,
+`src/routes/dev/blux-frozen/the-pointe.html`: the blux snapshot inherited it at
+the track split, and GitHub raised the second alert on 2026-09-01, the day the
+split landed. It is a client's key, in the public template every new site clones
+from. Every working tree is clean — no tracked file at HEAD in any of the 41
+checkouts matches a Google key pattern — so the exposure is entirely historical,
+which for a public repo is exactly the exposure that deleting the file does not
+touch. The keys were deliberately **not** tested for validity: exercising a
+client's live credential is an action on their production system, and a
+referrer-restricted key fails a probe regardless, so the test would be ambiguous
+either way. Whether these keys are referrer-restricted is the one fact that
+decides urgency and it can only be read from the Google Cloud console.
+
+The structural half of that finding is worse than the alerts: **nothing is
+watching.** This sweep had to be run by hand. The fleet has instruments for
+dependency vulnerabilities, Lighthouse, form deliverability, Prismic drift and
+branch protection, and none for secret-scanning alerts — which is why the oldest
+sat open for 99 days. Secret scanning is also _disabled_ on several public repos
+including `29-navy`, `vida-legacy-foundation` and `the-pointe`, so five is a
+floor, not a count.
+
+Acted on during the session, at the operator's instruction: `Broken` `main` (19
+commits) and `welcome-to-the-flower-court` `feat/sigil-badges` (33 commits,
+~+4,962 lines) plus its `main` (2) were pushed and verified at zero unpushed
+afterwards — 54 commits secured. Tracking issues were filed in the remaining
+eleven repositories (#773 here, plus la-h#43, data-dynamiq#49, revogen#77,
+gallerysonder#100, starter#126, website#182, beachfront#60, vineyard#64,
+dlyh#65, vida#75), each listing that repo's own local-only branches, tags and
+stashes rather than a bare count.
+
+One convention note: `docs/meta-week/_data/` was added to `.prettierignore`.
+It is machine-written aggregate data, not source, and prettier reformatting a
+generated JSON file creates diff noise with no reader.
+
+Nothing was rotated, merged, or triaged. Every other observation in the package
+is read-only, and the decisions it surfaces — the leaked keys, #646's Phase 6
+deletion, `src/blux`'s purpose, promoting `reddoor-website` staging — are
+recorded in `docs/meta-week/08-second-pass.md` as questions, not actions.
+
+## 2026-09-12 (later) — The 95% collapse was an account cap, and the ceiling is bought by fan-out (`docs/meta-week-2026-09-12`)
+
+The meta-week package shipped with three questions its evidence could not
+answer, listed in `08-second-pass.md` §6. The operator answered all three the
+same day, and one of his answers was itself a question — _"is that just me
+hitting token limits?"_ — which turned out to be checkable and worth checking.
+
+**It was.** A precise pass over the raw transcripts for account-limit block
+messages found `You've hit your weekly limit · resets Aug 30 at 2am` at
+**2026-08-27 21:00** in `songbook`, and the same block again on 08-28 in
+`Broken`, where the operator bought extras for one answer. The daily record
+lines up exactly: 112 unique prompts on 08-26, 53 on the 27th, then 3 / 1 / 1
+across the 28th–30th, then **83 prompts and 79 commits across six repos on the
+31st** — the day after the reset.
+
+So the "95% collapse" that both `03-calendar.md` and `05-metrics-appendix.md`
+treat as the most repeated pattern in the seven-week window is **not a
+behavioural signal at all**. Both documents describe its shape correctly and
+speculate about its cause; both now carry a forward pointer to
+`09-operator-answers.md`, which supersedes the speculation. This is the second
+time in one day that a correctly-measured number carried a wrong meaning — the
+first was "159 commits on no remote", which per-ref turned out to be mostly
+stash and archive tags.
+
+The larger finding came out of the same pass. There are **269 genuine
+account-limit blocks in the window**, most of them rolling _session_ limits
+rather than the weekly one. Two days stand out: 2026-09-05 has the corpus's
+highest session count (357) and its highest block count (73), and on 2026-09-06
+the operator was **blocked more often than he gave instructions** — 53 blocks
+against 49 unique prompts, a ratio of 1.08.
+
+**The mechanism is measurable.** Limit blocks correlate with same-day session
+count at **r = 0.56** and with same-day operator prompts at only **r = 0.32**.
+The ceiling is being spent by concurrent subagent breadth, not by how much is
+being asked for. The blocks also arrive in simultaneous bursts across unrelated
+projects — on 2026-08-24 between 20:12 and 20:14, `reddoor-maintenance`,
+`beachfront-dentistry`, `Broken` and `reddoor-website` all took the same
+session-limit block inside two minutes. That is the same moment the operator
+wrote _"phew ok, what just happened? my system got overloaded and you didn't
+stop your agents when i asked you to"_ — a line that read as a machine-load
+complaint when it was first quoted in the package, and which the limit data now
+explains as something else entirely.
+
+Two smaller answers, both of which close ambiguities the package had to leave
+open. `/compact` is **mostly typed by the operator**, so the 288 compaction
+events measure deliberate session scoping rather than passive context
+exhaustion. And the 38% personal-project share is **deliberate and explicitly
+not a problem to solve** — "I don't need every token to go to work, I just need
+to get all my asks done… ideally if we're efficient with tokens we shouldn't be
+hitting limits." Recorded so that no future session, and no downstream model,
+proposes rationing his side projects toward client work. The constraint he named
+is efficiency under a fixed ceiling, and the r=0.56 correlation says he is right
+about where to look.
+
+All of it is in `docs/meta-week/09-operator-answers.md`, linked second in the
+README's reading order, because two of the conclusions a reader would otherwise
+draw from `03` and `05` are wrong without it.
