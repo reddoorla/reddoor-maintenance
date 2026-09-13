@@ -210,10 +210,16 @@ are subagent fan-out; the long tail is where the real work happens.
 > so the apparent peak was partly a _measurement of context thrash_ rather than
 > of work.
 
-**The crash is real regardless of basis.** Aug 24–26 carries 430 unique prompts
-and 473 commits. The four days that follow carry **58 prompts and 20 commits** —
-a 90% drop in input and 96% in output. The same shape recurs, smaller, after
-Sep 10 (146 → 44) and Sep 06→07 (49 → 33 with one repo touched).
+**The crash is real regardless of basis.**
+
+> **Superseded in part by `09-operator-answers.md`.** The cause of the
+> 2026-08-27 collapse is now known: a hard weekly account limit, blocked at
+> 21:00 and resetting Aug 30 at 2am. The shape described below is accurate;
+> the speculation about its cause is not.
+> Aug 24–26 carries 430 unique prompts
+> and 473 commits. The four days that follow carry **58 prompts and 20 commits** —
+> a 90% drop in input and 96% in output. The same shape recurs, smaller, after
+> Sep 10 (146 → 44) and Sep 06→07 (49 → 33 with one repo touched).
 
 ---
 

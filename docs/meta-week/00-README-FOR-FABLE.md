@@ -25,21 +25,23 @@ section listing what this research could not settle.
 
 ## Read in this order
 
-| #   | file                         | what it gives you                                                                                                |
-| --- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 01  | `01-fleet-current-state.md`  | How the whole system is built today — subsystems, CI, Renovate, data layer, templates, agent tooling, open loops |
-| 02  | `02-projects-mile-high.md`   | Project by project: what each repo is, what happened to it, what state it is in                                  |
-| 03  | `03-calendar.md`             | The same seven weeks day by day, plus the temporal rhythm                                                        |
-| 04  | `04-journal-beat-by-beat.md` | The deep narrative — what was attempted, what broke, what was abandoned, what beliefs were wrong                 |
-| 05  | `05-metrics-appendix.md`     | Every measured number, with its caveats                                                                          |
-| 06  | `06-priorities-system.md`    | Ranked infrastructure priorities for the meta week                                                               |
-| 07  | `07-priorities-workflow.md`  | Ranked operating-model priorities **+ open questions for you**                                                   |
-| 08  | `08-second-pass.md`          | Items that need Tucker's decision before anyone can act                                                          |
-|     | `_research/`                 | The underlying per-dimension and per-week source files, far more detailed than the summaries                     |
-|     | `_data/`                     | Machine-readable aggregates so you can check any figure                                                          |
+| #   | file                         | what it gives you                                                                                                       |
+| --- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 01  | `01-fleet-current-state.md`  | How the whole system is built today — subsystems, CI, Renovate, data layer, templates, agent tooling, open loops        |
+| 02  | `02-projects-mile-high.md`   | Project by project: what each repo is, what happened to it, what state it is in                                         |
+| 03  | `03-calendar.md`             | The same seven weeks day by day, plus the temporal rhythm                                                               |
+| 04  | `04-journal-beat-by-beat.md` | The deep narrative — what was attempted, what broke, what was abandoned, what beliefs were wrong                        |
+| 05  | `05-metrics-appendix.md`     | Every measured number, with its caveats                                                                                 |
+| 06  | `06-priorities-system.md`    | Ranked infrastructure priorities for the meta week                                                                      |
+| 07  | `07-priorities-workflow.md`  | Ranked operating-model priorities **+ open questions for you**                                                          |
+| 08  | `08-second-pass.md`          | Items that need Tucker's decision before anyone can act                                                                 |
+| 09  | `09-operator-answers.md`     | **Read this early.** The operator answered the three open questions; two conclusions you would otherwise draw are wrong |
+|     | `_research/`                 | The underlying per-dimension and per-week source files, far more detailed than the summaries                            |
+|     | `_data/`                     | Machine-readable aggregates so you can check any figure                                                                 |
 
-If you read only two: **`05`** for the shape of the facts and **`04`** for the
-texture of the work.
+If you read only three: **`09`** first — it corrects two conclusions the rest of
+the package would otherwise lead you to — then **`05`** for the shape of the
+facts and **`04`** for the texture of the work.
 
 ## Who and what you are looking at
 
@@ -92,6 +94,15 @@ period is inferred from git and is marked wherever it appears.
 - Three Discord channels hit the API's 100-message cap and are truncated.
 - Session wall-clock sums across concurrent sessions, so it is a _concurrency
   index_, not labour hours. It literally exceeds 24 h/day.
+
+**Before you read the calendar: the Aug 27-30 collapse was a hard weekly account
+limit, not behaviour.** The operator confirmed it and the transcripts show the
+block at 2026-08-27 21:00 resetting Aug 30 at 2am, matching the resumption
+exactly. `03` and `05` describe that collapse accurately but speculate about its
+cause; `09-operator-answers.md` supersedes the speculation and adds the larger
+finding behind it — 269 account-limit blocks in the window, correlating with
+concurrent subagent fan-out (r=0.56) far more than with how much the operator
+asked for (r=0.32).
 
 **One correction happened during construction, and it matters to you.** The first
 metrics pass reported 5,692 operator prompts. Resumed and compacted sessions

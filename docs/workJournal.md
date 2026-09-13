@@ -2094,3 +2094,61 @@ Nothing was rotated, merged, or triaged. Every other observation in the package
 is read-only, and the decisions it surfaces — the leaked keys, #646's Phase 6
 deletion, `src/blux`'s purpose, promoting `reddoor-website` staging — are
 recorded in `docs/meta-week/08-second-pass.md` as questions, not actions.
+
+## 2026-09-12 (later) — The 95% collapse was an account cap, and the ceiling is bought by fan-out (`docs/meta-week-2026-09-12`)
+
+The meta-week package shipped with three questions its evidence could not
+answer, listed in `08-second-pass.md` §6. The operator answered all three the
+same day, and one of his answers was itself a question — _"is that just me
+hitting token limits?"_ — which turned out to be checkable and worth checking.
+
+**It was.** A precise pass over the raw transcripts for account-limit block
+messages found `You've hit your weekly limit · resets Aug 30 at 2am` at
+**2026-08-27 21:00** in `songbook`, and the same block again on 08-28 in
+`Broken`, where the operator bought extras for one answer. The daily record
+lines up exactly: 112 unique prompts on 08-26, 53 on the 27th, then 3 / 1 / 1
+across the 28th–30th, then **83 prompts and 79 commits across six repos on the
+31st** — the day after the reset.
+
+So the "95% collapse" that both `03-calendar.md` and `05-metrics-appendix.md`
+treat as the most repeated pattern in the seven-week window is **not a
+behavioural signal at all**. Both documents describe its shape correctly and
+speculate about its cause; both now carry a forward pointer to
+`09-operator-answers.md`, which supersedes the speculation. This is the second
+time in one day that a correctly-measured number carried a wrong meaning — the
+first was "159 commits on no remote", which per-ref turned out to be mostly
+stash and archive tags.
+
+The larger finding came out of the same pass. There are **269 genuine
+account-limit blocks in the window**, most of them rolling _session_ limits
+rather than the weekly one. Two days stand out: 2026-09-05 has the corpus's
+highest session count (357) and its highest block count (73), and on 2026-09-06
+the operator was **blocked more often than he gave instructions** — 53 blocks
+against 49 unique prompts, a ratio of 1.08.
+
+**The mechanism is measurable.** Limit blocks correlate with same-day session
+count at **r = 0.56** and with same-day operator prompts at only **r = 0.32**.
+The ceiling is being spent by concurrent subagent breadth, not by how much is
+being asked for. The blocks also arrive in simultaneous bursts across unrelated
+projects — on 2026-08-24 between 20:12 and 20:14, `reddoor-maintenance`,
+`beachfront-dentistry`, `Broken` and `reddoor-website` all took the same
+session-limit block inside two minutes. That is the same moment the operator
+wrote _"phew ok, what just happened? my system got overloaded and you didn't
+stop your agents when i asked you to"_ — a line that read as a machine-load
+complaint when it was first quoted in the package, and which the limit data now
+explains as something else entirely.
+
+Two smaller answers, both of which close ambiguities the package had to leave
+open. `/compact` is **mostly typed by the operator**, so the 288 compaction
+events measure deliberate session scoping rather than passive context
+exhaustion. And the 38% personal-project share is **deliberate and explicitly
+not a problem to solve** — "I don't need every token to go to work, I just need
+to get all my asks done… ideally if we're efficient with tokens we shouldn't be
+hitting limits." Recorded so that no future session, and no downstream model,
+proposes rationing his side projects toward client work. The constraint he named
+is efficiency under a fixed ceiling, and the r=0.56 correlation says he is right
+about where to look.
+
+All of it is in `docs/meta-week/09-operator-answers.md`, linked second in the
+README's reading order, because two of the conclusions a reader would otherwise
+draw from `03` and `05` are wrong without it.

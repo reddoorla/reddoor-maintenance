@@ -534,6 +534,11 @@ operator-attended days in the window are 08-24 (09:05 → 23:59) and 09-02
 
 ### The Aug 24–26 peak and the Aug 27–30 collapse
 
+> **Superseded in part by `09-operator-answers.md`.** The cause of the
+> 2026-08-27 collapse is now known: a hard weekly account limit, blocked at
+> 21:00 and resetting Aug 30 at 2am. The shape described below is accurate;
+> the speculation about its cause is not.
+
 This is the single most legible cause-and-effect shape in the calendar, and it
 deserves its numbers stated plainly.
 
