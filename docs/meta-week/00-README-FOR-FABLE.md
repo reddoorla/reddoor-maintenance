@@ -120,6 +120,30 @@ contain client material. `_data/` holds aggregates, counts and public git/CI
 facts only. Quoted excerpts in the narrative documents were selected for
 relevance and are reproduced verbatim; there are not many, and they are short.
 
+### Ignore any path beginning `/private/tmp/claude-501/…`
+
+Six files in `_research/` cite the scratchpad directory the corpus was built in.
+**That directory is ephemeral and is almost certainly gone by the time you read
+this.** Do not try to open those paths, and do not treat their absence as a
+missing input. The committed equivalents are in `_data/`:
+
+| cited in `_research/`           | committed here        | note                                           |
+| ------------------------------- | --------------------- | ---------------------------------------------- |
+| `corpus/repos.jsonl`            | `_data/repos.jsonl`   | one row per checkout                           |
+| `corpus/commits.jsonl`          | `_data/commits.jsonl` | 2,622 commits                                  |
+| `corpus/prs.jsonl`              | `_data/prs.jsonl`     | 857 PRs                                        |
+| `corpus/runs.jsonl`             | `_data/runs.jsonl`    | 3,437 Actions runs                             |
+| `corpus/metrics.json`           | `_data/metrics.json`  | per-day and per-repo aggregates                |
+| `corpus/prompts-unique.jsonl`   | **not committed**     | use `_data/prompts-unique-summary.json`        |
+| `corpus/sessions.jsonl`         | **not committed**     | aggregates are in `_data/metrics.json`         |
+| `corpus/discord-messages.jsonl` | **not committed**     | cadence only, in `_data/discord-cadence.json`  |
+| `corpus/airtable-*.json`        | **not committed**     | row counts in `_data/airtable-row-counts.json` |
+
+The four uncommitted ones held operator prompts, session records and client
+messages. Every figure derived from them is reported in `05-metrics-appendix.md`
+with the query that produced it, so the conclusions are checkable even though the
+source rows are not republished.
+
 ## A note on scope
 
 Roughly **38% of recorded operator prompts are on personal projects**, not
