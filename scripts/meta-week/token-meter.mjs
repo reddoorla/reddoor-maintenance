@@ -9,19 +9,8 @@
 import { writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { COUNTERS, add, dimKey, emptySum, filterDates, groupBy } from "./lib/aggregate.mjs";
 import { collectEvents } from "./lib/walk.mjs";
-
-export const COUNTERS = ["in", "out", "cacheCreate", "cacheRead"];
-
-export function emptySum() {
-  return { requests: 0, in: 0, out: 0, cacheCreate: 0, cacheRead: 0 };
-}
-
-export function add(sum, ev) {
-  sum.requests += 1;
-  for (const c of COUNTERS) sum[c] += ev[c];
-  return sum;
-}
 
 function parseArgs(argv) {
   const o = {
@@ -87,6 +76,9 @@ function parseArgs(argv) {
   }
   if (!["main", "subagent", "all"].includes(o.lane))
     throw new Error(`--lane must be main|subagent|all`);
+  const DIMS = ["day", "week", "repo", "session", "lane", "model", "effort", "agent", "skill"];
+  for (const d of o.by || [])
+    if (!DIMS.includes(d)) throw new Error(`--by: unknown dimension ${d}`);
   return o;
 }
 
@@ -101,19 +93,26 @@ function printTotal(label, s) {
 async function main() {
   const o = parseArgs(process.argv.slice(2));
   const all = await collectEvents(o.root);
-  const events = o.lane === "all" ? all.usage : all.usage.filter((e) => e.lane === o.lane);
+  const laneEvents = o.lane === "all" ? all.usage : all.usage.filter((e) => e.lane === o.lane);
+  const events = filterDates(laneEvents, o.tz, o.from, o.to);
+  const dims = o.by || ["day"];
   const result = {
     root: o.root,
     tz: o.tz,
     lane: o.lane,
+    from: o.from,
+    to: o.to,
     files: all.files,
     lines: all.lines,
+    by: dims,
     total: events.reduce(add, emptySum()),
+    groups: groupBy(events, (ev) => dimKey(ev, dims, o.tz)),
   };
   process.stdout.write(
-    `files=${all.files} lines=${fmt(all.lines)} requests=${fmt(events.length)} lane=${o.lane} tz=${o.tz}\n`,
+    `files=${all.files} lines=${fmt(all.lines)} requests=${fmt(events.length)} lane=${o.lane} tz=${o.tz} by=${dims.join(",")}\n`,
   );
   process.stdout.write(["key", "requests", ...COUNTERS].join("\t") + "\n");
+  for (const g of result.groups) printTotal(g.key, g);
   printTotal("TOTAL", result.total);
   if (o.json) await writeFile(o.json, JSON.stringify(result, null, 2));
 }

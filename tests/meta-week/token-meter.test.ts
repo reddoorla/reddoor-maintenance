@@ -248,6 +248,7 @@ async function meter(args: string[]): Promise<{ out: string; json: Record<string
 }
 
 type Sum = { requests: number; in: number; out: number; cacheCreate: number; cacheRead: number };
+type Group = Sum & { key: string };
 
 describe("token-meter: totals", () => {
   it("dedupes by requestId keeping the final snapshot, ignores <synthetic> and usage-less records, and survives replay", async () => {
@@ -266,5 +267,53 @@ describe("token-meter: totals", () => {
     const sub = await meter(["--lane", "subagent"]);
     expect((main.json.total as Sum).out).toBe(83);
     expect((sub.json.total as Sum).out).toBe(7);
+  });
+});
+
+function group(json: Record<string, unknown>, key: string): Group | undefined {
+  return (json.groups as Group[]).find((g) => g.key === key);
+}
+
+describe("token-meter: dimensions", () => {
+  it("attributes repo from cwd, including worktree paths", async () => {
+    const { json } = await meter(["--by", "repo"]);
+    expect(group(json, "alpha")?.out).toBe(77);
+    expect(group(json, "beta")?.out).toBe(13);
+  });
+
+  it("buckets days in the requested timezone", async () => {
+    const utc = await meter(["--by", "day", "--tz", "UTC"]);
+    expect((utc.json.groups as Group[]).map((g) => [g.key, g.out])).toEqual([
+      ["2026-09-01", 3],
+      ["2026-09-02", 77],
+      ["2026-09-03", 6],
+      ["2026-09-04", 4],
+    ]);
+    const la = await meter(["--by", "day", "--tz", "America/Los_Angeles"]);
+    expect((la.json.groups as Group[]).map((g) => [g.key, g.out])).toEqual([
+      ["2026-09-01", 3],
+      ["2026-09-02", 77],
+      ["2026-09-03", 10],
+    ]);
+  });
+
+  it("reports ISO weeks", async () => {
+    const { json } = await meter(["--by", "week", "--tz", "UTC"]);
+    expect((json.groups as Group[]).map((g) => g.key)).toEqual(["2026-W36"]);
+  });
+
+  it("groups by lane, model, effort, agent and skill, and by two dims at once", async () => {
+    expect(group((await meter(["--by", "lane"])).json, "subagent")?.out).toBe(7);
+    expect(group((await meter(["--by", "model"])).json, "claude-sonnet-5")?.out).toBe(7);
+    expect(group((await meter(["--by", "effort"])).json, "xhigh")?.out).toBe(50);
+    expect(group((await meter(["--by", "agent"])).json, "general-purpose")?.out).toBe(7);
+    expect(group((await meter(["--by", "skill"])).json, "superpowers:brainstorming")?.out).toBe(50);
+    expect(group((await meter(["--by", "session"])).json, "sess-2")?.out).toBe(13);
+    expect(group((await meter(["--by", "repo,lane"])).json, "alpha | subagent")?.out).toBe(7);
+  });
+
+  it("filters --from/--to on local dates", async () => {
+    const { json } = await meter(["--from", "2026-09-02", "--to", "2026-09-02", "--tz", "UTC"]);
+    expect((json.total as Sum).out).toBe(77);
   });
 });
