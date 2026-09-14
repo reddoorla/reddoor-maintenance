@@ -153,6 +153,7 @@ async function sweepOutput(
     getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
     workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH() }),
     dependencyDashboard: async () => ({ present: true, blockedBranches: [], unknownSections: [] }),
+    openSecretAlerts: async () => 0,
     branchTip: async () => null,
   };
   return runProtectionAuditCommand({ org: "reddoorla" }, deps);
