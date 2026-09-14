@@ -163,6 +163,17 @@ export type GitHub = {
    *  answer, not an error: a dashboard naming a deleted branch is simply one
    *  Renovate has not rewritten yet. */
   branchTip: (repo: string, branch: string) => Promise<BranchTip | null>;
+  /** Every `renovate/*` head MERGED inside one page of the repo's closed PRs,
+   *  plus whether that page filled up. The classification (security vs
+   *  feature) is deliberately left to the caller so the verdict stays a pure,
+   *  fixture-testable function — see renovateOutcome. */
+  renovateMergeWindow: (repo: string) => Promise<RenovateMergeWindow>;
+  /** How many secret-scanning alerts are OPEN on a repo — i.e. leaked
+   *  credentials nobody has triaged. Settings say a detector runs; only this
+   *  says whether anyone read it (see secretScanningGaps). `"unavailable"` is
+   *  the token that may not read alerts (403/404 — needs `security_events`),
+   *  and callers must treat it as unverified, never as zero. */
+  openSecretAlerts: (repo: string) => Promise<number | "unavailable">;
 };
 
 export type WorkflowHealth =
@@ -175,6 +186,21 @@ export type DependencyDashboard =
  *  branch?" — see renovateBlockedGaps for why that decides whether a blocked
  *  branch is an orphan or a human's in-flight work. */
 export type BranchTip = { authorIsMachine: boolean; committedAt: string };
+
+/** One page of closed PRs is all this costs, so the window has an EDGE, and
+ *  the edge is load-bearing: `reddoor-maintenance` ships enough PRs that 100
+ *  closed ones reach back only ~12 days, while a quiet site repo's 100 reach
+ *  back ~90. `truncated` is what keeps "nothing in the window" from being read
+ *  as "never merged one" on the busy repos — the difference between a measured
+ *  drought and an unmeasured one. */
+export const RENOVATE_MERGE_WINDOW_PAGE = 100;
+
+export type RenovateMergeWindow = {
+  /** Merged `renovate/*` PRs seen in the window, newest merge first. */
+  merges: Array<{ headRef: string; mergedAt: string }>;
+  /** The page came back FULL, so older history exists that was not read. */
+  truncated: boolean;
+};
 
 /** The section headings Renovate is known to emit, normalised to lowercase.
  *  Sourced from lib/workers/repository/dependency-dashboard.ts at both live
@@ -656,6 +682,33 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
           };
         });
     },
+    async openSecretAlerts(repo) {
+      // spawn-direct: 403 (token without security_events) and 404 (scanning
+      // off, or no visibility) are ANSWERS — "I could not look" — which the
+      // caller turns into a gap. Anything else throws, so a transport failure
+      // can never arrive downstream as a zero.
+      //
+      // --paginate + counting ids rather than `--jq length`: length prints once
+      // PER PAGE, so a repo with 101 open alerts would print "100\n1" and read
+      // as 100 or NaN depending on who parsed it. Counting ids is page-shape
+      // independent.
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          "--paginate",
+          `repos/${repo}/secret-scanning/alerts?state=open&per_page=100`,
+          "--jq",
+          ".[].number",
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        if (/HTTP 40[34]/.test(r.stderr)) return "unavailable";
+        throw new Error(`openSecretAlerts(${repo}) failed: ${r.stderr.trim()}`);
+      }
+      return r.stdout.split("\n").filter((l) => l.trim().length > 0).length;
+    },
     async workflowHealth(repo, filename) {
       // spawn-direct for the workflow GET: 404 (file not registered as a
       // workflow) is an expected ANSWER, not an error. Everything else throws —
@@ -736,6 +789,26 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         date: string;
       };
       return { authorIsMachine: isMachineAuthor(raw), committedAt: raw.date };
+    },
+    async renovateMergeWindow(repo) {
+      // `sort=updated&direction=desc` is the only ordering this endpoint offers
+      // that tracks recency; merged_at + head.ref come back on the list item, so
+      // no per-PR call is needed. ONE request per repo is the whole cost.
+      const out = await gh([
+        "api",
+        `repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=${RENOVATE_MERGE_WINDOW_PAGE}`,
+      ]);
+      const arr = JSON.parse(out) as Array<{
+        merged_at: string | null;
+        head?: { ref?: string };
+      }>;
+      const merges = arr
+        .filter((p) => p.merged_at !== null && (p.head?.ref ?? "").startsWith("renovate/"))
+        .map((p) => ({ headRef: p.head!.ref!, mergedAt: p.merged_at as string }))
+        // ISO8601 UTC strings sort lexicographically; `updated` order is not
+        // merge order, so sort explicitly rather than trusting the page.
+        .sort((a, b) => b.mergedAt.localeCompare(a.mergedAt));
+      return { merges, truncated: arr.length >= RENOVATE_MERGE_WINDOW_PAGE };
     },
   };
 }

@@ -2153,6 +2153,164 @@ All of it is in `docs/meta-week/09-operator-answers.md`, linked second in the
 README's reading order, because two of the conclusions a reader would otherwise
 draw from `03` and `05` are wrong without it.
 
+## 2026-09-14 — The alarm channel could not see past row 30, and had already lost one (S2, `bddc16c`/`64e31cb`/`0bfd15d`)
+
+Meta-week item S2. Every nightly in this repo files one deduped tracking issue
+and closes it on recovery, and both halves found that issue with a bare
+`gh issue list --state open`. That is a **30-row page**. 24 call sites across 9
+workflows, none with a `--limit`, against **61 open issues** in the repo today.
+
+It had already fired, and the dates are exact. #652 "Fleet protection coverage
+gap" was filed 2026-09-01 and commented daily to 09-09. On **2026-09-10** the
+dedupe query came back empty, and the sweep filed **#754** under a byte-identical
+title. The close loop reads the same truncated page, so from that morning #652
+was unreachable by both halves and could never be closed by the machine. Still
+reproducible before the fix: the plain query returned `754`, the same query with
+`--limit 200` returned `754` and `652`.
+
+The hazard was not unknown here. `src/github/gh.ts:635` already carries
+_"the default page of 30 is exactly the trap that produced the 2026-07-31 false
+'queue is empty'"_ — written in code, applied nowhere else. A lesson that lives
+in one file's comment is a lesson the next file does not get.
+
+**The belief that turned out false, and it is the interesting part of this
+entry.** Going in, the framing was "#652 is a duplicate of #754" — same title,
+same alarm, close it as a dupe. It is not. #652's body names
+`reddoorla/reddoor-starter-blux`; #754's names `vida-legacy-foundation` and
+`29-navy`. Disjoint. The reason is a second defect nobody had written down: the
+open/update half comments the **current** gap set onto whatever issue it finds,
+and never touches the body. So an issue's body is a snapshot of the night it was
+filed and is wrong by the following evening — #652's last comment, on 09-09,
+already named `.github`, `vida-legacy-foundation` and `29-navy`, none of which
+appears in its body.
+
+That turns the obvious fix into a trap. Bounding the query alone would have let
+the next clean sweep find both issues by title and close both with an automated
+"Recovered" — retiring one issue's finding on another issue's evidence. A
+truncation bug traded for a false green, which is strictly the worse of the two.
+So the close loop now parses the repos an issue's own body listed as `GAP` and
+closes it only when every one of them appears as `COVERED` in that run's output.
+`SKIPPED` does not count: a repo gone private, archived or deleted is one the
+sweep did not verify, and "I could not check X" must not read as "X is fine".
+
+#652 was closed by hand first, before any of this shipped, with a note saying
+what healed it — `reddoor-starter-blux` now reports secret scanning and push
+protection `enabled` and its renovate workflow has succeeded on all of its last
+five runs, most recently `2026-09-14T03:29:32Z`.
+
+**On `--limit 200`, honestly.** It is the weaker half of the fix and it is a
+bound the backlog can outgrow, exactly as 30 was. At 20–35 issues opened a week
+it buys months. The half that actually stops the query degrading is the
+server-side `--search "in:title \"$title\""`, now on all 24 sites: its page size
+is a function of how many issues share the title — two, at the worst moment this
+has ever seen — rather than of how many issues exist. The limit is there only
+because the search result is itself a 30-row default page. Anyone who finds this
+bug back should look at the limit first. The tradeoff accepted: `--search` goes
+through GitHub's search index, which is eventually consistent where a plain list
+is not, and a rare false-empty would file one duplicate that the next night
+deduplicates — against a current failure that is deterministic and permanent.
+
+**The test, and why its order is the substance.** No assertion over the workflow
+source can express this defect: `--limit` appearing in the text is not the claim
+"the query finds an issue at row 35". So `tests/build/tracking-issue-query.test.ts`
+extracts each step's `run:` block and executes it against a stubbed `gh` holding
+40 open issues. Run against the exact text on `origin/main`, the title at
+position 2 **passed** and the same corpus with the title at position 35 **failed**
+with `STUB_CREATE Fleet protection coverage gap` where `commented on existing
+#935` was expected — that is #754 being born, reproduced in a test. The position-2
+control is written first on purpose and is the only reason the position-35 red is
+worth anything.
+
+Two things the test does that are worth copying. The sweep output it feeds the
+close step is produced by a real `runProtectionAuditCommand` run rather than
+hand-typed, so a drift in the audit's `COVERED <repo> — …` line format fails this
+file instead of silently un-arming the workflow's grep. And `--jq` in the stub is
+handed to the real `jq`, so the workflow's own jq expression is under test rather
+than approximated.
+
+One small production change came out of making this testable: fleet-security's
+sweep output moved from a hard-coded `/tmp/protection.out` to
+`${RUNNER_TEMP:-/tmp}/protection.out` — the idiom fleet-db-backup,
+fleet-prismic-drift, fleet-smoke and report-rerender already use. Identical on a
+runner; off one it stops two runs sharing a path.
+
+Not done, and deliberately: the other eight workflows' steps are bounded but not
+executed in a test — only fleet-security's pair is. They are byte-identical in
+shape, and a cheap comment-stripped sweep over all nine asserts every one of the
+24 sites still carries both a bound and a title search, so they cannot regress
+behind the two that are executed. Also untouched: the stale-body defect itself.
+The open/update half still never rewrites the body it commented past, so an
+issue's body remains a snapshot of the night it was filed. The close gate now
+copes with that rather than fixing it.
+
+## 2026-09-14 — fleet-form-e2e cannot go green having probed nothing; release-health closes only on a positive marker (S5, `fix/form-e2e-zero-write-gate`)
+
+Meta-week item S5, both halves: the one fleet nightly with no zero-write check
+and no gate test, and a 20-minute rider on release-health's close side.
+
+**The zero-write hole was narrower than the survey said, and that matters.**
+S5's claim is that `fleet-form-e2e` had no `wrote=0` check while
+`fleet-lighthouse.yml:106` has carried one for months. True. But the obvious
+fixture — `wrote=0 failed=13 total=13` — already reds today, through the
+pre-existing >25% mass-flake gate at `:122`, because `formatFleetWriteSummary`
+computes `total = wrote + failed`, so `wrote=0` forces `failed=total` and
+`failed * 4 > total` fires for every total above zero. The single shape that
+slips through is `total=0`: a sweep that attempted nothing at all reads as
+`0 > 0`, false, and reports success. Writing the case the survey implied would
+have produced a test that passed before the fix and proved nothing. The gate
+test now carries both shapes, and the second one asserts on the MESSAGE rather
+than the exit code — today's red points the reader at a per-site flake when the
+cause is total write-back failure.
+
+**The coverage half is the more valuable one.** A site whose `/health` does not
+declare `forms.testMode` self-skips — deliberately, since probing it would post
+a real lead into a client inbox — and a self-skip is written back like any other
+row. So "13 probed and green" and "13 refused to probe" produce a byte-identical
+`FLEET_WRITE_SUMMARY`, and the nightly could not tell six from zero. It now
+prints `FLEET_FORM_E2E skipped=N total=T` on every run, zero included, on the
+same contract as `FLEET_SMOKE_UNMEASURED` and for the same reason: a marker that
+only appears when non-zero cannot distinguish "nobody self-skipped" from "the
+counter stopped matching the audit's wording". Shipped as a warning and not a
+threshold — 5 of 13 maintained sites are uncovered, so a threshold reds the
+nightly tonight and every night until five client deploys land, and that is how
+an alarm gets trained out of existence. The rollout is #779.
+
+The 6/7 split reproduced exactly: `grep -c testMode src/routes/health/+server.ts`
+across the 13 maintained checkouts gives 2 matching lines on
+beachfront-dentistry, reddoor-website, medical-solutions-of-texas, espada,
+vineyard-custom-homes and 1836dig, and 0 on gallerysonder, revogen,
+erp-industrial, data-dynamiq, la-homelessness-initiative, caltex-landing and
+la-homelessness-youth — the last two being the accepted formless cases.
+
+**release-health could close an alarm on nothing.** Guard 2 sets `red=no` on two
+unrelated findings — "the newest decisive run was green" and "there was no
+decisive run to judge" — and the filing side is right to conflate them (a broken
+query must not masquerade as a broken pipeline). The close side is gated on the
+same flag, so an empty query would close "Release workflow is failing on main"
+with "green on main again" while releases stayed blocked. Driving the real check
+step with an empty API response and feeding its state to the real close step
+produced `CLOSED 42 / closed #42` against the untouched workflow. Both check
+steps now write a positive marker for what they observed and both close steps
+refuse without one — `fleet-security.yml:237`'s idiom, whose comment already
+said it: "Step outcome alone is not proof." Guard 1 got the same treatment: its
+close is gated on `behind != 'yes'`, which an unset output also satisfies.
+
+Two things worth copying from the harness. `fleet-form-e2e`'s coverage fixture
+is built from `FORM_E2E_TESTMODE_UNDECLARED_SUMMARY`, hoisted out of the audit's
+return statement, so rewording the skip goes red here instead of silently
+reporting `skipped=0` for a fleet nobody probed. And the release-health harness
+has to expand `${{ … }}` the way Actions does before bash sees a block —
+`${{` is an invalid parameter expansion, so guard 2's query cannot be executed
+at all otherwise — with unknown expressions throwing rather than expanding to
+`""`, which would quietly turn a real comparison into one against the empty
+string.
+
+Both workflows' scratch files moved off hard-coded `/tmp` paths to
+`${RUNNER_TEMP:-/tmp}`, matching fleet-smoke and fleet-security. Identical on a
+runner; off one it stops two runs sharing a path — and on this machine the
+sandbox denies `/tmp` writes outright, so the harness could not have run the
+step at all without it.
+
 ## 2026-09-14 — Meta week, Monday: a token meter, a census with two refuter rounds, five Lane 2 merges (#777, #780, #781, #784, #785), and the recommendations for approval (PR #778, #787)
 
 The week's charter was agreed in the first hour and written as

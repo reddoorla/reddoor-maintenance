@@ -389,6 +389,13 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.getSiteBySlug(db, "acme-gallery"),
     },
     {
+      // #645: the probe `ensure-site` uses to decide whether a site that exists
+      // in Airtable is missing from Turso. PK lookup — it must stay one.
+      name: "siteRowExists (ensure-site heal probe)",
+      covers: ["siteRowExists"],
+      run: (db) => fleetState.siteRowExists(db, "recA"),
+    },
+    {
       name: "getSiteById (approve-report lookup)",
       covers: ["getSiteById"],
       run: (db) => fleetState.getSiteById(db, "recA"),
@@ -534,6 +541,13 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "listUnreplayedDeadLetters",
       covers: ["listUnreplayedDeadLetters"],
       run: (db) => deadletter.listUnreplayedDeadLetters(db),
+    },
+    {
+      // #645: the dropped-lead alarm's input. It runs on a DASHBOARD request, so
+      // its plan matters — and it must never carry lead payloads across.
+      name: "countUnreplayedDeadLettersBySlug (deadletter attention alarm)",
+      covers: ["countUnreplayedDeadLettersBySlug"],
+      run: (db) => deadletter.countUnreplayedDeadLettersBySlug(db),
     },
     {
       name: "markDeadLetterReplayed",

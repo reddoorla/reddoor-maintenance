@@ -95,6 +95,8 @@ git commit -m "docs(starter-split): record the Blux snapshot SHA"
 
 ### Task 2: Bootstrap commit on the Blux repo
 
+> Superseded in part by CLAUDE.md "Two starter templates" — cherry-pick, never merge starter/main.
+
 **Files:**
 
 - Modify: `/Users/tuckerlemos/Documents/GitHub/reddoor-starter-blux/package.json:2`
@@ -1489,6 +1491,8 @@ Expected: the conflicting-file list is confined to the files this plan rewrote (
 ## Leg C — Repointing and the `new-site` skill
 
 ### Task 12: Maintenance repointing (same branch as the spec/plan)
+
+> Superseded in part by CLAUDE.md "Two starter templates" — cherry-pick, never merge starter/main.
 
 **Files** (all under `/Users/tuckerlemos/Documents/GitHub/reddoor-maintenance/.worktrees/starter-split`):
 

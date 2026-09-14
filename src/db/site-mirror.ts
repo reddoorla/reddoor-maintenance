@@ -19,7 +19,12 @@
  *  REPORTS, so a missing SITE_MIRROR line means the wiring is gone.
  */
 import { openDb, readDbConfig, type Db } from "./client.js";
-import { mirrorHealthFields, mirrorSiteFields, mirrorSiteInsert } from "./fleet-state.js";
+import {
+  mirrorHealthFields,
+  mirrorSiteFields,
+  mirrorSiteInsert,
+  siteRowExists,
+} from "./fleet-state.js";
 import { TURSO_IS_AUTHORITATIVE } from "./freeze.js";
 
 /** Two ops because the Websites row is split across two Turso tables. Callers
@@ -35,6 +40,13 @@ export type SiteMirror = {
   health: (siteId: string, fields: Record<string, unknown>) => Promise<void>;
   /** Columns that live in `sites`. */
   site: (siteId: string, fields: Record<string, unknown>) => Promise<void>;
+  /** #645. Does Turso hold a row for this site id? A pure READ, so it is the one
+   *  op here that neither logs a SITE_MIRROR line nor throws under the freeze —
+   *  `ensure-site` uses it to decide whether to heal, and a probe that threw
+   *  would sink the very command that repairs the gap. Creds-absent answers
+   *  `true` ("assume present"), so a mirror that cannot read can never provoke
+   *  a blind insert. */
+  hasRow: (siteId: string) => Promise<boolean>;
 };
 
 /** Build the one-off writers' mirror. Never throws and never returns null:
@@ -98,5 +110,18 @@ export async function makeSiteMirror(
       }),
     health: (siteId, fields) => run(siteId, "health", (d) => mirrorHealthFields(d, siteId, fields)),
     site: (siteId, fields) => run(siteId, "site", (d) => mirrorSiteFields(d, siteId, fields)),
+    // Deliberately NOT routed through `run`: that helper logs a mirrored= line
+    // and, under strict, throws on anything but a clean write — both wrong for a
+    // read whose whole job is to answer a question. A failed probe answers
+    // "present" so the caller heals nothing it cannot see.
+    hasRow: async (siteId) => {
+      if (!db) return true;
+      try {
+        return await siteRowExists(db, siteId);
+      } catch (e) {
+        console.log(`SITE_MIRROR site=${siteId} op=hasRow unknown error=${(e as Error).message}`);
+        return true;
+      }
+    },
   };
 }

@@ -47,3 +47,38 @@ export function makeSiteLookup(
     return deps.fromAirtable(slug);
   };
 }
+
+/**
+ * #645. The same lookup, with the Airtable client built LAZILY inside the
+ * fallback — the shape both real callers need, in one place so they cannot
+ * drift.
+ *
+ * Laziness is load-bearing, not tidiness. `readAirtableConfig()` THROWS when the
+ * PAT is unset, so constructing the base eagerly puts the whole Airtable layer
+ * in front of a path that (under the freeze) never consults it. `form-ingest.mts`
+ * learned this the expensive way — an eager base is what put Airtable in front of
+ * every lead. `db replay-deadletters` had the same bug with a worse blast radius:
+ * it opened the base at the top of the branch, so a missing Airtable credential
+ * refused the recovery of leads that were already captured and waiting.
+ *
+ * Generic in the base type so this module stays the leaf it is — it imports no
+ * Airtable client, only `WebsiteRow`.
+ */
+export function makeLazySiteLookup<TBase>(
+  deps: {
+    fromDb: (slug: string) => Promise<WebsiteRow | null>;
+    /** Constructs the Airtable base. Called ONLY from inside the fallback, and
+     *  therefore never at all while `strict` is on. */
+    openAirtable: () => TBase;
+    fromAirtable: (base: TBase, slug: string) => Promise<WebsiteRow | null>;
+  },
+  strict: boolean = TURSO_IS_AUTHORITATIVE,
+): (slug: string) => Promise<WebsiteRow | null> {
+  return makeSiteLookup(
+    {
+      fromDb: deps.fromDb,
+      fromAirtable: (slug) => deps.fromAirtable(deps.openAirtable(), slug),
+    },
+    strict,
+  );
+}

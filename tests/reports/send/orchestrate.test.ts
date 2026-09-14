@@ -768,6 +768,7 @@ describe("sendApprovedReports", () => {
       resend: client,
       siteMirror: {
         created: async () => {},
+        hasRow: async () => true,
         health: async () => {},
         site: async (id, fields) => {
           mirrored.push({ id, fields });
@@ -951,6 +952,7 @@ describe("sendApprovedReports", () => {
       resend: client,
       siteMirror: {
         created: async () => {},
+        hasRow: async () => true,
         health: async () => {},
         site: async (id) => {
           mirrored.push(id);

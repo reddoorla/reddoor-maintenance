@@ -233,7 +233,8 @@ jobs:
           title="Nightly Prismic model drift sweep failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body=$(printf 'The nightly **fleet-prismic-drift** sweep failed, so the fleet has NO fresh model verdict tonight.\n\nThis is an outage in the check, not model drift — drift is written to each site row and never reds this run. Likely causes: a majority of repos unreadable, two repos claiming one Prismic repository, two repositories deriving one token secret, an inventory that resolved no sites, or an Airtable write-back that could not open.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
-          existing=$(gh issue list --state open --json number,title \
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
@@ -248,7 +249,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Nightly Prismic model drift sweep failing"
-          for n in $(gh issue list --state open --json number,title \
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
             gh issue close "$n" --comment "Recovered — the nightly Prismic model drift sweep is green again." && echo "closed #$n"
           done

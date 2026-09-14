@@ -1,5 +1,7 @@
 import {
   collectProtectionCoverage,
+  renovateOutcomeLine,
+  renovateOutcomeSummary,
   type ProtectionCoverageDeps,
 } from "../../audits/protection-coverage.js";
 import { makeGitHub } from "../../github/gh.js";
@@ -40,6 +42,18 @@ export async function runProtectionAuditCommand(
   const skipped = rows.filter((r) => r.status === "skipped");
 
   const lines = rows.map((r) => `${r.status.toUpperCase().padEnd(7)} ${r.repo} — ${r.detail}`);
+
+  // The outcome metric rides in its OWN line prefixes and its OWN summary line.
+  // The nightly workflow greps `^GAP` for the issue body, `^COVERED` for the
+  // close list, and `PROTECTION_AUDIT gaps=0 ` to decide a clean sweep — none
+  // of which these lines match, so the tracking-issue plumbing is untouched by
+  // construction rather than by promise.
+  const measured = rows.map((r) => r.renovateOutcome).filter((o) => o !== undefined);
+  for (const r of rows) {
+    const line = r.renovateOutcome && renovateOutcomeLine(r.renovateOutcome);
+    if (line) lines.push(`WARN    ${r.repo} — ${line}`);
+  }
+  lines.push(renovateOutcomeSummary(measured));
   lines.push(
     `PROTECTION_AUDIT gaps=${gaps.length} covered=${covered.length} skipped=${skipped.length} total=${rows.length}`,
   );

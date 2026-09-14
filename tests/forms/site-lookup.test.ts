@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { makeSiteLookup } from "../../src/forms/site-lookup.js";
+import { makeSiteLookup, makeLazySiteLookup } from "../../src/forms/site-lookup.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const SITE = makeWebsiteRow({ id: "recA", name: "Acme" });
@@ -76,5 +76,68 @@ describe("makeSiteLookup — frozen", () => {
     const lookup = makeSiteLookup({ fromDb: async () => SITE, fromAirtable }, true);
     expect(await lookup("acme")).toBe(SITE);
     expect(fromAirtable).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #645 item 3. `db replay-deadletters` resolved its sites against the FROZEN
+ * Airtable while the live ingest path resolved against Turso — the recovery tool
+ * and the thing it recovers disagreed about what the fleet is. Post-#643 that is
+ * backwards in both directions: a site created since the freeze is invisible to
+ * the replay, and a row Airtable still holds and Turso does not would attach a
+ * recovered lead to a site the system no longer believes in.
+ *
+ * Both callers now build the lookup HERE, so they cannot drift. Laziness is the
+ * other half of the fix and it is load-bearing, not tidiness: `readAirtableConfig()`
+ * THROWS when the PAT is unset, and the CLI called it at the top of the replay
+ * branch — so a replay that (post-freeze) never consults Airtable was still
+ * refused outright by a missing Airtable credential, with real client leads
+ * sitting in the queue.
+ */
+describe("makeLazySiteLookup (#645)", () => {
+  const row = makeWebsiteRow({ id: "recSITE" });
+
+  it("answers from Turso and never opens Airtable", async () => {
+    const openAirtable = vi.fn(() => ({}) as object);
+    const lookup = makeLazySiteLookup(
+      {
+        fromDb: async () => row,
+        openAirtable,
+        fromAirtable: async () => null,
+      },
+      false,
+    );
+
+    await expect(lookup("acme")).resolves.toBe(row);
+    expect(openAirtable).not.toHaveBeenCalled();
+  });
+
+  it("under the freeze, a Turso miss opens NOTHING — not even to be told null", async () => {
+    // The whole 08-17 outage class: the Airtable layer must not sit in front of
+    // a lead, or in front of a lead's recovery.
+    const openAirtable = vi.fn(() => {
+      throw new Error("AIRTABLE_PAT is not set");
+    });
+    const lookup = makeLazySiteLookup(
+      { fromDb: async () => null, openAirtable, fromAirtable: async () => row },
+      true,
+    );
+
+    await expect(lookup("acme")).resolves.toBeNull();
+    expect(openAirtable).not.toHaveBeenCalled();
+  });
+
+  it("opens Airtable lazily, once, only on the unfrozen fallback", async () => {
+    const base = { tag: "base" };
+    const openAirtable = vi.fn(() => base);
+    const fromAirtable = vi.fn(async () => row);
+    const lookup = makeLazySiteLookup(
+      { fromDb: async () => null, openAirtable, fromAirtable },
+      false,
+    );
+
+    await expect(lookup("acme")).resolves.toBe(row);
+    expect(openAirtable).toHaveBeenCalledTimes(1);
+    expect(fromAirtable).toHaveBeenCalledWith(base, "acme");
   });
 });
