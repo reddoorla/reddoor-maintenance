@@ -153,6 +153,7 @@ describe("recipes/launch", () => {
       ...deps(base),
       siteMirror: {
         created: async () => {},
+        hasRow: async () => true,
         health: async (id: string, fields: Record<string, unknown>) => {
           mirrored.push({ id, fields });
         },

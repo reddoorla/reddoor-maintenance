@@ -100,7 +100,11 @@ export type IngestDeps = {
 export type IngestResult =
   | { status: "accepted"; submissionId: string; notifyStatus: NotifyStatus | "deferred" }
   | { status: "rejected"; reason: "invalid-payload"; errors: string[] }
-  | { status: "unknown-site"; slug: string };
+  /** #645. `deadLetterId` is present whenever the lead was captured on its way
+   *  out — i.e. `deadLetter` was wired and the payload was not a testMode probe.
+   *  The STATUS is unchanged on purpose: the handler still answers 404, so the
+   *  sending site still learns its slug does not resolve. */
+  | { status: "unknown-site"; slug: string; deadLetterId?: string };
 
 export type ScreenOutDeps = {
   getWebsiteBySlug: (slug: string) => Promise<WebsiteRow | null>;
@@ -168,31 +172,63 @@ export async function ingestSubmission(
   // the lookup recovers, producing a normal row with real classification+notify.
   //
   // Three deliberate boundaries:
-  // - A lookup that RESOLVES to null is still `unknown-site` — the store answered,
-  //   and a junk slug is a rejection, not a lead to save.
   // - A testMode probe rethrows: it persists nothing by design, so there is
   //   nothing to save, and swallowing the outage would green the form-e2e audit
   //   precisely when central ingest is degraded.
   // - `deadLetter` itself throwing propagates: both stores are down, and the 502
   //   is honest — there is nowhere left to put the lead.
-  let site: WebsiteRow | null;
-  try {
-    site = await deps.getWebsiteBySlug(slug);
-  } catch (err) {
-    if (!deps.deadLetter || isTestMode(rawPayload)) throw err;
+  // - `deadLetter` absent → unchanged behaviour for every caller that never
+  //   wired it.
+  //
+  // #645: the ONE writer, used by both ways a lookup can fail to place a lead.
+  // Returns null when there is nothing to capture (no writer, or a probe).
+  const captureDeadLetter = async (error: string): Promise<string | null> => {
+    if (!deps.deadLetter || isTestMode(rawPayload)) return null;
     const dl = await deps.deadLetter({
       siteSlug: slug,
       payload: rawPayload,
       turnstile: verification,
-      error: String(err),
+      error,
       receivedAt: deps.now(),
     });
-    console.error(
-      `[ingest] site lookup failed for '${slug}' — lead dead-lettered as ${dl.id}: ${String(err)}`,
-    );
-    return { status: "accepted", submissionId: dl.id, notifyStatus: "skipped" };
+    console.error(`[ingest] lead for '${slug}' dead-lettered as ${dl.id}: ${error}`);
+    return dl.id;
+  };
+
+  let site: WebsiteRow | null;
+  try {
+    site = await deps.getWebsiteBySlug(slug);
+  } catch (err) {
+    const id = await captureDeadLetter(String(err));
+    if (id === null) throw err;
+    return { status: "accepted", submissionId: id, notifyStatus: "skipped" };
   }
-  if (!site) return { status: "unknown-site", slug };
+  // #645. A lookup that RESOLVES to null used to return empty-handed — no row,
+  // no alarm, no way back. The comment that justified it ("a junk slug is a
+  // rejection, not a lead to save") predates the flip, and two facts retire it:
+  //
+  //  1. `/api/forms/:slug` is TOKEN-GATED before this function runs, so the
+  //     slugs that reach here belong to fleet sites, not to bots guessing.
+  //  2. Post-#643 the lookup reads Turso only, so a real client site whose Turso
+  //     row is missing — a half-finished `ensure-site`, a deleted row, Phase 6 —
+  //     is indistinguishable here from a typo, and dropping it loses a paying
+  //     client's lead permanently and silently. It is the only failure in the
+  //     fleet that does that.
+  //
+  // The STATUS stays `unknown-site`, so the handler still answers 404 and the
+  // sending site still learns its slug does not resolve. What changes is that
+  // the lead now exists somewhere: the row is the record, the `deadletter`
+  // attention item is the alarm, `db replay-deadletters` is the recovery.
+  //
+  // Unlike the throw path, a dead-letter failure here PROPAGATES rather than
+  // degrading: the lookup just succeeded, so Turso is up, and a write failure on
+  // a healthy store is a real error the sending site should see.
+  if (!site) {
+    const id = await captureDeadLetter(`unknown-site: no fleet row for '${slug}'`);
+    return id === null
+      ? { status: "unknown-site", slug }
+      : { status: "unknown-site", slug, deadLetterId: id };
+  }
 
   // Synthetic end-to-end probe (the `form-e2e` fleet audit). A central-only marker
   // on the payload routes the submission away from EVERY real sink: no row is

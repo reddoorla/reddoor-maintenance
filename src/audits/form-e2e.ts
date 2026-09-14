@@ -76,6 +76,22 @@ export type FormSubmitOutcome =
   | { testModeUndeclared: true };
 
 /**
+ * The summary a self-skipped site emits — the site's `/health` does not declare
+ * `forms.testMode`, so the probe refused to submit rather than post a real lead.
+ *
+ * Exported because `fleet-form-e2e.yml` COUNTS these lines to report how many
+ * maintained sites had no end-to-end coverage tonight, and a self-skip is
+ * written back like any other result, so nothing else distinguishes "probed and
+ * fine" from "never probed". Hoisting it out of the return statement means the
+ * gate test builds its fixture from the same string the audit prints: change the
+ * wording and `tests/build/fleet-form-e2e-workflow.test.ts` goes red, instead of
+ * the counter silently reporting `skipped=0` for a fleet nobody probed.
+ */
+export const FORM_E2E_TESTMODE_UNDECLARED_SUMMARY =
+  "site /health does not declare forms.testMode — probe refused " +
+  "(testMode forwarding not yet rolled out here)";
+
+/**
  * What a browser saw the site's own Turnstile widget do. Only two of Cloudflare's
  * failure modes are BROWSER-INDEPENDENT, and the distinction is the whole point:
  *
@@ -416,9 +432,7 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "form-e2e",
         site: label,
         status: "skip",
-        summary:
-          "site /health does not declare forms.testMode — probe refused " +
-          "(testMode forwarding not yet rolled out here)",
+        summary: FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
         details: { checkedAt, turnstileWidget: null } satisfies FormE2eDetails,
       };
     }

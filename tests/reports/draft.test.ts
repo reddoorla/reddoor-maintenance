@@ -803,6 +803,7 @@ describe("draftReportForSite → the Turso create mirror", () => {
       ...NO_HEADER,
       siteMirror: {
         created: async () => {},
+        hasRow: async () => true,
         health: async (id, fields) => {
           mirrored.push({ id, fields });
         },

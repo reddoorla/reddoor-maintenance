@@ -15,6 +15,7 @@ import {
   collectAnalyticsFailures,
   collectTurnstileGuardrailAlerts,
   collectNotifyBounceAlerts,
+  collectDeadLetterAlerts,
   collectPrismicDriftAlerts,
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
@@ -210,6 +211,9 @@ export type CollectAttentionDeps = {
    *  an open db). When omitted, collectAttention reads them from libSQL itself —
    *  defensively, so a missing TURSO env or a Turso blip drops just this signal. */
   notifyBounces?: ReadonlyMap<string, number>;
+  /** Pre-fetched unreplayed dead-letter counts per SLUG (#645). Same contract as
+   *  `notifyBounces`: omitted → read from libSQL, defensively. */
+  deadLetters?: ReadonlyMap<string, number>;
 };
 
 /** Per-site bounced-notification counts for the notify-bounce collector, read from
@@ -231,6 +235,25 @@ async function fetchNotifyBounceCounts(now: Date): Promise<ReadonlyMap<string, n
     return await countNotifyBouncedBySite(db, screenOutsSince(now, NOTIFY_BOUNCE_WINDOW_DAYS));
   } catch (e) {
     console.warn(`⚠ notify-bounce counts unavailable (libSQL): ${(e as Error).message}`);
+    return new Map();
+  }
+}
+
+/** Unreplayed dead-letter counts per slug for the #645 collector. Dynamically
+ *  imported and defensive for exactly the same reasons as
+ *  `fetchNotifyBounceCounts` above: kysely/libsql are devDependencies consuming
+ *  fleet sites do not install, and the digest must never blank over a missing
+ *  optional signal. */
+async function fetchDeadLetterCounts(): Promise<ReadonlyMap<string, number>> {
+  try {
+    const [{ openDb, readDbConfig }, { countUnreplayedDeadLettersBySlug }] = await Promise.all([
+      import("../db/client.js"),
+      import("../db/deadletter.js"),
+    ]);
+    const db = await openDb(readDbConfig());
+    return await countUnreplayedDeadLettersBySlug(db);
+  } catch (e) {
+    console.warn(`⚠ dead-letter counts unavailable (libSQL): ${(e as Error).message}`);
     return new Map();
   }
 }
@@ -470,6 +493,7 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
   const websites = deps.websites ?? (await listWebsites(deps.base));
   const now = deps.now ?? new Date();
   const notifyBounces = deps.notifyBounces ?? (await fetchNotifyBounceCounts(now));
+  const deadLetters = deps.deadLetters ?? (await fetchDeadLetterCounts());
   const sitesById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
   return [
     ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
@@ -484,6 +508,13 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     ),
     ...runCollector("notify-bounce", () =>
       collectNotifyBounceAlerts(websites, notifyBounces, deps.baseUrl),
+    ),
+    // #645. The dead-letter alarm. The digest is the SURFACE that matters for
+    // this kind: the cockpit groups items onto site cards, and the worst flavour
+    // — a slug that resolves to no fleet site — has no card by construction. The
+    // digest renders every item flat by title, so it carries both flavours.
+    ...runCollector("deadletter", () =>
+      collectDeadLetterAlerts(websites, deadLetters, deps.baseUrl),
     ),
     // Same collector the cockpit runs, over the same persisted `Prismic Models`
     // columns and the same keys — so the snapshot this digest writes is the one

@@ -116,3 +116,52 @@ describe("db command — CLI registration", () => {
     expect(dbSource).toMatch(/RESTORE refused=manifest-absent/);
   });
 });
+
+/**
+ * #645 item 3, asserted against the SOURCE for the same reason the flag test
+ * above is: `replay-deadletters` cannot be unit-run — it opens a real db, a real
+ * Resend client and (before this change) a real Airtable base at the top of the
+ * branch. The bug was entirely in that wiring, so the wiring is what is checked.
+ *
+ * Two properties, both of which were false before:
+ *  - the replay resolves sites through the shared lookup, not through Airtable's
+ *    `getWebsiteBySlug` directly, so recovery and the live ingest path agree
+ *    about what the fleet is;
+ *  - the Airtable base is passed as a THUNK, never constructed eagerly —
+ *    `readAirtableConfig()` throws on a missing PAT, and it was being called
+ *    before a single queued lead could be replayed.
+ */
+describe("db replay-deadletters — the site lookup wiring (#645)", () => {
+  /** Just the replay branch, so another action's wiring cannot satisfy this. */
+  function replayBranch(): string {
+    const start = dbSource.indexOf('if (action === "replay-deadletters")');
+    expect(start, "the replay-deadletters branch has moved or been renamed").toBeGreaterThan(-1);
+    const rest = dbSource.slice(start);
+    const end = rest.indexOf('\n  if (action === "import-airtable"');
+    return end === -1 ? rest : rest.slice(0, end);
+  }
+
+  it("resolves through the shared makeLazySiteLookup over Turso", () => {
+    const branch = replayBranch();
+    expect(branch).toContain("makeLazySiteLookup");
+    expect(branch).toContain("getSiteBySlug(db,");
+    // The ingest dep is the shared lookup, not a bare Airtable call.
+    expect(branch).toMatch(/getWebsiteBySlug:\s*lookupSite/);
+  });
+
+  it("never constructs the Airtable base eagerly", () => {
+    const branch = replayBranch();
+    // A thunk (`() => openBase(...)`) is fine; a bare statement-level
+    // `const base = openBase(readAirtableConfig())` is the bug.
+    expect(branch).not.toMatch(/^\s*const\s+base\s*=\s*openBase\(/m);
+    expect(branch).toMatch(/openAirtable:\s*\(\)\s*=>\s*openBase\(/);
+  });
+
+  it("the live handler builds its lookup the SAME way", () => {
+    // Drift between these two is the defect #645 names; one shared factory and
+    // one shared shape is the fix.
+    const handler = readFileSync(join(repoRoot, "netlify/functions/form-ingest.mts"), "utf-8");
+    expect(handler).toContain("makeLazySiteLookup");
+    expect(handler).toMatch(/openAirtable:\s*\(\)\s*=>\s*openBase\(/);
+  });
+});

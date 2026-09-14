@@ -86,6 +86,12 @@ Three of the 39 checkouts on the operator's machine cannot take a commit:
 has no `origin` at all. Iterate `--pushable` and **report** the rest in the
 summary; do not discover them at push time.
 
+A **fourth** archived repo, `reddoorla/the-tower`, has no local checkout, and
+the script enumerates the disk — so it cannot see it and never will (verified
+2026-09-14: `gh repo view reddoorla/the-tower --json isArchived` → `true`, and
+`--skipped` lists three). The script answers "of the repos you have cloned",
+never "of the org"; for org-wide claims, enumerate from the GitHub API.
+
 **An archived repo is invisible from inside its clone.** `git remote -v` shows a
 normal URL, `git ls-remote` succeeds, `git fetch` succeeds — only the push
 fails, and only after every commit has already been written. Three separate
