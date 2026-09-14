@@ -360,6 +360,28 @@ of normal editing and of template reuse. The two block-then-reorient episodes ar
 re-derivation by nature, though the kinds table files `continue-after-block` under
 fanout; the critic's first two blind spots below are how redo would actually be found.
 
+**Second round, on the fixed detector.** After the four fixes, `continue-after-block`
+nominates 11 resumes (lag 57–211 min). The same skeptic read all 11
+(`_data/census-refute-cab.json`, 12 agents, 751k subagent tokens, 7m29s): **1
+confirmed, 10 refuted.** In ten windows the resume cost one or two tool calls — the
+`git status; git log -3` that CLAUDE.md's "re-verify after any pause" mandates — and
+the assistant's first line named the task in flight ("Picking up where the loop spec
+went green"); the thirty minutes the heuristic charges are the session's actual
+output. The one that stood (`reddoor-maintenance`, 2026-08-24T20:14Z) is not
+re-orientation either: three #569 review lenses dispatched at 20:10 were killed by the
+block at 20:14:09 and re-dispatched at 21:33 — "All three #569 reviewers were killed
+mid-flight, so the review must re-run." The critic priced the loss exactly, from the
+three orphaned agent transcripts: 32,729 output tokens and ~1.57M context over 26
+requests — the discarded prefix, not the re-run (whose findings changed the merge
+decision). Two refuted windows carry the same loss unnominated ("8 corpus verifiers
+died on the limit"; "a fifth pass died on the session limit", 33 findings rescued by
+mining the transcript). So the class is real and the detector is wrong: **the cost of
+a block is the agents in flight when it lands**, and the right instrument is
+structural — an `Agent` tool call whose result never returns — not a prompt shape.
+That detector is built next, with the three 20:14:08 orphans as its positive control;
+until it has passed on them, `continue-after-block` stays in the doc as a
+documented false-positive generator (10 of 11).
+
 What the round says about the instrument: **the heuristics found the remediation, not
 the defect.** Every window is forward-looking from a marker (compaction, block, stop) or
 bounded by the correcting prompt, so it contains the recovery — the `TaskStop`s, the
@@ -467,3 +489,26 @@ measured instead):
 - **Redundant re-verification.** A full suite re-run, or a screenshot retaken, with
   nothing changed in between is never flagged. Measure: identical Bash command with an
   identical result and no `Edit` to the files under test between the two runs.
+- **Killed-in-flight agent prefixes (second critic).** Every heuristic looks at prompts;
+  the loss is an `Agent` whose result never came back. Join each `Agent` tool_use id
+  to its tool_result in the parent transcript; any subagent file with no matching
+  result is dead spend, priced by its own usage — and it also catches Ctrl-C,
+  `TaskStop`, crashes and orphaned background agents.
+- **Fan-out redundancy on outputs, not prompts.** Two runs of the literally identical
+  lens scored Jaccard 0.46–0.55 while deliberately different lenses can be highly
+  redundant. Normalise each agent's returned findings (file, line, claim), dedupe
+  across the fan-out, and report unique-finding yield per agent — the yield curve
+  behind "one adversarial round beat eight parallel lenses" has never been plotted.
+- **Self-caught dead ends.** "Real input has been a no-op all along" — no operator
+  correction, so no prompt to key on. Detect assistant self-negation and charge the
+  span back to the first tool call on that approach.
+- **Cross-session rework.** A defect shipped by session A and paid for by session B:
+  link fix/revert commits and the journal's forward pointers back to the introducing
+  commit.
+- **Polling spend.** Repeated `gh run watch` and status calls on one resource id; one
+  window watched the same run backgrounded and then foregrounded.
+- **The census has no positive control on real data.** 10 of 11 second-round
+  nominations were refuted and the survivor was right for a different reason; by the
+  repo's own rule the instrument is the suspect. Every detector needs a seeded real
+  episode it must flag before its FAILs are reported — the three 20:14:08 orphans are
+  the first.
