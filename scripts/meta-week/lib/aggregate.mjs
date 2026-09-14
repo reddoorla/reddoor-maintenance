@@ -69,3 +69,74 @@ export function inWindow(ev, startMs, endMs) {
   const t = Date.parse(ev.ts);
   return t >= startMs && t < endMs;
 }
+
+export const UNITS = {
+  out: (s) => s.out,
+  "in+out": (s) => s.in + s.out,
+  "in+out+cacheCreate": (s) => s.in + s.out + s.cacheCreate,
+  "in+out+cacheCreate+cacheRead": (s) => s.in + s.out + s.cacheCreate + s.cacheRead,
+  "out+cacheCreate": (s) => s.out + s.cacheCreate,
+};
+
+function quantile(sorted, q) {
+  if (!sorted.length) return NaN;
+  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+}
+
+/**
+ * Compare per-(day, model) transcript sums with stats-cache.json's dailyModelTokens.
+ * Only days strictly inside the transcripts' coverage are compared, so a partially
+ * retained first day or a still-running last day cannot fake a mismatch.
+ */
+export function reconcile(events, statsCache, tz) {
+  const byDayModel = new Map();
+  const days = new Set();
+  for (const ev of events) {
+    const day = localDate(ev.ts, tz);
+    days.add(day);
+    const k = `${day}|${ev.model}`;
+    if (!byDayModel.has(k)) byDayModel.set(k, emptySum());
+    add(byDayModel.get(k), ev);
+  }
+  const sortedDays = [...days].sort();
+  const oldest = sortedDays[0] ?? null;
+  const newest = sortedDays[sortedDays.length - 1] ?? null;
+  const inside = (d) => oldest !== null && d > oldest && d < newest;
+  const daily = statsCache.dailyModelTokens || [];
+  const rows = [];
+  for (const r of daily) {
+    if (!inside(r.date)) continue;
+    for (const [model, stats] of Object.entries(r.tokensByModel || {})) {
+      const sum = byDayModel.get(`${r.date}|${model}`) || emptySum();
+      const row = { date: r.date, model, stats };
+      for (const [name, fn] of Object.entries(UNITS)) {
+        const t = fn(sum);
+        row[name] = t;
+        row[`err:${name}`] = Math.abs(t - stats) / Math.max(stats, 1);
+      }
+      rows.push(row);
+    }
+  }
+  const verdicts = Object.keys(UNITS)
+    .map((unit) => {
+      const errs = rows.map((r) => r[`err:${unit}`]).sort((a, b) => a - b);
+      return {
+        unit,
+        rows: errs.length,
+        medianRelErr: quantile(errs, 0.5),
+        p90RelErr: quantile(errs, 0.9),
+      };
+    })
+    .sort((a, b) => a.medianRelErr - b.medianRelErr);
+  const statsDays = new Set(daily.map((r) => r.date));
+  const missingFromStats = sortedDays.filter((d) => inside(d) && !statsDays.has(d));
+  const best = verdicts[0] ?? null;
+  return {
+    coverage: { oldest, newest },
+    rows,
+    verdicts,
+    best,
+    reconciled: !!best && best.rows > 0 && best.medianRelErr <= 0.05,
+    missingFromStats,
+  };
+}

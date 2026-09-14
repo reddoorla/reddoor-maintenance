@@ -334,3 +334,29 @@ describe("token-meter: windows", () => {
     await expect(meter(["--window", "yesterday", "today"])).rejects.toThrow(/--window/);
   });
 });
+
+describe("token-meter: calibration", () => {
+  it("PASS control: reconciles when the cache equals in+out, and names days the cache is missing", async () => {
+    const { json, out } = await meter(["--calibrate", "--stats", statsPass, "--tz", "UTC"]);
+    const c = json.calibration as {
+      best: { unit: string; medianRelErr: number };
+      reconciled: boolean;
+      missingFromStats: string[];
+      coverage: { oldest: string; newest: string };
+    };
+    expect(c.coverage).toEqual({ oldest: "2026-09-01", newest: "2026-09-04" });
+    expect(c.best.unit).toBe("in+out");
+    expect(c.best.medianRelErr).toBe(0);
+    expect(c.reconciled).toBe(true);
+    expect(c.missingFromStats).toEqual(["2026-09-03"]);
+    expect(out).toMatch(/^VERDICT RECONCILED best=in\+out/m);
+  });
+
+  it("FAIL control: reports NOT RECONCILED when the cache disagrees", async () => {
+    const { json, out } = await meter(["--calibrate", "--stats", statsFail, "--tz", "UTC"]);
+    const c = json.calibration as { reconciled: boolean; best: { medianRelErr: number } };
+    expect(c.reconciled).toBe(false);
+    expect(c.best.medianRelErr).toBeGreaterThan(0.05);
+    expect(out).toMatch(/^VERDICT NOT RECONCILED/m);
+  });
+});

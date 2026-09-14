@@ -6,7 +6,7 @@
 //     [--lane main|subagent|all] [--by day,week,repo,session,lane,model,effort,agent,skill]
 //     [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--window ISO ISO]
 //     [--calibrate] [--blocks] [--compactions] [--json FILE]
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -17,6 +17,7 @@ import {
   filterDates,
   groupBy,
   inWindow,
+  reconcile,
 } from "./lib/aggregate.mjs";
 import { collectEvents } from "./lib/walk.mjs";
 
@@ -129,6 +130,10 @@ async function main() {
       byModel: groupBy(inW, (ev) => ev.model),
     };
   }
+  if (o.calibrate) {
+    const stats = JSON.parse(await readFile(o.stats, "utf-8"));
+    result.calibration = reconcile(events, stats, o.tz);
+  }
   process.stdout.write(
     `files=${all.files} lines=${fmt(all.lines)} requests=${fmt(events.length)} lane=${o.lane} tz=${o.tz} by=${dims.join(",")}\n`,
   );
@@ -139,6 +144,20 @@ async function main() {
     process.stdout.write(`\nWINDOW\t${result.window.start} → ${result.window.end}\n`);
     for (const g of result.window.byModel) printTotal(g.key, g);
     printTotal("WINDOW TOTAL", result.window.total);
+  }
+  if (result.calibration) {
+    const c = result.calibration;
+    process.stdout.write(
+      `\nCALIBRATION coverage=${c.coverage.oldest}..${c.coverage.newest} rows=${c.rows.length} tz=${o.tz} lane=${o.lane}\n`,
+    );
+    for (const v of c.verdicts) {
+      process.stdout.write(
+        `  unit=${v.unit}\tmedianRelErr=${v.medianRelErr.toFixed(3)}\tp90RelErr=${v.p90RelErr.toFixed(3)}\n`,
+      );
+    }
+    process.stdout.write(
+      `VERDICT ${c.reconciled ? "RECONCILED" : "NOT RECONCILED"} best=${c.best ? c.best.unit : "none"} missingFromStats=${c.missingFromStats.join(",") || "none"}\n`,
+    );
   }
   if (o.json) await writeFile(o.json, JSON.stringify(result, null, 2));
 }
