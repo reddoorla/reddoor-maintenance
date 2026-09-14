@@ -140,3 +140,34 @@ export function reconcile(events, statsCache, tz) {
     missingFromStats,
   };
 }
+
+export function spendBefore(events, tsIso, hours) {
+  const end = Date.parse(tsIso);
+  const start = end - hours * 3600000;
+  const s = emptySum();
+  for (const ev of events) {
+    const t = Date.parse(ev.ts);
+    if (t >= start && t < end) add(s, ev);
+  }
+  return s;
+}
+
+export function summarizeCompactions(compactions) {
+  const byTrigger = {};
+  const pre = [];
+  for (const c of compactions) {
+    byTrigger[c.trigger] = (byTrigger[c.trigger] || 0) + 1;
+    if (c.preTokens > 0) pre.push(c.preTokens);
+  }
+  pre.sort((a, b) => a - b);
+  return {
+    count: compactions.length,
+    byTrigger,
+    preTokens: {
+      p50: quantile(pre, 0.5),
+      p90: quantile(pre, 0.9),
+      max: pre.length ? pre[pre.length - 1] : NaN,
+    },
+    events: compactions,
+  };
+}

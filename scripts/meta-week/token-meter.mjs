@@ -18,6 +18,8 @@ import {
   groupBy,
   inWindow,
   reconcile,
+  spendBefore,
+  summarizeCompactions,
 } from "./lib/aggregate.mjs";
 import { collectEvents } from "./lib/walk.mjs";
 
@@ -134,6 +136,10 @@ async function main() {
     const stats = JSON.parse(await readFile(o.stats, "utf-8"));
     result.calibration = reconcile(events, stats, o.tz);
   }
+  if (o.compactions) result.compactions = summarizeCompactions(all.compactions);
+  if (o.blocks) {
+    result.blocks = all.blocks.map((b) => ({ ...b, spend5h: spendBefore(all.usage, b.ts, 5) }));
+  }
   process.stdout.write(
     `files=${all.files} lines=${fmt(all.lines)} requests=${fmt(events.length)} lane=${o.lane} tz=${o.tz} by=${dims.join(",")}\n`,
   );
@@ -158,6 +164,20 @@ async function main() {
     process.stdout.write(
       `VERDICT ${c.reconciled ? "RECONCILED" : "NOT RECONCILED"} best=${c.best ? c.best.unit : "none"} missingFromStats=${c.missingFromStats.join(",") || "none"}\n`,
     );
+  }
+  if (result.compactions) {
+    const c = result.compactions;
+    process.stdout.write(
+      `\nCOMPACTIONS\t${c.count}\tbyTrigger=${JSON.stringify(c.byTrigger)}\tpreTokens p50=${fmt(c.preTokens.p50)} p90=${fmt(c.preTokens.p90)} max=${fmt(c.preTokens.max)}\n`,
+    );
+  }
+  if (result.blocks) {
+    process.stdout.write(`\nBLOCKS\t${result.blocks.length}\n`);
+    for (const b of result.blocks) {
+      process.stdout.write(
+        `${b.ts}\t${b.kind}\t${b.repo}\t${b.lane}\tspend5h out=${fmt(b.spend5h.out)} cacheCreate=${fmt(b.spend5h.cacheCreate)} cacheRead=${fmt(b.spend5h.cacheRead)}\n`,
+      );
+    }
   }
   if (o.json) await writeFile(o.json, JSON.stringify(result, null, 2));
 }

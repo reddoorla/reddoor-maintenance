@@ -360,3 +360,28 @@ describe("token-meter: calibration", () => {
     expect(out).toMatch(/^VERDICT NOT RECONCILED/m);
   });
 });
+
+describe("token-meter: compactions and blocks", () => {
+  it("counts compactions by trigger with preTokens percentiles, once each despite replay", async () => {
+    const { json } = await meter(["--compactions"]);
+    const c = json.compactions as {
+      count: number;
+      byTrigger: Record<string, number>;
+      preTokens: { p50: number };
+      events: { trigger: string; repo: string }[];
+    };
+    expect(c.count).toBe(1);
+    expect(c.byTrigger).toEqual({ manual: 1 });
+    expect(c.preTokens.p50).toBe(123456);
+    expect(c.events[0]).toMatchObject({ trigger: "manual", repo: "alpha" });
+  });
+
+  it("lists limit blocks once each despite replay, with the spend in the five hours before each", async () => {
+    const { json, out } = await meter(["--blocks"]);
+    const b = json.blocks as { kind: string; repo: string; lane: string; spend5h: Sum }[];
+    expect(b).toHaveLength(1);
+    expect(b[0]).toMatchObject({ kind: "session", repo: "alpha", lane: "main" });
+    expect(b[0].spend5h.out).toBe(77);
+    expect(out).toMatch(/^BLOCKS\t1/m);
+  });
+});
