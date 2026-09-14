@@ -274,10 +274,13 @@ describe("the workflow script carries the lib's rules verbatim", () => {
     );
   });
 
-  it("is Prettier-clean — `pnpm lint` cannot see this file, but CI can", async () => {
-    // Prettier's default --ignore-path includes .gitignore, which carries `.claude/`, so
-    // `prettier --check .` silently skips this script locally. CI's checkout does not skip
-    // it, and caught exactly that on the first push. This is the local equivalent.
+  it("is Prettier-clean, whatever .gitignore currently says about .claude/", async () => {
+    // Prettier's default --ignore-path includes .gitignore. Before #788 that file carried a
+    // blanket `.claude/`, so `prettier --check .` silently SKIPPED this script in a local
+    // checkout while CI, building the merge ref against main's un-ignoring .gitignore,
+    // checked it — the same command, green locally and red in CI. #788 closed that gap, but
+    // one line of .gitignore should not decide whether a tracked file is linted at all, so
+    // this asserts the file directly, by path.
     const src = readFileSync(WORKFLOW, "utf8");
     const opts = (await prettier.resolveConfig(WORKFLOW)) ?? {};
     expect(await prettier.format(src, { ...opts, filepath: WORKFLOW })).toBe(src);
