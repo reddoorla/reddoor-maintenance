@@ -420,12 +420,13 @@ written in.
 
    The operator's own `credentials.env` still names the old database; leave a note for them.
 
-6. **Verify.** Curl the central site's health endpoint — its deployed host is
-   `DASHBOARD_BASE_URL` in the credentials file — and check it reports `TURSO_DATABASE_URL`
-   as present (it reports presence only, never values; `README.md` §"Site deployment", step 3):
+6. **Verify.** Curl the central site's health endpoint and check it reports
+   `TURSO_DATABASE_URL` as present (presence only, never values; `README.md` §"Site
+   deployment", step 3). The host is `https://reddoor-maintenance.netlify.app` — the code
+   default in `src/dashboard/handler-helpers.ts:7`, overridable by `DASHBOARD_BASE_URL`:
 
    ```sh
-   curl "$DASHBOARD_BASE_URL/.netlify/functions/resend-webhook"
+   curl https://reddoor-maintenance.netlify.app/.netlify/functions/resend-webhook
    ```
 
    Then load the cockpit at that host's `/`, and re-run the backup by hand —
