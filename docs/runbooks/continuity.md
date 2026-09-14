@@ -339,56 +339,99 @@ manifest** the dump carries, encrypts it with `gpg --symmetric --cipher-algo AES
 verification on the round-tripped copy** before publishing it as an Actions artifact
 (`turso-backup-<run_id>`, 30-day retention). A run that cannot verify refuses to upload.
 
-**The restore, as rehearsed:**
+**The restore, as rehearsed** — every command below was checked against the tree on 2026-09-14,
+and a fresh session with only this section was asked to dry-run it; what it could not find is now
+written in.
 
-1. **Download the newest artifact** from a green `fleet-db-backup` run in this repo's Actions
-   tab (artifact name `turso-backup-<run_id>`, file `dump.sql.gpg`).
-
-2. **Decrypt it** with `BACKUP_PASSPHRASE`:
+1. **Download the newest artifact** from a green `fleet-db-backup` run (artifact
+   `turso-backup-<run_id>`, one file, `dump.sql.gpg`, kept 30 days):
 
    ```sh
+   cd ~/Documents/GitHub/reddoor-maintenance
+   run=$(gh run list --repo reddoorla/reddoor-maintenance --workflow fleet-db-backup.yml \
+     --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run download "$run" --repo reddoorla/reddoor-maintenance -n "turso-backup-$run" -D restore
+   cd restore
+   ```
+
+2. **Decrypt it** with `BACKUP_PASSPHRASE`. The value lives in
+   `~/.config/reddoor-maint/credentials.env` on the operator's machine
+   (`docs/meta-week/_research/challenge-evidence-audit.md:301`) and, for CI only, as a repo
+   Actions secret you cannot read back. Load the file without printing it, then decrypt:
+
+   ```sh
+   set -a; . ~/.config/reddoor-maint/credentials.env; set +a
    gpg --batch --quiet --decrypt \
      --passphrase "$BACKUP_PASSPHRASE" \
      --output dump.sql dump.sql.gpg
    ```
 
-3. **Create a NEW, EMPTY Turso database** and get a database-level auth token for it. See the
-   next step for why it must be new.
-
-4. **Restore into it.** Build first (`pnpm build`), then:
+3. **Create a NEW, EMPTY Turso database** and mint a database-level token for it, with the
+   `turso` CLI (installed at `~/.turso/turso`; `turso auth login` is a browser OAuth login
+   on the Turso org that owns the fleet — section 4 lists that access). Do **not** run
+   `db migrate` against it first: step 4 refuses a non-empty target.
 
    ```sh
-   TURSO_RESTORE_AUTH_TOKEN=<token for the NEW database> \
+   turso auth login
+   turso db create fleet-restore-YYYYMMDD
+   turso db show fleet-restore-YYYYMMDD --url      # the libsql:// url for --url below
+   turso db tokens create fleet-restore-YYYYMMDD   # the token; it becomes TURSO_AUTH_TOKEN in step 5
+   ```
+
+4. **Restore into it.** Install and build first (`pnpm install --frozen-lockfile && pnpm build` —
+   `dist/` on the operator's machine may be stale), then:
+
+   ```sh
+   TURSO_RESTORE_AUTH_TOKEN=<token from step 3> \
      node dist/cli/bin.js db restore \
        --file dump.sql \
-       --url libsql://<new-db>-<org>.turso.io
+       --url <libsql url from step 3>
    ```
 
    `--url` never defaults — production is deliberately out of reach
-   (`src/cli/commands/db.ts:366`). Expect:
+   (`src/cli/commands/db.ts:366`). Expect a line of this shape, and exit 0:
 
    ```
    RESTORE loaded=true tables=11 rows=803 blob_bytes=7777769 mismatches=0
    ```
 
-   Row and byte counts are compared against the dump's origin manifest, so a restore that
-   "succeeded" with fewer rows than the origin held exits non-zero with a `✗` line per
-   mismatch (`src/cli/commands/db.ts:405–418`). Three refusals you may see instead, each naming
-   itself: `RESTORE refused=auth-token-absent` (a remote url with no token),
-   `RESTORE refused=manifest-absent` (not a dump this tool produced), and
-   `RESTORE refused=target-not-empty`.
+   The row and byte figures are whatever the dump carried (those are the 2026-08-31 values);
+   what you are checking is `mismatches=0`. Row and byte counts are compared against the
+   dump's origin manifest, so a restore that "succeeded" with fewer rows than the origin held
+   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:405–418`). Three
+   refusals you may see instead, each naming itself: `RESTORE refused=auth-token-absent` (a
+   remote url with no token), `RESTORE refused=manifest-absent` (not a dump this tool
+   produced), and `RESTORE refused=target-not-empty`.
 
 5. **Repoint `TURSO_DATABASE_URL` at the new database.** This is the step the rehearsals never
    needed and the one most likely to be missed. `db restore` refuses a non-empty target
-   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:389–391`) — a restore is for an
+   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:390–392`) — a restore is for an
    EMPTY target, so a real recovery **always lands on a new database**, and nothing points at it
-   until you say so. Update it, with the matching `TURSO_AUTH_TOKEN`, in both places:
-   - this repo's **GitHub Actions secrets** (every nightly reads them), and
-   - the central **Netlify site's** environment variables (the dashboard and the forms functions
-     500 without `TURSO_DATABASE_URL`), then trigger a deploy.
+   until you say so. Set two names, `TURSO_DATABASE_URL` (the url from step 3) and
+   `TURSO_AUTH_TOKEN` (the token from step 3 — the same value you passed as
+   `TURSO_RESTORE_AUTH_TOKEN`), in both places:
+   - this repo's **GitHub Actions secrets** (every nightly reads them):
+     `gh secret set TURSO_DATABASE_URL --repo reddoorla/reddoor-maintenance` and the same for
+     `TURSO_AUTH_TOKEN`; each prompts for the value.
+   - the central **Netlify project `reddoor-maintenance`**
+     (app.netlify.com → Projects → reddoor-maintenance → Site configuration → Environment
+     variables; the dashboard and the forms functions 500 without `TURSO_DATABASE_URL`), then
+     Deploys → Trigger deploy.
 
-6. **Verify.** Re-run `fleet-db-backup` by hand from the Actions tab and confirm it goes green
-   against the new target; load the cockpit at `/`.
+   The operator's own `credentials.env` still names the old database; leave a note for them.
+
+6. **Verify.** Curl the central site's health endpoint — its deployed host is
+   `DASHBOARD_BASE_URL` in the credentials file — and check it reports `TURSO_DATABASE_URL`
+   as present (it reports presence only, never values; `README.md` §"Site deployment", step 3):
+
+   ```sh
+   curl "$DASHBOARD_BASE_URL/.netlify/functions/resend-webhook"
+   ```
+
+   Then load the cockpit at that host's `/`, and re-run the backup by hand —
+   `gh workflow run fleet-db-backup.yml --repo reddoorla/reddoor-maintenance` — and confirm it
+   goes green. Note what that proves: the nightly reads the Actions secrets, so a green run
+   confirms step 5 landed, not step 4.
 
 ### Two traps
 
