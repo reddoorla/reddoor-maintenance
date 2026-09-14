@@ -2500,6 +2500,17 @@ were told to default to "refuted": one turned 31 census nominations into 4, and 
 other turned 14 recommendations into 3 amendments and 11 kills — and then named the
 class no draft had mentioned, which was the largest one measured.
 
+**Late addition, same session.** Two defects of the day's own making, found at the
+end of it. The branch's CI had been red since the orphan detector landed (`deb75efe`):
+sixteen `x[0].field` reads in the census and meter tests that vitest ran green and
+`tsc` refused under `noUncheckedIndexedAccess` — the same shape the S7 worker reported
+in its own PR that afternoon ("`pnpm test` was green while the tree did not compile"),
+recorded in the journal and not applied to the branch the journal was on. Fixed in
+`644d3886` with the repo's own idiom (613 prior uses). Then the evidence PR went
+`DIRTY` against `main`: the S2 and S5 workers had appended their own journal entries in
+their PRs, so the day's summary entry conflicted with them; resolved with theirs first
+and this one last, newest at the bottom, as the rule says.
+
 **Next.** Tuesday: the operator reads the recommendations and decides; Tier 1 ships
 with its proofs on approval; the continuity page; the week's meter line. Decisions that are the
 operator's, collected in `08-second-pass.md` §4 and the spec §3, plus one new
