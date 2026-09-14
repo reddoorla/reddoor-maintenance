@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import * as prettier from "prettier";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -253,14 +254,33 @@ describe("the workflow script carries the lib's rules verbatim", () => {
     // with no `model` inherits the session model — routinely Fable — and would change both
     // silently, which is precisely the class of unread mechanism this round exists to catch.
     const src = readFileSync(WORKFLOW, "utf8").replace(/^\s*\/\/.*$/gm, "");
+    // Whitespace-normalised, so Prettier's line wrapping cannot break the assertions.
+    const flat = src.replace(/\s+/g, " ");
     expect(DEFAULT_MODEL).toBe("opus");
     expect(CHORE_MODEL).toBe("haiku");
     expect(src).toContain("const model = args?.model ?? DEFAULT_MODEL;");
-    // guard + loader judge nothing; skeptics + critic take args.model.
-    expect(src.match(/model: CHORE_MODEL/g)).toHaveLength(2);
-    expect(src.match(/schema: (VERDICT|CRITIQUE), model \}/g)).toHaveLength(2);
-    // Every agent() call site carries a model — none is left to inherit.
+    // All four call sites, named. The guard and loader judge nothing; the skeptics and
+    // the critic take args.model. None is left to inherit the session's.
     expect(src.match(/\bagent\(/g)).toHaveLength(4);
+    expect(flat).toContain(
+      'label: "guard:evidence-head", phase: "Guard", schema: GUARD, model: CHORE_MODEL, effort: "low"',
+    );
+    expect(flat).toContain(
+      'label: "load:claims", phase: "Load", model: CHORE_MODEL, effort: "low"',
+    );
+    expect(flat).toContain('label: `refute:${c.id}`, phase: "Refute", schema: VERDICT, model,');
+    expect(flat).toContain(
+      'label: "completeness-critic", phase: "Critique", schema: CRITIQUE, model }',
+    );
+  });
+
+  it("is Prettier-clean — `pnpm lint` cannot see this file, but CI can", async () => {
+    // Prettier's default --ignore-path includes .gitignore, which carries `.claude/`, so
+    // `prettier --check .` silently skips this script locally. CI's checkout does not skip
+    // it, and caught exactly that on the first push. This is the local equivalent.
+    const src = readFileSync(WORKFLOW, "utf8");
+    const opts = (await prettier.resolveConfig(WORKFLOW)) ?? {};
+    expect(await prettier.format(src, { ...opts, filepath: WORKFLOW })).toBe(src);
   });
 
   it("reads origin/main by full refspec, never by the ambiguous glob", () => {

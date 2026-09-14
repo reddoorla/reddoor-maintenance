@@ -310,10 +310,20 @@ const GUARD = {
   type: "object",
   properties: {
     repoRoot: { type: "string", description: "absolute path of the evidence checkout's git root" },
-    head: { type: "string", description: "40-char sha from git rev-parse HEAD, or empty on failure" },
-    remoteMain: { type: "string", description: "40-char sha of refs/heads/main from git ls-remote, or empty if that ref was not in the output" },
+    head: {
+      type: "string",
+      description: "40-char sha from git rev-parse HEAD, or empty on failure",
+    },
+    remoteMain: {
+      type: "string",
+      description:
+        "40-char sha of refs/heads/main from git ls-remote, or empty if that ref was not in the output",
+    },
     claimsFileExists: { type: "boolean" },
-    trouble: { type: "string", description: "any command that failed, and its stderr; empty if all succeeded" },
+    trouble: {
+      type: "string",
+      description: "any command that failed, and its stderr; empty if all succeeded",
+    },
   },
   required: ["repoRoot", "head", "remoteMain", "claimsFileExists", "trouble"],
 };
@@ -338,7 +348,13 @@ so "the first line" is the changeset-release branch, and a checkout that IS at m
 4. Report whether the claims file exists and is readable (\`test -r\`).
 
 Do not fetch, check out, stash, or change anything. Do not "fix" a mismatch — reporting it IS the job. If a command fails, leave that field as an empty string and put the command and its stderr in \`trouble\`.`,
-  { label: "guard:evidence-head", phase: "Guard", schema: GUARD, model: CHORE_MODEL, effort: "low" },
+  {
+    label: "guard:evidence-head",
+    phase: "Guard",
+    schema: GUARD,
+    model: CHORE_MODEL,
+    effort: "low",
+  },
 );
 
 if (!guard) {
@@ -358,7 +374,12 @@ if (guard.head !== guard.remoteMain || guard.head !== evidenceHead) {
   };
 }
 if (!guard.claimsFileExists) {
-  return { error: "claims file not readable", claimsFile, repoRoot: guard.repoRoot, trouble: guard.trouble };
+  return {
+    error: "claims file not readable",
+    claimsFile,
+    repoRoot: guard.repoRoot,
+    trouble: guard.trouble,
+  };
 }
 log(`guard: ${guard.repoRoot} at ${guard.head.slice(0, 8)} = origin/main = args.evidenceHead`);
 
@@ -417,14 +438,42 @@ const VERDICT = {
   properties: {
     id: { type: "string" },
     verdict: { type: "string", enum: ["confirmed", "refuted", "unclear"] },
-    reason: { type: "string", description: "what the evidence actually says, and why that settles it" },
+    reason: {
+      type: "string",
+      description: "what the evidence actually says, and why that settles it",
+    },
     quote: { type: "string", description: "the verbatim line from the evidence that decides it" },
-    quoteSource: { type: "string", description: "\"path:line\" the quote was read from; must be one of the claim's evidence paths" },
-    evidenceRead: { type: "array", items: { type: "string" }, description: "every evidence reference you actually opened" },
-    readFailed: { type: "array", items: { type: "string" }, description: "evidence references you could not open, and why" },
-    restsOnAbsence: { type: "boolean", description: "true if the verdict rests on something NOT being in the file rather than on a quoted line" },
+    quoteSource: {
+      type: "string",
+      description:
+        '"path:line" the quote was read from; must be one of the claim\'s evidence paths',
+    },
+    evidenceRead: {
+      type: "array",
+      items: { type: "string" },
+      description: "every evidence reference you actually opened",
+    },
+    readFailed: {
+      type: "array",
+      items: { type: "string" },
+      description: "evidence references you could not open, and why",
+    },
+    restsOnAbsence: {
+      type: "boolean",
+      description:
+        "true if the verdict rests on something NOT being in the file rather than on a quoted line",
+    },
   },
-  required: ["id", "verdict", "reason", "quote", "quoteSource", "evidenceRead", "readFailed", "restsOnAbsence"],
+  required: [
+    "id",
+    "verdict",
+    "reason",
+    "quote",
+    "quoteSource",
+    "evidenceRead",
+    "readFailed",
+    "restsOnAbsence",
+  ],
 };
 
 function refutePrompt(c) {
@@ -453,8 +502,14 @@ const results = [];
 const batches = chunkClaims(claims, chunk);
 for (const batch of batches) {
   const got = await parallel(
-    batch.map((c) => () =>
-      agent(refutePrompt(c), { label: `refute:${c.id}`, phase: "Refute", schema: VERDICT, model }),
+    batch.map(
+      (c) => () =>
+        agent(refutePrompt(c), {
+          label: `refute:${c.id}`,
+          phase: "Refute",
+          schema: VERDICT,
+          model,
+        }),
     ),
   );
   results.push(...got.filter(Boolean));
@@ -465,7 +520,9 @@ const byId = new Map(claims.map((c) => [c.id, c]));
 const verdicts = results.map((r) => enforceQuoteRule(r, byId.get(r.id)));
 const downgraded = verdicts.filter((v) => v.downgraded);
 if (downgraded.length > 0) {
-  log(`${downgraded.length} confirmation(s) downgraded to unclear for citing no line on the claim's own evidence`);
+  log(
+    `${downgraded.length} confirmation(s) downgraded to unclear for citing no line on the claim's own evidence`,
+  );
 }
 const blind = verdicts.filter((v) => (v.readFailed ?? []).length > 0);
 if (blind.length > 0) {
@@ -475,7 +532,9 @@ if (blind.length > 0) {
 }
 const missing = claims.filter((c) => !verdicts.some((v) => v.id === c.id));
 if (missing.length > 0) {
-  log(`NOT COVERED: ${missing.length} claim(s) returned no verdict — ${missing.map((c) => c.id).join(", ")}`);
+  log(
+    `NOT COVERED: ${missing.length} claim(s) returned no verdict — ${missing.map((c) => c.id).join(", ")}`,
+  );
 }
 
 const confirmed = verdicts.filter((v) => v.verdict === "confirmed");
@@ -490,17 +549,20 @@ const CRITIQUE = {
     missingClaims: {
       type: "array",
       items: { type: "string" },
-      description: "claims the package should have made and did not — load-bearing assertions with no id of their own",
+      description:
+        "claims the package should have made and did not — load-bearing assertions with no id of their own",
     },
     evidenceNotRead: {
       type: "array",
       items: { type: "string" },
-      description: "evidence a verdict should have opened and did not, and which verdict is weaker for it",
+      description:
+        "evidence a verdict should have opened and did not, and which verdict is weaker for it",
     },
     weakVerdicts: {
       type: "array",
       items: { type: "string" },
-      description: "verdicts whose reason does not follow from the quote, or which rest on an absence",
+      description:
+        "verdicts whose reason does not follow from the quote, or which rest on an absence",
     },
     strongestRefutations: {
       type: "array",
