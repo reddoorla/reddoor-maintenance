@@ -18,7 +18,8 @@ A candidate is a **nomination**. The heuristics below can only see shapes in a
 transcript; none of them can see whether the work was wasted. A candidate counts as
 wasted work only after a refuter has read its window — `scripts/meta-week/transcript-window.mjs
 --session ID --from ISO --to ISO` prints it as a compact chronological script — and
-confirmed it. Nothing in the "Candidates" section below has been refuted yet.
+confirmed it. The "Confirmed" section below holds the refuter round's verdicts; the
+"Candidates" tables are nominations, before that reading.
 
 Three classes, five kinds:
 
@@ -298,7 +299,80 @@ a count of anything.
 
 ## Confirmed
 
-Filled after the refuter round.
+Refuter round run 2026-09-14; verdicts and the critic's output are in
+`_data/census-refute.json` (Workflow run `wf_5995dc02-1a5`). Selection: after dropping
+the two collector-noise shapes (`<ide_opened_file>` and the harness's summarisation
+request), the top candidates **per kind** — by `out`, or `agentTotal` for
+`duplicate-agent-prompt`, or `sessions` for `same-turn-many-sessions`: 8
+`reread-after-compaction`, 8 `duplicate-agent-prompt`, 8 `corrected-turn`, 3
+`spend-after-stop` (all that remained), 4 `same-turn-many-sessions` — 31 in all. Each
+window was printed by `transcript-window.mjs --max 300` (cut at 400 lines) and handed
+to one Opus skeptic told to **default to refuted**; four ran at a time; then one
+completeness critic read every verdict. Cost of the round: 32 agents, 1,981,897
+subagent tokens, 79 tool calls, 7m54s wall.
+
+**4 confirmed, 27 refuted, 0 unclear.** The four's waste shares of their own windows:
+0.60, 0.35, 0.20, 0.10. Two of the four were confirmed under a different kind than the
+one nominated, and a third on a different anchor than the one cited.
+
+| kind                      | nominated | confirmed | why the rest fell                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------- | --------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reread-after-compaction` | 8         | 0         | every counted re-read was a file the session had just edited (read-before-edit, or a second region of a 1,600–1,900-line file) or a render it had just regenerated (PNG study sheets); the windows open on fresh operator instructions, not on re-orientation. Caveat on the reasons given: `transcript-window.mjs` does not print the `compact_boundary` record, so "no compaction in the window" is the renderer, not a finding — the refutations stand on the re-reads alone. |
+| `duplicate-agent-prompt`  | 8         | 0         | all eight pairs come from one `Broken` session (2026-08-19) executing a 10-task plan subagent-driven; Jaccard ≥ 0.70 came entirely from the per-task brief template ("You are implementing **Task N** of a 10-task plan. Tasks 1–N−1 are done"); the payloads were different tasks and nothing was dispatched twice. As written, the heuristic measures template reuse.                                                                                                          |
+| `corrected-turn`          | 8         | 2         | six trailing prompts were acceptances or next instructions ("the arrow is better", "3 would be great", "show me? on desktop"); in two windows the real correction was the prompt that _opened_ the window, so the costed span held the verification that answered it.                                                                                                                                                                                                            |
+| `spend-after-stop`        | 3         | 1         | one "stop" was a scope correction about screenshots; one was honoured with a `TaskStop` 17 seconds later. In both, the single counted request was already in flight when the stop was typed.                                                                                                                                                                                                                                                                                     |
+| `same-turn-many-sessions` | 4         | 1         | three of four were `/model`, `/compact` and a post-crash "resume" typed into every open session — per-session configuration or unavoidable recovery, zero tokens. The fourth was confirmed as a different kind.                                                                                                                                                                                                                                                                  |
+
+The four confirmed, in the critic's order of evidence quality:
+
+1. **`spend-after-stop`, `Broken`, 2026-08-24T23:51Z — wasteShare 0.6.** "kill them",
+   then three subagent requests at +8, +11 and +12 seconds, two returning 2 output
+   tokens, ~759k cache-read for output that was discarded. The operator's next turn:
+   "my system got overloaded and you didn't stop your agents when i asked you to stop."
+   The session had issued six `TaskStop` calls within 14 seconds of the prompt (four of
+   them spent on a `ToolSearch` to load the schema), so the window holds the compliant
+   tail; the avoidable decision — six parallel agents on a shared machine — sits before
+   it. This is the overload behind #776, on the record.
+2. **`corrected-turn`, `vida-legacy-foundation`, 2026-09-04T19:41Z — wasteShare 0.1.**
+   The nominated prompt ("show me A B and C please") was a routine follow-up. The real
+   correction is in the assistant's own text: "The user is right, and I was wrong:
+   dadb073 … Airtable is a legacy mirror" — after a 19:05–19:06 attempt to write a URL
+   into Airtable that the #539 Turso flip had already superseded; the permission
+   classifier stopped the write. This is the unread class in its true shape: a
+   **stale mechanism**, not an operator correction, and the detector that found it
+   matched the wrong line.
+3. **`corrected-turn` → `continue-after-block`, `Broken`, 2026-09-02T21:24Z —
+   wasteShare 0.2.** The closing question agreed with the assistant. The episode opens
+   the window: "hit a session limit, continue on", then five python/Bash passes over
+   the session's own JSONL (21:17:37–21:19:02) digging killed verify-lane findings back
+   out of the transcript. `continue-after-block` never fired on the real corpus because
+   of its ten-minute rule; here is one of its episodes, caught by a different net.
+4. **`same-turn-many-sessions` → `continue-after-block`, `Broken`, 2026-08-24T21:33Z —
+   wasteShare 0.35, recorded cost 0.** The repeated turn was `/model opus[1m]`; the
+   next line is "hit a session limit continue" and five Godot scripts re-read to rebuild
+   state. The weakest of the four; a caution, not an exhibit.
+
+Against the spec's success criterion (one confirmed episode per class, or a documented
+null): **fanout** has one (the 2026-08-24 overload); **unread** has one (the Airtable
+write after the Turso flip); **redo, as nominated, is a documented null** — 16
+candidates across its two kinds, none confirmed, because both detectors match the shape
+of normal editing and of template reuse. The two block-then-reorient episodes are
+re-derivation by nature, though the kinds table files `continue-after-block` under
+fanout; the critic's first two blind spots below are how redo would actually be found.
+
+What the round says about the instrument: **the heuristics found the remediation, not
+the defect.** Every window is forward-looking from a marker (compaction, block, stop) or
+bounded by the correcting prompt, so it contains the recovery — the `TaskStop`s, the
+re-derivation, the corrected write-up — while the decision that cost (the six-way
+dispatch, the wrong claim, the stale mechanism) precedes it. And 27 of 31 nominations
+were shapes of ordinary work: read-before-edit, template reuse, a configuration command,
+an acceptance. The "Candidates" costs above are window costs; the confirmed waste in
+this round is a fraction of four windows — roughly 0.6 × 759k cache-read, 0.2 × 25k
+output, 0.1 × 104k output, and one at zero — which is not a number to build a budget
+on. What survives is the **shape**: the three confirmed classes are the two the
+operator named (fan-out onto a shared machine; building on a mechanism that had
+changed) plus block-then-reorient, and each was found by a detector aimed at something
+else.
 
 ## What the heuristics cannot see
 
@@ -343,6 +417,53 @@ Filled after the refuter round.
   so its spend cannot be costed against a stop request.
 - **Which session wrote a commit.** Nothing links a git commit to a transcript, which
   is why the revert pass is uncosted.
-- **Whether any of this was waste.** The census nominates. Until the refuter round
-  fills the section above, every number here is the cost of a _window_, not the cost of
-  a mistake.
+- **Whether any of this was waste.** The census nominates; the refuter round above read
+  31 nominations and kept 4. Every number in the "Candidates" tables is the cost of a
+  _window_, not the cost of a mistake, and the confirmed waste is a fraction of four
+  windows.
+
+Added by the completeness critic after the refuter round (each with how it could be
+measured instead):
+
+- **The defect sits before the window.** 27 refutations came from windows that caught
+  the remediation. Anchor backwards: from a retraction, match its subject to the
+  earliest turn that asserted it and charge that span; from a `TaskStop`, walk back to
+  the `Agent` calls it killed and charge the dispatch.
+- **Corrections in the assistant's own text.** `unreadCandidates` matches only USER
+  text, so "The user is right, and I was wrong" was missed while a routine follow-up was
+  flagged. Match ASSISTANT text ("I was wrong", "I overstated", "let me verify rather
+  than assert") and charge back to the claim retracted.
+- **Subagent-internal waste.** Every detector filters to `lane === "main"`; a
+  subagent's own re-reads, dead ends and loops are invisible and only its `totalTokens`
+  is charged. Run the same detectors over subagent lanes, and compare each agent's
+  `totalTokens` with how much of its result the parent ever quotes or acts on.
+- **Output produced and never kept.** No detector asks whether anything survived: a
+  deleted branch, a discarded agent result, a rewritten spec all score zero. Measure
+  diff-survival — for each file written in a window, does its content exist at HEAD
+  seven days later; for each branch, was it merged; for each `Agent` result, is it ever
+  quoted afterwards.
+- **Autonomous stretches with no prompt to anchor on.** `/loop` runs, routines and
+  background tasks are structurally unreachable. Anchor on artifacts: spend between
+  two commits, tokens per surviving diff line, any span with high spend and no durable
+  output.
+- **Slash commands and tool-generated lines counted as turns.** All three refuted
+  `same-turn-many-sessions` nominations were `/model`, `/compact` or a crash-resume.
+  Exclude slash-command, hook and IDE-generated prompts before grouping, and require a
+  substantive instruction.
+- **Real cross-session duplication.** Exact prompt text inside two minutes cannot see
+  two sessions doing the same job worded differently hours apart — the six duplicate-fix
+  PRs of 2026-07-09. Measure overlap of touched paths, branch prefixes and PR titles
+  across concurrent sessions in one repo within a day.
+- **Instrument-blind waste.** Work that is finished, green and useless — a gate that
+  can never pass, a VERDICT grepping the wrong command — emits no stop, no compaction and
+  no correction, and it is this repo's signature failure. Measure per-check pass/fail
+  history: any gate that has only ever passed, or only ever failed, since introduction
+  is unproven; pair with whether any mutation ever made it bite.
+- **Time and cache cost as distinct from tokens.** `minutes` includes idle (one refuted
+  window held a 13-hour gap), polling sleeps cost wall-clock with no tokens, and
+  `cacheRead` lands in whatever window it falls in. Split sessions into active spans
+  (gap > 10 min = idle), report blocked-on-polling separately, and use cache-read per
+  unit of new output rather than raw cache-read.
+- **Redundant re-verification.** A full suite re-run, or a screenshot retaken, with
+  nothing changed in between is never flagged. Measure: identical Bash command with an
+  identical result and no `Edit` to the files under test between the two runs.
