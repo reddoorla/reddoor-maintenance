@@ -338,3 +338,21 @@ describe("census: fan-out", () => {
     expect(kinds(json, "fanout")).toEqual([]);
   });
 });
+
+describe("census: redo", () => {
+  it("PASS: finds files re-read after a compaction and a near-duplicate Agent prompt", async () => {
+    const { json } = await census(seeded, ["--class", "redo"]);
+    const c = kinds(json, "redo");
+    const reread = c.find((x) => x.kind === "reread-after-compaction");
+    expect(reread?.evidence.filesReReadCount).toBe(3);
+    expect(reread?.cost.out).toBe(57); // the main lane's hour after 10:20: r4 30 + r5 15 + rb 0 + r6 12
+    const dup = c.find((x) => x.kind === "duplicate-agent-prompt");
+    expect(dup?.evidence.similarity as number).toBeGreaterThanOrEqual(0.7);
+    expect(dup?.cost.agentTotal).toBe(7000);
+  });
+
+  it("FAIL control: nominates nothing on the clean fixture", async () => {
+    const { json } = await census(clean, ["--class", "redo"]);
+    expect(kinds(json, "redo")).toEqual([]);
+  });
+});

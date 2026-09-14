@@ -136,3 +136,96 @@ export function fanoutCandidates(all) {
   }
   return out;
 }
+
+const words = (s) =>
+  s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2);
+
+export function jaccard(a, b) {
+  const A = new Set(words(a));
+  const B = new Set(words(b));
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  for (const x of A) if (B.has(x)) inter += 1;
+  return inter / (A.size + B.size - inter);
+}
+
+const FILE_TOOLS = new Set(["Read", "Edit", "Write"]);
+
+export function redoCandidates(all) {
+  const out = [];
+  const toolsBy = bySession(all.tools.filter((t) => t.lane === "main"));
+
+  // 1. After a compaction, the same session re-reads three or more files it had already
+  //    read or edited. Cost: the main lane's spend in the hour after the compaction.
+  for (const c of all.compactions) {
+    const tools = toolsBy.get(c.sessionId) || [];
+    const ct = Date.parse(c.ts);
+    const before = new Set(
+      tools
+        .filter((t) => t.file && FILE_TOOLS.has(t.name) && Date.parse(t.ts) < ct)
+        .map((t) => t.file),
+    );
+    const after = tools.filter(
+      (t) =>
+        t.file && t.name === "Read" && Date.parse(t.ts) >= ct && Date.parse(t.ts) - ct <= 60 * MIN,
+    );
+    const overlap = [...new Set(after.map((t) => t.file))].filter((f) => before.has(f));
+    if (overlap.length < 3) continue;
+    const cost = sumBetween(
+      all.usage,
+      (ev) => ev.sessionId === c.sessionId && ev.lane === "main",
+      ct,
+      ct + 60 * MIN,
+    );
+    out.push({
+      class: "redo",
+      kind: "reread-after-compaction",
+      sessionId: c.sessionId,
+      repo: c.repo,
+      ts: c.ts,
+      window: { from: c.ts, to: new Date(ct + 60 * MIN).toISOString() },
+      cost,
+      evidence: {
+        trigger: c.trigger,
+        preTokens: c.preTokens,
+        filesReReadCount: overlap.length,
+        files: overlap.slice(0, 8),
+      },
+    });
+  }
+
+  // 2. Two Agent dispatches in one session with near-identical prompts. Cost: the later
+  //    agent's reported totalTokens (the parent's toolUseResult), kept as agentTotal.
+  const resultByToolUse = new Map(all.agentResults.map((r) => [r.toolUseId, r]));
+  for (const [sessionId, tools] of toolsBy) {
+    const agents = tools.filter((t) => t.name === "Agent" && t.prompt);
+    for (let i = 0; i < agents.length; i++) {
+      for (let j = i + 1; j < agents.length; j++) {
+        const sim = jaccard(agents[i].prompt, agents[j].prompt);
+        if (sim < 0.7) continue;
+        const r = resultByToolUse.get(agents[j].id);
+        const cost = { ...emptySum(), agentTotal: r ? r.totalTokens : 0 };
+        out.push({
+          class: "redo",
+          kind: "duplicate-agent-prompt",
+          sessionId,
+          repo: agents[j].repo,
+          ts: agents[j].ts,
+          window: { from: agents[i].ts, to: agents[j].ts },
+          cost,
+          evidence: {
+            similarity: Number(sim.toFixed(2)),
+            first: agents[i].prompt.slice(0, 120),
+            second: agents[j].prompt.slice(0, 120),
+            agentType: agents[j].agentType,
+            agentModel: agents[j].agentModel,
+          },
+        });
+      }
+    }
+  }
+  return out;
+}
