@@ -10,6 +10,7 @@ import {
   collectCiAlerts,
   collectAnalyticsFailures,
   collectPreflightBlocked,
+  collectDeadLetterAlerts,
 } from "../../src/alerts/digest-collectors.js";
 import type { WebsiteRow, SecurityAdvisory } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
@@ -819,5 +820,80 @@ describe("collectNotifyBounceAlerts", () => {
 
   it("emits nothing on an empty counts map (libSQL blip / nothing bounced)", () => {
     expect(collectNotifyBounceAlerts([site({ id: "recA" })], new Map(), BASE)).toEqual([]);
+  });
+});
+
+/**
+ * #645 item 4. A dead-lettered lead had no alarm anywhere: the table could fill
+ * up and the only way to learn about it was to run `db replay-deadletters` on a
+ * hunch. Post-flip this is the fleet's only silent lead-loser, and the one thing
+ * that currently notices a missing Turso row — `mirror_missed` in the strict
+ * shadow write — is deleted by Phase 6 (#646).
+ *
+ * The item is CRITICAL at a single row, unlike notify-bounce's threshold of 2: a
+ * bounce may be a greylist blip, whereas a dead letter is by construction a lead
+ * that did not reach anyone.
+ *
+ * Grouping is the interesting part. A dead letter is keyed by SLUG, and the
+ * failure it reports is "this slug resolves to nothing" — so for the worst case
+ * there is no site row to hang it on. Rather than drop it (the cockpit groups by
+ * siteName and would), the item names the slug in the `(unknown site: …)`
+ * pseudo-name, following the `(unlinked site)` precedent already used for an
+ * orphan report. It carries no `url`, because `/s/<slug>` would 404.
+ */
+describe("collectDeadLetterAlerts (#645)", () => {
+  const acme = makeWebsiteRow({ id: "recACME", name: "Acme Co" });
+  const base = "https://dash.example.com";
+
+  it("emits nothing when the queue is empty", () => {
+    expect(collectDeadLetterAlerts([acme], new Map(), base)).toEqual([]);
+  });
+
+  it("is CRITICAL at ONE row — a dead letter is never a blip", () => {
+    const items = collectDeadLetterAlerts([acme], new Map([["acme-co", 1]]), base);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      key: "deadletter:acme-co",
+      kind: "deadletter",
+      siteName: "Acme Co",
+      severity: "critical",
+      metric: 1,
+      url: "https://dash.example.com/s/acme-co",
+    });
+    expect(items[0]!.title).toMatch(/1 lead/);
+  });
+
+  it("counts rows in `metric`, so a growing queue diffs WORSE", () => {
+    const items = collectDeadLetterAlerts([acme], new Map([["acme-co", 4]]), base);
+    expect(items[0]!.metric).toBe(4);
+    expect(items[0]!.title).toMatch(/4 leads/);
+  });
+
+  it("names an UNRESOLVABLE slug rather than dropping it, and links nowhere", () => {
+    // The #645 worst case: the slug has no fleet row at all, which is exactly why
+    // its leads were dropped. An item that vanished with the site would hide the
+    // one failure this collector exists to surface.
+    const items = collectDeadLetterAlerts([acme], new Map([["ghost-co", 2]]), base);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.siteName).toBe("(unknown site: ghost-co)");
+    expect(items[0]!.key).toBe("deadletter:ghost-co");
+    expect(items[0]!.url).toBeUndefined();
+    expect(items[0]!.severity).toBe("critical");
+  });
+
+  it("one item per slug, slug-ordered for a stable digest", () => {
+    const items = collectDeadLetterAlerts(
+      [acme],
+      new Map([
+        ["zed-co", 1],
+        ["acme-co", 1],
+      ]),
+      base,
+    );
+    expect(items.map((i) => i.key)).toEqual(["deadletter:acme-co", "deadletter:zed-co"]);
+  });
+
+  it("ignores a slug whose count is zero", () => {
+    expect(collectDeadLetterAlerts([acme], new Map([["acme-co", 0]]), base)).toEqual([]);
   });
 });

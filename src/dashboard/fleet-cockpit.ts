@@ -23,6 +23,7 @@ import {
   collectAnalyticsFailures,
   collectTurnstileGuardrailAlerts,
   collectNotifyBounceAlerts,
+  collectDeadLetterAlerts,
   collectPrismicDriftAlerts,
   prismicAckIsLive,
 } from "../alerts/digest-collectors.js";
@@ -528,6 +529,10 @@ function collectFleetAttentionItems(
   baseUrl: string,
   now: Date,
   notifyBounces: ReadonlyMap<string, number>,
+  // #645. Unreplayed dead-letter rows per SLUG (countUnreplayedDeadLettersBySlug).
+  // Optional like every other libSQL input: a Turso blip drops the signal, never
+  // the cockpit.
+  deadLetters: ReadonlyMap<string, number> = new Map(),
 ): AttentionItem[] {
   return [
     ...collectVulnAlerts(sites, baseUrl),
@@ -539,6 +544,7 @@ function collectFleetAttentionItems(
     ...collectAnalyticsFailures(sites, baseUrl, now),
     ...collectTurnstileGuardrailAlerts(sites, baseUrl, now),
     ...collectNotifyBounceAlerts(sites, notifyBounces, baseUrl),
+    ...collectDeadLetterAlerts(sites, deadLetters, baseUrl),
     // Reads the nightly-persisted `Prismic Models` verdict columns — no live
     // Prismic/GitHub call, so this stays safe on the request path (the cockpit is
     // request-path; a collector that shelled out would 502 in Lambda).
@@ -577,6 +583,7 @@ export function buildSiteAlarmContext(
   baseUrl: string,
   now: Date,
   notifyBounces: ReadonlyMap<string, number> = new Map(),
+  deadLetters: ReadonlyMap<string, number> = new Map(),
 ): SiteAlarmContext {
   const sites = [site];
   const sitesById = new Map([[site.id, site]]);
@@ -587,6 +594,7 @@ export function buildSiteAlarmContext(
     baseUrl,
     now,
     notifyBounces,
+    deadLetters,
   ).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   const {
     tier,
@@ -627,6 +635,12 @@ export function buildCockpitModel(
   // NOTIFY_BOUNCE_WINDOW_DAYS). Optional like the other libSQL inputs: a Turso
   // blip drops the signal, never the cockpit (2026-07-16).
   notifyBounces: ReadonlyMap<string, number> = new Map(),
+  // #645. Unreplayed dead-letter rows per slug. A slug with no matching visible
+  // card still produces an item (siteName `(unknown site: …)`) — see
+  // `collectDeadLetterAlerts`; the cockpit's card grid has nowhere to hang it,
+  // so the DIGEST is the surface that carries that flavour. A dead letter on a
+  // site the fleet does know lands on that site's card like any other item.
+  deadLetters: ReadonlyMap<string, number> = new Map(),
 ): CockpitModel {
   const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
@@ -682,6 +696,7 @@ export function buildCockpitModel(
     baseUrl,
     now,
     notifyBounces,
+    deadLetters,
   );
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));

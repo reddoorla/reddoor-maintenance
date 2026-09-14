@@ -1,5 +1,6 @@
 import type { Context, Config } from "@netlify/functions";
 import { listSites, listAllReports } from "../../src/db/fleet-state.js";
+import { countUnreplayedDeadLettersBySlug } from "../../src/db/deadletter.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { listNewSubmissions, countAutoSpamSince } from "../../src/db/submissions.js";
 import { listFleetEvents } from "../../src/db/fleet-events.js";
@@ -127,6 +128,15 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     const notifyBounces: ReadonlyMap<string, number> = new Map(
       Object.entries(rollup?.notifyBounces ?? {}),
     );
+    // #645. Unreplayed dead-letter rows per slug — the dropped-lead alarm.
+    // Defensive like every other libSQL read here: a blip drops the signal, it
+    // never blanks the cockpit.
+    let deadLetters: ReadonlyMap<string, number> = new Map();
+    try {
+      deadLetters = await countUnreplayedDeadLettersBySlug(db);
+    } catch {
+      // alarm simply absent — never blank the cockpit
+    }
     const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
     const model = buildCockpitModel(
       websites,
@@ -139,6 +149,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       recentEvents,
       autoFilteredCount,
       notifyBounces,
+      deadLetters,
     );
     return html(renderCockpitHtml(model, auth.email), 200);
   } catch (err) {

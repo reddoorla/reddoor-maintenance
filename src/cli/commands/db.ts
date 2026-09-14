@@ -87,7 +87,21 @@ export async function runDbCommand(
     const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
     const { getWebsiteBySlug } = await import("../../reports/airtable/websites.js");
-    const base = openBase(readAirtableConfig());
+    const { getSiteBySlug } = await import("../../db/fleet-state.js");
+    const { makeLazySiteLookup } = await import("../../forms/site-lookup.js");
+    // #645. Recovery now resolves sites through the SAME lookup the live ingest
+    // path uses. It used to call the Airtable `getWebsiteBySlug` directly, so
+    // post-#643 the two disagreed about what the fleet is: a site created since
+    // the freeze was invisible to the replay, and a row only Airtable still held
+    // would have attached a recovered lead to a site the system no longer
+    // believes in. `openBase` is passed UNCALLED — under the freeze no Airtable
+    // credential is read at all, where before a missing PAT refused the whole
+    // replay (`readAirtableConfig()` throws) with real leads sitting in the queue.
+    const lookupSite = makeLazySiteLookup({
+      fromDb: (s) => getSiteBySlug(db, s),
+      openAirtable: () => openBase(readAirtableConfig()),
+      fromAirtable: (base, s) => getWebsiteBySlug(base, s),
+    });
     const {
       createSubmission,
       stampNotified,
@@ -116,7 +130,7 @@ export async function runDbCommand(
     // forbids and strips it — a throwing lookup must retry, not duplicate) and
     // minus `defer` (a CLI has no post-response phase; the inline tail is fine).
     const result = await replayDeadLetters(db, {
-      getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
+      getWebsiteBySlug: lookupSite,
       createSubmission: (input) => createSubmission(db, input),
       notify: makeNotify(send),
       stampNotified: (id, status, messageId) => stampNotified(db, id, status, messageId),
