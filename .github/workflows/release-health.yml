@@ -69,6 +69,16 @@ jobs:
           if [ "$behind" = "yes" ]; then
             echo "::error::npm is behind main — published ${npmv:-<unpublished>} but main is at $pkg. A release didn't publish; merge the Version Packages PR into a clean main."
           fi
+          # POSITIVE evidence for the close step, written only for what this run
+          # actually observed: a real published version read back from npm that
+          # matches main. The close step refuses without it, so a step that dies
+          # before here — leaving `behind` unset, which `behind != 'yes'` reads
+          # as "all clear" — can no longer arm a "npm caught up" close.
+          drift_out="${RUNNER_TEMP:-/tmp}/drift.out"
+          : > "$drift_out"
+          if [ "$behind" = "no" ]; then
+            echo "NPM_DRIFT behind=no npm=$npmv main=$pkg" >> "$drift_out"
+          fi
 
       # Guard 2 — is the release workflow ITSELF healthy on main? Independent of drift: a release
       # run can fail on every push while npm and main agree on the version (npm 12 / changesets,
@@ -112,6 +122,18 @@ jobs:
           if [ "$red" = "yes" ]; then
             echo "::error::The release workflow's latest run on main is '$concl' ($url). Releases are blocked even though npm and main agree on the version."
           fi
+          # POSITIVE evidence for the close step. `red=no` above is set on TWO
+          # completely different findings — "the newest decisive run was green"
+          # and "there was no decisive run to judge" — and the filing side is
+          # right to treat them alike (a broken query must not masquerade as a
+          # broken pipeline). The close side is not: only the first of the two
+          # is grounds for closing an alarm that may still be true. This line is
+          # written for the first and never the second.
+          rel_out="${RUNNER_TEMP:-/tmp}/relstate.out"
+          : > "$rel_out"
+          if [ "$concl" = "success" ]; then
+            echo "RELEASE_STATE healthy=yes sha=${sha:-n/a}" >> "$rel_out"
+          fi
 
       # File/reopen a single deduped tracking issue (by exact title — only needs issues:write).
       # continue-on-error so the alert machinery can never flip the run's own status.
@@ -139,6 +161,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          out="${RUNNER_TEMP:-/tmp}/drift.out"
+          # Belt and braces: close ONLY on positive evidence — the machine line
+          # the drift check writes when it has actually read a version back from
+          # npm. Step outcome alone is not proof: `behind != 'yes'` is equally
+          # true when the check step never produced an output at all.
+          if ! grep -q "NPM_DRIFT behind=no " "$out" 2>/dev/null; then
+            echo "no verified npm/main comparison in this run — not closing anything"
+            exit 0
+          fi
           title="npm registry is behind main"
           for n in $(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
@@ -171,6 +202,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          out="${RUNNER_TEMP:-/tmp}/relstate.out"
+          # Belt and braces: close ONLY on positive evidence of a decisive
+          # release run on main that was GREEN — the marker line, which the
+          # empty-query path deliberately never writes. Step outcome alone is
+          # not proof: `red=no` is also what guard 2 sets when the API returned
+          # nothing at all, and an unset output reads the same way. Either would
+          # otherwise convert into a false "green on main again" close on an
+          # alarm that may still be true.
+          if ! grep -q "RELEASE_STATE healthy=yes " "$out" 2>/dev/null; then
+            echo "no verified green release run on main — not closing anything"
+            exit 0
+          fi
           title="Release workflow is failing on main"
           for n in $(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
