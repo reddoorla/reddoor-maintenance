@@ -2152,3 +2152,93 @@ about where to look.
 All of it is in `docs/meta-week/09-operator-answers.md`, linked second in the
 README's reading order, because two of the conclusions a reader would otherwise
 draw from `03` and `05` are wrong without it.
+
+## 2026-09-14 — The alarm channel could not see past row 30, and had already lost one (S2, `bddc16c`/`64e31cb`/`0bfd15d`)
+
+Meta-week item S2. Every nightly in this repo files one deduped tracking issue
+and closes it on recovery, and both halves found that issue with a bare
+`gh issue list --state open`. That is a **30-row page**. 24 call sites across 9
+workflows, none with a `--limit`, against **61 open issues** in the repo today.
+
+It had already fired, and the dates are exact. #652 "Fleet protection coverage
+gap" was filed 2026-09-01 and commented daily to 09-09. On **2026-09-10** the
+dedupe query came back empty, and the sweep filed **#754** under a byte-identical
+title. The close loop reads the same truncated page, so from that morning #652
+was unreachable by both halves and could never be closed by the machine. Still
+reproducible before the fix: the plain query returned `754`, the same query with
+`--limit 200` returned `754` and `652`.
+
+The hazard was not unknown here. `src/github/gh.ts:635` already carries
+_"the default page of 30 is exactly the trap that produced the 2026-07-31 false
+'queue is empty'"_ — written in code, applied nowhere else. A lesson that lives
+in one file's comment is a lesson the next file does not get.
+
+**The belief that turned out false, and it is the interesting part of this
+entry.** Going in, the framing was "#652 is a duplicate of #754" — same title,
+same alarm, close it as a dupe. It is not. #652's body names
+`reddoorla/reddoor-starter-blux`; #754's names `vida-legacy-foundation` and
+`29-navy`. Disjoint. The reason is a second defect nobody had written down: the
+open/update half comments the **current** gap set onto whatever issue it finds,
+and never touches the body. So an issue's body is a snapshot of the night it was
+filed and is wrong by the following evening — #652's last comment, on 09-09,
+already named `.github`, `vida-legacy-foundation` and `29-navy`, none of which
+appears in its body.
+
+That turns the obvious fix into a trap. Bounding the query alone would have let
+the next clean sweep find both issues by title and close both with an automated
+"Recovered" — retiring one issue's finding on another issue's evidence. A
+truncation bug traded for a false green, which is strictly the worse of the two.
+So the close loop now parses the repos an issue's own body listed as `GAP` and
+closes it only when every one of them appears as `COVERED` in that run's output.
+`SKIPPED` does not count: a repo gone private, archived or deleted is one the
+sweep did not verify, and "I could not check X" must not read as "X is fine".
+
+#652 was closed by hand first, before any of this shipped, with a note saying
+what healed it — `reddoor-starter-blux` now reports secret scanning and push
+protection `enabled` and its renovate workflow has succeeded on all of its last
+five runs, most recently `2026-09-14T03:29:32Z`.
+
+**On `--limit 200`, honestly.** It is the weaker half of the fix and it is a
+bound the backlog can outgrow, exactly as 30 was. At 20–35 issues opened a week
+it buys months. The half that actually stops the query degrading is the
+server-side `--search "in:title \"$title\""`, now on all 24 sites: its page size
+is a function of how many issues share the title — two, at the worst moment this
+has ever seen — rather than of how many issues exist. The limit is there only
+because the search result is itself a 30-row default page. Anyone who finds this
+bug back should look at the limit first. The tradeoff accepted: `--search` goes
+through GitHub's search index, which is eventually consistent where a plain list
+is not, and a rare false-empty would file one duplicate that the next night
+deduplicates — against a current failure that is deterministic and permanent.
+
+**The test, and why its order is the substance.** No assertion over the workflow
+source can express this defect: `--limit` appearing in the text is not the claim
+"the query finds an issue at row 35". So `tests/build/tracking-issue-query.test.ts`
+extracts each step's `run:` block and executes it against a stubbed `gh` holding
+40 open issues. Run against the exact text on `origin/main`, the title at
+position 2 **passed** and the same corpus with the title at position 35 **failed**
+with `STUB_CREATE Fleet protection coverage gap` where `commented on existing
+#935` was expected — that is #754 being born, reproduced in a test. The position-2
+control is written first on purpose and is the only reason the position-35 red is
+worth anything.
+
+Two things the test does that are worth copying. The sweep output it feeds the
+close step is produced by a real `runProtectionAuditCommand` run rather than
+hand-typed, so a drift in the audit's `COVERED <repo> — …` line format fails this
+file instead of silently un-arming the workflow's grep. And `--jq` in the stub is
+handed to the real `jq`, so the workflow's own jq expression is under test rather
+than approximated.
+
+One small production change came out of making this testable: fleet-security's
+sweep output moved from a hard-coded `/tmp/protection.out` to
+`${RUNNER_TEMP:-/tmp}/protection.out` — the idiom fleet-db-backup,
+fleet-prismic-drift, fleet-smoke and report-rerender already use. Identical on a
+runner; off one it stops two runs sharing a path.
+
+Not done, and deliberately: the other eight workflows' steps are bounded but not
+executed in a test — only fleet-security's pair is. They are byte-identical in
+shape, and a cheap comment-stripped sweep over all nine asserts every one of the
+24 sites still carries both a bound and a title search, so they cannot regress
+behind the two that are executed. Also untouched: the stale-body defect itself.
+The open/update half still never rewrites the body it commented past, so an
+issue's body remains a snapshot of the night it was filed. The close gate now
+copes with that rather than fixing it.
