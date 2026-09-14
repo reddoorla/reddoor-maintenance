@@ -1,0 +1,37 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "tz": "America/Los_Angeles",
+  "lane": "all",
+  "from": null,
+  "to": null,
+  "files": 3295,
+  "lines": 748925,
+  "by": [
+    "lane"
+  ],
+  "total": {
+    "requests": 76255,
+    "in": 1596601,
+    "out": 66870413,
+    "cacheCreate": 315507703,
+    "cacheRead": 13918064322
+  },
+  "groups": [
+    {
+      "key": "main",
+      "requests": 36639,
+      "in": 298183,
+      "out": 39034909,
+      "cacheCreate": 135343042,
+      "cacheRead": 10340093052
+    },
+    {
+      "key": "subagent",
+      "requests": 39616,
+      "in": 1298418,
+      "out": 27835504,
+      "cacheCreate": 180164661,
+      "cacheRead": 3577971270
+    }
+  ]
+}
