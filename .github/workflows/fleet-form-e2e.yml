@@ -62,12 +62,17 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}/form-e2e.out"
           # A failing submission makes the CLI exit non-zero BY DESIGN; tolerate it
           # and key the gate on the machine-readable FLEET_WRITE_SUMMARY line,
           # exactly like fleet-smoke/fleet-lighthouse. A site that hasn't rolled
           # out testMode forwarding self-skips via the /health declaration
           # preflight (counts as written, not failed), so the gate stays green
-          # during rollout.
+          # during rollout. That accommodation is deliberate and stays — but it
+          # is also why this sweep cannot be read as a coverage statement: a
+          # self-skip writes back like any other result, so "13 probed and green"
+          # and "13 refused to probe" produce a byte-identical write summary. The
+          # skipped=N counter below exists to separate them.
           # --workdir is only the clone fallback for a row missing deployedUrl
           # (form-e2e is checkout-free when the URL is present, and such a site
           # self-skips anyway) — mirrors fleet-lighthouse.
@@ -76,11 +81,11 @@ jobs:
             --only form-e2e \
             --write-airtable \
             --concurrency 1 \
-            --workdir /tmp/fleet-form-e2e | tee /tmp/form-e2e.out || true
+            --workdir /tmp/fleet-form-e2e | tee "$out" || true
 
           # `|| true`: under Actions' default `set -e`, a no-match grep in a command
           # substitution would abort the step before the diagnostic below runs.
-          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/form-e2e.out | tail -n1 || true)
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" "$out" | tail -n1 || true)
           if [ -z "$summary" ]; then
             echo "::error::fleet form-e2e printed no write summary — the run crashed before write-back (check Airtable creds / API)."
             exit 1
@@ -90,15 +95,39 @@ jobs:
           total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
           echo "fleet form-e2e write-back: wrote=$wrote failed=$failed total=$total"
 
+          # COVERAGE, not correctness. A site whose /health does not declare
+          # forms.testMode self-skips (see the note above) and is written back
+          # like any other row, so an unfinished rollout and a fleet-wide
+          # regression are indistinguishable in the write summary. Count the
+          # self-skips and say so.
+          #
+          # Emitted on EVERY run, zero included — the same contract as
+          # FLEET_SMOKE_UNMEASURED, for the same reason: a marker that only
+          # prints when non-zero cannot tell "nobody self-skipped" from "the
+          # counter stopped matching the audit's wording".
+          #
+          # A WARNING, deliberately never a threshold. Five of thirteen
+          # maintained sites are uncovered today, so a threshold would red this
+          # nightly tonight and every night until five client deploys land — and
+          # a red everyone learns to ignore is worse than the false green it
+          # replaced. The threshold belongs after the rollout, not before it.
+          # `|| true`: grep -c exits 1 on zero matches, which `set -e` would
+          # treat as a step failure.
+          selfskipped=$(grep -c "does not declare forms.testMode" "$out" || true)
+          echo "FLEET_FORM_E2E skipped=$selfskipped total=$total"
+          if [ "$selfskipped" -gt 0 ]; then
+            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration) — those sites had NO end-to-end coverage tonight."
+          fi
+
           # Surface every partial miss as a visible warning.
           if [ "$failed" != "0" ]; then
-            notwritten=$(grep -oE "✗ [^:]+: .*" /tmp/form-e2e.out | tail -n5 || true)
+            notwritten=$(grep -oE "✗ [^:]+: .*" "$out" | tail -n5 || true)
             echo "::warning::fleet form-e2e: $failed/$total site(s) not written — $notwritten"
           fi
 
           # A site that couldn't be prepared (bad URL/repo) is dropped from the run
           # rather than crashing it; raise it so the misconfigured Airtable row is fixed.
-          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/form-e2e.out | tail -n1 || true)
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "$out" | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet form-e2e: $skipped"
           fi
@@ -111,9 +140,30 @@ jobs:
           # exists only in the run log. -B1 picks up the site name, which
           # formatTable prints on the line above the summary. Leading indicator:
           # warn, never fail the run.
-          thin=$(grep -B1 "BUDGET_THIN" /tmp/form-e2e.out | grep -v '^--$' | paste -sd' ' - | tr -s ' ' || true)
+          thin=$(grep -B1 "BUDGET_THIN" "$out" | grep -v '^--$' | paste -sd' ' - | tr -s ' ' || true)
           if [ -n "$thin" ]; then
             echo "::warning::fleet form-e2e ingest budget thin — $thin"
+          fi
+
+          # Total write-back failure: nothing landed at all (creds/API/inventory).
+          # Byte-for-byte the check fleet-lighthouse.yml:106 has carried for
+          # months, and this was the only fleet nightly without it.
+          #
+          # The mass-flake gate below is NOT a substitute, and the gap is narrow
+          # enough to have hidden here: `total` is `wrote + failed`, so wrote=0
+          # forces failed=total and `failed * 4 > total` fires — EXCEPT when
+          # total is 0 too. A sweep that attempted nothing (empty inventory, a
+          # fleet source that returned no rows, a filter that matched none) reads
+          # as `0 > 0`, false, and the nightly reports success having probed no
+          # site at all. That is exactly the failure FLEET_SMOKE_UNMEASURED was
+          # invented to kill, reintroduced in the one sweep with no gate test.
+          #
+          # It runs BEFORE the mass-flake gate deliberately: on wrote=0 both
+          # would fire, and "0 of 13 written" sends the reader to the creds and
+          # the API, where the cause is, rather than hunting a per-site flake.
+          if [ "$wrote" -eq 0 ]; then
+            echo "::error::fleet form-e2e wrote 0 of $total site(s) — total write-back failure (check Airtable creds / API)."
+            exit 1
           fi
 
           # Mass flake: more than 25% of attempted sites failed to write.
