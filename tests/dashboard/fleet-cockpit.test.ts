@@ -573,6 +573,55 @@ describe("buildCockpitModel", () => {
     expect(m.cards[0]!.items.some((i) => i.kind === "notify-bounce")).toBe(false);
   });
 
+  it("surfaces a dead-lettered lead as a CRITICAL item on its site's card (#645)", () => {
+    // The collector keys by SLUG; the cockpit groups by siteName. A dead letter
+    // for a site the fleet knows resolves to that site's card.
+    const m = buildCockpitModel(
+      [site({ id: "a", name: "Espada" }), site({ id: "b", name: "Fine" })],
+      [],
+      {},
+      BASE,
+      NOW,
+      [],
+      null,
+      [],
+      0,
+      new Map(),
+      new Map([["espada", 2]]),
+    );
+    const espada = m.cards.find((c) => c.site.name === "Espada")!;
+    expect(espada.tier).toBe("attention");
+    const item = espada.items.find((i) => i.kind === "deadletter")!;
+    expect(item).toMatchObject({ key: "deadletter:espada", severity: "critical", metric: 2 });
+    expect(m.cards.find((c) => c.site.name === "Fine")!.tier).toBe("healthy");
+  });
+
+  it("emits no deadletter item when the counts map is omitted (libSQL blip default)", () => {
+    const m = buildCockpitModel([site({ id: "a", name: "Espada" })], [], {}, BASE, NOW);
+    expect(m.cards[0]!.items.some((i) => i.kind === "deadletter")).toBe(false);
+  });
+
+  it("pierces the pre-launch mute — a dropped lead is never expected noise (#645)", () => {
+    // A 'launching' site mutes expected pre-launch conditions. A lead that
+    // reached nobody is not one of them, and pre-launch is exactly when a site's
+    // Turso row is most likely to be half-created.
+    const m = buildCockpitModel(
+      [site({ id: "p", name: "Pre Launch", status: "launching" })],
+      [],
+      {},
+      BASE,
+      NOW,
+      [],
+      null,
+      [],
+      0,
+      new Map(),
+      new Map([["pre-launch", 1]]),
+    );
+    expect(m.cards[0]!.tier).toBe("attention");
+    expect(m.cards[0]!.items.map((i) => i.kind)).toContain("deadletter");
+  });
+
   it("mutes a 'launch period' site with only pre-launch noise, filtering it off the card", () => {
     const m = buildCockpitModel(
       [

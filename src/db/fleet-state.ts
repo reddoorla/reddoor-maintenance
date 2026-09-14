@@ -404,6 +404,17 @@ export async function getSiteBySlug(db: Db, slug: string): Promise<WebsiteRow | 
   return r ? rowFromJoined(r as JoinedRow) : null;
 }
 
+/** #645. Does `sites` hold this row at all? One column, no join, no row mapping —
+ *  `getSiteById` would answer the same question (its joins are LEFT, so a site
+ *  missing its site_health/site_schedule companions still resolves) but it pays
+ *  for a full `rowFromJoined` to return a boolean, and it would tie the heal's
+ *  decision to whatever that mapper does next. `sites.id` is the PK and it is
+ *  exactly what `mirrorSiteInsert` conflicts on. */
+export async function siteRowExists(db: Db, siteId: string): Promise<boolean> {
+  const r = await db.selectFrom("sites").select("id").where("id", "=", siteId).executeTakeFirst();
+  return r !== undefined;
+}
+
 /** By Airtable rec id (the PK) — approve-report's lookup shape. */
 export async function getSiteById(db: Db, id: string): Promise<WebsiteRow | null> {
   const r = await joined(db).where("sites.id", "=", id).executeTakeFirst();

@@ -42,12 +42,17 @@ export async function runEnsureSiteCommand(
       result.skippedMismatches.length > 0
         ? ` — differs from existing, left untouched (edit in Airtable): ${result.skippedMismatches.join(", ")}`
         : "";
+    // #645. Loud, and its own clause: a healed row means this site's leads were
+    // being answered `unknown-site` and dropped until this run.
+    const healed = result.healedDbRow
+      ? ` — HEALED: the Turso row was MISSING and has been inserted; leads for this slug were being dropped (run \`db replay-deadletters\`)`
+      : "";
     const nameNote =
       result.status === "created" && !opts.name
         ? ` — Name set to "${slug}"; retitle in Airtable before forms/announce go live (or re-create with --name)`
         : "";
     return {
-      output: `[${slug}] ${result.status} (${result.siteId})${filled}${skipped}${nameNote}`,
+      output: `[${slug}] ${result.status} (${result.siteId})${healed}${filled}${skipped}${nameNote}`,
       code: 0,
     };
   } catch (err) {

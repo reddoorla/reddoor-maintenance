@@ -70,9 +70,10 @@ export async function listUnreplayedDeadLetters(db: Db): Promise<DeadLetterRow[]
 }
 
 /** Mark a row's replay TERMINAL — it will never be picked up again. Only call
- *  for outcomes that re-running cannot improve (accepted, rejected,
- *  unknown-site). A replay whose lookup threw again is left untouched so the
- *  next run retries it. */
+ *  for outcomes that re-running cannot improve (accepted, rejected). A replay
+ *  whose lookup threw again is left untouched so the next run retries it — and
+ *  since #645 so is `unknown-site`, because `ensure-site` can heal the missing
+ *  Turso row and make the same replay succeed. */
 export async function markDeadLetterReplayed(
   db: Db,
   id: string,
@@ -89,4 +90,20 @@ export async function markDeadLetterReplayed(
     })
     .where("id", "=", id)
     .execute();
+}
+
+/** Unreplayed rows per site slug — the input to the `deadletter` attention
+ *  collector (#645). Grouped in SQL rather than by listing and counting in JS:
+ *  the rows carry full lead payloads, and an alarm must never pull a client's
+ *  PII into a dashboard request just to learn how many rows there are. */
+export async function countUnreplayedDeadLettersBySlug(
+  db: Db,
+): Promise<ReadonlyMap<string, number>> {
+  const rows = await db
+    .selectFrom("submission_deadletter")
+    .select((eb) => ["site_slug", eb.fn.countAll<number>().as("n")])
+    .where("replayed_at", "is", null)
+    .groupBy("site_slug")
+    .execute();
+  return new Map(rows.map((r) => [r.site_slug, Number(r.n)]));
 }

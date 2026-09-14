@@ -2,7 +2,7 @@ import type { Context, Config } from "@netlify/functions";
 import { openBase, readAirtableConfig } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { getSiteBySlug } from "../../src/db/fleet-state.js";
-import { makeSiteLookup } from "../../src/forms/site-lookup.js";
+import { makeLazySiteLookup } from "../../src/forms/site-lookup.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   createSubmission,
@@ -138,15 +138,17 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // `ensure-site` inserts straight into Turso, so a slug Turso does not know
     // is an unknown slug. This is what retires the 08-17 outage class outright
     // — an Airtable outage, an expired PAT or an unset one cannot reach a lead.
-    const lookupSite = makeSiteLookup({
+    // The base is passed UNCALLED: `strict` returns null before the fallback
+    // runs, so on the live path no Airtable client is constructed and no
+    // Airtable credential is read. Constructing it eagerly is what put the whole
+    // Airtable layer in front of every lead. Reached only with `strict` false,
+    // where `readAirtableConfig()` throwing is the documented behaviour — it
+    // hands the lead to the dead-letter. Shared with `db replay-deadletters`
+    // (#645) so live and recovery cannot disagree about what the fleet is.
+    const lookupSite = makeLazySiteLookup({
       fromDb: (s) => getSiteBySlug(db, s),
-      // Built INSIDE the callback, not above it: `strict` returns null before
-      // ever calling this, so on the live path no Airtable client is
-      // constructed and no Airtable credential is read. Constructing it eagerly
-      // is what put the whole Airtable layer in front of every lead. Reached
-      // only with `strict` false, where `readAirtableConfig()` throwing is the
-      // documented behaviour — it hands the lead to the dead-letter.
-      fromAirtable: (s) => getWebsiteBySlug(openBase(readAirtableConfig()), s),
+      openAirtable: () => openBase(readAirtableConfig()),
+      fromAirtable: (base, s) => getWebsiteBySlug(base, s),
     });
 
     // Screen-out beacon: a no-PII { _screenOut: honeypot|too-fast } body is routed

@@ -181,6 +181,32 @@ describe("collectAttention", () => {
     });
   });
 
+  it("emits a deadletter item from injected per-slug counts (#645)", async () => {
+    // The digest is the surface that carries BOTH flavours: a slug the fleet
+    // knows, and a slug it does not — the latter has no cockpit card by
+    // construction, and it is the flavour that means leads are being dropped.
+    const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
+    const items = await collectAttention({
+      base,
+      baseUrl: BASE_URL,
+      deadLetters: new Map([
+        ["acme-co", 2],
+        ["ghost-co", 1],
+      ]),
+    });
+    const known = items.find((i) => i.key === "deadletter:acme-co")!;
+    expect(known).toMatchObject({ kind: "deadletter", siteName: "Acme Co", severity: "critical" });
+    const ghost = items.find((i) => i.key === "deadletter:ghost-co")!;
+    expect(ghost).toMatchObject({ siteName: "(unknown site: ghost-co)", severity: "critical" });
+    expect(ghost.url).toBeUndefined();
+  });
+
+  it("emits no deadletter item when the queue is empty", async () => {
+    const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
+    const none = await collectAttention({ base, baseUrl: BASE_URL, deadLetters: new Map() });
+    expect(none.some((i) => i.kind === "deadletter")).toBe(false);
+  });
+
   it("emits no notify-bounce item when counts are empty or below the 2-bounce floor", async () => {
     const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
     const none = await collectAttention({ base, baseUrl: BASE_URL, notifyBounces: new Map() });

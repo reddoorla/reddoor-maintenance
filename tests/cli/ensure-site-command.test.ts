@@ -32,6 +32,7 @@ describe("runEnsureSiteCommand", () => {
       siteId: "recNEW",
       updatedFields: [],
       skippedMismatches: [],
+      healedDbRow: false,
     });
     const res = await runEnsureSiteCommand("roalson", {
       name: "Roalson",
@@ -65,6 +66,7 @@ describe("runEnsureSiteCommand", () => {
       siteId: "recEXIST",
       updatedFields: ["url"],
       skippedMismatches: [],
+      healedDbRow: false,
     });
     const res = await runEnsureSiteCommand("acme-co", {});
     expect(res.code).toBe(0);
@@ -78,6 +80,7 @@ describe("runEnsureSiteCommand", () => {
       siteId: "recEXIST",
       updatedFields: [],
       skippedMismatches: ["url"],
+      healedDbRow: false,
     });
     const res = await runEnsureSiteCommand("acme-co", { url: "https://x.example.com" });
     expect(res.output).toContain("left untouched");
@@ -90,6 +93,7 @@ describe("runEnsureSiteCommand", () => {
       siteId: "recNEW",
       updatedFields: [],
       skippedMismatches: [],
+      healedDbRow: false,
     });
     const res = await runEnsureSiteCommand("roalson", {});
     expect(res.output).toContain("retitle in Airtable");

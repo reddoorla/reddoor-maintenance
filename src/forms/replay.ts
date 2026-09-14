@@ -25,8 +25,9 @@ export type ReplayResult = {
  * otherwise dead-letter the SAME lead a second time while the original row stays
  * unreplayed — every retry would mint a duplicate. Enforced here by stripping the
  * key rather than trusting the caller. A thrown lookup leaves the row untouched
- * for the next run; every RESOLVED outcome (accepted, rejected, unknown-site) is
- * terminal — re-running cannot improve on an answer the store actually gave.
+ * for the next run; `accepted` and `rejected` are terminal — re-running cannot
+ * improve on an answer the store actually gave. `unknown-site` USED to be
+ * terminal too and no longer is: see replayOne below (#645).
  *
  * Oldest-first (listUnreplayedDeadLetters orders by received_at) so the
  * duplicate/velocity spam signals see submissions in arrival order.
@@ -76,7 +77,22 @@ async function replayOne(
     await markDeadLetterReplayed(db, row.id, "accepted", res.submissionId, now);
     return { terminal: true, outcome: "accepted", submissionId: res.submissionId };
   }
-  const outcome = res.status === "rejected" ? `rejected:${res.reason}` : "unknown-site";
+  // #645. `unknown-site` is NO LONGER terminal. It used to be, on the reasoning
+  // that a slug the store rejects "can never improve" — true while nothing could
+  // create the missing row. `ensure-site` can now heal one (#645 item 1), and
+  // `ingestSubmission` now dead-letters `unknown-site` leads instead of dropping
+  // them, so this queue holds real client leads whose site is merely absent.
+  //
+  // Terminality would then be an ORDERING TRAP: replay-before-heal marks every
+  // such lead replayed-and-lost, and that is the order a person reaches for
+  // first. Leaving the row queued makes both orders safe.
+  //
+  // The cost is a slug that is genuinely gone piling up rows and holding this
+  // command at exit 1. Deliberate: loud and recoverable beats silent and not.
+  if (res.status === "unknown-site") {
+    return { terminal: false, error: `unknown-site: no fleet row for '${row.siteSlug}'` };
+  }
+  const outcome = `rejected:${res.reason}`;
   await markDeadLetterReplayed(db, row.id, outcome, null, now);
   return { terminal: true, outcome, submissionId: null };
 }

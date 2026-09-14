@@ -126,3 +126,62 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     expect(logged(log)).toContain("Not A Column");
   });
 });
+
+/**
+ * #645. `hasRow` is the probe `ensure-site` uses to decide whether a site that
+ * exists in Airtable is missing from Turso — the state in which every one of
+ * that site's leads is answered `unknown-site` and dropped.
+ *
+ * It is the one op on this mirror that is a pure READ, and it deliberately
+ * behaves unlike the writers: no SITE_MIRROR mirrored= line, and no throw under
+ * the freeze. A probe that threw would sink the very command that repairs the
+ * gap, and a probe that answered "absent" on its own failure would provoke a
+ * blind insert over a row it simply could not see.
+ */
+describe("makeSiteMirror → hasRow (#645)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("answers true for a site Turso holds", async () => {
+    const db = await dbWithSite();
+    const mirror = await makeSiteMirror(async () => db, false);
+    await expect(mirror.hasRow("recSITE")).resolves.toBe(true);
+  });
+
+  it("answers false for a site Turso does NOT hold — the #645 state", async () => {
+    const db = await dbWithSite();
+    const mirror = await makeSiteMirror(async () => db, false);
+    await expect(mirror.hasRow("recMISSING")).resolves.toBe(false);
+  });
+
+  it("logs nothing at all on the happy path (it is a read, not a mirrored write)", async () => {
+    const db = await dbWithSite();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const mirror = await makeSiteMirror(async () => db, false);
+
+    await mirror.hasRow("recSITE");
+
+    expect(logged(log)).not.toContain("SITE_MIRROR");
+  });
+
+  it("answers true (assume present) when no db could be opened", async () => {
+    const mirror = await makeSiteMirror(async () => {
+      throw new Error("no creds");
+    }, false);
+    await expect(mirror.hasRow("recSITE")).resolves.toBe(true);
+  });
+
+  it("answers true, and does NOT throw, when the read itself fails — even under the freeze", async () => {
+    const db = {
+      selectFrom: () => {
+        throw new Error("SQLITE_BUSY");
+      },
+    } as unknown as Awaited<ReturnType<typeof openDb>>;
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    // strict = true: every WRITE op throws in this mode. The probe must not.
+    const mirror = await makeSiteMirror(async () => db, true);
+    await expect(mirror.hasRow("recSITE")).resolves.toBe(true);
+
+    expect(logged(log)).toContain("SITE_MIRROR site=recSITE op=hasRow unknown error=SQLITE_BUSY");
+  });
+});
