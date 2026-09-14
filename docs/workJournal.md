@@ -2242,3 +2242,71 @@ behind the two that are executed. Also untouched: the stale-body defect itself.
 The open/update half still never rewrites the body it commented past, so an
 issue's body remains a snapshot of the night it was filed. The close gate now
 copes with that rather than fixing it.
+
+## 2026-09-14 — fleet-form-e2e cannot go green having probed nothing; release-health closes only on a positive marker (S5, `fix/form-e2e-zero-write-gate`)
+
+Meta-week item S5, both halves: the one fleet nightly with no zero-write check
+and no gate test, and a 20-minute rider on release-health's close side.
+
+**The zero-write hole was narrower than the survey said, and that matters.**
+S5's claim is that `fleet-form-e2e` had no `wrote=0` check while
+`fleet-lighthouse.yml:106` has carried one for months. True. But the obvious
+fixture — `wrote=0 failed=13 total=13` — already reds today, through the
+pre-existing >25% mass-flake gate at `:122`, because `formatFleetWriteSummary`
+computes `total = wrote + failed`, so `wrote=0` forces `failed=total` and
+`failed * 4 > total` fires for every total above zero. The single shape that
+slips through is `total=0`: a sweep that attempted nothing at all reads as
+`0 > 0`, false, and reports success. Writing the case the survey implied would
+have produced a test that passed before the fix and proved nothing. The gate
+test now carries both shapes, and the second one asserts on the MESSAGE rather
+than the exit code — today's red points the reader at a per-site flake when the
+cause is total write-back failure.
+
+**The coverage half is the more valuable one.** A site whose `/health` does not
+declare `forms.testMode` self-skips — deliberately, since probing it would post
+a real lead into a client inbox — and a self-skip is written back like any other
+row. So "13 probed and green" and "13 refused to probe" produce a byte-identical
+`FLEET_WRITE_SUMMARY`, and the nightly could not tell six from zero. It now
+prints `FLEET_FORM_E2E skipped=N total=T` on every run, zero included, on the
+same contract as `FLEET_SMOKE_UNMEASURED` and for the same reason: a marker that
+only appears when non-zero cannot distinguish "nobody self-skipped" from "the
+counter stopped matching the audit's wording". Shipped as a warning and not a
+threshold — 5 of 13 maintained sites are uncovered, so a threshold reds the
+nightly tonight and every night until five client deploys land, and that is how
+an alarm gets trained out of existence. The rollout is #779.
+
+The 6/7 split reproduced exactly: `grep -c testMode src/routes/health/+server.ts`
+across the 13 maintained checkouts gives 2 matching lines on
+beachfront-dentistry, reddoor-website, medical-solutions-of-texas, espada,
+vineyard-custom-homes and 1836dig, and 0 on gallerysonder, revogen,
+erp-industrial, data-dynamiq, la-homelessness-initiative, caltex-landing and
+la-homelessness-youth — the last two being the accepted formless cases.
+
+**release-health could close an alarm on nothing.** Guard 2 sets `red=no` on two
+unrelated findings — "the newest decisive run was green" and "there was no
+decisive run to judge" — and the filing side is right to conflate them (a broken
+query must not masquerade as a broken pipeline). The close side is gated on the
+same flag, so an empty query would close "Release workflow is failing on main"
+with "green on main again" while releases stayed blocked. Driving the real check
+step with an empty API response and feeding its state to the real close step
+produced `CLOSED 42 / closed #42` against the untouched workflow. Both check
+steps now write a positive marker for what they observed and both close steps
+refuse without one — `fleet-security.yml:237`'s idiom, whose comment already
+said it: "Step outcome alone is not proof." Guard 1 got the same treatment: its
+close is gated on `behind != 'yes'`, which an unset output also satisfies.
+
+Two things worth copying from the harness. `fleet-form-e2e`'s coverage fixture
+is built from `FORM_E2E_TESTMODE_UNDECLARED_SUMMARY`, hoisted out of the audit's
+return statement, so rewording the skip goes red here instead of silently
+reporting `skipped=0` for a fleet nobody probed. And the release-health harness
+has to expand `${{ … }}` the way Actions does before bash sees a block —
+`${{` is an invalid parameter expansion, so guard 2's query cannot be executed
+at all otherwise — with unknown expressions throwing rather than expanding to
+`""`, which would quietly turn a real comparison into one against the empty
+string.
+
+Both workflows' scratch files moved off hard-coded `/tmp` paths to
+`${RUNNER_TEMP:-/tmp}`, matching fleet-smoke and fleet-security. Identical on a
+runner; off one it stops two runs sharing a path — and on this machine the
+sandbox denies `/tmp` writes outright, so the harness could not have run the
+step at all without it.
