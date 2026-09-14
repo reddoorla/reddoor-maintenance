@@ -1,10 +1,12 @@
 {
   "root": "/Users/tuckerlemos/.claude/projects",
-  "files": 3336,
-  "prompts": 4723,
-  "tools": 93080,
-  "agentResults": 343,
+  "files": 3387,
+  "prompts": 4768,
+  "tools": 93830,
+  "agentResults": 344,
   "interrupts": 131,
+  "agents": 353,
+  "notifications": 531,
   "classes": {
     "fanout": {
       "byKind": {
@@ -16,6 +18,17 @@
             "out": 1504133,
             "cacheCreate": 10169023,
             "cacheRead": 170570637
+          }
+        },
+        "orphaned-agent": {
+          "candidates": 13,
+          "cost": {
+            "requests": 654,
+            "in": 1518,
+            "out": 433849,
+            "cacheCreate": 2188939,
+            "cacheRead": 86786915,
+            "agentTotal": 89411221
           }
         },
         "spend-after-stop": {
@@ -177,6 +190,24 @@
           }
         },
         {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:15:35.851Z",
+          "window": {
+            "from": "2026-08-24T23:15:35.851Z",
+            "to": "2026-08-24T23:52:07.683Z"
+          },
+          "cost": {
+            "requests": 95,
+            "in": 190,
+            "out": 70779,
+            "cacheCreate": 269048,
+            "cacheRead": 16161654,
+            "agentTotal": 16501671
+          }
+        },
+        {
           "kind": "continue-after-block",
           "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
           "repo": "reddoor-website",
@@ -191,6 +222,96 @@
             "out": 69496,
             "cacheCreate": 665815,
             "cacheRead": 39141200
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:15:20.140Z",
+          "window": {
+            "from": "2026-08-24T23:15:20.140Z",
+            "to": "2026-08-24T23:52:07.128Z"
+          },
+          "cost": {
+            "requests": 103,
+            "in": 206,
+            "out": 69311,
+            "cacheCreate": 239141,
+            "cacheRead": 16596997,
+            "agentTotal": 16905655
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:17:20.699Z",
+          "window": {
+            "from": "2026-08-24T23:17:20.699Z",
+            "to": "2026-08-24T23:52:08.560Z"
+          },
+          "cost": {
+            "requests": 95,
+            "in": 190,
+            "out": 58379,
+            "cacheCreate": 224723,
+            "cacheRead": 14150971,
+            "agentTotal": 14434263
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:17:44.180Z",
+          "window": {
+            "from": "2026-08-24T23:17:44.180Z",
+            "to": "2026-08-24T23:52:09.245Z"
+          },
+          "cost": {
+            "requests": 123,
+            "in": 246,
+            "out": 52678,
+            "cacheCreate": 196221,
+            "cacheRead": 15061009,
+            "agentTotal": 15310154
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:17:31.512Z",
+          "window": {
+            "from": "2026-08-24T23:17:31.512Z",
+            "to": "2026-08-24T23:52:09.315Z"
+          },
+          "cost": {
+            "requests": 93,
+            "in": 186,
+            "out": 46526,
+            "cacheCreate": 198915,
+            "cacheRead": 11534910,
+            "agentTotal": 11780537
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:27:36.828Z",
+          "window": {
+            "from": "2026-08-24T23:27:36.828Z",
+            "to": "2026-08-24T23:52:09.704Z"
+          },
+          "cost": {
+            "requests": 76,
+            "in": 152,
+            "out": 45246,
+            "cacheCreate": 212021,
+            "cacheRead": 9118678,
+            "agentTotal": 9376097
           }
         },
         {
@@ -211,6 +332,78 @@
           }
         },
         {
+          "kind": "orphaned-agent",
+          "sessionId": "4566f58b-e032-432f-b593-9c756a12a87b",
+          "repo": "welcome-to-the-flower-court",
+          "ts": "2026-09-05T23:16:37.169Z",
+          "window": {
+            "from": "2026-09-05T23:16:37.169Z",
+            "to": "2026-09-05T23:27:26.946Z"
+          },
+          "cost": {
+            "requests": 8,
+            "in": 226,
+            "out": 28515,
+            "cacheCreate": 136148,
+            "cacheRead": 536139,
+            "agentTotal": 701028
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T07:22:25.634Z",
+          "window": {
+            "from": "2026-09-09T07:22:25.634Z",
+            "to": "2026-09-09T13:00:59.953Z"
+          },
+          "cost": {
+            "requests": 25,
+            "in": 50,
+            "out": 26548,
+            "cacheCreate": 389548,
+            "cacheRead": 1653505,
+            "agentTotal": 2069651
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T20:11:12.084Z",
+          "window": {
+            "from": "2026-08-24T20:11:12.084Z",
+            "to": "2026-08-24T20:14:08.011Z"
+          },
+          "cost": {
+            "requests": 9,
+            "in": 18,
+            "out": 11966,
+            "cacheCreate": 63236,
+            "cacheRead": 515696,
+            "agentTotal": 590916
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T20:10:23.932Z",
+          "window": {
+            "from": "2026-08-24T20:10:23.932Z",
+            "to": "2026-08-24T20:13:13.556Z"
+          },
+          "cost": {
+            "requests": 9,
+            "in": 18,
+            "out": 11353,
+            "cacheCreate": 70309,
+            "cacheRead": 579593,
+            "agentTotal": 661273
+          }
+        },
+        {
           "kind": "continue-after-block",
           "sessionId": "4cd3d84c-36f3-4c54-bd25-58976328cc3f",
           "repo": "beachfront-dentistry",
@@ -225,6 +418,24 @@
             "out": 9547,
             "cacheCreate": 160732,
             "cacheRead": 1968601
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T20:10:37.269Z",
+          "window": {
+            "from": "2026-08-24T20:10:37.269Z",
+            "to": "2026-08-24T20:12:58.880Z"
+          },
+          "cost": {
+            "requests": 5,
+            "in": 10,
+            "out": 9410,
+            "cacheCreate": 66010,
+            "cacheRead": 276216,
+            "agentTotal": 351646
           }
         },
         {
@@ -245,6 +456,24 @@
           }
         },
         {
+          "kind": "orphaned-agent",
+          "sessionId": "d2b6a2f6-11de-427a-980c-0cefc80d9fdb",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-09-11T01:18:26.636Z",
+          "window": {
+            "from": "2026-09-11T01:18:26.636Z",
+            "to": "2026-09-11T03:42:40.491Z"
+          },
+          "cost": {
+            "requests": 5,
+            "in": 10,
+            "out": 2252,
+            "cacheCreate": 55740,
+            "cacheRead": 267997,
+            "agentTotal": 325999
+          }
+        },
+        {
           "kind": "spend-after-stop",
           "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
           "repo": "Broken",
@@ -259,6 +488,24 @@
             "out": 1191,
             "cacheCreate": 2033,
             "cacheRead": 230667
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "3384a925-2b39-4825-a43c-c31d00401414",
+          "repo": "vida-legacy-foundation",
+          "ts": "2026-09-02T18:26:35.560Z",
+          "window": {
+            "from": "2026-09-02T18:26:35.560Z",
+            "to": "2026-09-02T18:27:42.673Z"
+          },
+          "cost": {
+            "requests": 8,
+            "in": 16,
+            "out": 886,
+            "cacheCreate": 67879,
+            "cacheRead": 333550,
+            "agentTotal": 402331
           }
         },
         {
@@ -2959,9 +3206,8 @@
   },
   "reverts": {
     "since": "2026-08-16",
-    "count": 2,
+    "count": 1,
     "byRepo": {
-      "caltex-landing": 1,
       "reddoor-website": 1
     },
     "skippedWorktrees": [
@@ -2969,12 +3215,6 @@
       "reddoor-maintenance-turso-spec"
     ],
     "items": [
-      {
-        "repo": "caltex-landing",
-        "sha": "0b2b427",
-        "ts": "2026-08-16T12:37:50-07:00",
-        "subject": "Revert \"test(prismic): temporary probe field to prove headless model delivery (#54)\" (#55)"
-      },
       {
         "repo": "reddoor-website",
         "sha": "c9af969",

@@ -59,6 +59,7 @@ function toolResult(o: {
   toolUseId: string;
   agentId: string;
   totalTokens: number;
+  status?: string;
   sessionId?: string;
   repo?: string;
 }): string {
@@ -73,7 +74,11 @@ function toolResult(o: {
       role: "user",
       content: [{ type: "tool_result", tool_use_id: o.toolUseId, content: "done" }],
     },
-    toolUseResult: { agentId: o.agentId, status: "completed", totalTokens: o.totalTokens },
+    toolUseResult: {
+      agentId: o.agentId,
+      status: o.status ?? "completed",
+      totalTokens: o.totalTokens,
+    },
   });
 }
 
@@ -149,14 +154,93 @@ function compaction(ts: string): string {
   });
 }
 
+/**
+ * The record an account-limit kill leaves as the LAST line of a subagent transcript: the
+ * limit answers instead of the model, so stop_reason is "stop_sequence", the usage is all
+ * zero, and the record carries quotaLimits.status "rejected". Copied from the real shape
+ * in agent-ae3ffd42915dedb3b.jsonl (2026-08-24).
+ */
+function quotaRejected(o: {
+  ts: string;
+  agentId: string;
+  sessionId: string;
+  repo: string;
+}): string {
+  return JSON.stringify({
+    type: "assistant",
+    uuid: uid("a"),
+    requestId: "",
+    timestamp: o.ts,
+    sessionId: o.sessionId,
+    isSidechain: true,
+    agentId: o.agentId,
+    attributionAgent: "general-purpose",
+    cwd: CWD(o.repo),
+    quotaLimits: {
+      status: "rejected",
+      resetsAt: 1787605200,
+      rateLimitType: "five_hour",
+      overageStatus: "rejected",
+    },
+    message: {
+      role: "assistant",
+      model: "claude-fable-5",
+      stop_reason: "stop_sequence",
+      content: [
+        { type: "text", text: "You've hit your session limit · resets 2pm (America/Los_Angeles)" },
+      ],
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    },
+  });
+}
+
+/** The other kill shape: a tool_result the agent never answered. */
+function interruptedTail(o: { ts: string; agentId: string; sessionId: string; repo: string }) {
+  return JSON.stringify({
+    type: "user",
+    uuid: uid("u"),
+    timestamp: o.ts,
+    sessionId: o.sessionId,
+    isSidechain: true,
+    agentId: o.agentId,
+    cwd: CWD(o.repo),
+    message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] },
+  });
+}
+
+/** The parent's completion notice for an async dispatch. */
+function taskNotification(o: {
+  ts: string;
+  agentId: string;
+  status: string;
+  sessionId: string;
+  repo: string;
+}): string {
+  return user({
+    ts: o.ts,
+    sessionId: o.sessionId,
+    repo: o.repo,
+    text:
+      `<task-notification>\n<task-id>${o.agentId}</task-id>\n` +
+      `<status>${o.status}</status>\n<summary>agent finished</summary>\n</task-notification>`,
+  });
+}
+
 const T = (hms: string) => `2026-09-02T${hms}Z`;
 const T3 = (hms: string) => `2026-09-03T${hms}Z`;
+const T4 = (hms: string) => `2026-09-04T${hms}Z`;
 
 let seeded: string;
 let clean: string;
 let shaped: string;
 let lagged: string;
 let triple: string;
+let orphans: string;
 let gitRoot: string;
 let emptyRoot: string;
 
@@ -165,12 +249,19 @@ async function writeRoot(
   s1Lines: string[],
   extra: Record<string, string[]>,
   subagents: Record<string, string[]>,
+  metas: Record<string, Record<string, unknown>> = {},
 ) {
   const alpha = join(dir, "-Users-x-Documents-GitHub-alpha");
   await mkdir(join(alpha, "s1", "subagents"), { recursive: true });
   await writeFile(join(alpha, "s1.jsonl"), s1Lines.join("\n") + "\n");
   for (const [name, lines] of Object.entries(subagents)) {
     await writeFile(join(alpha, "s1", "subagents", `agent-${name}.jsonl`), lines.join("\n") + "\n");
+  }
+  for (const [name, meta] of Object.entries(metas)) {
+    await writeFile(
+      join(alpha, "s1", "subagents", `agent-${name}.meta.json`),
+      JSON.stringify(meta),
+    );
   }
   for (const [repo, lines] of Object.entries(extra)) {
     const d = join(dir, `-Users-x-Documents-GitHub-${repo}`);
@@ -233,6 +324,7 @@ beforeAll(async () => {
   shaped = join(base, "shaped");
   lagged = join(base, "lagged");
   triple = join(base, "triple");
+  orphans = join(base, "orphans");
   gitRoot = join(base, "gitfix");
   emptyRoot = join(base, "no-transcripts");
   await mkdir(emptyRoot, { recursive: true });
@@ -547,6 +639,217 @@ beforeAll(async () => {
     {},
     {},
   );
+  // ORPHANS: subagents that were DISPATCHED AND NEVER RETURNED, and the three shapes that
+  // look like one and are not. Session "s13", repo theta, 2026-09-04 — modelled on the
+  // three #569 review lenses killed by the wall at 2026-08-24T20:14Z and re-sent at 21:33Z.
+  //   10:00 ASSISTANT Agent(t30) "Review the fleet table"        -> agent o1
+  //   10:00:05 USER tool_result status "async_launched" (written AT LAUNCH, not at return)
+  //     o1: two requests, one of them written TWICE under the same requestId (out 50 then
+  //         900 — the meter keeps the larger), then a quotaLimits "rejected" tail.
+  //   11:00 ASSISTANT Agent(t31) with the SAME description               -> agent o2, ok
+  //   11:30 USER <task-notification> o2 completed
+  //   12:00 ASSISTANT Agent(t32) "Guarded lens"                          -> agent o3
+  //     o3 ends on "[Request interrupted by user]" but its parent reported it COMPLETED,
+  //     so it returned and is not an orphan — the guard, exercised.
+  //   13:00 ASSISTANT Agent(t33) "Still running"                         -> agent o4
+  //     o4's file stops mid tool_use: that is what a LIVE agent looks like, not a kill.
+  //   14:00 ASSISTANT Agent(t34) "Unrepeated lens"                       -> agent o5
+  //     o5 was interrupted and never re-sent: an orphan with redispatched null.
+  await writeRoot(
+    orphans,
+    [
+      assistant({
+        ts: T4("10:00:00"),
+        sessionId: "s13",
+        repo: "theta",
+        requestId: "r40",
+        out: 5,
+        blocks: [agent("t30", "look at the fleet table")],
+      }),
+      toolResult({
+        ts: T4("10:00:05"),
+        sessionId: "s13",
+        repo: "theta",
+        toolUseId: "t30",
+        agentId: "o1",
+        status: "async_launched",
+        totalTokens: 0,
+      }),
+      assistant({
+        ts: T4("11:00:00"),
+        sessionId: "s13",
+        repo: "theta",
+        requestId: "r41",
+        out: 5,
+        blocks: [agent("t31", "look at the fleet table")],
+      }),
+      toolResult({
+        ts: T4("11:00:05"),
+        sessionId: "s13",
+        repo: "theta",
+        toolUseId: "t31",
+        agentId: "o2",
+        status: "async_launched",
+        totalTokens: 0,
+      }),
+      taskNotification({
+        ts: T4("11:30:00"),
+        sessionId: "s13",
+        repo: "theta",
+        agentId: "o2",
+        status: "completed",
+      }),
+      assistant({
+        ts: T4("12:00:00"),
+        sessionId: "s13",
+        repo: "theta",
+        requestId: "r42",
+        out: 5,
+        blocks: [agent("t32", "the guarded lens")],
+      }),
+      taskNotification({
+        ts: T4("12:30:00"),
+        sessionId: "s13",
+        repo: "theta",
+        agentId: "o3",
+        status: "completed",
+      }),
+      assistant({
+        ts: T4("13:00:00"),
+        sessionId: "s13",
+        repo: "theta",
+        requestId: "r43",
+        out: 5,
+        blocks: [agent("t33", "the one still running")],
+      }),
+      assistant({
+        ts: T4("14:00:00"),
+        sessionId: "s13",
+        repo: "theta",
+        requestId: "r44",
+        out: 5,
+        blocks: [agent("t34", "the unrepeated lens")],
+      }),
+    ],
+    {},
+    {
+      o1: [
+        assistant({
+          ts: T4("10:00:10"),
+          sessionId: "s13",
+          repo: "theta",
+          requestId: "o1a",
+          out: 100,
+          blocks: [text("reading")],
+          sidechain: true,
+          agentId: "o1",
+        }),
+        assistant({
+          ts: T4("10:01:00"),
+          sessionId: "s13",
+          repo: "theta",
+          requestId: "o1b",
+          out: 50,
+          blocks: [text("partial block")],
+          sidechain: true,
+          agentId: "o1",
+        }),
+        assistant({
+          ts: T4("10:01:01"),
+          sessionId: "s13",
+          repo: "theta",
+          requestId: "o1b",
+          out: 900,
+          blocks: [text("partial block, finished")],
+          sidechain: true,
+          agentId: "o1",
+        }),
+        quotaRejected({ ts: T4("10:02:00"), sessionId: "s13", repo: "theta", agentId: "o1" }),
+      ],
+      o2: [
+        assistant({
+          ts: T4("11:00:10"),
+          sessionId: "s13",
+          repo: "theta",
+          requestId: "o2a",
+          out: 70,
+          blocks: [text("lens report")],
+          sidechain: true,
+          agentId: "o2",
+        }),
+      ],
+      o3: [
+        assistant({
+          ts: T4("12:00:10"),
+          sessionId: "s13",
+          repo: "theta",
+          requestId: "o3a",
+          out: 60,
+          blocks: [text("halfway")],
+          sidechain: true,
+          agentId: "o3",
+        }),
+        interruptedTail({ ts: T4("12:01:00"), sessionId: "s13", repo: "theta", agentId: "o3" }),
+      ],
+      o4: [
+        assistant({
+          ts: T4("13:00:10"),
+          sessionId: "s13",
+          repo: "theta",
+          requestId: "o4a",
+          out: 40,
+          blocks: [read("t98", "/p/z.ts")],
+          sidechain: true,
+          agentId: "o4",
+        }),
+      ],
+      o5: [
+        assistant({
+          ts: T4("14:00:10"),
+          sessionId: "s13",
+          repo: "theta",
+          requestId: "o5a",
+          out: 33,
+          blocks: [text("started")],
+          sidechain: true,
+          agentId: "o5",
+        }),
+        interruptedTail({ ts: T4("14:01:00"), sessionId: "s13", repo: "theta", agentId: "o5" }),
+      ],
+    },
+    {
+      o1: {
+        agentType: "general-purpose",
+        description: "Review the fleet table",
+        toolUseId: "t30",
+        spawnDepth: 1,
+      },
+      o2: {
+        agentType: "general-purpose",
+        description: "Review the fleet table",
+        toolUseId: "t31",
+        spawnDepth: 1,
+      },
+      o3: {
+        agentType: "general-purpose",
+        description: "Guarded lens",
+        toolUseId: "t32",
+        spawnDepth: 1,
+      },
+      o4: {
+        agentType: "general-purpose",
+        description: "Still running",
+        toolUseId: "t33",
+        spawnDepth: 1,
+      },
+      o5: {
+        agentType: "general-purpose",
+        description: "Unrepeated lens",
+        toolUseId: "t34",
+        spawnDepth: 1,
+      },
+    },
+  );
 });
 
 async function census(
@@ -666,6 +969,50 @@ describe("census: redo", () => {
     expect(third?.evidence.matches).toBe(2); // cleared the bar against both earlier prompts
     expect(third?.evidence.similarity).toBe(0.86); // paired with the closest, not the first
     expect(third?.evidence.first).toBe("audit the forms module for X please");
+  });
+});
+
+describe("census: orphaned agents", () => {
+  it("PASS: nominates the killed dispatches, prices each from its own deduped usage, and resolves the re-dispatch", async () => {
+    const { json } = await census(orphans, ["--class", "fanout"]);
+    const c = kinds(json, "fanout").filter((x) => x.kind === "orphaned-agent");
+    expect(c.map((x) => x.evidence.agentId).sort()).toEqual(["o1", "o5"]);
+
+    const killed = c.filter((x) => x.evidence.lastStatus === "quota-rejected");
+    expect(killed).toHaveLength(1);
+    expect(killed[0]).toMatchObject({ sessionId: "s13", repo: "theta" });
+    expect(killed[0].evidence.description).toBe("Review the fleet table");
+    expect(killed[0].evidence.toolUseId).toBe("t30");
+    expect(killed[0].evidence.agentType).toBe("general-purpose");
+    // Two requests, not three: o1b was written twice and the meter keeps the larger.
+    expect(killed[0].cost.requests).toBe(2);
+    expect(killed[0].cost.out).toBe(1000);
+    expect(killed[0].cost.agentTotal).toBe(1002); // out 1,000 + the two kept records' in
+    // The re-dispatch is the later Agent call whose DESCRIPTION is byte-identical.
+    expect(killed[0].evidence.redispatched).toBe("t31");
+
+    const lone = c.find((x) => x.evidence.agentId === "o5");
+    expect(lone?.evidence.lastStatus).toBe("interrupted");
+    expect(lone?.evidence.redispatched).toBeNull(); // never re-sent
+    expect(lone?.cost.out).toBe(33);
+  });
+
+  it("does not nominate an agent that returned, one the parent reported completed, or one still in flight", async () => {
+    const { json } = await census(orphans, ["--class", "fanout"]);
+    const ids = kinds(json, "fanout")
+      .filter((x) => x.kind === "orphaned-agent")
+      .map((x) => x.evidence.agentId);
+    expect(ids).not.toContain("o2"); // ended on a finished turn
+    expect(ids).not.toContain("o3"); // ends "[Request interrupted…]" but was reported completed
+    expect(ids).not.toContain("o4"); // stops mid tool_use — indistinguishable from in flight
+    // The walker still sees all five agents; the finder is what rejects three of them.
+    expect(json.agents).toBe(5);
+    expect(json.notifications).toBe(2);
+  });
+
+  it("FAIL control: nominates nothing on the clean fixture", async () => {
+    const { json } = await census(clean, ["--class", "fanout"]);
+    expect(kinds(json, "fanout").filter((x) => x.kind === "orphaned-agent")).toEqual([]);
   });
 });
 

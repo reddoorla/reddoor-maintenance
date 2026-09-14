@@ -6,7 +6,7 @@
 // The record with the largest output_tokens is the final one. Replayed history in
 // resumed/compacted sessions repeats the same requestIds, so the same key covers it.
 import { createReadStream } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -57,6 +57,54 @@ const SYSTEM_SHAPED =
   /^\s*(<task-notification>|<system-reminder>|<local-command-stdout>|Context: This summary will be shown in a list|This session is being continued from a previous conversation)/;
 const INTERRUPT_RE = /^\s*\[Request interrupted/;
 
+// A subagent's own transcript: <project>/<sessionId>/subagents/agent-<agentId>.jsonl,
+// with a sibling agent-<agentId>.meta.json holding {agentType, description, toolUseId,
+// spawnDepth}. toolUseId is the id of the parent's Agent tool_use block.
+const SUBAGENT_RE = /([^/\\]+)[/\\]subagents[/\\]agent-([^/\\]+)\.jsonl$/;
+
+// The harness writes a <task-notification> into the PARENT when an async dispatch ends.
+// <task-id> is the agentId for an Agent dispatch and an opaque id for a background Bash
+// command, so the join is by id and the non-agent ids simply never match.
+const TASK_ID_RE = /<task-id>([^<]+)<\/task-id>/;
+const TASK_STATUS_RE = /<status>([^<]+)<\/status>/;
+
+function taskNotification(text) {
+  if (!text || !text.includes("<task-notification>")) return null;
+  const id = TASK_ID_RE.exec(text);
+  if (!id) return null;
+  const st = TASK_STATUS_RE.exec(text);
+  return { agentId: id[1].trim(), status: st ? st[1].trim() : "" };
+}
+
+/**
+ * How a subagent transcript ENDS, from its last record. Four states, of which only the
+ * first two are an explicit record that the agent was killed:
+ *
+ *   "quota-rejected"  the last record is an assistant turn whose quotaLimits.status is
+ *                     "rejected" — the account limit answered instead of the model, with
+ *                     all-zero usage and the "You've hit your … limit" text.
+ *   "interrupted"     the last record is a `user` record reading "[Request interrupted…]":
+ *                     the agent was cut off and never wrote another turn.
+ *   "ok"              a finished assistant turn (it carries a text block).
+ *   "unterminated"    anything else — a file that stops mid tool_use or mid thinking.
+ *                     This is NOT a kill: it is the same picture an agent still IN FLIGHT
+ *                     writes, and on 2026-09-14 the only two in the corpus belonged to the
+ *                     live session that wrote this walker. The census does not nominate it.
+ */
+export function agentEndState(rec) {
+  if (!rec) return "empty";
+  if (rec.type === "assistant") {
+    if (rec.quotaLimits && rec.quotaLimits.status === "rejected") return "quota-rejected";
+    const c = rec.message && rec.message.content;
+    const hasText = Array.isArray(c)
+      ? c.some((b) => b && b.type === "text")
+      : typeof c === "string" && c.trim().length > 0;
+    return hasText ? "ok" : "unterminated";
+  }
+  if (rec.type === "user" && INTERRUPT_RE.test(firstText(rec.message))) return "interrupted";
+  return "unterminated";
+}
+
 // The IDE writes a preamble onto the operator's OWN turn — the opened file or the
 // selected lines, then the operator's text. It is not a system record: of the 140
 // preamble-carrying prompts in the corpus (probe, 2026-09-14) every one had a real turn
@@ -99,14 +147,25 @@ export async function collectEvents(root, opts = {}) {
   const tools = [];
   const agentResults = [];
   const interrupts = [];
+  const agents = [];
+  const notifications = [];
+  const seenAgents = new Set();
+  const seenNotifications = new Set();
   let files = 0;
   let lines = 0;
   for await (const file of jsonlFiles(root)) {
     files++;
     const projectDir = projectDirOf(root, file);
+    const sub = full ? SUBAGENT_RE.exec(file) : null;
+    let firstLine = "";
+    let lastLine = "";
     const rl = createInterface({ input: createReadStream(file), crlfDelay: Infinity });
     for await (const line of rl) {
       lines++;
+      if (sub && line.trim()) {
+        if (!firstLine) firstLine = line;
+        lastLine = line;
+      }
       const interesting =
         line.includes('"usage"') ||
         line.includes("compact_boundary") ||
@@ -157,6 +216,19 @@ export async function collectEvents(root, opts = {}) {
             });
           }
           continue;
+        }
+        // A completion notice for an async dispatch. Collected and then FALLEN THROUGH:
+        // the record still reaches SYSTEM_SHAPED below, which is what drops it from the
+        // prompts, so adding this changes no existing count.
+        if (line.includes("<task-notification>")) {
+          const notif = taskNotification(firstText(rec.message));
+          if (notif) {
+            const nkey = base.sessionId + " " + notif.agentId + " " + notif.status;
+            if (!seenNotifications.has(nkey)) {
+              seenNotifications.add(nkey);
+              notifications.push({ ...base, agentId: notif.agentId, status: notif.status });
+            }
+          }
         }
         if (rec.isMeta) continue;
         const raw = promptText(rec.message);
@@ -241,6 +313,7 @@ export async function collectEvents(root, opts = {}) {
       if (!prev || ev.out > prev.out || (ev.out === prev.out && ev.ts > prev.ts))
         byKey.set(key, ev);
     }
+    if (sub) await pushAgent(agents, seenAgents, file, projectDir, sub, firstLine, lastLine);
   }
   return {
     usage: [...byKey.values()],
@@ -250,7 +323,53 @@ export async function collectEvents(root, opts = {}) {
     tools,
     agentResults,
     interrupts,
+    agents,
+    notifications,
     files,
     lines,
   };
+}
+
+function parseOrNull(line) {
+  if (!line) return null;
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One row per subagent transcript. The same session can be written under two project
+ * directories (the corpus carries -GitHub-Broken and -GitHub-Broken-broken), so rows are
+ * deduped by agentId. sessionId comes from the records themselves and falls back to the
+ * directory the file sits in.
+ */
+async function pushAgent(agents, seen, file, projectDir, match, firstLine, lastLine) {
+  const agentId = match[2];
+  if (seen.has(agentId)) return;
+  seen.add(agentId);
+  const first = parseOrNull(firstLine);
+  const last = parseOrNull(lastLine);
+  const src = first || last;
+  let meta;
+  try {
+    meta = JSON.parse(await readFile(file.replace(/\.jsonl$/, ".meta.json"), "utf-8"));
+  } catch {
+    // an older transcript may have no sibling meta.json; the row still carries its usage
+    meta = {};
+  }
+  agents.push({
+    agentId,
+    sessionId: (src && src.sessionId) || match[1],
+    repo: src ? repoOf(src, projectDir) : projectDir.replace(/^.*-GitHub-/, ""),
+    agentType: typeof meta.agentType === "string" ? meta.agentType : "",
+    description: typeof meta.description === "string" ? meta.description : "",
+    toolUseId: typeof meta.toolUseId === "string" ? meta.toolUseId : "",
+    spawnDepth: Number.isFinite(meta.spawnDepth) ? meta.spawnDepth : 0,
+    spawnedAt: (first && first.timestamp) || "",
+    lastAt: (last && last.timestamp) || "",
+    lastStatus: agentEndState(last),
+    file,
+  });
 }

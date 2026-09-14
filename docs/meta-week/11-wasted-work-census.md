@@ -21,16 +21,17 @@ wasted work only after a refuter has read its window — `scripts/meta-week/tran
 confirmed it. The "Confirmed" section below holds the refuter round's verdicts; the
 "Candidates" tables are nominations, before that reading.
 
-Three classes, five kinds:
+Three classes, seven kinds:
 
-| class      | kind                      | the heuristic, exactly                                                                                                                                                                      | cost window                                                                       |
-| ---------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| **fanout** | `spend-after-stop`        | an operator prompt matching a stop phrase, after which that session's subagents produced at least one request                                                                               | from the stop prompt to the next operator prompt (or +60 min), subagent lane only |
-| **fanout** | `continue-after-block`    | a limit block followed within six hours by a prompt containing "contin" — one candidate per resume, paired with the nearest block before it                                                 | the session's spend in the 30 minutes after the continue                          |
-| **fanout** | `same-turn-many-sessions` | the same normalized prompt text typed into three or more distinct sessions inside two minutes                                                                                               | none — the cost is operator attention, reported as a session count                |
-| **redo**   | `reread-after-compaction` | after a compaction, the same session `Read`s three or more files it had already read, edited or written                                                                                     | the main lane's spend in the hour after the compaction                            |
-| **redo**   | `duplicate-agent-prompt`  | an `Agent` dispatch whose prompt has Jaccard word similarity ≥ 0.70 to an earlier dispatch in the same session — one candidate per repeated dispatch, paired with its closest earlier match | the repeated agent's reported `totalTokens`, kept separately as `agentTotal`      |
-| **unread** | `corrected-turn`          | an operator prompt matching a correction/evidence-demand phrase                                                                                                                             | the session's spend from the previous operator prompt to the correction           |
+| class      | kind                      | the heuristic, exactly                                                                                                                                                                             | cost window                                                                                                                         |
+| ---------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **fanout** | `spend-after-stop`        | an operator prompt matching a stop phrase, after which that session's subagents produced at least one request                                                                                      | from the stop prompt to the next operator prompt (or +60 min), subagent lane only                                                   |
+| **fanout** | `continue-after-block`    | a limit block followed within six hours by a prompt containing "contin" — one candidate per resume, paired with the nearest block before it                                                        | the session's spend in the 30 minutes after the continue                                                                            |
+| **fanout** | `orphaned-agent`          | a subagent whose OWN transcript ends in a kill record — `quotaLimits.status: "rejected"`, or a `[Request interrupted…]` record it never answered — and which the parent never reported `completed` | that agent's own spend from its own transcript, deduped by `requestId` as the meter does, with `agentTotal` the four counters added |
+| **fanout** | `same-turn-many-sessions` | the same normalized prompt text typed into three or more distinct sessions inside two minutes                                                                                                      | none — the cost is operator attention, reported as a session count                                                                  |
+| **redo**   | `reread-after-compaction` | after a compaction, the same session `Read`s three or more files it had already read, edited or written                                                                                            | the main lane's spend in the hour after the compaction                                                                              |
+| **redo**   | `duplicate-agent-prompt`  | an `Agent` dispatch whose prompt has Jaccard word similarity ≥ 0.70 to an earlier dispatch in the same session — one candidate per repeated dispatch, paired with its closest earlier match        | the repeated agent's reported `totalTokens`, kept separately as `agentTotal`                                                        |
+| **unread** | `corrected-turn`          | an operator prompt matching a correction/evidence-demand phrase                                                                                                                                    | the session's spend from the previous operator prompt to the correction                                                             |
 
 Costs are the token meter's raw counters (`out`, `cacheCreate`, `cacheRead`) summed
 over the stated window. They are never added together into one number. A cost is what
@@ -47,14 +48,15 @@ to stay silent on a clean one. Both fixtures are built in `tests/meta-week/censu
 SEEDED carries exactly one episode of every kind; CLEAN carries the same session
 shapes with none of them.
 
-| kind                      | PASS control (SEEDED)                                                          | FAIL control (CLEAN) |
-| ------------------------- | ------------------------------------------------------------------------------ | -------------------- |
-| `spend-after-stop`        | found, `cost.out` 25 — the subagent request one minute after "stop, kill them" | nothing nominated    |
-| `continue-after-block`    | found, `lagMin` 3, `cost.out` 12                                               | nothing nominated    |
-| `same-turn-many-sessions` | found, `sessions` 3, repos alpha/beta/gamma                                    | nothing nominated    |
-| `reread-after-compaction` | found, `filesReReadCount` 3, `cost.out` 57 (the whole hour after the boundary) | nothing nominated    |
-| `duplicate-agent-prompt`  | found, similarity ≥ 0.70, `cost.agentTotal` 7,000                              | nothing nominated    |
-| `corrected-turn`          | found, `cost.out` 40 — main-lane 15 plus subagent 25 inside the corrected turn | nothing nominated    |
+| kind                      | PASS control (SEEDED)                                                                                                                                                                                                                                                             | FAIL control (CLEAN)                                                                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spend-after-stop`        | found, `cost.out` 25 — the subagent request one minute after "stop, kill them"                                                                                                                                                                                                    | nothing nominated                                                                                                                                 |
+| `continue-after-block`    | found, `lagMin` 3, `cost.out` 12                                                                                                                                                                                                                                                  | nothing nominated                                                                                                                                 |
+| `same-turn-many-sessions` | found, `sessions` 3, repos alpha/beta/gamma                                                                                                                                                                                                                                       | nothing nominated                                                                                                                                 |
+| `reread-after-compaction` | found, `filesReReadCount` 3, `cost.out` 57 (the whole hour after the boundary)                                                                                                                                                                                                    | nothing nominated                                                                                                                                 |
+| `duplicate-agent-prompt`  | found, similarity ≥ 0.70, `cost.agentTotal` 7,000                                                                                                                                                                                                                                 | nothing nominated                                                                                                                                 |
+| `corrected-turn`          | found, `cost.out` 40 — main-lane 15 plus subagent 25 inside the corrected turn                                                                                                                                                                                                    | nothing nominated                                                                                                                                 |
+| `orphaned-agent`          | ORPHANS: the quota-killed agent found, `cost.out` 1,000 over **2** deduped requests (one `requestId` was written twice, out 50 then 900 — the meter keeps the larger), `agentTotal` 1,002, `redispatched` `t31`; and the never-re-sent interrupt found with `redispatched` `null` | ORPHANS: an agent that finished, one the parent reported `completed`, and one that stops mid `tool_use` nominate nothing; CLEAN nominates nothing |
 
 The walker's `full` mode has its own control in the same file: on SEEDED it collects 6
 operator prompts, 9 tool calls and 2 agent results — the two `tool_result` records are
@@ -68,7 +70,8 @@ The corrections below added three more transcript roots — SHAPED, LAGGED and T
 a two-directory **git** fixture (a repo with one real revert, one commit that mentions
 reverting, one that mentions it only in the body, and a linked worktree of that repo).
 Each was written to FAIL against the code as it stood, watched fail, and then watched
-pass. The file now carries 13 tests and `tests/meta-week` 29.
+pass. The file now carries 13 tests and `tests/meta-week` 29. A fourth root, ORPHANS, was added
+later with `orphaned-agent` — 16 and 32.
 
 | correction               | PASS control                                                                                                                                                     | FAIL control                                                                                                                                      |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -79,8 +82,19 @@ pass. The file now carries 13 tests and `tests/meta-week` 29.
 
 ## Candidates
 
-The corpus walked: 3,336 transcript files, 4,723 operator prompts, 93,080 tool calls,
-343 subagent results, 131 interrupts (`census-summary.json`).
+The corpus walked: 3,387 transcript files, 4,768 operator prompts, 93,830 tool calls,
+344 subagent results, 131 interrupts, **353 subagent transcripts** and 531 task
+notifications (`census-summary.json`).
+
+`census-summary.json` was regenerated when `orphaned-agent` was added, so its header
+counts are from that later run and not from the 12:06 one the prose above quotes — the
+corpus is live and grew by 51 files, all of them this session's own transcripts. **Every
+pre-existing kind's candidate count and cost is byte-identical across the two runs**
+(11 / 4 / 8 / 19 / 100 / 21; `out` 1,504,133 / 8,667 / 0 / 2,340,602 / 0 / 432,001;
+`agentTotal` 4,557,286), which is the check that the walker's new collection changed
+nothing it already did. One number did move and it is not the code's: the `--git` revert
+row fell 2 → 1, because the commit in `caltex-landing` is no longer reachable in that
+checkout.
 
 ### Corrections on first contact
 
@@ -153,6 +167,7 @@ front of it, and no longer shows the harness's own records as operator prompts.
 | kind                      | candidates | out       | cacheCreate | cacheRead   | agentTotal |
 | ------------------------- | ---------- | --------- | ----------- | ----------- | ---------- |
 | `continue-after-block`    | 11         | 1,504,133 | 10,169,023  | 170,570,637 | 0          |
+| `orphaned-agent`          | 13         | 433,849   | 2,188,939   | 86,786,915  | 89,411,221 |
 | `spend-after-stop`        | 4          | 8,667     | 84,106      | 1,825,101   | 0          |
 | `same-turn-many-sessions` | 8          | 0         | 0           | 0           | 0          |
 
@@ -201,6 +216,149 @@ steam, resume", and "switched you onto fable…". The fifth is new — it was no
 first run's 14, because the summarisation-request groups had claimed prompts out from
 under it. Removing false candidates uncovered a true one. (Counts from
 `census-candidates.jsonl`.)
+
+### orphaned-agent
+
+A subagent that was **dispatched and never returned**, priced by its own spend. Both
+refuter rounds landed on the same point: the cost of an account-limit block is not the
+resume, it is the **agents that were in flight when the block landed** — and no
+prompt-shaped heuristic can see them, because nothing the operator typed records it. The
+structure does.
+
+**Two obvious tells do not work, and each would have nominated most of the corpus.** The
+parent's `tool_result` for an async dispatch is written **at launch**, carrying
+`toolUseResult.status: "async_launched"` and the `agentId`, so "no `tool_result`" is
+evidence of nothing — all 344 agent results in the corpus are `async_launched`. And "no
+`<task-notification>` for this agentId" is worse: **202 of the 353** subagent transcripts
+have no notification of any status, because a synchronous dispatch never produces one.
+
+**The definition, as implemented.** Every subagent writes its own transcript at
+`<project>/<sessionId>/subagents/agent-<agentId>.jsonl`, with a sibling
+`agent-<agentId>.meta.json` = `{agentType, description, toolUseId, spawnDepth}` whose
+`toolUseId` is the id of the parent's `Agent` `tool_use` block (351 of 353 have one). The
+tell is how that transcript **ends** — four states, `agentEndState` in `walk.mjs`:
+
+| the last record in the file                                                                                                                                             | n   | nominated |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --------- |
+| an assistant turn carrying a text block — the agent finished and reported                                                                                               | 338 | no        |
+| `quotaLimits.status: "rejected"` — the account limit answered instead of the model: `stop_reason` `"stop_sequence"`, usage all zero, the "You've hit your … limit" text | 5   | **yes**   |
+| a `user` record reading `[Request interrupted…]` that the agent never answered                                                                                          | 9   | **yes**   |
+| the file simply stops, mid `tool_use` or mid `thinking`                                                                                                                 | 1   | no        |
+
+The last row is why the fourth state is **not** nominated, and the demonstration is in the
+table itself: that same count was **2** when the census ran at 12:45 and **1** when the
+state table was measured at 12:48, because one of this session's own agents finished in
+between. A file that merely stops is indistinguishable from an agent still in flight, so
+nominating it would make the detector's verdict depend on when it was run.
+
+One guard sits on top of both tells: a `<task-notification>` in the parent reporting
+`completed` for that agentId wins, because that agent returned however its file ends. It
+is not decoration — it fires once on the real corpus, on `ac9ba72a53bd98b32` ("Implement
+task 5 save endpoint", `d2b6a2f6`, 2026-09-11), whose transcript ends on an interrupt and
+which the parent nevertheless reported both `failed` and `completed`. 14 kill-record files
+become 13 candidates.
+
+**Cost** is the agent's own spend, read from its own transcript and deduped by `requestId`
+exactly as the token meter does, with `agentTotal` the four counters added.
+**Evidence** is `{agentId, toolUseId, description, agentType, spawnedAt, lastAt,
+lastStatus, redispatched}`. `redispatched` is the `toolUseId` of the nearest later dispatch
+in the same session whose `description` is **byte-identical** — not prompt Jaccard, which
+would confuse a re-send with a merely similar task.
+
+#### Positive control: the three #569 lenses, 2026-08-24
+
+The critic priced this episode by hand from the three orphaned transcripts. The detector
+was run against that number before anything else it found was read.
+
+| agent               | description                        | spawned (UTC)            | killed (UTC)             | requests | out        | cacheCreate | cacheRead     | `redispatched`                   |
+| ------------------- | ---------------------------------- | ------------------------ | ------------------------ | -------- | ---------- | ----------- | ------------- | -------------------------------- |
+| `ae3ffd42915dedb3b` | Review #569: security lens         | 2026-08-24T20:10:23.932Z | 2026-08-24T20:13:13.556Z | 9        | 11,353     | 70,309      | 579,593       | `toolu_01YPwb6vTKBDFj9BSM6g2rPm` |
+| `ab15833871b85c793` | Review #569: data/consistency lens | 2026-08-24T20:10:37.269Z | 2026-08-24T20:12:58.880Z | 5        | 9,410      | 66,010      | 276,216       | `toolu_01NgKX3U8cTrV3B1aiKrLYfb` |
+| `a9546d32800e37e67` | Review #569: test-vacuity lens     | 2026-08-24T20:11:12.084Z | 2026-08-24T20:14:08.011Z | 9        | 11,966     | 63,236      | 515,696       | `toolu_013jMLh3hxe3Uhm81iSd1bNF` |
+| **total**           |                                    |                          |                          | **23**   | **32,729** | **199,555** | **1,371,505** |                                  |
+
+- **`out` 32,729 against the critic's 32,729 — difference 0.**
+- **Context 1,571,106** (`in` 46 + `cacheCreate` 199,555 + `cacheRead` 1,371,505) against
+  the critic's "~1.57M" — agreement to three significant figures.
+- The three `redispatched` values are the three 21:33–21:34 re-sends the critic named,
+  resolved from byte-identical descriptions with nothing else supplied.
+- **One correction.** The critic's "26 requests" is not the deduped request count for the
+  three; that is **23**. 26 is the number of non-zero-usage assistant **records** in one of
+  them (`agent-ae3ffd42915dedb3b`, which holds 27 such records, the 27th being the
+  all-zero rejection). Across the three there are 73 such records and 23 distinct
+  `requestId`s. The token totals are unaffected — they were already deduped.
+
+#### The corpus
+
+13 candidates: **5** killed by the account limit, **8** killed by an interrupt. Only
+**3 of 13** carry a `redispatched` — the three #569 lenses. Nothing else in the corpus was
+ever sent again.
+
+| by repo                     | n      | out         | agentTotal     |
+| --------------------------- | ------ | ----------- | -------------- |
+| Broken                      | 6      | 342,919     | 84,308,377     |
+| reddoor-maintenance         | 4      | 34,981      | 1,929,834      |
+| 29-navy                     | 1      | 26,548      | 2,069,651      |
+| welcome-to-the-flower-court | 1      | 28,515      | 701,028        |
+| vida-legacy-foundation      | 1      | 886         | 402,331        |
+| **total**                   | **13** | **433,849** | **89,411,221** |
+
+| by month | n   | out     | agentTotal |
+| -------- | --- | ------- | ---------- |
+| 2026-08  | 9   | 375,648 | 85,912,212 |
+| 2026-09  | 4   | 58,201  | 3,499,009  |
+
+All nine August candidates fall on a single day, **2026-08-24**; September's four are one
+each on the 2nd, 5th, 9th and 11th.
+
+Top 10 by `agentTotal`:
+
+| #   | session  | repo                        | spawned (UTC)            | ended         | requests | out    | cacheCreate | cacheRead  | agentTotal | re-sent | description                                        |
+| --- | -------- | --------------------------- | ------------------------ | ------------- | -------- | ------ | ----------- | ---------- | ---------- | ------- | -------------------------------------------------- |
+| 1   | cbbe6cc4 | Broken                      | 2026-08-24T23:15:20.140Z | interrupted   | 103      | 69,311 | 239,141     | 16,596,997 | 16,905,655 | —       | Indie platformer controls screens                  |
+| 2   | cbbe6cc4 | Broken                      | 2026-08-24T23:15:35.851Z | interrupted   | 95       | 70,779 | 269,048     | 16,161,654 | 16,501,671 | —       | AAA and console controls diagrams                  |
+| 3   | cbbe6cc4 | Broken                      | 2026-08-24T23:17:44.180Z | interrupted   | 123      | 52,678 | 196,221     | 15,061,009 | 15,310,154 | —       | Controls screens C                                 |
+| 4   | cbbe6cc4 | Broken                      | 2026-08-24T23:17:20.699Z | interrupted   | 95       | 58,379 | 224,723     | 14,150,971 | 14,434,263 | —       | Controls screens A                                 |
+| 5   | cbbe6cc4 | Broken                      | 2026-08-24T23:17:31.512Z | interrupted   | 93       | 46,526 | 198,915     | 11,534,910 | 11,780,537 | —       | Controls screens B                                 |
+| 6   | cbbe6cc4 | Broken                      | 2026-08-24T23:27:36.828Z | interrupted   | 76       | 45,246 | 212,021     | 9,118,678  | 9,376,097  | —       | Find Astro Bot + Minecraft console pad screenshots |
+| 7   | 99991f90 | 29-navy                     | 2026-09-09T07:22:25.634Z | interrupted   | 25       | 26,548 | 389,548     | 1,653,505  | 2,069,651  | —       | BC Task 5 census.sh consumes read layer            |
+| 8   | 4566f58b | welcome-to-the-flower-court | 2026-09-05T23:16:37.169Z | quota-blocked | 8        | 28,515 | 136,148     | 536,139    | 701,028    | —       | Implement Task 7: playbook deck with secrets       |
+| 9   | 04ebfa83 | reddoor-maintenance         | 2026-08-24T20:10:23.932Z | quota-blocked | 9        | 11,353 | 70,309      | 579,593    | 661,273    | yes     | Review #569: security lens                         |
+| 10  | 04ebfa83 | reddoor-maintenance         | 2026-08-24T20:11:12.084Z | quota-blocked | 9        | 11,966 | 63,236      | 515,696    | 590,916    | yes     | Review #569: test-vacuity lens                     |
+
+The three below the cut are `aa1ab1b947ea33fb4` (vida-legacy-foundation, quota-blocked,
+`agentTotal` 402,331), `ab15833871b85c793` (the third #569 lens, 351,646) and
+`af436d528ff891598` (reddoor-maintenance, interrupted, 325,999).
+
+The shape of the list is the finding. **Six of the ten most expensive orphans are one
+episode** — `cbbe6cc4` in Broken, six research agents dispatched between 23:15 and 23:27
+on 2026-08-24 and all six cut off within a second of each other at 23:52:07–23:52:09.
+Together they are 84.3M of the 89.4M `agentTotal` and 342,919 of the 433,849 `out`, and
+not one of them was re-sent. The kind's headline counter is `cacheRead` (86.8M against
+433,849 `out`), which is what a long-running research agent's context re-reads look like —
+a reason to read `agentTotal` as "what this agent had spent when it died", not as a
+recoverable saving.
+
+The `orphaned-agent` costs do **not** double-count `continue-after-block`, which measures
+the session's spend in the 30 minutes **after** the resume; these agents died before it.
+They may overlap `spend-after-stop`, which charges subagent-lane spend after a stop prompt
+— the interrupt that killed the six Broken agents is exactly such an event.
+
+**The two secondary controls in the brief do not appear, and both were checked
+individually.** Neither is a miss by the detector:
+
+- **songbook `4fc94047`, "8 corpus verifiers died on the limit" around 2026-08-25T01:34Z.**
+  That session has 18 subagent transcripts and **every one of them ends in a finished
+  assistant turn**; the earliest starts at 04:47Z, three hours after the block. Whatever
+  died at 01:34Z left no subagent transcript — it was not an `Agent` dispatch.
+- **Broken `5a73f238`, "a fifth pass died" around 2026-09-02T18:28Z.** That session has 6
+  subagent transcripts, all finished. The corpus's only orphan at that minute is
+  `aa1ab1b947ea33fb4`, spawned 18:26:35Z and killed 18:27:42Z — but in session `3384a925`,
+  repo **vida-legacy-foundation**, not in Broken. The same wall, a different session.
+
+Both are candidates the earlier rounds nominated from the **parent's** view of a block;
+this detector only sees a dispatch that wrote its own transcript. That gap is real and is
+the kind's stated limit.
 
 ### redo
 

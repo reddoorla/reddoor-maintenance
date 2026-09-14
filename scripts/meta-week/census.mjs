@@ -111,10 +111,12 @@ async function main() {
     tools: all.tools.length,
     agentResults: all.agentResults.length,
     interrupts: all.interrupts.length,
+    agents: all.agents.length,
+    notifications: all.notifications.length,
     classes: {},
   };
   process.stdout.write(
-    `files=${all.files} prompts=${all.prompts.length} tools=${all.tools.length} agentResults=${all.agentResults.length} interrupts=${all.interrupts.length}\n`,
+    `files=${all.files} prompts=${all.prompts.length} tools=${all.tools.length} agentResults=${all.agentResults.length} interrupts=${all.interrupts.length} agents=${all.agents.length} notifications=${all.notifications.length}\n`,
   );
   const wanted = o.class === "all" ? Object.keys(FINDERS) : [o.class].filter((c) => FINDERS[c]);
   const allCands = [];
