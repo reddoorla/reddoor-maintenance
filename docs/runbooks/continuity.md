@@ -37,10 +37,12 @@ sweep", `scripts/fleet-repos.sh`.)
   before starting. A run that never started files no issue — absence of a tracking issue is not
   absence of a failure.
 
-**Stopping an agent.** `/tasks` enumerates running background agents; `TaskStop` stops one by
-id and leaves it resumable; `Ctrl+X Ctrl+K` stops the whole fan-out for the session. `x` inside
-`/tasks` also stops one, but that one is **not** resumable.
-(`docs/meta-week/13-research.md` §"Stop a whole fan-out".)
+**Stopping an agent.** In the VS Code extension — the operator's surface — click the agent
+count under the prompt box and stop agents from the agent map. The documented terminal chord
+`Ctrl+X Ctrl+K` does **nothing** in the extension, in either Ctrl or Cmd form (verified
+2026-09-14). In the terminal CLI, `/tasks` enumerates running background agents and `x` stops
+one (not resumable); from inside a session the `TaskStop` tool stops one by id and leaves it
+resumable. (`docs/meta-week/13-research.md` §"Stop a whole fan-out" for the documented paths.)
 
 **`.claude/` version control is already settled** — decision A9, yes, shipped in
 [#788](https://github.com/reddoorla/reddoor-maintenance/pull/788) (`.gitignore:14–23` now
