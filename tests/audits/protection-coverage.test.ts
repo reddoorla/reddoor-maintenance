@@ -20,7 +20,12 @@ import {
   parseUnknownSections,
   isMachineAuthor,
 } from "../../src/github/gh.js";
-import type { BranchTip, DependencyDashboard, WorkflowHealth } from "../../src/github/gh.js";
+import type {
+  BranchTip,
+  DependencyDashboard,
+  RenovateMergeWindow,
+  WorkflowHealth,
+} from "../../src/github/gh.js";
 
 const ORG = "reddoorla";
 const NOW = new Date("2026-08-02T18:00:00Z");
@@ -50,6 +55,11 @@ function makeDeps(
   // default state of every other fixture in this file, so a regression that
   // made an empty alert list read as a gap would fail the whole suite.
   alertsByRepo: Record<string, number | "unavailable"> = {},
+  // Default: a repo that merged a grouped feature update hours ago, i.e. the
+  // outcome metric's healthy state. Every existing assertion in this file
+  // therefore doubles as a PASS control for it — a regression that turned a
+  // delivering repo into a gap would redden the whole suite.
+  mergeWindowByRepo: Record<string, RenovateMergeWindow> = {},
 ): ProtectionCoverageDeps & { healthCalls: string[]; alertCalls: string[] } {
   const healthCalls: string[] = [];
   const alertCalls: string[] = [];
@@ -60,6 +70,11 @@ function makeDeps(
       alertCalls.push(repo);
       return alertsByRepo[repo] ?? 0;
     },
+    renovateMergeWindow: async (repo) =>
+      mergeWindowByRepo[repo] ?? {
+        merges: [{ headRef: "renovate/all-minor-patch", mergedAt: FRESH_RUN }],
+        truncated: false,
+      },
     dependencyDashboard: async (repo) =>
       dashboardByRepo[repo] ?? { present: true, blockedBranches: [], unknownSections: [] },
     branchTip: async (_repo, branch) =>
@@ -95,12 +110,26 @@ describe("collectProtectionCoverage", () => {
       "reddoorla/dotgithub": [sound(2, null)], // refs rules only — .github's legitimate state
     });
     const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    // The outcome measurement rides on every judged row — including this one,
+    // which is the metric's PASS control inside the posture suite.
+    const delivering = {
+      state: "delivering",
+      days: 0,
+      lastBranch: "renovate/all-minor-patch",
+      lastMergedAt: FRESH_RUN,
+    };
     expect(rows).toEqual([
-      { repo: "reddoorla/espada", status: "covered", detail: `"${FLEET_RULESET_NAME}"` },
+      {
+        repo: "reddoorla/espada",
+        status: "covered",
+        detail: `"${FLEET_RULESET_NAME}"`,
+        renovateOutcome: delivering,
+      },
       {
         repo: "reddoorla/dotgithub",
         status: "covered",
         detail: `"${FLEET_RULESET_NAME}" — NO CI gate (refs rules only)`,
+        renovateOutcome: delivering,
       },
     ]);
     expect(deps.healthCalls).toEqual([
@@ -125,7 +154,17 @@ describe("collectProtectionCoverage", () => {
   it("no rulesets at all is a gap", async () => {
     const rows = await collectProtectionCoverage(ORG, makeDeps([{ name: "fresh-site" }], {}), NOW);
     expect(rows).toEqual([
-      { repo: "reddoorla/fresh-site", status: "gap", detail: "no repo rulesets at all" },
+      {
+        repo: "reddoorla/fresh-site",
+        status: "gap",
+        detail: "no repo rulesets at all",
+        renovateOutcome: {
+          state: "delivering",
+          days: 0,
+          lastBranch: "renovate/all-minor-patch",
+          lastMergedAt: FRESH_RUN,
+        },
+      },
     ]);
   });
 
@@ -694,5 +733,51 @@ describe("effectiveness is judged separately from liveness", () => {
     const rows = await collectProtectionCoverage(ORG, deps, NOW);
     expect(rows[0]!.status).toBe("gap");
     expect(rows[0]!.detail).toContain("probe failed");
+  });
+});
+
+describe("the renovate outcome metric rides along but never becomes a gap", () => {
+  const dry: Record<string, RenovateMergeWindow> = {
+    "reddoorla/espada": {
+      merges: [{ headRef: "renovate/all-minor-patch", mergedAt: "2026-06-01T00:00:00Z" }],
+      truncated: false,
+    },
+  };
+
+  it("a two-month drought leaves the repo COVERED and the sweep exit code clean", async () => {
+    // The whole point of shipping this as a measurement: the fleet has been in
+    // exactly this state since 2026-08-12, and the nightly posture issue must
+    // not open, hold open, or fail to close because of it. `gaps` is the only
+    // thing that files an issue, so the assertion is on `status`.
+    const deps = makeDeps(
+      [{ name: "espada" }],
+      { "reddoorla/espada": [sound(1)] },
+      {},
+      {},
+      {},
+      {},
+      dry,
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.renovateOutcome).toMatchObject({ state: "drought", days: 62 });
+  });
+
+  it("a real gap still gaps, and carries the outcome alongside", async () => {
+    const deps = makeDeps([{ name: "espada" }], {}, {}, {}, {}, {}, dry);
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("no repo rulesets at all");
+    // Reported, not merged into the gap text — the tracking issue body is
+    // built by grepping the gap line, and this must not leak into it.
+    expect(rows[0]!.detail).not.toContain("LANDED");
+    expect(rows[0]!.renovateOutcome?.state).toBe("drought");
+  });
+
+  it("skipped repos carry no outcome — unverified must not read as measured", async () => {
+    const deps = makeDeps([{ name: "old", archived: true }], {}, {}, {}, {}, {}, dry);
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("skipped");
+    expect(rows[0]!.renovateOutcome).toBeUndefined();
   });
 });
