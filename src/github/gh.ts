@@ -163,6 +163,12 @@ export type GitHub = {
    *  answer, not an error: a dashboard naming a deleted branch is simply one
    *  Renovate has not rewritten yet. */
   branchTip: (repo: string, branch: string) => Promise<BranchTip | null>;
+  /** How many secret-scanning alerts are OPEN on a repo — i.e. leaked
+   *  credentials nobody has triaged. Settings say a detector runs; only this
+   *  says whether anyone read it (see secretScanningGaps). `"unavailable"` is
+   *  the token that may not read alerts (403/404 — needs `security_events`),
+   *  and callers must treat it as unverified, never as zero. */
+  openSecretAlerts: (repo: string) => Promise<number | "unavailable">;
 };
 
 export type WorkflowHealth =
@@ -655,6 +661,33 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
             pushProtection: pp || "unavailable",
           };
         });
+    },
+    async openSecretAlerts(repo) {
+      // spawn-direct: 403 (token without security_events) and 404 (scanning
+      // off, or no visibility) are ANSWERS — "I could not look" — which the
+      // caller turns into a gap. Anything else throws, so a transport failure
+      // can never arrive downstream as a zero.
+      //
+      // --paginate + counting ids rather than `--jq length`: length prints once
+      // PER PAGE, so a repo with 101 open alerts would print "100\n1" and read
+      // as 100 or NaN depending on who parsed it. Counting ids is page-shape
+      // independent.
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          "--paginate",
+          `repos/${repo}/secret-scanning/alerts?state=open&per_page=100`,
+          "--jq",
+          ".[].number",
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        if (/HTTP 40[34]/.test(r.stderr)) return "unavailable";
+        throw new Error(`openSecretAlerts(${repo}) failed: ${r.stderr.trim()}`);
+      }
+      return r.stdout.split("\n").filter((l) => l.trim().length > 0).length;
     },
     async workflowHealth(repo, filename) {
       // spawn-direct for the workflow GET: 404 (file not registered as a

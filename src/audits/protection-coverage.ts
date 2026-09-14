@@ -19,7 +19,11 @@ import type { BranchTip, DependencyDashboard, WorkflowHealth } from "../github/g
  * per public repo, because each regresses silently and none has any other
  * watcher:
  *  - secret scanning + push protection stay ENABLED (a repo transferred in,
- *    or an org-default flip, arrives with them off);
+ *    or an org-default flip, arrives with them off), and — since 2026-09-14 —
+ *    that what the detector FOUND has been read: a repo with open
+ *    secret-scanning alerts is a gap however green its settings are, because
+ *    an enabled scanner nobody reads produced five untriaged alerts, the
+ *    oldest 99 days old, on repos this sweep was calling covered;
  *  - the renovate workflow is registered, active, and has actually RUN
  *    recently. GitHub auto-disables schedules after 60 quiet days, and
  *    schedule triggers in template-cloned files may never register at all —
@@ -56,6 +60,7 @@ export type ProtectionCoverageDeps = {
   workflowHealth: (repo: string, filename: string) => Promise<WorkflowHealth>;
   dependencyDashboard: (repo: string) => Promise<DependencyDashboard>;
   branchTip: (repo: string, branch: string) => Promise<BranchTip | null>;
+  openSecretAlerts: (repo: string) => Promise<number | "unavailable">;
 };
 
 export const RENOVATE_WORKFLOW_FILE = "renovate.yml";
@@ -110,19 +115,57 @@ export function partitionAcceptedGaps(
   return { live, accepted: acceptedOut };
 }
 
-/** Public repos only — secret scanning is plan-gated off on private Free
- *  repos, and those are skipped before this is consulted. "unavailable" means
- *  the listing couldn't read security_and_analysis (token lacks admin read),
- *  which must read as unverified, not as fine. */
-export function secretScanningGaps(repo: {
-  secretScanning: string;
-  pushProtection: string;
-}): string[] {
+/**
+ * Public repos only — secret scanning is plan-gated off on private Free
+ * repos, and those are skipped before this is consulted. "unavailable" means
+ * the listing couldn't read security_and_analysis (token lacks admin read),
+ * which must read as unverified, not as fine.
+ *
+ * Three surfaces, and the third is the one the first two cannot see. Scanning
+ * being ENABLED says a detector is running; it says nothing about whether
+ * anyone read what it found. On 2026-09-12 a hand-run sweep found five open
+ * alerts across five public repos, every one `resolution: null`, the oldest 99
+ * days old — on repos this audit had been calling `covered` every night, truth-
+ * fully, because both statuses were `enabled`. An alert is not self-clearing
+ * and redaction at HEAD does not close one (beachfront's key was redacted in
+ * `e30c756` and the alert stayed open the following 37 days), so an unread
+ * alert stays unread until a human is told. `openAlerts` is that third clause.
+ *
+ * `openAlerts: "unavailable"` is the token that cannot read alerts (403/404 —
+ * the endpoint needs `security_events`). It is a gap for the same reason
+ * "unavailable" scanning status is: this sweep exists because "couldn't check"
+ * reading as "fine" is the failure mode, and a scope error must not quietly
+ * turn the whole fleet green on a question it can no longer ask.
+ *
+ * The clause is skipped entirely when scanning is not enabled: the endpoint
+ * 404s by construction there, the row already names the disabled scanning as
+ * its gap, and a second "unverified" line would only attach noise to a cause
+ * already stated.
+ */
+export function secretScanningGaps(
+  repo: string, // owner/repo — named in the alert gap, which is per-repo actionable
+  state: { secretScanning: string; pushProtection: string },
+  openAlerts: number | "unavailable",
+): string[] {
   const gaps: string[] = [];
-  if (repo.secretScanning !== "enabled")
-    gaps.push(`secret scanning ${repo.secretScanning} (fleet floor is enabled)`);
-  if (repo.pushProtection !== "enabled")
-    gaps.push(`push protection ${repo.pushProtection} (fleet floor is enabled)`);
+  if (state.secretScanning !== "enabled")
+    gaps.push(`secret scanning ${state.secretScanning} (fleet floor is enabled)`);
+  if (state.pushProtection !== "enabled")
+    gaps.push(`push protection ${state.pushProtection} (fleet floor is enabled)`);
+  if (state.secretScanning === "enabled") {
+    if (openAlerts === "unavailable")
+      gaps.push(
+        `open secret-scanning alerts unreadable on ${repo} (token lacks security_events/admin ` +
+          `read — unverified, not clean)`,
+      );
+    else if (openAlerts > 0)
+      gaps.push(
+        `${openAlerts} open secret-scanning alert${openAlerts === 1 ? "" : "s"} on ${repo} — a ` +
+          `leaked credential nobody has triaged. Fix: rotate or restrict the secret, then close ` +
+          `the alert with a resolution at https://github.com/${repo}/security/secret-scanning ` +
+          `(redacting the value at HEAD does NOT close it — the history is still public).`,
+      );
+  }
   return gaps;
 }
 
@@ -317,7 +360,11 @@ export async function collectProtectionCoverage(
           gaps.push(judged.map((j) => `"${j.name}": ${j.gaps.join("; ")}`).join(" | "));
         }
       }
-      gaps.push(...secretScanningGaps(r));
+      // Only ask for alerts where scanning is on — see secretScanningGaps for
+      // why a 404-by-construction is not worth a second gap line.
+      const openAlerts =
+        r.secretScanning === "enabled" ? await deps.openSecretAlerts(repo) : "unavailable";
+      gaps.push(...secretScanningGaps(repo, r, openAlerts));
       gaps.push(...renovateGaps(await deps.workflowHealth(repo, RENOVATE_WORKFLOW_FILE), now));
       const dash = await deps.dependencyDashboard(repo);
       gaps.push(...dashboardVocabularyGaps(dash));

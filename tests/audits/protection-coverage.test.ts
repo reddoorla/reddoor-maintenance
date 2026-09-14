@@ -46,10 +46,20 @@ function makeDeps(
   // Default tip: a machine author, i.e. an orphan. Blocked branches in these
   // fixtures stand for the August 2026 incident unless a test says otherwise.
   tipByBranch: Record<string, BranchTip | null> = {},
-): ProtectionCoverageDeps & { healthCalls: string[] } {
+  // Default: a repo with nothing open. The alert clause's PASS control is the
+  // default state of every other fixture in this file, so a regression that
+  // made an empty alert list read as a gap would fail the whole suite.
+  alertsByRepo: Record<string, number | "unavailable"> = {},
+): ProtectionCoverageDeps & { healthCalls: string[]; alertCalls: string[] } {
   const healthCalls: string[] = [];
+  const alertCalls: string[] = [];
   return {
     healthCalls,
+    alertCalls,
+    openSecretAlerts: async (repo) => {
+      alertCalls.push(repo);
+      return alertsByRepo[repo] ?? 0;
+    },
     dependencyDashboard: async (repo) =>
       dashboardByRepo[repo] ?? { present: true, blockedBranches: [], unknownSections: [] },
     branchTip: async (_repo, branch) =>
@@ -151,8 +161,90 @@ describe("collectProtectionCoverage", () => {
 
   it("an unreadable secret-scanning state is a gap, never fine", () => {
     expect(
-      secretScanningGaps({ secretScanning: "unavailable", pushProtection: "unavailable" }),
+      secretScanningGaps(
+        "reddoorla/espada",
+        { secretScanning: "unavailable", pushProtection: "unavailable" },
+        0,
+      ),
     ).toHaveLength(2);
+  });
+
+  // The three cases below are the alert-OUTCOME clause, in the order the
+  // instrument has to earn trust: the PASS control first (a check that has
+  // only ever failed is an untested assertion), then the FAIL control, then
+  // the unreadable-token case. The fixtures are the three repos the sweep was
+  // run against for real on 2026-09-14: erp-industrial and espada returned 0,
+  // beachfront-dentistry returned 1 (a google_api_key open since 2026-08-06).
+  it("PASS control: a public repo with zero open secret-scanning alerts is covered", async () => {
+    const deps = makeDeps(
+      [{ name: "erp-industrial" }, { name: "espada" }],
+      { "reddoorla/erp-industrial": [sound(1)], "reddoorla/espada": [sound(2)] },
+      {},
+      {},
+      {},
+      { "reddoorla/erp-industrial": 0, "reddoorla/espada": 0 },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows.map((r) => r.status)).toEqual(["covered", "covered"]);
+    // It reached the endpoint for both — a "covered" reached by never asking
+    // is the silent-green failure this clause exists to remove.
+    expect(deps.alertCalls).toEqual(["reddoorla/erp-industrial", "reddoorla/espada"]);
+  });
+
+  it("FAIL control: one open alert is exactly one gap, and it names the repo", async () => {
+    const deps = makeDeps(
+      [{ name: "beachfront-dentistry" }],
+      { "reddoorla/beachfront-dentistry": [sound(1)] },
+      {},
+      {},
+      {},
+      { "reddoorla/beachfront-dentistry": 1 },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail.split(" | ")).toHaveLength(1);
+    expect(rows[0]!.detail).toContain("1 open secret-scanning alert");
+    expect(rows[0]!.detail).toContain("reddoorla/beachfront-dentistry");
+  });
+
+  it("a token that cannot read alerts is unverified, never fine", async () => {
+    const deps = makeDeps(
+      [{ name: "espada" }],
+      { "reddoorla/espada": [sound(1)] },
+      {},
+      {},
+      {},
+      { "reddoorla/espada": "unavailable" },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("unverified");
+    expect(
+      secretScanningGaps(
+        "reddoorla/espada",
+        { secretScanning: "enabled", pushProtection: "enabled" },
+        "unavailable",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("scanning that is OFF is not also reported as unreadable alerts", async () => {
+    // The endpoint 404s by construction when scanning is disabled, and the
+    // disabled scanning is already named. A second "unverified" line here
+    // would attach noise to a cause the row already states.
+    const deps = makeDeps(
+      [{ name: "fresh-clone", secretScanning: "disabled" }],
+      { "reddoorla/fresh-clone": [sound(1)] },
+      {},
+      {},
+      {},
+      { "reddoorla/fresh-clone": "unavailable" },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.detail.split(" | ")).toEqual([
+      "secret scanning disabled (fleet floor is enabled)",
+    ]);
+    expect(deps.alertCalls).toEqual([]);
   });
 
   it("a dead renovate workflow is a gap: absent, disabled, never-run, or stale", async () => {
