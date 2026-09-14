@@ -157,6 +157,8 @@ let clean: string;
 let shaped: string;
 let lagged: string;
 let triple: string;
+let gitRoot: string;
+let emptyRoot: string;
 
 async function writeRoot(
   dir: string,
@@ -177,6 +179,53 @@ async function writeRoot(
   }
 }
 
+/**
+ * A two-directory git fixture for the `--git` pass: one real repo and one LINKED WORKTREE
+ * of it. The worktree marks its `.git` as a FILE, not a directory, which is the only thing
+ * that distinguishes it from a repo of its own from the outside — and `git log --all` in
+ * it sees the same ref store, so counting it counts every commit twice.
+ *
+ * The repo carries three commits: one whose subject begins "Revert", one that merely
+ * mentions reverting, and one whose SUBJECT does not but whose BODY has a line starting
+ * with "revert" — the last exists because `git log --grep='^[Rr]evert'` anchors per LINE,
+ * not to the subject (probed, 2026-09-14), so the grep alone still matches it.
+ */
+async function buildGitFixture(dir: string) {
+  const repo = join(dir, "solo");
+  await mkdir(repo, { recursive: true });
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_DATE: "2026-09-01T12:00:00Z",
+    GIT_COMMITTER_DATE: "2026-09-01T12:00:00Z",
+  };
+  const git = (args: string[]) =>
+    execFileAsync(
+      "git",
+      [
+        "-C",
+        repo,
+        "-c",
+        "user.email=t@e",
+        "-c",
+        "user.name=T",
+        "-c",
+        "commit.gpgsign=false",
+        ...args,
+      ],
+      { env },
+    );
+  await execFileAsync("git", ["init", "-q", "-b", "main", repo]);
+  const commit = async (name: string, message: string) => {
+    await writeFile(join(repo, name), name);
+    await git(["add", name]);
+    await git(["commit", "-q", "-m", message]);
+  };
+  await commit("a.txt", 'Revert "feat: the thing"');
+  await commit("b.txt", "fix: this mentions revert of a thing");
+  await commit("c.txt", "chore: subject\n\nrevert the probe field in the body");
+  await git(["worktree", "add", "-q", "-b", "wt", join(dir, "solo-wt")]);
+}
+
 beforeAll(async () => {
   const base = await mkdtemp(join(tmpdir(), "census-"));
   seeded = join(base, "seeded");
@@ -184,6 +233,10 @@ beforeAll(async () => {
   shaped = join(base, "shaped");
   lagged = join(base, "lagged");
   triple = join(base, "triple");
+  gitRoot = join(base, "gitfix");
+  emptyRoot = join(base, "no-transcripts");
+  await mkdir(emptyRoot, { recursive: true });
+  await buildGitFixture(gitRoot);
 
   await writeRoot(
     seeded,
@@ -629,6 +682,31 @@ describe("census: unread mechanism", () => {
   it("FAIL control: nominates nothing on the clean fixture", async () => {
     const { json } = await census(clean, ["--class", "unread"]);
     expect(kinds(json, "unread")).toEqual([]);
+  });
+});
+
+describe("census: reverts (--git)", () => {
+  it("counts subjects that begin with Revert, once per repo, skipping linked worktrees", async () => {
+    const { out, json } = await census(emptyRoot, [
+      "--class",
+      "fanout",
+      "--git",
+      gitRoot,
+      "--since",
+      "2026-08-16",
+    ]);
+    const reverts = json.reverts as {
+      count: number;
+      byRepo: Record<string, number>;
+      items: { repo: string; subject: string }[];
+      skippedWorktrees: string[];
+    };
+    // Three commits mention reverting; one IS a revert. The worktree is not a repo.
+    expect(reverts.count).toBe(1);
+    expect(reverts.byRepo).toEqual({ solo: 1 });
+    expect(reverts.items[0].subject).toBe('Revert "feat: the thing"');
+    expect(reverts.skippedWorktrees).toEqual(["solo-wt"]);
+    expect(out).toMatch(/subjects beginning with Revert/);
   });
 });
 

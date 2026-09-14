@@ -130,11 +130,20 @@ async function main() {
   if (o.jsonl) await writeFile(o.jsonl, allCands.map((c) => JSON.stringify(c)).join("\n") + "\n");
   if (o.git) {
     const reverts = [];
+    const skippedWorktrees = [];
     for (const name of await readdir(o.git)) {
       const dir = join(o.git, name);
+      let dotGit;
       try {
-        await stat(join(dir, ".git"));
+        dotGit = await stat(join(dir, ".git"));
       } catch {
+        continue;
+      }
+      // A LINKED WORKTREE marks its `.git` as a file pointing at the real repo's gitdir,
+      // and shares that repo's ref store — so `--all` inside it re-counts every commit the
+      // parent checkout already reported. Skip it, and say so rather than swallowing it.
+      if (!dotGit.isDirectory()) {
+        skippedWorktrees.push(name);
         continue;
       }
       try {
@@ -144,25 +153,39 @@ async function main() {
           "log",
           "--all",
           `--since=${o.since}`,
-          "-i",
-          "--grep=revert",
+          // `^[Rr]evert` narrows the walk, but git anchors it per LINE of the message, so a
+          // commit whose BODY starts a line with "revert" still matches. The subject test
+          // below is what actually decides (probed 2026-09-14).
+          "--grep=^[Rr]evert",
           "--format=%h|%aI|%s",
         ]);
         for (const line of stdout.trim().split("\n").filter(Boolean)) {
-          const [sha, ts, ...subject] = line.split("|");
-          reverts.push({ repo: name, sha, ts, subject: subject.join("|").slice(0, 120) });
+          const [sha, ts, ...rest] = line.split("|");
+          const subject = rest.join("|");
+          if (!/^[Rr]evert/.test(subject)) continue;
+          reverts.push({ repo: name, sha, ts, subject: subject.slice(0, 120) });
         }
       } catch {
         // a repo git cannot read is reported by name, not silently skipped
         reverts.push({ repo: name, sha: "", ts: "", subject: "GIT LOG FAILED" });
       }
     }
-    result.reverts = { since: o.since, count: reverts.length, byRepo: {}, items: reverts };
+    result.reverts = {
+      since: o.since,
+      count: reverts.length,
+      byRepo: {},
+      skippedWorktrees,
+      items: reverts,
+    };
     for (const r of reverts)
       result.reverts.byRepo[r.repo] = (result.reverts.byRepo[r.repo] || 0) + 1;
-    process.stdout.write(`\n== reverts (git, since ${o.since}, uncosted) ==\n`);
+    process.stdout.write(
+      `\n== reverts (git, since ${o.since}, subjects beginning with Revert/revert, uncosted) ==\n`,
+    );
     for (const [repo, c] of Object.entries(result.reverts.byRepo))
       process.stdout.write(`${repo}\t${c}\n`);
+    if (skippedWorktrees.length)
+      process.stdout.write(`skipped (linked worktrees): ${skippedWorktrees.join(", ")}\n`);
   }
   if (o.json) await writeFile(o.json, JSON.stringify(result, null, 2));
 }
