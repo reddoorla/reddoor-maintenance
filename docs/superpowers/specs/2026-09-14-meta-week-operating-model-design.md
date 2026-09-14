@@ -85,6 +85,13 @@ not committed, same policy as the package.
 `transcript-replay-inflates-prompt-counts`). Resumed and compacted sessions
 replay history into new files; a usage record counted twice is spend invented.
 
+> Corrected the same day by `docs/superpowers/plans/2026-09-14-token-meter.md`
+> ("Facts", item 1): one API response is written as several assistant records
+> sharing a `requestId`, each with a partial `output_tokens`, so **usage**
+> dedupes by `requestId` keeping the final snapshot. The `uuid` rule stays
+> correct for operator prompts, and also dedupes the compaction and limit-block
+> markers.
+
 **Dimensions.** day · ISO week · repo · session · main thread vs subagent ·
 model · effort · agent type (`attributionAgent`) · skill attribution. Each
 cell reports the four usage counters separately; nothing is pre-weighted.
