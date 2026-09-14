@@ -63,6 +63,7 @@ describe("runProtectionAuditCommand", () => {
         unknownSections: [],
       }),
       branchTip: async () => null,
+      openSecretAlerts: async () => 0,
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(1);
@@ -88,6 +89,7 @@ describe("runProtectionAuditCommand", () => {
         unknownSections: [],
       }),
       branchTip: async () => null,
+      openSecretAlerts: async () => 0,
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(0);
