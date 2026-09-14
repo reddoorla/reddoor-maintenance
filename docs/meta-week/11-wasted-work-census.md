@@ -536,9 +536,14 @@ died on the limit"; "a fifth pass died on the session limit", 33 findings rescue
 mining the transcript). So the class is real and the detector is wrong: **the cost of
 a block is the agents in flight when it lands**, and the right instrument is
 structural — an `Agent` tool call whose result never returns — not a prompt shape.
-That detector is built next, with the three 20:14:08 orphans as its positive control;
-until it has passed on them, `continue-after-block` stays in the doc as a
-documented false-positive generator (10 of 11).
+That detector — `orphaned-agent`, in the Candidates section above — was then built
+with the three orphans as its positive control and passed it exactly: 32,729 output
+tokens, difference 0, all three `redispatched` ids resolving to the 21:33–21:34
+dispatches. On the corpus it finds 13 orphans (5 quota-killed, 8 interrupted), 3 of
+them re-sent; six of the top ten are one episode — the six research agents that "kill
+them" cut off within two seconds on 2026-08-24T23:52Z, never re-sent — the overload's
+dead spend, priced at last. `continue-after-block` stays in the doc as a documented
+false-positive generator (10 of 11); the structural detector is the class's instrument.
 
 What the round says about the instrument: **the heuristics found the remediation, not
 the defect.** Every window is forward-looking from a marker (compaction, block, stop) or
