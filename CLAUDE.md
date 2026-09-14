@@ -65,6 +65,11 @@ work:
 - **Stay in your charter.** If the operator scoped the session to a problem,
   don't opportunistically pick up other fleet signals without the claim check
   above.
+- **No local browser while agents run.** The 2026-08-24 overload was six agents
+  under a concurrency cap of ten plus a local Chrome. Browser checks belong on
+  Actions runners (form-e2e already is); if a local Chrome or Playwright run is
+  unavoidable, do it in a session with no agents live, and never dispatch agents
+  while one is open.
 - **Re-verify after any pause.** After a session-limit pause, compaction, or
   long gap: `git log --oneline -3` and `git status` before committing, and
   re-confirm the PR head SHA before merging — the world may have changed

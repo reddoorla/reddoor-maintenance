@@ -11,7 +11,16 @@ tests/fixtures/**/.lighthouseci/
 # untracked, it breaks `prettier --check .`.
 /.lighthouseci/
 tests/fixtures/**/playwright-report/
-.claude/
+# Decision A9 (2026-09-14): .claude/ is tracked — settings, saved workflows,
+# rules and hooks ship as reviewed files. Worktrees, local settings and the
+# harness's write log stay out. The first line re-includes the directory the
+# machine-wide ~/.config/git/ignore (`**/.claude/`) excludes; the repo file wins.
+!.claude/
+.claude/*
+!.claude/settings.json
+!.claude/workflows/
+!.claude/rules/
+!.claude/hooks/
 .env
 # Local --preview output (top-level only — must NOT match src/reports/).
 /reports/
