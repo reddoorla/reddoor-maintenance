@@ -1,0 +1,221 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "tz": "America/Los_Angeles",
+  "lane": "all",
+  "from": null,
+  "to": null,
+  "files": 3295,
+  "lines": 748990,
+  "by": [
+    "skill"
+  ],
+  "total": {
+    "requests": 76263,
+    "in": 1596617,
+    "out": 66876510,
+    "cacheCreate": 315532173,
+    "cacheRead": 13919210256
+  },
+  "groups": [
+    {
+      "key": "",
+      "requests": 69416,
+      "in": 1417363,
+      "out": 60440829,
+      "cacheCreate": 287682287,
+      "cacheRead": 12924096221
+    },
+    {
+      "key": "artifact-capabilities",
+      "requests": 9,
+      "in": 258,
+      "out": 12992,
+      "cacheCreate": 29830,
+      "cacheRead": 1782123
+    },
+    {
+      "key": "artifact-design",
+      "requests": 78,
+      "in": 876,
+      "out": 228442,
+      "cacheCreate": 340235,
+      "cacheRead": 25443997
+    },
+    {
+      "key": "claude-api",
+      "requests": 21,
+      "in": 92,
+      "out": 26446,
+      "cacheCreate": 187981,
+      "cacheRead": 4671768
+    },
+    {
+      "key": "code-review",
+      "requests": 56,
+      "in": 112,
+      "out": 47011,
+      "cacheCreate": 193604,
+      "cacheRead": 3823891
+    },
+    {
+      "key": "design",
+      "requests": 3,
+      "in": 36,
+      "out": 43055,
+      "cacheCreate": 74631,
+      "cacheRead": 425520
+    },
+    {
+      "key": "evening-review",
+      "requests": 1056,
+      "in": 105678,
+      "out": 812526,
+      "cacheCreate": 6322736,
+      "cacheRead": 164920117
+    },
+    {
+      "key": "figma-slices",
+      "requests": 87,
+      "in": 1352,
+      "out": 74037,
+      "cacheCreate": 266455,
+      "cacheRead": 12164032
+    },
+    {
+      "key": "figma:figma-design-to-code",
+      "requests": 133,
+      "in": 3097,
+      "out": 179297,
+      "cacheCreate": 343144,
+      "cacheRead": 36369382
+    },
+    {
+      "key": "figma:figma-use",
+      "requests": 57,
+      "in": 114,
+      "out": 58797,
+      "cacheCreate": 106876,
+      "cacheRead": 22862670
+    },
+    {
+      "key": "markup-review",
+      "requests": 5,
+      "in": 10,
+      "out": 2738,
+      "cacheCreate": 13433,
+      "cacheRead": 351867
+    },
+    {
+      "key": "new-site",
+      "requests": 12,
+      "in": 24,
+      "out": 8887,
+      "cacheCreate": 18180,
+      "cacheRead": 5127562
+    },
+    {
+      "key": "run",
+      "requests": 4,
+      "in": 7,
+      "out": 2221,
+      "cacheCreate": 4462,
+      "cacheRead": 1158843
+    },
+    {
+      "key": "superpowers-chrome:browsing",
+      "requests": 58,
+      "in": 115,
+      "out": 36086,
+      "cacheCreate": 168479,
+      "cacheRead": 8654759
+    },
+    {
+      "key": "superpowers:brainstorming",
+      "requests": 924,
+      "in": 14715,
+      "out": 946091,
+      "cacheCreate": 5105441,
+      "cacheRead": 93580941
+    },
+    {
+      "key": "superpowers:executing-plans",
+      "requests": 84,
+      "in": 1788,
+      "out": 138546,
+      "cacheCreate": 201675,
+      "cacheRead": 26227396
+    },
+    {
+      "key": "superpowers:finishing-a-development-branch",
+      "requests": 1,
+      "in": 2,
+      "out": 1107,
+      "cacheCreate": 2132,
+      "cacheRead": 429112
+    },
+    {
+      "key": "superpowers:subagent-driven-development",
+      "requests": 2124,
+      "in": 7175,
+      "out": 1400762,
+      "cacheCreate": 6909874,
+      "cacheRead": 233508285
+    },
+    {
+      "key": "superpowers:systematic-debugging",
+      "requests": 615,
+      "in": 14695,
+      "out": 726861,
+      "cacheCreate": 1595628,
+      "cacheRead": 91389301
+    },
+    {
+      "key": "superpowers:test-driven-development",
+      "requests": 1078,
+      "in": 18645,
+      "out": 762706,
+      "cacheCreate": 3878657,
+      "cacheRead": 164264827
+    },
+    {
+      "key": "superpowers:using-git-worktrees",
+      "requests": 28,
+      "in": 56,
+      "out": 21123,
+      "cacheCreate": 48944,
+      "cacheRead": 4342036
+    },
+    {
+      "key": "superpowers:verification-before-completion",
+      "requests": 30,
+      "in": 60,
+      "out": 23187,
+      "cacheCreate": 57626,
+      "cacheRead": 2787067
+    },
+    {
+      "key": "superpowers:writing-plans",
+      "requests": 264,
+      "in": 10107,
+      "out": 845676,
+      "cacheCreate": 1138166,
+      "cacheRead": 76599729
+    },
+    {
+      "key": "update-config",
+      "requests": 1,
+      "in": 2,
+      "out": 670,
+      "cacheCreate": 75207,
+      "cacheRead": 425536
+    },
+    {
+      "key": "workflow-authoring",
+      "requests": 119,
+      "in": 238,
+      "out": 36417,
+      "cacheCreate": 766490,
+      "cacheRead": 13803274
+    }
+  ]
+}

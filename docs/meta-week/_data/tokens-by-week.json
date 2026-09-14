@@ -1,0 +1,69 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "tz": "America/Los_Angeles",
+  "lane": "all",
+  "from": null,
+  "to": null,
+  "files": 3295,
+  "lines": 748880,
+  "by": [
+    "week"
+  ],
+  "total": {
+    "requests": 76244,
+    "in": 1596549,
+    "out": 66865138,
+    "cacheCreate": 315478542,
+    "cacheRead": 13916250110
+  },
+  "groups": [
+    {
+      "key": "2026-W33",
+      "requests": 3003,
+      "in": 93162,
+      "out": 3779151,
+      "cacheCreate": 13641611,
+      "cacheRead": 552801565
+    },
+    {
+      "key": "2026-W34",
+      "requests": 15102,
+      "in": 282331,
+      "out": 17823109,
+      "cacheCreate": 55165748,
+      "cacheRead": 2528827858
+    },
+    {
+      "key": "2026-W35",
+      "requests": 17681,
+      "in": 166788,
+      "out": 17038623,
+      "cacheCreate": 63053541,
+      "cacheRead": 4118454323
+    },
+    {
+      "key": "2026-W36",
+      "requests": 26646,
+      "in": 864002,
+      "out": 17371180,
+      "cacheCreate": 125044750,
+      "cacheRead": 4162179517
+    },
+    {
+      "key": "2026-W37",
+      "requests": 13484,
+      "in": 183708,
+      "out": 10427261,
+      "cacheCreate": 57166047,
+      "cacheRead": 2514581202
+    },
+    {
+      "key": "2026-W38",
+      "requests": 328,
+      "in": 6558,
+      "out": 425814,
+      "cacheCreate": 1406845,
+      "cacheRead": 39405645
+    }
+  ]
+}
