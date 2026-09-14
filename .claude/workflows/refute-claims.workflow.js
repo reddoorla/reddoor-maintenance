@@ -12,14 +12,23 @@
 // THE TWO CONTROLS — run both before this script is called proven
 // ---------------------------------------------------------------------------------------
 //
-// Neither has been run in the saved form. Until the PASS control fires and the FAIL
-// control's delta is exactly one claim, this script is the suspect, not the package it
-// reads (CLAUDE.md, "Prove the instrument before you trust its verdict").
+// Both ran on 2026-09-14 and both held: PASS returned 10 confirmed / 6 refuted / 0 unclear
+// with every quote at a real line, and FAIL refuted the planted claim while leaving all 16
+// shared verdicts identical. They were then RE-RUN blind after the round's own completeness
+// critic objected that the first pass was not blind (see below).
+//
+// CLAIM IDS ARE OPAQUE — `c01`…`c17`, shuffled — and they must stay that way. The first
+// version of these controls used `lever-*` for the claims expected to survive and
+// `earlier-*` for the ones expected to die, and the skeptic prompt prints the id, so the
+// verdict was predictable from the prefix without reading anything. The answer key lives
+// in `docs/meta-week/_data/refute-claims-levers.expected.json` and in the test file; this
+// script never reads it and no skeptic is given its path. Do not reintroduce a speaking id.
 //
 // (i) PASS control — the lever survey, 16 claims: 10 stated in their verified form (must
 //     come back `confirmed`) and 6 in the earlier survey's wrong form (must come back
-//     `refuted`), including `earlier-precompact-inject`, the hook-contract error. A round
-//     that refutes the 10 true claims is a false-positive generator and does not ship.
+//     `refuted`), including the hook-contract error R4 names — a `PreCompact` hook cannot
+//     inject context. A round that refutes 2 or more of the 10 true claims is a
+//     false-positive generator and does not ship: the silence is the half that tests it.
 //
 //     Workflow({
 //       scriptPath: ".claude/workflows/refute-claims.workflow.js",
@@ -31,9 +40,10 @@
 //       }
 //     })
 //
-// (ii) FAIL control — the same 16 claims plus one seeded false claim, `seed-1` ("the
-//      session limit window is 4h", against 10-token-meter.md's measured 5h00m). Expected:
-//      `seed-1` refuted and every other verdict identical to (i). The delta is the signal.
+// (ii) FAIL control — the same 16 claims plus one seeded false claim ("the session limit
+//      window is 4h", against 10-token-meter.md's measured 5h00m), inserted mid-file so
+//      position does not give it away. Expected: that one claim refuted and every other
+//      verdict identical to (i). The delta is the signal, not the count.
 //
 //     Workflow({
 //       scriptPath: ".claude/workflows/refute-claims.workflow.js",
@@ -90,19 +100,31 @@ export const meta = {
 // tests/meta-week/refute-claims.test.ts fails if the two copies drift. Edit the lib, paste here.
 // --8<-- shared-with-workflow START
 /**
- * The one refuter round that has actually been measured: the first census round —
- * 31 claims, 32 Opus agents (31 skeptics + 1 completeness critic), 1,981,897 subagent
- * tokens, 7m54s. Every cost figure below derives from this and nothing else.
+ * Measured on this script's own two controls, 2026-09-14: the PASS control spent
+ * 1,244,652 subagent tokens on 16 claims over 19 agents (77,791/claim) and the FAIL
+ * control 1,342,927 on 17 over 20 agents (79,001/claim).
+ *
+ * The earlier data point, kept because it is the only one from a different package: the
+ * first census round, 31 claims, 32 agents, 1,981,897 subagent tokens, 7m54s
+ * (`docs/meta-week/_data/census-refute.json`) — 63,932/claim. That basis under-predicted
+ * the controls by about 20%, which is why it is a comment and not the number.
  */
 const MEASURED_ROUND = Object.freeze({
-  claims: 31,
-  agents: 32,
-  subagentTokens: 1981897,
-  source: "docs/meta-week/_data/census-refute.json",
+  passClaims: 16,
+  passAgents: 19,
+  passSubagentTokens: 1244652,
+  failClaims: 17,
+  failAgents: 20,
+  failSubagentTokens: 1342927,
+  basis: "measured on the R4 controls, 2026-09-14 (PASS 1.24M/16, FAIL 1.34M/17)",
 });
 
-/** ≈63,932 subagent tokens per claim, skeptics and critic together. */
-const TOKENS_PER_CLAIM = MEASURED_ROUND.subagentTokens / MEASURED_ROUND.claims;
+/**
+ * 78,000 subagent tokens per claim — between the controls' 77,791 and 79,001, so it
+ * under-predicts a 17-claim round by about 1.3%. Guard, loader, skeptics and critic
+ * together; there is no separate per-agent term.
+ */
+const TOKENS_PER_CLAIM = 78000;
 
 /**
  * R4's "mistake if": this round is for packages and plans above ~10 claims. Below that,
@@ -219,9 +241,11 @@ function chunkClaims(claims, size = DEFAULT_CHUNK) {
 }
 
 /**
- * What the round is about to cost, stated before it is spent. `agents` counts the guard
- * and the completeness critic alongside the skeptics; `subagentTokens` is the measured
- * per-claim rate times the claim count, and models neither the guard nor a re-run.
+ * What the round is about to cost, stated before it is spent. `agents` counts the guard,
+ * the loader and the completeness critic alongside the skeptics — the controls ran 19
+ * agents for 16 claims and 20 for 17, which is claims + 3; passing `args.claims` inline
+ * skips the loader and makes it claims + 2. `subagentTokens` is the measured per-claim
+ * rate times the claim count, and models no re-run.
  */
 function estimateRound(claimCount, chunk = DEFAULT_CHUNK) {
   if (!Number.isInteger(claimCount) || claimCount < 0) {
@@ -233,13 +257,13 @@ function estimateRound(claimCount, chunk = DEFAULT_CHUNK) {
   return {
     claims: claimCount,
     skeptics: claimCount,
-    agents: claimCount + 2,
+    agents: claimCount + 3,
     chunks: Math.ceil(claimCount / chunk),
     chunk,
     subagentTokens: Math.round(TOKENS_PER_CLAIM * claimCount),
     tokensPerClaim: Math.round(TOKENS_PER_CLAIM),
     belowFloor: claimCount < CLAIM_FLOOR,
-    basis: MEASURED_ROUND.source,
+    basis: MEASURED_ROUND.basis,
   };
 }
 
@@ -249,7 +273,7 @@ function formatEstimate(est) {
     ? ` — WARNING: ${est.claims} claims is below the ~${CLAIM_FLOOR}-claim floor R4 sets; read the evidence yourself instead`
     : "";
   return (
-    `${est.claims} claims → ${est.agents} agents (1 guard + ${est.skeptics} skeptics + 1 critic) ` +
+    `${est.claims} claims → ${est.agents} agents (1 guard + 1 loader + ${est.skeptics} skeptics + 1 critic) ` +
     `in ${est.chunks} chunk(s) of ${est.chunk}; expected ≈${(est.subagentTokens / 1e6).toFixed(2)}M ` +
     `subagent tokens at the measured ${est.tokensPerClaim}/claim (${est.basis})${floor}`
   );

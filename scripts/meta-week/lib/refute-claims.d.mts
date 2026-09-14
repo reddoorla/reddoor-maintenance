@@ -3,10 +3,13 @@
 // file is only so `tsc --noEmit` can see the tests' import as something other than `any`.
 
 export interface MeasuredRound {
-  readonly claims: number;
-  readonly agents: number;
-  readonly subagentTokens: number;
-  readonly source: string;
+  readonly passClaims: number;
+  readonly passAgents: number;
+  readonly passSubagentTokens: number;
+  readonly failClaims: number;
+  readonly failAgents: number;
+  readonly failSubagentTokens: number;
+  readonly basis: string;
 }
 
 export interface EvidenceRef {

@@ -27,6 +27,9 @@ const WORKFLOW = fileURLToPath(
 const LEVERS = fileURLToPath(
   new URL("../../docs/meta-week/_data/refute-claims-levers.json", import.meta.url),
 );
+const EXPECTED_FILE = fileURLToPath(
+  new URL("../../docs/meta-week/_data/refute-claims-levers.expected.json", import.meta.url),
+);
 const SEEDED = fileURLToPath(
   new URL("../../docs/meta-week/_data/refute-claims-levers-seeded.json", import.meta.url),
 );
@@ -125,24 +128,36 @@ describe("chunkClaims", () => {
 });
 
 describe("estimateRound", () => {
-  it("reproduces the one round that was actually measured", () => {
-    // 31 claims cost 1,981,897 subagent tokens across 32 agents (census-refute.json).
-    const est = estimateRound(MEASURED_ROUND.claims, 4);
-    expect(est.subagentTokens).toBe(MEASURED_ROUND.subagentTokens);
-    expect(est.tokensPerClaim).toBe(Math.round(TOKENS_PER_CLAIM));
-    expect(est.tokensPerClaim).toBe(63932);
-    // The measured round's 32 agents were 31 skeptics + 1 critic; this script adds a guard.
-    expect(est.agents).toBe(MEASURED_ROUND.agents + 1);
+  it("predicts both of the rounds it was fitted to, within 2%", () => {
+    // The controls, 2026-09-14: 16 claims / 1,244,652 tokens / 19 agents, and
+    // 17 / 1,342,927 / 20. The census round's 63,932/claim under-predicted both by ~20%.
+    expect(TOKENS_PER_CLAIM).toBe(78000);
+    const pass = estimateRound(MEASURED_ROUND.passClaims, 3);
+    expect(pass.agents).toBe(MEASURED_ROUND.passAgents);
+    expect(
+      Math.abs(pass.subagentTokens - MEASURED_ROUND.passSubagentTokens) /
+        MEASURED_ROUND.passSubagentTokens,
+    ).toBeLessThan(0.02);
+    const fail = estimateRound(MEASURED_ROUND.failClaims, 3);
+    expect(fail.agents).toBe(MEASURED_ROUND.failAgents);
+    expect(
+      Math.abs(fail.subagentTokens - MEASURED_ROUND.failSubagentTokens) /
+        MEASURED_ROUND.failSubagentTokens,
+    ).toBeLessThan(0.02);
+    // The old basis would have been out by far more than that.
+    expect(Math.abs(63932 * 16 - MEASURED_ROUND.passSubagentTokens) / 1244652).toBeGreaterThan(
+      0.15,
+    );
   });
 
-  it("scales linearly and counts guard + skeptics + critic", () => {
+  it("scales linearly and counts guard + loader + skeptics + critic", () => {
     const est = estimateRound(16, 3);
     expect(est.claims).toBe(16);
     expect(est.skeptics).toBe(16);
-    expect(est.agents).toBe(18);
+    expect(est.agents).toBe(19);
     expect(est.chunks).toBe(6);
-    expect(est.subagentTokens).toBe(Math.round(TOKENS_PER_CLAIM * 16));
-    expect(est.subagentTokens).toBe(1022915);
+    expect(est.subagentTokens).toBe(TOKENS_PER_CLAIM * 16);
+    expect(est.subagentTokens).toBe(1248000);
     expect(est.belowFloor).toBe(false);
   });
 
@@ -156,10 +171,10 @@ describe("estimateRound", () => {
   it("names the cost, the agent count and the basis in one log line", () => {
     const line = formatEstimate(estimateRound(16, 3));
     expect(line).toContain("16 claims");
-    expect(line).toContain("18 agents");
+    expect(line).toContain("19 agents");
     expect(line).toContain("6 chunk(s) of 3");
-    expect(line).toContain("1.02M");
-    expect(line).toContain(MEASURED_ROUND.source);
+    expect(line).toContain("1.25M");
+    expect(line).toContain(MEASURED_ROUND.basis);
   });
 
   it("throws rather than guessing on bad input", () => {
@@ -307,29 +322,92 @@ describe("the workflow script carries the lib's rules verbatim", () => {
   });
 });
 
+/**
+ * The expected verdict for every claim in the two controls. This map is the answer key and
+ * it lives HERE and in docs/meta-week/_data/refute-claims-levers.expected.json — never in
+ * the claims files themselves, and never in anything the workflow script reads. The first
+ * version of these controls encoded the answer in the id (`lever-*` survives, `earlier-*`
+ * dies) and the skeptic prompt prints the id, so a skeptic could score without reading a
+ * line. The round's own completeness critic caught it. Ids are opaque now; keep them so.
+ */
+const EXPECTED: Record<string, "confirmed" | "refuted"> = {
+  c01: "refuted",
+  c02: "confirmed",
+  c03: "confirmed",
+  c04: "refuted",
+  c05: "confirmed",
+  c06: "confirmed",
+  c07: "refuted", // the hook-contract error R4 names: PreCompact cannot inject context
+  c08: "confirmed",
+  c09: "refuted",
+  c10: "confirmed",
+  c11: "confirmed", // same evidence as c04, opposite claim
+  c12: "refuted",
+  c13: "confirmed",
+  c14: "confirmed",
+  c15: "refuted",
+  c16: "confirmed",
+  c17: "refuted", // the seeded claim, present only in the FAIL control
+};
+
 describe("the two control inputs", () => {
-  const levers = JSON.parse(readFileSync(LEVERS, "utf8")) as unknown[];
-  const seeded = JSON.parse(readFileSync(SEEDED, "utf8")) as { id: string }[];
+  type Claim = { id: string; claim: string; evidence: string[] };
+  const levers = JSON.parse(readFileSync(LEVERS, "utf8")) as Claim[];
+  const seeded = JSON.parse(readFileSync(SEEDED, "utf8")) as Claim[];
+  const key = JSON.parse(readFileSync(EXPECTED_FILE, "utf8")) as {
+    expected: Record<string, { verdict: string }>;
+  };
 
   it("both validate, and the PASS control clears R4's ~10-claim floor", () => {
     expect(validateClaims(levers).errors).toEqual([]);
     expect(validateClaims(seeded).errors).toEqual([]);
-    expect(levers.length).toBe(16);
+    expect(levers).toHaveLength(16);
     expect(estimateRound(levers.length).belowFloor).toBe(false);
   });
 
-  it("the FAIL control is the PASS control plus exactly one seeded claim", () => {
-    // The whole discriminator: if anything else differs, a verdict delta proves nothing.
-    expect(seeded.slice(0, levers.length)).toEqual(levers);
-    expect(seeded).toHaveLength(levers.length + 1);
-    expect(seeded[seeded.length - 1]!.id).toBe("seed-1");
+  it("carries no id that tells a skeptic the answer", () => {
+    // Every id opaque and uniform, in BOTH files: nothing in `CLAIM ${c.id}` can be
+    // scored on. Checking only one file would miss a speaking id in the other.
+    for (const c of [...levers, ...seeded]) {
+      expect(c.id).toMatch(/^c\d{2}$/);
+      // And the claim text must not leak the frame either.
+      expect(c.claim).not.toMatch(/earlier survey|verified form|seeded|planted/i);
+    }
+    expect(new Set(levers.map((c) => c.id)).size).toBe(levers.length);
+    expect(new Set(seeded.map((c) => c.id)).size).toBe(seeded.length);
   });
 
-  it("the PASS control carries the hook-contract claim the round must refute", () => {
-    const ids = (levers as { id: string }[]).map((c) => c.id);
-    expect(ids).toContain("earlier-precompact-inject");
-    // And true claims it must NOT refute — the half a default-refuted round can fail.
-    expect(ids.filter((id) => id.startsWith("lever-"))).toHaveLength(10);
-    expect(ids.filter((id) => id.startsWith("earlier-"))).toHaveLength(6);
+  it("the FAIL control is the PASS control plus exactly one claim, and not at the end", () => {
+    // The whole discriminator: if anything else differs, a verdict delta proves nothing.
+    const passIds = new Set(levers.map((c) => c.id));
+    const extra = seeded.filter((c) => !passIds.has(c.id));
+    expect(extra).toHaveLength(1);
+    expect(extra[0]!.id).toBe("c17");
+    expect(seeded).toHaveLength(levers.length + 1);
+    // Every shared claim byte-identical, so no verdict can move for another reason.
+    expect(seeded.filter((c) => passIds.has(c.id))).toEqual(levers);
+    // Planted mid-file: last position would telegraph it to anyone reading the file.
+    expect(seeded[seeded.length - 1]!.id).not.toBe("c17");
+  });
+
+  it("expects 10 to survive and 6 to die, with the planted claim making 7", () => {
+    const verdicts = levers.map((c) => EXPECTED[c.id]);
+    expect(verdicts.filter((v) => v === "confirmed")).toHaveLength(10);
+    expect(verdicts.filter((v) => v === "refuted")).toHaveLength(6);
+    expect(EXPECTED.c17).toBe("refuted");
+    // Neither id order nor file position correlates with the verdict.
+    expect(verdicts.slice(0, 8)).not.toEqual(verdicts.slice(8).reverse());
+    expect(new Set(verdicts.slice(0, 5)).size).toBe(2);
+  });
+
+  it("the on-disk answer key and this file agree, and no claims file carries either", () => {
+    expect(
+      Object.fromEntries(Object.entries(key.expected).map(([k, v]) => [k, v.verdict])),
+    ).toEqual(EXPECTED);
+    // The script never READS the key — only a header comment names where it lives, and
+    // comments never reach an agent. Strip them and no code path can touch it.
+    const code = readFileSync(WORKFLOW, "utf8").replace(/^\s*\/\/.*$/gm, "");
+    expect(code).not.toContain("expected.json");
+    for (const c of seeded) expect(Object.keys(c).sort()).toEqual(["claim", "evidence", "id"]);
   });
 });
