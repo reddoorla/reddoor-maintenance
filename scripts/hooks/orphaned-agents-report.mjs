@@ -9,8 +9,10 @@
 //
 // It lists; it does not act. The session decides which orphans still need doing.
 //
-// ─── the operator applies this; the sandbox denies writing settings.json ─────────────
-// Add to reddoor-maintenance/.claude/settings.json (or the operator's local settings):
+// ─── how it is wired ─────────────────────────────────────────────────────────────────
+// This entry SHIPS in the repo's tracked .claude/settings.json (tracked since decision
+// A9, #788), so it is reviewed rather than pasted. Reproduced here so the script says
+// how it is called:
 //
 //   "hooks": {
 //     "SessionStart": [
