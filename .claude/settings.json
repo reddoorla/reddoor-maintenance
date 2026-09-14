@@ -68,6 +68,19 @@
       "/private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/cleanup-reddoor-starter/src"
     ]
   },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hooks/orphaned-agents-report.mjs"
+          }
+        ]
+      }
+    ]
+  },
   "sandbox": {
     "enabled": true,
     "network": {

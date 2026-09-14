@@ -250,16 +250,23 @@ async function writeRoot(
   extra: Record<string, string[]>,
   subagents: Record<string, string[]>,
   metas: Record<string, Record<string, unknown>> = {},
+  // The transcript file and the subagents directory are both NAMED for the session, which
+  // is what `--session` prefilters on. Default "s1" for the roots whose records say "s1";
+  // a root whose records carry another id must pass it, or the layout is not the real one.
+  sessionDir = "s1",
 ) {
   const alpha = join(dir, "-Users-x-Documents-GitHub-alpha");
-  await mkdir(join(alpha, "s1", "subagents"), { recursive: true });
-  await writeFile(join(alpha, "s1.jsonl"), s1Lines.join("\n") + "\n");
+  await mkdir(join(alpha, sessionDir, "subagents"), { recursive: true });
+  await writeFile(join(alpha, `${sessionDir}.jsonl`), s1Lines.join("\n") + "\n");
   for (const [name, lines] of Object.entries(subagents)) {
-    await writeFile(join(alpha, "s1", "subagents", `agent-${name}.jsonl`), lines.join("\n") + "\n");
+    await writeFile(
+      join(alpha, sessionDir, "subagents", `agent-${name}.jsonl`),
+      lines.join("\n") + "\n",
+    );
   }
   for (const [name, meta] of Object.entries(metas)) {
     await writeFile(
-      join(alpha, "s1", "subagents", `agent-${name}.meta.json`),
+      join(alpha, sessionDir, "subagents", `agent-${name}.meta.json`),
       JSON.stringify(meta),
     );
   }
@@ -849,6 +856,7 @@ beforeAll(async () => {
         spawnDepth: 1,
       },
     },
+    "s13",
   );
 });
 
@@ -1013,6 +1021,73 @@ describe("census: orphaned agents", () => {
   it("FAIL control: nominates nothing on the clean fixture", async () => {
     const { json } = await census(clean, ["--class", "fanout"]);
     expect(kinds(json, "fanout").filter((x) => x.kind === "orphaned-agent")).toEqual([]);
+  });
+});
+
+/**
+ * The three flags the SessionStart hook needs. `--session` is the one with a mechanism
+ * worth testing: it PREFILTERS the walk by path — the corpus is 2.7 GB and reading all of
+ * it takes ~15 s, far too slow for a hook — and then filters candidates on the records'
+ * own sessionId. The two must agree, so the fixture's directory is named for the session
+ * exactly as Claude Code names it.
+ */
+describe("census: session scoping and machine-readable output", () => {
+  it("PASS: --session reads only that session's files and finds the same orphans as the unscoped run", async () => {
+    const unscoped = await census(orphans, ["--class", "fanout"]);
+    const scoped = await census(orphans, ["--class", "fanout", "--session", "s13"]);
+    expect(scoped.json.session).toBe("s13");
+    // s13.jsonl + the five subagent transcripts, and nothing else in the root.
+    expect(scoped.json.files).toBe(6);
+    expect(kinds(scoped.json, "fanout")).toEqual(kinds(unscoped.json, "fanout"));
+  });
+
+  it("FAIL control: a session with no files of its own yields no candidates", async () => {
+    const { json } = await census(orphans, ["--class", "fanout", "--session", "s-absent"]);
+    expect(json.files).toBe(0);
+    expect(kinds(json, "fanout")).toEqual([]);
+  });
+
+  it("--kind keeps one kind and drops the rest of the class", async () => {
+    const all = await census(seeded, ["--class", "fanout"]);
+    expect(new Set(kinds(all.json, "fanout").map((c) => c.kind)).size).toBeGreaterThan(1);
+    const { json } = await census(seeded, ["--class", "fanout", "--kind", "continue-after-block"]);
+    expect(kinds(json, "fanout").map((c) => c.kind)).toEqual(["continue-after-block"]);
+  });
+
+  it("--json - writes the result object to stdout and prints nothing else", async () => {
+    const { stdout } = await execFileAsync("node", [
+      CENSUS,
+      "--root",
+      orphans,
+      "--class",
+      "fanout",
+      "--kind",
+      "orphaned-agent",
+      "--session",
+      "s13",
+      "--json",
+      "-",
+    ]);
+    // The whole of stdout parses: no table, no counts line, no trailing noise.
+    const json = JSON.parse(stdout) as Record<string, unknown>;
+    expect(json.session).toBe("s13");
+    expect(json.kind).toBe("orphaned-agent");
+    expect(
+      kinds(json, "fanout")
+        .map((c) => c.evidence.agentId)
+        .sort(),
+    ).toEqual(["o1", "o5"]);
+  });
+
+  it("records WHEN the re-dispatch went out, not only its id", async () => {
+    const { json } = await census(orphans, ["--class", "fanout", "--kind", "orphaned-agent"]);
+    const killed = kinds(json, "fanout").find((c) => c.evidence.agentId === "o1");
+    expect(killed?.evidence.redispatched).toBe("t31");
+    // The re-dispatched AGENT's first record (11:00:10), not the parent's Agent call
+    // (11:00:00) — spawnedAt comes from the subagent transcript, which starts moments later.
+    expect(killed?.evidence.redispatchedAt).toBe(T4("11:00:10"));
+    const lone = kinds(json, "fanout").find((c) => c.evidence.agentId === "o5");
+    expect(lone?.evidence.redispatchedAt).toBeNull();
   });
 });
 

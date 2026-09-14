@@ -7,23 +7,39 @@
 // resumed/compacted sessions repeats the same requestIds, so the same key covers it.
 import { createReadStream } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { basename, join, sep } from "node:path";
 import { createInterface } from "node:readline";
 
 const GITHUB_RE = /\/Documents\/GitHub\/([^/]+)/;
 const BLOCK_RE = /^You've hit your (session|weekly) limit/i;
 
-export async function* jsonlFiles(root) {
+export async function* jsonlFiles(root, keep) {
   const entries = await readdir(root, { withFileTypes: true });
   for (const e of entries) {
     const p = join(root, e.name);
     if (e.isDirectory()) {
       if (e.name === "memory") continue;
-      yield* jsonlFiles(p);
+      yield* jsonlFiles(p, keep);
     } else if (e.isFile() && e.name.endsWith(".jsonl")) {
+      if (keep && !keep(p)) continue;
       yield p;
     }
   }
+}
+
+/**
+ * The files one session writes, by PATH: `<project>/<sessionId>.jsonl` for the parent and
+ * `<project>/<sessionId>/subagents/agent-<id>.jsonl` for each subagent. This is a
+ * PREFILTER for speed — the corpus is 2.7 GB and a full walk reads all of it, which is
+ * far too slow for a SessionStart hook — and it is not the filter of record: callers that
+ * want one session still select on the records' own `sessionId`. Both agree on the real
+ * layout (verified against 04ebfa83-654f-4fc7-a814-113f3f020dad, whose subagent records
+ * carry the same id as the directory holding them).
+ */
+export function sessionFileFilter(sessionId) {
+  if (!sessionId) return null;
+  const file = `${sessionId}.jsonl`;
+  return (p) => basename(p) === file || p.split(sep).includes(sessionId);
 }
 
 /** Repo name from cwd; falls back to the project directory name with worktree suffixes stripped. */
@@ -137,6 +153,7 @@ function promptText(message) {
 
 export async function collectEvents(root, opts = {}) {
   const full = !!opts.full;
+  const keep = sessionFileFilter(opts.sessionId || "");
   const byKey = new Map();
   const seenMarkers = new Set(); // uuids of compaction/block records already counted (replay)
   const seenTools = new Set();
@@ -153,7 +170,7 @@ export async function collectEvents(root, opts = {}) {
   const seenNotifications = new Set();
   let files = 0;
   let lines = 0;
-  for await (const file of jsonlFiles(root)) {
+  for await (const file of jsonlFiles(root, keep)) {
     files++;
     const projectDir = projectDirOf(root, file);
     const sub = full ? SUBAGENT_RE.exec(file) : null;

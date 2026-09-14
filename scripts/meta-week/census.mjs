@@ -4,7 +4,11 @@
 // (scripts/meta-week/transcript-window.mjs). See docs/meta-week/11-wasted-work-census.md.
 //
 //   node scripts/meta-week/census.mjs [--root DIR] [--class fanout|redo|unread|all]
-//     [--top N] [--json FILE] [--jsonl FILE]
+//     [--kind KIND] [--session ID] [--top N] [--json FILE|-] [--jsonl FILE]
+//
+// --session narrows the walk AND the candidates to one session; --kind keeps one kind of
+// candidate; --json - writes the result object to stdout and prints nothing else, which
+// is the machine-readable mode scripts/hooks/orphaned-agents-report.mjs consumes.
 import { execFile } from "node:child_process";
 import { readdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -20,6 +24,8 @@ function parseArgs(argv) {
   const o = {
     root: join(homedir(), ".claude", "projects"),
     class: "all",
+    kind: null,
+    session: null,
     top: 10,
     json: null,
     jsonl: null,
@@ -38,6 +44,12 @@ function parseArgs(argv) {
         break;
       case "--class":
         o.class = next();
+        break;
+      case "--kind":
+        o.kind = next();
+        break;
+      case "--session":
+        o.session = next();
         break;
       case "--top":
         o.top = Number(next());
@@ -81,12 +93,10 @@ function summarize(cands) {
   return byKind;
 }
 
-function printClass(name, byKind, cands, top) {
-  process.stdout.write(
-    `\n== ${name} ==\nkind\tcandidates\tout\tcacheCreate\tcacheRead\tagentTotal\n`,
-  );
+function printClass(name, byKind, cands, top, say) {
+  say(`\n== ${name} ==\nkind\tcandidates\tout\tcacheCreate\tcacheRead\tagentTotal\n`);
   for (const [kind, k] of Object.entries(byKind)) {
-    process.stdout.write(
+    say(
       `${kind}\t${k.candidates}\t${fmt(k.cost.out)}\t${fmt(k.cost.cacheCreate)}\t${fmt(k.cost.cacheRead)}\t${fmt(k.cost.agentTotal || 0)}\n`,
     );
   }
@@ -95,7 +105,7 @@ function printClass(name, byKind, cands, top) {
       .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
       .join(" ")
       .slice(0, 160);
-    process.stdout.write(
+    say(
       `  ${c.kind}\t${c.ts}\t${c.repo}\t${c.sessionId.slice(0, 8)}\tout=${fmt(c.cost.out)}\t${ev}\n`,
     );
   }
@@ -103,9 +113,15 @@ function printClass(name, byKind, cands, top) {
 
 async function main() {
   const o = parseArgs(process.argv.slice(2));
-  const all = await collectEvents(o.root, { full: true });
+  // `--json -` is the machine-readable mode: the result object goes to stdout and NOTHING
+  // else does, so a caller can parse stdout whole.
+  const toStdout = o.json === "-";
+  const say = toStdout ? () => {} : (t) => process.stdout.write(t);
+  const all = await collectEvents(o.root, { full: true, sessionId: o.session || "" });
   const result = {
     root: o.root,
+    session: o.session,
+    kind: o.kind,
     files: all.files,
     prompts: all.prompts.length,
     tools: all.tools.length,
@@ -115,18 +131,20 @@ async function main() {
     notifications: all.notifications.length,
     classes: {},
   };
-  process.stdout.write(
+  say(
     `files=${all.files} prompts=${all.prompts.length} tools=${all.tools.length} agentResults=${all.agentResults.length} interrupts=${all.interrupts.length} agents=${all.agents.length} notifications=${all.notifications.length}\n`,
   );
   const wanted = o.class === "all" ? Object.keys(FINDERS) : [o.class].filter((c) => FINDERS[c]);
   const allCands = [];
   for (const name of wanted) {
-    const cands = FINDERS[name](all).sort(
-      (a, b) => b.cost.out - a.cost.out || b.cost.cacheCreate - a.cost.cacheCreate,
-    );
+    // The walk is already narrowed to the session's FILES; this narrows to the records'
+    // own sessionId, which is the filter of record. See sessionFileFilter in lib/walk.mjs.
+    const cands = FINDERS[name](all)
+      .filter((c) => (!o.session || c.sessionId === o.session) && (!o.kind || c.kind === o.kind))
+      .sort((a, b) => b.cost.out - a.cost.out || b.cost.cacheCreate - a.cost.cacheCreate);
     const byKind = summarize(cands);
     result.classes[name] = { byKind, candidates: cands };
-    printClass(name, byKind, cands, o.top);
+    printClass(name, byKind, cands, o.top, say);
     allCands.push(...cands);
   }
   if (o.jsonl) await writeFile(o.jsonl, allCands.map((c) => JSON.stringify(c)).join("\n") + "\n");
@@ -181,15 +199,15 @@ async function main() {
     };
     for (const r of reverts)
       result.reverts.byRepo[r.repo] = (result.reverts.byRepo[r.repo] || 0) + 1;
-    process.stdout.write(
+    say(
       `\n== reverts (git, since ${o.since}, subjects beginning with Revert/revert, uncosted) ==\n`,
     );
-    for (const [repo, c] of Object.entries(result.reverts.byRepo))
-      process.stdout.write(`${repo}\t${c}\n`);
+    for (const [repo, c] of Object.entries(result.reverts.byRepo)) say(`${repo}\t${c}\n`);
     if (skippedWorktrees.length)
-      process.stdout.write(`skipped (linked worktrees): ${skippedWorktrees.join(", ")}\n`);
+      say(`skipped (linked worktrees): ${skippedWorktrees.join(", ")}\n`);
   }
-  if (o.json) await writeFile(o.json, JSON.stringify(result, null, 2));
+  if (toStdout) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  else if (o.json) await writeFile(o.json, JSON.stringify(result, null, 2));
 }
 
 main().catch((e) => {
