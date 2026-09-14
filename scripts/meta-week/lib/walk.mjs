@@ -49,8 +49,30 @@ function firstText(message) {
 
 const num = (v) => (Number.isFinite(v) ? v : 0);
 
-const SYSTEM_SHAPED = /^\s*(<task-notification>|<system-reminder>|<local-command-stdout>)/;
+// Records the HARNESS writes as `type: "user"` that carry no operator turn at all. The
+// last two were found on the first real census run (2026-09-14): the summarisation
+// request quotes the transcript it is summarising, and the compaction continuation quotes
+// its own summary, so both matched stop and correction phrases the operator never typed.
+const SYSTEM_SHAPED =
+  /^\s*(<task-notification>|<system-reminder>|<local-command-stdout>|Context: This summary will be shown in a list|This session is being continued from a previous conversation)/;
 const INTERRUPT_RE = /^\s*\[Request interrupted/;
+
+// The IDE writes a preamble onto the operator's OWN turn — the opened file or the
+// selected lines, then the operator's text. It is not a system record: of the 140
+// preamble-carrying prompts in the corpus (probe, 2026-09-14) every one had a real turn
+// after the preamble, and not one had a stop or correction phrase inside the preamble. So
+// strip the preamble and keep the turn; a record that is nothing but preamble is dropped
+// by the empty-text check below. Preambles stack, hence the loop.
+const IDE_PREAMBLE = /^\s*<(ide_opened_file|ide_selection)>[\s\S]*?<\/\1>\s*/;
+
+export function stripIdePreamble(text) {
+  let t = text;
+  for (;;) {
+    const next = t.replace(IDE_PREAMBLE, "");
+    if (next === t) return t;
+    t = next;
+  }
+}
 
 function promptText(message) {
   const c = message?.content;
@@ -137,8 +159,10 @@ export async function collectEvents(root, opts = {}) {
           continue;
         }
         if (rec.isMeta) continue;
-        const text = promptText(rec.message);
-        if (text === null || !text.trim()) continue;
+        const raw = promptText(rec.message);
+        if (raw === null) continue;
+        const text = stripIdePreamble(raw);
+        if (!text.trim()) continue;
         if (rec.uuid && seenMarkers.has(rec.uuid)) continue;
         if (rec.uuid) seenMarkers.add(rec.uuid);
         if (INTERRUPT_RE.test(text)) {

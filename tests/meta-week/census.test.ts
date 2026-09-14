@@ -148,9 +148,11 @@ function compaction(ts: string): string {
 }
 
 const T = (hms: string) => `2026-09-02T${hms}Z`;
+const T3 = (hms: string) => `2026-09-03T${hms}Z`;
 
 let seeded: string;
 let clean: string;
+let shaped: string;
 
 async function writeRoot(
   dir: string,
@@ -175,6 +177,7 @@ beforeAll(async () => {
   const base = await mkdtemp(join(tmpdir(), "census-"));
   seeded = join(base, "seeded");
   clean = join(base, "clean");
+  shaped = join(base, "shaped");
 
   await writeRoot(
     seeded,
@@ -279,6 +282,81 @@ beforeAll(async () => {
     {},
     {},
   );
+
+  // SHAPED: the four record shapes the IDE and the harness write as `type: "user"`.
+  // Every line is a real shape from the corpus (probe, 2026-09-14). The two are NOT the
+  // same defect: an IDE preamble always wraps a real operator turn (133 of 133 in the
+  // corpus carried one, 0 were preamble-only), so it is STRIPPED and the turn kept; the
+  // harness's summarisation request and its compaction continuation carry no operator
+  // turn at all, and are dropped whole. Session "s9", repo delta, 2026-09-03:
+  //   09:00 USER  <ide_opened_file> preamble + "stop, kill them"   <- a real stop
+  //   09:01 subagent g9 usage (out 30)                             <- its cost
+  //   09:20 USER  <ide_selection> preamble, nothing after it       <- dropped: no turn
+  //   09:30 USER  the harness's summarisation request, quoting a transcript that
+  //               contains "stop and ask the user" — how it matched STOP_RE for real
+  //   09:31 ASSISTANT out 20
+  //   09:40 USER  the harness's compaction continuation, whose summary quotes
+  //               "are you sure" — a CORRECTION_RE phrase the operator never typed here
+  await writeRoot(
+    shaped,
+    [
+      user({
+        ts: T3("09:00:00"),
+        sessionId: "s9",
+        repo: "delta",
+        text:
+          "<ide_opened_file>The user opened the file /p/notes.md in the IDE. This may or may not be related to the current task.</ide_opened_file>\n" +
+          "stop, kill them",
+      }),
+      user({
+        ts: T3("09:20:00"),
+        sessionId: "s9",
+        repo: "delta",
+        text: "<ide_selection>The user selected the lines 1 to 2 from /p/notes.md:\n[[a note]]\n\nThis may or may not be related to the current task.</ide_selection>",
+      }),
+      user({
+        ts: T3("09:30:00"),
+        sessionId: "s9",
+        repo: "delta",
+        text:
+          "Context: This summary will be shown in a list to help users and Claude choose which conversations are relevant.\n\n" +
+          "Please write a concise, factual summary of this conversation.\n\n" +
+          'Agent: the plan has six separate "stop and ask the user to compile" points.',
+      }),
+      assistant({
+        ts: T3("09:31:00"),
+        sessionId: "s9",
+        repo: "delta",
+        requestId: "d1",
+        out: 20,
+        blocks: [text("working")],
+      }),
+      user({
+        ts: T3("09:40:00"),
+        sessionId: "s9",
+        repo: "delta",
+        text:
+          "This session is being continued from a previous conversation that ran out of context. " +
+          "The summary below covers the earlier portion of the conversation.\n\n" +
+          "Summary: the operator asked, are you sure the gate ran?",
+      }),
+    ],
+    {},
+    {
+      g9: [
+        assistant({
+          ts: T3("09:01:00"),
+          sessionId: "s9",
+          repo: "delta",
+          requestId: "ds1",
+          out: 30,
+          blocks: [text("still going")],
+          sidechain: true,
+          agentId: "g9",
+        }),
+      ],
+    },
+  );
 });
 
 async function census(
@@ -317,6 +395,24 @@ describe("census: walker full mode (via the CLI's counts)", () => {
     expect(json.prompts).toBe(6); // s1: 4 operator prompts (the 2 tool results are not prompts); s2, s3: 1 each
     expect(json.tools).toBe(9); // t1..t9
     expect(json.agentResults).toBe(2);
+  });
+});
+
+describe("census: system-generated records are not operator prompts", () => {
+  it("PASS: drops the harness's own records, keeps the operator turn an IDE preamble wraps", async () => {
+    const { json } = await census(shaped, ["--class", "all"]);
+    // Only the IDE-wrapped turn is an operator prompt; the other three lines are not.
+    expect(json.prompts).toBe(1);
+    const f = kinds(json, "fanout");
+    expect(f).toHaveLength(1);
+    expect(f[0]).toMatchObject({ kind: "spend-after-stop", sessionId: "s9", repo: "delta" });
+    // The preamble is stripped, so the evidence is the turn the operator actually typed.
+    expect(f[0].evidence.prompt).toBe("stop, kill them");
+    expect(f[0].cost.out).toBe(30);
+    // The summarisation request's quoted "stop and ask" and the continuation's quoted
+    // "are you sure" nominate nothing, because neither record is a prompt.
+    expect(kinds(json, "unread")).toEqual([]);
+    expect(kinds(json, "redo")).toEqual([]);
   });
 });
 
