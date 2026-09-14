@@ -231,6 +231,10 @@ export function fanoutCandidates(all) {
         lastAt: a.lastAt,
         lastStatus: a.lastStatus,
         redispatched: again ? again.toolUseId : null,
+        // The re-dispatched agent's OWN first record, which is moments after the parent's
+        // Agent call — near enough to place the re-send on the clock, and the only time
+        // the agent row carries.
+        redispatchedAt: again ? again.spawnedAt : null,
       },
     });
   }

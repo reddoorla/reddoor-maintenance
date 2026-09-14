@@ -1,0 +1,123 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Write(/Users/tuckerlemos/Documents/GitHub/**)",
+      "Edit(/Users/tuckerlemos/Documents/GitHub/**)",
+      "Write(/Users/tuckerlemos/.claude/projects/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/memory/**)",
+      "Edit(/Users/tuckerlemos/.claude/projects/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/memory/**)",
+      "Read(//var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.dJCWTbV9at/espada/src/**)",
+      "Read(//private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.dJCWTbV9at/espada/src/**)",
+      "WebFetch(domain:formulae.brew.sh)",
+      "WebFetch(domain:eu-central-1-1.aws.cloud2.influxdata.com)",
+      "Read(//var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.YZatgzMMO3/medical-solutions-of-texas/src/routes/[[preview=preview]]/contact/**)",
+      "Read(//private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.YZatgzMMO3/medical-solutions-of-texas/src/routes/[[preview=preview]]/contact/**)",
+      "Read(//var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.YZatgzMMO3/medical-solutions-of-texas/**)",
+      "Read(//private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.YZatgzMMO3/medical-solutions-of-texas/**)",
+      "Read(//var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.ZTvGlJOTzn/vineyard-custom-homes/src/lib/components/Buttons/**)",
+      "Read(//private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.ZTvGlJOTzn/vineyard-custom-homes/src/lib/components/Buttons/**)",
+      "Read(//var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.ZTvGlJOTzn/vineyard-custom-homes/src/routes/[[preview=preview]]/contact/**)",
+      "Read(//private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.ZTvGlJOTzn/vineyard-custom-homes/src/routes/[[preview=preview]]/contact/**)",
+      "Read(//var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.ZTvGlJOTzn/vineyard-custom-homes/**)",
+      "Read(//private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.ZTvGlJOTzn/vineyard-custom-homes/**)",
+      "Read(//var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/cleanup-reddoor-starter/src/**)",
+      "Read(//private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/cleanup-reddoor-starter/src/**)",
+      "mcp__airtable__update_field",
+      "WebFetch(domain:reddoor-maintenance.netlify.app)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fdx:*)",
+      "Bash(git clean -fd:*)",
+      "Bash(rm -rf:*)",
+      "Bash(rm -fr:*)",
+      "Read(/Users/tuckerlemos/.config/reddoor-maint/**)"
+    ],
+    "ask": [
+      "Bash(npm publish:*)",
+      "Bash(pnpm publish:*)",
+      "Bash(pnpm run release:*)",
+      "Bash(pnpm release:*)",
+      "Bash(changeset publish:*)",
+      "Bash(npx changeset publish:*)",
+      "Bash(npm unpublish:*)",
+      "Bash(npm deprecate:*)",
+      "Bash(gh release:*)",
+      "Bash(gh secret:*)",
+      "Bash(netlify:*)",
+      "Bash(netlify deploy:*)",
+      "Bash(vercel:*)",
+      "Bash(gh api:* -X DELETE:*)",
+      "Bash(gh api:* --method DELETE:*)"
+    ],
+    "additionalDirectories": [
+      "/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.dJCWTbV9at/espada/src/lib/components/FullWidth",
+      "/private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.dJCWTbV9at/espada/src/lib/components/FullWidth",
+      "/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.dJCWTbV9at/espada/src",
+      "/private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.dJCWTbV9at/espada/src",
+      "/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.dJCWTbV9at/espada",
+      "/private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.dJCWTbV9at/espada",
+      "/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.YZatgzMMO3/medical-solutions-of-texas",
+      "/private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.YZatgzMMO3/medical-solutions-of-texas",
+      "/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.ZTvGlJOTzn/vineyard-custom-homes",
+      "/private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/tmp.ZTvGlJOTzn/vineyard-custom-homes",
+      "/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/cleanup-reddoor-starter/src",
+      "/private/var/folders/43/jd0wryqs0133n5vry9f7lhf40000gn/T/cleanup-reddoor-starter/src"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hooks/orphaned-agents-report.mjs"
+          }
+        ]
+      }
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "api.github.com",
+        "codeload.github.com",
+        "objects.githubusercontent.com",
+        "registry.npmjs.org",
+        "*.npmjs.org",
+        "api.airtable.com",
+        "*.googleapis.com",
+        "api.resend.com"
+      ]
+    },
+    "filesystem": {
+      "allowWrite": [
+        "/Users/tuckerlemos/Documents/GitHub",
+        "~/Library/pnpm",
+        "~/Library/Caches/ms-playwright",
+        "~/.npm"
+      ],
+      "denyRead": ["~/.ssh", "~/.aws"]
+    },
+    "excludedCommands": [
+      "gh *",
+      "git *",
+      "pnpm test*",
+      "pnpm run*",
+      "pnpm exec*",
+      "pnpm build*",
+      "pnpm typecheck*",
+      "pnpm lint*",
+      "pnpm format*",
+      "pnpm vitest*",
+      "node*",
+      "npx*"
+    ]
+  }
+}
