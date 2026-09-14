@@ -8,6 +8,9 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const CENSUS = fileURLToPath(new URL("../../scripts/meta-week/census.mjs", import.meta.url));
+const WINDOW = fileURLToPath(
+  new URL("../../scripts/meta-week/transcript-window.mjs", import.meta.url),
+);
 
 /**
  * Two fixture roots. SEEDED carries exactly one episode of every kind the census can
@@ -370,5 +373,43 @@ describe("census: unread mechanism", () => {
   it("FAIL control: nominates nothing on the clean fixture", async () => {
     const { json } = await census(clean, ["--class", "unread"]);
     expect(kinds(json, "unread")).toEqual([]);
+  });
+});
+
+describe("transcript-window", () => {
+  it("prints the session's prompts, assistant text, tool calls and subagent activity inside the window, in order", async () => {
+    const { stdout } = await execFileAsync("node", [
+      WINDOW,
+      "--root",
+      seeded,
+      "--session",
+      "s1",
+      "--from",
+      T("10:29:00"),
+      "--to",
+      T("10:41:00"),
+    ]);
+    const lines = stdout.trim().split("\n");
+    expect(lines[0]).toMatch(/^10:30:00 USER stop, kill them/);
+    expect(lines[1]).toMatch(/^10:31:00 \[agent general-purpose g3\] out=25/);
+    expect(lines[2]).toMatch(/^10:35:00 ASSISTANT It is fixed\./);
+    expect(lines[3]).toMatch(/^10:40:00 USER that's wrong/);
+    expect(lines).toHaveLength(4);
+  });
+
+  it("prints tool calls as one-liners", async () => {
+    const { stdout } = await execFileAsync("node", [
+      WINDOW,
+      "--root",
+      seeded,
+      "--session",
+      "s1",
+      "--from",
+      T("09:59:00"),
+      "--to",
+      T("10:01:00"),
+    ]);
+    expect(stdout).toMatch(/^10:00:05 \[Read\] \/p\/a\.ts$/m);
+    expect(stdout).toMatch(/^10:00:05 \[Edit\] \/p\/a\.ts$/m);
   });
 });
