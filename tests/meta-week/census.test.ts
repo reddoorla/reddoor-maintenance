@@ -59,14 +59,16 @@ function toolResult(o: {
   toolUseId: string;
   agentId: string;
   totalTokens: number;
+  sessionId?: string;
+  repo?: string;
 }): string {
   return JSON.stringify({
     type: "user",
     uuid: uid("u"),
     timestamp: o.ts,
-    sessionId: "s1",
+    sessionId: o.sessionId ?? "s1",
     isSidechain: false,
-    cwd: CWD("alpha"),
+    cwd: CWD(o.repo ?? "alpha"),
     message: {
       role: "user",
       content: [{ type: "tool_result", tool_use_id: o.toolUseId, content: "done" }],
@@ -154,6 +156,7 @@ let seeded: string;
 let clean: string;
 let shaped: string;
 let lagged: string;
+let triple: string;
 
 async function writeRoot(
   dir: string,
@@ -180,6 +183,7 @@ beforeAll(async () => {
   clean = join(base, "clean");
   shaped = join(base, "shaped");
   lagged = join(base, "lagged");
+  triple = join(base, "triple");
 
   await writeRoot(
     seeded,
@@ -429,6 +433,67 @@ beforeAll(async () => {
     },
     {},
   );
+
+  // TRIPLE: three near-identical Agent dispatches in one session. There are three PAIRS
+  // but only two repeats — the episode is the later dispatch, and pairing it with each
+  // earlier one it resembles counts the same dispatch twice. Jaccard, by hand:
+  // (1,2) 5/6 = 0.83, (1,3) 5/7 = 0.71, (2,3) 6/7 = 0.86 — so dispatch 3's best earlier
+  // match is dispatch 2, and it cleared the bar against both.
+  await writeRoot(
+    triple,
+    [
+      assistant({
+        ts: T3("10:00:00"),
+        sessionId: "s12",
+        repo: "eta",
+        requestId: "p1",
+        out: 5,
+        blocks: [agent("t20", "audit the forms module for X")],
+      }),
+      toolResult({
+        ts: T3("10:01:00"),
+        sessionId: "s12",
+        repo: "eta",
+        toolUseId: "t20",
+        agentId: "h1",
+        totalTokens: 1000,
+      }),
+      assistant({
+        ts: T3("10:10:00"),
+        sessionId: "s12",
+        repo: "eta",
+        requestId: "p2",
+        out: 5,
+        blocks: [agent("t21", "audit the forms module for X please")],
+      }),
+      toolResult({
+        ts: T3("10:11:00"),
+        sessionId: "s12",
+        repo: "eta",
+        toolUseId: "t21",
+        agentId: "h2",
+        totalTokens: 2000,
+      }),
+      assistant({
+        ts: T3("10:20:00"),
+        sessionId: "s12",
+        repo: "eta",
+        requestId: "p3",
+        out: 5,
+        blocks: [agent("t22", "audit the forms module for X again please")],
+      }),
+      toolResult({
+        ts: T3("10:21:00"),
+        sessionId: "s12",
+        repo: "eta",
+        toolUseId: "t22",
+        agentId: "h3",
+        totalTokens: 3000,
+      }),
+    ],
+    {},
+    {},
+  );
 });
 
 async function census(
@@ -535,6 +600,19 @@ describe("census: redo", () => {
   it("FAIL control: nominates nothing on the clean fixture", async () => {
     const { json } = await census(clean, ["--class", "redo"]);
     expect(kinds(json, "redo")).toEqual([]);
+  });
+
+  it("counts a repeated dispatch once, against its closest earlier prompt", async () => {
+    const { json } = await census(triple, ["--class", "redo"]);
+    const c = kinds(json, "redo").filter((x) => x.kind === "duplicate-agent-prompt");
+    expect(c).toHaveLength(2); // three near-identical dispatches are two repeats, not three pairs
+    const second = c.find((x) => x.cost.agentTotal === 2000);
+    expect(second?.evidence.matches).toBe(1);
+    expect(second?.evidence.similarity).toBe(0.83);
+    const third = c.find((x) => x.cost.agentTotal === 3000);
+    expect(third?.evidence.matches).toBe(2); // cleared the bar against both earlier prompts
+    expect(third?.evidence.similarity).toBe(0.86); // paired with the closest, not the first
+    expect(third?.evidence.first).toBe("audit the forms module for X please");
   });
 });
 
