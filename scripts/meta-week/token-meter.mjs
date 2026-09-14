@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+// Token meter over Claude Code transcripts. Method, calibration and caveats are in
+// docs/meta-week/10-token-meter.md. No dependencies: runs from any checkout.
+//
+//   node scripts/meta-week/token-meter.mjs [--root DIR] [--stats FILE] [--tz IANA]
+//     [--lane main|subagent|all] [--by day,week,repo,session,lane,model,effort,agent,skill]
+//     [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--window ISO ISO]
+//     [--calibrate] [--blocks] [--compactions] [--json FILE]
+import { writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { collectEvents } from "./lib/walk.mjs";
+
+export const COUNTERS = ["in", "out", "cacheCreate", "cacheRead"];
+
+export function emptySum() {
+  return { requests: 0, in: 0, out: 0, cacheCreate: 0, cacheRead: 0 };
+}
+
+export function add(sum, ev) {
+  sum.requests += 1;
+  for (const c of COUNTERS) sum[c] += ev[c];
+  return sum;
+}
+
+function parseArgs(argv) {
+  const o = {
+    root: join(homedir(), ".claude", "projects"),
+    stats: join(homedir(), ".claude", "stats-cache.json"),
+    tz: "America/Los_Angeles",
+    lane: "all",
+    by: null,
+    from: null,
+    to: null,
+    window: null,
+    calibrate: false,
+    blocks: false,
+    compactions: false,
+    json: null,
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const next = () => {
+      if (i + 1 >= argv.length) throw new Error(`${a} needs a value`);
+      return argv[++i];
+    };
+    switch (a) {
+      case "--root":
+        o.root = next();
+        break;
+      case "--stats":
+        o.stats = next();
+        break;
+      case "--tz":
+        o.tz = next();
+        break;
+      case "--lane":
+        o.lane = next();
+        break;
+      case "--by":
+        o.by = next().split(",");
+        break;
+      case "--from":
+        o.from = next();
+        break;
+      case "--to":
+        o.to = next();
+        break;
+      case "--window":
+        o.window = [next(), next()];
+        break;
+      case "--calibrate":
+        o.calibrate = true;
+        break;
+      case "--blocks":
+        o.blocks = true;
+        break;
+      case "--compactions":
+        o.compactions = true;
+        break;
+      case "--json":
+        o.json = next();
+        break;
+      default:
+        throw new Error(`unknown argument: ${a}`);
+    }
+  }
+  if (!["main", "subagent", "all"].includes(o.lane))
+    throw new Error(`--lane must be main|subagent|all`);
+  return o;
+}
+
+const fmt = (n) => Number(n).toLocaleString("en-US");
+
+function printTotal(label, s) {
+  process.stdout.write(
+    `${label}\t${fmt(s.requests)}\t${COUNTERS.map((c) => fmt(s[c])).join("\t")}\n`,
+  );
+}
+
+async function main() {
+  const o = parseArgs(process.argv.slice(2));
+  const all = await collectEvents(o.root);
+  const events = o.lane === "all" ? all.usage : all.usage.filter((e) => e.lane === o.lane);
+  const result = {
+    root: o.root,
+    tz: o.tz,
+    lane: o.lane,
+    files: all.files,
+    lines: all.lines,
+    total: events.reduce(add, emptySum()),
+  };
+  process.stdout.write(
+    `files=${all.files} lines=${fmt(all.lines)} requests=${fmt(events.length)} lane=${o.lane} tz=${o.tz}\n`,
+  );
+  process.stdout.write(["key", "requests", ...COUNTERS].join("\t") + "\n");
+  printTotal("TOTAL", result.total);
+  if (o.json) await writeFile(o.json, JSON.stringify(result, null, 2));
+}
+
+main().catch((e) => {
+  process.stderr.write(`token-meter: ${e.message}\n`);
+  process.exit(1);
+});
