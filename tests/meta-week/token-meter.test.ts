@@ -385,3 +385,13 @@ describe("token-meter: compactions and blocks", () => {
     expect(out).toMatch(/^BLOCKS\t1/m);
   });
 });
+
+describe("token-meter: arguments", () => {
+  it("exits 1 with a message on an unknown argument", async () => {
+    await expect(meter(["--bogus"])).rejects.toMatchObject({ code: 1 });
+  });
+
+  it("exits 1 on an unknown dimension", async () => {
+    await expect(meter(["--by", "colour"])).rejects.toThrow(/unknown dimension/);
+  });
+});
