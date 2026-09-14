@@ -5,12 +5,16 @@
 //
 //   node scripts/meta-week/census.mjs [--root DIR] [--class fanout|redo|unread|all]
 //     [--top N] [--json FILE] [--jsonl FILE]
-import { writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { readdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { collectEvents } from "./lib/walk.mjs";
 import { addSum, fanoutCandidates, redoCandidates, unreadCandidates } from "./lib/census.mjs";
 import { emptySum } from "./lib/aggregate.mjs";
+
+const execFileAsync = promisify(execFile);
 
 function parseArgs(argv) {
   const o = {
@@ -19,6 +23,8 @@ function parseArgs(argv) {
     top: 10,
     json: null,
     jsonl: null,
+    git: null,
+    since: "2026-08-16",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -41,6 +47,12 @@ function parseArgs(argv) {
         break;
       case "--jsonl":
         o.jsonl = next();
+        break;
+      case "--git":
+        o.git = next();
+        break;
+      case "--since":
+        o.since = next();
         break;
       default:
         throw new Error(`unknown argument: ${a}`);
@@ -116,6 +128,42 @@ async function main() {
     allCands.push(...cands);
   }
   if (o.jsonl) await writeFile(o.jsonl, allCands.map((c) => JSON.stringify(c)).join("\n") + "\n");
+  if (o.git) {
+    const reverts = [];
+    for (const name of await readdir(o.git)) {
+      const dir = join(o.git, name);
+      try {
+        await stat(join(dir, ".git"));
+      } catch {
+        continue;
+      }
+      try {
+        const { stdout } = await execFileAsync("git", [
+          "-C",
+          dir,
+          "log",
+          "--all",
+          `--since=${o.since}`,
+          "-i",
+          "--grep=revert",
+          "--format=%h|%aI|%s",
+        ]);
+        for (const line of stdout.trim().split("\n").filter(Boolean)) {
+          const [sha, ts, ...subject] = line.split("|");
+          reverts.push({ repo: name, sha, ts, subject: subject.join("|").slice(0, 120) });
+        }
+      } catch {
+        // a repo git cannot read is reported by name, not silently skipped
+        reverts.push({ repo: name, sha: "", ts: "", subject: "GIT LOG FAILED" });
+      }
+    }
+    result.reverts = { since: o.since, count: reverts.length, byRepo: {}, items: reverts };
+    for (const r of reverts)
+      result.reverts.byRepo[r.repo] = (result.reverts.byRepo[r.repo] || 0) + 1;
+    process.stdout.write(`\n== reverts (git, since ${o.since}, uncosted) ==\n`);
+    for (const [repo, c] of Object.entries(result.reverts.byRepo))
+      process.stdout.write(`${repo}\t${c}\n`);
+  }
   if (o.json) await writeFile(o.json, JSON.stringify(result, null, 2));
 }
 
