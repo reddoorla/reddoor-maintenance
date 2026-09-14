@@ -204,7 +204,7 @@ jobs:
             echo "::error::protection-audit: minted App token is empty — cannot verify coverage."
             exit 1
           fi
-          node dist/cli/bin.js protection-audit --org reddoorla | tee /tmp/protection.out
+          node dist/cli/bin.js protection-audit --org reddoorla | tee "${RUNNER_TEMP:-/tmp}/protection.out"
 
       - name: Open/update the protection-gap tracking issue
         if: steps.protection.outcome == 'failure'
@@ -214,7 +214,7 @@ jobs:
         run: |
           title="Fleet protection coverage gap"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          detail=$(grep -E "^GAP" /tmp/protection.out || echo "see run output")
+          detail=$(grep -E "^GAP" "${RUNNER_TEMP:-/tmp}/protection.out" || echo "see run output")
           body=$(printf 'The nightly protection-coverage sweep found public repo(s) below the fleet posture floor — a sound branch ruleset, secret scanning + push protection enabled, and a renovate workflow that actually runs (or the sweep could not verify one of those):\n\n```\n%s\n```\n\nHeal: run `reddoor-maint self-updating <site>` for fleet sites, or fix by hand for non-site repos (spec: docs/superpowers/specs/2026-08-02-ruleset-self-healing-design.md). Renovate gaps: a DISABLED workflow rejects dispatches — `gh workflow enable renovate.yml -R <repo>` first, then `gh workflow run`. A never-succeeded/stale one: dispatch once; if the gap returns in 3 days the schedule never registered — push a commit touching the workflow file.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next clean sweep._' "$detail" "$run_url")
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
@@ -231,19 +231,57 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          out="${RUNNER_TEMP:-/tmp}/protection.out"
           # Belt and braces: close ONLY on positive evidence of a verified clean
           # sweep — the gaps=0 machine line, which a skip/crash run never prints.
           # Step outcome alone is not proof (any path that exits 0 without
           # auditing would otherwise convert into a false "Recovered" close).
-          if ! grep -q "PROTECTION_AUDIT gaps=0 " /tmp/protection.out 2>/dev/null; then
+          if ! grep -q "PROTECTION_AUDIT gaps=0 " "$out" 2>/dev/null; then
             echo "no verified clean sweep in the output — not closing anything"
             exit 0
           fi
           title="Fleet protection coverage gap"
+          # Every repo this run actually looked at and found sound. SKIPPED is
+          # deliberately not in here: a repo that went private or archived is one
+          # this sweep did not verify, and "I could not check X" must never read
+          # the same as "X is fine".
+          covered=$(sed -n 's/^COVERED[[:space:]]\{1,\}\([^ ]*\).*/\1/p' "$out")
+          # The query below is bounded now, so this loop finally sees EVERY open
+          # issue carrying this title — including orphans from earlier generations
+          # of the alarm, which is the whole point of bounding it. That makes the
+          # title alone too weak to close on. #652 and #754 both read "Fleet
+          # protection coverage gap" and named COMPLETELY DIFFERENT repos
+          # (starter-blux vs vida-legacy-foundation + 29-navy), because the
+          # open/update half comments a moving gap set onto whatever issue it
+          # finds while the body it was filed with goes stale immediately. A
+          # widened loop with a title-only test would have swept the orphan up
+          # with an automated "Recovered" on evidence about other repos entirely
+          # — trading a truncation bug for a false green, which is the worse of
+          # the two. So gate each issue on ITS OWN body: close it only when every
+          # repo that issue listed as a GAP shows up as COVERED in this run.
           for n in $(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
-            gh issue close "$n" --comment "Recovered — the protection-coverage sweep verified every public repo clean." && echo "closed #$n"
+            gapped=$(gh issue view "$n" --json body --jq '.body' \
+              | sed -n 's/^GAP[[:space:]]\{1,\}\([^ ]*\).*/\1/p' | sort -u)
+            # A body this step cannot read is not a body it verified. Without
+            # this, an issue borrowing the title by hand — or any future change
+            # to the body shape — would close on a vacuous "all zero of the
+            # repos it named are covered".
+            if [ -z "$gapped" ]; then
+              echo "not closing #$n — its body carries no GAP line this sweep can match"
+              continue
+            fi
+            unverified=""
+            for repo in $gapped; do
+              echo "$covered" | grep -qxF "$repo" || unverified="$unverified $repo"
+            done
+            if [ -n "$unverified" ]; then
+              echo "not closing #$n — this sweep did not verify:$unverified"
+              continue
+            fi
+            named=$(echo "$gapped" | tr '\n' ' ')
+            gh issue close "$n" --comment "Recovered — this sweep verified every public repo clean, including the one(s) this issue named: $named" && echo "closed #$n"
           done
 
       # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
