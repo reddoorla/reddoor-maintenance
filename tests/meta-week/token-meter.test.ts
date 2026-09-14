@@ -317,3 +317,20 @@ describe("token-meter: dimensions", () => {
     expect((json.total as Sum).out).toBe(77);
   });
 });
+
+describe("token-meter: windows", () => {
+  it("sums spend inside [start, end) and splits it by model", async () => {
+    const { json, out } = await meter(["--window", "2026-09-02T09:30:00Z", "2026-09-02T11:30:00Z"]);
+    const w = json.window as { total: Sum; byModel: Group[] };
+    expect(w.total.out).toBe(57);
+    expect(w.byModel.map((g) => [g.key, g.out])).toEqual([
+      ["claude-opus-5", 50],
+      ["claude-sonnet-5", 7],
+    ]);
+    expect(out).toMatch(/^WINDOW\t/m);
+  });
+
+  it("rejects a malformed window", async () => {
+    await expect(meter(["--window", "yesterday", "today"])).rejects.toThrow(/--window/);
+  });
+});

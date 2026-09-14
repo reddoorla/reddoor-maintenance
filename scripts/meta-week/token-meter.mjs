@@ -9,7 +9,15 @@
 import { writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { COUNTERS, add, dimKey, emptySum, filterDates, groupBy } from "./lib/aggregate.mjs";
+import {
+  COUNTERS,
+  add,
+  dimKey,
+  emptySum,
+  filterDates,
+  groupBy,
+  inWindow,
+} from "./lib/aggregate.mjs";
 import { collectEvents } from "./lib/walk.mjs";
 
 function parseArgs(argv) {
@@ -108,12 +116,30 @@ async function main() {
     total: events.reduce(add, emptySum()),
     groups: groupBy(events, (ev) => dimKey(ev, dims, o.tz)),
   };
+  if (o.window) {
+    const [s, e] = o.window.map((x) => Date.parse(x));
+    if (Number.isNaN(s) || Number.isNaN(e) || e <= s) {
+      throw new Error("--window needs two ISO timestamps, start before end");
+    }
+    const inW = events.filter((ev) => inWindow(ev, s, e));
+    result.window = {
+      start: o.window[0],
+      end: o.window[1],
+      total: inW.reduce(add, emptySum()),
+      byModel: groupBy(inW, (ev) => ev.model),
+    };
+  }
   process.stdout.write(
     `files=${all.files} lines=${fmt(all.lines)} requests=${fmt(events.length)} lane=${o.lane} tz=${o.tz} by=${dims.join(",")}\n`,
   );
   process.stdout.write(["key", "requests", ...COUNTERS].join("\t") + "\n");
   for (const g of result.groups) printTotal(g.key, g);
   printTotal("TOTAL", result.total);
+  if (result.window) {
+    process.stdout.write(`\nWINDOW\t${result.window.start} → ${result.window.end}\n`);
+    for (const g of result.window.byModel) printTotal(g.key, g);
+    printTotal("WINDOW TOTAL", result.window.total);
+  }
   if (o.json) await writeFile(o.json, JSON.stringify(result, null, 2));
 }
 

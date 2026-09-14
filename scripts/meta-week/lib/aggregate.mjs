@@ -64,3 +64,8 @@ export function filterDates(events, tz, from, to) {
     return (!from || d >= from) && (!to || d <= to);
   });
 }
+
+export function inWindow(ev, startMs, endMs) {
+  const t = Date.parse(ev.ts);
+  return t >= startMs && t < endMs;
+}
