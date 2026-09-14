@@ -9,7 +9,7 @@ import { writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { collectEvents } from "./lib/walk.mjs";
-import { addSum, fanoutCandidates, redoCandidates } from "./lib/census.mjs";
+import { addSum, fanoutCandidates, redoCandidates, unreadCandidates } from "./lib/census.mjs";
 import { emptySum } from "./lib/aggregate.mjs";
 
 function parseArgs(argv) {
@@ -52,7 +52,11 @@ function parseArgs(argv) {
   return o;
 }
 
-const FINDERS = { fanout: fanoutCandidates, redo: redoCandidates };
+const FINDERS = {
+  fanout: fanoutCandidates,
+  redo: redoCandidates,
+  unread: unreadCandidates,
+};
 const fmt = (n) => Number(n).toLocaleString("en-US");
 
 function summarize(cands) {

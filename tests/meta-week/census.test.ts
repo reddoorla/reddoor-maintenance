@@ -356,3 +356,19 @@ describe("census: redo", () => {
     expect(kinds(json, "redo")).toEqual([]);
   });
 });
+
+describe("census: unread mechanism", () => {
+  it("PASS: costs the turn that a correction prompt corrects, from the previous prompt to the correction", async () => {
+    const { json } = await census(seeded, ["--class", "unread"]);
+    const c = kinds(json, "unread");
+    expect(c).toHaveLength(1);
+    expect(c[0]).toMatchObject({ kind: "corrected-turn", sessionId: "s1" });
+    expect(c[0].cost.out).toBe(40); // r5 (15) in the main lane + the g3 subagent (25), both inside (10:30, 10:40]
+    expect(c[0].evidence.minutes).toBe(10);
+  });
+
+  it("FAIL control: nominates nothing on the clean fixture", async () => {
+    const { json } = await census(clean, ["--class", "unread"]);
+    expect(kinds(json, "unread")).toEqual([]);
+  });
+});

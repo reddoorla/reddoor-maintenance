@@ -229,3 +229,34 @@ export function redoCandidates(all) {
   }
   return out;
 }
+
+export function unreadCandidates(all) {
+  const out = [];
+  const promptsBy = bySession(all.prompts.filter((p) => p.lane === "main"));
+  for (const [sessionId, prompts] of promptsBy) {
+    for (let i = 1; i < prompts.length; i++) {
+      const p = prompts[i];
+      if (!CORRECTION_RE.test(p.text)) continue;
+      const prev = prompts[i - 1];
+      const from = Date.parse(prev.ts);
+      const to = Date.parse(p.ts);
+      const cost = sumBetween(all.usage, (ev) => ev.sessionId === sessionId, from, to);
+      if (cost.requests === 0) continue;
+      out.push({
+        class: "unread",
+        kind: "corrected-turn",
+        sessionId,
+        repo: p.repo,
+        ts: p.ts,
+        window: { from: prev.ts, to: p.ts },
+        cost,
+        evidence: {
+          correction: p.text.slice(0, 200),
+          precedingPrompt: prev.text.slice(0, 120),
+          minutes: Math.round((to - from) / MIN),
+        },
+      });
+    }
+  }
+  return out;
+}
