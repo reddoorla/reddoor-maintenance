@@ -154,6 +154,7 @@ async function sweepOutput(
     workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH() }),
     dependencyDashboard: async () => ({ present: true, blockedBranches: [], unknownSections: [] }),
     openSecretAlerts: async () => 0,
+    renovateMergeWindow: async () => ({ merges: [], truncated: false }),
     branchTip: async () => null,
   };
   return runProtectionAuditCommand({ org: "reddoorla" }, deps);

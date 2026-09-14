@@ -1,5 +1,10 @@
 import { rulesetGaps, type ExistingRuleset } from "../github/rulesets.js";
-import type { BranchTip, DependencyDashboard, WorkflowHealth } from "../github/gh.js";
+import type {
+  BranchTip,
+  DependencyDashboard,
+  RenovateMergeWindow,
+  WorkflowHealth,
+} from "../github/gh.js";
 
 /**
  * Org-wide protection-coverage sweep (spec:
@@ -41,6 +46,11 @@ export type ProtectionCoverageRow = {
   /** Human-readable: covering ruleset + whether it gates on CI, the specific
    *  gaps, or why the repo was skipped. */
   detail: string;
+  /** The one OUTCOME measurement on this sweep: did a feature update actually
+   *  LAND here (see renovateOutcome). Deliberately not folded into `status` —
+   *  it warns, it never gaps, so it can never file or hold open the tracking
+   *  issue. Absent on skipped repos, which are not measured at all. */
+  renovateOutcome?: RenovateOutcome;
 };
 
 /** The reads the sweep needs — a subset of the GitHub factory, injected so the
@@ -61,6 +71,7 @@ export type ProtectionCoverageDeps = {
   dependencyDashboard: (repo: string) => Promise<DependencyDashboard>;
   branchTip: (repo: string, branch: string) => Promise<BranchTip | null>;
   openSecretAlerts: (repo: string) => Promise<number | "unavailable">;
+  renovateMergeWindow: (repo: string) => Promise<RenovateMergeWindow>;
 };
 
 export const RENOVATE_WORKFLOW_FILE = "renovate.yml";
@@ -257,6 +268,139 @@ export function dashboardVocabularyGaps(dash: DependencyDashboard): string[] {
   ];
 }
 
+/* ------------------------------------------------------------------------ *
+ * The OUTCOME metric (S7).
+ *
+ * The three Renovate surfaces above are all green, all literally correct, and
+ * jointly blind to the live condition. They ask, in order: did the workflow
+ * RUN (renovateGaps), does the dashboard name a branch Renovate has STOPPED
+ * managing (renovateBlockedGaps), and is that dashboard still written in
+ * vocabulary we can parse (dashboardVocabularyGaps). Every one of them is a
+ * question about the machinery. None is a question about the result.
+ *
+ * The 2026-08-03 detector was built for "Renovate REFUSES to touch the
+ * branch". Measured on 2026-09-14, the live condition is its mirror image:
+ * Renovate touches `renovate/all-minor-patch` on all 26 repos that hold one —
+ * every single tip is dated 2026-09-14, rewritten between 02:27Z and 17:58Z —
+ * and opens a PR on none of them. Liveness green, blocked-branch check green,
+ * vocabulary green, and the last feature update to actually land fleet-wide
+ * merged on 2026-08-12.
+ *
+ * So this asks the only question the others cannot: when did an update last
+ * LAND here?
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Does a merged `renovate/*` head count as a FEATURE update?
+ *
+ * The two exclusions are the whole point of the metric. Renovate opened 78 PRs
+ * fleet-wide between 2026-08-31 and 2026-09-14 — 32 on 09-09 alone — every one
+ * of them on a `renovate/npm-*-vulnerability` or `renovate/lock-file-maintenance`
+ * branch. Those two channels bypass the preset's Monday schedule and kept
+ * flowing straight through the drought, so any metric that counts them reads
+ * green while feature-version drift accumulates for a month. (This is also why
+ * "Renovate is dead" is a false description of the fleet and will discredit the
+ * real finding: only the GROUPED NON-MAJOR channel stopped.)
+ */
+export function isFeatureUpdateBranch(headRef: string): boolean {
+  if (!headRef.startsWith("renovate/")) return false;
+  if (headRef === "renovate/lock-file-maintenance") return false;
+  return !/^renovate\/npm-.+-vulnerability$/.test(headRef);
+}
+
+/**
+ * Days without a landed feature update before the sweep says so.
+ *
+ * Justified from the two snapshots this metric was proven against, not chosen
+ * for roundness (see tests/audits/protection-coverage.test.ts):
+ *   - 2026-08-10, the channel demonstrably delivering: 20 measured repos, worst
+ *     case 14.0 days (caltex-landing), median 6.6.
+ *   - 2026-09-14, today: 21 measured repos, BEST case 32.3 days, worst 34.8.
+ * The two populations are separated by a clean 18-day band (14.1 … 32.3) with
+ * no repo in it. 21 sits inside that band with ~7 days of margin on each side,
+ * and has a mechanical reading as well as an empirical one: the shared preset's
+ * window is `before 11am on monday`, so 21 days is three consecutive missed
+ * Monday windows — a cadence failure, never jitter.
+ *
+ * Note what the margin buys. At 14 days the 2026-08-10 control would have
+ * warned on 2 of 20 repos — i.e. the instrument would have fired during known
+ * healthy operation, which is the state in which a threshold is worth nothing.
+ */
+export const RENOVATE_DROUGHT_WARN_DAYS = 21;
+
+export type RenovateOutcome =
+  | {
+      state: "delivering" | "drought";
+      days: number;
+      lastBranch: string;
+      lastMergedAt: string;
+    }
+  | { state: "unmeasured"; reason: string };
+
+/**
+ * Days since this repo last MERGED a feature-update Renovate PR.
+ *
+ * Three states, and the third is the one that keeps this honest. A repo with
+ * no feature merge inside the scanned window is `unmeasured`, NEVER a drought:
+ *   - on a busy repo the window itself is the limit (100 closed PRs reach back
+ *     ~12 days on reddoor-maintenance and ~90 on a quiet site repo), so
+ *     `truncated` says the answer is older than we looked, not that it is bad;
+ *   - on a repo that has genuinely never merged one there is no elapsed time to
+ *     measure at all, and calling that a drought would fire forever on every
+ *     freshly bootstrapped repo.
+ * Both print every night with their reason. "I could not measure this" must
+ * never render as "this is fine" — that silent-green reading is the failure
+ * this whole sweep exists to kill.
+ */
+export function renovateOutcome(window: RenovateMergeWindow, now: Date): RenovateOutcome {
+  const last = window.merges.filter((m) => isFeatureUpdateBranch(m.headRef))[0];
+  if (!last) {
+    return {
+      state: "unmeasured",
+      reason: window.truncated
+        ? "no feature-update Renovate merge inside the scanned window, and the window is FULL " +
+          "(older history not read — this repo merges too many PRs to see back that far)"
+        : "this repo has never merged a feature-update Renovate PR (no baseline to measure from)",
+    };
+  }
+  const days = Math.floor((now.getTime() - new Date(last.mergedAt).getTime()) / 86_400_000);
+  return {
+    state: days > RENOVATE_DROUGHT_WARN_DAYS ? "drought" : "delivering",
+    days,
+    lastBranch: last.headRef,
+    lastMergedAt: last.mergedAt,
+  };
+}
+
+/** One operator-facing line per measured repo, or `null` when the outcome is
+ *  healthy and needs no line. Warnings and unmeasured reads are reported
+ *  side by side because they are the same claim — "no update landed here" —
+ *  differing only in whether we know why. */
+export function renovateOutcomeLine(outcome: RenovateOutcome): string | null {
+  if (outcome.state === "delivering") return null;
+  if (outcome.state === "unmeasured") return `renovate outcome UNMEASURED — ${outcome.reason}`;
+  return (
+    `no feature update has LANDED in ${outcome.days}d ` +
+    `(warns past ${RENOVATE_DROUGHT_WARN_DAYS}d; last was ${outcome.lastBranch} ` +
+    `merged ${outcome.lastMergedAt.slice(0, 10)}). Security + lockfile Renovate PRs are ` +
+    `excluded, so this is feature-version drift, not a security signal.`
+  );
+}
+
+/** The machine-readable outcome line, in the same shape as PROTECTION_AUDIT.
+ *  Deliberately a SEPARATE line with a separate prefix: the nightly workflow
+ *  gates its tracking issue on `PROTECTION_AUDIT gaps=0 `, and this metric must
+ *  be able to say "nothing is landing" for a month without opening, holding
+ *  open, or blocking the close of a posture issue. Shared with the tests so the
+ *  proof asserts the product's real output rather than a restatement of it. */
+export function renovateOutcomeSummary(outcomes: RenovateOutcome[]): string {
+  const n = (state: RenovateOutcome["state"]) => outcomes.filter((o) => o.state === state).length;
+  return (
+    `RENOVATE_OUTCOME drought=${n("drought")} delivering=${n("delivering")} ` +
+    `unmeasured=${n("unmeasured")} threshold=${RENOVATE_DROUGHT_WARN_DAYS}d`
+  );
+}
+
 /** How long a human-owned blocked branch may sit before it stops reading as
  *  in-flight work. Sized to clear a weekend plus slack: the fleet's own
  *  human-edited Renovate PRs merge in minutes, while the branches that froze
@@ -369,17 +513,35 @@ export async function collectProtectionCoverage(
       const dash = await deps.dependencyDashboard(repo);
       gaps.push(...dashboardVocabularyGaps(dash));
       gaps.push(...renovateBlockedGaps(await resolveBlockedBranches(repo, dash, deps, now)));
+      // MEASUREMENT, not a gap: never pushed into `gaps`, so it cannot change
+      // the exit code, the PROTECTION_AUDIT counts, or the tracking issue.
+      const outcome = renovateOutcome(await deps.renovateMergeWindow(repo), now);
       const { live, accepted: acked } = partitionAcceptedGaps(repo, gaps, now, accepted);
       if (live.length > 0) {
         // Accepted annotations still ride along for context, but only LIVE
         // gaps make the row a gap (and thus the sweep exit 1).
-        rows.push({ repo, status: "gap", detail: [...live, ...acked].join(" | ") });
+        rows.push({
+          repo,
+          status: "gap",
+          detail: [...live, ...acked].join(" | "),
+          renovateOutcome: outcome,
+        });
       } else if (acked.length > 0) {
         // Judged, found wanting, deliberately acked — reported as skipped
         // (visible every night with the reason + expiry), never as covered.
-        rows.push({ repo, status: "skipped", detail: acked.join(" | ") });
+        rows.push({
+          repo,
+          status: "skipped",
+          detail: acked.join(" | "),
+          renovateOutcome: outcome,
+        });
       } else {
-        rows.push({ repo, status: "covered", detail: coveredDetail });
+        rows.push({
+          repo,
+          status: "covered",
+          detail: coveredDetail,
+          renovateOutcome: outcome,
+        });
       }
     } catch (e) {
       rows.push({
