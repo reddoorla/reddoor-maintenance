@@ -26,6 +26,7 @@
 //       args: {
 //         claimsFile: "docs/meta-week/_data/refute-claims-levers.json",
 //         chunk: 3,
+//         model: "opus",
 //         evidenceHead: "<40-char sha of origin/main at run time>"
 //       }
 //     })
@@ -39,9 +40,25 @@
 //       args: {
 //         claimsFile: "docs/meta-week/_data/refute-claims-levers-seeded.json",
 //         chunk: 3,
+//         model: "opus",
 //         evidenceHead: "<40-char sha of origin/main at run time>"
 //       }
 //     })
+//
+// `model` is the model the skeptics and the completeness critic run on; it defaults to
+// "opus" because R4 specifies one Opus skeptic per claim and the cost figure above is an
+// Opus cost — a session running Fable would otherwise silently change both. The guard and
+// the loader judge nothing and run on "haiku" at low effort.
+//
+// The guard reads origin/main with the FULL REFSPEC, `git ls-remote origin refs/heads/main`,
+// and matches on the ref name. The glob form is ambiguous here and sorts the wrong ref
+// first — `git ls-remote origin main` returns
+//
+//     91d05fc3fdf9d7dce716cd22d1e06c7e05fb70f5	refs/heads/changeset-release/main
+//     aed93a319157d8b21b40db593be943cb36b5993d	refs/heads/main
+//
+// so a guard reading "the first line" compares against the changeset-release branch and
+// fails a checkout that is exactly at main's head.
 //
 // `evidenceHead` is the sha you believe the evidence checkout is at. The guard reads the
 // checkout's real HEAD and origin/main, and the round refuses to run unless all three
@@ -51,6 +68,7 @@
 // args: {
 //   claimsFile: string,              // path to [{ id, claim, evidence: ["path:line-line"] }]
 //   chunk?: number,                  // skeptics in flight, default 3
+//   model?: string,                  // model for the skeptics and the critic, default "opus"
 //   evidenceHead: string,            // 40-char sha the evidence checkout must be at
 //   claims?: array                   // optional: pass the claims inline and skip the loader
 // }                                  //   agent, which cannot damage what it never retypes
@@ -94,6 +112,20 @@ const CLAIM_FLOOR = 10;
 
 /** Default skeptics in flight. Three, not the census round's four: other lanes run. */
 const DEFAULT_CHUNK = 3;
+
+/**
+ * The judging model. R4 specifies one Opus skeptic per claim, and the measured cost above
+ * is an Opus cost — so this is pinned rather than inherited from the session, which is
+ * routinely Fable. Override with `args.model` only to measure a different one.
+ */
+const DEFAULT_MODEL = "opus";
+
+/**
+ * The model for the two stages that judge nothing: the guard runs three git commands and
+ * the loader cats one JSON file. Neither is a reasoning task, and paying Opus rates to
+ * read a sha is the dial R4's own pain point PP-E says is welded shut.
+ */
+const CHORE_MODEL = "haiku";
 
 /** `path:line` or `path:line-line`. The path may be absolute or repo-relative. */
 const EVIDENCE_RE = /^(.+):(\d+)(?:-(\d+))?$/;
@@ -257,6 +289,7 @@ function enforceQuoteRule(verdict, claim) {
 const claimsFile = args?.claimsFile;
 const evidenceHead = args?.evidenceHead;
 const chunk = args?.chunk ?? DEFAULT_CHUNK;
+const model = args?.model ?? DEFAULT_MODEL;
 
 if (typeof claimsFile !== "string" || claimsFile.trim() === "") {
   return { error: "args.claimsFile is required", args };
@@ -267,6 +300,9 @@ if (typeof evidenceHead !== "string" || !/^[0-9a-f]{40}$/.test(evidenceHead)) {
 if (!Number.isInteger(chunk) || chunk < 1) {
   return { error: "args.chunk must be a positive integer", claimsFile, chunk };
 }
+if (typeof model !== "string" || model.trim() === "") {
+  return { error: "args.model must be a non-empty string", claimsFile, model };
+}
 
 // ---------------------------------------------------------------------------- Guard
 
@@ -275,7 +311,7 @@ const GUARD = {
   properties: {
     repoRoot: { type: "string", description: "absolute path of the evidence checkout's git root" },
     head: { type: "string", description: "40-char sha from git rev-parse HEAD, or empty on failure" },
-    remoteMain: { type: "string", description: "40-char sha from git ls-remote origin main, or empty on failure" },
+    remoteMain: { type: "string", description: "40-char sha of refs/heads/main from git ls-remote, or empty if that ref was not in the output" },
     claimsFileExists: { type: "boolean" },
     trouble: { type: "string", description: "any command that failed, and its stderr; empty if all succeeded" },
   },
@@ -291,11 +327,18 @@ The claims file for a refuter round is at: ${claimsFile}
 With Bash, and reporting exactly what the commands print:
 1. Resolve the directory holding that file, then \`cd\` there and run \`git rev-parse --show-toplevel\`. That is repoRoot. If the path is relative, resolve it against the current working directory first.
 2. From repoRoot, run \`git rev-parse HEAD\` — that is head.
-3. From repoRoot, run \`git ls-remote origin main\` and report the 40-char sha in its first field — that is remoteMain.
+3. From repoRoot, run \`git ls-remote origin refs/heads/main\` — the refspec matters, see below — and take the sha from the line whose SECOND field is exactly \`refs/heads/main\`. That is remoteMain. If no line has that second field, leave remoteMain empty and say so in \`trouble\`; do not fall back to another line.
+
+Use the full refspec, and match on the ref name, because the glob form is ambiguous on this repo: \`git ls-remote origin main\` returns TWO lines and the wrong one FIRST —
+
+    91d05fc3fdf9d7dce716cd22d1e06c7e05fb70f5	refs/heads/changeset-release/main
+    aed93a319157d8b21b40db593be943cb36b5993d	refs/heads/main
+
+so "the first line" is the changeset-release branch, and a checkout that IS at main's head would be failed by this guard.
 4. Report whether the claims file exists and is readable (\`test -r\`).
 
 Do not fetch, check out, stash, or change anything. Do not "fix" a mismatch — reporting it IS the job. If a command fails, leave that field as an empty string and put the command and its stderr in \`trouble\`.`,
-  { label: "guard:evidence-head", phase: "Guard", schema: GUARD },
+  { label: "guard:evidence-head", phase: "Guard", schema: GUARD, model: CHORE_MODEL, effort: "low" },
 );
 
 if (!guard) {
@@ -331,6 +374,7 @@ It is an array of objects, each \`{ id, claim, evidence: ["path:line" or "path:l
     {
       label: "load:claims",
       phase: "Load",
+      model: CHORE_MODEL,
       effort: "low",
       schema: {
         type: "object",
@@ -410,7 +454,7 @@ const batches = chunkClaims(claims, chunk);
 for (const batch of batches) {
   const got = await parallel(
     batch.map((c) => () =>
-      agent(refutePrompt(c), { label: `refute:${c.id}`, phase: "Refute", schema: VERDICT }),
+      agent(refutePrompt(c), { label: `refute:${c.id}`, phase: "Refute", schema: VERDICT, model }),
     ),
   );
   results.push(...got.filter(Boolean));
@@ -487,7 +531,7 @@ You are the completeness critic. The skeptics each saw one claim; you see the pa
 4. strongestRefutations — which refutations are the ones to act on, by evidence quality and not by how interesting they are?
 
 Do not re-adjudicate every claim. Find what the method could not see.`,
-  { label: "completeness-critic", phase: "Critique", schema: CRITIQUE },
+  { label: "completeness-critic", phase: "Critique", schema: CRITIQUE, model },
 );
 
 return {
@@ -497,6 +541,7 @@ return {
   head: guard.head,
   remoteMain: guard.remoteMain,
   evidenceHead,
+  model,
   estimate,
   counts: {
     claims: claims.length,

@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
+  CHORE_MODEL,
   CLAIM_FLOOR,
   DEFAULT_CHUNK,
+  DEFAULT_MODEL,
   MEASURED_ROUND,
   TOKENS_PER_CLAIM,
   chunkClaims,
@@ -244,6 +246,35 @@ describe("the workflow script carries the lib's rules verbatim", () => {
     expect(src).toContain(".claude/workflows/refute-claims.workflow.js");
     expect(src).toContain("docs/meta-week/_data/refute-claims-levers.json");
     expect(src).toContain("docs/meta-week/_data/refute-claims-levers-seeded.json");
+  });
+
+  it("pins the model on every agent call rather than inheriting the session's", () => {
+    // R4 specifies one Opus skeptic per claim, and the cost figure is an Opus cost. A call
+    // with no `model` inherits the session model — routinely Fable — and would change both
+    // silently, which is precisely the class of unread mechanism this round exists to catch.
+    const src = readFileSync(WORKFLOW, "utf8").replace(/^\s*\/\/.*$/gm, "");
+    expect(DEFAULT_MODEL).toBe("opus");
+    expect(CHORE_MODEL).toBe("haiku");
+    expect(src).toContain("const model = args?.model ?? DEFAULT_MODEL;");
+    // guard + loader judge nothing; skeptics + critic take args.model.
+    expect(src.match(/model: CHORE_MODEL/g)).toHaveLength(2);
+    expect(src.match(/schema: (VERDICT|CRITIQUE), model \}/g)).toHaveLength(2);
+    // Every agent() call site carries a model — none is left to inherit.
+    expect(src.match(/\bagent\(/g)).toHaveLength(4);
+  });
+
+  it("reads origin/main by full refspec, never by the ambiguous glob", () => {
+    // `git ls-remote origin main` returns two lines on this repo and the wrong one first:
+    // refs/heads/changeset-release/main sorts above refs/heads/main. A guard taking "the
+    // first line" compares against the release branch and fails a checkout that IS at
+    // main's head — the exact false alarm this whole stage exists to prevent.
+    const src = readFileSync(WORKFLOW, "utf8");
+    expect(src).toContain("git ls-remote origin refs/heads/main");
+    expect(src).toContain("SECOND field is exactly");
+    // The defect, verbatim, as it was written the first time.
+    expect(src).not.toContain("report the 40-char sha in its first field");
+    // And the two-ref output stays in the file as the reason.
+    expect(src).toContain("refs/heads/changeset-release/main");
   });
 
   it("uses no clock and no Node API — both are unavailable to a workflow script", () => {

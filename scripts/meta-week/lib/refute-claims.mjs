@@ -33,6 +33,20 @@ export const CLAIM_FLOOR = 10;
 /** Default skeptics in flight. Three, not the census round's four: other lanes run. */
 export const DEFAULT_CHUNK = 3;
 
+/**
+ * The judging model. R4 specifies one Opus skeptic per claim, and the measured cost above
+ * is an Opus cost — so this is pinned rather than inherited from the session, which is
+ * routinely Fable. Override with `args.model` only to measure a different one.
+ */
+export const DEFAULT_MODEL = "opus";
+
+/**
+ * The model for the two stages that judge nothing: the guard runs three git commands and
+ * the loader cats one JSON file. Neither is a reasoning task, and paying Opus rates to
+ * read a sha is the dial R4's own pain point PP-E says is welded shut.
+ */
+export const CHORE_MODEL = "haiku";
+
 /** `path:line` or `path:line-line`. The path may be absolute or repo-relative. */
 const EVIDENCE_RE = /^(.+):(\d+)(?:-(\d+))?$/;
 

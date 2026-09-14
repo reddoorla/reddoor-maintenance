@@ -45,6 +45,8 @@ export const MEASURED_ROUND: MeasuredRound;
 export const TOKENS_PER_CLAIM: number;
 export const CLAIM_FLOOR: number;
 export const DEFAULT_CHUNK: number;
+export const DEFAULT_MODEL: string;
+export const CHORE_MODEL: string;
 
 export function parseEvidenceRef(ref: string): EvidenceRef | null;
 export function validateClaims(parsed: unknown): { claims: ParsedClaim[]; errors: string[] };
