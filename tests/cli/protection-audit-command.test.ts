@@ -64,6 +64,7 @@ describe("runProtectionAuditCommand", () => {
       }),
       branchTip: async () => null,
       openSecretAlerts: async () => 0,
+      renovateMergeWindow: async () => ({ merges: [], truncated: false }),
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(1);
@@ -90,6 +91,7 @@ describe("runProtectionAuditCommand", () => {
       }),
       branchTip: async () => null,
       openSecretAlerts: async () => 0,
+      renovateMergeWindow: async () => ({ merges: [], truncated: false }),
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(0);
