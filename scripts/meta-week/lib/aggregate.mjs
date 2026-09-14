@@ -171,3 +171,47 @@ export function summarizeCompactions(compactions) {
     events: compactions,
   };
 }
+
+/**
+ * The first deduplicated call of every (session, lane) — and of every subagent by agentId —
+ * carries the whole injected context: in + cacheCreate + cacheRead. That sum is the startup
+ * cost, whether the prefix was freshly written or already cached by a sibling session.
+ */
+export function startupCosts(events) {
+  const firstBySession = new Map(); // `${sessionId}|${lane}|${agentId}` -> event
+  for (const ev of events) {
+    const k = `${ev.sessionId}|${ev.lane}|${ev.lane === "subagent" ? ev.agentId : ""}`;
+    const prev = firstBySession.get(k);
+    if (!prev || ev.ts < prev.ts) firstBySession.set(k, ev);
+  }
+  const firsts = [...firstBySession.values()].map((ev) => ({
+    ...ev,
+    startup: ev.in + ev.cacheCreate + ev.cacheRead,
+  }));
+  const stats = (items) => {
+    const v = items.map((x) => x.startup).sort((a, b) => a - b);
+    return {
+      sessions: v.length,
+      p50: quantile(v, 0.5),
+      p90: quantile(v, 0.9),
+      max: v[v.length - 1] ?? NaN,
+    };
+  };
+  const group = (keyFn) => {
+    const m = new Map();
+    for (const f of firsts) {
+      const k = keyFn(f);
+      if (k === null) continue;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(f);
+    }
+    return [...m.entries()]
+      .map(([key, items]) => ({ key, ...stats(items) }))
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  };
+  return {
+    byRepoLane: group((f) => `${f.repo} | ${f.lane}`),
+    byAgent: group((f) => (f.lane === "subagent" ? f.agent : null)),
+    byModel: group((f) => `${f.lane} | ${f.model}`),
+  };
+}

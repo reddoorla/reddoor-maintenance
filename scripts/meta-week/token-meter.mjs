@@ -5,7 +5,7 @@
 //   node scripts/meta-week/token-meter.mjs [--root DIR] [--stats FILE] [--tz IANA]
 //     [--lane main|subagent|all] [--by day,week,repo,session,lane,model,effort,agent,skill]
 //     [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--window ISO ISO]
-//     [--calibrate] [--blocks] [--compactions] [--json FILE]
+//     [--calibrate] [--blocks] [--compactions] [--startup] [--json FILE]
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +19,7 @@ import {
   inWindow,
   reconcile,
   spendBefore,
+  startupCosts,
   summarizeCompactions,
 } from "./lib/aggregate.mjs";
 import { collectEvents } from "./lib/walk.mjs";
@@ -36,6 +37,7 @@ function parseArgs(argv) {
     calibrate: false,
     blocks: false,
     compactions: false,
+    startup: false,
     json: null,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -77,6 +79,9 @@ function parseArgs(argv) {
         break;
       case "--compactions":
         o.compactions = true;
+        break;
+      case "--startup":
+        o.startup = true;
         break;
       case "--json":
         o.json = next();
@@ -140,6 +145,7 @@ async function main() {
   if (o.blocks) {
     result.blocks = all.blocks.map((b) => ({ ...b, spend5h: spendBefore(all.usage, b.ts, 5) }));
   }
+  if (o.startup) result.startup = startupCosts(laneEvents);
   process.stdout.write(
     `files=${all.files} lines=${fmt(all.lines)} requests=${fmt(events.length)} lane=${o.lane} tz=${o.tz} by=${dims.join(",")}\n`,
   );
@@ -176,6 +182,20 @@ async function main() {
     for (const b of result.blocks) {
       process.stdout.write(
         `${b.ts}\t${b.kind}\t${b.repo}\t${b.lane}\tspend5h out=${fmt(b.spend5h.out)} cacheCreate=${fmt(b.spend5h.cacheCreate)} cacheRead=${fmt(b.spend5h.cacheRead)}\n`,
+      );
+    }
+  }
+  if (result.startup) {
+    process.stdout.write(`\nSTARTUP\tkey\tsessions\tp50\tp90\tmax\n`);
+    for (const r of result.startup.byRepoLane) {
+      process.stdout.write(
+        `${r.key}\t${r.sessions}\t${fmt(r.p50)}\t${fmt(r.p90)}\t${fmt(r.max)}\n`,
+      );
+    }
+    process.stdout.write(`STARTUP by agent\n`);
+    for (const r of result.startup.byAgent) {
+      process.stdout.write(
+        `${r.key}\t${r.sessions}\t${fmt(r.p50)}\t${fmt(r.p90)}\t${fmt(r.max)}\n`,
       );
     }
   }

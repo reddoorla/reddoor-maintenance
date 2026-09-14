@@ -395,3 +395,34 @@ describe("token-meter: arguments", () => {
     await expect(meter(["--by", "colour"])).rejects.toThrow(/unknown dimension/);
   });
 });
+
+describe("token-meter: startup cost", () => {
+  it("reports the first call's in+cacheCreate+cacheRead per session, by repo and lane, and per agent type", async () => {
+    const { json, out } = await meter(["--startup"]);
+    const s = json.startup as {
+      byRepoLane: { key: string; sessions: number; p50: number; p90: number; max: number }[];
+      byAgent: { key: string; sessions: number; p50: number; p90: number; max: number }[];
+    };
+    // sess-1 main: r1 final is the earliest deduped event → 10 + 1000 + 20000 = 21010
+    expect(s.byRepoLane.find((r) => r.key === "alpha | main")).toMatchObject({
+      sessions: 1,
+      p50: 21010,
+      max: 21010,
+    });
+    // sess-2 main (beta): r5 → 1 + 0 + 0 = 1
+    expect(s.byRepoLane.find((r) => r.key === "beta | main")).toMatchObject({
+      sessions: 1,
+      p50: 1,
+    });
+    // agent-1 (sess-1 subagent): r4 → 2 + 100 + 5000 = 5102
+    expect(s.byRepoLane.find((r) => r.key === "alpha | subagent")).toMatchObject({
+      sessions: 1,
+      p50: 5102,
+    });
+    expect(s.byAgent.find((r) => r.key === "general-purpose")).toMatchObject({
+      sessions: 1,
+      p50: 5102,
+    });
+    expect(out).toMatch(/^STARTUP/m);
+  });
+});
