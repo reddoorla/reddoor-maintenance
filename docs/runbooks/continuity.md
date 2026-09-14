@@ -154,13 +154,13 @@ quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:435–460`)
 `deadletter` attention item per slug, counting unreplayed rows, and it reaches both the cockpit
 and the digest. Two shapes:
 
-- The slug **resolves** to a fleet site → `"N leads dead-lettered and not yet replayed — run
-`db replay-deadletters`"`, linked to that site's page.
-- The slug resolves to **no** fleet site → `"N leads dead-lettered for '<slug>', which resolves
-to NO fleet site — leads are being dropped; run `ensure-site <slug>`then`db
-  replay-deadletters`"`, rendered card-less with **no** link (a `/s/<slug>` link would 404).
-  This is the serious one: it means submissions are arriving for a site the system no longer
-  believes in.
+- The slug **resolves** to a fleet site. The item reads _N leads dead-lettered and not yet
+  replayed — run `db replay-deadletters`_, and links to that site's page.
+- The slug resolves to **no** fleet site. The item reads _N leads dead-lettered for '&lt;slug&gt;',
+  which resolves to NO fleet site — leads are being dropped; run `ensure-site <slug>` then
+  `db replay-deadletters`_, and is rendered card-less with **no** link (a `/s/<slug>` link would
+  404). This is the serious one: it means submissions are arriving for a site the system no
+  longer believes in.
 
 **How to replay.** From this repo, after `pnpm build`:
 
