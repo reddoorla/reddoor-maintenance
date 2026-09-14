@@ -294,11 +294,47 @@ async function census(
   return { out: stdout, json: JSON.parse(await readFile(jsonPath, "utf-8")) };
 }
 
+type Cand = {
+  class: string;
+  kind: string;
+  sessionId: string;
+  repo: string;
+  ts: string;
+  cost: { requests: number; out: number; agentTotal?: number };
+  evidence: Record<string, unknown>;
+};
+function kinds(json: Record<string, unknown>, cls: string): Cand[] {
+  return ((json.classes as Record<string, { candidates: Cand[] }>)[cls]?.candidates ??
+    []) as Cand[];
+}
+
 describe("census: walker full mode (via the CLI's counts)", () => {
   it("counts operator prompts, tool calls and agent results, excluding tool results and system-shaped text", async () => {
     const { json } = await census(seeded, ["--class", "all"]);
     expect(json.prompts).toBe(6); // s1: 4 operator prompts (the 2 tool results are not prompts); s2, s3: 1 each
     expect(json.tools).toBe(9); // t1..t9
     expect(json.agentResults).toBe(2);
+  });
+});
+
+describe("census: fan-out", () => {
+  it("PASS: finds spend after a stop request, continue after a block, and one turn across three sessions", async () => {
+    const { json } = await census(seeded, ["--class", "fanout"]);
+    const c = kinds(json, "fanout");
+    const stop = c.find((x) => x.kind === "spend-after-stop");
+    expect(stop).toMatchObject({ sessionId: "s1", repo: "alpha" });
+    expect(stop?.cost.out).toBe(25);
+    const cont = c.find((x) => x.kind === "continue-after-block");
+    expect(cont).toMatchObject({ sessionId: "s1" });
+    expect(cont?.evidence.lagMin).toBe(3);
+    expect(cont?.cost.out).toBe(12);
+    const same = c.find((x) => x.kind === "same-turn-many-sessions");
+    expect(same?.evidence.sessions).toBe(3);
+    expect(same?.evidence.repos).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  it("FAIL control: nominates nothing on the clean fixture", async () => {
+    const { json } = await census(clean, ["--class", "fanout"]);
+    expect(kinds(json, "fanout")).toEqual([]);
   });
 });
