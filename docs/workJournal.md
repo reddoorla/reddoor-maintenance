@@ -2152,3 +2152,197 @@ about where to look.
 All of it is in `docs/meta-week/09-operator-answers.md`, linked second in the
 README's reading order, because two of the conclusions a reader would otherwise
 draw from `03` and `05` are wrong without it.
+
+## 2026-09-14 — Meta week, Monday: a token meter, a census with two refuter rounds, five Lane 2 merges (#777, #780, #781, #784, #785), and the recommendations for approval (PR #778, #787)
+
+The week's charter was agreed in the first hour and written as
+`docs/superpowers/specs/2026-09-14-meta-week-operating-model-design.md`: two
+lanes, Monday to Thursday, one session, Fable judging and Opus working. Lane 1
+measures how the work gets done and recommends changes; Lane 2 runs the system
+items from `06-priorities-system.md` in Appendix B's order. The evidence package
+(#774) had measured tool calls and never tokens, so the first instrument was a
+meter, and everything after it was gated on the meter passing a known-good input
+first.
+
+**The meter, and the first thing it corrected was me.** Every assistant record
+in a transcript carries a `message.usage`; one API response is written as
+several records (one per content block) and each carries a **copy of the same
+final usage**, so summing them over-counts output by 4.9× in the central repo's
+six largest files. The meter dedupes by `requestId`, keeping the largest
+`output_tokens`. My own first-hour note to the operator said the last seven days
+showed 28.4M output tokens; the meter says 10.7M. `~/.claude/stats-cache.json`
+was meant to be the calibration control and failed in all six (tz × lane)
+configurations, best median relative error 0.396, so it is dropped as a source
+per the rule written before the run; the requestId rule reconciles better than
+no-dedupe (0.876) and uuid-dedupe (0.728), which is the strongest available
+evidence the key is right. The instrument passed a fixture built to reconcile
+and failed one built not to, before it touched real data.
+
+**What it measured, Aug 14 → Sep 14** (`docs/meta-week/10-token-meter.md`,
+aggregates in `_data/tokens-*.json`): 76,150 deduplicated requests; output
+66.7M, cache-create 315M, cache-read 13.9B. The main lane re-reads **282k
+cached tokens per request** and owns 74% of all cache reads; subagents average
+90k. `workflow-subagent` is 28.4% of all output, more than every other agent
+type combined; `general-purpose` 11.1%; `Explore` 0.1%. Effort is not a dial:
+97% of requests ran at `xhigh`. Compactions: **107 distinct, 100% manual**, and
+none below 462,618 tokens of context (p50 491,829) — the operator compacts when
+a 1M window is about half full, and every call before that re-reads all of it.
+The package's "288 compaction events" was replay-inflated (254 raw markers →
+107 uuids). The weekly ceiling, observed once: the 108 hours from the Sunday
+02:00 PDT reset to the 2026-08-27T21:00:17Z block held 19,072 requests, 18.7M
+output, 69.9M cache-create, 4.35B cache-read; the week's soft cap is 60% of that.
+The session limit's window is exactly 5h00m, read from two adjacent block
+messages. The high-block days (64/72/51 blocks) were **one stop each**: 2–4
+distinct minutes, most of the blocks in subagent files — the operator was blocked
+on five local days, not eleven, and "blocked more often than he gave
+instructions" measured fan-out at one instant.
+
+**Startup cost** (`12-startup-cost.md`): the first call of a `workflow-subagent`
+carries a median 36k tokens; `general-purpose` 41k; `code-reviewer` 43k. Across
+2,682 spawns that is ≈84M tokens of injected context against ≈8M for the 282
+main sessions — 10.6×. 194 of the 282 main first-calls are `claude-haiku-4-5`
+sessions at Claude Code 2.0.77 with no entrypoint: a plugin's background
+observer, cheap per call and invisible until counted.
+
+**The census** (`11-wasted-work-census.md`, `scripts/meta-week/census.mjs`)
+nominates candidate episodes in three classes, each heuristic proven on a seeded
+fixture and silent on a clean one before it ran. Its first real run found four
+defects in itself, which is the point of running it: `<ide_opened_file>` and the
+harness's summarisation request are `type: "user"` records and read as operator
+prompts (12 of 41 fanout+unread candidates); `continue-after-block` never fired
+because the real lag from a block to "continue" is 57 minutes at minimum and 212
+at median (the operator waits for the 5-hour reset), not the ten minutes the
+plan assumed; the duplicate-agent finder emitted one candidate per pair rather
+than per later dispatch (308 candidates); and the revert count counted the two
+sibling worktrees as repos and matched the word "revert" anywhere in a message
+(145 rows, 2 real). All four were fixed the same evening (commits on #778). The
+refuter round then read 31 candidates (top per kind, one Opus skeptic each, default
+refuted, four at a time, 1.98M subagent tokens, eight minutes) and **confirmed 4,
+refuted 27**. All eight `reread-after-compaction` nominations were read-before-edit
+or a regenerated render; all eight `duplicate-agent-prompt` pairs were one session's
+per-task brief template, Jaccard-similar by construction; three of four
+`same-turn-many-sessions` were `/model`, `/compact` and a post-crash "resume" typed
+into every open session. The four that stood: the 2026-08-24 overload ("kill them",
+three subagent requests after it, "my system got overloaded" — #776's episode, on the
+record); an Airtable write after the Turso flip that the assistant itself retracted
+("The user is right, and I was wrong") and the classifier had stopped; and two
+block-then-reorient episodes, both nominated under the wrong kind. Redo, as
+nominated, is a documented null. The lesson the critic drew is the one worth keeping:
+**the heuristics found the remediation, not the defect** — every window is
+forward-looking from a marker or bounded by the correcting prompt, so it holds the
+`TaskStop`s and the corrected write-up while the six-way dispatch, the wrong claim or
+the stale mechanism sits just before it. The blind-spot list (corrections in the
+assistant's own text, subagent-internal waste, output never kept, instrument-blind
+gates) is in the doc; the recommendations are written against it. The one detector the critic called
+mechanical — an `Agent` whose result never came back — was built the same afternoon
+and proved on the three killed #569 lenses to the token (32,729 output, difference 0)
+before it read anything else; corpus-wide it finds 13 orphans, six of them the
+research agents "kill them" cut off on 2026-08-24T23:52Z and never re-sent. Two facts
+fell on contact building it: killed agents DO get a task-notification (`failed`), and
+202 of 353 subagent files have no notification at all because synchronous dispatches
+never produce one — the brief's definition taken literally would have nominated half
+the corpus. And one defect of my own making: the census library carried a literal NUL
+byte (a `\u0000` written as the character, not the escape), so git treated the whole
+file as binary and every review of it showed no diff; fixed by writing the escape.
+
+**Research** (`13-research.md`): a survey of Claude Code's controls was itself
+treated as claims and verified against 37 doc pages — 18 confirmed, 16 refuted,
+6 unconfirmed. The refutations that fail silently: the hook JSON contract
+(`UserPromptSubmit` and `Stop` block with top-level `decision: "block"`, not
+`permissionDecision`), `ENABLE_TOOL_SEARCH` (unset already defers MCP tools;
+`auto` reduces deferral), and the concurrency cap that binds
+(`CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY`, default 10, not the quoted 20). The
+survey also described its own output as "2,300+ lines"; it was 737. Community
+practice: 46 sources, 21 patterns, 6 rejected, 9 named absences; the house rule
+"prove the instrument before you trust its verdict" has no published
+equivalent. Three community claims were checked on this machine: `--max-budget-usd`
+is print-mode only, `claude agents` lists definitions, and there is no `claude
+daemon` — so no interactive fan-out kill switch exists beyond `Ctrl+X Ctrl+K`
+and `TaskStop`. For #776, the docs draw the line cleanly: web sessions and
+routines run in the cloud with no local files; Remote Control keeps everything
+local and moves only the UI.
+
+**Lane 2.** S1's sharp wave closed with zero open `sharp` alerts, but mostly not
+by us: Renovate's `lock-file-maintenance` merged six of nine repos in-run between
+17:08 and 17:46Z while the worker was still reading, and autoclosed the security
+PRs; the worker merged the other three dependency PRs and proved sharp with a
+throwaway imagetools route, because a plain starter build never invokes sharp
+at all. Three of S1's claims were wrong on contact — the PRs touch
+`pnpm-lock.yaml` only, "merge A then update-branch B" is refused by GitHub, and
+every override PR deletes a load-bearing comment — and two of the three were
+already in fleet memory from 2026-08-03 and did not reach the brief. S7's
+checkbox no longer exists; the branch is now "pending status checks" with an
+`unpend-branch` control, one Renovate status and zero CI runs, and the worker
+correctly refused to tick a control it was not sent to tick. S2 (#777) bounded
+all 24 tracking-issue queries and found that #652 and #754 were never
+duplicates: disjoint gap sets, because the open-half comments the current gaps
+onto whatever issue it finds and never rewrites the body — a title-only close
+loop would have retired one issue's finding on another's evidence, so the close
+loop now gates on each issue's own body. S5 (#780) found the zero-write hole one
+shape narrower than described (only `total=0` slipped past the mass-flake gate)
+and the same unset-output defect in release-health's first guard. S3 (#781)
+compared the leaked `whsec_` fixture against all five live Resend secrets
+(DIFFERENT, dismissed as `used_in_tests`), enabled scanning on the two bare
+repos, and made open secret-scanning alerts an audit outcome:
+`PROTECTION_AUDIT gaps=4 covered=22 skipped=6 total=32`, the four being exactly
+the repos with open alerts. The org API accepts and ignores
+`secret_scanning_validity_checks_enabled` on the Free plan. `RENOVATE_TOKEN` in
+the canonical credentials file is dead (401). S4 drafted Reddoor's own
+Maintenance report through the real path and left it queued for approval (row
+`recVCP3qWUi71B15H`, clean, ANALYTICS real at 15,063 users), read the five
+previews due 2026-10-05 (two resolve, three have blank GA4 — unstarted setup,
+not zeros), and found what S4 had not asked about: **all five currently fail the
+pre-send health gate**, four on one high vulnerability each and one on an unknown
+CMS check, so the October batch would not send today whatever GA says. It also
+found the `Analytics soft-fail at` field does not exist in Airtable, so every
+real draft throws there and the Turso mirror after it never writes the column the
+digest reads — one more instrument green on a question it cannot fail (#782). S7 (#784) added the one Renovate
+measurement the nightly lacked — days since a repo last **merged** a feature-update
+Renovate PR, excluding the lock-file and vulnerability channels that kept flowing
+through the drought — as a `WARN` line that never gaps and a `RENOVATE_OUTCOME` summary
+the tracking-issue greps cannot see. Its two controls are frozen real data (242 merged
+`renovate/*` heads on 26 repos): today `drought=21 delivering=0 unmeasured=5`, and at
+2026-08-10 `drought=0 delivering=20 unmeasured=6`; the 21-day threshold sits in an
+empty band between 14.1 and 32.3 days, and 14 would have warned on two healthy repos.
+Monday's observation: all 26 grouped branches were rewritten on 09-14 and none opened a
+PR; the PR-less count grew from 103 to 123 in a week; the last grouped merge was
+08-13, not 08-12. The mechanism is still unresolved — Renovate says "pending status
+checks", GitHub says combined status `success` with zero check runs — and nothing was
+ticked. One honest line from that worker: `pnpm test` was green while `tsc` failed,
+because vitest does not typecheck. S6 (#785) closed the #645 lead-path gap
+after a ten-minute check that decided it was latent: all five `testMode` sites have a
+Turso row and production's `submission_deadletter` has never held one. The four items
+landed with a test each, nine mutation checks, and a synthetic round trip against a
+file-backed libSQL through vitest, because `turso dev` cannot bind a socket in the
+sandbox. The one design consequence — `unknown-site` is no longer terminal on replay,
+so replay-before-heal cannot burn the queue — was accepted on correctness and its
+other half (a terminal `abandoned` outcome, a cockpit lane for card-less items) filed
+as #786. Two package facts fell on contact: the sites posting to central ingest are
+`29-navy` and `hedloc`, not vida; and no `db row` read CLI exists.
+
+**Beliefs corrected on contact, in one place.** Usage dedupes by requestId, not
+uuid. "Auto-merge OFF fleet-wide" (the memory index line) hid that Renovate
+merges lockfile maintenance in-run by design. 288 compactions were 107. 269 limit
+blocks were 243 distinct and five days, not eleven. `--max-budget-usd` is not a
+kill switch. #652 was not a duplicate. And the sandbox fails every `gh` call
+made inside a shell loop with an x509 error while the same call at top level
+succeeds — a loop that "finds nothing" is the instrument failing.
+
+**Honest accounting for the meta week itself.** Monday's spend, from the meter at
+end of day (LA date): **1,889 requests; output 2.03M; cache-create 8.35M; cache-read
+265M** — 18% of the week's soft cap on output, 20% on cache-create, 10% on cache-read,
+in one day of a four-day week. Three-quarters of the output was Opus agents, not this
+session: 1,640 subagent requests against 249 main-lane ones, across four workers (the
+census fixes, S6, S7, the orphan detector), two stop probes and three adversarial
+rounds (32 + 12 + 21 agents, 5.1M reported subagent tokens between them). The main lane
+re-read 245k cached tokens per request. Two of the eight Opus workers rediscovered facts
+fleet memory already held; the later briefs carried a memory-grep step and their
+workers cited the files. The two things that found the most were the two rounds that
+were told to default to "refuted": one turned 31 census nominations into 4, and the
+other turned 14 recommendations into 3 amendments and 11 kills — and then named the
+class no draft had mentioned, which was the largest one measured.
+
+**Next.** Tuesday: the operator reads the recommendations and decides; Tier 1 ships
+with its proofs on approval; the continuity page; the week's meter line. Decisions that are the
+operator's, collected in `08-second-pass.md` §4 and the spec §3, plus one new
+one: tick `unpend-branch` on reddoor-starter #97 or not.
