@@ -153,6 +153,7 @@ const T3 = (hms: string) => `2026-09-03T${hms}Z`;
 let seeded: string;
 let clean: string;
 let shaped: string;
+let lagged: string;
 
 async function writeRoot(
   dir: string,
@@ -178,6 +179,7 @@ beforeAll(async () => {
   seeded = join(base, "seeded");
   clean = join(base, "clean");
   shaped = join(base, "shaped");
+  lagged = join(base, "lagged");
 
   await writeRoot(
     seeded,
@@ -357,6 +359,76 @@ beforeAll(async () => {
       ],
     },
   );
+
+  // LAGGED: the real shape of a resume after a limit block. The operator waits for the
+  // five-hour session window to reset, so the lag is hours, not minutes (corpus, n = 237:
+  // min 57 min, median 212, max 1,312). Session "s10" hits the wall twice — one block at
+  // 11:00 and a retry at 13:00 — and resumes at 16:00; that is ONE episode and must be
+  // nominated once, from the nearest block. Session "s11" resumes at seven hours, past
+  // the six-hour bound, and must not be nominated at all — the widening has to stay
+  // bounded or it pairs a block with any later "continue" the session ever contains.
+  await writeRoot(
+    lagged,
+    [
+      assistant({
+        ts: T3("11:00:00"),
+        sessionId: "s10",
+        repo: "epsilon",
+        requestId: "lb1",
+        out: 0,
+        blocks: [text("You've hit your session limit · resets 4pm (America/Los_Angeles)")],
+      }),
+      assistant({
+        ts: T3("13:00:00"),
+        sessionId: "s10",
+        repo: "epsilon",
+        requestId: "lb1b",
+        out: 0,
+        blocks: [text("You've hit your session limit · resets 4pm (America/Los_Angeles)")],
+      }),
+      user({
+        ts: T3("16:00:00"),
+        sessionId: "s10",
+        repo: "epsilon",
+        text: "hit a session limit, continue where you left off",
+      }),
+      assistant({
+        ts: T3("16:05:00"),
+        sessionId: "s10",
+        repo: "epsilon",
+        requestId: "lr1",
+        out: 12,
+        blocks: [text("picking it back up")],
+      }),
+    ],
+    {
+      zeta: [
+        assistant({
+          ts: T3("11:00:00"),
+          sessionId: "s11",
+          repo: "zeta",
+          requestId: "lb2",
+          out: 0,
+          blocks: [text("You've hit your session limit · resets 4pm (America/Los_Angeles)")],
+        }),
+        user({
+          ts: T3("18:00:00"),
+          sessionId: "s11",
+          repo: "zeta",
+          text: "new morning, continue with the next item",
+        }),
+        assistant({
+          ts: T3("18:05:00"),
+          sessionId: "s11",
+          repo: "zeta",
+          requestId: "lr2",
+          out: 99,
+          blocks: [text("on it")],
+        }),
+      ],
+    },
+    {},
+  );
 });
 
 async function census(
@@ -435,6 +507,16 @@ describe("census: fan-out", () => {
   it("FAIL control: nominates nothing on the clean fixture", async () => {
     const { json } = await census(clean, ["--class", "fanout"]);
     expect(kinds(json, "fanout")).toEqual([]);
+  });
+
+  it("nominates a resume five hours after a block, once per resume, and not one seven hours after", async () => {
+    const { json } = await census(lagged, ["--class", "fanout"]);
+    const c = kinds(json, "fanout").filter((x) => x.kind === "continue-after-block");
+    expect(c).toHaveLength(1); // two blocks, one resume: one candidate, not two
+    expect(c[0]).toMatchObject({ sessionId: "s10", repo: "epsilon" });
+    expect(c[0].evidence.blocks).toBe(2);
+    expect(c[0].evidence.lagMin).toBe(180); // from the NEAREST block (13:00), not the first
+    expect(c[0].cost.out).toBe(12); // the 30 minutes after the continue, not the 7-hour session
   });
 });
 
