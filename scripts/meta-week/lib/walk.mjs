@@ -49,11 +49,34 @@ function firstText(message) {
 
 const num = (v) => (Number.isFinite(v) ? v : 0);
 
-export async function collectEvents(root) {
+const SYSTEM_SHAPED = /^\s*(<task-notification>|<system-reminder>|<local-command-stdout>)/;
+const INTERRUPT_RE = /^\s*\[Request interrupted/;
+
+function promptText(message) {
+  const c = message?.content;
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) {
+    if (c.some((b) => b && b.type === "tool_result")) return null;
+    return c
+      .filter((b) => b && b.type === "text")
+      .map((b) => String(b.text))
+      .join("\n");
+  }
+  return null;
+}
+
+export async function collectEvents(root, opts = {}) {
+  const full = !!opts.full;
   const byKey = new Map();
   const seenMarkers = new Set(); // uuids of compaction/block records already counted (replay)
+  const seenTools = new Set();
+  const seenResults = new Set();
   const compactions = [];
   const blocks = [];
+  const prompts = [];
+  const tools = [];
+  const agentResults = [];
+  const interrupts = [];
   let files = 0;
   let lines = 0;
   for await (const file of jsonlFiles(root)) {
@@ -62,13 +85,12 @@ export async function collectEvents(root) {
     const rl = createInterface({ input: createReadStream(file), crlfDelay: Infinity });
     for await (const line of rl) {
       lines++;
-      if (
-        !line.includes('"usage"') &&
-        !line.includes("compact_boundary") &&
-        !line.includes("hit your")
-      ) {
-        continue;
-      }
+      const interesting =
+        line.includes('"usage"') ||
+        line.includes("compact_boundary") ||
+        line.includes("hit your") ||
+        (full && line.includes('"type":"user"'));
+      if (!interesting) continue;
       let rec;
       try {
         rec = JSON.parse(line);
@@ -89,6 +111,48 @@ export async function collectEvents(root) {
         });
         continue;
       }
+      if (full && rec.type === "user" && rec.message) {
+        const base = {
+          uuid: rec.uuid,
+          ts: rec.timestamp,
+          sessionId: rec.sessionId || "",
+          repo: repoOf(rec, projectDir),
+          lane: rec.isSidechain ? "subagent" : "main",
+        };
+        const tr = rec.toolUseResult;
+        if (tr && typeof tr === "object" && tr.agentId) {
+          const c = rec.message.content;
+          const toolUseId = Array.isArray(c) && c[0] && c[0].tool_use_id ? c[0].tool_use_id : "";
+          const rkey = toolUseId || tr.agentId;
+          if (!seenResults.has(rkey)) {
+            seenResults.add(rkey);
+            agentResults.push({
+              ...base,
+              toolUseId,
+              agentId: tr.agentId,
+              status: tr.status || "",
+              totalTokens: num(tr.totalTokens),
+            });
+          }
+          continue;
+        }
+        if (rec.isMeta) continue;
+        const text = promptText(rec.message);
+        if (text === null || !text.trim()) continue;
+        if (rec.uuid && seenMarkers.has(rec.uuid)) continue;
+        if (rec.uuid) seenMarkers.add(rec.uuid);
+        if (INTERRUPT_RE.test(text)) {
+          interrupts.push({ ...base, text: text.slice(0, 200) });
+          continue;
+        }
+        if (SYSTEM_SHAPED.test(text)) continue;
+        prompts.push({
+          ...base,
+          text: text.slice(0, 500),
+          command: text.includes("<command-name>"),
+        });
+        continue;
+      }
       if (rec.type !== "assistant" || !rec.message) continue;
       const text = firstText(rec.message);
       if (BLOCK_RE.test(text) && !(rec.uuid && seenMarkers.has(rec.uuid))) {
@@ -101,6 +165,28 @@ export async function collectEvents(root) {
           kind: /weekly/i.test(text) ? "weekly" : "session",
           text,
         });
+      }
+      if (full && Array.isArray(rec.message.content)) {
+        for (const b of rec.message.content) {
+          if (!b || b.type !== "tool_use" || !b.id || seenTools.has(b.id)) continue;
+          seenTools.add(b.id);
+          const input = b.input || {};
+          tools.push({
+            id: b.id,
+            name: b.name || "",
+            ts: rec.timestamp,
+            sessionId: rec.sessionId || "",
+            repo: repoOf(rec, projectDir),
+            lane: rec.isSidechain ? "subagent" : "main",
+            requestId: rec.requestId || "",
+            file: typeof input.file_path === "string" ? input.file_path : "",
+            agentType: typeof input.subagent_type === "string" ? input.subagent_type : "",
+            agentModel: typeof input.model === "string" ? input.model : "",
+            background: !!input.run_in_background,
+            prompt: typeof input.prompt === "string" ? input.prompt.slice(0, 300) : "",
+            command: typeof input.command === "string" ? input.command.slice(0, 120) : "",
+          });
+        }
       }
       const u = rec.message.usage;
       if (!u) continue;
@@ -132,5 +218,15 @@ export async function collectEvents(root) {
         byKey.set(key, ev);
     }
   }
-  return { usage: [...byKey.values()], compactions, blocks, files, lines };
+  return {
+    usage: [...byKey.values()],
+    compactions,
+    blocks,
+    prompts,
+    tools,
+    agentResults,
+    interrupts,
+    files,
+    lines,
+  };
 }
