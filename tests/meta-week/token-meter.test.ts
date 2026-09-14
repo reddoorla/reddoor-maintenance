@@ -381,7 +381,7 @@ describe("token-meter: compactions and blocks", () => {
     const b = json.blocks as { kind: string; repo: string; lane: string; spend5h: Sum }[];
     expect(b).toHaveLength(1);
     expect(b[0]).toMatchObject({ kind: "session", repo: "alpha", lane: "main" });
-    expect(b[0].spend5h.out).toBe(77);
+    expect(b[0]!.spend5h.out).toBe(77);
     expect(out).toMatch(/^BLOCKS\t1/m);
   });
 });

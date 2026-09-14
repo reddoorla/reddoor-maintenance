@@ -900,8 +900,8 @@ describe("census: system-generated records are not operator prompts", () => {
     expect(f).toHaveLength(1);
     expect(f[0]).toMatchObject({ kind: "spend-after-stop", sessionId: "s9", repo: "delta" });
     // The preamble is stripped, so the evidence is the turn the operator actually typed.
-    expect(f[0].evidence.prompt).toBe("stop, kill them");
-    expect(f[0].cost.out).toBe(30);
+    expect(f[0]!.evidence.prompt).toBe("stop, kill them");
+    expect(f[0]!.cost.out).toBe(30);
     // The summarisation request's quoted "stop and ask" and the continuation's quoted
     // "are you sure" nominate nothing, because neither record is a prompt.
     expect(kinds(json, "unread")).toEqual([]);
@@ -935,9 +935,9 @@ describe("census: fan-out", () => {
     const c = kinds(json, "fanout").filter((x) => x.kind === "continue-after-block");
     expect(c).toHaveLength(1); // two blocks, one resume: one candidate, not two
     expect(c[0]).toMatchObject({ sessionId: "s10", repo: "epsilon" });
-    expect(c[0].evidence.blocks).toBe(2);
-    expect(c[0].evidence.lagMin).toBe(180); // from the NEAREST block (13:00), not the first
-    expect(c[0].cost.out).toBe(12); // the 30 minutes after the continue, not the 7-hour session
+    expect(c[0]!.evidence.blocks).toBe(2);
+    expect(c[0]!.evidence.lagMin).toBe(180); // from the NEAREST block (13:00), not the first
+    expect(c[0]!.cost.out).toBe(12); // the 30 minutes after the continue, not the 7-hour session
   });
 });
 
@@ -981,15 +981,15 @@ describe("census: orphaned agents", () => {
     const killed = c.filter((x) => x.evidence.lastStatus === "quota-rejected");
     expect(killed).toHaveLength(1);
     expect(killed[0]).toMatchObject({ sessionId: "s13", repo: "theta" });
-    expect(killed[0].evidence.description).toBe("Review the fleet table");
-    expect(killed[0].evidence.toolUseId).toBe("t30");
-    expect(killed[0].evidence.agentType).toBe("general-purpose");
+    expect(killed[0]!.evidence.description).toBe("Review the fleet table");
+    expect(killed[0]!.evidence.toolUseId).toBe("t30");
+    expect(killed[0]!.evidence.agentType).toBe("general-purpose");
     // Two requests, not three: o1b was written twice and the meter keeps the larger.
-    expect(killed[0].cost.requests).toBe(2);
-    expect(killed[0].cost.out).toBe(1000);
-    expect(killed[0].cost.agentTotal).toBe(1002); // out 1,000 + the two kept records' in
+    expect(killed[0]!.cost.requests).toBe(2);
+    expect(killed[0]!.cost.out).toBe(1000);
+    expect(killed[0]!.cost.agentTotal).toBe(1002); // out 1,000 + the two kept records' in
     // The re-dispatch is the later Agent call whose DESCRIPTION is byte-identical.
-    expect(killed[0].evidence.redispatched).toBe("t31");
+    expect(killed[0]!.evidence.redispatched).toBe("t31");
 
     const lone = c.find((x) => x.evidence.agentId === "o5");
     expect(lone?.evidence.lastStatus).toBe("interrupted");
@@ -1022,8 +1022,8 @@ describe("census: unread mechanism", () => {
     const c = kinds(json, "unread");
     expect(c).toHaveLength(1);
     expect(c[0]).toMatchObject({ kind: "corrected-turn", sessionId: "s1" });
-    expect(c[0].cost.out).toBe(40); // r5 (15) in the main lane + the g3 subagent (25), both inside (10:30, 10:40]
-    expect(c[0].evidence.minutes).toBe(10);
+    expect(c[0]!.cost.out).toBe(40); // r5 (15) in the main lane + the g3 subagent (25), both inside (10:30, 10:40]
+    expect(c[0]!.evidence.minutes).toBe(10);
   });
 
   it("FAIL control: nominates nothing on the clean fixture", async () => {
@@ -1051,7 +1051,7 @@ describe("census: reverts (--git)", () => {
     // Three commits mention reverting; one IS a revert. The worktree is not a repo.
     expect(reverts.count).toBe(1);
     expect(reverts.byRepo).toEqual({ solo: 1 });
-    expect(reverts.items[0].subject).toBe('Revert "feat: the thing"');
+    expect(reverts.items[0]!.subject).toBe('Revert "feat: the thing"');
     expect(reverts.skippedWorktrees).toEqual(["solo-wt"]);
     expect(out).toMatch(/subjects beginning with Revert/);
   });
