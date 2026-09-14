@@ -128,11 +128,13 @@ serves.
 
 ### Tier 1 — mechanical, ship this week on approval
 
-**R1. Turn off `claude-mem`.** _PP-F._ Set `"claude-mem@thedotmack": false` in
-`~/.claude/settings.json` `enabledPlugins` (do not delete the key: `false` is the
-plugin's own kill path — its `bun-runner.js` tests `=== false` and exits 0, so any
-still-registered hook self-silences). One action; the "or install Bun" branch is
-dropped because nothing measures what the plugin costs when it works. **Proof:** FAIL
+**R1. Turn off `claude-mem`.** _PP-F._ **Overtaken on Monday evening:** the operator
+uninstalled it outright — it is absent from `installed_plugins.json`, the `thedotmack`
+marketplace is gone from `known_marketplaces.json`, and `enabledPlugins` no longer
+carries the key at all. An uninstalled plugin registers no hooks, so the `false` kill
+path the draft asked for (its `bun-runner.js` tests `=== false`) is moot; only the
+cache directory `~/.claude/plugins/cache/thedotmack` remains, and it costs disk, not
+startup. What is still owed is the proof. **Proof:** FAIL
 control = a scratch session with three tool calls today shows three
 `hook_non_blocking_error … Bun not found` attachments in its transcript file; PASS =
 the same three calls after the change show zero. Read from the transcript, not the UI.
@@ -258,13 +260,33 @@ judging lane). Note the correction: the PATH CLI 2.1.92 ran zero interactive ses
 so it does not block `CLAUDE_CODE_SUBAGENT_MODEL`; the reason not to set that variable
 is that it is coarser than per-stage and never touches Explore/Plan.
 
-**R9. Measure the opening before pruning anything else.** _PP-F._ Two fresh sessions in
-the same repo, one with the current plugin set and one with `figma`,
-`superpowers-developing-for-claude-code` and `claude-session-driver` off; read the first
-call's `cache_creation_input_tokens` from the transcript (`token-meter.mjs --startup`).
-The skill listing is already capped at 1% and MCP tools are deferred, so the draft's
-expectation that pruning moves the 53k is probably wrong; the A/B says. No prune is
-recommended before it, and `claude-session-driver` is kept for #776 regardless.
+**R9. The plugin roster: measure the opening, then settle what stays.** _PP-F._ The
+roster changed on Monday evening, after the draft. `superpowers` is one install now
+(official 6.3.0, the marketplace 5.0.7 copy gone); `claude-mem`, `episodic-memory`,
+`superpowers-chrome`, `superpowers-developing-for-claude-code`, `claude-session-driver`
+and nine more that were on the roster earlier in the evening (`github`, `code-review`,
+`feature-dev`, `code-simplifier`, `ralph-loop`, `commit-commands`, `playground`,
+`claude-code-setup`, `claude-md-management`) are off. Seven remain: `context-mode`,
+`superpowers`, `figma`, `frontend-design`, `context7`, `playwright`,
+`typescript-lsp`. Only two carry hooks — `context-mode` (fourteen entries over six
+events; nine of them `PreToolUse` matchers, so it runs on nearly every call) and
+`superpowers` (`SessionStart` only) — so the arms the draft named no longer exist, and
+the question is three smaller ones. **(a)** The opening: two fresh sessions in this
+repo, one at the current roster and one with `context-mode` off; read the first
+request's `cache_creation_input_tokens` from each transcript
+(`token-meter.mjs --startup`). A third arm with `figma` off (14 skills and the largest
+MCP instruction block) only if the first two differ by less than 5k. The skill listing
+is capped at 1% and MCP tools are deferred, so the draft's expectation that pruning
+moves the 53k is probably wrong; the A/B says. **(b)** What the removals gave up:
+`superpowers-chrome` (896 uses in 30 days) is covered by `playwright`; `episodic-memory`
+(139 uses) is covered only for same-machine sessions, by context-mode's session index
+(`ctx_search` with source `session-events`) — decision 10 in §6 says whether that is
+enough. `github` never connected (400, "Authorization header is badly formatted") and
+`gh` covers it, so nothing is lost there. **(c)** `context-mode` and `context7` overlap
+only on fetching docs: context7 finds the current page for a named library and version;
+`ctx_fetch_and_index` (94 uses) keeps a URL you already have. Keep both. The stale caches
+(`figma` 2.2.107 and 2.2.108, `context-mode` 1.0.162) can go; they cost disk, not
+startup. No further prune before (a).
 
 **R10. What cache reads cost against the limit — the one unknown that decides the
 context question.** _PP-D._ Two data points: the operator reads `/usage` now and reports
@@ -436,6 +458,10 @@ Collected, not added. Items 1–6 are Lane 2's from Monday; 7–9 are this docum
 8. R1 and R2: apply the two diffs in §7, or say no.
 9. #776: R11(c) — spike a second machine, or not, with the caveat that it does not
    move the usage ceiling.
+10. Plugins (R9): the roster is seven now. Is same-machine session search through
+    context-mode enough, or does `episodic-memory` come back? And say whether the nine
+    removed on Monday evening were deliberate; the `github` plugin was failing to connect
+    regardless, so it is not missed.
 
 Plus one reading, not a decision: `/usage` now, for R10.
 
@@ -443,11 +469,9 @@ Plus one reading, not a decision: `/usage` now, for R10.
 
 The sandbox denies these writes; they are yours to apply. Each is the whole change.
 
-**R1 — `~/.claude/settings.json`, `enabledPlugins`:**
-
-```json
-"claude-mem@thedotmack": false
-```
+**R1 — nothing left to apply.** The plugin was uninstalled on Monday evening (see R1);
+the `"claude-mem@thedotmack": false` line the draft carried here would only matter if it
+were reinstalled. Optional: `rm -rf ~/.claude/plugins/cache/thedotmack`.
 
 **R2 — `~/.claude/settings.json`, new `permissions.deny` (the project block plus the two
 stash verbs):**
@@ -509,6 +533,10 @@ if it is not, the command reads stdin instead.)
 - R4: both controls in the saved form.
 - R5: `PROTECTION_AUDIT` not listed, `RENOVATE_OUTCOME` listed.
 - R6: the chord, pressed once by the operator.
+- R9(a): two startup readings, each from a fresh session the operator opens, because the
+  `enabledPlugins` flip lives in `~/.claude/settings.json`, which the sandbox denies
+  this session. The PASS control is the current roster; a reading that does not drop
+  when `context-mode` is off is a finding, not a failure of the meter.
 - The week's own spend, from the meter, in Thursday's journal entry, against the soft
   cap (out 11.2M, cache-create 41.9M, cache-read 2.6B): Monday's day ran at 8% of the
   output cap by mid-afternoon.
