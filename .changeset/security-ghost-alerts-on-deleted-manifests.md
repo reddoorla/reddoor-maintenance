@@ -23,7 +23,7 @@ own stamp on these) to null.
 - `dependabotAudit` resolves each distinct manifest once per audit. Alerts whose
   manifest is gone go to `details.ghostAdvisories`, are excluded from the
   severity tallies, and produce one line: `N alert(s) on a manifest GitHub no
-  longer tracks (package-lock.json) — dismiss as inaccurate`. Ghosts alone are
+longer tracks (package-lock.json) — dismiss as inaccurate`. Ghosts alone are
   `warn`; live counts keep their own status and the line is appended.
 - Fail-loud on every uncertainty: no `manifest_path`, a lookup that throws, or
   injected deps with no lookup all count the alert exactly as before.
