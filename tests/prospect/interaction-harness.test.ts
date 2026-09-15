@@ -192,11 +192,16 @@ describe("the Tier 4 abort harness, against a real browser", () => {
     browser = await chromium.launch();
   }, 60_000);
 
+  // Same budget as beforeAll. Vitest's default hook timeout is 10s, and real
+  // browser teardown under CPU contention (a second browser launching on the
+  // same runner) has blown it three times with 14/14 tests passing — the file
+  // reports as failed with zero failed tests (#757). Setup already gets 60s;
+  // teardown of the same browser gets the same.
   afterAll(async () => {
     await browser?.close();
     await new Promise<void>((r) => server?.close(() => r()));
     await new Promise<void>((r) => thirdServer?.close(() => r()));
-  });
+  }, 60_000);
 
   it("stops the submission, and the server never hears from it", async () => {
     received.length = 0;
