@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { a11yAudit } from "../../src/audits/a11y.js";
+import { a11yAudit, describeViolations } from "../../src/audits/a11y.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 async function tmpSite(): Promise<string> {
@@ -12,7 +12,7 @@ async function tmpSite(): Promise<string> {
 type A11yArtifact = {
   totalViolations: number;
   byImpact: Partial<Record<"minor" | "moderate" | "serious" | "critical", number>>;
-  violations?: Array<{ id: string; impact: string; route: string }>;
+  violations?: Array<{ id: string; impact: string; route: string; help?: string }>;
 };
 
 /**
@@ -440,7 +440,7 @@ describe("audits/a11y — what the summary reports", () => {
     expect(result.status).toBe("fail");
     // Was bare "a11y: 2 violations" — no way to tell what it had covered.
     expect(result.summary).toBe(
-      "a11y: 2 violations across 4 routes (2 fixtures + 2 from package.json)",
+      "a11y: 2 violations across 4 routes (2 fixtures + 2 from package.json) — image-alt on /, image-alt on /about",
     );
   });
 
@@ -451,5 +451,126 @@ describe("audits/a11y — what the summary reports", () => {
     await writePkg(cwd, { a11yRoutes: "not-an-array" });
     const result = await a11yAudit({ site: { path: cwd }, spawn: clean() });
     expect(result.summary).toBe("a11y: 0 violations across 2 routes (+1 hydration smoke)");
+  });
+});
+
+// #680: a fixture route that 404s used to be scanned as if it existed — axe ran
+// over the error page and the summary reported a count with no route and no
+// rule, so a config problem read as a markup problem and was bisected as one.
+describe("audits/a11y — a route that 404s is a missing route, not a scan (#680)", () => {
+  const specCapturingSpawn = (sink: { spec: string }): SpawnFn => {
+    return async (_cmd, args, opts) => {
+      const specPath = args[args.length - 1] as string;
+      sink.spec = await readFile(specPath, "utf-8");
+      const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
+      await mkdir(out, { recursive: true });
+      await writeFile(
+        join(out, "results.json"),
+        JSON.stringify({ totalViolations: 0, byImpact: {} }),
+        "utf-8",
+      );
+      return { code: 0, stdout: "", stderr: "" };
+    };
+  };
+
+  it("emits a spec that guards every axe navigation on a 200 and skips axe otherwise", async () => {
+    const cwd = await tmpSite();
+    const sink = { spec: "" };
+    await a11yAudit({ site: { path: cwd }, spawn: specCapturingSpawn(sink) });
+    // The navigation's response is captured, not discarded.
+    expect(sink.spec).toMatch(/const response = await page\.goto\(path\)/);
+    // A missing or non-200 response becomes its own violation id …
+    expect(sink.spec).toMatch(/!response \|\| response\.status\(\) !== 200/);
+    expect(sink.spec).toContain('id: "route-missing"');
+    expect(sink.spec).toContain('impact: "serious"');
+    // … whose help names the path and the status …
+    expect(sink.spec).toMatch(/returned \$\{response \? response\.status\(\) : "no response"\}/);
+    // … and axe is NOT run over whatever the error page was.
+    const guardAt = sink.spec.indexOf('id: "route-missing"');
+    const continueAt = sink.spec.indexOf("continue;", guardAt);
+    const axeAt = sink.spec.indexOf("new AxeBuilder({ page })", guardAt);
+    expect(continueAt).toBeGreaterThan(guardAt);
+    expect(axeAt).toBeGreaterThan(continueAt);
+  });
+
+  it("fails on a route-missing violation and names the route and status in the summary", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 1,
+          byImpact: { serious: 1 },
+          violations: [
+            {
+              id: "route-missing",
+              impact: "serious",
+              route: "animate-in demo",
+              help: "/dev/animate-in returned 404",
+            },
+          ],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    // Was "a11y: 1 violations across 2 routes" — no route, no rule, no status.
+    expect(result.summary).toContain(
+      "route-missing on animate-in demo (/dev/animate-in returned 404)",
+    );
+  });
+
+  it("names the rule id and route for real axe violations too", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 3,
+          byImpact: { serious: 3 },
+          violations: [
+            { id: "color-contrast", impact: "serious", route: "a11y fixtures" },
+            { id: "color-contrast", impact: "serious", route: "a11y fixtures" },
+            { id: "image-alt", impact: "serious", route: "/" },
+          ],
+        },
+        1,
+      ),
+    });
+    expect(result.summary).toBe(
+      "a11y: 3 violations across 2 routes — color-contrast ×2 on a11y fixtures, image-alt on /",
+    );
+  });
+});
+
+describe("audits/a11y — describeViolations", () => {
+  it("groups identical rule+route pairs and caps the list", () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      id: `rule-${i}`,
+      impact: "minor" as const,
+      route: "/",
+    }));
+    const text = describeViolations(many);
+    expect(text).toContain("rule-0 on /");
+    expect(text).toContain("rule-5 on /");
+    expect(text).not.toContain("rule-6 on /");
+    expect(text).toMatch(/\+3 more$/);
+  });
+
+  it("carries the help text only for route-missing, where it holds the status", () => {
+    const text = describeViolations([
+      { id: "route-missing", impact: "serious", route: "x", help: "/x returned 404" },
+      {
+        id: "color-contrast",
+        impact: "serious",
+        route: "y",
+        help: "Elements must have sufficient color contrast",
+      },
+    ]);
+    expect(text).toBe("route-missing on x (/x returned 404), color-contrast on y");
+  });
+
+  it("is empty for no violations", () => {
+    expect(describeViolations([])).toBe("");
   });
 });
