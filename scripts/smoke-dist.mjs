@@ -190,6 +190,12 @@ const expectedSubcommands = [
   // libSQL/kysely for the persist path) makes it exactly the kind of deep
   // dynamic-import command this list exists to catch if bundling breaks it.
   "prospect-audit",
+  // The three recipe commands this list omitted until #731 — with them absent,
+  // pointing match-harness's lazy import() at the wrong module left --help,
+  // list-recipes AND this gate green. A weak hold on registration, but a hold.
+  "match-harness",
+  "health-endpoint",
+  "smoke-suite",
 ];
 
 await check("CLI --help exits 0 and lists all expected commands", () => {
@@ -207,23 +213,53 @@ for (const cmd of expectedSubcommands.filter((c) => c !== "upgrade")) {
   });
 }
 
+// The recipe block of `requiredExports` is DERIVED from the source barrel, not
+// hand-listed (#731). The hand list was maintained beside the thing it checked,
+// so a recipe missing from both — healthEndpoint, smokeSuite, matchHarness for
+// months — was invisible: a truthful pass about the names it had been told to
+// look at. Every runtime export of `src/recipes/index.ts` must reach
+// `dist/index.js`; a barrel export that is not meant to be public API belongs
+// out of the barrel, not silently dropped between it and the entry point.
+//
+// Loaded from SOURCE under tsx because tsup emits no dist/recipes/index.js —
+// only the entries in tsup.config.ts (sync-configs is the one recipe there) —
+// so there is no dist copy of the barrel to ask. `node --import tsx`, not the
+// tsx CLI: the CLI opens an IPC pipe that a sandboxed shell refuses.
+const recipeBarrel = pathToFileURL(resolve(repoRoot, "src/recipes/index.ts")).href;
+function recipeBarrelExports() {
+  const out = execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "-e",
+      `import(${JSON.stringify(recipeBarrel)}).then((m) => process.stdout.write(JSON.stringify(Object.keys(m))))`,
+    ],
+    { encoding: "utf-8", cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const names = JSON.parse(out);
+  if (!Array.isArray(names)) throw new Error(`barrel keys are not an array: ${out}`);
+  return names;
+}
+
+let recipeExports = [];
+await check("src/recipes/index.ts loads and names its exports (the derivation source)", () => {
+  recipeExports = recipeBarrelExports();
+  // Prove the instrument before trusting it: an empty or garbled list would
+  // make the export check below pass vacuously. syncConfigs has been in the
+  // barrel since 0.1 — if the loader cannot see it, the loader is what broke.
+  if (!recipeExports.includes("syncConfigs")) {
+    throw new Error(`barrel derivation produced no syncConfigs: ${JSON.stringify(recipeExports)}`);
+  }
+});
+
 const requiredExports = [
   // audits
   "runAudits",
   "runAuditsAcross",
   "ALL_AUDIT_NAMES",
-  // recipes
-  "syncConfigs",
-  "bumpDeps",
-  "upgradeSvelte4to5",
-  "svelteCodemods",
-  "convertToPnpm",
-  "onboard",
-  "a11yFixturesPage",
-  "init",
-  "DEFAULT_INIT_STEPS",
-  "ALL_RECIPE_NAMES",
-  "isRecipeName",
+  // recipes — every runtime export of the barrel, derived above
+  ...recipeExports,
   // inventory
   "localPath",
   "fromJsonFile",
