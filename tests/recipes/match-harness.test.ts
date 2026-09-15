@@ -3,7 +3,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -3069,6 +3069,114 @@ describe("a 0.95.0 install upgrades every coupled script together, or upgrades n
         `${rel} differs from the shipped template and was left alone (hand-edited?)`,
       );
     expect(occurrences(result.notes ?? "", "(hand-edited?)")).toBe(1);
+  });
+
+  // --- what survives into `git log` (#760)
+  //
+  // The notes were always right; the commit message said "install" on every
+  // run, including one that installed nothing. Upgrade commits are about to be
+  // the COMMON case fleet-wide (0.95.1 moves every site from marker-only to
+  // marker + terminator), and each one was going to be labelled a first
+  // install — so a reader bisecting "when did this site's gate.sh change"
+  // would find two commits claiming the harness was installed that day.
+  const subjectOf = (cwd: string) =>
+    execFileSync("git", ["log", "-1", "--format=%s"], { cwd }).toString().trim();
+  const bodyOf = (cwd: string) =>
+    execFileSync("git", ["log", "-1", "--format=%b"], { cwd }).toString().trim();
+
+  it("commits an upgrade as an upgrade, and only a first install as an install", async () => {
+    // A pristine install — the one case the old fixed message was right about.
+    const fresh = await copyFixtureToTmp(pristine);
+    const first = await matchHarness(
+      { path: fresh },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(first.status).toBe("applied");
+    const installSubject = subjectOf(fresh);
+    expect(installSubject).toMatch(/^feat: install the matching harness/);
+    expect(installSubject).not.toMatch(/upgrade/);
+
+    // A re-run over an existing 0.95.0 harness: three replaces, nothing written
+    // for the first time.
+    const cwd = await at0950();
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("applied");
+    const upgradeSubject = subjectOf(cwd);
+    // The assertion with no coverage before this: the two messages DIFFER.
+    expect(upgradeSubject).not.toBe(installSubject);
+    expect(upgradeSubject).toMatch(/^chore: upgrade the matching harness/);
+    expect(upgradeSubject).not.toMatch(/install/);
+    // And the body names what moved, so `git log` answers the bisect question
+    // without a diff.
+    for (const rel of COUPLED_CHANGED) expect(bodyOf(cwd)).toContain(rel);
+  });
+
+  it("says both when one run writes a missing file AND upgrades an existing one", async () => {
+    const cwd = await at0950();
+    // A site record deleted by hand: absent, so it is written for the first
+    // time, alongside the three script replaces.
+    await rm(join(cwd, "matching/LEDGER.md"));
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "operator removed the ledger"], { cwd, stdio: "ignore" });
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(subjectOf(cwd)).toMatch(/^feat: install and upgrade the matching harness/);
+    expect(bodyOf(cwd)).toContain("matching/LEDGER.md");
+    expect(bodyOf(cwd)).toContain("matching/gate.sh");
+  });
+});
+
+describe("a 0.95.1 install takes the #763 prose correction", () => {
+  const prevRoot = resolve(here, "../../scripts/match-harness-previous/0.95.1");
+  // The two recipe-owned files that told the operator to run a command the CLI
+  // does not have. Both are AUTHORED in the generator, not copied from a site —
+  // the first correction to that class, and so the first time an authored body
+  // needed a shipped-history entry at all.
+  const CORRECTED = ["src/routes/dev/match/[uid]/+page.server.ts", "src/lib/site-pages.test.ts"];
+
+  it("upgrades both files in place and says so, instead of accusing the site of a hand edit", async () => {
+    const cwd = await install();
+    for (const rel of CORRECTED) {
+      const body = await readFile(join(prevRoot, rel), "utf-8");
+      // (the route file wraps the phrase across a comment line, so match the
+      // command name alone)
+      expect(body, `${rel}: the 0.95.1 snapshot is not the pre-change body`).toContain(
+        "prismic-seed",
+      );
+      await writeFile(join(cwd, rel), body, "utf-8");
+    }
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "as installed at 0.95.1"], { cwd, stdio: "ignore" });
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+
+    expect(result.status).toBe("applied");
+    for (const rel of CORRECTED) {
+      const after = await read(cwd, rel);
+      expect(after, `${rel} should have been upgraded`).toBe(
+        MATCH_HARNESS_FILES.find((f) => f.rel === rel)!.template,
+      );
+      expect(after).not.toContain("prismic-seed");
+      expect(after).toContain("scripts/import/migrate.example.ts");
+      expect(result.notes).toContain(`${rel} upgraded from a previous version`);
+    }
+    expect(result.notes ?? "").not.toContain("hand-edited?");
+    // Only the two files moved; the matching/ scripts were already current.
+    expect(result.notes ?? "").not.toMatch(/matching\/\S+ upgraded/);
   });
 });
 
