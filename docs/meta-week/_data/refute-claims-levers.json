@@ -3,118 +3,118 @@
     "id": "c01",
     "claim": "UserPromptSubmit and Stop hooks block by returning hookSpecificOutput.permissionDecision set to \"deny\".",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:1356-1378",
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:2571-2590"
+      "docs/meta-week/_corpus/hooks.md:1360-1382",
+      "docs/meta-week/_corpus/hooks.md:2575-2594"
     ]
   },
   {
     "id": "c02",
     "claim": "skillListingBudgetFraction defaults to 0.01, reserving 1% of the context window.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/settings-reference.md:2816-2824"
+      "docs/meta-week/_corpus/settings-reference.md:2820-2828"
     ]
   },
   {
     "id": "c03",
     "claim": "The concurrency limit that binds a fan-out first is CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY, whose default is 10 and which gates subagents as well as read-only tools — not the 20-subagent CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS cap.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/env-vars.md:297-303",
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/sub-agents.md:1013-1024"
+      "docs/meta-week/_corpus/env-vars.md:297-303",
+      "docs/meta-week/_corpus/sub-agents.md:1018-1029"
     ]
   },
   {
     "id": "c04",
     "claim": "A SubagentStop hook has no access to the subagent final message and must parse the transcript to get it.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:2362-2375"
+      "docs/meta-week/_corpus/hooks.md:2366-2379"
     ]
   },
   {
     "id": "c05",
     "claim": "--max-budget-usd works in print mode only, so it cannot cap the spend of an interactive session.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/cli-reference.md:100-104"
+      "docs/meta-week/_corpus/cli-reference.md:100-104"
     ]
   },
   {
     "id": "c06",
     "claim": "Ctrl+X Ctrl+K stops all running background subagents in the session, and must be pressed twice within 3 seconds to confirm.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/interactive-mode.md:18-26"
+      "docs/meta-week/_corpus/interactive-mode.md:18-26"
     ]
   },
   {
     "id": "c07",
     "claim": "A PreCompact hook can inject context into the session across the compaction by returning systemMessage and additionalContext.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:3013-3034",
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:1010-1022"
+      "docs/meta-week/_corpus/hooks.md:3017-3038",
+      "docs/meta-week/_corpus/hooks.md:1010-1022"
     ]
   },
   {
     "id": "c08",
     "claim": "Sixteen hook events are marked \"Can block? Yes\" in the hooks reference exit-code-2 table.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:876-924"
+      "docs/meta-week/_corpus/hooks.md:876-924"
     ]
   },
   {
     "id": "c09",
     "claim": "There are five permission modes and the default one is named \"manual\".",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:746-762",
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/sub-agents.md:290-300"
+      "docs/meta-week/_corpus/hooks.md:746-762",
+      "docs/meta-week/_corpus/sub-agents.md:292-302"
     ]
   },
   {
     "id": "c10",
     "claim": "With ENABLE_TOOL_SEARCH unset, Claude Code defers all MCP tools by default; setting it to auto loads them upfront when their definitions fit within 10% of context, so auto reduces deferral rather than increasing it.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/env-vars.md:430-436"
+      "docs/meta-week/_corpus/env-vars.md:430-436"
     ]
   },
   {
     "id": "c11",
     "claim": "A SubagentStop hook receives agent_id, agent_type, agent_transcript_path and last_assistant_message, so it can read the subagent final response without parsing a transcript file.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:2362-2375"
+      "docs/meta-week/_corpus/hooks.md:2366-2379"
     ]
   },
   {
     "id": "c12",
     "claim": "A Stop hook cannot read the session tool history, so it cannot tell whether the tests were run.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:746-762",
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:2590-2600"
+      "docs/meta-week/_corpus/hooks.md:746-762",
+      "docs/meta-week/_corpus/hooks.md:2594-2604"
     ]
   },
   {
     "id": "c13",
     "claim": "A UserPromptSubmit hook can add context to the conversation by returning hookSpecificOutput.additionalContext, and UserPromptSubmit is on the list of events whose returned context is delivered.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:1010-1022",
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:1356-1378"
+      "docs/meta-week/_corpus/hooks.md:1010-1022",
+      "docs/meta-week/_corpus/hooks.md:1360-1382"
     ]
   },
   {
     "id": "c14",
     "claim": "maxEffortLevel has Any file scope — it is not managed-settings-only — and a value of \"max\" sets no cap.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/settings-reference.md:1003-1012"
+      "docs/meta-week/_corpus/settings-reference.md:1003-1012"
     ]
   },
   {
     "id": "c15",
     "claim": "PreCompact is a logging-only event: a PreCompact hook cannot block a compaction.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/hooks.md:3013-3034"
+      "docs/meta-week/_corpus/hooks.md:3017-3038"
     ]
   },
   {
     "id": "c16",
     "claim": "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION was removed in v2.1.224 and is now a no-op; it no longer caps the number of subagents spawned in one session.",
     "evidence": [
-      "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/7edcf443-00eb-47b6-aaaf-f857cb2d93f8/scratchpad/docs/env-vars.md:301"
+      "docs/meta-week/_corpus/env-vars.md:301"
     ]
   }
 ]

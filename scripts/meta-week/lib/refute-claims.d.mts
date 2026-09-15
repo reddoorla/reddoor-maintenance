@@ -52,8 +52,15 @@ export const DEFAULT_MODEL: string;
 export const CHORE_MODEL: string;
 
 export function parseEvidenceRef(ref: string): EvidenceRef | null;
+export function resolveEvidencePath(p: string, repoRoot?: string): string;
+export function resolveEvidenceRef(ref: string, repoRoot?: string): EvidenceRef | null;
+export function formatEvidenceRef(ref: string, repoRoot?: string): string;
 export function validateClaims(parsed: unknown): { claims: ParsedClaim[]; errors: string[] };
 export function chunkClaims<T>(claims: T[], size?: number): T[][];
 export function estimateRound(claimCount: number, chunk?: number): RoundEstimate;
 export function formatEstimate(est: RoundEstimate): string;
-export function enforceQuoteRule(verdict: unknown, claim?: unknown): EnforcedVerdict;
+export function enforceQuoteRule(
+  verdict: unknown,
+  claim?: unknown,
+  repoRoot?: string,
+): EnforcedVerdict;

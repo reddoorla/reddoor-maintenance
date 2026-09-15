@@ -80,6 +80,47 @@ export function parseEvidenceRef(ref) {
 }
 
 /**
+ * Resolve one evidence path against the evidence checkout's root — the `repoRoot` the guard
+ * already derives from the claims file's own directory.
+ *
+ * The claims packages cite the docs corpus repo-relative (`docs/meta-week/_corpus/hooks.md`)
+ * because the corpus is third-party documentation, re-fetched per checkout by
+ * `scripts/meta-week/fetch-corpus.mjs` and therefore at a different absolute path in every
+ * worktree. The first version of these packages hard-coded one session's scratchpad
+ * (`/private/tmp/claude-501/.../scratchpad/docs/`), which no later session could open: every
+ * skeptic would have filled `readFailed` and the round would have returned 16 findings about
+ * nothing. An ABSOLUTE path is returned unchanged, so a package citing files outside the
+ * checkout keeps working.
+ *
+ * String work only, no `node:path`: a workflow script has no module loader.
+ */
+export function resolveEvidencePath(p, repoRoot) {
+  if (typeof p !== "string" || p.trim() === "") return p;
+  const rel = p.trim();
+  if (rel.startsWith("/")) return rel;
+  if (typeof repoRoot !== "string" || repoRoot.trim() === "") return rel;
+  return `${repoRoot.trim().replace(/\/+$/, "")}/${rel.replace(/^\.\//, "")}`;
+}
+
+/** `parseEvidenceRef`, with the path resolved against `repoRoot`. Null on an unparseable ref. */
+export function resolveEvidenceRef(ref, repoRoot) {
+  const parsed = parseEvidenceRef(ref);
+  if (parsed === null) return null;
+  return { ...parsed, path: resolveEvidencePath(parsed.path, repoRoot) };
+}
+
+/**
+ * The citation as a skeptic should see it: a path it can actually open, with the line range
+ * kept. An unparseable ref is passed through verbatim rather than dropped — the skeptic is
+ * told to report what it could not read, and a silently missing line is worse than a bad one.
+ */
+export function formatEvidenceRef(ref, repoRoot) {
+  const r = resolveEvidenceRef(ref, repoRoot);
+  if (r === null) return String(ref);
+  return r.from === r.to ? `${r.path}:${r.from}` : `${r.path}:${r.from}-${r.to}`;
+}
+
+/**
  * Validate a parsed claims file. Returns `{ claims, errors }`, and `claims` is empty
  * whenever `errors` is not — a partly-valid package is not a package. A bad claims file
  * is the cheapest failure in the round; sixteen skeptics discovering it one at a time,
@@ -195,13 +236,17 @@ export function formatEstimate(est) {
  * paths. A confirmation citing nothing is an assertion, so this downgrades it to `unclear`
  * rather than letting it through — the instrument enforces it, not the prompt. Refutations
  * are left alone; `refuted` is the round's default verdict and carries no such privilege.
+ *
+ * `repoRoot` is optional and only sharpens the comparison: both sides are resolved against
+ * it first, so a relative evidence path and the absolute `quoteSource` a skeptic reports
+ * after opening the file compare as the same path rather than via the suffix fallback below.
  */
-export function enforceQuoteRule(verdict, claim) {
+export function enforceQuoteRule(verdict, claim, repoRoot) {
   if (verdict.verdict !== "confirmed") return { ...verdict, downgraded: false };
-  const ref = parseEvidenceRef(verdict.quoteSource);
+  const ref = resolveEvidenceRef(verdict.quoteSource, repoRoot);
   const quoted = typeof verdict.quote === "string" && verdict.quote.trim() !== "";
   const paths = ((claim && claim.evidence) || [])
-    .map((e) => (parseEvidenceRef(e) || {}).path)
+    .map((e) => (resolveEvidenceRef(e, repoRoot) || {}).path)
     .filter(Boolean);
   const onEvidence =
     ref !== null &&

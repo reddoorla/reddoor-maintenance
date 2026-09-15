@@ -9,6 +9,33 @@
 // plan whose claims cannot be re-derived from a file.
 //
 // ---------------------------------------------------------------------------------------
+// REGENERATING THE CORPUS — do this BEFORE either control, every time
+// ---------------------------------------------------------------------------------------
+//
+// The two controls below cite third-party documentation, not repo files: 40 pages of
+// https://code.claude.com/docs/ fetched on 2026-09-14. That corpus is NOT committed (it is
+// someone else's docs, and `.gitignore` keeps it out); it is re-fetched into
+// `docs/meta-week/_corpus/` on demand, and the claims cite it repo-relative from there.
+//
+//     node scripts/meta-week/fetch-corpus.mjs        # exits 1 on drift or failure
+//
+// Every page is checked against the sha256 recorded in
+// `docs/meta-week/_data/refute-claims-corpus.manifest.json`, which is the copy the claims'
+// line anchors were written against. A `drift` line means THAT PAGE CHANGED UNDER A CLAIM:
+// the docs are live and edited daily, so the cited line numbers may now point at different
+// text, and the round's verdict on every claim citing that page means nothing until those
+// anchors are re-derived by hand. Find them with
+//
+//     grep -n '<page>.md' docs/meta-week/_data/refute-claims-levers*.json
+//
+// Re-anchor the claims, then re-run. `--update` rewrites the manifest to today's bytes and
+// is only correct once that re-anchoring is done — it is not a way to turn a red run green,
+// and running it first destroys the record of what the claims were actually written against.
+//
+// The corpus was already drifting 20/40 pages within six hours of being taken, so assume it
+// is stale and check, rather than assuming the last run's copy is still good.
+//
+// ---------------------------------------------------------------------------------------
 // THE TWO CONTROLS — run both before this script is called proven
 // ---------------------------------------------------------------------------------------
 //
@@ -170,6 +197,47 @@ function parseEvidenceRef(ref) {
 }
 
 /**
+ * Resolve one evidence path against the evidence checkout's root — the `repoRoot` the guard
+ * already derives from the claims file's own directory.
+ *
+ * The claims packages cite the docs corpus repo-relative (`docs/meta-week/_corpus/hooks.md`)
+ * because the corpus is third-party documentation, re-fetched per checkout by
+ * `scripts/meta-week/fetch-corpus.mjs` and therefore at a different absolute path in every
+ * worktree. The first version of these packages hard-coded one session's scratchpad
+ * (`/private/tmp/claude-501/.../scratchpad/docs/`), which no later session could open: every
+ * skeptic would have filled `readFailed` and the round would have returned 16 findings about
+ * nothing. An ABSOLUTE path is returned unchanged, so a package citing files outside the
+ * checkout keeps working.
+ *
+ * String work only, no `node:path`: a workflow script has no module loader.
+ */
+function resolveEvidencePath(p, repoRoot) {
+  if (typeof p !== "string" || p.trim() === "") return p;
+  const rel = p.trim();
+  if (rel.startsWith("/")) return rel;
+  if (typeof repoRoot !== "string" || repoRoot.trim() === "") return rel;
+  return `${repoRoot.trim().replace(/\/+$/, "")}/${rel.replace(/^\.\//, "")}`;
+}
+
+/** `parseEvidenceRef`, with the path resolved against `repoRoot`. Null on an unparseable ref. */
+function resolveEvidenceRef(ref, repoRoot) {
+  const parsed = parseEvidenceRef(ref);
+  if (parsed === null) return null;
+  return { ...parsed, path: resolveEvidencePath(parsed.path, repoRoot) };
+}
+
+/**
+ * The citation as a skeptic should see it: a path it can actually open, with the line range
+ * kept. An unparseable ref is passed through verbatim rather than dropped — the skeptic is
+ * told to report what it could not read, and a silently missing line is worse than a bad one.
+ */
+function formatEvidenceRef(ref, repoRoot) {
+  const r = resolveEvidenceRef(ref, repoRoot);
+  if (r === null) return String(ref);
+  return r.from === r.to ? `${r.path}:${r.from}` : `${r.path}:${r.from}-${r.to}`;
+}
+
+/**
  * Validate a parsed claims file. Returns `{ claims, errors }`, and `claims` is empty
  * whenever `errors` is not — a partly-valid package is not a package. A bad claims file
  * is the cheapest failure in the round; sixteen skeptics discovering it one at a time,
@@ -285,13 +353,17 @@ function formatEstimate(est) {
  * paths. A confirmation citing nothing is an assertion, so this downgrades it to `unclear`
  * rather than letting it through — the instrument enforces it, not the prompt. Refutations
  * are left alone; `refuted` is the round's default verdict and carries no such privilege.
+ *
+ * `repoRoot` is optional and only sharpens the comparison: both sides are resolved against
+ * it first, so a relative evidence path and the absolute `quoteSource` a skeptic reports
+ * after opening the file compare as the same path rather than via the suffix fallback below.
  */
-function enforceQuoteRule(verdict, claim) {
+function enforceQuoteRule(verdict, claim, repoRoot) {
   if (verdict.verdict !== "confirmed") return { ...verdict, downgraded: false };
-  const ref = parseEvidenceRef(verdict.quoteSource);
+  const ref = resolveEvidenceRef(verdict.quoteSource, repoRoot);
   const quoted = typeof verdict.quote === "string" && verdict.quote.trim() !== "";
   const paths = ((claim && claim.evidence) || [])
-    .map((e) => (parseEvidenceRef(e) || {}).path)
+    .map((e) => (resolveEvidenceRef(e, repoRoot) || {}).path)
     .filter(Boolean);
   const onEvidence =
     ref !== null &&
@@ -505,8 +577,8 @@ function refutePrompt(c) {
 
 CLAIM ${c.id}: ${c.claim}
 
-Evidence cited for it (path:line, relative to ${guard.repoRoot} unless absolute):
-${c.evidence.map((e) => `  - ${e}`).join("\n")}
+Evidence cited for it (path:line, already resolved against the evidence checkout at ${guard.repoRoot} — open them exactly as written):
+${c.evidence.map((e) => `  - ${formatEvidenceRef(e, guard.repoRoot)}`).join("\n")}
 
 THE RULES OF THIS ROUND, all three learned the hard way:
 
@@ -541,7 +613,7 @@ for (const batch of batches) {
 }
 
 const byId = new Map(claims.map((c) => [c.id, c]));
-const verdicts = results.map((r) => enforceQuoteRule(r, byId.get(r.id)));
+const verdicts = results.map((r) => enforceQuoteRule(r, byId.get(r.id), guard.repoRoot));
 const downgraded = verdicts.filter((v) => v.downgraded);
 if (downgraded.length > 0) {
   log(
