@@ -42,6 +42,20 @@ describe("reports/header-image capture", () => {
     expect(seen?.settleMs).toBe(9000);
   });
 
+  it("passes a per-site consentSelector through to the shooter, and omits the key when unset (#654)", async () => {
+    const seen: Array<Parameters<Shooter["shoot"]>[0]> = [];
+    const s = shooter({
+      shoot: async (opts) => {
+        seen.push(opts);
+        return new Uint8Array([9]);
+      },
+    });
+    await captureHomepage("https://acme.com/", { shooter: s, consentSelector: "#gdpr" });
+    await captureHomepage("https://acme.com/", { shooter: s });
+    expect(seen[0]?.consentSelector).toBe("#gdpr");
+    expect("consentSelector" in seen[1]!).toBe(false);
+  });
+
   it("propagates a capture failure rather than returning empty bytes", async () => {
     await expect(
       captureHomepage("https://acme.com/", {

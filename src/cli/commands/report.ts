@@ -108,11 +108,13 @@ export async function runReportCommand(
       // stampSent's Turso shadow, routed through mirrorWrite so the freeze
       // switch owns the semantics: strict rethrows and the send loop reds the
       // run. Mirrors stampSent exactly — the 409 replay path leaves Airtable's
-      // `Resend message ID` untouched, so the shadow omits it there too.
+      // `Resend message ID` untouched, so the shadow omits it there too. The
+      // row count is handed through (#647): a stamp for a report row Turso
+      // never held is `missed`, not a green no-op.
       reportSentMirror: (reportId, sentAt, messageId) =>
         mirrorWrite(`stamp-sent ${reportId}`, async () => {
           const db = await openDb(readDbConfig());
-          await mirrorReportPatch(db, reportId, {
+          return mirrorReportPatch(db, reportId, {
             sent_at: sentAt.toISOString(),
             ...(messageId !== null ? { resend_message_id: messageId } : {}),
           });

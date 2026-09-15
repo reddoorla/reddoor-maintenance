@@ -349,14 +349,24 @@ in code from `resolveDashboardBaseUrl` so it cannot drift from the registered
 value. Google permits no wildcards, which is why deploy previews cannot use
 Google sign-in and keep the shared password instead.
 
-**2. Netlify environment variables.**
+**2. Netlify environment variables.** Link the checkout to the site first, and
+read every variable back: `netlify env:set` accepts `--site <id>` as a global
+flag and silently ignores it, and outside a linked directory it writes nothing
+and still exits 0 (#710). The read-back is the positive artefact; exit 0 is not.
 
 ```bash
+netlify link --id <reddoor-maintenance site id>   # once per checkout; env:set has no working --site
 netlify env:set GOOGLE_OAUTH_CLIENT_ID     "…" --context production
 netlify env:set GOOGLE_OAUTH_CLIENT_SECRET "…" --context production --secret
 netlify env:set DASHBOARD_SESSION_SECRET   "$(openssl rand -base64 32)" --context production --secret
 netlify env:set DASHBOARD_ALLOWED_EMAILS   "…,…,…" --context production
+netlify env:list --plain --context production | grep -E "GOOGLE_OAUTH_CLIENT_ID|GOOGLE_OAUTH_CLIENT_SECRET|DASHBOARD_SESSION_SECRET|DASHBOARD_ALLOWED_EMAILS"
 ```
+
+The `grep` must print all four keys before moving on. Note that `env:list`
+merges `netlify.toml`'s `build.environment` into its output, so a listing that
+shows only `NODE_VERSION` is an unconfigured site, not a partially configured
+one.
 
 `netlify env:clone` writes masked garbage for secret variables, so anything
 marked `--secret` must be set explicitly per context. That has bitten this fleet

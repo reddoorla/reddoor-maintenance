@@ -3,7 +3,17 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -28,8 +38,9 @@ import {
   MATCH_HARNESS_PREVIOUS,
   UNGUARDED_TWIN_TELL,
 } from "../../src/recipes/match-harness/template.js";
-import type { SpawnFn, SpawnOptions } from "../../src/audits/util/spawn.js";
+import { defaultSpawn, type SpawnFn, type SpawnOptions } from "../../src/audits/util/spawn.js";
 import { PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
+import { CLAUDE_MD_BLOCK_0_95_1 } from "../../src/recipes/match-harness/previous.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -757,6 +768,86 @@ describe("recipes/match-harness", () => {
     expect(second.notes ?? "").not.toContain("differs from the shipped template");
   });
 
+  // --- the two halves joined (#740)
+  //
+  // `resolveTargetPrettier` REALPATHS the site's `node_modules/.bin/prettier`
+  // and the recipe spawns that absolute path. The recorder case above proves
+  // the path; the real-prettier cases above inject `resolvePrettier` and run
+  // the repo's prettier un-realpathed. Nothing had ever executed what the
+  // resolver returns. On a pnpm site `.bin/prettier` is a 755 shim and realpath
+  // is the identity, so the distinction never bit; on an npm or yarn site it is
+  // a SYMLINK into `node_modules/prettier/bin/prettier.cjs`, and the spawn runs
+  // whatever that resolves to.
+
+  /** An npm/yarn-shaped install: `node_modules/prettier` is this repo's prettier
+   *  package and `.bin/prettier` a RELATIVE symlink into its bin — the shape
+   *  `resolveTargetPrettier`'s realpath exists for. */
+  async function npmShapedPrettierSite(binTarget: string): Promise<string> {
+    const cwd = await foreignPrettierSite();
+    // node_modules must be ignored first or the clean-tree gate throws on it.
+    await seed(cwd, ".gitignore", "node_modules\n");
+    await mkdir(join(cwd, "node_modules", ".bin"), { recursive: true });
+    await symlink(binTarget, join(cwd, "node_modules", ".bin", "prettier"));
+    return cwd;
+  }
+
+  it("runs the prettier the resolver finds — a real spawn, a real symlinked binary, no override", async () => {
+    const pkg = await realpath(resolve(here, "../../node_modules/prettier"));
+    const cwd = await npmShapedPrettierSite("../prettier/bin/prettier.cjs");
+    await symlink(pkg, join(cwd, "node_modules", "prettier"));
+    // The realpath crosses BOTH links and lands on a file that is not the
+    // symlink the site holds.
+    const resolved = await realpath(join(cwd, "node_modules", ".bin", "prettier"));
+    expect(resolved).not.toBe(join(cwd, "node_modules", ".bin", "prettier"));
+    expect(resolved.endsWith("/prettier.cjs")).toBe(true);
+
+    // No `spawn` double, no `resolvePrettier` override: the recipe resolves and
+    // executes on its own.
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: defaultSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(result.notes ?? "").not.toContain(PRETTIER_FLAG_NOTE);
+
+    // POSITIVE CONTROL, same as the injected case: the site's own config
+    // (tabs, single quotes) rewrote a site-owned record, so prettier really
+    // executed through the resolved path. And no recipe-owned file moved.
+    const sitePages = owned("site").find((f) => f.rel === "src/lib/site-pages.js")!;
+    expect(await read(cwd, sitePages.rel)).not.toBe(sitePages.template);
+    for (const f of owned("recipe"))
+      expect(await read(cwd, f.rel), `${f.rel} was reformatted on install`).toBe(f.template);
+  });
+
+  it("a symlink into a non-executable prettier flags, and never throws", async () => {
+    // The npm/yarn shape with the executable bit missing on the TARGET: the
+    // symlink resolves cleanly, so `resolveTargetPrettier` returns a real path,
+    // and it is the spawn that fails (EACCES). That must land as the documented
+    // degraded path — commit + PRETTIER_FLAG_NOTE — not as an uncaught throw
+    // that force-restores the checkout.
+    const cwd = await npmShapedPrettierSite("../prettier-noexec/bin/prettier.cjs");
+    const target = join(cwd, "node_modules", "prettier-noexec", "bin", "prettier.cjs");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "#!/usr/bin/env node\nprocess.exit(0);\n", { mode: 0o644 });
+    await chmod(target, 0o644);
+    expect(await realpath(join(cwd, "node_modules", ".bin", "prettier"))).toBe(
+      await realpath(target),
+    );
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: defaultSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(result.commits).toHaveLength(1);
+    expect(result.notes).toContain(PRETTIER_FLAG_NOTE);
+    // Nothing was formatted: the site-owned record is still the template.
+    const sitePages = owned("site").find((f) => f.rel === "src/lib/site-pages.js")!;
+    expect(await read(cwd, sitePages.rel)).toBe(sitePages.template);
+  });
+
   it("puts every recipe-owned file in the site's .prettierignore, brackets escaped", async () => {
     const cwd = await foreignPrettierSite();
     await matchHarness(
@@ -1010,6 +1101,25 @@ describe("recipes/match-harness", () => {
     // the count of runs the green is made of, so a green over nothing reads
     // differently from a green over the matrix
     expect(out).toMatch(/3 censused run\(s\) over 1 page\(s\)/);
+    expect(code).toBe(0);
+  });
+
+  it("census.sh honours matching/PAUSED: exit 0, and no census is spawned (#735)", async () => {
+    // next.mjs and strikes.mjs both exit 0 on the switch as their first act;
+    // census.sh read it never, so a paused site would spend every browser pair
+    // against the live reference. The proof is the artefact a census leaves:
+    // with PAUSED present, no census-<page>-<vw>.log may exist afterwards.
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    await writeFile(join(cwd, "matching/PAUSED"), "paused by test\n", "utf-8");
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "clean",
+    });
+    expect(out).toMatch(/MATCHING PAUSED/);
+    expect(out).toMatch(/paused by test/);
+    expect(out).not.toMatch(/Phase 3/);
+    expect(await exists(cwd, "matching/census-home-1440.log")).toBe(false);
     expect(code).toBe(0);
   });
 
@@ -1657,6 +1767,45 @@ describe("a marked block on a site that already carries one (#739)", () => {
     expect(second.notes ?? "").not.toContain("CLAUDE.md");
   });
 
+  it("upgrades the 0.95.1 CLAUDE.md block through the SHIPPED table, in both shapes it left behind", async () => {
+    // No `blockPrevious` injection: this is the table sites actually get. The
+    // 0.95.1 block is the first block body ever superseded (#736), so this is
+    // the first time the shipped table has had to do anything at all.
+    expect(CLAUDE_MD_BLOCK_0_95_1).not.toBe(CLAUDE_MD_BLOCK);
+    expect(CLAUDE_MD_BLOCK_0_95_1).not.toMatch(/census\.sh/);
+    expect(CLAUDE_MD_BLOCK).toMatch(/census\.sh/);
+    const prose = "# Site rules\n\nExisting prose the site owns.\n\n";
+
+    // Shape 1 — terminated, as 0.95.1 leaves every site it has run on.
+    const terminated = await copyFixtureToTmp(pristine);
+    await seed(
+      terminated,
+      "CLAUDE.md",
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK_0_95_1, CLAUDE_MD_END_MARKER),
+    );
+    const r1 = await matchHarness(
+      { path: terminated },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(r1.status).toBe("applied");
+    expect(await read(terminated, "CLAUDE.md")).toBe(
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK, CLAUDE_MD_END_MARKER),
+    );
+    expect(r1.notes).toContain("CLAUDE.md's match-harness block upgraded from a previous version");
+    expect(r1.notes ?? "").not.toContain("left alone");
+
+    // Shape 2 — the v1 marker-only region a 0.95.0 site still carries.
+    const v1 = await copyFixtureToTmp(pristine);
+    await seed(v1, "CLAUDE.md", prose + v1Region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK_0_95_1));
+    const r2 = await matchHarness({ path: v1 }, { ref: "https://ref.test" }, { spawn: noopSpawn });
+    expect(r2.status).toBe("applied");
+    expect(await read(v1, "CLAUDE.md")).toBe(
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK, CLAUDE_MD_END_MARKER),
+    );
+    expect(r2.notes).toContain("CLAUDE.md's match-harness block upgraded from a previous version");
+  });
+
   it("an end marker can never be mistaken for a start marker", () => {
     const pairs: Array<[string, string, string]> = [
       ["GITIGNORE", GITIGNORE_MARKER, GITIGNORE_END_MARKER],
@@ -2150,6 +2299,95 @@ describe("the installed harness reports, not just refuses", () => {
     expect(code).toBe(1); // work remains: rule 5's loop keeps going
     expect(out).not.toMatch(/no parseable gate run/);
     expect(out).not.toMatch(/NOT SCORABLE/);
+  });
+
+  it("next.mjs refuses a SHORT report — fewer regions than the anchors predict — with exit 2 (#756)", async () => {
+    // Two anchors, matrix of 3: TOTALS is 9. A report carrying 8 is fully
+    // countable (none of uncountable's arms counts regions), contributes no
+    // failing region, and used to fall through to "Backlog is empty", exit 0.
+    const cwd = await install();
+    await withAnchors(cwd, "home", ["Section A", "Section B"]);
+    const full = [1440, 834, 390].flatMap((viewport) =>
+      ["top", "Section A", "Section B"].map((label) => ({
+        viewport,
+        label,
+        mismatchFraction: 0.01,
+        pass: true,
+      })),
+    );
+    await writeReport(cwd, "out-smoke-home", full.slice(0, 8));
+
+    const short = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(short.out).toMatch(
+      /home: 8 region\(s\), expected 9 = \(2 anchors \+ 1\) x 3 viewport\(s\)/,
+    );
+    expect(short.out).not.toMatch(/Backlog is empty/);
+    expect(short.code).toBe(2);
+  });
+
+  it("next.mjs still GRANTS the same corpus once the report is full (#756 control)", async () => {
+    const cwd = await install();
+    await withAnchors(cwd, "home", ["Section A", "Section B"]);
+    const full = [1440, 834, 390].flatMap((viewport) =>
+      ["top", "Section A", "Section B"].map((label) => ({
+        viewport,
+        label,
+        mismatchFraction: 0.01,
+        pass: true,
+      })),
+    );
+    await writeReport(cwd, "out-smoke-home", full);
+
+    const ok = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(ok.out).toMatch(/SCORE 9\/9 regions passing/);
+    expect(ok.out).toMatch(/Backlog is empty/);
+    expect(ok.out).not.toMatch(/expected 9/);
+    expect(ok.code).toBe(0);
+  });
+
+  /** Four completed runs of the same anchored corpus, one failing region flat
+   *  across all of them — exactly what the stall detector must report, unless
+   *  the operator has ruled on it. FOUR, not three: the first run sets the
+   *  baseline and a strike is a run that failed to improve on it, so three
+   *  identical runs are two strikes and read "clear" — the control below
+   *  measured that with a three-run corpus. strikes.mjs reads `meta.ref` to
+   *  attribute a run to its page and `meta.generatedAt` to order them. */
+  async function flatCorpus(cwd: string): Promise<void> {
+    await withAnchors(cwd, "home", ["Section A"]);
+    for (const [i, at] of ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"].entries()) {
+      await writeReport(cwd, `out-r${i + 1}-home`, CORPUS_ANCHORED, {
+        ref: "https://ref.test/",
+        generatedAt: `${at}T00:00:00.000Z`,
+      });
+    }
+  }
+
+  it("strikes.mjs reports the flat region as STALLED when nobody has ruled on it (#772 control)", async () => {
+    const cwd = await install();
+    await flatCorpus(cwd);
+    const { code, out } = await runIn(cwd, "node", ["matching/strikes.mjs"]);
+    expect(out).toMatch(/STALLED — 1 failing region\(s\)/);
+    expect(out).toMatch(/home @1440 {2}"top"/);
+    expect(code).toBe(1);
+  });
+
+  it("strikes.mjs skips an operator-ACCEPTED region and says how many it skipped (#772)", async () => {
+    const cwd = await install();
+    await flatCorpus(cwd);
+    await writeFile(
+      join(cwd, "matching/floors.mjs"),
+      `export const FLOORS = [];
+export const ACCEPTED = [
+  { match: (r, page) => page === "home" && r.viewport === 1440 && r.label === "top", why: "left failing on purpose" },
+];
+`,
+      "utf-8",
+    );
+    const { code, out } = await runIn(cwd, "node", ["matching/strikes.mjs"]);
+    expect(out).toMatch(/1 region\(s\) skipped as operator-accepted/);
+    expect(out).toMatch(/strikes: clear/);
+    expect(out).not.toMatch(/STALLED/);
+    expect(code).toBe(0);
   });
 
   it("next.mjs exits 0 with no agenda once every region passes", async () => {
@@ -3072,5 +3310,40 @@ describe("a 0.95.1 install takes the #763 prose correction", () => {
     expect(result.notes ?? "").not.toContain("hand-edited?");
     // Only the two files moved; the matching/ scripts were already current.
     expect(result.notes ?? "").not.toMatch(/matching\/\S+ upgraded/);
+  });
+});
+
+/**
+ * next.mjs is the round protocol's step 0 and its closing advice is the first
+ * thing an operator is told to run on a failing agenda. It named
+ * `matching/probe-anchor-parity.mjs`, a site-specific probe the recipe never
+ * installs, so on every site but the source one the advice failed
+ * module-not-found (#732, #767) — and nothing asserted that a path an installed
+ * script tells the operator to run is a path the recipe installs. This is that
+ * assertion, over every template body, in both directions: a dangling mention
+ * and a manifest rename that leaves a sibling naming the old path.
+ */
+describe("every matching/ script an installed template names is one the recipe installs (#732)", () => {
+  const MENTION = /matching\/[A-Za-z0-9_.-]+\.(?:mjs|sh)/g;
+
+  it("names only manifest paths", () => {
+    const rels = new Set(MATCH_HARNESS_FILES.map((f) => f.rel));
+    const dangling: string[] = [];
+    for (const f of MATCH_HARNESS_FILES)
+      for (const m of f.template.matchAll(MENTION))
+        if (!rels.has(m[0])) dangling.push(`${f.rel} -> ${m[0]}`);
+    expect(dangling).toEqual([]);
+  });
+
+  it("the scan actually finds the mentions (a regex miss would pass the case above vacuously)", () => {
+    const found = new Set<string>();
+    for (const f of MATCH_HARNESS_FILES)
+      for (const m of f.template.matchAll(MENTION)) found.add(m[0]);
+    // gate.sh and harness.mjs are named by several siblings; a scan that finds
+    // neither is not scanning.
+    expect([...found]).toEqual(
+      expect.arrayContaining(["matching/gate.sh", "matching/harness.mjs"]),
+    );
+    expect(found.size).toBeGreaterThan(5);
   });
 });

@@ -79,6 +79,36 @@ describe("match-harness generator agrees with the committed template", () => {
 });
 
 /**
+ * The installed rules must name every gate the recipe installs. `census.sh` —
+ * the Phase 3 style gate, the only one that catches an 11px footer line or a
+ * cyan-vs-teal link the pixel diff is structurally blind to — was installed by
+ * the recipe and named by no rule, no Check line and no round-protocol step, so
+ * a fresh site had no instruction that would cause anyone to run it (#736).
+ */
+describe("the installed CLAUDE.md block names census.sh", () => {
+  it("as a Check on rule 4 and as a round-protocol step between the gate and the LEDGER", () => {
+    const rule4 = CLAUDE_MD_BLOCK.slice(
+      CLAUDE_MD_BLOCK.indexOf("### 4."),
+      CLAUDE_MD_BLOCK.indexOf("### 5."),
+    );
+    expect(rule4).toMatch(/\*\*Check:\*\*[^\n]*census\.sh/);
+
+    const protocol = CLAUDE_MD_BLOCK.slice(CLAUDE_MD_BLOCK.indexOf("### Round protocol"));
+    const steps = protocol.split(/\n(?=\d+\. )/).filter((s) => /^\d+\. /.test(s));
+    const at = (re: RegExp) => steps.findIndex((s) => re.test(s));
+    const gate = at(/matching\/gate\.sh/);
+    const census = at(/matching\/census\.sh/);
+    const ledger = at(/matching\/LEDGER\.md/);
+    expect(gate).toBeGreaterThanOrEqual(0);
+    expect(census, "no round-protocol step runs census.sh").toBeGreaterThanOrEqual(0);
+    expect(census).toBe(gate + 1);
+    expect(ledger).toBe(census + 1);
+    // Numbered contiguously after the insertion.
+    expect(steps.map((s) => s.match(/^(\d+)\. /)![1])).toEqual(steps.map((_, i) => String(i + 1)));
+  });
+});
+
+/**
  * MATCH_HARNESS_PREVIOUS is what lets an ALREADY-INSTALLED site take a fix: a
  * body that does not byte-match one of these is flagged as hand-edited and left
  * broken. A corrupted entry is therefore silent in the worst way — it does not
