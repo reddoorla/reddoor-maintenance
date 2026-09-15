@@ -2618,6 +2618,10 @@ self-describing, so a nonstandard threshold or an undisclosed mask is visible.
 The threshold and the matrix are whatever \`matching/harness.json\` says, on every
 page, never a subset.
 
+**Check:** \`bash matching/census.sh <page>\` exits 0 — the Phase 3 style gate,
+and the only one that sees an 11px footer line or a cyan-vs-teal link the pixel
+diff is structurally blind to. A remaining row is fixed at its source or
+declared in \`matching/census-deviations.mjs\` with a LEDGER line, never ignored.
 **Operator's challenge:** _"paste the gate header."_
 
 ### 5. A commit is a checkpoint, not a stopping point
@@ -2651,7 +2655,9 @@ operator's call.
    not.
 3. Fix, each change citing its source line.
 4. \`bash matching/gate.sh <tag> <page>\` — paste the header.
-5. Append to \`matching/LEDGER.md\` at the moment a deviation, floor or mask is
+5. \`bash matching/census.sh <page>\` — exits 0 or the round is not closed; a
+   remaining row is fixed at its source or declared with a LEDGER line.
+6. Append to \`matching/LEDGER.md\` at the moment a deviation, floor or mask is
    decided, not reconstructed at the end.
-6. \`pnpm verify\`, then commit and push.
+7. \`pnpm verify\`, then commit and push.
 `;
