@@ -3,7 +3,17 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -28,7 +38,7 @@ import {
   MATCH_HARNESS_PREVIOUS,
   UNGUARDED_TWIN_TELL,
 } from "../../src/recipes/match-harness/template.js";
-import type { SpawnFn, SpawnOptions } from "../../src/audits/util/spawn.js";
+import { defaultSpawn, type SpawnFn, type SpawnOptions } from "../../src/audits/util/spawn.js";
 import { PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
 import { CLAUDE_MD_BLOCK_0_95_1 } from "../../src/recipes/match-harness/previous.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
@@ -756,6 +766,86 @@ describe("recipes/match-harness", () => {
     );
     expect(second.status).toBe("noop");
     expect(second.notes ?? "").not.toContain("differs from the shipped template");
+  });
+
+  // --- the two halves joined (#740)
+  //
+  // `resolveTargetPrettier` REALPATHS the site's `node_modules/.bin/prettier`
+  // and the recipe spawns that absolute path. The recorder case above proves
+  // the path; the real-prettier cases above inject `resolvePrettier` and run
+  // the repo's prettier un-realpathed. Nothing had ever executed what the
+  // resolver returns. On a pnpm site `.bin/prettier` is a 755 shim and realpath
+  // is the identity, so the distinction never bit; on an npm or yarn site it is
+  // a SYMLINK into `node_modules/prettier/bin/prettier.cjs`, and the spawn runs
+  // whatever that resolves to.
+
+  /** An npm/yarn-shaped install: `node_modules/prettier` is this repo's prettier
+   *  package and `.bin/prettier` a RELATIVE symlink into its bin — the shape
+   *  `resolveTargetPrettier`'s realpath exists for. */
+  async function npmShapedPrettierSite(binTarget: string): Promise<string> {
+    const cwd = await foreignPrettierSite();
+    // node_modules must be ignored first or the clean-tree gate throws on it.
+    await seed(cwd, ".gitignore", "node_modules\n");
+    await mkdir(join(cwd, "node_modules", ".bin"), { recursive: true });
+    await symlink(binTarget, join(cwd, "node_modules", ".bin", "prettier"));
+    return cwd;
+  }
+
+  it("runs the prettier the resolver finds — a real spawn, a real symlinked binary, no override", async () => {
+    const pkg = await realpath(resolve(here, "../../node_modules/prettier"));
+    const cwd = await npmShapedPrettierSite("../prettier/bin/prettier.cjs");
+    await symlink(pkg, join(cwd, "node_modules", "prettier"));
+    // The realpath crosses BOTH links and lands on a file that is not the
+    // symlink the site holds.
+    const resolved = await realpath(join(cwd, "node_modules", ".bin", "prettier"));
+    expect(resolved).not.toBe(join(cwd, "node_modules", ".bin", "prettier"));
+    expect(resolved.endsWith("/prettier.cjs")).toBe(true);
+
+    // No `spawn` double, no `resolvePrettier` override: the recipe resolves and
+    // executes on its own.
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: defaultSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(result.notes ?? "").not.toContain(PRETTIER_FLAG_NOTE);
+
+    // POSITIVE CONTROL, same as the injected case: the site's own config
+    // (tabs, single quotes) rewrote a site-owned record, so prettier really
+    // executed through the resolved path. And no recipe-owned file moved.
+    const sitePages = owned("site").find((f) => f.rel === "src/lib/site-pages.js")!;
+    expect(await read(cwd, sitePages.rel)).not.toBe(sitePages.template);
+    for (const f of owned("recipe"))
+      expect(await read(cwd, f.rel), `${f.rel} was reformatted on install`).toBe(f.template);
+  });
+
+  it("a symlink into a non-executable prettier flags, and never throws", async () => {
+    // The npm/yarn shape with the executable bit missing on the TARGET: the
+    // symlink resolves cleanly, so `resolveTargetPrettier` returns a real path,
+    // and it is the spawn that fails (EACCES). That must land as the documented
+    // degraded path — commit + PRETTIER_FLAG_NOTE — not as an uncaught throw
+    // that force-restores the checkout.
+    const cwd = await npmShapedPrettierSite("../prettier-noexec/bin/prettier.cjs");
+    const target = join(cwd, "node_modules", "prettier-noexec", "bin", "prettier.cjs");
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, "#!/usr/bin/env node\nprocess.exit(0);\n", { mode: 0o644 });
+    await chmod(target, 0o644);
+    expect(await realpath(join(cwd, "node_modules", ".bin", "prettier"))).toBe(
+      await realpath(target),
+    );
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: defaultSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(result.commits).toHaveLength(1);
+    expect(result.notes).toContain(PRETTIER_FLAG_NOTE);
+    // Nothing was formatted: the site-owned record is still the template.
+    const sitePages = owned("site").find((f) => f.rel === "src/lib/site-pages.js")!;
+    expect(await read(cwd, sitePages.rel)).toBe(sitePages.template);
   });
 
   it("puts every recipe-owned file in the site's .prettierignore, brackets escaped", async () => {
