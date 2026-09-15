@@ -36,6 +36,7 @@ import {
   GATE_SH_TEMPLATE,
   LEDGER_MD_TEMPLATE,
   MATCH_HARNESS_PREVIOUS,
+  UNGUARDED_TWIN_TELL,
 } from "../../src/recipes/match-harness/template.js";
 import { defaultSpawn, type SpawnFn, type SpawnOptions } from "../../src/audits/util/spawn.js";
 import { PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
@@ -1981,7 +1982,9 @@ describe("the installed /dev/match route's production guard", () => {
     const cwd = await install();
     const out = await loadDevMatch(cwd, { dev: true, uid: "nope", sitePages: ONE_PAGE });
     expect(out.status).toBe(404);
-    expect(out.body?.message).toBe('no assembly for "nope" (have: home)');
+    // Prefixed with the machine tell the launch recipe's dev-guard denies on
+    // (#719); the prose after it is free to change.
+    expect(out.body?.message).toBe(`${UNGUARDED_TWIN_TELL}: no assembly for "nope" (have: home)`);
   });
 });
 
