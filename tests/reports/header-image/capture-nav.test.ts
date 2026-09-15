@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { defaultShooter } from "../../../src/reports/header-image/capture.js";
+import {
+  defaultShooter,
+  consentHideRule,
+  CONSENT_SELECTOR,
+  CONSENT_BUTTON_NAME,
+  type ShootOptions,
+} from "../../../src/reports/header-image/capture.js";
 
 /** Every call the fake page saw, in order, so assertions read off real calls
  *  rather than a re-implementation of the navigation. */
@@ -10,6 +16,9 @@ let closed = false;
 /** Set per-test to make the best-effort idle wait reject, the way a site with a
  *  chat widget or analytics polling makes it reject in production. */
 let idleRejects = false;
+/** Set per-test to make the best-effort consent click reject, the way a site
+ *  with no banner makes it reject in production (no button → click times out). */
+let consentClickRejects = false;
 
 const SHOT = new Uint8Array([137, 80, 78, 71]);
 
@@ -40,6 +49,22 @@ vi.mock("@playwright/test", () => {
       record("screenshot", ...args);
       return SHOT;
     },
+    addStyleTag: async (...args: unknown[]) => {
+      record("addStyleTag", ...args);
+    },
+    getByRole: (...args: unknown[]) => {
+      record("getByRole", ...args);
+      return {
+        first: () => ({
+          click: async (...clickArgs: unknown[]) => {
+            record("click", ...clickArgs);
+            if (consentClickRejects) {
+              throw new Error("locator.click: Timeout 1500ms exceeded.");
+            }
+          },
+        }),
+      };
+    },
   };
   return {
     chromium: {
@@ -57,7 +82,7 @@ vi.mock("@playwright/test", () => {
   };
 });
 
-async function shoot(): Promise<Uint8Array> {
+async function shoot(extra: Partial<ShootOptions> = {}): Promise<Uint8Array> {
   const s = await defaultShooter();
   return s.shoot({
     url: "https://acme.com/",
@@ -65,14 +90,18 @@ async function shoot(): Promise<Uint8Array> {
     height: 1000,
     deviceScaleFactor: 2,
     settleMs: 2500,
+    ...extra,
   });
 }
+
+const order = (name: string) => calls.findIndex((c) => c.name === name);
 
 describe("reports/header-image defaultShooter navigation", () => {
   beforeEach(() => {
     calls.length = 0;
     closed = false;
     idleRejects = false;
+    consentClickRejects = false;
   });
 
   it("navigates on the load milestone, never on networkidle", async () => {
@@ -114,5 +143,86 @@ describe("reports/header-image defaultShooter navigation", () => {
     await shoot();
     expect(calledWith("waitForLoadState")).toBeDefined();
     expect(closed).toBe(true);
+  });
+});
+
+// #654: Sonder's header shipped the cookie banner and its scrim over the hero —
+// "the least sexy version of the site". Settle time was irrelevant (the banner
+// never leaves on its own); dismissing it was the whole fix. The handling lives
+// here because `refreshHeaderImage` regenerates with no options, so nothing a
+// CLI flag carries would ever reach the automated path.
+describe("reports/header-image defaultShooter consent handling (#654)", () => {
+  beforeEach(() => {
+    calls.length = 0;
+    closed = false;
+    idleRejects = false;
+    consentClickRejects = false;
+  });
+
+  it("hides cookie/consent elements with a style tag before the shutter", async () => {
+    await shoot();
+    const style = calls.find(
+      (c) =>
+        c.name === "addStyleTag" &&
+        String((c.args[0] as { content?: string })?.content).includes("cookie"),
+    );
+    expect(style).toBeDefined();
+    expect((style!.args[0] as { content: string }).content).toBe(consentHideRule());
+    expect(order("addStyleTag")).toBeGreaterThan(order("evaluate"));
+    expect(order("addStyleTag")).toBeLessThan(order("screenshot"));
+  });
+
+  it("tries an accept/reject button first, on a short swallowed timeout, so the site unwinds its own scrim", async () => {
+    await shoot();
+    const role = calledWith("getByRole");
+    expect(role?.args[0]).toBe("button");
+    expect((role?.args[1] as { name: RegExp }).name).toBe(CONSENT_BUTTON_NAME);
+    const click = calledWith("click");
+    expect((click?.args[0] as { timeout: number }).timeout).toBeLessThanOrEqual(2000);
+    // The click comes before the style tag: once the rule hides the button it is
+    // no longer actionable, and the click would time out on every site.
+    expect(order("click")).toBeLessThan(order("addStyleTag"));
+    // And before the settle wait, so the settle absorbs the dismissal animation.
+    expect(order("click")).toBeLessThan(order("waitForTimeout"));
+  });
+
+  it("is a no-op where there is nothing to dismiss: a failed click still hides, settles and shoots", async () => {
+    consentClickRejects = true;
+    const bytes = await shoot();
+    expect(calledWith("click")).toBeDefined();
+    expect(bytes).toEqual(SHOT);
+    expect(calledWith("addStyleTag")).toBeDefined();
+    expect(calledWith("waitForTimeout")?.args[0]).toBe(2500);
+    expect(calledWith("screenshot")).toBeDefined();
+    expect(closed).toBe(true);
+  });
+
+  it("appends a per-site consentSelector to the hide rule for banners the heuristic misses", async () => {
+    await shoot({ consentSelector: "#gdpr-shield, .site-modal--newsletter" });
+    const style = calledWith("addStyleTag");
+    const css = (style?.args[0] as { content: string }).content;
+    expect(css).toContain(CONSENT_SELECTOR);
+    expect(css).toContain("#gdpr-shield, .site-modal--newsletter");
+  });
+});
+
+describe("reports/header-image consentHideRule", () => {
+  it("targets class and id substrings for cookie and consent, case-insensitively", () => {
+    expect(CONSENT_SELECTOR).toBe(
+      '[class*="cookie" i],[id*="cookie" i],[class*="consent" i],[id*="consent" i]',
+    );
+    const rule = consentHideRule();
+    expect(rule.startsWith(CONSENT_SELECTOR)).toBe(true);
+    expect(rule).toContain("display:none!important");
+  });
+
+  it("joins a custom selector onto the heuristic rather than replacing it", () => {
+    const rule = consentHideRule("#custom");
+    expect(rule.startsWith(`${CONSENT_SELECTOR},#custom{`)).toBe(true);
+  });
+
+  it("ignores an empty custom selector", () => {
+    expect(consentHideRule("")).toBe(consentHideRule());
+    expect(consentHideRule("   ")).toBe(consentHideRule());
   });
 });

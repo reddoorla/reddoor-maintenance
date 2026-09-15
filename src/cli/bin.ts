@@ -500,6 +500,10 @@ cli
   .option("--write-airtable", "Upload to the Websites row instead of writing a local file")
   .option("--out-dir <path>", "Directory for local output (default: reports/)")
   .option("--settle-ms <ms>", "Override the post-load settle delay for slow/animated homepages")
+  .option(
+    "--consent-selector <css>",
+    "Extra CSS selector(s) to hide before the shutter (consent UI the heuristic misses)",
+  )
   .action(
     async (
       site: string | undefined,
@@ -509,6 +513,7 @@ cli
         writeAirtable?: boolean;
         outDir?: string;
         settleMs?: string;
+        consentSelector?: string;
         cwd?: string;
         verbose?: boolean;
       },
