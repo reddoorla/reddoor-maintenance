@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeFile, mkdir, readFile, access, rm } from "node:fs/promises";
+import { writeFile, mkdir, readFile, access, rm, realpath } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -9,7 +9,8 @@ import {
   HEALTH_ENDPOINT_TEMPLATE,
   HEALTH_ENDPOINT_TEMPLATE_NO_PRISMIC,
 } from "../../src/recipes/health-endpoint/template.js";
-import type { SpawnFn, SpawnResult } from "../../src/audits/util/spawn.js";
+import { PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
+import type { SpawnFn, SpawnOptions, SpawnResult } from "../../src/audits/util/spawn.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,8 +23,14 @@ type SpawnCall = {
   cmd: string;
   args: string[];
   cwd: string | undefined;
+  opts: SpawnOptions | undefined;
   fileAtCall: string | null;
 };
+
+/** Stands in for a populated `node_modules/.bin`, so the absolute-path spawn
+ *  can be asserted without installing the fixture's devDependencies. */
+const SITE_PRETTIER = "/site/node_modules/.bin/prettier";
+const resolveSitePrettier = async () => SITE_PRETTIER;
 
 function recordingSpawn(result: SpawnResult = { code: 0, stdout: "", stderr: "" }): {
   spawn: SpawnFn;
@@ -37,7 +44,7 @@ function recordingSpawn(result: SpawnResult = { code: 0, stdout: "", stderr: "" 
     } catch {
       fileAtCall = null;
     }
-    calls.push({ cmd, args: [...args], cwd: opts?.cwd, fileAtCall });
+    calls.push({ cmd, args: [...args], cwd: opts?.cwd, opts, fileAtCall });
     return result;
   };
   return { spawn, calls };
@@ -69,25 +76,73 @@ describe("recipes/health-endpoint", () => {
     expect(written).toContain("export const prerender = false");
   });
 
-  it("runs the site's prettier on the written file BEFORE committing", async () => {
+  it("runs the SITE's own prettier by absolute path, under a timeout — never `pnpm exec` — BEFORE committing", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     const { spawn, calls } = recordingSpawn();
-    await healthEndpoint({ path: cwd }, { spawn });
+    const result = await healthEndpoint(
+      { path: cwd },
+      { spawn, resolvePrettier: resolveSitePrettier },
+    );
 
     expect(calls).toHaveLength(1);
     const [call] = calls;
     if (!call) throw new Error("expected prettier to be invoked");
-    expect(call.cmd).toBe("pnpm");
-    expect(call.args).toEqual(["exec", "prettier", "--write", HEALTH_ENDPOINT_RELATIVE]);
+    // The resolved binary itself, not `pnpm exec prettier`: on the fleet path
+    // the clone has no node_modules, and `pnpm exec` would first run a full,
+    // unbounded install in the client's repo and then fall through to the
+    // CALLING repo's prettier and exit 0 (#737).
+    expect(call.cmd).toBe(SITE_PRETTIER);
+    expect(call.args).toEqual(["--write", HEALTH_ENDPOINT_RELATIVE]);
+    expect(call.args).not.toContain("exec");
     expect(call.cwd).toBe(cwd);
+    // Without a timeout the default spawn never detaches and never kills.
+    expect(call.opts?.timeoutMs).toBe(60_000);
     // The file already existed on disk when prettier was invoked (write → format → commit).
     expect(call.fileAtCall).toBe(HEALTH_ENDPOINT_TEMPLATE);
+    // The green is positive: the target's own prettier ran and exited 0.
+    expect(result.status).toBe("applied");
+    expect(result.notes ?? "").not.toContain(PRETTIER_FLAG_NOTE);
   });
 
-  it("still commits (best-effort) when prettier is unavailable, flagging it in notes", async () => {
+  it("resolves that prettier from the checkout itself when none is injected", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    // node_modules must be ignored first or withRecipe's clean-tree gate throws on it.
+    await writeFile(join(cwd, ".gitignore"), "node_modules\n", "utf-8");
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "ignore node_modules"], { cwd, stdio: "ignore" });
+    await mkdir(join(cwd, "node_modules", ".bin"), { recursive: true });
+    await writeFile(join(cwd, "node_modules", ".bin", "prettier"), "#!/bin/sh\nexit 0\n", "utf-8");
+    const { spawn, calls } = recordingSpawn();
+
+    await healthEndpoint({ path: cwd }, { spawn });
+
+    // Not merely "not pnpm": the exact binary inside THIS checkout. realpath on
+    // both sides — mkdtemp hands back /var/folders/…, a symlink on macOS.
+    expect(calls.map((c) => c.cmd)).toEqual([
+      await realpath(join(cwd, "node_modules", ".bin", "prettier")),
+    ]);
+  });
+
+  it("never shells out into a clone with no prettier: it skips, flags, and still commits", async () => {
+    // The fleet path exactly — `prepareFleetSites` clones and never installs,
+    // so every site arrives without node_modules. Nothing may run there.
+    const cwd = await copyFixtureToTmp(pristine);
+    const { spawn, calls } = recordingSpawn();
+    const result = await healthEndpoint({ path: cwd }, { spawn });
+
+    expect(calls).toEqual([]);
+    expect(result.status).toBe("applied");
+    expect(result.commits).toHaveLength(1);
+    expect(result.notes).toContain(PRETTIER_FLAG_NOTE);
+  });
+
+  it("still commits (best-effort) when the site's prettier exits non-zero, flagging it in notes", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     const { spawn } = recordingSpawn({ code: 1, stdout: "", stderr: "prettier: not found" });
-    const result = await healthEndpoint({ path: cwd }, { spawn });
+    const result = await healthEndpoint(
+      { path: cwd },
+      { spawn, resolvePrettier: resolveSitePrettier },
+    );
 
     expect(result.status).toBe("applied");
     expect(result.commits).toHaveLength(1);
