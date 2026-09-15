@@ -3,14 +3,23 @@ import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
-import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
 import {
   HEALTH_ENDPOINT_RELATIVE,
   HEALTH_ENDPOINT_TEMPLATE,
   HEALTH_ENDPOINT_TEMPLATE_NO_PRISMIC,
 } from "./template.js";
 
-export type HealthEndpointDeps = { spawn: SpawnFn };
+export type HealthEndpointDeps = {
+  spawn: SpawnFn;
+  /** Resolve the TARGET repo's own prettier. Injected so a test can assert the
+   *  absolute-path spawn without a populated `node_modules`. */
+  resolvePrettier?: (repoRoot: string) => Promise<string | null>;
+};
+
+/** Same budget as prismic-ci and match-harness. Without one the default spawn
+ *  never detaches and never kills, so a hung formatter runs unbounded. */
+const PRETTIER_TIMEOUT_MS = 60_000;
 
 /** Where a Prismic client module lives across the fleet — `.ts` on sources,
  * `.js`/`.mjs` on some compiled clones. Existence of ANY picks the Prismic
@@ -80,7 +89,22 @@ export async function healthEndpoint(
       // Format to the SITE's own prettier config so CI's format check stays green
       // across the heterogeneous fleet. Best-effort: a site without prettier just
       // commits unformatted with a flag note (never fails the /health rollout).
-      if (!(await formatWithPrettier(deps.spawn, cwd, [HEALTH_ENDPOINT_RELATIVE]))) {
+      // — but run the SITE's own prettier, resolved POSITIVELY and invoked by
+      // absolute path. `pnpm exec prettier` here would first run a full, unbounded
+      // `pnpm install` in the client's checkout (the NORMAL path on `--fleet`,
+      // because `prepareFleetSites` clones and never installs) and then, in a
+      // repo whose install left no prettier of its own, fall through to the
+      // CALLING repo's binary and exit 0. A clone with no prettier gets the flag
+      // note and no spawn at all (#737).
+      const bin = await (deps.resolvePrettier ?? resolveTargetPrettier)(cwd);
+      if (bin === null) {
+        notes.push(PRETTIER_FLAG_NOTE);
+      } else if (
+        !(await formatWithPrettier(deps.spawn, cwd, [HEALTH_ENDPOINT_RELATIVE], {
+          bin,
+          timeoutMs: PRETTIER_TIMEOUT_MS,
+        }))
+      ) {
         notes.push(PRETTIER_FLAG_NOTE);
       }
 

@@ -326,6 +326,7 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         url: "https://github.com/reddoorla/acme/security/dependabot/1",
         scope: "development",
         relationship: null,
+        manifestPath: null,
       },
     ]);
     expect(calls[0]!.url).toContain(
@@ -413,7 +414,37 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         url: "https://x/1",
         scope: "runtime",
         relationship: null,
+        manifestPath: null,
       },
+    ]);
+  });
+
+  // #702: GitHub stamps an alert filed against a manifest the dependency graph still
+  // tracks but the tree no longer holds with `relationship: "inconclusive"`. The mapper
+  // used to fold that to null, and dropped `manifest_path` entirely, so nothing downstream
+  // could tell a ghost from a live vulnerability.
+  it("carries dependency.manifest_path and keeps relationship 'inconclusive' (#702)", async () => {
+    const { fn } = fakeFetch([
+      {
+        status: 200,
+        body: [
+          {
+            html_url: "https://github.com/reddoorla/erp-industrial/security/dependabot/55",
+            dependency: {
+              package: { ecosystem: "npm", name: "immutable" },
+              manifest_path: "package-lock.json",
+              scope: "runtime",
+              relationship: "inconclusive",
+            },
+            security_advisory: { severity: "high", summary: "immutable prototype pollution" },
+          },
+        ],
+      },
+    ]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    const alerts = await gh.listDependabotAlerts("reddoorla/erp-industrial");
+    expect(alerts.map((a) => [a.package, a.manifestPath, a.relationship])).toEqual([
+      ["immutable", "package-lock.json", "inconclusive"],
     ]);
   });
 
@@ -467,9 +498,43 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         url: "https://x/1",
         scope: null,
         relationship: null,
+        manifestPath: null,
       },
     ]);
     expect(decodeURIComponent(calls[0]!.url)).toContain("state=open");
+  });
+
+  describe("manifestExists (#702)", () => {
+    it("GETs the path from the contents endpoint on the default branch and returns true on 200", async () => {
+      const { fn, calls } = fakeFetch([{ status: 200, body: { name: "pnpm-lock.yaml" } }]);
+      const gh = makeGitHubRest({ token: "tok", fetch: fn });
+      await expect(gh.manifestExists("reddoorla/acme", "pnpm-lock.yaml")).resolves.toBe(true);
+      expect(calls[0]!.method).toBe("GET");
+      expect(calls[0]!.url).toBe(
+        "https://api.github.com/repos/reddoorla/acme/contents/pnpm-lock.yaml",
+      );
+    });
+
+    it("returns false on 404 — the manifest is not on the default branch", async () => {
+      const { fn } = fakeFetch([{ status: 404, body: { message: "Not Found" } }]);
+      const gh = makeGitHubRest({ token: "tok", fetch: fn });
+      await expect(gh.manifestExists("reddoorla/acme", "package-lock.json")).resolves.toBe(false);
+    });
+
+    it("throws on any other non-2xx so the caller can fail loud rather than hide an alert", async () => {
+      const { fn } = fakeFetch([{ status: 403, body: { message: "rate limited" } }]);
+      const gh = makeGitHubRest({ token: "tok", fetch: fn });
+      await expect(gh.manifestExists("reddoorla/acme", "package-lock.json")).rejects.toThrow(/403/);
+    });
+
+    it("encodes each path segment but keeps the slashes", async () => {
+      const { fn, calls } = fakeFetch([{ status: 200, body: {} }]);
+      const gh = makeGitHubRest({ token: "tok", fetch: fn });
+      await gh.manifestExists("reddoorla/acme", "apps/web #1/package-lock.json");
+      expect(calls[0]!.url).toBe(
+        "https://api.github.com/repos/reddoorla/acme/contents/apps/web%20%231/package-lock.json",
+      );
+    });
   });
 
   it("drops alerts missing a package name (fail-soft)", async () => {
@@ -501,6 +566,7 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         url: "https://x/b",
         scope: "runtime",
         relationship: null,
+        manifestPath: null,
       },
     ]);
   });
