@@ -329,6 +329,44 @@ describe("prismicCi", () => {
     expect(d.github!.secretExists).not.toHaveBeenCalled();
   });
 
+  it("refuses, before any write, when Airtable's gitRepo names a different repo than origin", async () => {
+    // #713: `gitPush` goes to the CHECKOUT's origin; `openPullRequest` goes to
+    // `repo`, which `resolveOwnerRepo` takes from Airtable's 'Git repo' when set.
+    // When the two disagree (stale cell after a rename, a fork as origin, a row
+    // copy-pasted from another client) the branch lands in one repository and
+    // the PR is filed in another with a head that does not exist there — 422,
+    // but only AFTER a real push into a client repo. The honest move is to refuse
+    // before the first write. No earlier test had gitRepo AND an origin together.
+    await prismicSite();
+    git(["remote", "add", "origin", "https://github.com/reddoorla/something-else.git"]);
+    const before = git(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+    const { d, pushed } = deps();
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/reddoorla\/espada/);
+    expect(r.notes).toMatch(/reddoorla\/something-else/);
+    expect(r.notes).toMatch(/origin/);
+    expect(pushed).toEqual([]);
+    expect(d.pushBranch).not.toHaveBeenCalled();
+    expect(d.github!.secretExists).not.toHaveBeenCalled();
+    expect(d.github!.openPullRequest).not.toHaveBeenCalled();
+    // No branch was created: the only local branch is still the operator's.
+    expect(git(["branch", "--list", "maint/prismic-ci-*"]).trim()).toBe("");
+    expect(git(["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe(before);
+  });
+
+  it("proceeds when Airtable's gitRepo and origin agree (case-insensitively, .git or not)", async () => {
+    // The PASS control for the guard above: agreement must not be mistaken for
+    // disagreement by case or the `.git` suffix — sameOwnerRepo normalises both.
+    await prismicSite();
+    git(["remote", "add", "origin", "git@github.com:ReddoorLA/Espada.git"]);
+    const { d, pushed } = deps();
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("applied");
+    expect(pushed.length).toBe(1);
+    expect(d.github!.openPullRequest).toHaveBeenCalledWith("reddoorla/espada", expect.anything());
+  });
+
   it("noops on a repo with no Prismic config", async () => {
     await seedRepo();
     const { d } = deps();

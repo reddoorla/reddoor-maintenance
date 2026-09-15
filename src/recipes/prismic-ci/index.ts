@@ -12,9 +12,11 @@ import {
   createBranch,
   currentBranch,
   deleteBranch,
+  getRemoteUrl,
   isWorkingTreeClean,
   push as gitPush,
   resolveOwnerRepo,
+  sameOwnerRepo,
 } from "../../util/git.js";
 import { siteLabel } from "../../util/site.js";
 import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
@@ -126,6 +128,33 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
       "could not determine a GitHub repo for this site — set Airtable 'Git repo', or give " +
         "the checkout an origin remote whose URL is a GitHub owner/repo",
     );
+  }
+
+  // 1b. The two identities must agree (#713). `gitPush` goes to the CHECKOUT's
+  //     origin; `openPullRequest` goes to `repo`, which Airtable's 'Git repo'
+  //     wins when set. When they name different repositories the branch lands
+  //     in one and the PR is filed in the other with a head that does not
+  //     exist there — a 422, but only AFTER a real push into a client repo,
+  //     which the `finally` restore below does not undo. A stale cell after a
+  //     rename, a fork as origin, a row copy-pasted from another client: all
+  //     operator-data problems, so refuse before the first write rather than
+  //     guess which side is right. A checkout with NO origin is left alone —
+  //     the push itself will fail there, before anything reaches GitHub.
+  if (site.gitRepo) {
+    let originUrl: string | null;
+    try {
+      originUrl = await getRemoteUrl(site.path);
+    } catch {
+      originUrl = null;
+    }
+    if (originUrl !== null && !sameOwnerRepo(repo, originUrl)) {
+      return resultOf(
+        site,
+        "failed",
+        `'Git repo' ${repo} does not match the checkout's origin ${originUrl} — refusing to ` +
+          "push into one repo and open the PR in another; fix the Airtable cell or the remote",
+      );
+    }
   }
 
   // 2. Is this a Prismic site? `readPrismicConfig` returns null for "no Prismic
