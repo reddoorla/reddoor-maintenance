@@ -44,8 +44,17 @@ export type DependabotAlert = {
   scope: "runtime" | "development" | null;
   /** Dependency graph relationship (`dependency.relationship`), or null when GitHub reports
    *  "unknown"/nothing. "transitive" means no direct-dep bump can fix it — Renovate's vuln
-   *  alerts have no fix vehicle until the weekly lockfile-maintenance window. */
-  relationship: "direct" | "transitive" | null;
+   *  alerts have no fix vehicle until the weekly lockfile-maintenance window. "inconclusive"
+   *  is what GitHub stamps on an alert filed against a manifest its dependency graph still
+   *  tracks but the tree no longer holds (#702) — kept, never folded to null, because it is
+   *  the secondary tell for a ghost alert. */
+  relationship: "direct" | "transitive" | "inconclusive" | null;
+  /** The manifest the alert was filed against (`dependency.manifest_path`, e.g.
+   *  `package-lock.json`), or null when absent. GitHub retains a manifest after the file is
+   *  deleted from the default branch and keeps filing alerts against that frozen snapshot;
+   *  the audit resolves this path with {@link GitHubRest.manifestExists} to tell a ghost from
+   *  a live vulnerability (#702). */
+  manifestPath: string | null;
 };
 
 export type GitHubRest = {
@@ -81,6 +90,11 @@ export type GitHubRest = {
     repo: string,
     opts?: { state?: "open" | "dismissed" | "fixed" | "auto_dismissed" },
   ) => Promise<DependabotAlert[]>;
+  /** Whether `path` exists on the repo's default branch (`GET /repos/{repo}/contents/{path}`,
+   *  which reads the default branch when no `ref` is given). 200 → true, 404 → false; any
+   *  other non-2xx THROWS so a caller can fail loud rather than treat an API hiccup as "the
+   *  file is gone" and silently drop an alert (#702). */
+  manifestExists: (repo: string, path: string) => Promise<boolean>;
 };
 
 const GITHUB_API = "https://api.github.com";
@@ -134,6 +148,7 @@ function mapDependabotAlert(raw: Record<string, unknown>): DependabotAlert | nul
   const cveId = typeof adv["cve_id"] === "string" ? (adv["cve_id"] as string) : null;
   const rawScope = dependency["scope"];
   const rawRelationship = dependency["relationship"];
+  const rawManifest = dependency["manifest_path"];
   return {
     package: packageName,
     severity: typeof adv["severity"] === "string" ? (adv["severity"] as string) : "",
@@ -142,7 +157,12 @@ function mapDependabotAlert(raw: Record<string, unknown>): DependabotAlert | nul
     url: typeof raw["html_url"] === "string" ? (raw["html_url"] as string) : null,
     scope: rawScope === "runtime" || rawScope === "development" ? rawScope : null,
     relationship:
-      rawRelationship === "direct" || rawRelationship === "transitive" ? rawRelationship : null,
+      rawRelationship === "direct" ||
+      rawRelationship === "transitive" ||
+      rawRelationship === "inconclusive"
+        ? rawRelationship
+        : null,
+    manifestPath: typeof rawManifest === "string" && rawManifest ? rawManifest : null,
   };
 }
 
@@ -311,6 +331,26 @@ export function makeGitHubRest(deps: { token: string; fetch?: typeof fetch }): G
         url = nextLink(res.headers.get("link"));
       }
       return out;
+    },
+
+    async manifestExists(repo, path) {
+      const { owner, name } = splitRepo(repo);
+      assertUrlSegment("path", owner);
+      assertUrlSegment("path", name);
+      // Encode per segment: a manifest path is slash-separated and the slashes must reach
+      // GitHub as path separators, while anything else in a segment must not.
+      const encoded = path.split("/").map(encodeURIComponent).join("/");
+      const res = await doFetch(`${GITHUB_API}/repos/${owner}/${name}/contents/${encoded}`, {
+        headers: baseHeaders,
+        signal: AbortSignal.timeout(DEPENDABOT_FETCH_TIMEOUT_MS),
+      });
+      if (res.status === 404) return false;
+      if (!res.ok) {
+        throw new Error(
+          `GitHub GET contents/${path} ${owner}/${name} failed (${res.status}): ${await bodyText(res)}`,
+        );
+      }
+      return true;
     },
   };
 }

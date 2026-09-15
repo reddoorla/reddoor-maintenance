@@ -114,6 +114,36 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     expect(logged(log)).toContain("REPORT_MIRROR report=recNEW op=patch mirrored=1");
   });
 
+  it("#647: patch on a row Turso never held reports mirrored=missed, like makeSiteMirror", async () => {
+    // Distinct from success on purpose: the UPDATE matched nothing, and
+    // reporting mirrored=1 would claim a write that never landed.
+    const db = await openDb({ url: ":memory:" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const mirror = await makeReportMirror(async () => db, false);
+    await expect(mirror.patch("recGHOST", { draft_ready: 0 })).resolves.toBeUndefined();
+
+    expect(logged(log)).toContain("REPORT_MIRROR report=recGHOST op=patch mirrored=missed");
+    expect(logged(log)).not.toContain("op=patch mirrored=1");
+  });
+
+  it("#647: under strict a missed patch THROWS — post-freeze nothing converges it", async () => {
+    const db = await openDb({ url: ":memory:" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const mirror = await makeReportMirror(async () => db, true);
+    await expect(mirror.patch("recGHOST", { draft_ready: 0 })).rejects.toThrow(
+      /REPORT_MIRROR report=recGHOST op=patch: no such row in Turso/,
+    );
+    // The log line still lands before the throw, so the run log reads the same
+    // in both worlds.
+    expect(logged(log)).toContain("REPORT_MIRROR report=recGHOST op=patch mirrored=missed");
+
+    // Positive control: the same strict mirror is transparent when the row exists.
+    await mirror.created({ id: "recREAL", fields: { "Report ID": "R" } });
+    await expect(mirror.patch("recREAL", { draft_ready: 0 })).resolves.toBeUndefined();
+  });
+
   it("without libSQL creds every operation reports mirrored=absent instead of returning null", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
