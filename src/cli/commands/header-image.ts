@@ -13,6 +13,7 @@ export type HeaderImageOptions = {
   writeAirtable?: boolean;
   outDir?: string;
   settleMs?: string;
+  consentSelector?: string;
   /** Injected Turso store for the dual-write (#539, design D5): while Airtable
    *  is still written (until the Phase 5 freeze), every upload ALSO lands the
    *  bytes in sites.header_image* so the Turso read layer serves a real image.
@@ -87,6 +88,7 @@ export async function generateForTargets(
         // `exactOptionalPropertyTypes` rejects an explicit `settleMs: undefined`
         // against `settleMs?: number`, so omit the key entirely when unset.
         ...(settleMs === undefined ? {} : { settleMs }),
+        ...(opts.consentSelector === undefined ? {} : { consentSelector: opts.consentSelector }),
       });
       if (opts.writeAirtable) {
         // replaceIn: the field must hold exactly the current header — see
