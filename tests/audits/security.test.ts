@@ -304,6 +304,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
       url: "https://x/1",
       scope: "development",
       relationship: null,
+      manifestPath: "pnpm-lock.yaml",
     },
     {
       package: "cookie",
@@ -313,6 +314,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
       url: "https://x/2",
       scope: "runtime",
       relationship: null,
+      manifestPath: "pnpm-lock.yaml",
     },
   ];
 
@@ -347,6 +349,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
           url: null,
           scope: "development",
           relationship: null,
+          manifestPath: "pnpm-lock.yaml",
         },
       ]),
     });
@@ -385,6 +388,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
           url: null,
           scope: "runtime",
           relationship: null,
+          manifestPath: "pnpm-lock.yaml",
         },
       ]),
     });
@@ -459,6 +463,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
           url: null,
           scope: null,
           relationship: null,
+          manifestPath: "pnpm-lock.yaml",
         },
       ]),
     });
@@ -500,5 +505,146 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
       if (savedReno === undefined) delete process.env.RENOVATE_TOKEN;
       else process.env.RENOVATE_TOKEN = savedReno;
     }
+  });
+});
+
+// #702: GitHub's dependency graph keeps a manifest after the file is deleted from the
+// default branch and keeps filing alerts against that frozen snapshot. Nothing can fix
+// them (no file to bump), so one ghost pinned erp-industrial and data-dynamiq red for
+// five days in the cockpit's "Renovate exhausted" band — the wrong diagnosis.
+describe("audits/security — alerts on a manifest GitHub no longer tracks (#702)", () => {
+  const ghost: DependabotAlert = {
+    package: "immutable",
+    severity: "high",
+    summary: "immutable prototype pollution",
+    cves: ["CVE-2025-1"],
+    url: "https://github.com/reddoorla/erp-industrial/security/dependabot/55",
+    scope: "runtime",
+    relationship: "inconclusive",
+    manifestPath: "package-lock.json",
+  };
+  const live: DependabotAlert = {
+    package: "nanoid",
+    severity: "high",
+    summary: "nanoid predictable ids",
+    cves: [],
+    url: "https://github.com/reddoorla/acme/security/dependabot/9",
+    scope: "runtime",
+    relationship: "transitive",
+    manifestPath: "pnpm-lock.yaml",
+  };
+  type Details = {
+    counts: { high: number };
+    advisories: Array<{ module: string }>;
+    ghostAdvisories?: Array<{ module: string; manifestPath: string }>;
+  };
+  const deps = (alerts: DependabotAlert[], exists: (path: string) => Promise<boolean>) => ({
+    listAlerts: async () => alerts,
+    manifestExists: async (_repo: string, path: string) => exists(path),
+  });
+
+  // The instrument's proof, written first: a real high on a manifest that IS on the
+  // default branch must still fail and still count, byte-identical to before.
+  it("still fails and counts a high whose manifest exists on the default branch", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: deps([live], async () => true),
+      spawn: fakeSpawn({}),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe("Dependabot: 1 alert(s) (0C/1H/0M/0L)");
+    const d = result.details as Details;
+    expect(d.counts.high).toBe(1);
+    expect(d.advisories.map((a) => a.module)).toEqual(["nanoid"]);
+    expect(d.ghostAdvisories ?? []).toEqual([]);
+  });
+
+  it("does not count a high whose manifest is gone, and says so in one warn line", async () => {
+    const seen: string[] = [];
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/erp-industrial" },
+      dependabotDeps: deps([ghost], async (path) => {
+        seen.push(path);
+        return false;
+      }),
+      spawn: fakeSpawn({}),
+    });
+    expect(seen).toEqual(["package-lock.json"]);
+    expect(result.status).toBe("warn");
+    expect(result.summary).toBe(
+      "Dependabot: 0 live alert(s); 1 alert(s) on a manifest GitHub no longer tracks (package-lock.json) — dismiss as inaccurate",
+    );
+    const d = result.details as Details;
+    expect(d.counts.high).toBe(0);
+    expect(d.advisories).toEqual([]);
+    expect(d.ghostAdvisories).toEqual([
+      expect.objectContaining({ module: "immutable", manifestPath: "package-lock.json" }),
+    ]);
+  });
+
+  it("keeps the live tally and appends the ghost line when both are present", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: deps([live, ghost], async (path) => path === "pnpm-lock.yaml"),
+      spawn: fakeSpawn({}),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "Dependabot: 1 alert(s) (0C/1H/0M/0L); 1 alert(s) on a manifest GitHub no longer tracks (package-lock.json) — dismiss as inaccurate",
+    );
+    const d = result.details as Details;
+    expect(d.advisories.map((a) => a.module)).toEqual(["nanoid"]);
+    expect(d.ghostAdvisories?.map((a) => a.module)).toEqual(["immutable"]);
+  });
+
+  it("counts the alert when the contents lookup errors — an API hiccup must never hide a vulnerability", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: deps([ghost], async () => {
+        throw new Error("GitHub GET contents failed (403)");
+      }),
+      spawn: fakeSpawn({}),
+    });
+    expect(result.status).toBe("fail");
+    expect((result.details as Details).counts.high).toBe(1);
+    expect((result.details as Details).ghostAdvisories ?? []).toEqual([]);
+  });
+
+  it("counts an alert with no manifest_path, and never looks one up", async () => {
+    let looked = 0;
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: deps([{ ...ghost, manifestPath: null }], async () => {
+        looked += 1;
+        return false;
+      }),
+      spawn: fakeSpawn({}),
+    });
+    expect(looked).toBe(0);
+    expect(result.status).toBe("fail");
+    expect((result.details as Details).counts.high).toBe(1);
+  });
+
+  it("resolves each distinct manifest once per audit, not once per alert", async () => {
+    const seen: string[] = [];
+    await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: deps([ghost, { ...ghost, package: "nanoid" }, live], async (path) => {
+        seen.push(path);
+        return path === "pnpm-lock.yaml";
+      }),
+      spawn: fakeSpawn({}),
+    });
+    expect(seen.sort()).toEqual(["package-lock.json", "pnpm-lock.yaml"]);
+  });
+
+  it("counts everything when the injected deps carry no manifest lookup at all", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: { listAlerts: async () => [ghost] },
+      spawn: fakeSpawn({}),
+    });
+    expect(result.status).toBe("fail");
+    expect((result.details as Details).counts.high).toBe(1);
   });
 });

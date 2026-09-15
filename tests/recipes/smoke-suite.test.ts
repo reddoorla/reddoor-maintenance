@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeFile, readFile, rm, mkdir } from "node:fs/promises";
+import { writeFile, readFile, rm, mkdir, realpath } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -13,7 +13,8 @@ import {
   PLAYWRIGHT_CONFIG_TEMPLATE,
   PLAYWRIGHT_CONFIG_PRE_R11,
 } from "../../src/recipes/smoke-suite/template.js";
-import type { SpawnFn } from "../../src/audits/util/spawn.js";
+import { PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
+import type { SpawnFn, SpawnOptions } from "../../src/audits/util/spawn.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -21,14 +22,23 @@ const pristine = resolve(here, "../fixtures/pristine-starter");
 
 /** A spawn that records calls and never launches anything — the recipe's
  *  `pnpm install` must be mocked (no real install, no network, no boot). */
-function fakeSpawn(): { fn: SpawnFn; calls: Array<{ cmd: string; args: readonly string[] }> } {
-  const calls: Array<{ cmd: string; args: readonly string[] }> = [];
-  const fn: SpawnFn = async (cmd, args) => {
-    calls.push({ cmd, args });
+type Call = { cmd: string; args: readonly string[]; opts?: SpawnOptions };
+function fakeSpawn(): { fn: SpawnFn; calls: Call[] } {
+  const calls: Call[] = [];
+  const fn: SpawnFn = async (cmd, args, opts) => {
+    calls.push({ cmd, args, ...(opts !== undefined ? { opts } : {}) });
     return { code: 0, stdout: "", stderr: "" };
   };
   return { fn, calls };
 }
+
+/** Stands in for a populated `node_modules/.bin`, so the absolute-path spawn
+ *  can be asserted without installing the fixture's devDependencies. */
+const SITE_PRETTIER = "/site/node_modules/.bin/prettier";
+const resolveSitePrettier = async () => SITE_PRETTIER;
+/** After the fix there is no `pnpm exec` argv: prettier's own argv starts at
+ *  `--write`, so a re-introduced `exec` shows up as a missing call here. */
+const isPrettierCall = (c: { args: readonly string[] }) => c.args[0] === "--write";
 
 /** Commit any working-tree edits so withRecipe's clean-tree check passes. */
 function commitSetup(cwd: string): void {
@@ -88,7 +98,10 @@ describe("recipes/smoke-suite", () => {
   it("applies on a site without the suite: writes specs + R1.1 config + script split", async () => {
     const cwd = await copyFixtureToTmp(pristine); // has @playwright/test, no config, no tests/smoke
     const spawn = fakeSpawn();
-    const result = await smokeSuite({ path: cwd }, { spawn: spawn.fn });
+    const result = await smokeSuite(
+      { path: cwd },
+      { spawn: spawn.fn, resolvePrettier: resolveSitePrettier },
+    );
 
     expect(result.status).toBe("applied");
     expect(result.commits).toHaveLength(1);
@@ -108,11 +121,9 @@ describe("recipes/smoke-suite", () => {
     // only spawn is prettier formatting the files this run wrote.
     const installCalls = spawn.calls.filter((c) => c.args[0] === "install");
     expect(installCalls).toHaveLength(0);
-    const prettierCalls = spawn.calls.filter((c) => c.args[0] === "exec");
+    const prettierCalls = spawn.calls.filter(isPrettierCall);
     expect(prettierCalls).toHaveLength(1);
     expect(prettierCalls[0]?.args).toEqual([
-      "exec",
-      "prettier",
       "--write",
       SMOKE_ROUTES_RELATIVE,
       SMOKE_SPEC_RELATIVE,
@@ -261,9 +272,9 @@ describe("recipes/smoke-suite", () => {
     commitSetup(cwd);
 
     const spawn = fakeSpawn();
-    await smokeSuite({ path: cwd }, { spawn: spawn.fn });
+    await smokeSuite({ path: cwd }, { spawn: spawn.fn, resolvePrettier: resolveSitePrettier });
 
-    const prettierCalls = spawn.calls.filter((c) => c.args[0] === "exec");
+    const prettierCalls = spawn.calls.filter(isPrettierCall);
     expect(prettierCalls).toHaveLength(1);
     const formatted = prettierCalls[0]?.args ?? [];
     expect(formatted).toContain(SMOKE_ROUTES_RELATIVE);
@@ -277,10 +288,13 @@ describe("recipes/smoke-suite", () => {
     const cwd = await copyFixtureToTmp(pristine); // @playwright/test present → no install
     // Prettier exits non-zero (e.g. not installed); the recipe must still commit.
     const flakyPrettier: SpawnFn = async (_cmd, args) =>
-      args[0] === "exec"
+      isPrettierCall({ args })
         ? { code: 1, stdout: "", stderr: "prettier: not found" }
         : { code: 0, stdout: "", stderr: "" };
-    const result = await smokeSuite({ path: cwd }, { spawn: flakyPrettier });
+    const result = await smokeSuite(
+      { path: cwd },
+      { spawn: flakyPrettier, resolvePrettier: resolveSitePrettier },
+    );
 
     expect(result.status).toBe("applied");
     expect(result.notes).toMatch(/could not prettier-format/);
@@ -295,7 +309,10 @@ describe("recipes/smoke-suite", () => {
     commitSetup(cwd);
 
     const spawn = fakeSpawn();
-    const result = await smokeSuite({ path: cwd }, { spawn: spawn.fn });
+    const result = await smokeSuite(
+      { path: cwd },
+      { spawn: spawn.fn, resolvePrettier: resolveSitePrettier },
+    );
 
     expect(result.status).toBe("applied");
     const after = await readPkg(cwd);
@@ -304,8 +321,70 @@ describe("recipes/smoke-suite", () => {
     const installCalls = spawn.calls.filter((c) => c.args[0] === "install");
     expect(installCalls).toHaveLength(1);
     expect(installCalls[0]?.cmd).toBe("pnpm");
-    const prettierCalls = spawn.calls.filter((c) => c.args[0] === "exec");
+    const prettierCalls = spawn.calls.filter(isPrettierCall);
     expect(prettierCalls).toHaveLength(1);
+    // Install first, THEN resolve and format: a site that just gained its
+    // devDependencies has a prettier to run, and the order is what makes that
+    // true on a checkout that arrived without node_modules.
+    expect(spawn.calls.findIndex((c) => c.args[0] === "install")).toBeLessThan(
+      spawn.calls.findIndex(isPrettierCall),
+    );
+  });
+
+  it("runs the SITE's own prettier by absolute path, under a timeout — never `pnpm exec`", async () => {
+    const cwd = await copyFixtureToTmp(pristine); // @playwright/test present → no install
+    const spawn = fakeSpawn();
+    const result = await smokeSuite(
+      { path: cwd },
+      { spawn: spawn.fn, resolvePrettier: resolveSitePrettier },
+    );
+
+    expect(spawn.calls).toHaveLength(1);
+    const call = spawn.calls[0]!;
+    // The resolved binary itself, not `pnpm exec prettier`: on the fleet path
+    // the clone has no node_modules, and `pnpm exec` would first run a full,
+    // unbounded install in the client's repo and then fall through to the
+    // CALLING repo's prettier and exit 0 (#737).
+    expect(call.cmd).toBe(SITE_PRETTIER);
+    expect(call.args[0]).toBe("--write");
+    expect(call.args).not.toContain("exec");
+    // Without a timeout the default spawn never detaches and never kills.
+    expect(call.opts?.timeoutMs).toBe(60_000);
+    expect(call.opts?.cwd).toBe(cwd);
+    // The green is positive: the target's own prettier ran and exited 0.
+    expect(result.status).toBe("applied");
+    expect(result.notes ?? "").not.toContain(PRETTIER_FLAG_NOTE);
+  });
+
+  it("resolves that prettier from the checkout itself when none is injected", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    // node_modules must be ignored first or withRecipe's clean-tree gate throws on it.
+    await writeFile(join(cwd, ".gitignore"), "node_modules\n", "utf-8");
+    commitSetup(cwd);
+    await mkdir(join(cwd, "node_modules", ".bin"), { recursive: true });
+    await writeFile(join(cwd, "node_modules", ".bin", "prettier"), "#!/bin/sh\nexit 0\n", "utf-8");
+    const spawn = fakeSpawn();
+
+    await smokeSuite({ path: cwd }, { spawn: spawn.fn });
+
+    // Not merely "not pnpm": the exact binary inside THIS checkout. realpath on
+    // both sides — mkdtemp hands back /var/folders/…, a symlink on macOS.
+    expect(spawn.calls.map((c) => c.cmd)).toEqual([
+      await realpath(join(cwd, "node_modules", ".bin", "prettier")),
+    ]);
+  });
+
+  it("never shells out into a clone with no prettier: it skips, flags, and still commits", async () => {
+    // The fleet path exactly — `prepareFleetSites` clones and never installs,
+    // so every site arrives without node_modules. Nothing may run there.
+    const cwd = await copyFixtureToTmp(pristine); // @playwright/test present → no install
+    const spawn = fakeSpawn();
+    const result = await smokeSuite({ path: cwd }, { spawn: spawn.fn });
+
+    expect(spawn.calls).toEqual([]);
+    expect(result.status).toBe("applied");
+    expect(result.commits).toHaveLength(1);
+    expect(result.notes).toContain(PRETTIER_FLAG_NOTE);
   });
 
   it("fails the recipe when pnpm install exits non-zero", async () => {
