@@ -48,9 +48,30 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 // fileURLToPath, not URL#pathname: pathname is percent-encoded, so a checkout
 // under a directory with a space in it would resolve to a path that does not
-// exist.
-const DIR = fileURLToPath(new URL(".", import.meta.url));
+// exist. EXPORTED so next.mjs, strikes.mjs and build-spec.mjs take the resolved
+// directory from here instead of each recomputing it — three of them did, all
+// with the rejected form, and the one with teeth was strikes.mjs's PAUSED path:
+// under a percent-encoding checkout \`existsSync\` said false and the pause
+// switch failed OPEN (#47).
+export const DIR = fileURLToPath(new URL(".", import.meta.url));
 const CFG = JSON.parse(readFileSync(join(DIR, "harness.json"), "utf8"));
+
+// A page key is interpolated into a RegExp (specHeadingRe, below) and into
+// gate.sh's \`grep -qE\` — unescaped, in both. Measured: \`specHeadingRe("a.c")\`
+// matched \`## abc\` (a WRONG page's section satisfies the check) and
+// \`specHeadingRe("a(b")\` threw. So the vocabulary is refused ONCE, here, where
+// every consumer reads the table — including gate.sh, which only ever sees keys
+// through \`--table\` — and a bad key is a load-time error naming itself rather
+// than a fail-open pattern three files away (#50). The set is what a gate key
+// already has to be: it names a run dir, a SPEC heading and a spec-sections
+// file.
+const KEY_RE = /^[a-z0-9-]+$/;
+for (const key of Object.keys(CFG.pages ?? {})) {
+  if (!KEY_RE.test(key))
+    throw new Error(
+      \`harness.json: page key \${JSON.stringify(key)} must match \${KEY_RE} — keys are interpolated unescaped into specHeadingRe and gate.sh's grep\`,
+    );
+}
 
 // Env overrides exist for one-off probes only. They are NOT how a site is
 // configured — harness.json is, so that what a gate ran against is committed.
@@ -128,6 +149,27 @@ export const unscorableWhy = (key) =>
 export const TOTALS = Object.fromEntries(
   PAGES.map((p) => [p.key, scorable(p.key) ? (p.anchors.length + 1) * MATRIX.length : null]),
 );
+
+/** WHY a report's region count is not the one TOTALS predicts for \`page\` —
+ *  as a string — or null when it is, or when the page is not scorable and so
+ *  has no identity to hold (an unanchored page's count is page-diff's own;
+ *  see TOTALS).
+ *
+ *  ONE predicate for two callers, because the identity lived only in checkRun
+ *  and only \`gate.sh --check-run\` asked it: next.mjs gated a report through
+ *  \`uncountable(meta)\` alone, none of whose arms looks at how many regions a
+ *  report carries, so a page whose report came up SHORT — an anchor whose text
+ *  had gone from the rendered page, the ordinary way, is what a slice rename
+ *  does — contributed no failing region, fell through to "Backlog is empty" and
+ *  exited 0 over three regions nobody measured. Same sentence as the
+ *  \`unmeasured\` guard beside it, one level down (#756). */
+export function regionCountWhy(page, report) {
+  const expected = TOTALS[page];
+  if (expected == null) return null;
+  const n = Array.isArray(report?.regions) ? report.regions.length : 0;
+  if (n === expected) return null;
+  return \`\${n} region(s), expected \${expected} = (\${byKey[page].anchors.length} anchors + 1) x \${MATRIX.length} viewport(s)\`;
+}
 
 /** The SPEC.md heading predicate, shared by gate.sh's preflight and
  *  build-spec.mjs so a section can never build fine and then refuse at the
@@ -319,8 +361,11 @@ export function checkRun(page, dir, startedAt) {
   // gate-shaped runs in the corpus this harness was cut from, all of them
   // anchored: regions.length === (sections + 1) * viewports holds 298/298,
   // while regions.length === TOTALS[page] holds only 260/298 — the 38 are
-  // legitimately narrower HAND rounds. So the identity is checked against the
-  // run's OWN meta and the matrix/anchors are checked against the table above.
+  // legitimately narrower HAND rounds. So the two arms ABOVE hold the run's own
+  // matrix and anchors to the table, and only then is the count asked of
+  // regionCountWhy, whose prediction is the table's: at this point the two
+  // derivations are the same number, and a HAND round has already been refused
+  // by name for its narrower matrix or anchors, not for the count that follows.
   //
   // WITHOUT anchors there is no such identity, and asserting one is a FALSE
   // REFUSAL of the shape every new site starts in. page-diff falls back to each
@@ -330,14 +375,10 @@ export function checkRun(page, dir, startedAt) {
   // page-diff on a seed harness (anchors: [], matrix of 4): 16 regions labelled
   // grid-0-0 … grid-3-0, not the 4 this identity predicted. The 298/298 above
   // was measured over anchored runs only and never covered this case.
-  if (secs.length) {
-    const expected = (secs.length + 1) * vws.length;
-    if (report.regions.length !== expected)
-      return {
-        ok: false,
-        why: \`\${path}: \${report.regions.length} region(s), expected \${expected} = (\${secs.length} anchors + 1) x \${vws.length} viewport(s)\`,
-      };
-  }
+  // regionCountWhy returns null for such a page (TOTALS is null there), which
+  // is the \`if (secs.length)\` guard this used to carry, kept in one place.
+  const count = regionCountWhy(page, report);
+  if (count) return { ok: false, why: \`\${path}: \${count}\` };
 
   // A green that STATES what it is made of, so a green over nothing reads
   // differently from a green over the matrix (census.sh:219's habit).
@@ -652,6 +693,20 @@ export const CENSUS_SH_TEMPLATE = `#!/usr/bin/env bash
 # demands an artefact only a working census produces; none of them can turn a
 # red green.
 set -uo pipefail
+
+# PAUSE SWITCH — the same early exit next.mjs and strikes.mjs take, for the same
+# reason (see next.mjs). This gate is the third door into a round: measured on
+# the site this was cut from, PAUSED since 2026-09-01, a run here would have
+# spent 27 browser pairs against the live reference during a declared pause. A
+# switch two of three gates honour is not a switch
+# (reddoorla/reddoor-maintenance#735).
+if [ -f "$(dirname "$0")/PAUSED" ]; then
+  echo "MATCHING PAUSED — no agenda, and none is to be inferred."
+  echo
+  cat "$(dirname "$0")/PAUSED"
+  exit 0
+fi
+
 # Resolved BEFORE the cd. $0 is the path as TYPED, so a relatively invoked
 # census.sh that resolved the harness afterwards would look for it under
 # whatever root the cd landed on.
@@ -863,8 +918,10 @@ export const NEXT_MJS_TEMPLATE = `// What is still broken, ranked. Exits 1 while
 // reflects HEAD rather than history (that is strikes.mjs's job).
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-
-const DIR = new URL(".", import.meta.url).pathname;
+// DIR comes from harness.mjs (imported below — ESM hoists it, so it is bound
+// before the pause check runs). It was \`new URL(".", import.meta.url).pathname\`
+// here, which percent-encodes, so under a checkout path with a space in it this
+// read a directory that does not exist (#47).
 
 // PAUSE SWITCH. While matching/PAUSED exists this hands out no agenda and
 // exits 0. It is deliberately the FIRST thing that runs: no report is read, no
@@ -884,6 +941,7 @@ if (existsSync(PAUSE)) {
 
 import { FLOORS, ACCEPTED } from "./floors.mjs";
 import {
+  DIR,
   TOTALS,
   THRESHOLD,
   MAX_HEIGHT_DELTA,
@@ -891,6 +949,7 @@ import {
   uncountable,
   scorable,
   unscorableWhy,
+  regionCountWhy,
   byKey,
 } from "./harness.mjs";
 
@@ -1014,6 +1073,20 @@ const scored = [...latest.entries()]
 const unmeasured = Object.keys(TOTALS)
   .filter((p) => !latest.has(p))
   .sort();
+
+// Pages that REPORTED, are scorable, and whose newest report carries FEWER
+// regions than TOTALS predicts. \`uncountable()\` cannot see this — none of its
+// arms counts regions — so a short report was fully countable, contributed no
+// failing region, and fell through to "Backlog is empty", exit 0, over regions
+// nobody had measured. The score line stayed honest (\`3/6\`), which is what made
+// it easy to walk past. The identity is harness.mjs's regionCountWhy, the same
+// one gate.sh's --check-run refuses a run with — asked here of the report being
+// SCORED, because a report can reach \`latest\` without ever passing through the
+// gate (#756).
+const short = scored
+  .map((s) => ({ p: s.p, why: regionCountWhy(s.p, latest.get(s.p).report) }))
+  .filter((s) => s.why)
+  .sort((a, b) => a.p.localeCompare(b.p));
 const sum = scored.reduce((a, s) => a + s.pass, 0);
 // Summed EXPLICITLY over the scorable pages rather than over TOTALS' values:
 // \`a + null\` is silently \`a\`, and a denominator that is right only because of a
@@ -1086,6 +1159,17 @@ if (unscorable.length) {
   );
 }
 
+if (short.length) {
+  console.error(
+    \`\\nnext: \${short.length} page(s) reported fewer regions than their anchors predict, so their\\n\` +
+      \`      score has regions nobody measured — \` +
+      short.map((s) => \`\${s.p}: \${s.why}\`).join("; ") +
+      \`.\\n      An anchor whose text is no longer on the page cuts no region: check the anchors in\\n\` +
+      \`      matching/harness.json against BOTH renders, then re-run: bash matching/gate.sh <tag> \` +
+      short.map((s) => s.p).join(" "),
+  );
+}
+
 if (unmeasured.length) {
   console.error(
     \`\\nnext: \${unmeasured.length} page(s) have no countable gate run — \${unmeasured.join(", ")}.\\n\` +
@@ -1094,8 +1178,10 @@ if (unmeasured.length) {
   process.exit(2);
 }
 
-// See above: deliberately a second statement, not an \`else\`.
+// See above: deliberately separate statements, not an \`else\` chain — every
+// refusal is PRINTED before the first one EXITS.
 if (unscorable.length) process.exit(2);
+if (short.length) process.exit(2);
 
 if (!rows.length) {
   console.log(
@@ -1137,10 +1223,11 @@ for (const r of rows.filter((r) => r.page === worst)) {
     \`  @\${String(r.vw).padEnd(5)} \${r.label.slice(0, 44).padEnd(45)} \${why.join(" + ")}\`,
   );
 }
+// Only scripts the match-harness recipe INSTALLS may be named here: this is the
+// first thing an operator is told to run on a failing agenda, and on every site
+// but this one \`probe-anchor-parity.mjs\` (a site-specific probe, never shipped)
+// failed module-not-found — reddoorla/reddoor-maintenance#732, #767.
 console.log(\`\\nBefore treating any of these as geometry:\`);
-console.log(
-  \`  node matching/probe-anchor-parity.mjs \${worst}   # is the gate cutting comparably?\`,
-);
 console.log(
   \`  node matching/strikes.mjs \${worst}               # has it stalled? then change the MODEL\`,
 );
@@ -1175,8 +1262,9 @@ export const STRIKES_MJS_TEMPLATE = `// The 3-strike rule, made countable.
 // upper bound. Improvement resets the count: real progress earns a fresh start.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { FLOORS } from "./floors.mjs";
+import { FLOORS, ACCEPTED } from "./floors.mjs";
 import {
+  DIR,
   PAGES,
   THRESHOLD,
   MAX_HEIGHT_DELTA,
@@ -1187,7 +1275,11 @@ import {
 // protocol step 1 is "run strikes.mjs; the stalled regions are the agenda", so
 // this is the second door into the backlog and has to be shut too. Exits 0:
 // there are no strikes to spend when no round is being played.
-const PAUSED = join(new URL(".", import.meta.url).pathname, "PAUSED");
+//
+// DIR is harness.mjs's fileURLToPath'd directory, not URL#pathname: pathname
+// percent-encodes, so under a checkout path with a space this \`existsSync\` was
+// false and the pause switch failed OPEN — an agenda handed out mid-pause (#47).
+const PAUSED = join(DIR, "PAUSED");
 if (existsSync(PAUSED)) {
   console.log("MATCHING PAUSED — no agenda, and none is to be inferred.\\n");
   console.log(readFileSync(PAUSED, "utf8").trimEnd());
@@ -1196,7 +1288,6 @@ if (existsSync(PAUSED)) {
 
 const IMPROVE_PP = 0.01; // 1 percentage point = the smallest move worth calling progress
 const MAX_STRIKES = 3;
-const ROOT = new URL(".", import.meta.url).pathname;
 const only = process.argv[2] ?? null;
 
 // The gate key for a report, from its ref path. Deriving it by string surgery
@@ -1210,10 +1301,10 @@ const pageOf = (ref) => {
 
 const runs = [];
 const unreadable = [];
-for (const dir of readdirSync(ROOT).filter((d) => d.startsWith("out-"))) {
+for (const dir of readdirSync(DIR).filter((d) => d.startsWith("out-"))) {
   let report;
   try {
-    report = JSON.parse(readFileSync(join(ROOT, dir, "report.json"), "utf8"));
+    report = JSON.parse(readFileSync(join(DIR, dir, "report.json"), "utf8"));
   } catch {
     continue; // not a completed run dir
   }
@@ -1269,18 +1360,27 @@ const keyOf = (dir) => /^out-[^-]+-(.+)$/.exec(dir)?.[1] ?? null;
 
 // key -> chronological list of {dir, at, mm, pass, masked}
 const history = new Map();
-const seenNames = new Set();
+// Regions the OPERATOR accepted, by key — counted so the skip is visible, never
+// silent (next.mjs prints them under their own heading for the same reason).
+const acceptedKeys = new Set();
 for (const run of runs) {
   const page = pageOf(run.meta.ref) ?? keyOf(run.dir) ?? "unknown";
   const gateKey = keyOf(run.dir);
-  seenNames.add(page);
-  if (gateKey) seenNames.add(gateKey);
   if (only && page !== only && gateKey !== only) continue;
   for (const r of run.regions) {
     // A DECLARED FLOOR is flat by definition — reporting it as stalled is noise
     // that hides a real stall. It stays in the LEDGER; it does not belong here.
     if (FLOORS.some((fl) => fl.match(r, gateKey || page))) continue;
     const key = \`\${page}|\${r.viewport}|\${r.label}\`;
+    // An operator-ACCEPTED region will not move either — that is what accepting
+    // it meant — so it is flat by definition too. Left in, it tripped this
+    // detector on every run from the decision onward, and the one lever that
+    // silenced it was the reclassification rule 3 forbids: moving the entry to
+    // FLOORS (reddoorla/reddoor-maintenance#772).
+    if (ACCEPTED.some((a) => a.match(r, gateKey || page))) {
+      acceptedKeys.add(key);
+      continue;
+    }
     if (!history.has(key)) history.set(key, []);
     history.get(key).push({
       dir: run.dir,
@@ -1300,14 +1400,24 @@ for (const run of runs) {
 // A name that matches no run must NOT report "clear". This check exists to stop
 // work on a stalled region, so failing open is the one thing it may never do —
 // a typo'd or wrong-vocabulary page silently greened rule 3 for six of the nine
-// pages. Fail loud instead, and say what the vocabulary is.
+// pages. Fail loud instead, and say what the vocabulary is — the TABLE's keys,
+// which is all a user should ever type. This used to list every name seen in
+// the corpus (pageOf AND keyOf of every run dir): 26 names on this site, of
+// which 9 were pages, 3 were a retired vocabulary each backed by one legacy run
+// that read as *clear*, and 14 were probe dirs. keyOf stays as the LOOKUP
+// fallback for exactly those dirs; it was never the vocabulary (#48).
 if (only && history.size === 0) {
   console.error(
     \`strikes: "\${only}" matches no gate run — refusing to report "clear".\\n\` +
-      \`         known pages: \${[...seenNames].sort().join(", ")}\`,
+      \`         known pages: \${PAGES.map((p) => p.key).sort().join(", ")}\`,
   );
   process.exit(2);
 }
+
+if (acceptedKeys.size)
+  console.log(
+    \`strikes: \${acceptedKeys.size} region(s) skipped as operator-accepted (floors.mjs ACCEPTED).\`,
+  );
 
 const stuck = [];
 for (const [key, all] of history) {
@@ -1398,9 +1508,10 @@ export const BUILD_SPEC_MJS_TEMPLATE = `// Assemble matching/SPEC.md from the pe
 // no longer build fine here and then re-block its own page at the gate.
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { PAGES, specHeadingRe } from "./harness.mjs";
+// DIR too: harness.mjs resolves it with fileURLToPath, and the URL#pathname
+// form this file used percent-encodes a space in the checkout path (#47).
+import { DIR, PAGES, specHeadingRe } from "./harness.mjs";
 
-const DIR = new URL(".", import.meta.url).pathname;
 const SECTIONS = join(DIR, "spec-sections");
 
 // Order = live's nav order, then the detail templates. Both fall out of the
@@ -2341,6 +2452,1247 @@ console.log(
 process.exit(1);
 `;
 
+const HARNESS_MJS_PREV_0_95_1 = `// The single source for everything the matching gates need to know about this
+// site. DATA lives in matching/harness.json (site-edited); this file is the
+// READ LAYER — edit harness.json, not this. (It is installed and upgraded by
+// the \`reddoor-maint match-harness\` recipe, which owns these bytes: a hand
+// edit here is flagged on the next run and never silently overwritten.)
+//
+// It exists because the page table, the two hosts, the matrix, the threshold
+// and the skill path were hand-copied all over matching/. Re-measured
+// 2026-09-09 AFTER the six-probe conversion, over the 216 tracked scripts under
+// matching/ (214 top-level — 212 .mjs + 2 .sh — plus 2 in states/):
+//
+//   • a hand-typed copy of the page table (three or more gate keys sitting next
+//     to their route): 8 files. Exactly ONE of them, probe-chrome-count.mjs,
+//     still carries all nine rows; probe-anchors.mjs carries five; the other
+//     six are three-row detail triples (team/svc/qa).
+//   • the skill path (~/.claude/skills/matching-a-page): 193 copies
+//   • the viewport matrix (1440/834/390): 51 copies
+//   • REF pointed at a host listed in selfHosts — i.e. comparing the candidate
+//     with itself: 12 scripts, one of which (probe-chrome-count.mjs) is also
+//     the last nine-row table carrier
+//
+// The first bullet read "the nine-row page table: 5 copies — gate.sh,
+// probe-anchor-parity.mjs, sweep-all10.sh, sweep-all16.sh, sweep-final.sh" when
+// it was written here at 922dde3. It was wrong within the hour and wrong on two
+// counts: 4e2cd7b took the table out of gate.sh, and the list never named
+// states/index.mjs or probe-chrome-count.mjs, which were both carrying nine-row
+// copies at the time. A census is a claim about code; it has to be measured
+// against the tree, not recalled.
+//
+//   node matching/harness.mjs --env        shell-safe KEY='value' lines
+//   node matching/harness.mjs --table      key<TAB>ref<TAB>cand<TAB>anchors
+//   node matching/harness.mjs --check-ref  the D11 preflight; exit 2 on failure
+//   node matching/harness.mjs --check-run <page> <out-dir> <startedAt-iso>
+//                                         did THIS run leave a countable report?
+//                                         exit 2 when it did not
+import { readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+// fileURLToPath, not URL#pathname: pathname is percent-encoded, so a checkout
+// under a directory with a space in it would resolve to a path that does not
+// exist.
+const DIR = fileURLToPath(new URL(".", import.meta.url));
+const CFG = JSON.parse(readFileSync(join(DIR, "harness.json"), "utf8"));
+
+// Env overrides exist for one-off probes only. They are NOT how a site is
+// configured — harness.json is, so that what a gate ran against is committed.
+export const REF = process.env.MATCH_REF ?? CFG.ref;
+export const CAND = process.env.MATCH_CAND ?? process.env.CAND_BASE ?? CFG.cand;
+export const MATRIX = CFG.matrix;
+export const THRESHOLD = CFG.threshold;
+export const MAX_HEIGHT_DELTA = CFG.maxHeightDelta;
+export const REF_MARK = CFG.refMark;
+export const CAND_MARK = CFG.candMark;
+export const SELF_HOSTS = CFG.selfHosts ?? [];
+
+/** One record per gated page, in harness.json order. \`key\` is the gate key
+ *  (out-<TAG>-<key>, the SPEC heading, spec-sections/<key>.md); \`uid\` is the
+ *  Prismic uid or null where the page has no /dev/match twin. */
+export const PAGES = Object.entries(CFG.pages).map(([key, p]) => ({ key, ...p }));
+export const byKey = Object.fromEntries(PAGES.map((p) => [p.key, p]));
+
+/** Can this page's region count be PREDICTED at all? It needs anchors — see
+ *  TOTALS below — AND a matrix to measure them at. Exported beside TOTALS
+ *  rather than left for each consumer to re-derive, because "remember to ask
+ *  first" is exactly what failed: checkRun remembered, next.mjs did not, for
+ *  two releases.
+ *
+ *  \`MATRIX.length > 0\` is not defensive padding. TOTALS is
+ *  \`(anchors + 1) * MATRIX.length\`, so an ANCHORED page with \`matrix: []\`
+ *  yields 0 — truthy-adjacent, arithmetically fatal. Measured on a page with 3
+ *  anchors, an empty matrix and 8 passing regions: without this clause the
+ *  scorer printed \`SCORE 8/0 regions passing\` and \`Backlog is empty — Phases 5
+ *  and 6 are what is left\`, exit 0. The absurd fraction would be questioned;
+ *  the sentence would not. \`pass/0\` is also Infinity, so such a page sorts
+ *  BEST and can never be named \`worst\` — the same ranking bug this change set
+ *  removed for unanchored pages, one input along. */
+export const scorable = (key) =>
+  (byKey[key]?.anchors?.length ?? 0) > 0 && MATRIX.length > 0;
+
+/** WHY a page is not scorable, in the words of the thing that is actually
+ *  missing. A refusal that states a cause it did not check is the shape
+ *  CLAUDE.md names: a field must never be named after something it cannot
+ *  observe. "no anchors" printed for a page carrying three of them sends the
+ *  operator to edit the one part of harness.json that was already right. */
+export const unscorableWhy = (key) =>
+  (byKey[key]?.anchors?.length ?? 0) === 0
+    ? "no anchors"
+    : MATRIX.length === 0
+      ? "matrix is empty"
+      : null;
+
+// DERIVED, never hand-typed: page-diff cuts one region before the first anchor
+// ("top") plus one per anchor, at every viewport. The old hand-written map went
+// stale the moment an anchor list changed, and a wrong denominator makes the
+// score a lie in the flattering direction.
+//
+// THAT IDENTITY HOLDS ONLY WITH ANCHORS. \`splitRegions\` (page-diff.mjs:103-110)
+// only cuts by anchor when there are anchors to cut by; with none it falls back
+// to the page's own <section> boxes, and with none of those to an even four-row
+// grid (lib/regions.mjs:27-35, gridRows = 4, labels \`grid-<r>-<c>\`). So the
+// count is DATA-DEPENDENT, the two pages need not even agree, and no formula
+// over anchors can predict it.
+//
+// \`checkRun\` below already reaches this conclusion — its \`if (secs.length)\`
+// guard declines to assert a region count without anchors, and says why. That
+// fix was applied to the VALIDATOR and never carried to the DENOMINATOR, so
+// next.mjs went on dividing a real pass count by an imaginary total. Measured
+// 2026-09-09 on a seed harness (anchors: [], matrix of 3): page-diff produced
+// 12 grid regions, all passing, and next.mjs printed \`SCORE 12/3 regions
+// passing\` followed by "Backlog is empty — Phases 5 and 6 are what is left",
+// exit 0. On a matrix of 4 the same seed prints \`SCORE 16/4\`. The absurd
+// fraction would have been questioned; the sentence would not.
+//
+// So an unpredictable page gets NO NUMBER — \`null\`, not a plausible-looking
+// integer. That is a SIGNAL, not a barrier: \`a + null\` is \`a\`, so a consumer
+// that sums TOTALS without asking \`scorable()\` still gets a too-small
+// denominator. The barrier is \`scorable()\` plus next.mjs's exit-2 refusal.
+export const TOTALS = Object.fromEntries(
+  PAGES.map((p) => [p.key, scorable(p.key) ? (p.anchors.length + 1) * MATRIX.length : null]),
+);
+
+/** The SPEC.md heading predicate, shared by gate.sh's preflight and
+ *  build-spec.mjs so a section can never build fine and then refuse at the
+ *  gate. Matches the key followed by any non-key character (\`## team\` matches,
+ *  \`## teamfoo\` does not, \`## our-team\` cannot match \`team\`). */
+export const specHeadingRe = (key) => new RegExp(\`^##+ +\${key}([^A-Za-z0-9_-]|$)\`, "m");
+
+export const SKILL_DIR =
+  process.env.MATCHING_SKILL_DIR ?? join(homedir(), ".claude/skills/matching-a-page");
+export const PD = join(SKILL_DIR, "page-diff.mjs");
+export const SC = join(SKILL_DIR, "style-census.mjs");
+export const PLAYWRIGHT = pathToFileURL(join(SKILL_DIR, "node_modules/playwright/index.mjs")).href;
+
+/** The report format this site's scripts can read, so gate.sh can compare it
+ *  with \`page-diff --version\` before spending a run and next.mjs can refuse
+ *  rather than quietly drop a page whose newest report came from another
+ *  schema. Both do that now — gate.sh preflights \`page-diff --version\` against
+ *  this value before spending a run, and next.mjs counts a foreign-schema
+ *  report as MISSING rather than skipping it. (This said "neither does that
+ *  yet" — true at 922dde3 where it was written, false from 4e2cd7b, which
+ *  gave gate.sh the preflight and did not come back here.) Checked 2026-09-09
+ *  against the installed skill: \`page-diff --version\` → \`page-diff 0.1.0
+ *  report-schema 1\`. */
+export const REPORT_SCHEMA = 1;
+
+/**
+ * Fail-closed reference preflight. A 200 is NOT evidence: a host that has been
+ * repointed at our own build answers 200, and so does a staging host serving a
+ * 404 page. Both have happened on a real site — see the dated measurement in
+ * LEDGER.md. A pass here requires an artefact only the reference produces.
+ */
+export async function checkRef() {
+  if (!REF_MARK) {
+    return {
+      ok: false,
+      why: "harness.json refMark is empty — set it to a string only the reference serves (a Webflow site id, a build hash). A 200 is not evidence.",
+    };
+  }
+  const host = new URL(REF).host;
+  if (SELF_HOSTS.includes(host)) return { ok: false, why: \`REF host \${host} is in selfHosts\` };
+  if (host === new URL(CAND).host) return { ok: false, why: \`REF host \${host} equals CAND's host\` };
+  let res;
+  try {
+    res = await fetch(\`\${REF}/\`, { redirect: "manual" });
+  } catch (e) {
+    return { ok: false, why: \`GET \${REF}/ failed: \${e.message}\` };
+  }
+  if (res.status !== 200)
+    return { ok: false, why: \`GET \${REF}/ → HTTP \${res.status}, expected 200\` };
+  const loc = res.headers.get("location");
+  if (loc) return { ok: false, why: \`GET \${REF}/ → \${res.status} redirect to \${loc}\` };
+  const body = await res.text();
+  if (!body.includes(REF_MARK))
+    return {
+      ok: false,
+      why: \`\${REF}/ served 200 but WITHOUT refMark \${JSON.stringify(REF_MARK)} — that is not the reference\`,
+    };
+  if (CAND_MARK && body.includes(CAND_MARK))
+    return {
+      ok: false,
+      why: \`\${REF}/ contains candMark \${JSON.stringify(CAND_MARK)} — REF is serving OUR build\`,
+    };
+  return { ok: true, why: \`\${REF}/ → 200, no redirect, refMark present, candMark absent\` };
+}
+
+/**
+ * Would next.mjs COUNT a run with this meta? Returns the reason it would not,
+ * as a string, or null when it would.
+ *
+ * A reason string and not a boolean, because the two callers must tell the
+ * cases apart: next.mjs treats "schema" as a page BLANKED (it has its own
+ * message and its own exit) and merely skips the rest of the diagnostics,
+ * while gate.sh prints whatever this says.
+ *
+ * It lives HERE rather than inside next.mjs because gate.sh now asks the same
+ * question, and a question asked twice drifts: a gate that greens a run
+ * next.mjs then drops is the same false green one step along. census.sh's
+ * GUARD 2c (census.sh:153-168) records exactly that drift between
+ * style-census's printer and census-count.mjs's parser — a COMPLETE census
+ * reported as 0 mismatches because the two had versioned apart.
+ */
+export function uncountable(m) {
+  // Missing schemaVersion means "written before the field existed" = 0. It is
+  // not an error on its own; it is only fatal when it would blank a page,
+  // which is next.mjs's call to make, not this predicate's.
+  if ((m.schemaVersion ?? 0) !== REPORT_SCHEMA) return "schema";
+  // A masked / media-neutralised run is a DIAGNOSTIC, never the state of the
+  // page. An --mask-photos probe of yfv made \`top\` @834 read 43.9% while the
+  // real gate had it passing at 1.3%.
+  if ((m.mask?.length ?? 0) > 0) return \`mask=[\${m.mask.join(", ")}]\`;
+  if (m.neutralizeMedia) return "neutralize-media";
+  if (m.maskPhotos) return "mask-photos";
+  if (m.truncated) return "truncated";
+  if (m.threshold !== THRESHOLD) return \`threshold \${m.threshold} != \${THRESHOLD}\`;
+  return null;
+}
+
+/**
+ * Did THIS run of page-diff leave a report the scorer will actually count?
+ *
+ * gate.sh cannot use page-diff's exit status for this. page-diff exits 1 for a
+ * region that legitimately FAILED (page-diff.mjs:227) and node exits 1 for the
+ * bare \`throw e\` one line below it, so the status cannot tell a finding from a
+ * crash-before-looking — census.sh:17-32 records the same shape for
+ * style-census. Measured on 29 Navy with the reference alive and no dev
+ * server: every page-diff died in \`page.goto\`, the gate printed \`home exit=1\`
+ * and \`ALL DONE\`, exited 0, and wrote no report at all.
+ *
+ * So the evidence is the artefact only a completed run leaves: the report
+ * next.mjs will read, fresh, over the matrix and anchors the table declares.
+ * Cheapest and most specific arm first.
+ */
+export function checkRun(page, dir, startedAt) {
+  const path = join(dir, "report.json");
+  let report;
+  try {
+    report = JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    if (e.code === "ENOENT")
+      return { ok: false, why: \`\${path}: no report.json — the run wrote nothing\` };
+    return { ok: false, why: \`\${path}: \${e.message}\` };
+  }
+  const meta = report.meta ?? {};
+
+  const uncount = uncountable(meta);
+  if (uncount)
+    return { ok: false, why: \`\${path}: next.mjs would not count this run (\${uncount})\` };
+
+  // FRESHNESS. lib/report.mjs:45 is \`mkdirSync(outDir, {recursive:true})\` and
+  // nothing ever clears the directory, so a crashed re-run under a tag used
+  // before leaves the PREVIOUS round's report exactly where it was — measured
+  // 2026-09-09, sha unchanged across the crash. Requiring report.json without
+  // this arm reproduces the green one step along. meta.generatedAt is built
+  // after \`finally { await browser.close() }\` (page-diff.mjs:163-176), so it
+  // is an artefact of the run that wrote it and not of the file's mtime.
+  const since = Date.parse(startedAt);
+  // NOT skipped when startedAt is unusable: a fail-open default is the exact
+  // shape this guard exists to stop.
+  if (!Number.isFinite(since))
+    return {
+      ok: false,
+      why: \`startedAt \${JSON.stringify(startedAt)} is not a timestamp — cannot tell this run's report from a previous round's\`,
+    };
+  const at = Date.parse(meta.generatedAt ?? "");
+  if (!Number.isFinite(at))
+    return {
+      ok: false,
+      why: \`\${path}: no usable meta.generatedAt — cannot tell this run's report from a previous round's\`,
+    };
+  if (at < since)
+    return {
+      ok: false,
+      why: \`\${path}: STALE — written \${meta.generatedAt}, this run started \${startedAt}. page-diff never cleared the directory.\`,
+    };
+
+  // COVERAGE — what the run was ASKED for, against the table.
+  const vws = meta.viewports ?? [];
+  if (vws.join(",") !== MATRIX.join(","))
+    return {
+      ok: false,
+      why: \`\${path}: ran viewports [\${vws.join(",")}], harness.json matrix is [\${MATRIX.join(",")}]\`,
+    };
+  const secs = meta.sections ?? [];
+  const want = byKey[page]?.anchors ?? [];
+  if (secs.join("\\0") !== want.join("\\0"))
+    return {
+      ok: false,
+      why: \`\${path}: ran sections [\${secs.join(" | ")}], harness.json anchors are [\${want.join(" | ")}]\`,
+    };
+
+  // ...and what it actually PRODUCED. Every viewport the run says it covered
+  // has to appear in the regions. Deliberately compared against the run's own
+  // meta.viewports and not against MATRIX: the arm above owns "the run used the
+  // wrong matrix", and folding the two together would make either one
+  // unfalsifiable on its own.
+  if (!Array.isArray(report.regions) || report.regions.length === 0)
+    return { ok: false, why: \`\${path}: no regions — nothing was compared\` };
+  const seen = new Set(report.regions.map((r) => r.viewport));
+  const missing = vws.filter((v) => !seen.has(v));
+  if (missing.length)
+    return {
+      ok: false,
+      why: \`\${path}: no region at viewport(s) [\${missing.join(",")}] — the run covered [\${[...seen].join(",")}]\`,
+    };
+
+  // With anchors the region count is an exact identity: page-diff cuts one
+  // region before the first anchor plus one per anchor, at every viewport
+  // (regionsFromAnchors, page-diff.mjs:105-109). Measured over the 298 clean
+  // gate-shaped runs in the corpus this harness was cut from, all of them
+  // anchored: regions.length === (sections + 1) * viewports holds 298/298,
+  // while regions.length === TOTALS[page] holds only 260/298 — the 38 are
+  // legitimately narrower HAND rounds. So the identity is checked against the
+  // run's OWN meta and the matrix/anchors are checked against the table above.
+  //
+  // WITHOUT anchors there is no such identity, and asserting one is a FALSE
+  // REFUSAL of the shape every new site starts in. page-diff falls back to each
+  // page's own <section> boxes and, with none, an even four-row grid
+  // (splitRegions, page-diff.mjs:103-110), so the count is data-dependent and
+  // the two pages need not even agree. Measured 2026-09-09 against the real
+  // page-diff on a seed harness (anchors: [], matrix of 4): 16 regions labelled
+  // grid-0-0 … grid-3-0, not the 4 this identity predicted. The 298/298 above
+  // was measured over anchored runs only and never covered this case.
+  if (secs.length) {
+    const expected = (secs.length + 1) * vws.length;
+    if (report.regions.length !== expected)
+      return {
+        ok: false,
+        why: \`\${path}: \${report.regions.length} region(s), expected \${expected} = (\${secs.length} anchors + 1) x \${vws.length} viewport(s)\`,
+      };
+  }
+
+  // A green that STATES what it is made of, so a green over nothing reads
+  // differently from a green over the matrix (census.sh:219's habit).
+  return {
+    ok: true,
+    why: \`\${report.regions.length} region(s) over \${vws.length} viewport(s), written \${meta.generatedAt}\`,
+  };
+}
+
+// CLI. Both sides go through realpathSync. \`import.meta.url\` is ALREADY the
+// resolved real path (node resolves symlinks unless --preserve-symlinks) while
+// process.argv[1] is the path as typed, so a plain pathToFileURL compare goes
+// false the moment any component of the invoked path is a symlink — and then
+// the CLI prints nothing and exits 0, which every caller reads as success.
+// page-diff.mjs:184-189 records exactly that defect and the same fix: "The
+// pathToFileURL compare that replaced the old template string is still false
+// whenever ANY component of the invoked path is a symlink — which is how this
+// skill is installed now (~/.claude/skills/matching-a-page -> the claude-skills
+// checkout). isMain() resolves the real path on both sides."
+const isMain = () => {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+};
+
+if (isMain()) {
+  const mode = process.argv[2];
+  const q = (v) => \`'\${String(v).replace(/'/g, \`'\\\\''\`)}'\`;
+  if (mode === "--env") {
+    const pairs = [
+      ["REF", REF],
+      ["CAND", CAND],
+      ["MATRIX", MATRIX.join(",")],
+      ["VIEWPORTS_SP", MATRIX.join(" ")],
+      ["THRESHOLD", THRESHOLD],
+      ["MAX_HEIGHT_DELTA", MAX_HEIGHT_DELTA],
+      ["PD", PD],
+      ["SC", SC],
+      ["REPORT_SCHEMA", REPORT_SCHEMA],
+    ];
+    for (const [k, v] of pairs) console.log(\`\${k}=\${q(v)}\`);
+  } else if (mode === "--table") {
+    for (const p of PAGES) console.log([p.key, p.ref, p.cand, p.anchors.join(",")].join("\\t"));
+  } else if (mode === "--check-ref") {
+    const r = await checkRef();
+    console.log(\`\${r.ok ? "REF OK" : "REF REFUSED"} — \${r.why}\`);
+    process.exit(r.ok ? 0 : 2);
+  } else if (mode === "--check-run") {
+    // startedAt is REQUIRED, never defaulted: an optional one is a fail-open
+    // door in the one guard that decides whether a page was measured at all.
+    const [page, dir, startedAt] = process.argv.slice(3);
+    if (!page || !dir || !startedAt) {
+      console.error("usage: harness.mjs --check-run <page> <out-dir> <startedAt-iso>");
+      process.exit(2);
+    }
+    const r = checkRun(page, dir, startedAt);
+    console.log(\`\${r.ok ? "RUN OK" : "NO RUN"} — \${r.why}\`);
+    process.exit(r.ok ? 0 : 2);
+  } else {
+    console.error("usage: harness.mjs --env | --table | --check-ref | --check-run");
+    process.exit(2);
+  }
+}
+`;
+
+const CENSUS_SH_PREV_0_95_1 = `#!/usr/bin/env bash
+# Phase 3 style gate — the mechanical net for the type spec.
+#
+#   bash matching/census.sh            # all 9 pages, all 3 viewports
+#   bash matching/census.sh home yfv   # just these
+#
+# style-census diffs the computed type tuple (family, weight, size,
+# line-height, letter-spacing, transform, colour) of every text snippet present
+# on BOTH pages. It is the only gate that catches the 11px footer line and the
+# cyan-vs-teal link that page-diff is structurally blind to — a region can be
+# pixel-clean at 0.10 and still be wearing the wrong colour on small text.
+#
+# Prints a per-page/per-viewport mismatch count and leaves the full runs in
+# matching/census-<page>-<vw>.log. Exits 1 while any count is non-zero, and 2
+# when it cannot honestly report a count at all.
+#
+# EVIDENCE — read before adding a guard here, or removing one. A green here
+# has to be produced by a census that RAN. It was not: with style-census.mjs
+# absent this gate printed "Phase 3 CLEAN — 0 undeclared type mismatches" and
+# exited 0. Every run died on module resolution, census-count.mjs read each
+# crash log as "0 0 0" (it counts \`  y=\` rows and a stack trace has none —
+# census-count.mjs:35-56), and no rows was reported as no mismatches. Measured
+# again with style-census.mjs PRESENT and the candidate host down: identical
+# output, because style-census exits 1 both when it finds mismatches
+# (style-census.mjs:187) and when it dies before it looks — so the exit status
+# cannot tell a finding from a crash and may not grant a green either.
+#
+# The guards below are what next.mjs:83-89 (no parseable gate run — refusing to
+# report a score), strikes.mjs:87-97 (refusing to report "clear") and
+# gate.sh:37-42 (preflight page-diff before spending a run) already do. Each
+# demands an artefact only a working census produces; none of them can turn a
+# red green.
+set -uo pipefail
+# Resolved BEFORE the cd. $0 is the path as TYPED, so a relatively invoked
+# census.sh that resolved the harness afterwards would look for it under
+# whatever root the cd landed on.
+HARNESS="$(cd "$(dirname "$0")" && pwd)/harness.mjs"
+cd "$(dirname "$0")/.."
+
+# Everything configurable lives in matching/harness.json; harness.mjs is the one
+# reader. --env supplies REF, CAND, SC and VIEWPORTS_SP — this gate held its own
+# copy of all four, and its REF went stale when production cut over to our own
+# build (LEDGER "REFERENCE MOVED", verified 2026-08-10) while gate.sh's was
+# repointed the same day.
+eval "$(node "$HARNESS" --env)"
+NODE="\${NODE:-node}"
+
+# The matrix is DATA, read as VIEWPORTS_SP, the way gate.sh reads MATRIX. The
+# old VIEWPORTS override is retired rather than silently ignored: a census run
+# over a matrix harness.json does not name is a column set the pixel gate never
+# measured, and it would look exactly like a clean one.
+if [ -n "\${VIEWPORTS:-}" ]; then
+  echo "census.sh: the VIEWPORTS override is retired — the matrix is data now." >&2
+  echo "           Edit \\"matrix\\" in matching/harness.json, then unset it." >&2
+  exit 2
+fi
+
+# GUARD 1 — the tool is there and it starts. gate.sh compares \`page-diff
+# --version\` with the harness's REPORT_SCHEMA before spending a run
+# (gate.sh:37-42); style-census has no --version to compare (page-diff.mjs
+# defines one at 191-195; nothing in style-census.mjs writes one), so the
+# artefact demanded here is the other one only it produces: the usage banner it
+# prints on exit 2 when --ref/--cand are missing (style-census.mjs:151-157).
+# That banner is not free — \`import { chromium } from "playwright"\` runs first
+# (style-census.mjs:19) — so a skill directory with no playwright installed
+# fails HERE, once, instead of writing one crash log per page per viewport that
+# every reader downstream counts as zero.
+if [ ! -f "$SC" ]; then
+  echo "census.sh: no style-census at $SC — refusing to report a count." >&2
+  echo "           Install the matching-a-page skill, or point MATCHING_SKILL_DIR" >&2
+  echo "           at a checkout that has style-census.mjs." >&2
+  exit 2
+fi
+SC_USAGE="$("$NODE" "$SC" 2>&1)"
+case "$SC_USAGE" in
+  *"style-census"*"--ref"*"--cand"*"--vw"*) ;;
+  *)
+    echo "census.sh: $SC did not answer with a style-census --ref/--cand/--vw usage" >&2
+    echo "           banner — refusing to report a count. It printed:" >&2
+    echo "           \${SC_USAGE:-(nothing at all)}" >&2
+    exit 2
+    ;;
+esac
+
+declare -a WANT=("$@")
+
+# page -> "refpath candpath": the same table gate.sh drives, from the same file.
+# cut drops the anchors column, which the style census has no argument for
+# (style-census.mjs: --ref <url> --cand <url> [--vw 1440]).
+pages() { node "$HARNESS" --table | cut -f1-3; }
+
+TOTAL=0
+AMB=0
+DECL=0
+ROWS=0
+RUNS=0
+BROKEN=0
+SEEN=""
+# One column per viewport, from the matrix. Flush with the data rows below, at
+# last: the old header hardcoded four fixed fields separated by a literal space,
+# which the rows do not have, so its labels sat 1/2/3 columns right of them.
+printf '%-10s' page
+for vw in $VIEWPORTS_SP; do printf '%8s' "$vw"; done
+printf '\\n'
+while read -r page refpath candpath; do
+  [ -z "$page" ] && continue
+  SEEN="$SEEN $page"
+  if [ \${#WANT[@]} -gt 0 ]; then
+    hit=0
+    for w in "\${WANT[@]}"; do [ "$w" = "$page" ] && hit=1; done
+    [ $hit -eq 1 ] || continue
+  fi
+  ROWS=$((ROWS + 1))
+  line=$(printf '%-10s' "$page")
+  for vw in $VIEWPORTS_SP; do
+    log="matching/census-$page-$vw.log"
+    RUNS=$((RUNS + 1))
+    "$NODE" "$SC" --ref "$REF$refpath" --cand "$CAND$candpath" --vw "$vw" >"$log" 2>&1
+    # GUARD 2 — this run produced a census. The header and the counts line are
+    # written together at style-census.mjs:166-169 and only after both pages
+    # have been walked, so they are the artefact a completed run leaves and a
+    # crashed one cannot. The viewport is read back out of the header because a
+    # --vw that did not take would otherwise fill three differently named logs
+    # with the same 1440 census. \`ref runs\`/\`cand runs\` must be non-zero: two
+    # pages that rendered no text at all agree perfectly and mean nothing.
+    if ! grep -qE "^=== style census, viewport $vw ===\\$" "$log" ||
+      ! grep -qE "^ref runs: [1-9][0-9]* +cand runs: [1-9][0-9]* +mismatches: [0-9]+ +ambiguous: [0-9]+\\$" "$log"; then
+      BROKEN=$((BROKEN + 1))
+      echo "census.sh: $page @$vw produced no usable census — see $log" >&2
+      line="$line$(printf '%8s' '!!')"
+      continue
+    fi
+    # census-count splits the log three ways: REAL mismatches, AMBIGUOUS
+    # same-text collisions (style-census's own split), and DECLARED rows the
+    # operator has already ruled on (matching/census-deviations.mjs, the same
+    # contract as floors.mjs). Only the first is outstanding work — without the
+    # third, this gate can never reach zero and its number means nothing.
+    read -r n a d <<<"$("$NODE" matching/census-count.mjs "$log")"
+    # GUARD 2b — three integers, or the counter did not count. census-count.mjs
+    # is the reader that turned a stack trace into "0 0 0"; a run of it that
+    # dies (a broken census-deviations.mjs, a bad path) prints nothing at all,
+    # and bash reads an empty $n as zero in the arithmetic below.
+    counted=1
+    for v in "\${n:-}" "\${a:-}" "\${d:-}"; do
+      case "$v" in "" | *[!0-9]*) counted=0 ;; esac
+    done
+    if [ "$counted" -eq 0 ]; then
+      BROKEN=$((BROKEN + 1))
+      echo "census.sh: census-count.mjs did not return three counts for $log" >&2
+      line="$line$(printf '%8s' '!!')"
+      continue
+    fi
+    # GUARD 2c — the number reported is the number the census MEASURED. GUARD 2
+    # matched the counts line for PRESENCE and threw its numbers away, so the
+    # count printed below came from census-count's row parse and nothing ever
+    # compared the two. Measured 2026-09-09: a COMPLETE census whose counts line
+    # said "mismatches: 3", whose \`y=\` rows carried one leading space instead of
+    # two (census-count.mjs:39 matches /^ {2}y=/), was reported as 0 and this
+    # gate printed "Phase 3 CLEAN — 0 undeclared type mismatches", exit 0. The
+    # printer lives in the SKILL (style-census.mjs:171-173) and the parser is
+    # copied into every site, so the two version independently and drift needs
+    # nobody to touch either repo.
+    #
+    # The identity is exact for mismatches: style-census prints at most 100 rows
+    # and states the remainder on its own line (style-census.mjs:175-177), so
+    # parsed + remainder == reported. Ambiguous rows are capped the same way
+    # (:184) but the remainder is NOT stated, so only a floor is checkable
+    # there — any is not none, and the parse may never exceed the report.
+    counts=$(grep -E "^ref runs: [1-9][0-9]* +cand runs: [1-9][0-9]* +mismatches: [0-9]+ +ambiguous: [0-9]+$" "$log" | tail -1)
+    said_m=\${counts##*mismatches: }
+    said_m=\${said_m%% *}
+    said_a=\${counts##*ambiguous: }
+    more=$(sed -n 's/^ *… and \\([0-9][0-9]*\\) more (truncated print, all counted)$/\\1/p' "$log" | tail -1)
+    if [ $((n + d + \${more:-0})) -ne "$said_m" ] ||
+      [ "$a" -gt "$said_a" ] ||
+      { [ "$said_a" -gt 0 ] && [ "$a" -eq 0 ]; }; then
+      BROKEN=$((BROKEN + 1))
+      echo "census.sh: $log reports mismatches: $said_m ambiguous: $said_a, but" >&2
+      echo "           census-count.mjs read $((n + d)) mismatch row(s)\${more:+ (+ $more truncated)} and $a ambiguous." >&2
+      echo "           The census and its reader disagree; there is no count to report." >&2
+      line="$line$(printf '%8s' '!!')"
+      continue
+    fi
+    AMB=$((AMB + a))
+    DECL=$((DECL + d))
+    TOTAL=$((TOTAL + n))
+    line="$line$(printf '%8s' "$n")"
+  done
+  echo "$line"
+done < <(pages)
+
+echo
+# GUARD 3 — something was actually censused. Process substitution above, NOT a
+# pipe: a pipe runs the loop in a subshell and every counter here would still
+# read 0, which is exactly the green this file exists to stop (gate.sh:123-125
+# records the same trap for FAILED_PREFLIGHT). A page name that matches nothing
+# must not report CLEAN either — strikes.mjs:147-156 is the same refusal, and
+# it was written because a typo silently greened rule 3 on six of nine pages.
+if [ "$ROWS" -eq 0 ]; then
+  if [ -n "$SEEN" ]; then
+    echo "census.sh: \\"\${WANT[*]:-}\\" matches no page — refusing to report CLEAN." >&2
+    echo "           known pages:$SEEN" >&2
+  else
+    echo "census.sh: the page table is empty — refusing to report CLEAN." >&2
+    echo "           node matching/harness.mjs --table printed no rows; check" >&2
+    echo "           \\"pages\\" in matching/harness.json." >&2
+  fi
+  exit 2
+fi
+if [ "$BROKEN" -gt 0 ]; then
+  echo "CENSUS INCOMPLETE — $BROKEN of $RUNS run(s) produced no usable census (marked !!)."
+  echo "Those page/viewport pairs have NOT been measured; there is no count to"
+  echo "report for them, and the totals below would be a floor, not a score."
+  echo "Full runs: matching/census-<page>-<vw>.log"
+  exit 2
+fi
+if [ "$TOTAL" -eq 0 ]; then
+  echo "Phase 3 CLEAN — 0 undeclared type mismatches ($DECL declared, $AMB ambiguous)."
+  echo "($RUNS censused run(s) over $ROWS page(s), each one counted.)"
+  [ "$AMB" -gt 0 ] && echo "($AMB ambiguous same-text rows remain: each needs ADJUDICATING," &&
+    echo " not fixing — our element matches, another sharing its text does not.)"
+  exit 0
+fi
+echo "$TOTAL type mismatch(es) remain (+ $AMB ambiguous, $DECL declared)."
+echo "Full runs: matching/census-<page>-<vw>.log"
+echo "A mismatch is a defect or a ledgered deviation. An ambiguous row is neither"
+echo "until you look: the census keys on TEXT, so two different elements sharing a"
+echo "string land under one key and only one of them may be wrong."
+exit 1
+`;
+
+const NEXT_MJS_PREV_0_95_1 = `// What is still broken, ranked. Exits 1 while work remains.
+//
+//   node matching/next.mjs
+//
+// Round protocol step 0 (repo CLAUDE.md rule 5). A commit is a CHECKPOINT, not
+// a stopping point: after committing, run this. If it exits 1 there is a named
+// next action and the round continues without handing control back.
+//
+// Reads the most recent gate log per page rather than the whole corpus, so it
+// reflects HEAD rather than history (that is strikes.mjs's job).
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+const DIR = new URL(".", import.meta.url).pathname;
+
+// PAUSE SWITCH. While matching/PAUSED exists this hands out no agenda and
+// exits 0. It is deliberately the FIRST thing that runs: no report is read, no
+// score is printed, nothing tempting is put on screen to argue with.
+//
+// Why an exit code and not a note somewhere: rule 5 is a LOOP — "after
+// committing, run next.mjs; while it exits 1 there is a named next action and
+// the round continues". A pause written as prose loses to that loop, because
+// the loop is mechanical and the prose is not. Exiting 0 satisfies rule 5
+// truthfully rather than suspending it: there is no next action.
+const PAUSE = join(DIR, "PAUSED");
+if (existsSync(PAUSE)) {
+  console.log("MATCHING PAUSED — no agenda, and none is to be inferred.\\n");
+  console.log(readFileSync(PAUSE, "utf8").trimEnd());
+  process.exit(0);
+}
+
+import { FLOORS, ACCEPTED } from "./floors.mjs";
+import {
+  TOTALS,
+  THRESHOLD,
+  MAX_HEIGHT_DELTA,
+  REPORT_SCHEMA,
+  uncountable,
+  scorable,
+  unscorableWhy,
+  byKey,
+} from "./harness.mjs";
+
+// Reports written by a different page-diff, by page key. Kept rather than
+// dropped: silently ignoring them is how a page vanishes from the score.
+const schemaMismatch = new Set();
+
+const latest = new Map();
+for (const d of readdirSync(DIR).filter((d) => d.startsWith("out-"))) {
+  const m = /^out-[^-]+-(.+)$/.exec(d);
+  // Membership in the page table is asked of the TABLE. \`!TOTALS[m[1]]\` was a
+  // NUMBER standing in for a fact: it is null for an unanchored page and 0 for
+  // an empty matrix, and either dropped the page out of \`latest\` while
+  // \`Object.keys(TOTALS)\` still listed it — so a gate run that had just
+  // SUCCEEDED came back as "no countable gate run".
+  if (!m || !byKey[m[1]]) continue;
+  let report, mtime;
+  try {
+    const p = join(DIR, d, "report.json");
+    report = JSON.parse(readFileSync(p, "utf8"));
+    mtime = statSync(p).mtimeMs;
+  } catch {
+    continue;
+  }
+  // A masked / media-neutralised run is a DIAGNOSTIC, never the state of the
+  // page. Picking one up as "latest" silently reports scores nobody can ship —
+  // it happened immediately: an --mask-photos probe of yfv made \`top\` @834 read
+  // 43.9% here while the real gate had it passing at 1.3%. Missing
+  // schemaVersion means "written before the field existed" = 0; it is not an
+  // error on its own, only when it would blank a page.
+  //
+  // The predicate itself lives in harness.mjs now, because gate.sh asks the
+  // same question per run and two copies of one question drift — a gate that
+  // greens a run this file then drops is the same false green one step along.
+  const why = uncountable(report.meta ?? {});
+  if (why === "schema") {
+    schemaMismatch.add(m[1]);
+    continue;
+  }
+  if (why) continue;
+  const prev = latest.get(m[1]);
+  if (!prev || mtime > prev.mtime) latest.set(m[1], { dir: d, mtime, report });
+}
+
+const blanked = [...schemaMismatch].filter((p) => !latest.has(p));
+if (blanked.length) {
+  console.error(
+    \`next: \${blanked.length} page(s) have no run at report schema \${REPORT_SCHEMA} — \` +
+      \`their newest reports came from a different page-diff (\${blanked.sort().join(", ")}).\\n\` +
+      \`      Re-run: bash matching/gate.sh <tag> \${blanked.sort().join(" ")}\`,
+  );
+  process.exit(2);
+}
+if (latest.size === 0) {
+  console.error(
+    "next: no parseable gate run under matching/ — refusing to report a score.\\n" +
+      "      Run bash matching/gate.sh <tag> first.",
+  );
+  process.exit(2);
+}
+
+const rows = [];
+const accepted = [];
+let openTotal = 0;
+let floorTotal = 0;
+for (const [page, { dir, report }] of latest) {
+  const fails = report.regions.filter((r) => !r.pass);
+  for (const f of fails) {
+    const floor = FLOORS.find((fl) => fl.match(f, page));
+    if (floor) {
+      floorTotal++;
+      continue;
+    }
+    const ack = ACCEPTED.find((a) => a.match(f, page));
+    if (ack) {
+      accepted.push({ page, vw: f.viewport, label: f.label, why: ack.why });
+      continue;
+    }
+    openTotal++;
+    rows.push({
+      page,
+      vw: f.viewport,
+      label: f.label,
+      mm: f.mismatchFraction,
+      dh: f.heightDeltaFraction ?? 0,
+      dir,
+    });
+  }
+}
+
+// Pages that REPORTED but cannot be scored: no anchors, so their regions are
+// whatever page-diff's fallback cut and there is no model for one to be right
+// against. Kept separate from \`scored\` and never ranked with it.
+const unscorable = [...latest.entries()]
+  .filter(([p]) => !scorable(p))
+  .map(([p, v]) => ({ p, regions: v.report.regions.length }))
+  .sort((a, b) => a.p.localeCompare(b.p));
+
+// \`.filter(scorable)\` before \`.map\`, because the sort below divides by \`total\`
+// and an unanchored page's ratio is NOT BOUNDED BY 1. A passing one scored
+// 16/4 = 4.0 and sorted LAST, i.e. best, so \`worst\` could never name the one
+// page whose Phase 1 was not done; a failing one scored 0/4 = 0.0, sorted
+// FIRST, and put \`grid-0-0\`, \`grid-1-0\` … on the agenda — an instruction to fix
+// geometry against regions page-diff invented.
+const scored = [...latest.entries()]
+  .filter(([p]) => scorable(p))
+  .map(([p, v]) => ({
+    p,
+    pass: v.report.regions.filter((r) => r.pass).length,
+    total: TOTALS[p],
+  }))
+  .sort((a, b) => a.pass / a.total - b.pass / b.total);
+
+// The denominator is the DECLARED site, not the pages that happened to report.
+// Summed over \`scored\` it shrank to match the numerator: 8 of 9 pages reporting
+// read SCORE 160/160 while the ninth, whose page-diff had crashed, was in
+// neither the numerator nor the denominator nor the list below. harness.mjs:61-67
+// already gives the reason — "a wrong denominator makes the score a lie in the
+// flattering direction" — and that fix was applied per REGION (\`total:
+// TOTALS[p]\`) and never per PAGE.
+const unmeasured = Object.keys(TOTALS)
+  .filter((p) => !latest.has(p))
+  .sort();
+const sum = scored.reduce((a, s) => a + s.pass, 0);
+// Summed EXPLICITLY over the scorable pages rather than over TOTALS' values:
+// \`a + null\` is silently \`a\`, and a denominator that is right only because of a
+// coercion is the same lie one refactor away.
+const pagesAll = Object.keys(TOTALS).length;
+const pagesScorable = Object.keys(TOTALS).filter((p) => scorable(p)).length;
+const max = Object.keys(TOTALS).reduce((a, p) => a + (scorable(p) ? TOTALS[p] : 0), 0);
+
+// A score is printed only if SOMETHING can carry one. \`SCORE 0/0\` is a third
+// lie and the one that reads best of all, so it is never printed: with nothing
+// scorable the line says so in words and gives no fraction to quote.
+console.log(
+  (pagesScorable === 0
+    ? \`NO SCORE — 0 of \${pagesAll} page(s) can carry one.\`
+    : \`SCORE \${sum}/\${max} regions passing over \${pagesScorable} of \${pagesAll} page(s)\` +
+      (unmeasured.length ? \` — \${unmeasured.length} page(s) NOT MEASURED\` : "")) + "\\n",
+);
+console.log(
+  [
+    ...scored.map((s) => \`  \${s.p.padEnd(9)} \${String(s.pass).padStart(2)}/\${s.total}\`),
+    // The run's OWN region count, as EVIDENCE FOR THE REFUSAL — it proves a run
+    // happened and explains why it cannot be scored, so a refusal is not
+    // mistaken for a crash. The pass FRACTION is deliberately withheld: it is
+    // the number with no referent, and the number that gets quoted.
+    ...unscorable.map(
+      (u) =>
+        \`  \${u.p.padEnd(9)} \${String(u.regions).padStart(2)} region(s)  NOT SCORABLE — \${unscorableWhy(u.p)}\`,
+    ),
+    // \`?/N\`, never \`0/N\`: an unmeasured page is not a page that scored zero,
+    // and printing zero would be a different lie. \`?/?\` when the page is ALSO
+    // unanchored — \`?/null\` would name the denominator "null", which is worse
+    // than the number it replaced.
+    ...unmeasured.map((p) => \`  \${p.padEnd(9)}  ?/\${TOTALS[p] ?? "?"}   NOT MEASURED\`),
+  ].join("\\n"),
+);
+
+if (accepted.length) {
+  console.log(\`\\nOperator-ACCEPTED failures (left failing on purpose):\`);
+  for (const a of accepted)
+    console.log(\`  \${a.page} @\${a.vw} "\${a.label}" — \${a.why.slice(0, 96)}…\`);
+}
+
+// BEFORE the \`!rows.length\` branch, and deliberately so: an unmeasured page
+// contributes no failing region, so that branch would print "Backlog is empty"
+// and exit 0 over a page nobody had looked at. Exit 2 matches the two guards
+// above (\`blanked\`, \`latest.size === 0\`) — neither "clean" nor "work remains"
+// but "this cannot be scored", the one answer rule 5's while-it-exits-1 loop
+// cannot swallow. The score print stays above it so the partial state is still
+// visible.
+// A page with no anchors has not finished Phase 1, so a score has no referent
+// and this refuses to invent one — the same answer \`refMark: ""\` gets from
+// checkRef and an absent \`## <page>\` SPEC section gets from gate.sh. All three
+// are seed sentinels, and this was the one that failed OPEN. Repo CLAUDE.md
+// rule 1's corollary is the whole argument: a field that can only observe
+// configuration must never be named after the thing it cannot observe, and
+// "12 of 12 grid rows passed" observes a screenshot cut into quarters, not a
+// design anyone specced.
+//
+// PRINTED here, EXITED below: \`unmeasured\` and \`unscorable\` are different pages
+// with different remedies, and exiting inside the first block would hide the
+// second from an operator who then fixes only what was printed.
+if (unscorable.length) {
+  console.error(
+    \`\\nnext: \${unscorable.length} page(s) have no anchors, so their regions are page-diff's own\\n\` +
+      \`      fallback cut and cannot be scored — \` +
+      unscorable.map((u) => \`\${u.p} (\${u.regions} region(s))\`).join(", ") +
+      \`.\\n      Set "anchors" for them in matching/harness.json to section texts that exist on\\n\` +
+      \`      BOTH the reference and the candidate, then re-run: bash matching/gate.sh <tag> \` +
+      unscorable.map((u) => u.p).join(" "),
+  );
+}
+
+if (unmeasured.length) {
+  console.error(
+    \`\\nnext: \${unmeasured.length} page(s) have no countable gate run — \${unmeasured.join(", ")}.\\n\` +
+      \`      Re-run: bash matching/gate.sh <tag> \${unmeasured.join(" ")}\`,
+  );
+  process.exit(2);
+}
+
+// See above: deliberately a second statement, not an \`else\`.
+if (unscorable.length) process.exit(2);
+
+if (!rows.length) {
+  console.log(
+    \`\\nNo open geometry failures. \${floorTotal} declared floor(s) remain.\`,
+  );
+  console.log(
+    "Backlog is empty — Phases 5 (states) and 6 (adversarial review) are what is left.",
+  );
+  process.exit(0);
+}
+
+// Worst page first, then worst region inside it: fix where the model is most wrong.
+//
+// INVARIANT, documented rather than guarded because no test could redden a
+// guard here: \`scored[0]\` is safe because \`scored\` is empty only when every
+// page in \`latest\` is unanchored — and that means \`unscorable.length > 0\`, so
+// the exit above already fired. (\`latest\` being empty is caught further up.)
+// \`rows\` likewise still contains unanchored pages' failing regions; they are
+// never printed because that same exit fires first. Both facts depend on the
+// exit staying ABOVE this line — a second filter here would be a second place
+// to keep in sync, which is how checkRun and next.mjs drifted apart to begin
+// with. If that exit ever moves, this becomes a TypeError.
+const worst = scored[0].p;
+rows.sort(
+  (a, b) =>
+    (a.page === worst ? -1 : 0) - (b.page === worst ? -1 : 0) || b.mm - a.mm,
+);
+
+console.log(
+  \`\\n\${openTotal} open failure(s) + \${floorTotal} declared floor(s).\`,
+);
+console.log(\`\\nNEXT: \${worst} — worst page. Its open regions:\\n\`);
+for (const r of rows.filter((r) => r.page === worst)) {
+  const why = [];
+  if (r.mm > THRESHOLD) why.push(\`pixels \${(r.mm * 100).toFixed(1)}%\`);
+  if (Math.abs(r.dh) > MAX_HEIGHT_DELTA)
+    why.push(\`height \${(r.dh * 100).toFixed(1)}%\`);
+  console.log(
+    \`  @\${String(r.vw).padEnd(5)} \${r.label.slice(0, 44).padEnd(45)} \${why.join(" + ")}\`,
+  );
+}
+console.log(\`\\nBefore treating any of these as geometry:\`);
+console.log(
+  \`  node matching/probe-anchor-parity.mjs \${worst}   # is the gate cutting comparably?\`,
+);
+console.log(
+  \`  node matching/strikes.mjs \${worst}               # has it stalled? then change the MODEL\`,
+);
+console.log(
+  \`\\nRound continues. Do not hand back control with work outstanding.\`,
+);
+process.exit(1);
+`;
+
+const STRIKES_MJS_PREV_0_95_1 = `// The 3-strike rule, made countable.
+//
+//   node matching/strikes.mjs [page]
+//
+// The matching skill says: "A region that has not improved after 3 fix ->
+// re-run cycles: stop. Present the three attempts. Do not widen the threshold,
+// mask it, or reclassify it — a stuck region means your model of it is wrong."
+//
+// That rule was blown twice on this project (services \`top\`, yfv \`top\`) purely
+// because nobody was counting. This reads every matching/out-*/report.json,
+// reconstructs each region's history in chronological order, and prints the
+// regions that are OUT OF STRIKES. Exit 1 when any exist, so a round that
+// starts by running this cannot quietly attempt a fourth cycle.
+//
+// WHAT THIS ACTUALLY MEASURES (read before trusting a number): report.json
+// cannot record INTENT, so a "cycle" here is any completed gate run in which
+// the region was still failing and did not improve by IMPROVE_PP. Runs aimed at
+// a different region on the same page therefore count too. That makes this a
+// STALL detector, not a literal attempt counter — "this has been failing,
+// unchanged, across N gate runs while you were working on this page." That is
+// the more useful discipline number anyway, and it is honest about being an
+// upper bound. Improvement resets the count: real progress earns a fresh start.
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { FLOORS } from "./floors.mjs";
+import {
+  PAGES,
+  THRESHOLD,
+  MAX_HEIGHT_DELTA,
+  REPORT_SCHEMA,
+} from "./harness.mjs";
+
+// PAUSE SWITCH — see matching/next.mjs for why this is an exit code. Round
+// protocol step 1 is "run strikes.mjs; the stalled regions are the agenda", so
+// this is the second door into the backlog and has to be shut too. Exits 0:
+// there are no strikes to spend when no round is being played.
+const PAUSED = join(new URL(".", import.meta.url).pathname, "PAUSED");
+if (existsSync(PAUSED)) {
+  console.log("MATCHING PAUSED — no agenda, and none is to be inferred.\\n");
+  console.log(readFileSync(PAUSED, "utf8").trimEnd());
+  process.exit(0);
+}
+
+const IMPROVE_PP = 0.01; // 1 percentage point = the smallest move worth calling progress
+const MAX_STRIKES = 3;
+const ROOT = new URL(".", import.meta.url).pathname;
+const only = process.argv[2] ?? null;
+
+// The gate key for a report, from its ref path. Deriving it by string surgery
+// disagreed with the gate on exactly six of the nine rows — yfv, contact, atd,
+// svc, qa and team (measured 2026-09-09 against harness.json); the table knows.
+// keyOf (below) stays as the fallback for a run whose ref was rewritten.
+const pageOf = (ref) => {
+  const path = new URL(ref).pathname.replace(/\\/$/, "") || "/";
+  return PAGES.find((p) => p.ref === path)?.key ?? null;
+};
+
+const runs = [];
+const unreadable = [];
+for (const dir of readdirSync(ROOT).filter((d) => d.startsWith("out-"))) {
+  let report;
+  try {
+    report = JSON.parse(readFileSync(join(ROOT, dir, "report.json"), "utf8"));
+  } catch {
+    continue; // not a completed run dir
+  }
+  if (!report.meta?.ref || !Array.isArray(report.regions)) continue;
+  // A report from another schema is still usable for a STALL count as long as
+  // it carries the two fields this reads. Anything else is counted and named,
+  // never silently dropped — an under-counted history reads as "clear".
+  const usable = report.regions.every(
+    (r) =>
+      typeof r.mismatchFraction === "number" && typeof r.pass === "boolean",
+  );
+  if (!usable) {
+    unreadable.push(\`\${dir} (schema \${report.meta.schemaVersion ?? 0})\`);
+    continue;
+  }
+  runs.push({
+    dir,
+    at: report.meta.generatedAt,
+    meta: report.meta,
+    regions: report.regions,
+  });
+}
+
+// The failure mode of a stall detector is always "clear", which is exactly the
+// answer that stops nobody. A corpus this could not read is not a clean one.
+if (runs.length === 0) {
+  console.error(
+    \`strikes: no parseable gate run under matching/ — refusing to report "clear".\` +
+      (unreadable.length
+        ? \`\\n         \${unreadable.length} report(s) unreadable at schema \${REPORT_SCHEMA}: \${unreadable.slice(0, 5).join(", ")}\`
+        : ""),
+  );
+  process.exit(2);
+}
+if (unreadable.length) {
+  console.error(
+    \`strikes: ignored \${unreadable.length} unreadable report(s) — the history below is incomplete.\` +
+      \`\\n         \${unreadable.slice(0, 5).join(", ")}\`,
+  );
+}
+
+runs.sort((a, b) => a.at.localeCompare(b.at));
+
+// The gate page KEY, recovered from the run dir the way next.mjs does it
+// (out-<TAG>-<page>, split on the first hyphen — the tag is hyphen-free by
+// gate.sh's own preflight). \`pageOf\` now returns that same key off the table,
+// so the two vocabularies agree and the round protocol in CLAUDE.md — "run
+// \`strikes.mjs <page>\` with the key you just passed to gate.sh", which until
+// 2026-08-13 silently matched nothing — works either way. This stays because
+// a dir key is not always a gate key: 69 of this corpus's 377 run dirs are
+// hand-named probes (out-band3, out-390masked), and FLOORS matches on it.
+const keyOf = (dir) => /^out-[^-]+-(.+)$/.exec(dir)?.[1] ?? null;
+
+// key -> chronological list of {dir, at, mm, pass, masked}
+const history = new Map();
+const seenNames = new Set();
+for (const run of runs) {
+  const page = pageOf(run.meta.ref) ?? keyOf(run.dir) ?? "unknown";
+  const gateKey = keyOf(run.dir);
+  seenNames.add(page);
+  if (gateKey) seenNames.add(gateKey);
+  if (only && page !== only && gateKey !== only) continue;
+  for (const r of run.regions) {
+    // A DECLARED FLOOR is flat by definition — reporting it as stalled is noise
+    // that hides a real stall. It stays in the LEDGER; it does not belong here.
+    if (FLOORS.some((fl) => fl.match(r, gateKey || page))) continue;
+    const key = \`\${page}|\${r.viewport}|\${r.label}\`;
+    if (!history.has(key)) history.set(key, []);
+    history.get(key).push({
+      dir: run.dir,
+      at: run.at,
+      mm: r.mismatchFraction,
+      dh: r.heightDeltaFraction,
+      pass: r.pass,
+      // a run with masks/neutralised media is not comparable to a clean one
+      dirty:
+        (run.meta.mask?.length ?? 0) > 0 ||
+        run.meta.neutralizeMedia ||
+        run.meta.maskPhotos,
+    });
+  }
+}
+
+// A name that matches no run must NOT report "clear". This check exists to stop
+// work on a stalled region, so failing open is the one thing it may never do —
+// a typo'd or wrong-vocabulary page silently greened rule 3 for six of the nine
+// pages. Fail loud instead, and say what the vocabulary is.
+if (only && history.size === 0) {
+  console.error(
+    \`strikes: "\${only}" matches no gate run — refusing to report "clear".\\n\` +
+      \`         known pages: \${[...seenNames].sort().join(", ")}\`,
+  );
+  process.exit(2);
+}
+
+const stuck = [];
+for (const [key, all] of history) {
+  const h = all.filter((e) => !e.dirty); // compare like with like
+  if (h.length === 0) continue;
+  const last = h[h.length - 1];
+  if (last.pass) continue;
+
+  let best = Infinity;
+  let strikes = 0;
+  let sinceIdx = 0;
+  for (let i = 0; i < h.length; i++) {
+    if (h[i].mm < best - IMPROVE_PP) {
+      best = Math.min(best, h[i].mm);
+      strikes = 0;
+      sinceIdx = i;
+    } else {
+      best = Math.min(best, h[i].mm);
+      strikes++;
+    }
+  }
+  if (strikes >= MAX_STRIKES) stuck.push({ key, strikes, h, sinceIdx, last });
+}
+
+// Triage order: the worst-matching region that has never moved is the one whose
+// model is most wrong. Sorting by strike count instead would put a 0.3% region
+// that only fails on height above a 76% region that fails on everything.
+stuck.sort((a, b) => b.last.mm - a.last.mm);
+
+if (stuck.length === 0) {
+  console.log(
+    \`strikes: clear — no failing region has stalled for \${MAX_STRIKES}+ gate runs\` +
+      (only ? \` on \${only}\` : "") +
+      ".",
+  );
+  process.exit(0);
+}
+
+const why = (e) => {
+  const reasons = [];
+  if (e.mm > THRESHOLD) reasons.push(\`pixels \${(e.mm * 100).toFixed(1)}%\`);
+  if (Math.abs(e.dh ?? 0) > MAX_HEIGHT_DELTA)
+    reasons.push(\`height \${((e.dh ?? 0) * 100).toFixed(1)}%\`);
+  return reasons.join(" + ") || "marginal";
+};
+
+console.log(
+  \`STALLED — \${stuck.length} failing region(s) have not moved in \${MAX_STRIKES}+ gate runs.\\n\` +
+    \`These need a new model or the operator, not another attempt. Worst first:\\n\`,
+);
+for (const { key, strikes, h, sinceIdx, last } of stuck.slice(0, 20)) {
+  const [page, vw, label] = key.split("|");
+  console.log(
+    \`\${page} @\${vw}  "\${label}"  — \${why(last)}, flat across \${strikes} runs\`,
+  );
+  const window = h.slice(Math.max(0, sinceIdx));
+  const shown = window.length > 4 ? [window[0], ...window.slice(-3)] : window;
+  for (const [i, e] of shown.entries()) {
+    const gap =
+      window.length > 4 && i === 1
+        ? \`    ... \${window.length - 4} more ...\\n\`
+        : "";
+    console.log(
+      gap +
+        \`    \${(e.mm * 100).toFixed(1).padStart(5)}%  \${e.at.slice(0, 16).replace("T", " ")}  \${e.dir}\`,
+    );
+  }
+  console.log();
+}
+if (stuck.length > 20) console.log(\`... and \${stuck.length - 20} more.\\n\`);
+console.log(
+  "Per the matching skill: present the attempts to the operator.\\n" +
+    "Do NOT widen the threshold, add a mask, or reclassify them as a floor.",
+);
+process.exit(1);
+`;
+
+const BUILD_SPEC_MJS_PREV_0_95_1 = `// Assemble matching/SPEC.md from the per-page sections in spec-sections/.
+//
+//   node matching/build-spec.mjs
+//
+// SPEC.md is the Phase 1 deliverable and the thing matching/gate.sh preflights
+// against, so it is GENERATED rather than hand-maintained: edit the section
+// file, rebuild. The page list comes from matching/harness.mjs (the same
+// reader gate.sh's \`--table\` loop uses) and the heading test from its
+// specHeadingRe, whose pattern is has_spec's grep verbatim — so a section can
+// no longer build fine here and then re-block its own page at the gate.
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { PAGES, specHeadingRe } from "./harness.mjs";
+
+const DIR = new URL(".", import.meta.url).pathname;
+const SECTIONS = join(DIR, "spec-sections");
+
+// Order = live's nav order, then the detail templates. Both fall out of the
+// table's own order within each group, so this is not a second list to keep.
+const KEYS = [
+  ...PAGES.filter((p) => p.group === "nav"),
+  ...PAGES.filter((p) => p.group !== "nav"),
+].map((p) => p.spec ?? p.key);
+
+const parts = [];
+const missing = [];
+
+const chrome = join(SECTIONS, "_chrome.md");
+if (existsSync(chrome)) parts.push(readFileSync(chrome, "utf8").trim());
+else missing.push("_chrome");
+
+for (const page of KEYS) {
+  const file = join(SECTIONS, \`\${page}.md\`);
+  if (!existsSync(file)) {
+    missing.push(page);
+    continue;
+  }
+  const body = readFileSync(file, "utf8").trim();
+  // The preflight greps \`^##+ +<page>\`; a section that does not open with its
+  // own key would build fine here and then refuse at the gate, which is the
+  // most confusing possible failure. Catch it now.
+  if (!specHeadingRe(page).test(body)) {
+    console.error(
+      \`WARNING: \${page}.md does not open with a '## \${page}' heading — gate.sh will still refuse this page.\`,
+    );
+  }
+  parts.push(body);
+}
+
+// The header is a spec-section like any other, so a site can say what a
+// citation looks like there and what its own ladders are. DEFAULT_HEADER is
+// what a site gets before it writes one: the two paragraphs that are true of
+// every project, and nothing that is not.
+const DEFAULT_HEADER = \`# Reference spec
+
+GENERATED by \\\`node matching/build-spec.mjs\\\` from \\\`matching/spec-sections/\\\`.
+Edit the section files, not this one.
+
+This is the Phase 1 deliverable of the \\\`matching-a-page\\\` skill and the
+precondition \\\`matching/gate.sh\\\` enforces: a page with no section here does not
+get a geometry round (see the matching rules in CLAUDE.md).
+
+\`;
+const headerFile = join(SECTIONS, "_header.md");
+const header = existsSync(headerFile)
+  ? readFileSync(headerFile, "utf8").trimEnd() + "\\n\\n"
+  : DEFAULT_HEADER;
+
+writeFileSync(join(DIR, "SPEC.md"), header + parts.join("\\n\\n---\\n\\n") + "\\n");
+
+const built = KEYS.length - missing.filter((m) => m !== "_chrome").length;
+console.log(
+  \`SPEC.md built — \${built}/\${KEYS.length} pages\${missing.length ? \`, MISSING: \${missing.join(", ")}\` : ""}\`,
+);
+process.exit(missing.length ? 1 : 0);
+`;
+
 const MATCH_ROUTE_SERVER_PREV_0_95_1 = `import { error } from "@sveltejs/kit";
 import { dev } from "$app/environment";
 import { documents } from "$lib/site-pages.js";
@@ -2481,9 +3833,12 @@ describe("site-pages documents vs slice models", () => {
  *  Sourced from scripts/match-harness-previous/<version>/ — the TAGGED
  *  release bodies, never re-derived from the source site. */
 export const MATCH_HARNESS_PREVIOUS: Readonly<Record<string, readonly string[]>> = {
-  "matching/harness.mjs": [HARNESS_MJS_PREV_0_95_0],
+  "matching/harness.mjs": [HARNESS_MJS_PREV_0_95_0, HARNESS_MJS_PREV_0_95_1],
   "matching/gate.sh": [GATE_SH_PREV_0_95_0],
-  "matching/next.mjs": [NEXT_MJS_PREV_0_95_0],
+  "matching/next.mjs": [NEXT_MJS_PREV_0_95_0, NEXT_MJS_PREV_0_95_1],
+  "matching/census.sh": [CENSUS_SH_PREV_0_95_1],
+  "matching/strikes.mjs": [STRIKES_MJS_PREV_0_95_1],
+  "matching/build-spec.mjs": [BUILD_SPEC_MJS_PREV_0_95_1],
   "src/routes/dev/match/[uid]/+page.server.ts": [MATCH_ROUTE_SERVER_PREV_0_95_1],
   "src/lib/site-pages.test.ts": [SITE_PAGES_TEST_PREV_0_95_1],
 };

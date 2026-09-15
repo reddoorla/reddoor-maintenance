@@ -1014,6 +1014,25 @@ describe("recipes/match-harness", () => {
     expect(code).toBe(0);
   });
 
+  it("census.sh honours matching/PAUSED: exit 0, and no census is spawned (#735)", async () => {
+    // next.mjs and strikes.mjs both exit 0 on the switch as their first act;
+    // census.sh read it never, so a paused site would spend every browser pair
+    // against the live reference. The proof is the artefact a census leaves:
+    // with PAUSED present, no census-<page>-<vw>.log may exist afterwards.
+    const cwd = await install();
+    const skill = await stubCensusSkill();
+    await writeFile(join(cwd, "matching/PAUSED"), "paused by test\n", "utf-8");
+    const { code, out } = await runIn(cwd, "bash", ["matching/census.sh"], {
+      MATCHING_SKILL_DIR: skill,
+      STUB_CENSUS_MODE: "clean",
+    });
+    expect(out).toMatch(/MATCHING PAUSED/);
+    expect(out).toMatch(/paused by test/);
+    expect(out).not.toMatch(/Phase 3/);
+    expect(await exists(cwd, "matching/census-home-1440.log")).toBe(false);
+    expect(code).toBe(0);
+  });
+
   it("census.sh still fails on the mismatches a completed census found", async () => {
     const cwd = await install();
     const skill = await stubCensusSkill();
@@ -2192,6 +2211,95 @@ describe("the installed harness reports, not just refuses", () => {
     expect(out).not.toMatch(/NOT SCORABLE/);
   });
 
+  it("next.mjs refuses a SHORT report — fewer regions than the anchors predict — with exit 2 (#756)", async () => {
+    // Two anchors, matrix of 3: TOTALS is 9. A report carrying 8 is fully
+    // countable (none of uncountable's arms counts regions), contributes no
+    // failing region, and used to fall through to "Backlog is empty", exit 0.
+    const cwd = await install();
+    await withAnchors(cwd, "home", ["Section A", "Section B"]);
+    const full = [1440, 834, 390].flatMap((viewport) =>
+      ["top", "Section A", "Section B"].map((label) => ({
+        viewport,
+        label,
+        mismatchFraction: 0.01,
+        pass: true,
+      })),
+    );
+    await writeReport(cwd, "out-smoke-home", full.slice(0, 8));
+
+    const short = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(short.out).toMatch(
+      /home: 8 region\(s\), expected 9 = \(2 anchors \+ 1\) x 3 viewport\(s\)/,
+    );
+    expect(short.out).not.toMatch(/Backlog is empty/);
+    expect(short.code).toBe(2);
+  });
+
+  it("next.mjs still GRANTS the same corpus once the report is full (#756 control)", async () => {
+    const cwd = await install();
+    await withAnchors(cwd, "home", ["Section A", "Section B"]);
+    const full = [1440, 834, 390].flatMap((viewport) =>
+      ["top", "Section A", "Section B"].map((label) => ({
+        viewport,
+        label,
+        mismatchFraction: 0.01,
+        pass: true,
+      })),
+    );
+    await writeReport(cwd, "out-smoke-home", full);
+
+    const ok = await runIn(cwd, "node", ["matching/next.mjs"]);
+    expect(ok.out).toMatch(/SCORE 9\/9 regions passing/);
+    expect(ok.out).toMatch(/Backlog is empty/);
+    expect(ok.out).not.toMatch(/expected 9/);
+    expect(ok.code).toBe(0);
+  });
+
+  /** Four completed runs of the same anchored corpus, one failing region flat
+   *  across all of them — exactly what the stall detector must report, unless
+   *  the operator has ruled on it. FOUR, not three: the first run sets the
+   *  baseline and a strike is a run that failed to improve on it, so three
+   *  identical runs are two strikes and read "clear" — the control below
+   *  measured that with a three-run corpus. strikes.mjs reads `meta.ref` to
+   *  attribute a run to its page and `meta.generatedAt` to order them. */
+  async function flatCorpus(cwd: string): Promise<void> {
+    await withAnchors(cwd, "home", ["Section A"]);
+    for (const [i, at] of ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"].entries()) {
+      await writeReport(cwd, `out-r${i + 1}-home`, CORPUS_ANCHORED, {
+        ref: "https://ref.test/",
+        generatedAt: `${at}T00:00:00.000Z`,
+      });
+    }
+  }
+
+  it("strikes.mjs reports the flat region as STALLED when nobody has ruled on it (#772 control)", async () => {
+    const cwd = await install();
+    await flatCorpus(cwd);
+    const { code, out } = await runIn(cwd, "node", ["matching/strikes.mjs"]);
+    expect(out).toMatch(/STALLED — 1 failing region\(s\)/);
+    expect(out).toMatch(/home @1440 {2}"top"/);
+    expect(code).toBe(1);
+  });
+
+  it("strikes.mjs skips an operator-ACCEPTED region and says how many it skipped (#772)", async () => {
+    const cwd = await install();
+    await flatCorpus(cwd);
+    await writeFile(
+      join(cwd, "matching/floors.mjs"),
+      `export const FLOORS = [];
+export const ACCEPTED = [
+  { match: (r, page) => page === "home" && r.viewport === 1440 && r.label === "top", why: "left failing on purpose" },
+];
+`,
+      "utf-8",
+    );
+    const { code, out } = await runIn(cwd, "node", ["matching/strikes.mjs"]);
+    expect(out).toMatch(/1 region\(s\) skipped as operator-accepted/);
+    expect(out).toMatch(/strikes: clear/);
+    expect(out).not.toMatch(/STALLED/);
+    expect(code).toBe(0);
+  });
+
   it("next.mjs exits 0 with no agenda once every region passes", async () => {
     const cwd = await install();
     // Anchored, for the same reason as above: the previous version of this test
@@ -3112,5 +3220,40 @@ describe("a 0.95.1 install takes the #763 prose correction", () => {
     expect(result.notes ?? "").not.toContain("hand-edited?");
     // Only the two files moved; the matching/ scripts were already current.
     expect(result.notes ?? "").not.toMatch(/matching\/\S+ upgraded/);
+  });
+});
+
+/**
+ * next.mjs is the round protocol's step 0 and its closing advice is the first
+ * thing an operator is told to run on a failing agenda. It named
+ * `matching/probe-anchor-parity.mjs`, a site-specific probe the recipe never
+ * installs, so on every site but the source one the advice failed
+ * module-not-found (#732, #767) — and nothing asserted that a path an installed
+ * script tells the operator to run is a path the recipe installs. This is that
+ * assertion, over every template body, in both directions: a dangling mention
+ * and a manifest rename that leaves a sibling naming the old path.
+ */
+describe("every matching/ script an installed template names is one the recipe installs (#732)", () => {
+  const MENTION = /matching\/[A-Za-z0-9_.-]+\.(?:mjs|sh)/g;
+
+  it("names only manifest paths", () => {
+    const rels = new Set(MATCH_HARNESS_FILES.map((f) => f.rel));
+    const dangling: string[] = [];
+    for (const f of MATCH_HARNESS_FILES)
+      for (const m of f.template.matchAll(MENTION))
+        if (!rels.has(m[0])) dangling.push(`${f.rel} -> ${m[0]}`);
+    expect(dangling).toEqual([]);
+  });
+
+  it("the scan actually finds the mentions (a regex miss would pass the case above vacuously)", () => {
+    const found = new Set<string>();
+    for (const f of MATCH_HARNESS_FILES)
+      for (const m of f.template.matchAll(MENTION)) found.add(m[0]);
+    // gate.sh and harness.mjs are named by several siblings; a scan that finds
+    // neither is not scanning.
+    expect([...found]).toEqual(
+      expect.arrayContaining(["matching/gate.sh", "matching/harness.mjs"]),
+    );
+    expect(found.size).toBeGreaterThan(5);
   });
 });
