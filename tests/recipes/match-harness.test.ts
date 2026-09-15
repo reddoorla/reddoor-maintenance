@@ -40,6 +40,7 @@ import {
 } from "../../src/recipes/match-harness/template.js";
 import { defaultSpawn, type SpawnFn, type SpawnOptions } from "../../src/audits/util/spawn.js";
 import { PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
+import { CLAUDE_MD_BLOCK_0_95_1 } from "../../src/recipes/match-harness/previous.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1745,6 +1746,45 @@ describe("a marked block on a site that already carries one (#739)", () => {
     );
     expect(second.status).toBe("noop");
     expect(second.notes ?? "").not.toContain("CLAUDE.md");
+  });
+
+  it("upgrades the 0.95.1 CLAUDE.md block through the SHIPPED table, in both shapes it left behind", async () => {
+    // No `blockPrevious` injection: this is the table sites actually get. The
+    // 0.95.1 block is the first block body ever superseded (#736), so this is
+    // the first time the shipped table has had to do anything at all.
+    expect(CLAUDE_MD_BLOCK_0_95_1).not.toBe(CLAUDE_MD_BLOCK);
+    expect(CLAUDE_MD_BLOCK_0_95_1).not.toMatch(/census\.sh/);
+    expect(CLAUDE_MD_BLOCK).toMatch(/census\.sh/);
+    const prose = "# Site rules\n\nExisting prose the site owns.\n\n";
+
+    // Shape 1 — terminated, as 0.95.1 leaves every site it has run on.
+    const terminated = await copyFixtureToTmp(pristine);
+    await seed(
+      terminated,
+      "CLAUDE.md",
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK_0_95_1, CLAUDE_MD_END_MARKER),
+    );
+    const r1 = await matchHarness(
+      { path: terminated },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(r1.status).toBe("applied");
+    expect(await read(terminated, "CLAUDE.md")).toBe(
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK, CLAUDE_MD_END_MARKER),
+    );
+    expect(r1.notes).toContain("CLAUDE.md's match-harness block upgraded from a previous version");
+    expect(r1.notes ?? "").not.toContain("left alone");
+
+    // Shape 2 — the v1 marker-only region a 0.95.0 site still carries.
+    const v1 = await copyFixtureToTmp(pristine);
+    await seed(v1, "CLAUDE.md", prose + v1Region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK_0_95_1));
+    const r2 = await matchHarness({ path: v1 }, { ref: "https://ref.test" }, { spawn: noopSpawn });
+    expect(r2.status).toBe("applied");
+    expect(await read(v1, "CLAUDE.md")).toBe(
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK, CLAUDE_MD_END_MARKER),
+    );
+    expect(r2.notes).toContain("CLAUDE.md's match-harness block upgraded from a previous version");
   });
 
   it("an end marker can never be mistaken for a start marker", () => {
