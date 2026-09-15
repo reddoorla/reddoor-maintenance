@@ -3027,3 +3027,47 @@ describe("a 0.95.0 install upgrades every coupled script together, or upgrades n
     expect(bodyOf(cwd)).toContain("matching/gate.sh");
   });
 });
+
+describe("a 0.95.1 install takes the #763 prose correction", () => {
+  const prevRoot = resolve(here, "../../scripts/match-harness-previous/0.95.1");
+  // The two recipe-owned files that told the operator to run a command the CLI
+  // does not have. Both are AUTHORED in the generator, not copied from a site —
+  // the first correction to that class, and so the first time an authored body
+  // needed a shipped-history entry at all.
+  const CORRECTED = ["src/routes/dev/match/[uid]/+page.server.ts", "src/lib/site-pages.test.ts"];
+
+  it("upgrades both files in place and says so, instead of accusing the site of a hand edit", async () => {
+    const cwd = await install();
+    for (const rel of CORRECTED) {
+      const body = await readFile(join(prevRoot, rel), "utf-8");
+      // (the route file wraps the phrase across a comment line, so match the
+      // command name alone)
+      expect(body, `${rel}: the 0.95.1 snapshot is not the pre-change body`).toContain(
+        "prismic-seed",
+      );
+      await writeFile(join(cwd, rel), body, "utf-8");
+    }
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "as installed at 0.95.1"], { cwd, stdio: "ignore" });
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+
+    expect(result.status).toBe("applied");
+    for (const rel of CORRECTED) {
+      const after = await read(cwd, rel);
+      expect(after, `${rel} should have been upgraded`).toBe(
+        MATCH_HARNESS_FILES.find((f) => f.rel === rel)!.template,
+      );
+      expect(after).not.toContain("prismic-seed");
+      expect(after).toContain("scripts/import/migrate.example.ts");
+      expect(result.notes).toContain(`${rel} upgraded from a previous version`);
+    }
+    expect(result.notes ?? "").not.toContain("hand-edited?");
+    // Only the two files moved; the matching/ scripts were already current.
+    expect(result.notes ?? "").not.toMatch(/matching\/\S+ upgraded/);
+  });
+});
