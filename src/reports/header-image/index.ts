@@ -17,8 +17,11 @@ export type GenerateInput = {
   slug?: string;
   /** Injected browser IO (tests). */
   shooter?: Shooter;
-  /** Per-site settle override for animation-heavy or consent-gated homepages. */
+  /** Per-site settle override for animation-heavy homepages. */
   settleMs?: number;
+  /** Extra CSS selector(s) hidden before the shutter, for consent or
+   *  interstitial UI the capture's class/id heuristic misses (#654). */
+  consentSelector?: string;
 };
 
 export type GeneratedHeaderImage = {
@@ -147,6 +150,7 @@ export async function generateHeaderImage(input: GenerateInput): Promise<Generat
   const screenshot = await captureHomepage(input.url, {
     ...(input.shooter !== undefined ? { shooter: input.shooter } : {}),
     ...(input.settleMs !== undefined ? { settleMs: input.settleMs } : {}),
+    ...(input.consentSelector !== undefined ? { consentSelector: input.consentSelector } : {}),
   });
   await assertNotBlank(screenshot);
 
