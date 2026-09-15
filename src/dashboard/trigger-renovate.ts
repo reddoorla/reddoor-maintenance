@@ -1,5 +1,5 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { REPO_RE } from "./site-details.js";
+import { isOwnerRepo } from "../util/git.js";
 
 /** Injected IO — the `.mts` binds these to a live Airtable base + makeGitHubRest; tests bind fakes. */
 export type TriggerRenovateDeps = {
@@ -29,9 +29,11 @@ export async function triggerRenovateForSite(
   if (!site) return { status: "not-found", slug };
   // Legacy rows hold free-text `Git repo` values (site-details validates only
   // NEW edits) — gate on the same owner/repo shape so a malformed cell maps to
-  // a clean no-repo instead of a doomed dispatch call.
+  // a clean no-repo instead of a doomed dispatch call. `isOwnerRepo` is the ONE
+  // validator for this concept (#724); this path stays Airtable-only and never
+  // derives from origin, so it wants the shape check, not `resolveOwnerRepo`.
   const repo = site.gitRepo?.trim();
-  if (!repo || !REPO_RE.test(repo)) return { status: "no-repo", slug };
+  if (!repo || !isOwnerRepo(repo)) return { status: "no-repo", slug };
   try {
     await deps.dispatch(repo);
     return { status: "dispatched", slug, repo };

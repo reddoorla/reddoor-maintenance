@@ -207,6 +207,22 @@ describe("cli/fleet/cloneIfNeeded", () => {
     expect(result.path).toBe(join(workdir, "caltex"));
   });
 
+  it("refuses a traversal segment in gitRepo before spawning (#724 — util/git's validator)", async () => {
+    // The local GIT_REPO_RE's own comment promised to block "traversal", but `.`
+    // is inside its class so `owner/..` passed and became
+    // `https://github.com/owner/...git`. `isOwnerRepo` rejects `..` explicitly.
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    let spawned = false;
+    const spawn: SpawnFn = async () => {
+      spawned = true;
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await expect(
+      cloneIfNeeded({ path: "/not-exist", name: "x", gitRepo: "owner/.." }, { workdir, spawn }),
+    ).rejects.toThrow(/owner\/repo/);
+    expect(spawned).toBe(false);
+  });
+
   it("prefers an explicit repoUrl over gitRepo when both are set", async () => {
     const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
     let clonedUrl: string | null = null;

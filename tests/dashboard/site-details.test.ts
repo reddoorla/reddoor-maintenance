@@ -128,6 +128,17 @@ describe("setSiteDetail", () => {
     expect((await setSiteDetail(deps, "acme", "gitRepo", "reddoorla/acme")).status).toBe("updated");
   });
 
+  it("rejects a traversal segment in a git repo (#724 — one validator, util/git's)", async () => {
+    // `.` is a legal repo character, so a bare two-segment regex ACCEPTS
+    // `owner/..` — and that value is interpolated into `gh` API paths and a
+    // derived clone URL downstream. `isOwnerRepo` in src/util/git.ts carries
+    // the explicit `..` reject; the dashboard had its own REPO_RE that did not.
+    const { deps, writes } = harness();
+    expect((await setSiteDetail(deps, "acme", "gitRepo", "owner/..")).status).toBe("invalid");
+    expect((await setSiteDetail(deps, "acme", "gitRepo", "../evil")).status).toBe("invalid");
+    expect(writes).toEqual([]);
+  });
+
   it("allows clearing a text/email field to empty", async () => {
     const { deps, writes } = harness();
     expect((await setSiteDetail(deps, "acme", "searchQuery", "  ")).status).toBe("updated");
