@@ -59,6 +59,41 @@ export const DEFAULT_MODEL = "opus";
  */
 export const CHORE_MODEL = "haiku";
 
+/**
+ * What a claim is ABOUT, which decides what a document can settle about it.
+ *
+ * `docs` — the default, and what every claim without a `kind` is — asserts what a file SAYS.
+ * A quoted line settles it, which is why `confirmed` exists at all.
+ *
+ * `behavior` asserts what the system DOES. No quoted line can settle that, so the round's
+ * only honest outcomes are `refuted` (a cited line contradicts it) and `untested` (the
+ * documents are merely consistent with it). c03 is why this kind exists: the round CONFIRMED
+ * "the concurrency limit that binds a fan-out first is CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY,
+ * default 10" from env-vars.md, and a measurement the same night ran 12 agents at once with
+ * the variable unset and 5 with it set to 4. The docs were quoted correctly; the claim was
+ * still wrong.
+ */
+export const CLAIM_KINDS = Object.freeze(["docs", "behavior"]);
+
+/** The kind a claim has when it does not say. */
+export const DEFAULT_CLAIM_KIND = "docs";
+
+/** The verdicts a documentary claim may take. */
+export const DOCS_VERDICTS = Object.freeze(["confirmed", "refuted", "unclear"]);
+
+/** The verdicts a behaviour claim may take. `confirmed` is not among them, by construction. */
+export const BEHAVIOR_VERDICTS = Object.freeze(["refuted", "untested"]);
+
+/** The kind of a claim object — "docs" for anything that does not say otherwise. */
+export function claimKind(claim) {
+  return claim && claim.kind === "behavior" ? "behavior" : DEFAULT_CLAIM_KIND;
+}
+
+/** The verdict enum a skeptic on a claim of this kind is held to. */
+export function verdictsFor(kind) {
+  return kind === "behavior" ? BEHAVIOR_VERDICTS : DOCS_VERDICTS;
+}
+
 /** `path:line` or `path:line-line`. The path may be absolute or repo-relative. */
 const EVIDENCE_RE = /^(.+):(\d+)(?:-(\d+))?$/;
 
@@ -152,6 +187,17 @@ export function validateClaims(parsed) {
     if (typeof raw.claim !== "string" || raw.claim.trim() === "") {
       mine.push(`${label}: claim must be a non-empty string`);
     }
+    // `kind` is optional and defaults to "docs", so every package written before behaviour
+    // claims existed keeps validating unchanged. The EMPTY STRING counts as "not stated":
+    // the loader agent's schema declares every field it returns as required, so a claim with
+    // no `kind` in the file comes back from the loader as `""` rather than absent. Anything
+    // else is an error — a misspelt "behaviour" must not silently become a docs claim, which
+    // is the whole defect this kind exists to stop.
+    if (raw.kind !== undefined && raw.kind !== "" && !CLAIM_KINDS.includes(raw.kind)) {
+      mine.push(
+        `${label}: kind must be ${CLAIM_KINDS.map((k) => JSON.stringify(k)).join(" or ")} when present, got ${JSON.stringify(raw.kind)}`,
+      );
+    }
     if (!Array.isArray(raw.evidence) || raw.evidence.length === 0) {
       mine.push(`${label}: evidence must be a non-empty array of "path:line" or "path:line-line"`);
     } else {
@@ -170,6 +216,7 @@ export function validateClaims(parsed) {
     claims.push({
       id: raw.id,
       claim: raw.claim,
+      kind: claimKind(raw),
       evidence: raw.evidence.map((ref) => String(ref).trim()),
       refs: raw.evidence.map((ref) => parseEvidenceRef(ref)),
     });
@@ -240,8 +287,22 @@ export function formatEstimate(est) {
  * `repoRoot` is optional and only sharpens the comparison: both sides are resolved against
  * it first, so a relative evidence path and the absolute `quoteSource` a skeptic reports
  * after opening the file compare as the same path rather than via the suffix fallback below.
+ *
+ * It enforces one more thing, for the same reason: a BEHAVIOUR claim has no `confirmed` to
+ * earn. The skeptic's schema offers it only `refuted` and `untested`, but a schema is a
+ * request and this is the instrument, so any other verdict on a behaviour claim is rewritten
+ * to `untested` here rather than trusted. Documentary claims are untouched by that branch.
  */
 export function enforceQuoteRule(verdict, claim, repoRoot) {
+  if (claimKind(claim) === "behavior") {
+    if (BEHAVIOR_VERDICTS.includes(verdict.verdict)) return { ...verdict, downgraded: false };
+    return {
+      ...verdict,
+      verdict: "untested",
+      downgraded: true,
+      downgradeReason: `${JSON.stringify(verdict.verdict)} is not a verdict a behaviour claim can take: a document cannot confirm what a system does. Run the experiment.`,
+    };
+  }
   if (verdict.verdict !== "confirmed") return { ...verdict, downgraded: false };
   const ref = resolveEvidenceRef(verdict.quoteSource, repoRoot);
   const quoted = typeof verdict.quote === "string" && verdict.quote.trim() !== "";
@@ -262,5 +323,165 @@ export function enforceQuoteRule(verdict, claim, repoRoot) {
         ? `confirmed with no file:line quoteSource (${JSON.stringify(verdict.quoteSource)})`
         : `confirmed from ${ref.path}, which is not one of the claim's evidence paths`,
   };
+}
+
+/**
+ * The structured verdict a skeptic must return, by claim kind.
+ *
+ * A documentary claim gets the round's original three values. A behaviour claim gets two —
+ * `refuted` and `untested` — and one extra required field, `experiment`: the observation that
+ * would settle it, since no document can. The two schemas are otherwise identical, so a
+ * package with no behaviour claims produces byte-for-byte the schema it produced before.
+ */
+export function verdictSchema(kind) {
+  const behavior = kind === "behavior";
+  const properties = {
+    id: { type: "string" },
+    verdict: {
+      type: "string",
+      enum: [...verdictsFor(kind)],
+      description: behavior
+        ? '"refuted" when a line you read contradicts the claim; "untested" when the documents are merely consistent with it, which is NOT confirmation'
+        : "the verdict; confirmed requires a verbatim quote from the claim's own evidence",
+    },
+    reason: {
+      type: "string",
+      description: "what the evidence actually says, and why that settles it",
+    },
+    quote: { type: "string", description: "the verbatim line from the evidence that decides it" },
+    quoteSource: {
+      type: "string",
+      description:
+        '"path:line" the quote was read from; must be one of the claim\'s evidence paths',
+    },
+    evidenceRead: {
+      type: "array",
+      items: { type: "string" },
+      description: "every evidence reference you actually opened",
+    },
+    readFailed: {
+      type: "array",
+      items: { type: "string" },
+      description: "evidence references you could not open, and why",
+    },
+    restsOnAbsence: {
+      type: "boolean",
+      description:
+        "true if the verdict rests on something NOT being in the file rather than on a quoted line",
+    },
+  };
+  const required = [
+    "id",
+    "verdict",
+    "reason",
+    "quote",
+    "quoteSource",
+    "evidenceRead",
+    "readFailed",
+    "restsOnAbsence",
+  ];
+  if (behavior) {
+    properties.experiment = {
+      type: "string",
+      description:
+        "the CHEAPEST observation that would refute this claim in practice: one command, or a short numbered procedure, and the reading that would refute it. A human will run this, so make it runnable.",
+    };
+    required.push("experiment");
+  }
+  return { type: "object", properties, required };
+}
+
+/**
+ * The skeptic's prompt. Rules 1 and 3 are the same for every claim; rule 2 is where a
+ * behaviour claim parts company with a documentary one, because it is the rule that says
+ * what a quoted line is allowed to buy.
+ */
+export function refutePrompt(c, repoRoot) {
+  const behavior = claimKind(c) === "behavior";
+  const rule2 = behavior
+    ? `2. YOU MAY NOT CONFIRM THIS CLAIM. It is a claim about what the system DOES, and the files you are about to read only say what someone WROTE. Your verdict is one of exactly two values:
+     - "refuted" — a line you have read on disk CONTRADICTS the claim.
+     - "untested" — the documents are consistent with the claim. That is NOT confirmation and must not be written up as one.
+   Either way, quote the line you read verbatim in \`quote\` with the exact \`path:line\` in \`quoteSource\`: an "untested" that quotes nothing has not established even that much. This exact claim was CONFIRMED by an earlier round from a correctly quoted documented default, and a measurement the same night contradicted it.
+   You must also return \`experiment\`: the CHEAPEST observation that would refute the claim in practice — one command, or a short numbered procedure — and the reading that would refute it. Name the command, the setting, the value to set it to, and the number to look at. A human will run it.`
+    : `2. DEFAULT TO "refuted". A claim earns "confirmed" only when a line you have read on disk says it, and you must return that line verbatim in \`quote\` with the exact \`path:line\` you read it from in \`quoteSource\`. A confirmation with no quote is downgraded to "unclear" by the caller, so an unquoted confirmation is worth nothing. Use "unclear" when the evidence neither says it nor contradicts it.`;
+  return `You are a skeptic. Your job is to REFUTE the claim below, not to agree with it.
+
+CLAIM ${c.id}: ${c.claim}
+${behavior ? "\nThis is a BEHAVIOUR claim: it asserts what the system does, not what a file says.\n" : ""}
+Evidence cited for it (path:line, already resolved against the evidence checkout at ${repoRoot} — open them exactly as written):
+${c.evidence.map((e) => `  - ${formatEvidenceRef(e, repoRoot)}`).join("\n")}
+
+THE RULES OF THIS ROUND, all three learned the hard way:
+
+1. READ THE EVIDENCE FROM DISK. Open every path above with Bash — \`sed -n 'START,ENDp' FILE\` around the cited lines, and widen the range until you have the surrounding context. What you remember about Claude Code, this repo, or these settings is NOT evidence, however confident you are; earlier rounds refuted true claims from priors and confirmed false ones the same way. If a path will not open, put it in \`readFailed\` — do not substitute your own knowledge for it.
+
+${rule2}
+
+3. AN ABSENCE IS NOT A REFUTATION. If your verdict rests on something not appearing in the file rather than on a line that contradicts the claim, set \`restsOnAbsence\` to true and prefer ${behavior ? '"untested"' : '"unclear"'} to "refuted" — the file may not be where that fact lives, or the renderer may not print it. Eight census refutations rested on "no compaction in the window", which turned out to be the window renderer, not a finding.
+
+Try hardest to kill it: is the cited line actually about this claim, or a neighbouring one? Does the claim state a default the docs give differently? Does it state as unconditional something the file conditions on a version, a scope, a mode, or a platform? Does it name a field that the file gives to a different event? Is the claim a paraphrase that has drifted from what the line says?
+
+Return only the structured verdict.`;
+}
+
+/**
+ * The round's counts, with behaviour claims kept apart from documentary ones.
+ *
+ * They are not summable: `confirmed` cannot apply to a behaviour claim, so folding the two
+ * into one `refuted`/`confirmed`/`unclear` tally would report a round of 16 documentary
+ * verdicts when one of them was never eligible for the answer the tally implies. `untested`
+ * lives in its own field for the same reason, and carries the experiments out with it.
+ */
+export function summariseRound(verdicts, claims) {
+  const list = Array.isArray(verdicts) ? verdicts : [];
+  const all = Array.isArray(claims) ? claims : [];
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const isBehavior = (v) => claimKind(byId.get(v.id)) === "behavior";
+  const docs = list.filter((v) => !isBehavior(v));
+  const behavior = list.filter(isBehavior);
+  const count = (xs, verdict) => xs.filter((v) => v.verdict === verdict).length;
+  return {
+    claims: all.length,
+    verdicts: list.length,
+    docsClaims: all.filter((c) => claimKind(c) !== "behavior").length,
+    confirmed: count(docs, "confirmed"),
+    refuted: count(docs, "refuted"),
+    unclear: count(docs, "unclear"),
+    behaviorClaims: all.filter((c) => claimKind(c) === "behavior").length,
+    behaviorRefuted: count(behavior, "refuted"),
+    untested: count(behavior, "untested"),
+    downgraded: list.filter((v) => v.downgraded).length,
+    noVerdictIds: all.filter((c) => !list.some((v) => v.id === c.id)).map((c) => c.id),
+    experiments: behavior
+      .filter((v) => v.verdict === "untested")
+      .map((v) => ({
+        id: v.id,
+        claim: (byId.get(v.id) || {}).claim ?? "",
+        experiment: typeof v.experiment === "string" ? v.experiment.trim() : "",
+      })),
+  };
+}
+
+/**
+ * The summary, for log(). One line of counts, then every experiment the round owes a human —
+ * because an `untested` verdict whose experiment nobody can see is indistinguishable from a
+ * shrug, and the experiment is the only thing a behaviour claim actually produces.
+ */
+export function formatRoundSummary(s) {
+  const head =
+    `${s.verdicts}/${s.claims} verdicts — docs (${s.docsClaims}): ${s.confirmed} confirmed, ` +
+    `${s.refuted} refuted, ${s.unclear} unclear; behaviour (${s.behaviorClaims}): ` +
+    `${s.behaviorRefuted} refuted, untested=${s.untested}` +
+    (s.downgraded ? ` [${s.downgraded} downgraded]` : "") +
+    (s.noVerdictIds.length ? `; NO VERDICT: ${s.noVerdictIds.join(", ")}` : "");
+  if (s.experiments.length === 0) return head;
+  const lines = s.experiments.map(
+    (e) => `  - ${e.id}: ${e.claim}\n      experiment: ${e.experiment || "(none returned)"}`,
+  );
+  return [
+    `${head}\n"untested" is this round saying RUN THE EXPERIMENT, not that the claim is true — ${s.untested} claim(s) await an observation no document can supply:`,
+    ...lines,
+  ].join("\n");
 }
 // --8<-- shared-with-workflow END
