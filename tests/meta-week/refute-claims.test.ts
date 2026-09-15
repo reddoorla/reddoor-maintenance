@@ -4,21 +4,30 @@ import * as prettier from "prettier";
 import { fileURLToPath } from "node:url";
 
 import {
+  BEHAVIOR_VERDICTS,
   CHORE_MODEL,
   CLAIM_FLOOR,
+  CLAIM_KINDS,
   DEFAULT_CHUNK,
   DEFAULT_MODEL,
+  DOCS_VERDICTS,
   MEASURED_ROUND,
   TOKENS_PER_CLAIM,
   chunkClaims,
+  claimKind,
   enforceQuoteRule,
   estimateRound,
   formatEstimate,
   formatEvidenceRef,
+  formatRoundSummary,
   parseEvidenceRef,
+  refutePrompt,
   resolveEvidencePath,
   resolveEvidenceRef,
+  summariseRound,
   validateClaims,
+  verdictSchema,
+  verdictsFor,
 } from "../../scripts/meta-week/lib/refute-claims.mjs";
 
 const LIB = fileURLToPath(
@@ -143,6 +152,33 @@ describe("validateClaims", () => {
     expect(validateClaims([claim({ id: "", claim: "x" })]).errors[0]!).toMatch(/id must be/);
     const bad = validateClaims([claim({ evidence: ["docs/a.md"] })]);
     expect(bad.errors[0]!).toMatch(/evidence\[0\] is not "path:line"/);
+  });
+
+  it("defaults kind to docs, and takes an explicit docs or behavior", () => {
+    // Every package written before behaviour claims existed keeps validating unchanged.
+    expect(validateClaims([claim()]).claims[0]!.kind).toBe("docs");
+    expect(validateClaims([claim({ kind: "docs" })]).claims[0]!.kind).toBe("docs");
+    expect(validateClaims([claim({ kind: "behavior" })]).claims[0]!.kind).toBe("behavior");
+    // The loader agent's schema declares every field it returns as required, so a claim with
+    // no kind in the file comes back as "". That is "not stated", which is docs.
+    expect(validateClaims([claim({ kind: "" })]).claims[0]!.kind).toBe("docs");
+  });
+
+  it("errors, naming the claim id, on any other kind — a misspelling must not become docs", () => {
+    // "behaviour" silently read as a docs claim is exactly the defect the kind exists to stop:
+    // the round would go back to confirming a behaviour claim from a quote.
+    const { claims, errors } = validateClaims([
+      claim({ id: "ok" }),
+      claim({ id: "typo", kind: "behaviour" }),
+    ]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!).toContain("typo");
+    expect(errors[0]!).toMatch(/kind must be "docs" or "behavior"/);
+    expect(errors[0]!).toContain('"behaviour"');
+    expect(claims).toEqual([]);
+    expect(validateClaims([claim({ kind: "DOCS" })]).errors[0]!).toMatch(/kind must be/);
+    expect(validateClaims([claim({ kind: true })]).errors[0]!).toMatch(/kind must be/);
+    expect(CLAIM_KINDS).toEqual(["docs", "behavior"]);
   });
 
   it("returns NO claims when any claim is invalid — a partly-valid package is not a package", () => {
@@ -290,6 +326,39 @@ describe("enforceQuoteRule", () => {
     expect(enforceQuoteRule(confirmed, undefined).verdict).toBe("unclear");
   });
 
+  it("a behaviour claim cannot be confirmed, whatever the skeptic returns", () => {
+    // The schema offers a behaviour skeptic only refuted and untested, but a schema is a
+    // request. c03 came back confirmed with a correct verbatim quote of a documented default
+    // and was wrong anyway, so the instrument rewrites it rather than trusting the prompt.
+    const behavior = claim({ kind: "behavior", evidence: ["/tmp/docs/hooks.md:3013-3034"] });
+    const out = enforceQuoteRule(confirmed, behavior);
+    expect(out.verdict).toBe("untested");
+    expect(out.downgraded).toBe(true);
+    expect(out.downgradeReason).toMatch(/a document cannot confirm what a system does/);
+    // "unclear" is not one of its two verdicts either.
+    expect(enforceQuoteRule({ ...confirmed, verdict: "unclear" }, behavior).verdict).toBe(
+      "untested",
+    );
+    // Its own two verdicts pass through untouched.
+    for (const v of BEHAVIOR_VERDICTS) {
+      const passed = enforceQuoteRule({ ...confirmed, verdict: v }, behavior);
+      expect(passed.verdict).toBe(v);
+      expect(passed.downgraded).toBe(false);
+    }
+  });
+
+  it("leaves documentary claims exactly as they were — the kind branch is opt-in", () => {
+    // Same verdict, same claim, only the kind differs: docs keeps the confirmation.
+    expect(enforceQuoteRule(confirmed, { ...c, kind: "docs" }).verdict).toBe("confirmed");
+    expect(enforceQuoteRule(confirmed, c).verdict).toBe("confirmed");
+    expect(claimKind(undefined)).toBe("docs");
+    expect(claimKind({ kind: "behavior" })).toBe("behavior");
+    expect(verdictsFor("docs")).toEqual(["confirmed", "refuted", "unclear"]);
+    expect(verdictsFor("behavior")).toEqual(["refuted", "untested"]);
+    expect(DOCS_VERDICTS).toContain("confirmed");
+    expect(BEHAVIOR_VERDICTS).not.toContain("confirmed");
+  });
+
   it("resolves both sides against repoRoot, so a corpus citation matches what a skeptic opened", () => {
     // The real shape: the claim cites the corpus repo-relative, the skeptic opens the file
     // and reports the absolute path it actually read. These must be the same path.
@@ -313,6 +382,177 @@ describe("enforceQuoteRule", () => {
         root,
       ).verdict,
     ).toBe("unclear");
+  });
+});
+
+describe("verdictSchema", () => {
+  it("gives a docs claim the round's original three verdicts and no experiment", () => {
+    const s = verdictSchema("docs");
+    expect(s.properties.verdict).toMatchObject({ enum: ["confirmed", "refuted", "unclear"] });
+    expect(s.properties).not.toHaveProperty("experiment");
+    expect(s.required).toEqual([
+      "id",
+      "verdict",
+      "reason",
+      "quote",
+      "quoteSource",
+      "evidenceRead",
+      "readFailed",
+      "restsOnAbsence",
+    ]);
+    // An absent or unknown kind is a docs claim, so an old package gets the old schema.
+    expect(verdictSchema(undefined as unknown as string)).toEqual(s);
+  });
+
+  it("gives a behaviour claim two verdicts and a required experiment", () => {
+    const s = verdictSchema("behavior");
+    expect(s.properties.verdict).toMatchObject({ enum: ["refuted", "untested"] });
+    expect((s.properties.verdict as { enum: string[] }).enum).not.toContain("confirmed");
+    expect(s.required).toContain("experiment");
+    expect(s.properties.experiment).toBeDefined();
+    // The quote rule is unchanged: a behaviour skeptic still has to say what it read.
+    for (const f of ["quote", "quoteSource", "evidenceRead", "readFailed"]) {
+      expect(s.required, f).toContain(f);
+    }
+  });
+
+  it("is otherwise the same schema — the two differ only in verdict and experiment", () => {
+    const docs = verdictSchema("docs");
+    const behavior = verdictSchema("behavior");
+    const differ = Object.keys({ ...docs.properties, ...behavior.properties }).filter(
+      (k) =>
+        JSON.stringify(docs.properties[k] ?? null) !==
+        JSON.stringify(behavior.properties[k] ?? null),
+    );
+    expect(differ.sort()).toEqual(["experiment", "verdict"]);
+  });
+});
+
+describe("refutePrompt", () => {
+  const docs = { id: "c99", claim: "the file says X", evidence: ["docs/a.md:10-20"] };
+  const behavior = { ...docs, kind: "behavior" as const };
+  const ROOT = "/Users/x/repo";
+
+  it("resolves every citation against the evidence checkout, both kinds", () => {
+    for (const c of [docs, behavior]) {
+      expect(refutePrompt(c, ROOT)).toContain("/Users/x/repo/docs/a.md:10-20");
+    }
+  });
+
+  it("keeps the docs prompt as it was: default to refuted, confirm only with a quote", () => {
+    const p = refutePrompt(docs, ROOT);
+    expect(p).toContain('DEFAULT TO "refuted"');
+    expect(p).toContain('A claim earns "confirmed" only when a line you have read on disk says it');
+    expect(p).not.toMatch(/untested/);
+    expect(p).not.toMatch(/experiment/i);
+    expect(p).not.toMatch(/BEHAVIOUR claim/);
+  });
+
+  it("forbids a behaviour claim any confirmation, and demands an experiment", () => {
+    const p = refutePrompt(behavior, ROOT);
+    expect(p).toContain("YOU MAY NOT CONFIRM THIS CLAIM");
+    expect(p).toContain("This is a BEHAVIOUR claim");
+    expect(p).toContain('"untested"');
+    expect(p).toContain("That is NOT confirmation");
+    expect(p).toContain("CHEAPEST observation that would refute the claim in practice");
+    expect(p).toContain("A human will run it.");
+    // It never offers the third verdict, and never tells it to earn a confirmation.
+    expect(p).not.toContain('DEFAULT TO "refuted"');
+    expect(p).not.toMatch(/earns "confirmed"/);
+  });
+
+  it("holds a behaviour skeptic to the quote rule all the same", () => {
+    // The change is what a quote BUYS, not whether one is required.
+    const p = refutePrompt(behavior, ROOT);
+    expect(p).toContain("READ THE EVIDENCE FROM DISK");
+    expect(p).toContain("quote the line you read verbatim");
+    expect(p).toContain("`quoteSource`");
+    expect(p).toContain("AN ABSENCE IS NOT A REFUTATION");
+  });
+});
+
+describe("summariseRound", () => {
+  const claims = [
+    { id: "a", claim: "docs one", kind: "docs" },
+    { id: "b", claim: "docs two", kind: "docs" },
+    { id: "c", claim: "behaviour one", kind: "behavior" },
+    { id: "d", claim: "behaviour two", kind: "behavior" },
+    { id: "e", claim: "never answered", kind: "docs" },
+  ];
+  const verdicts = [
+    { id: "a", verdict: "confirmed" },
+    { id: "b", verdict: "refuted" },
+    { id: "c", verdict: "untested", experiment: "  run it with the var unset and count agents  " },
+    { id: "d", verdict: "refuted" },
+  ];
+
+  it("counts the two kinds apart — confirmed never applies to a behaviour claim", () => {
+    const s = summariseRound(verdicts, claims);
+    // Claim counts, not verdict counts: "e" is a docs claim that returned nothing.
+    expect(s.docsClaims).toBe(3);
+    expect(s.confirmed).toBe(1);
+    expect(s.refuted).toBe(1);
+    expect(s.unclear).toBe(0);
+    expect(s.behaviorClaims).toBe(2);
+    expect(s.behaviorRefuted).toBe(1);
+    expect(s.untested).toBe(1);
+    // The behaviour refutation is NOT folded into the documentary refuted count.
+    expect(s.refuted + s.behaviorRefuted).toBe(2);
+    expect(s.claims).toBe(5);
+    expect(s.verdicts).toBe(4);
+    expect(s.noVerdictIds).toEqual(["e"]);
+  });
+
+  it("carries each untested claim's experiment out with it, trimmed", () => {
+    const s = summariseRound(verdicts, claims);
+    expect(s.experiments).toEqual([
+      {
+        id: "c",
+        claim: "behaviour one",
+        experiment: "run it with the var unset and count agents",
+      },
+    ]);
+  });
+
+  it("treats an untagged package exactly as it did before", () => {
+    // Strip the kinds and the behaviour bucket disappears: its refutation folds back into
+    // the documentary `refuted` count, which is the tally this round has always reported.
+    const untagged = claims.map(({ kind: _kind, ...rest }) => rest);
+    const s = summariseRound(verdicts, untagged);
+    expect(s.behaviorClaims).toBe(0);
+    expect(s.behaviorRefuted).toBe(0);
+    expect(s.untested).toBe(0);
+    expect(s.experiments).toEqual([]);
+    expect(s.docsClaims).toBe(5);
+    expect(s.confirmed).toBe(1);
+    expect(s.refuted).toBe(2);
+    expect(s.unclear).toBe(0);
+  });
+
+  it("formats one summary line reporting untested=N, then the experiments to run", () => {
+    const out = formatRoundSummary(summariseRound(verdicts, claims));
+    const [head, ...rest] = out.split("\n");
+    expect(head).toContain("4/5 verdicts");
+    expect(head).toContain("docs (3): 1 confirmed, 1 refuted, 0 unclear");
+    expect(head).toContain("behaviour (2): 1 refuted, untested=1");
+    expect(head).toContain("NO VERDICT: e");
+    // The verdict is an instruction, not a weak confirmation, and the experiment is printed.
+    expect(rest.join("\n")).toContain("RUN THE EXPERIMENT");
+    expect(rest.join("\n")).toContain("not that the claim is true");
+    expect(rest.join("\n")).toContain("run it with the var unset and count agents");
+  });
+
+  it("prints no experiment block at all for a package with no behaviour claims", () => {
+    const untagged = claims.map(({ kind: _kind, ...rest }) => rest);
+    const out = formatRoundSummary(summariseRound(verdicts, untagged));
+    expect(out).not.toContain("RUN THE EXPERIMENT");
+    expect(out.split("\n")).toHaveLength(1);
+    expect(out).toContain("untested=0");
+  });
+
+  it("says so rather than hiding it when an untested verdict returned no experiment", () => {
+    const s = summariseRound([{ id: "c", verdict: "untested" }], claims);
+    expect(formatRoundSummary(s)).toContain("(none returned)");
   });
 });
 
@@ -359,7 +599,9 @@ describe("the workflow script carries the lib's rules verbatim", () => {
     expect(flat).toContain(
       'label: "load:claims", phase: "Load", model: CHORE_MODEL, effort: "low"',
     );
-    expect(flat).toContain('label: `refute:${c.id}`, phase: "Refute", schema: VERDICT, model,');
+    expect(flat).toContain(
+      'label: `refute:${c.id}`, phase: "Refute", schema: verdictSchema(c.kind), model,',
+    );
     expect(flat).toContain(
       'label: "completeness-critic", phase: "Critique", schema: CRITIQUE, model }',
     );
@@ -403,8 +645,29 @@ describe("the workflow script carries the lib's rules verbatim", () => {
     // guard.repoRoot, which the guard derives from the claims file's own directory.
     const src = readFileSync(WORKFLOW, "utf8").replace(/^\s*\/\/.*$/gm, "");
     const flat = src.replace(/\s+/g, " ");
-    expect(flat).toContain("formatEvidenceRef(e, guard.repoRoot)");
+    // The prompt builder resolves the citations; it is handed the same root the verdicts
+    // are judged against.
+    expect(flat).toContain("refutePrompt(c, guard.repoRoot)");
+    expect(flat).toContain("formatEvidenceRef(e, repoRoot)");
     expect(flat).toContain("enforceQuoteRule(r, byId.get(r.id), guard.repoRoot)");
+  });
+
+  it("explains the behaviour kind, names c03, and says what untested means", () => {
+    // The header is the only place a reader learns why a verdict they cannot get exists.
+    const src = readFileSync(WORKFLOW, "utf8");
+    expect(src).toContain("DOCUMENTARY CLAIMS AND BEHAVIOUR CLAIMS");
+    expect(src).toContain("c03 is why the kind exists");
+    expect(src).toContain("RUN THE EXPERIMENT");
+    expect(src).toMatch(/12 agents at\n\/\/ once with the variable unset and 5 with it set to 4/);
+  });
+
+  it("carries kind through the loader, which would otherwise drop it", () => {
+    // The loader agent returns structured output: a field its schema does not declare does
+    // not come back. A dropped kind turns every behaviour claim into a docs claim silently,
+    // and the round goes back to confirming behaviour from a quote.
+    const src = readFileSync(WORKFLOW, "utf8");
+    expect(src).toContain('required: ["id", "claim", "kind", "evidence"]');
+    expect(src).toContain("the EMPTY STRING for a claim whose object has no");
   });
 
   it("tells the reader how to regenerate the corpus before a control is run", () => {
@@ -468,10 +731,10 @@ describe("the docs corpus is re-fetchable, and the manifest says exactly what it
  * dies) and the skeptic prompt prints the id, so a skeptic could score without reading a
  * line. The round's own completeness critic caught it. Ids are opaque now; keep them so.
  */
-const EXPECTED: Record<string, "confirmed" | "refuted"> = {
+const EXPECTED: Record<string, "confirmed" | "refuted" | "untested"> = {
   c01: "refuted",
   c02: "confirmed",
-  c03: "confirmed",
+  c03: "untested", // BEHAVIOUR CLAIM: confirmed on 2026-09-14, contradicted by measurement
   c04: "refuted",
   c05: "confirmed",
   c06: "confirmed",
@@ -489,7 +752,7 @@ const EXPECTED: Record<string, "confirmed" | "refuted"> = {
 };
 
 describe("the two control inputs", () => {
-  type Claim = { id: string; claim: string; evidence: string[] };
+  type Claim = { id: string; claim: string; evidence: string[]; kind?: string };
   const levers = JSON.parse(readFileSync(LEVERS, "utf8")) as Claim[];
   const seeded = JSON.parse(readFileSync(SEEDED, "utf8")) as Claim[];
   const key = JSON.parse(readFileSync(EXPECTED_FILE, "utf8")) as {
@@ -544,14 +807,35 @@ describe("the two control inputs", () => {
     expect(seeded[seeded.length - 1]!.id).not.toBe("c17");
   });
 
-  it("expects 10 to survive and 6 to die, with the planted claim making 7", () => {
+  it("expects 9 to survive, 6 to die and 1 to be untestable, with the planted claim making 7", () => {
     const verdicts = levers.map((c) => EXPECTED[c.id]);
-    expect(verdicts.filter((v) => v === "confirmed")).toHaveLength(10);
+    expect(verdicts.filter((v) => v === "confirmed")).toHaveLength(9);
     expect(verdicts.filter((v) => v === "refuted")).toHaveLength(6);
+    expect(verdicts.filter((v) => v === "untested")).toHaveLength(1);
     expect(EXPECTED.c17).toBe("refuted");
     // Neither id order nor file position correlates with the verdict.
     expect(verdicts.slice(0, 8)).not.toEqual(verdicts.slice(8).reverse());
-    expect(new Set(verdicts.slice(0, 5)).size).toBe(2);
+    expect(new Set(verdicts.slice(0, 5)).size).toBeGreaterThan(1);
+  });
+
+  it("tags c03 kind=behavior in BOTH packages, and expects it untested in neither form", () => {
+    // c03 was confirmed by the round on 2026-09-14 from a correct quote of env-vars.md, and
+    // a measurement the same night ran 12 agents with the variable unset and 5 with it at 4.
+    // Tagging only one package would move a verdict for a reason the FAIL delta cannot see.
+    for (const file of [levers, seeded]) {
+      const c03 = file.find((c) => c.id === "c03");
+      expect(c03?.kind).toBe("behavior");
+    }
+    expect(seeded.find((c) => c.id === "c03")).toEqual(levers.find((c) => c.id === "c03"));
+    // Every behaviour claim in either package expects a verdict a document could not give.
+    for (const c of [...levers, ...seeded]) {
+      if (c.kind === "behavior") expect(EXPECTED[c.id], c.id).not.toBe("confirmed");
+      else expect(["confirmed", "refuted"], c.id).toContain(EXPECTED[c.id]);
+    }
+    // And the kind survives validation as the parsed claim's own field.
+    const parsed = validateClaims(levers).claims;
+    expect(parsed.find((c) => c.id === "c03")!.kind).toBe("behavior");
+    expect(parsed.filter((c) => c.kind === "behavior")).toHaveLength(1);
   });
 
   it("the on-disk answer key and this file agree, and no claims file carries either", () => {
@@ -562,6 +846,15 @@ describe("the two control inputs", () => {
     // comments never reach an agent. Strip them and no code path can touch it.
     const code = readFileSync(WORKFLOW, "utf8").replace(/^\s*\/\/.*$/gm, "");
     expect(code).not.toContain("expected.json");
-    for (const c of seeded) expect(Object.keys(c).sort()).toEqual(["claim", "evidence", "id"]);
+    // The claim files carry the question and nothing else. `kind` says what sort of thing
+    // the claim asserts, which a skeptic must know; a verdict, a note or an expectation in
+    // one of these files would hand a skeptic the answer.
+    const ALLOWED = ["claim", "evidence", "id", "kind"];
+    for (const c of [...levers, ...seeded]) {
+      for (const k of Object.keys(c)) expect(ALLOWED, `${c.id}: ${k}`).toContain(k);
+      expect(Object.keys(c), c.id).toContain("id");
+      expect(Object.keys(c), c.id).toContain("claim");
+      expect(Object.keys(c), c.id).toContain("evidence");
+    }
   });
 });
