@@ -111,7 +111,23 @@ test("a11y + hydration across configured routes", async ({ page }) => {
 
   for (const { path, name } of pages) {
     currentRoute = name;
-    await page.goto(path);
+    const response = await page.goto(path);
+    // A route that does not exist is a config problem, not a markup one. The
+    // audit used to navigate, get a 404, run axe over whatever the error page
+    // was and report the count -- for months that page was a bare fallback with
+    // nothing to flag, so a missing fixture read as green. When reddoor-website
+    // gave its 404 page a designed watermark the count went to 1 with no route
+    // and no rule in the summary, and the "violation" was bisected as markup
+    // (#680). Name it as a missing route and do not scan the error page.
+    if (!response || response.status() !== 200) {
+      violations.push({
+        id: "route-missing",
+        impact: "serious",
+        route: name,
+        help: \`\${path} returned \${response ? response.status() : "no response"}\`,
+      });
+      continue;
+    }
     // Snap CSS transitions/animations to their resting state before axe runs.
     // AnimateIn-style fixtures transition opacity 0->1; sampling mid-transition
     // makes axe compute color-contrast against semi-transparent text, yielding a
@@ -163,6 +179,35 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   expect(violations).toEqual([]);
 });
 `;
+}
+
+/** How many `rule on route` entries the summary names before folding the rest
+ *  into `+N more`. Six covers every fail the fleet has produced so far in one
+ *  line; the artifact JSON keeps the full list. */
+const NAMED_VIOLATIONS_MAX = 6;
+
+/**
+ * One line naming each violation as `<rule> on <route>`, identical pairs folded
+ * into `<rule> ×N on <route>`. A `route-missing` entry appends its help, which
+ * is where the path and HTTP status live -- that is the one case where the id
+ * and route alone do not say what went wrong. Empty for no violations.
+ */
+export function describeViolations(violations: AxeViolation[]): string {
+  const groups = new Map<string, { id: string; route: string; help?: string; n: number }>();
+  for (const v of violations) {
+    const key = `${v.id}\u0000${v.route}`;
+    const g = groups.get(key);
+    if (g) g.n += 1;
+    else groups.set(key, { id: v.id, route: v.route, ...(v.help ? { help: v.help } : {}), n: 1 });
+  }
+  const entries = [...groups.values()];
+  const shown = entries.slice(0, NAMED_VIOLATIONS_MAX).map((g) => {
+    const count = g.n > 1 ? ` ×${g.n}` : "";
+    const detail = g.id === "route-missing" && g.help ? ` (${g.help})` : "";
+    return `${g.id}${count} on ${g.route}${detail}`;
+  });
+  const rest = entries.length - shown.length;
+  return shown.join(", ") + (rest > 0 ? `, +${rest} more` : "");
 }
 
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
@@ -280,10 +325,15 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
         : `${axePages.length} routes`;
     // The count was missing entirely from the fail path, so a failing run could
     // not tell you how much it had covered either.
+    // Name the rule and the route on the fail path. The count alone sent an
+    // operator bisecting markup for a `route-missing` that the artifact JSON
+    // had named all along (#680); the summary is the line that reaches CI logs
+    // and the cockpit, so it has to carry what the artifact knows.
+    const named = describeViolations(artifact.violations ?? []);
     const summary =
       status === "pass"
         ? `a11y: 0 violations across ${scanned} (+${smokeRoutes.length} hydration smoke)`
-        : `a11y: ${artifact.totalViolations} violations across ${scanned}`;
+        : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`;
 
     return {
       audit: "a11y",
