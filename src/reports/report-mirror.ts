@@ -61,13 +61,21 @@ export async function makeReportMirror(
   // for why this fails at construction rather than per write.
   if (strict && !db) throw new Error(`REPORT_MIRROR unavailable: ${why}`);
 
-  const run = async (reportId: string, op: string, work: (db: Db) => Promise<void>) => {
+  const run = async (
+    reportId: string,
+    op: string,
+    /** `false` = the UPDATE matched no row; void = a writer that reports no count. */
+    work: (db: Db) => Promise<void | boolean>,
+  ) => {
     if (!db) {
       console.log(`REPORT_MIRROR report=${reportId} op=${op} mirrored=absent reason=${why}`);
       return;
     }
+    // Every path below logs EXACTLY ONE line, then strict adds a throw — the
+    // run log reads the same in both worlds, not just a stack.
+    let matched: boolean;
     try {
-      await work(db);
+      matched = (await work(db)) !== false;
     } catch (e) {
       console.log(
         `REPORT_MIRROR report=${reportId} op=${op} mirrored=0 error=${(e as Error).message}`,
@@ -75,7 +83,15 @@ export async function makeReportMirror(
       if (strict) throw e;
       return;
     }
-    console.log(`REPORT_MIRROR report=${reportId} op=${op} mirrored=1`);
+    // `missed` is its own outcome (#647), the same one `makeSiteMirror` already
+    // reports: the UPDATE matched no row. Before the freeze the hourly sync
+    // would import the row — a transient; after it no importer exists, so an
+    // absent row stays absent and reporting mirrored=1 would claim a write
+    // that never landed.
+    console.log(`REPORT_MIRROR report=${reportId} op=${op} mirrored=${matched ? "1" : "missed"}`);
+    if (strict && !matched) {
+      throw new Error(`REPORT_MIRROR report=${reportId} op=${op}: no such row in Turso`);
+    }
   };
 
   return {

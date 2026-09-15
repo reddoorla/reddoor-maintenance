@@ -174,10 +174,12 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     // #539/#643: mirror into Turso reports. Fatal since the freeze retired the
     // hourly sync — a swallowed failure here would be permanent divergence, so
     // mirrorWrite rethrows into the catch below and the 500 makes svix
-    // redeliver (the monotonic guard keeps the retry idempotent).
+    // redeliver (the monotonic guard keeps the retry idempotent). The row
+    // count is handed through (#647): a status for a row Turso never held is
+    // `missed`, not a green no-op.
     await mirrorWrite(`resend-webhook ${report.id}`, async () => {
       const db = await openDb(readDbConfig());
-      await mirrorReportPatch(db, report.id, { delivery_status: newStatus });
+      return mirrorReportPatch(db, report.id, { delivery_status: newStatus });
     });
     console.log(
       `[resend-webhook] updated record=${report.id} → ${newStatus} (messageId=${messageId})`,
