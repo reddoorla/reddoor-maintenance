@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { AuditResult, RecipeResult, Site } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { selfUpdating } from "./self-updating/index.js";
+import { UNGUARDED_TWIN_TELL } from "./match-harness/template.js";
 import { runAudits } from "../audits/index.js";
 import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-airtable.js";
 import { writeAuditsToAirtable } from "../audits/write-audits-to-airtable.js";
@@ -70,23 +71,31 @@ export type LaunchDeps = {
 const SITE_404_MARKER = /<h1[^>]*>\s*404\s*<\/h1>/i;
 
 /** The UNGUARDED twin's OWN refusal. `src/routes/dev/match/[uid]/+page.server.ts`
- *  does `error(404, { message: \`no matching assembly for "${uid}" (have: ...)\` })`
- *  for any uid absent from its assembly map — and that message renders through
- *  the very same `+error.svelte` the guard's 404 uses, so it carries an
+ *  404s for any uid absent from its assembly map — and that message renders
+ *  through the very same `+error.svelte` the guard's 404 uses, so it carries an
  *  `<h1>404</h1>` too. On a site whose uid set lacks "home", a LIVE twin and a
  *  guarded one are byte-indistinguishable to SITE_404_MARKER, and the check
  *  could never fail. Verified on disk: beachfront-dentistry's copy of that route
  *  imports `$app/environment` zero times.
  *
- *  BOTH wordings are covered. The on-disk twin says "no matching assembly for";
- *  the `ROUTE_PAGE` template the `match-harness` recipe will install says "no
- *  assembly for". A marker that knew only the first would go blind the moment
- *  that recipe ships.
+ *  The contract is the MACHINE tell `UNGUARDED_TWIN_TELL`, imported from the
+ *  template that installs the route rather than re-typed here: the installed
+ *  twin puts it ahead of its human-readable message. Matching the prose was
+ *  the defect of #719 — reword the message ("no document for", "unknown uid")
+ *  and the guard silently stopped denying, i.e. failed OPEN with fixtures
+ *  public. The two prose wordings are STILL accepted, on purpose and for now:
+ *  beachfront-dentistry's on-disk twin predates the tell and says "no matching
+ *  assembly for", and any site installed before the tell says "no assembly
+ *  for". Drop the prose alternates once beachfront's twin has been
+ *  re-installed from the harness; until then they only ever widen the deny.
  *
  *  This is a DENY clause and only ever a deny — it can refuse a green, never
  *  grant one. Widening it can only ever refuse a launch that would otherwise
  *  have proceeded, so widening is always the safe direction here. */
-const UNGUARDED_TWIN_MARKER = /no (matching )?assembly for/i;
+export const UNGUARDED_TWIN_MARKER = new RegExp(
+  `${UNGUARDED_TWIN_TELL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}|no (matching )?assembly for`,
+  "i",
+);
 
 const MATCH_ROUTE_DIR = "src/routes/dev/match";
 
