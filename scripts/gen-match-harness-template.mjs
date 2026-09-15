@@ -134,6 +134,16 @@ has been quietly widened and nothing records who widened it, or why.
   it is accepted, and the evidence: a spec citation, a census row, a gate run.
 `;
 
+/** The MACHINE tell the installed twin puts in front of its own 404 message for
+ *  a uid it does not have. The `launch` recipe's dev-guard denies on it: an
+ *  unguarded twin asked for a missing uid 404s through the site's own
+ *  `+error.svelte`, byte-for-byte the guard's PASS condition, so the message
+ *  is the only thing that tells "the guard fired" from "no such uid". Matching
+ *  the human wording for that (#719) failed OPEN on a reword; this string is
+ *  the contract instead, exported from template.ts so launch.ts imports it
+ *  rather than re-typing it. */
+const UNGUARDED_TWIN_TELL = "reddoor-match-twin:no-assembly";
+
 const ROUTE_SERVER = `import { error } from "@sveltejs/kit";
 import { dev } from "$app/environment";
 import { documents } from "$lib/site-pages.js";
@@ -165,9 +175,14 @@ export async function load({ params }) {
 
   const docs = documents(devImg) as Array<{ uid: string; data: { slices?: unknown[] } }>;
   const doc = docs.find((d) => d.uid === params.uid);
+  // The leading token is a MACHINE tell for the launch recipe's dev-guard. This
+  // 404 renders through the site's own +error.svelte exactly like a guarded
+  // route's does, so on a site whose uids lack "home" an UNGUARDED twin would
+  // pass the deployed check forever; the token is what tells the two apart.
+  // Reword the prose freely — the token is the contract (#719).
   if (!doc)
     error(404, {
-      message: \`no assembly for "\${params.uid}" (have: \${docs.map((d) => d.uid).join(", ") || "none"})\`,
+      message: \`${UNGUARDED_TWIN_TELL}: no assembly for "\${params.uid}" (have: \${docs.map((d) => d.uid).join(", ") || "none"})\`,
     });
 
   return { uid: params.uid, slices: doc.data.slices ?? [] };
@@ -620,6 +635,11 @@ parts.push(
     "matching/build-spec.mjs",
   ].map((r) => `  ${JSON.stringify(r)},`),
   `];`,
+  ``,
+  `/** The machine tell the installed /dev/match twin emits ahead of its 404`,
+  ` *  message for a uid it lacks. launch's dev-guard denies on this, never on`,
+  ` *  the human wording (#719). */`,
+  `export const UNGUARDED_TWIN_TELL = ${JSON.stringify(UNGUARDED_TWIN_TELL)};`,
   ``,
   `export const GITIGNORE_MARKER =`,
   `  "# reddoor-maint match-harness: scripts + records tracked, workspace ignored";`,
