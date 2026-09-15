@@ -2,6 +2,7 @@ import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { parseNotifyRouting } from "../reports/airtable/websites.js";
 import { CANONICAL_STATUSES, toAirtableStatus } from "../reports/airtable/site-status.js";
 import type { AirtableCellValue } from "../reports/airtable/websites.js";
+import { isOwnerRepo } from "../util/git.js";
 import { isHttpUrl } from "../util/url.js";
 
 /**
@@ -146,10 +147,6 @@ function isCalendarDate(v: string): boolean {
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
-/** `owner/repo` shape. Exported for other dashboard surfaces that consume the
- *  legacy free-text `Git repo` cell (e.g. trigger-renovate). */
-export const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
-
 /**
  * Validate/normalize a raw value for a field kind. Returns the string to write, or
  * `null` when invalid. Empty (after trim) is allowed — it clears the cell — for
@@ -174,7 +171,9 @@ export function normalizeFieldValue(f: EditableField, raw: string): AirtableCell
       return parts.every((p) => EMAIL_RE.test(p)) ? parts.join(", ") : null;
     }
     case "gitrepo":
-      return v === "" ? "" : REPO_RE.test(v) ? v : null;
+      // The ONE owner/repo validator (#724): `isOwnerRepo` in util/git, which
+      // also rejects a `..` segment the bare two-segment regex used to admit.
+      return v === "" ? "" : isOwnerRepo(v) ? v : null;
     case "url":
       // The SAME scheme allowlist the deployed-audit target uses. This value is
       // fetched server-side by the newsletter forwarder, so a `file://` or
