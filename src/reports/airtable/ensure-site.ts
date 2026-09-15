@@ -6,9 +6,12 @@ import { toAirtableStatus } from "./site-status.js";
 export type EnsureSiteInput = {
   /** Canonical slug — matches by siteSlug(Name); the Name on create when no displayName given. */
   slug: string;
-  /** Human display name written to Name on create. Name is consumed VERBATIM in
-   *  client-facing copy (forms auto-reply intro, report subjects), so a bare
-   *  machine slug there reads as "Thanks for reaching out to acme-co." Must
+  /** Human display name written to Name on create, and — unlike every other
+   *  input — UPDATED on an existing row when it differs (#664). Name is
+   *  consumed VERBATIM in client-facing copy (forms auto-reply intro, report
+   *  subjects), so a bare machine slug there reads as "Thanks for reaching out
+   *  to acme-co." — and the row that has it is exactly the one created before
+   *  the name was settled, which only this command re-run can fix. Must
    *  slugify to the same slug or the row wouldn't be found on re-run. */
   displayName?: string;
   url?: string;
@@ -60,9 +63,11 @@ const COLS = {
  *
  * Fill-blanks-only on the exists path: this command runs from a bootstrap skill
  * that may be re-run to resume — it must never clobber operator-edited cells.
- * Frequencies are deliberately NOT set (launch flips the lifecycle); Status is
- * only written on create ("building" — Airtable's "in development" until the
- * stage-2 vocabulary switch flips).
+ * The one exception is `displayName` (#664): `--name` targets Name and nothing
+ * else, so a differing value IS the operator's edit, and the create message
+ * sends them back here to make it. Frequencies are deliberately NOT set
+ * (launch flips the lifecycle); Status is only written on create ("building" —
+ * Airtable's "in development" until the stage-2 vocabulary switch flips).
  */
 export async function ensureSite(
   base: AirtableBase,
@@ -152,6 +157,14 @@ export async function ensureSite(
   consider(COLS.url, input.url, existing.url || null);
   consider(COLS.pointOfContact, input.pointOfContact, existing.pointOfContact);
   consider(COLS.gitRepo, input.gitRepo, existing.gitRepo);
+  // #664: Name is NOT fill-blanks. It is never blank (the slug match found it),
+  // and `--name` is the only way to retitle a row created before the display
+  // name was settled — the slugify guard above already proved the new value
+  // resolves to the same row. Goes through the same update + mirror below, so
+  // Turso gets it too.
+  if (input.displayName && existing.name !== input.displayName) {
+    updates["Name"] = input.displayName;
+  }
 
   const updatedFields = Object.keys(updates);
   if (updatedFields.length > 0) {
