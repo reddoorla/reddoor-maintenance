@@ -8,9 +8,9 @@ import { fileURLToPath } from "node:url";
 
 /**
  * The SubagentStop hook's stdin → stdout contract, exercised end to end against a REAL
- * git repository — a bare `origin`, a main checkout, and three worktrees under
- * `.claude/worktrees/` in the three states the guard has to tell apart. Nothing here is
- * mocked: the verdicts come from the same `git status` / `rev-parse @{u}` /
+ * git repository — a bare `origin`, a main checkout, and six worktrees under
+ * `.claude/worktrees/` in the states the guard has to tell apart. Nothing here is mocked:
+ * the verdicts come from the same `git status` / `for-each-ref --contains HEAD` /
  * `rev-list origin/main..HEAD` calls the hook makes in the fleet.
  *
  * The transcripts are synthetic, and follow tests/meta-week/orphaned-agents-report.test.ts
@@ -18,12 +18,23 @@ import { fileURLToPath } from "node:url";
  * named `Bash`, which is all this hook reads.
  *
  * Layout under the temp root:
- *   origin.git/                       bare remote
- *   repo/                             main checkout, branch main, pushed
- *     .claude/worktrees/wt-clean      committed and pushed, working tree clean
- *     .claude/worktrees/wt-dirty      two uncommitted changes
- *     .claude/worktrees/wt-unpushed   one commit, no upstream
- *   transcripts/*.jsonl               one per case
+ *   origin.git/                          bare remote
+ *   repo/                                main checkout, branch main, pushed
+ *     .claude/worktrees/wt-clean         committed and pushed with -u, tree clean
+ *     .claude/worktrees/wt-dirty         two uncommitted changes
+ *     .claude/worktrees/wt-unpushed      one commit, no upstream, on no remote
+ *     .claude/worktrees/wt-detached      DETACHED HEAD sitting exactly on origin/main
+ *     .claude/worktrees/wt-nou           one commit, pushed WITHOUT -u (no upstream set)
+ *     .claude/worktrees/wt-from-origin   cut with `-b X origin/main`, one commit, no push
+ *   transcripts/*.jsonl                  one per case
+ *
+ * The last three exist because the guard's rule changed. It used to ask "does the branch
+ * have an upstream", which was wrong in BOTH directions: wt-from-origin has one and is
+ * stranded (false negative — measured on this hook's own branch), wt-nou has none and is
+ * safely on the remote (false positive). The rule is now containment — does any
+ * remote-tracking ref hold HEAD — and wt-detached pins the third state it has to get
+ * right. Each of the three asserts the OLD signal as well as the new verdict, so the
+ * regression cannot come back silently.
  */
 
 const HOOK = fileURLToPath(new URL("../../scripts/hooks/subagent-stop-guard.mjs", import.meta.url));
@@ -39,6 +50,16 @@ function run(cmd: string, args: string[], cwd: string): string {
 }
 
 const git = (cwd: string, ...args: string[]) => run("git", args, cwd);
+
+/** True when the git command exits non-zero — used to assert the OLD upstream signal. */
+function gitFails(cwd: string, ...args: string[]): boolean {
+  try {
+    git(cwd, ...args);
+    return false;
+  } catch {
+    return true;
+  }
+}
 
 /** One assistant record carrying a single Bash tool_use — the only shape the hook reads. */
 let seq = 0;
@@ -134,6 +155,23 @@ beforeAll(async () => {
   await writeFile(join(wtPath("wt-unpushed"), "feature.txt"), "done\n");
   git(wtPath("wt-unpushed"), "add", "feature.txt");
   git(wtPath("wt-unpushed"), "commit", "-m", "feat: the work");
+
+  // detached HEAD sitting exactly on origin/main — contained, therefore clean
+  git(repo, "worktree", "add", "--detach", wtPath("wt-detached"), "origin/main");
+
+  // pushed WITHOUT -u: no upstream is configured, but origin/feat/nou holds every commit
+  git(repo, "worktree", "add", "-b", "feat/nou", wtPath("wt-nou"));
+  await writeFile(join(wtPath("wt-nou"), "shipped.txt"), "shipped\n");
+  git(wtPath("wt-nou"), "add", "shipped.txt");
+  git(wtPath("wt-nou"), "commit", "-m", "feat: shipped");
+  git(wtPath("wt-nou"), "push", "origin", "feat/nou");
+
+  // cut with an explicit remote start point, so tracking is set at creation, then one
+  // local commit and no push — the shape that slipped through the old upstream test
+  git(repo, "worktree", "add", "-b", "feat/from-origin", wtPath("wt-from-origin"), "origin/main");
+  await writeFile(join(wtPath("wt-from-origin"), "stranded.txt"), "stranded\n");
+  git(wtPath("wt-from-origin"), "add", "stranded.txt");
+  git(wtPath("wt-from-origin"), "commit", "-m", "feat: stranded");
   // vitest.config.ts raises `testTimeout` to 120 s but NOT `hookTimeout`, which stays at
   // its 10 s default. This setup spawns ~15 git subprocesses; on a loaded machine (this
   // repo runs several agent sessions at once) that overran 10 s and failed the whole file
@@ -222,7 +260,7 @@ describe("SubagentStop hook: a worker cannot stop with a dirty or unpushed workt
     expect(reason.split("\n")).toHaveLength(2);
   });
 
-  it("(c): a committed branch with no upstream blocks with the unpushed message", async () => {
+  it("(c): a committed branch on no remote blocks with the unpushed message", async () => {
     const t = await writeTranscript("unpushed", [
       bashRecord(`git worktree add -b feat/unpushed ${wtPath("wt-unpushed")}`),
       // the same worktree named a second way: the set is distinct, so this adds no line
@@ -234,11 +272,66 @@ describe("SubagentStop hook: a worker cannot stop with a dirty or unpushed workt
 
     const reason = blockReason(stdout);
     expect(reason).toContain(
-      `${wtPath("wt-unpushed")} — 1 commit with no upstream — ` +
+      `${wtPath("wt-unpushed")} — 1 commit not on any remote — ` +
         `push and open the PR, or say why not`,
     );
     expect(reason).not.toContain("uncommitted");
     expect(reason.split("\n")).toHaveLength(2);
+  });
+
+  it("(c2) FALSE NEGATIVE the old rule had: `-b X origin/main` inherits an upstream and still blocks", async () => {
+    // The regression anchor. Tracking IS configured — this is exactly what made the old
+    // "does the branch have an upstream" test call a stranded branch clean.
+    expect(git(wtPath("wt-from-origin"), "rev-parse", "--abbrev-ref", "@{u}").trim()).toBe(
+      "origin/main",
+    );
+    // and yet no remote-tracking ref holds the commit
+    expect(
+      git(wtPath("wt-from-origin"), "for-each-ref", "--contains", "HEAD", "refs/remotes/").trim(),
+    ).toBe("");
+
+    const t = await writeTranscript("from-origin", [
+      bashRecord(`git worktree add ${wtPath("wt-from-origin")} -b feat/from-origin origin/main`),
+    ]);
+    const { code, stdout, stderr } = await runHook(hookInput(t));
+    expect(code).toBe(0);
+    expect(stderr).toBe("");
+    expect(blockReason(stdout)).toContain(
+      `${wtPath("wt-from-origin")} — 1 commit not on any remote — ` +
+        `push and open the PR, or say why not`,
+    );
+  });
+
+  it("(c3) FALSE POSITIVE the old rule had: pushed without -u is on the remote, so it is clean", async () => {
+    // No upstream is configured — the old rule would have accused this branch …
+    expect(gitFails(wtPath("wt-nou"), "rev-parse", "--abbrev-ref", "@{u}")).toBe(true);
+    // … but origin/feat/nou holds the commit, so the work is not stranded at all.
+    expect(
+      git(wtPath("wt-nou"), "for-each-ref", "--contains", "HEAD", "refs/remotes/").trim(),
+    ).toContain("refs/remotes/origin/feat/nou");
+
+    const t = await writeTranscript("nou", [
+      bashRecord(`git worktree add -b feat/nou ${wtPath("wt-nou")}`),
+    ]);
+    const { code, stdout, stderr } = await runHook(hookInput(t));
+    expect(stdout).toBe("");
+    expect(stderr).toBe("");
+    expect(code).toBe(0);
+  });
+
+  it("(c4): a detached HEAD sitting exactly on origin/main is contained, so it is clean", async () => {
+    expect(git(wtPath("wt-detached"), "rev-parse", "HEAD").trim()).toBe(
+      git(repo, "rev-parse", "origin/main").trim(),
+    );
+    expect(gitFails(wtPath("wt-detached"), "rev-parse", "--abbrev-ref", "@{u}")).toBe(true);
+
+    const t = await writeTranscript("detached", [
+      bashRecord(`git worktree add --detach ${wtPath("wt-detached")} origin/main`),
+    ]);
+    const { code, stdout, stderr } = await runHook(hookInput(t));
+    expect(stdout).toBe("");
+    expect(stderr).toBe("");
+    expect(code).toBe(0);
   });
 
   it("(d) the loop guard: stop_hook_active on the same dirty tree prints nothing", async () => {

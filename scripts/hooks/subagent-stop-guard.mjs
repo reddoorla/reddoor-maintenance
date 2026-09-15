@@ -12,6 +12,20 @@
 // dirty or unpushed — returns `decision: "block"` with a reason naming them. The
 // subagent gets another turn with that reason as its next instruction.
 //
+// THE RULE: a worktree is stranded if `git status --porcelain` is non-empty, or if no
+// remote-tracking ref contains HEAD — that is, the commits exist nowhere but this machine.
+//
+// "No remote-tracking ref contains HEAD" replaced an earlier "the branch has no upstream"
+// test, which was wrong in both directions and was caught on this hook's own branch.
+// `git worktree add <path> -b <branch> origin/main` — the form this repo's CLAUDE.md
+// prescribes — sets tracking AT CREATION, because `branch.autoSetupMerge` defaults to
+// true and the start point is a remote-tracking branch. So `@{u}` resolved to
+// `origin/main`, the "no upstream" test never fired, and the guard called a branch clean
+// while it held two commits that existed nowhere else (FALSE NEGATIVE). The same test
+// failed the other way on a branch pushed WITHOUT `-u`: no upstream is configured, yet
+// `origin/<branch>` holds every commit (FALSE POSITIVE). Containment asks the question
+// both of those only approximated.
+//
 // It never modifies anything. Every git call it makes is a read.
 //
 // ─── how it is wired ─────────────────────────────────────────────────────────────────
@@ -300,16 +314,34 @@ export function inspectWorktree(worktree) {
     return { kind: "dirty", count: changed.length, paths: changed.map(porcelainPath) };
   }
 
-  // An upstream means the branch has been pushed at least once, and this first version
-  // asks no more than that. `@{u}` failing IS the signal, not an error — a branch with no
-  // upstream, and a detached HEAD, both land here.
+  // Does ANY remote-tracking ref contain HEAD? Containment, not configuration: it asks
+  // the question that actually matters — are these commits anywhere but this machine —
+  // and it does not care how, or whether, the branch was set up to track. Empty output
+  // means nowhere. `--count=1` stops at the first hit, so a repo with hundreds of remote
+  // refs pays for one (measured: 181 refs, 0.017 s).
+  //
+  // Two states this gets right that an upstream test did not: a DETACHED HEAD sitting on
+  // origin/main is contained, and a branch pushed without `-u` is contained by
+  // origin/<branch> even though no upstream is configured. Both read as clean.
+  let contained;
   try {
-    git(worktree, ["rev-parse", "--abbrev-ref", "@{u}"]);
-    return { kind: "clean" };
-  } catch {
-    /* no upstream — fall through to the ahead-of-main count */
+    contained = git(worktree, [
+      "for-each-ref",
+      "--count=1",
+      "--contains",
+      "HEAD",
+      "--format=%(refname)",
+      "refs/remotes/",
+    ]);
+  } catch (e) {
+    return { kind: "unknown", why: `git for-each-ref failed: ${e.message}` };
   }
+  if (contained.trim().length > 0) return { kind: "clean" };
 
+  // Not on any remote. The COUNT is still measured against origin/main, which is what
+  // makes the number mean "commits this branch added". HEAD cannot be an ancestor of
+  // origin/main here — if it were, origin/main would have contained it — so this is
+  // always ≥ 1 in practice.
   let ahead;
   try {
     ahead = Number(git(worktree, ["rev-list", "origin/main..HEAD", "--count"]).trim());
@@ -331,7 +363,7 @@ export function reasonLine(worktree, verdict) {
     return `${worktree} — ${plural(verdict.count, "uncommitted change")}: ${shown.join(", ")}${more}`;
   }
   return (
-    `${worktree} — ${plural(verdict.count, "commit")} with no upstream — ` +
+    `${worktree} — ${plural(verdict.count, "commit")} not on any remote — ` +
     `push and open the PR, or say why not`
   );
 }
