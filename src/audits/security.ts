@@ -21,8 +21,14 @@ type AdvisoryEntry = {
   /** Dependency graph relationship from Dependabot; absent when GitHub reports "unknown"
    *  or for the `pnpm audit` fallback. "transitive" = no direct-dep fix vehicle, so the
    *  auto-fix-attempts counter and the digest treat nightly dispatches as no-ops. */
-  relationship?: "direct" | "transitive";
+  relationship?: "direct" | "transitive" | "inconclusive";
 };
+
+/** An open alert filed against a manifest that is no longer on the default branch. GitHub's
+ *  dependency graph retains a deleted manifest and keeps filing advisories against its frozen
+ *  snapshot; no dependency update can ever close one, so it is excluded from the severity
+ *  tallies and surfaced as repo hygiene instead of a live vulnerability (#702). */
+type GhostAdvisoryEntry = AdvisoryEntry & { manifestPath: string };
 
 // pnpm audit output (npm-compat with extra advisories map keyed by ID).
 type PnpmAuditJson = {
@@ -191,13 +197,44 @@ async function runAuditTool(
  *  built from GITHUB_TOKEN; absent token (or a site with no gitRepo) → pnpm/npm audit fallback. */
 export type DependabotDeps = {
   listAlerts: (repo: string) => Promise<DependabotAlert[]>;
+  /** Whether an alert's `manifestPath` is still on the default branch. Optional: without it
+   *  every alert counts, which is the loud direction. A lookup that THROWS also counts the
+   *  alert — an API hiccup must never quietly suppress a real vulnerability (#702). */
+  manifestExists?: (repo: string, path: string) => Promise<boolean>;
 };
 
 function defaultDependabotDeps(): DependabotDeps | null {
   const cfg = readGitHubConfig();
   if (!cfg) return null;
   const gh = makeGitHubRest({ token: cfg.token });
-  return { listAlerts: (repo) => gh.listDependabotAlerts(repo, { state: "open" }) };
+  return {
+    listAlerts: (repo) => gh.listDependabotAlerts(repo, { state: "open" }),
+    manifestExists: (repo, path) => gh.manifestExists(repo, path),
+  };
+}
+
+/** Resolve each distinct manifest path once. Returns the set of paths confirmed ABSENT from
+ *  the default branch; a path whose lookup errors is treated as present (counted). */
+async function absentManifests(
+  deps: DependabotDeps,
+  repo: string,
+  alerts: DependabotAlert[],
+  label: string,
+): Promise<Set<string>> {
+  const absent = new Set<string>();
+  if (!deps.manifestExists) return absent;
+  const paths = new Set(alerts.flatMap((a) => (a.manifestPath ? [a.manifestPath] : [])));
+  for (const path of paths) {
+    try {
+      if (!(await deps.manifestExists(repo, path))) absent.add(path);
+    } catch (e) {
+      console.error(
+        `[security] ${label}: could not resolve manifest ${path} — counting its alerts: ` +
+          `${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+  return absent;
 }
 
 /** Map GitHub's severity vocabulary onto the app's. "medium" → "moderate"; an unrecognized
@@ -231,12 +268,14 @@ async function dependabotAudit(
     return null;
   }
 
+  const absent = await absentManifests(deps, repo, alerts, label);
+
   const counts: Counts = { low: 0, moderate: 0, high: 0, critical: 0 };
   const advisories: AdvisoryEntry[] = [];
+  const ghostAdvisories: GhostAdvisoryEntry[] = [];
   for (const a of alerts) {
     const severity = ghSeverityToApp(a.severity);
-    counts[severity] += 1;
-    advisories.push({
+    const entry: AdvisoryEntry = {
       module: a.package,
       severity,
       title: a.summary || "(no title)",
@@ -244,17 +283,52 @@ async function dependabotAudit(
       ...(a.url ? { url: a.url } : {}),
       ...(a.scope ? { scope: a.scope } : {}),
       ...(a.relationship ? { relationship: a.relationship } : {}),
-    });
+    };
+    // A ghost: the manifest GitHub filed this against is gone from the tree. Nothing can
+    // fix it (erp-industrial #55, data-dynamiq #41 sat red for five days on exactly this),
+    // so it does not feed the tallies — but it is not silent either.
+    if (a.manifestPath && absent.has(a.manifestPath)) {
+      ghostAdvisories.push({ ...entry, manifestPath: a.manifestPath });
+      continue;
+    }
+    counts[severity] += 1;
+    advisories.push(entry);
   }
 
-  const status = classify(counts);
+  const liveStatus = classify(counts);
   const total = counts.low + counts.moderate + counts.high + counts.critical;
-  const summary =
-    status === "pass"
-      ? "Dependabot: 0 alerts"
+  const liveSummary =
+    liveStatus === "pass"
+      ? ghostAdvisories.length > 0
+        ? "Dependabot: 0 live alert(s)"
+        : "Dependabot: 0 alerts"
       : `Dependabot: ${total} alert(s) (${counts.critical}C/${counts.high}H/${counts.moderate}M/${counts.low}L)`;
 
-  return { audit: "security", site: label, status, summary, details: { counts, advisories } };
+  if (ghostAdvisories.length === 0) {
+    return {
+      audit: "security",
+      site: label,
+      status: liveStatus,
+      summary: liveSummary,
+      details: { counts, advisories },
+    };
+  }
+
+  // Ghosts alone are a warn, never a fail: the dead manifest is real cruft worth an operator's
+  // minute (dismiss the alert as inaccurate, name the deletion commit), but it is not a live
+  // vulnerability and must not land the site in the cockpit's Renovate-exhausted band.
+  const status = liveStatus === "pass" ? "warn" : liveStatus;
+  const manifests = [...new Set(ghostAdvisories.map((g) => g.manifestPath))].join(", ");
+  const summary =
+    `${liveSummary}; ${ghostAdvisories.length} alert(s) on a manifest GitHub no longer tracks ` +
+    `(${manifests}) — dismiss as inaccurate`;
+  return {
+    audit: "security",
+    site: label,
+    status,
+    summary,
+    details: { counts, advisories, ghostAdvisories },
+  };
 }
 
 export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
