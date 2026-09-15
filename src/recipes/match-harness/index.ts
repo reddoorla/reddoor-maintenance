@@ -148,6 +148,34 @@ export function planBlockWrite(
   return { action: "flag" };
 }
 
+/**
+ * The commit message says what the run DID. Every run used to commit as
+ * `feat: install …`, including one that installed nothing — measured on 29-navy:
+ * three scripts upgraded, three block regions terminated, 6 files and 436
+ * lines, labelled a first install (#760). The notes distinguished the two the
+ * whole time; the message is what a reader bisecting `git log` sees.
+ *
+ * `write` anywhere is an install; only replace/terminate is an upgrade; both is
+ * both. A pristine install keeps the historical one-line message byte-for-byte.
+ * An upgrade names its paths in the body, so `git log` answers "when did this
+ * site's gate.sh change" without a diff.
+ */
+export function commitMessage(installed: readonly string[], upgraded: readonly string[]): string {
+  const what = "(/dev/match route + matching/ gate scripts)";
+  if (upgraded.length === 0) return `feat: install the matching harness ${what}`;
+  const subject =
+    installed.length > 0
+      ? `feat: install and upgrade the matching harness ${what}`
+      : `chore: upgrade the matching harness (${upgraded.length} file${upgraded.length === 1 ? "" : "s"} from a previously shipped version)`;
+  const body = [
+    installed.length > 0 ? `installed: ${installed.join(", ")}` : "",
+    `upgraded from a previously shipped version: ${upgraded.join(", ")}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return `${subject}\n\n${body}`;
+}
+
 /** What to do with one installed file. `flag` never writes. */
 export function planFileWrite(
   existing: string | null,
@@ -245,6 +273,12 @@ export async function matchHarness(
     apply: async (planned, { commit, cwd }) => {
       const notes: string[] = [];
       const written: string[] = [];
+      /** What this run did, for the commit message: paths written for the
+       *  FIRST time, and paths replaced or terminated from a previously shipped
+       *  render. The notes already tell them apart; the message is what
+       *  survives into `git log` (#760). */
+      const installed: string[] = [];
+      const upgraded: string[] = [];
       /** For every path this run writes: what was there BEFORE (null = the file
        *  did not exist). The refusal below restores from this, so a refused run
        *  leaves the checkout byte-identical to how it found it. */
@@ -332,6 +366,7 @@ export async function matchHarness(
         before.set(f.rel, existing);
         await writeFile(target, template, "utf-8");
         written.push(f.rel);
+        (action === "write" ? installed : upgraded).push(f.rel);
         if (action === "replace") notes.push(`${f.rel} upgraded from a previous version`);
       }
 
@@ -360,6 +395,7 @@ export async function matchHarness(
         before.set(rel, existing);
         await writeFile(path, plan.content, "utf-8");
         written.push(rel);
+        (plan.action === "write" ? installed : upgraded).push(`${rel} (match-harness block)`);
         if (plan.action === "replace")
           notes.push(`${rel}'s match-harness block upgraded from a previous version`);
         if (plan.action === "terminate")
@@ -408,9 +444,7 @@ export async function matchHarness(
         }
       }
 
-      await commit(
-        "feat: install the matching harness (/dev/match route + matching/ gate scripts)",
-      );
+      await commit(commitMessage(installed, upgraded));
 
       // POSITIVE EVIDENCE that the install is real: every installed path is
       // FOUND in HEAD's tree. `git add -A` honours the site's .gitignore and

@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launch, matchingDisposition } from "../../src/recipes/launch.js";
+import { launch, matchingDisposition, UNGUARDED_TWIN_MARKER } from "../../src/recipes/launch.js";
+import {
+  MATCH_ROUTE_SERVER_TEMPLATE,
+  UNGUARDED_TWIN_TELL,
+} from "../../src/recipes/match-harness/template.js";
 import type { AuditResult, RecipeResult, Site } from "../../src/types.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 
@@ -447,6 +451,43 @@ describe("recipes/launch", () => {
       "self-updating",
       "dev-guard",
     ]);
+  });
+
+  it("denies on the twin's MACHINE tell, so the human wording can change without the guard failing open", async () => {
+    // #719: the deny clause matched a human-readable message. Reword it in the
+    // site template — "no document for", "unknown uid" — and the guard silently
+    // stops denying: the launch proceeds and a site ships its fixtures public.
+    // The durable contract is a machine tell the installed route emits ahead
+    // of its message, and the marker is BUILT from that exported constant.
+    expect(UNGUARDED_TWIN_TELL).toMatch(/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/);
+    // The template the harness installs carries the tell in its 404 message.
+    expect(MATCH_ROUTE_SERVER_TEMPLATE).toContain(`message: \`${UNGUARDED_TWIN_TELL}`);
+    // The template string itself trips the marker...
+    expect(UNGUARDED_TWIN_MARKER.test(MATCH_ROUTE_SERVER_TEMPLATE)).toBe(true);
+    // ...and still does with every human wording gone: the tell alone carries it.
+    const reworded = MATCH_ROUTE_SERVER_TEMPLATE.replace(
+      /no (matching )?assembly for/gi,
+      "no document for",
+    );
+    expect(reworded).not.toMatch(/assembly for/i);
+    expect(UNGUARDED_TWIN_MARKER.test(reworded)).toBe(true);
+
+    // End to end: a 404 whose only tell is the machine one is refused.
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch(siteOf(), {
+      ...deps(base),
+      probe: async (url: string) =>
+        url.endsWith("/dev/match/home")
+          ? {
+              status: 404,
+              body: `<h1>404</h1><p>${UNGUARDED_TWIN_TELL}: no document for "home" (have: about)</p>`,
+            }
+          : { status: 200, body: '{"ok":true}' },
+    });
+    expect(result.complete).toBe(false);
+    const guard = result.steps.find((s) => s.name === "dev-guard");
+    expect(guard?.result).toMatchObject({ kind: "error" });
+    expect((guard?.result as { message: string }).message).toMatch(/not evidence of a dev guard/i);
   });
 
   it('also denies the harness template\'s wording ("no assembly for")', async () => {

@@ -3,7 +3,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { chmod, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -26,9 +26,11 @@ import {
   GATE_SH_TEMPLATE,
   LEDGER_MD_TEMPLATE,
   MATCH_HARNESS_PREVIOUS,
+  UNGUARDED_TWIN_TELL,
 } from "../../src/recipes/match-harness/template.js";
 import type { SpawnFn, SpawnOptions } from "../../src/audits/util/spawn.js";
 import { PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
+import { CLAUDE_MD_BLOCK_0_95_1 } from "../../src/recipes/match-harness/previous.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1656,6 +1658,45 @@ describe("a marked block on a site that already carries one (#739)", () => {
     expect(second.notes ?? "").not.toContain("CLAUDE.md");
   });
 
+  it("upgrades the 0.95.1 CLAUDE.md block through the SHIPPED table, in both shapes it left behind", async () => {
+    // No `blockPrevious` injection: this is the table sites actually get. The
+    // 0.95.1 block is the first block body ever superseded (#736), so this is
+    // the first time the shipped table has had to do anything at all.
+    expect(CLAUDE_MD_BLOCK_0_95_1).not.toBe(CLAUDE_MD_BLOCK);
+    expect(CLAUDE_MD_BLOCK_0_95_1).not.toMatch(/census\.sh/);
+    expect(CLAUDE_MD_BLOCK).toMatch(/census\.sh/);
+    const prose = "# Site rules\n\nExisting prose the site owns.\n\n";
+
+    // Shape 1 — terminated, as 0.95.1 leaves every site it has run on.
+    const terminated = await copyFixtureToTmp(pristine);
+    await seed(
+      terminated,
+      "CLAUDE.md",
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK_0_95_1, CLAUDE_MD_END_MARKER),
+    );
+    const r1 = await matchHarness(
+      { path: terminated },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(r1.status).toBe("applied");
+    expect(await read(terminated, "CLAUDE.md")).toBe(
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK, CLAUDE_MD_END_MARKER),
+    );
+    expect(r1.notes).toContain("CLAUDE.md's match-harness block upgraded from a previous version");
+    expect(r1.notes ?? "").not.toContain("left alone");
+
+    // Shape 2 — the v1 marker-only region a 0.95.0 site still carries.
+    const v1 = await copyFixtureToTmp(pristine);
+    await seed(v1, "CLAUDE.md", prose + v1Region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK_0_95_1));
+    const r2 = await matchHarness({ path: v1 }, { ref: "https://ref.test" }, { spawn: noopSpawn });
+    expect(r2.status).toBe("applied");
+    expect(await read(v1, "CLAUDE.md")).toBe(
+      prose + region(CLAUDE_MD_MARKER, CLAUDE_MD_BLOCK, CLAUDE_MD_END_MARKER),
+    );
+    expect(r2.notes).toContain("CLAUDE.md's match-harness block upgraded from a previous version");
+  });
+
   it("an end marker can never be mistaken for a start marker", () => {
     const pairs: Array<[string, string, string]> = [
       ["GITIGNORE", GITIGNORE_MARKER, GITIGNORE_END_MARKER],
@@ -1891,7 +1932,9 @@ describe("the installed /dev/match route's production guard", () => {
     const cwd = await install();
     const out = await loadDevMatch(cwd, { dev: true, uid: "nope", sitePages: ONE_PAGE });
     expect(out.status).toBe(404);
-    expect(out.body?.message).toBe('no assembly for "nope" (have: home)');
+    // Prefixed with the machine tell the launch recipe's dev-guard denies on
+    // (#719); the prose after it is free to change.
+    expect(out.body?.message).toBe(`${UNGUARDED_TWIN_TELL}: no assembly for "nope" (have: home)`);
   });
 });
 
@@ -2961,6 +3004,70 @@ describe("a 0.95.0 install upgrades every coupled script together, or upgrades n
         `${rel} differs from the shipped template and was left alone (hand-edited?)`,
       );
     expect(occurrences(result.notes ?? "", "(hand-edited?)")).toBe(1);
+  });
+
+  // --- what survives into `git log` (#760)
+  //
+  // The notes were always right; the commit message said "install" on every
+  // run, including one that installed nothing. Upgrade commits are about to be
+  // the COMMON case fleet-wide (0.95.1 moves every site from marker-only to
+  // marker + terminator), and each one was going to be labelled a first
+  // install — so a reader bisecting "when did this site's gate.sh change"
+  // would find two commits claiming the harness was installed that day.
+  const subjectOf = (cwd: string) =>
+    execFileSync("git", ["log", "-1", "--format=%s"], { cwd }).toString().trim();
+  const bodyOf = (cwd: string) =>
+    execFileSync("git", ["log", "-1", "--format=%b"], { cwd }).toString().trim();
+
+  it("commits an upgrade as an upgrade, and only a first install as an install", async () => {
+    // A pristine install — the one case the old fixed message was right about.
+    const fresh = await copyFixtureToTmp(pristine);
+    const first = await matchHarness(
+      { path: fresh },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(first.status).toBe("applied");
+    const installSubject = subjectOf(fresh);
+    expect(installSubject).toMatch(/^feat: install the matching harness/);
+    expect(installSubject).not.toMatch(/upgrade/);
+
+    // A re-run over an existing 0.95.0 harness: three replaces, nothing written
+    // for the first time.
+    const cwd = await at0950();
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("applied");
+    const upgradeSubject = subjectOf(cwd);
+    // The assertion with no coverage before this: the two messages DIFFER.
+    expect(upgradeSubject).not.toBe(installSubject);
+    expect(upgradeSubject).toMatch(/^chore: upgrade the matching harness/);
+    expect(upgradeSubject).not.toMatch(/install/);
+    // And the body names what moved, so `git log` answers the bisect question
+    // without a diff.
+    for (const rel of COUPLED_CHANGED) expect(bodyOf(cwd)).toContain(rel);
+  });
+
+  it("says both when one run writes a missing file AND upgrades an existing one", async () => {
+    const cwd = await at0950();
+    // A site record deleted by hand: absent, so it is written for the first
+    // time, alongside the three script replaces.
+    await rm(join(cwd, "matching/LEDGER.md"));
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "operator removed the ledger"], { cwd, stdio: "ignore" });
+
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(subjectOf(cwd)).toMatch(/^feat: install and upgrade the matching harness/);
+    expect(bodyOf(cwd)).toContain("matching/LEDGER.md");
+    expect(bodyOf(cwd)).toContain("matching/gate.sh");
   });
 });
 

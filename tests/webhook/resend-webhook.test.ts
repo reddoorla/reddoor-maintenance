@@ -248,9 +248,10 @@ describe("Resend webhook signed-POST path", () => {
     markBouncedMock.mockResolvedValue(false);
     openDbMock.mockReset();
     openDbMock.mockResolvedValue({} as Awaited<ReturnType<typeof openDb>>);
-    // Default: the authoritative Turso patch succeeds (the healthy world).
+    // Default: the authoritative Turso patch succeeds AND matched the row
+    // (the healthy world). `false` is the #647 outcome: the row was never there.
     mirrorPatchMock.mockReset();
-    mirrorPatchMock.mockResolvedValue(undefined);
+    mirrorPatchMock.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -426,6 +427,20 @@ describe("Resend webhook signed-POST path", () => {
     // The Airtable shadow write still ran (it precedes the mirror) — harmless,
     // idempotent on retry, and gone entirely in Phase 6.
     expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "bounced");
+    errorSpy.mockRestore();
+  });
+
+  it("#647: a status for a report row Turso never held is `missed`, not a green 200", async () => {
+    // Before #647 the patch's row count was thrown away, so a delivery status
+    // for a row that never reached Turso "mirrored" fine and the handler said
+    // OK — the one outcome the freeze calls a bug, invisible. Post-freeze
+    // nothing converges it, so this is a 500 like any other lost mirror.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mirrorPatchMock.mockResolvedValue(false);
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_ghost_row" }));
+    expect(res.status).toBe(500);
+    expect(errorSpy.mock.calls.flat().join("\n")).toContain("mirrored=missed");
     errorSpy.mockRestore();
   });
 });

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
-import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
 import {
   SMOKE_ROUTES_RELATIVE,
   SMOKE_ROUTES_TEMPLATE,
@@ -14,7 +14,16 @@ import {
   PLAYWRIGHT_CONFIG_PRE_R11,
 } from "./template.js";
 
-export type SmokeSuiteDeps = { spawn: SpawnFn };
+export type SmokeSuiteDeps = {
+  spawn: SpawnFn;
+  /** Resolve the TARGET repo's own prettier. Injected so a test can assert the
+   *  absolute-path spawn without a populated `node_modules`. */
+  resolvePrettier?: (repoRoot: string) => Promise<string | null>;
+};
+
+/** Same budget as prismic-ci and match-harness. Without one the default spawn
+ *  never detaches and never kills, so a hung formatter runs unbounded. */
+const PRETTIER_TIMEOUT_MS = 60_000;
 
 type PackageJson = {
   scripts?: Record<string, string>;
@@ -221,8 +230,27 @@ export async function smokeSuite(
       //    fleet CI's format check stays green across heterogeneous configs
       //    (quotes/tabs/printWidth vary). Best-effort — a site without prettier
       //    just commits unformatted with a flag note.
-      if (!(await formatWithPrettier(deps.spawn, cwd, written))) {
-        notes.push(PRETTIER_FLAG_NOTE);
+      //
+      //    Resolved AFTER step 4 so a site that just gained its devDependencies
+      //    has a prettier to run — and resolved POSITIVELY, invoked by absolute
+      //    path. `pnpm exec prettier` would, on a clone with no node_modules
+      //    (the NORMAL path on `--fleet`, because `prepareFleetSites` clones and
+      //    never installs), first run a full unbounded `pnpm install` in the
+      //    client's checkout and then, in a repo whose install left no prettier
+      //    of its own, fall through to the CALLING repo's binary and exit 0. A
+      //    clone with no prettier gets the flag note and no spawn at all (#737).
+      if (written.length > 0) {
+        const bin = await (deps.resolvePrettier ?? resolveTargetPrettier)(cwd);
+        if (bin === null) {
+          notes.push(PRETTIER_FLAG_NOTE);
+        } else if (
+          !(await formatWithPrettier(deps.spawn, cwd, written, {
+            bin,
+            timeoutMs: PRETTIER_TIMEOUT_MS,
+          }))
+        ) {
+          notes.push(PRETTIER_FLAG_NOTE);
+        }
       }
 
       // 6. Commit. If nothing was written/changed the commit stages nothing and

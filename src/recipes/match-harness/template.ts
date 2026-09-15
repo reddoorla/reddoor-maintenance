@@ -1663,9 +1663,14 @@ export async function load({ params }) {
 
   const docs = documents(devImg) as Array<{ uid: string; data: { slices?: unknown[] } }>;
   const doc = docs.find((d) => d.uid === params.uid);
+  // The leading token is a MACHINE tell for the launch recipe's dev-guard. This
+  // 404 renders through the site's own +error.svelte exactly like a guarded
+  // route's does, so on a site whose uids lack "home" an UNGUARDED twin would
+  // pass the deployed check forever; the token is what tells the two apart.
+  // Reword the prose freely — the token is the contract (#719).
   if (!doc)
     error(404, {
-      message: \`no assembly for "\${params.uid}" (have: \${docs.map((d) => d.uid).join(", ") || "none"})\`,
+      message: \`reddoor-match-twin:no-assembly: no assembly for "\${params.uid}" (have: \${docs.map((d) => d.uid).join(", ") || "none"})\`,
     });
 
   return { uid: params.uid, slices: doc.data.slices ?? [] };
@@ -2504,6 +2509,11 @@ export const MATCH_HARNESS_COUPLED: readonly string[] = [
   "matching/build-spec.mjs",
 ];
 
+/** The machine tell the installed /dev/match twin emits ahead of its 404
+ *  message for a uid it lacks. launch's dev-guard denies on this, never on
+ *  the human wording (#719). */
+export const UNGUARDED_TWIN_TELL = "reddoor-match-twin:no-assembly";
+
 export const GITIGNORE_MARKER =
   "# reddoor-maint match-harness: scripts + records tracked, workspace ignored";
 export const GITIGNORE_BLOCK = `scratch-diff*/
@@ -2608,6 +2618,10 @@ self-describing, so a nonstandard threshold or an undisclosed mask is visible.
 The threshold and the matrix are whatever \`matching/harness.json\` says, on every
 page, never a subset.
 
+**Check:** \`bash matching/census.sh <page>\` exits 0 — the Phase 3 style gate,
+and the only one that sees an 11px footer line or a cyan-vs-teal link the pixel
+diff is structurally blind to. A remaining row is fixed at its source or
+declared in \`matching/census-deviations.mjs\` with a LEDGER line, never ignored.
 **Operator's challenge:** _"paste the gate header."_
 
 ### 5. A commit is a checkpoint, not a stopping point
@@ -2641,7 +2655,9 @@ operator's call.
    not.
 3. Fix, each change citing its source line.
 4. \`bash matching/gate.sh <tag> <page>\` — paste the header.
-5. Append to \`matching/LEDGER.md\` at the moment a deviation, floor or mask is
+5. \`bash matching/census.sh <page>\` — exits 0 or the round is not closed; a
+   remaining row is fixed at its source or declared with a LEDGER line.
+6. Append to \`matching/LEDGER.md\` at the moment a deviation, floor or mask is
    decided, not reconstructed at the end.
-6. \`pnpm verify\`, then commit and push.
+7. \`pnpm verify\`, then commit and push.
 `;

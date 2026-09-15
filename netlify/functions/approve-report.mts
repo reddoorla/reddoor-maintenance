@@ -118,10 +118,12 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // — opening the db included — is inside mirrorWrite, which decides what a
     // failure MEANS: non-fatal today because the sync converges it, fatal once
     // the freeze makes Turso authoritative and there is no sync to converge it.
+    // The row count is handed through (#647): an approve for a row Turso never
+    // held is `missed`, not a green no-op.
     const mirror = async (rid: string, patch: Parameters<typeof mirrorReportPatch>[2]) =>
       mirrorWrite(`approve-report ${rid}`, async () => {
         const db = await openDb(readDbConfig());
-        await mirrorReportPatch(db, rid, patch);
+        return mirrorReportPatch(db, rid, patch);
       });
     const deps = {
       // Phase 2 (#539): reads from Turso (mirrored writes keep it current

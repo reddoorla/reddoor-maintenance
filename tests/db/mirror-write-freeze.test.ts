@@ -57,6 +57,37 @@ describe("mirrorWrite — both sides of the switch", () => {
     expect(err).not.toHaveBeenCalled();
   });
 
+  it("#647: a write that matched no row is `missed` — logged loose, fatal strict", async () => {
+    // `mirrorReportPatch` now reports its row count. An UPDATE that matched
+    // nothing is the outcome the freeze table calls "impossible, therefore a
+    // bug": before the flip the sync would import the row; after it nothing
+    // converges the miss, so a green run would be claiming a write that never
+    // landed.
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      mirrorWrite("stamp-sent recX", () => Promise.resolve(false), false),
+    ).resolves.toBeUndefined();
+    expect(err).toHaveBeenCalledOnce();
+    expect(String(err.mock.calls[0]?.[0])).toContain("mirrored=missed");
+
+    await expect(
+      mirrorWrite("stamp-sent recX", () => Promise.resolve(false), true),
+    ).rejects.toThrow(/\[stamp-sent recX\].*no such row in Turso/);
+  });
+
+  it("#647: a write that matched a row is transparent in BOTH worlds", async () => {
+    // The positive control for the missed check: `true` (and void, for the
+    // writers that report nothing) must stay silent and never throw.
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const strict of [false, true]) {
+      await expect(
+        mirrorWrite("probe", () => Promise.resolve(true), strict),
+      ).resolves.toBeUndefined();
+      await expect(mirrorWrite("probe", () => Promise.resolve(), strict)).resolves.toBeUndefined();
+    }
+    expect(err).not.toHaveBeenCalled();
+  });
+
   it("defaults to the shipped constant", () => {
     // The ONE assertion on the shipped value; everything else injects.
     // `true` since 2026-08-31: the freeze — Turso is authoritative.
