@@ -134,7 +134,11 @@ beforeAll(async () => {
   await writeFile(join(wtPath("wt-unpushed"), "feature.txt"), "done\n");
   git(wtPath("wt-unpushed"), "add", "feature.txt");
   git(wtPath("wt-unpushed"), "commit", "-m", "feat: the work");
-});
+  // vitest.config.ts raises `testTimeout` to 120 s but NOT `hookTimeout`, which stays at
+  // its 10 s default. This setup spawns ~15 git subprocesses; on a loaded machine (this
+  // repo runs several agent sessions at once) that overran 10 s and failed the whole file
+  // in `beforeAll` — a red suite that said nothing about the hook. Matched to testTimeout.
+}, 120_000);
 
 function runHook(stdin: string): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
