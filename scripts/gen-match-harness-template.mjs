@@ -12,7 +12,9 @@
 // from the source repo — the source repo has moved on, and a "previous" render
 // taken from it would match no site on earth. Add a version directory when you
 // ship; the files in it are extracted once from `git show <tag>:…/template.ts`
-// and then never touched again.
+// and then never touched again. Copied AND authored files get entries: a
+// changed authored body (the route, the fixture test) is byte-compared on an
+// installed site exactly like a copied script.
 //
 // Do NOT hand-edit template.ts: escaping backticks and ${ by hand is exactly the
 // kind of silent corruption a round-trip check exists to catch, and it is checked
@@ -136,13 +138,16 @@ const ROUTE_SERVER = `import { error } from "@sveltejs/kit";
 import { dev } from "$app/environment";
 import { documents } from "$lib/site-pages.js";
 
-// Local matching surface: renders the EXACT assembly \`reddoor-maint
-// prismic-seed\` publishes, from the same module, so a fix made to pass a gate
-// is a fix to what ships. Not prerendered, SSR-on-demand, dev-only.
+// Local matching surface: renders the assemblies in $lib/site-pages.js — the
+// same module a Prismic Migration API script publishes from (start from the
+// starter's scripts/import/migrate.example.ts; no \`reddoor-maint\` command does
+// this, the seed is per-site work) — so a fix made to pass a gate is a fix to
+// what ships. Not prerendered, SSR-on-demand, dev-only.
 export const prerender = false;
 
-// The seed resolves images to asset ids; here they only need a URL. Dimensions
-// are nominal — slices size their own image boxes in CSS.
+// A migration script resolves images to asset ids (migration.createAsset);
+// here they only need a URL. Dimensions are nominal — slices size their own
+// image boxes in CSS.
 const devImg = (u: string) => ({
   url: u,
   alt: null,
@@ -180,10 +185,11 @@ const ROUTE_PAGE = `<script lang="ts">
 `;
 
 const SITE_PAGES = `// The page assemblies for this site — the SINGLE source of truth for both
-// consumers: \`reddoor-maint prismic-seed\`, which publishes them through the
-// Migration API, and src/routes/dev/match/[uid], the local matching surface.
-// Because both read from here, any fix made to pass a gate is a fix to what
-// ships.
+// consumers: a Prismic Migration API script, which publishes them (start from
+// the starter's scripts/import/migrate.example.ts — no \`reddoor-maint\` command
+// does this; the seed is per-site work), and src/routes/dev/match/[uid], the
+// local matching surface. Because both read from here, any fix made to pass a
+// gate is a fix to what ships.
 //
 // THE MIGRATION API DROPS SILENTLY. It validates against the slice models
 // registered in Prismic and discards every field the model does not declare —
@@ -209,7 +215,9 @@ export function documents(img) {
 
 const SITE_PAGES_TEST = `// The page assemblies in src/lib/site-pages.js are the SINGLE source of truth
 // shared by two consumers: the local matching route (src/routes/dev/match/[uid])
-// and \`reddoor-maint prismic-seed\`, which publishes them to Prismic.
+// and a Prismic Migration API script, which publishes them (start from the
+// starter's scripts/import/migrate.example.ts — no \`reddoor-maint\` command does
+// this; the seed is per-site work).
 //
 // Those two consumers do NOT validate the same way. The dev route hands the
 // object straight to the slice components, so any field a fixture sets is
@@ -542,6 +550,13 @@ parts.push(
 const PREV_ROOT = join(HERE, "match-harness-previous");
 const currentBody = new Map(files.map(([n]) => [n, null]));
 for (const [name, rel] of COPIED) currentBody.set(name, readFileSync(join(SRC, rel), "utf8"));
+for (const [name, , body] of AUTHORED) currentBody.set(name, body);
+// AUTHORED files carry a history too: the recipe-owned route and fixture test
+// are byte-compared on re-run exactly like the copied scripts, so a prose
+// correction to one (#763 was the first) needs its pre-change body here or
+// every installed site gets `flag`. Site-owned entries are harmless — never
+// consulted, `planFileWrite` skips a site record before reading `previous`.
+const HISTORIED = [...COPIED, ...AUTHORED].map(([name, rel]) => [name, rel]);
 
 const prevVersions = existsSync(PREV_ROOT)
   ? readdirSync(PREV_ROOT, { withFileTypes: true })
@@ -552,7 +567,7 @@ const prevVersions = existsSync(PREV_ROOT)
 const prevConsts = [];
 const prevByRel = new Map();
 for (const version of prevVersions) {
-  for (const [name, rel] of COPIED) {
+  for (const [name, rel] of HISTORIED) {
     const path = join(PREV_ROOT, version, rel);
     if (!existsSync(path)) continue;
     const body = readFileSync(path, "utf8");

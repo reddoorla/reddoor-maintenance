@@ -125,10 +125,83 @@ describe("MATCH_HARNESS_PREVIOUS matches the committed prior renders", () => {
     expect(MATCH_HARNESS_COUPLED.length).toBeGreaterThan(0);
     for (const rel of MATCH_HARNESS_COUPLED)
       expect(rels, `${rel} is not an installed file`).toContain(rel);
-    // Every file that CHANGED in this release must be in the set — an upgraded
-    // script outside it could move alone.
-    for (const rel of Object.keys(MATCH_HARNESS_PREVIOUS)) {
+    // Every matching/ SCRIPT that CHANGED in this release must be in the set —
+    // an upgraded script outside it could move alone. Scoped to `matching/`:
+    // the recipe-owned files under src/ (the /dev/match route and the fixture
+    // test) neither import nor invoke harness.mjs, so a correction to one of
+    // them is free to land alone (#763 was the first).
+    for (const rel of Object.keys(MATCH_HARNESS_PREVIOUS).filter((r) =>
+      r.startsWith("matching/"),
+    )) {
       expect(MATCH_HARNESS_COUPLED, `${rel} changed but is not coupled`).toContain(rel);
     }
+  });
+});
+
+/**
+ * The harness's prose must not name a `reddoor-maint` command the CLI does not
+ * have. Two installed files told the operator to run `reddoor-maint
+ * prismic-seed` — which was never written — and on 29-navy that read as "the
+ * content is one command away from live" through a full phase of work (#763).
+ * Same class as #732 (prose naming `matching/probe-anchor-parity.mjs`, which the
+ * recipe does not install): the harness describing a tool it does not ship.
+ *
+ * The registered command list is read from `src/cli/bin.ts` itself, so a
+ * command renamed there redlines every template that still names the old one.
+ */
+describe("every `reddoor-maint <cmd>` the harness names is a command bin.ts registers", () => {
+  const binPath = resolve(here, "../../src/cli/bin.ts");
+
+  async function registeredCommands(): Promise<Set<string>> {
+    const src = await readFile(binPath, "utf-8");
+    // `.command("name [site]", …)` — the first token of the first string
+    // argument, across the single-line and the multi-line call shapes.
+    const names = [...src.matchAll(/\.command\(\s*"([a-z][a-z0-9-]*)/g)].map((m) => m[1]!);
+    return new Set(names);
+  }
+
+  /** Every `reddoor-maint <cmd>` reference in a body. A reference may wrap
+   *  across a comment line (`reddoor-maint\n// prismic-seed` — the exact shape
+   *  the route file carried), so the gap may hold whitespace and comment
+   *  leaders; a bare `reddoor-maint` followed by a backtick or punctuation is
+   *  not a command reference. */
+  function namedCommands(body: string): string[] {
+    return [...body.matchAll(/reddoor-maint[\s/#*]+([a-z][a-z0-9-]*)/g)].map((m) => m[1]!);
+  }
+
+  it("the instrument reads real data: bin.ts registers match-harness, and the harness names it", async () => {
+    const commands = await registeredCommands();
+    expect(commands.size).toBeGreaterThan(20);
+    expect(commands).toContain("match-harness");
+    expect(commands).toContain("launch");
+    // The extractor finds a reference in the shipped prose, so an empty scan
+    // could not pass the case below vacuously.
+    const bodies = [
+      ...MATCH_HARNESS_FILES.map((f) => f.template),
+      GITIGNORE_BLOCK,
+      PRETTIERIGNORE_BLOCK,
+      CLAUDE_MD_BLOCK,
+    ];
+    expect(bodies.flatMap(namedCommands)).toContain("match-harness");
+    // And it catches the wrapped shape the route file shipped with.
+    expect(namedCommands("renders what `reddoor-maint\n// prismic-seed` publishes")).toEqual([
+      "prismic-seed",
+    ]);
+  });
+
+  it("names no command the CLI does not register", async () => {
+    const commands = await registeredCommands();
+    const offenders: string[] = [];
+    for (const f of MATCH_HARNESS_FILES)
+      for (const cmd of namedCommands(f.template))
+        if (!commands.has(cmd)) offenders.push(`${f.rel}: reddoor-maint ${cmd}`);
+    for (const [name, block] of [
+      ["GITIGNORE_BLOCK", GITIGNORE_BLOCK],
+      ["PRETTIERIGNORE_BLOCK", PRETTIERIGNORE_BLOCK],
+      ["CLAUDE_MD_BLOCK", CLAUDE_MD_BLOCK],
+    ] as const)
+      for (const cmd of namedCommands(block))
+        if (!commands.has(cmd)) offenders.push(`${name}: reddoor-maint ${cmd}`);
+    expect(offenders).toEqual([]);
   });
 });
