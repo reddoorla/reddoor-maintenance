@@ -14,7 +14,10 @@ import {
   enforceQuoteRule,
   estimateRound,
   formatEstimate,
+  formatEvidenceRef,
   parseEvidenceRef,
+  resolveEvidencePath,
+  resolveEvidenceRef,
   validateClaims,
 } from "../../scripts/meta-week/lib/refute-claims.mjs";
 
@@ -33,6 +36,11 @@ const EXPECTED_FILE = fileURLToPath(
 const SEEDED = fileURLToPath(
   new URL("../../docs/meta-week/_data/refute-claims-levers-seeded.json", import.meta.url),
 );
+const MANIFEST = fileURLToPath(
+  new URL("../../docs/meta-week/_data/refute-claims-corpus.manifest.json", import.meta.url),
+);
+const GITIGNORE = fileURLToPath(new URL("../../.gitignore", import.meta.url));
+const CORPUS_DIR = "docs/meta-week/_corpus/";
 
 const claim = (over: Record<string, unknown> = {}) => ({
   id: "c1",
@@ -60,6 +68,49 @@ describe("parseEvidenceRef", () => {
     expect(parseEvidenceRef("docs/a.md:20-10")).toBeNull();
     expect(parseEvidenceRef("docs/a.md:0")).toBeNull();
     expect(parseEvidenceRef(42 as unknown as string)).toBeNull();
+  });
+});
+
+describe("resolving a relative evidence path against the evidence checkout", () => {
+  // The packages cite the docs corpus repo-relative because it is re-fetched per checkout
+  // and absolute in none of them. The first version hard-coded one session's scratchpad.
+  const ROOT = "/Users/x/repo";
+
+  it("joins a repo-relative path onto repoRoot and leaves an absolute one alone", () => {
+    expect(resolveEvidencePath("docs/meta-week/_corpus/hooks.md", ROOT)).toBe(
+      "/Users/x/repo/docs/meta-week/_corpus/hooks.md",
+    );
+    expect(resolveEvidencePath("/private/tmp/scratch/hooks.md", ROOT)).toBe(
+      "/private/tmp/scratch/hooks.md",
+    );
+  });
+
+  it("is a no-op without a repoRoot, so an un-guarded caller behaves as it did before", () => {
+    expect(resolveEvidencePath("docs/a.md", undefined)).toBe("docs/a.md");
+    expect(resolveEvidencePath("docs/a.md", "")).toBe("docs/a.md");
+  });
+
+  it("tolerates a trailing slash on repoRoot and a leading ./ on the path", () => {
+    expect(resolveEvidencePath("./docs/a.md", "/r/")).toBe("/r/docs/a.md");
+    expect(resolveEvidencePath("docs/a.md", "/r//")).toBe("/r/docs/a.md");
+  });
+
+  it("keeps the line range when it resolves, and formats it back", () => {
+    expect(resolveEvidenceRef("docs/a.md:10-20", ROOT)).toEqual({
+      path: "/Users/x/repo/docs/a.md",
+      from: 10,
+      to: 20,
+    });
+    expect(formatEvidenceRef("docs/a.md:10-20", ROOT)).toBe("/Users/x/repo/docs/a.md:10-20");
+    expect(formatEvidenceRef("docs/a.md:10", ROOT)).toBe("/Users/x/repo/docs/a.md:10");
+    expect(formatEvidenceRef("/abs/a.md:7", ROOT)).toBe("/abs/a.md:7");
+  });
+
+  it("passes an unparseable citation through verbatim rather than dropping it", () => {
+    // A skeptic told to report what it could not read is better served by a bad line than
+    // by a silently missing one.
+    expect(resolveEvidenceRef("docs/a.md", ROOT)).toBeNull();
+    expect(formatEvidenceRef("docs/a.md", ROOT)).toBe("docs/a.md");
   });
 });
 
@@ -238,6 +289,31 @@ describe("enforceQuoteRule", () => {
   it("downgrades rather than throwing when the claim is missing entirely", () => {
     expect(enforceQuoteRule(confirmed, undefined).verdict).toBe("unclear");
   });
+
+  it("resolves both sides against repoRoot, so a corpus citation matches what a skeptic opened", () => {
+    // The real shape: the claim cites the corpus repo-relative, the skeptic opens the file
+    // and reports the absolute path it actually read. These must be the same path.
+    const root = "/Users/x/repo";
+    const corpus = claim({ evidence: ["docs/meta-week/_corpus/hooks.md:1356-1378"] });
+    const v = {
+      ...confirmed,
+      quoteSource: "/Users/x/repo/docs/meta-week/_corpus/hooks.md:1360",
+    };
+    expect(enforceQuoteRule(v, corpus, root).verdict).toBe("confirmed");
+    // And a skeptic that answers relative is accepted the same way.
+    expect(
+      enforceQuoteRule({ ...v, quoteSource: "docs/meta-week/_corpus/hooks.md:1360" }, corpus, root)
+        .verdict,
+    ).toBe("confirmed");
+    // A different corpus page is still not this claim's evidence, resolved or not.
+    expect(
+      enforceQuoteRule(
+        { ...v, quoteSource: `${root}/docs/meta-week/_corpus/env-vars.md:12` },
+        corpus,
+        root,
+      ).verdict,
+    ).toBe("unclear");
+  });
 });
 
 describe("the workflow script carries the lib's rules verbatim", () => {
@@ -320,6 +396,68 @@ describe("the workflow script carries the lib's rules verbatim", () => {
     expect(src).not.toMatch(/Date\.now\(|Math\.random\(|new Date\(\)/);
     expect(src).not.toMatch(/^import .* from |require\(/m);
   });
+
+  it("resolves evidence against the guard's repoRoot at BOTH places a path is used", () => {
+    // Handing the skeptic a relative path and then judging its answer against a different
+    // one is how a round reads nothing and still returns verdicts. Both call sites take
+    // guard.repoRoot, which the guard derives from the claims file's own directory.
+    const src = readFileSync(WORKFLOW, "utf8").replace(/^\s*\/\/.*$/gm, "");
+    const flat = src.replace(/\s+/g, " ");
+    expect(flat).toContain("formatEvidenceRef(e, guard.repoRoot)");
+    expect(flat).toContain("enforceQuoteRule(r, byId.get(r.id), guard.repoRoot)");
+  });
+
+  it("tells the reader how to regenerate the corpus before a control is run", () => {
+    const src = readFileSync(WORKFLOW, "utf8");
+    expect(src).toContain("node scripts/meta-week/fetch-corpus.mjs");
+    expect(src).toContain("refute-claims-corpus.manifest.json");
+    // The point of the note: drift invalidates the anchors, it is not a formality.
+    expect(src).toMatch(/drift/i);
+  });
+});
+
+describe("the docs corpus is re-fetchable, and the manifest says exactly what it was", () => {
+  type Page = { name: string; url: string; sha256: string; bytes: number };
+  const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as {
+    fetchedAt: string;
+    base: string;
+    pages: Page[];
+  };
+
+  it("records 40 pages, sorted by name, each with a sha256 and a byte count", () => {
+    expect(manifest.fetchedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(manifest.base).toBe("https://code.claude.com/docs/");
+    expect(manifest.pages).toHaveLength(40);
+    const names = manifest.pages.map((p) => p.name);
+    expect(names).toEqual([...names].sort());
+    expect(new Set(names).size).toBe(names.length);
+    for (const p of manifest.pages) {
+      expect(p.sha256, p.name).toMatch(/^[0-9a-f]{64}$/);
+      expect(p.bytes, p.name).toBeGreaterThan(0);
+      expect(p.url, p.name).toMatch(/^https:\/\/code\.claude\.com\/docs\//);
+    }
+  });
+
+  it("covers every corpus page the two control packages cite", () => {
+    // A claim citing a page the manifest does not carry is a claim whose evidence no
+    // fetch can restore — the exact failure the absolute scratchpad paths already were.
+    const inManifest = new Set(manifest.pages.map((p) => p.name));
+    const levers = JSON.parse(readFileSync(LEVERS, "utf8")) as { evidence: string[] }[];
+    const seeded = JSON.parse(readFileSync(SEEDED, "utf8")) as { evidence: string[] }[];
+    const cited = new Set<string>();
+    for (const c of [...levers, ...seeded]) {
+      for (const e of c.evidence) {
+        const path = parseEvidenceRef(e)?.path ?? "";
+        if (path.startsWith(CORPUS_DIR)) cited.add(path.slice(CORPUS_DIR.length));
+      }
+    }
+    expect(cited.size).toBeGreaterThan(0);
+    for (const name of cited) expect(inManifest, name).toContain(name);
+  });
+
+  it("is gitignored — the corpus is fetched third-party docs, never committed", () => {
+    expect(readFileSync(GITIGNORE, "utf8")).toMatch(/^docs\/meta-week\/_corpus\/$/m);
+  });
 });
 
 /**
@@ -363,6 +501,22 @@ describe("the two control inputs", () => {
     expect(validateClaims(seeded).errors).toEqual([]);
     expect(levers).toHaveLength(16);
     expect(estimateRound(levers.length).belowFloor).toBe(false);
+  });
+
+  it("cites its evidence repo-relative, never into a session scratchpad", () => {
+    // As shipped in #789 every citation was an absolute path into one session's scratchpad
+    // (/private/tmp/claude-501/<session-uuid>/scratchpad/docs/…). That directory dies with
+    // the session: every skeptic in any later round would have filled `readFailed`, and the
+    // round would have returned sixteen confident findings about files it never opened.
+    for (const c of [...levers, ...seeded]) {
+      for (const e of c.evidence) {
+        const ref = parseEvidenceRef(e);
+        expect(ref, `${c.id}: ${e}`).not.toBeNull();
+        expect(ref!.path, `${c.id}: ${e}`).not.toMatch(/^\//);
+        expect(ref!.path, `${c.id}: ${e}`).not.toMatch(/scratchpad|\/private\/tmp|claude-501/);
+        expect(ref!.path, `${c.id}: ${e}`).toMatch(/^docs\/meta-week\//);
+      }
+    }
   });
 
   it("carries no id that tells a skeptic the answer", () => {

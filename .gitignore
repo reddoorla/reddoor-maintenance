@@ -33,6 +33,15 @@ secrets/
 # superpowers visual brainstorm companion (local mockups)
 .superpowers/
 
+# The refuter round's evidence corpus: 40 pages of third-party documentation
+# (https://code.claude.com/docs/), fetched on demand by
+# scripts/meta-week/fetch-corpus.mjs and verified against the sha256s in
+# docs/meta-week/_data/refute-claims-corpus.manifest.json. Fetched, never
+# committed — it is someone else's docs, it is ~3.7MB, and it changes daily, so
+# a committed copy would be a stale fork of a live document. The manifest is the
+# part that is source.
+docs/meta-week/_corpus/
+
 # Agent/session git worktrees. The concurrent-session rule in CLAUDE.md makes a
 # worktree per branch the norm here, so this directory is permanent furniture —
 # and while untracked it was the ONLY entry in `git status`, which trains the eye
