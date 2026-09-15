@@ -1663,9 +1663,14 @@ export async function load({ params }) {
 
   const docs = documents(devImg) as Array<{ uid: string; data: { slices?: unknown[] } }>;
   const doc = docs.find((d) => d.uid === params.uid);
+  // The leading token is a MACHINE tell for the launch recipe's dev-guard. This
+  // 404 renders through the site's own +error.svelte exactly like a guarded
+  // route's does, so on a site whose uids lack "home" an UNGUARDED twin would
+  // pass the deployed check forever; the token is what tells the two apart.
+  // Reword the prose freely — the token is the contract (#719).
   if (!doc)
     error(404, {
-      message: \`no assembly for "\${params.uid}" (have: \${docs.map((d) => d.uid).join(", ") || "none"})\`,
+      message: \`reddoor-match-twin:no-assembly: no assembly for "\${params.uid}" (have: \${docs.map((d) => d.uid).join(", ") || "none"})\`,
     });
 
   return { uid: params.uid, slices: doc.data.slices ?? [] };
@@ -2503,6 +2508,11 @@ export const MATCH_HARNESS_COUPLED: readonly string[] = [
   "matching/strikes.mjs",
   "matching/build-spec.mjs",
 ];
+
+/** The machine tell the installed /dev/match twin emits ahead of its 404
+ *  message for a uid it lacks. launch's dev-guard denies on this, never on
+ *  the human wording (#719). */
+export const UNGUARDED_TWIN_TELL = "reddoor-match-twin:no-assembly";
 
 export const GITIGNORE_MARKER =
   "# reddoor-maint match-harness: scripts + records tracked, workspace ignored";
