@@ -81,6 +81,17 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hooks/subagent-stop-guard.mjs"
+          }
+        ]
+      }
     ]
   },
   "sandbox": {
