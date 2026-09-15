@@ -40,16 +40,17 @@ Four moving parts, each needing its own credentials: **Airtable** (data), the **
 
 ## Phase 1 — Accounts & tokens (collect these once)
 
-| Token / secret          | From where                                                                                                               | Used by                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
-| `AIRTABLE_PAT`          | Airtable → Builder Hub → Personal access tokens (scopes: `data.records:read/write`, `schema.bases:read`; grant the base) | CLI, dashboard, crons                        |
-| `AIRTABLE_BASE_ID`      | The base URL (`https://airtable.com/<appXXXX>/…`) — this fleet's is `appHG8nLOzULzXOER`                                  | CLI, dashboard, crons                        |
-| `RESEND_API_KEY`        | Resend → API Keys                                                                                                        | CLI (`report --send-ready`), crons           |
-| `RESEND_WEBHOOK_SECRET` | Resend → Webhooks → (the signing secret of the endpoint you add in Phase 5)                                              | dashboard webhook only                       |
-| `DASHBOARD_PASSWORD`    | A strong random string YOU choose (`openssl rand -hex 24`) — the single operator password                                | dashboard only                               |
-| `RENOVATE_TOKEN`        | A GitHub PAT (or fine-grained token) with **read** access to all fleet repos                                             | crons (Renovate-failing + last-commit sweep) |
-| `GH_TOKEN`              | `gh auth token` (or a PAT with repo write) — for `self-updating`/`launch` repo mutations                                 | local CLI                                    |
-| GA service-account JSON | Google Cloud → a service account with **domain-wide delegation**; share GA4 + Search Console with it                     | CLI/cron reports (optional enrichment)       |
+| Token / secret          | From where                                                                                                                                                                         | Used by                                      |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `AIRTABLE_PAT`          | Airtable → Builder Hub → Personal access tokens (scopes: `data.records:read/write`, `schema.bases:read`; grant the base)                                                           | CLI, dashboard, crons                        |
+| `AIRTABLE_BASE_ID`      | The base URL (`https://airtable.com/<appXXXX>/…`) — this fleet's is `appHG8nLOzULzXOER`                                                                                            | CLI, dashboard, crons                        |
+| `RESEND_API_KEY`        | Resend → API Keys                                                                                                                                                                  | CLI (`report --send-ready`), crons           |
+| `RESEND_WEBHOOK_SECRET` | Resend → Webhooks → (the signing secret of the endpoint you add in Phase 5)                                                                                                        | dashboard webhook only                       |
+| `DASHBOARD_PASSWORD`    | A strong random string YOU choose (`openssl rand -hex 24`) — the single operator password                                                                                          | dashboard only                               |
+| `RENOVATE_TOKEN`        | A GitHub PAT (or fine-grained token) with **read** access to all fleet repos                                                                                                       | crons (Renovate-failing + last-commit sweep) |
+| `GH_TOKEN`              | `gh auth token` (or a PAT with repo write) — for `self-updating`/`launch` repo mutations                                                                                           | local CLI                                    |
+| `GITHUB_TOKEN`          | **Leave it out.** The recipes (`self-updating`, `prismic-ci`, the security audit) fall back to `gh auth token` when it is unset (#665); a set-but-dead value overrides the keyring | local CLI (optional)                         |
+| GA service-account JSON | Google Cloud → a service account with **domain-wide delegation**; share GA4 + Search Console with it                                                                               | CLI/cron reports (optional enrichment)       |
 
 > Keep these out of the repo. The CLI reads them from `~/.config/reddoor-maint/credentials.env` (Phase 3); the dashboard and crons get them from Netlify/GitHub settings (Phases 5–6).
 
@@ -103,6 +104,8 @@ GA_SA_KEY_PATH=/Users/you/.config/reddoor-maint/ga-sa.json
 GA_SUBJECT=reports@yourdomain.com,you@yourdomain.com
 # optional: where fleet checkouts are cloned (default ~/.reddoor-maint/sites)
 # REDDOOR_FLEET_WORKDIR=/path/to/workdir
+# do NOT add GITHUB_TOKEN — the recipes read `gh auth token` from the gh keyring,
+# and a stale file value would override it (#665)
 EOF
 chmod 600 ~/.config/reddoor-maint/credentials.env
 ```
@@ -205,6 +208,7 @@ This runs the chain — **bootstrap (`self-updating`) → first audit → draft 
 | `DASHBOARD_BASE_URL`    |                                                 |            ✓            |                               |        ✓         |
 | `RENOVATE_TOKEN`        |                                                 |                         |            ✓ (org)            |                  |
 | `GH_TOKEN`              |                ✓ (or `gh auth`)                 |                         |                               |                  |
+| `GITHUB_TOKEN`          |      omit — falls back to `gh auth token`       |                         |                               |                  |
 | `OPERATOR_EMAIL`        |                                                 |                         |                               |        ✓         |
 | `GA_SUBJECT`            |                        ✓                        |                         |               ✓               |                  |
 | `GA_SA_KEY_JSON`        |         ✓ (as a file, `GA_SA_KEY_PATH`)         |                         |               ✓               |                  |
