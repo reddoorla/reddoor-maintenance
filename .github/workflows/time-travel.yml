@@ -53,6 +53,15 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Same step as ci.yml: tests/prospect/interaction-harness.test.ts drives a real
+      # Chromium and Playwright ships no browser with the npm package. This job ran the
+      # suite without it from the day the spec landed, so every weekly run failed on
+      # "Executable doesn't exist" and the auto-filed issue (#775) described it as a
+      # wall-clock failure. tests/ci-gate.test.ts now asserts every workflow that runs
+      # `pnpm test` — as `- run:` or as a named step — installs the browser first.
+      - name: Install the browser the Tier 4 abort harness drives
+        run: pnpm exec playwright install --with-deps chromium
+
       # tests/time-travel-guard.test.ts asserts the clock actually moved, so a shim that
       # silently fails to apply turns this job RED instead of reporting a hollow green.
       # That check is the whole reason this job can be trusted — do not skip the suite's
@@ -80,7 +89,7 @@ jobs:
         run: |
           title="Time-travel suite failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The weekly **time-travel** run failed at +%s days.\n\nA test depends on the wall clock and will start failing on `main` on its own, without any commit causing it. Find the failing test and freeze its clock (pass an explicit `now`), rather than widening the production window to accommodate it.\n\nIf the failure is `time-travel guard — the shim actually moved the clock`, the shim itself did not apply and every other result in that run is meaningless.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$DAYS" "$run_url")
+          body=$(printf 'The weekly **time-travel** run failed at +%s days.\n\nA test depends on the wall clock and will start failing on `main` on its own, without any commit causing it. Find the failing test and freeze its clock (pass an explicit `now`), rather than widening the production window to accommodate it.\n\nIf the failure is `time-travel guard — the shim actually moved the clock`, the shim itself did not apply and every other result in that run is meaningless.\n\nIf the failure is a missing browser (`browserType.launch: Executable` in the log) or any install error, the environment is at fault, not a clock — fix the setup steps of this workflow, not a test.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$DAYS" "$run_url")
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)

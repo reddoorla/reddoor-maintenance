@@ -78,7 +78,12 @@ describe("a workflow that runs the suite installs the browser it needs", () => {
     const offenders = readdirSync(dir)
       .filter((f) => f.endsWith(".yml"))
       .map((f) => ({ f, body: readFileSync(resolve(dir, f), "utf-8") }))
-      .filter(({ body }) => /^\s*- run: pnpm (test|test:coverage)\b/m.test(body))
+      // `- run: pnpm test` AND `run: pnpm test` under a `- name:` step. The
+      // first form alone let time-travel.yml (a named step, so it could carry
+      // an `id:` and an `env:`) run the suite with no browser for three weeks
+      // (#775) while this test stayed green — a guard that only sees one
+      // spelling of the step is a guard the next workflow will write around.
+      .filter(({ body }) => /^\s*(- )?run: pnpm (test|test:coverage)\b/m.test(body))
       .filter(({ body }) => !body.includes("playwright install"))
       .map(({ f }) => f);
     expect(offenders).toEqual([]);
