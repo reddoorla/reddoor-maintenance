@@ -223,6 +223,39 @@ describe("ensureSite → the Turso mirror", () => {
     expect(s.updated).toHaveLength(0);
   });
 
+  it("#664: exists + a differing --name updates Name in BOTH stores and reports it", async () => {
+    // The first real /new-site run created the row before the display name was
+    // settled, so Name was the bare slug — the value client-facing copy uses
+    // VERBATIM. Re-running with --name printed `exists` and silently dropped
+    // the flag: it was read on the create path only. Name is the one field the
+    // flag explicitly targets, so a differing value is the operator's
+    // correction, not a fill-blanks candidate.
+    const base = makeFakeBase({ Websites: [existingSite({ Name: "acme-co" })] });
+    const s = stub({ hasRow: true });
+    const result = await ensureSite(base, { slug: "acme-co", displayName: "Acme Co" }, s.mirror);
+
+    expect(result.status).toBe("exists");
+    expect(result.updatedFields).toContain("Name");
+    const updates = base.__calls.filter((c) => c.kind === "update");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.kind === "update" && updates[0]!.records[0]!.fields).toMatchObject({
+      Name: "Acme Co",
+    });
+    // Turso must get the new name too, through the same site-mirror path.
+    expect(s.updated).toEqual([
+      { id: "recEXIST", fields: expect.objectContaining({ Name: "Acme Co" }) },
+    ]);
+  });
+
+  it("#664: exists + the SAME --name writes nothing (idempotent re-run)", async () => {
+    const base = makeFakeBase({ Websites: [existingSite({ Name: "Acme Co" })] });
+    const s = stub({ hasRow: true });
+    const result = await ensureSite(base, { slug: "acme-co", displayName: "Acme Co" }, s.mirror);
+    expect(result.updatedFields).toEqual([]);
+    expect(base.__calls.filter((c) => c.kind === "update")).toHaveLength(0);
+    expect(s.updated).toEqual([]);
+  });
+
   it("still works with no mirror injected (the pre-Phase-5 callers)", async () => {
     const base = makeFakeBase({ Websites: [] });
     await expect(ensureSite(base, { slug: "roalson" })).resolves.toMatchObject({
