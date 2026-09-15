@@ -17,6 +17,7 @@
   {
     "id": "c03",
     "claim": "The concurrency limit that binds a fan-out first is CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY, whose default is 10 and which gates subagents as well as read-only tools — not the 20-subagent CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS cap.",
+    "kind": "behavior",
     "evidence": [
       "docs/meta-week/_corpus/env-vars.md:297-303",
       "docs/meta-week/_corpus/sub-agents.md:1018-1029"
