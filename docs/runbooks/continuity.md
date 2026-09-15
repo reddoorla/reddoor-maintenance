@@ -89,14 +89,15 @@ Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`),
 
 **The cockpit.** The dashboard served by this repo's Netlify deploy: cockpit at `/`, per-site
 at `/s/:slug`, behind Basic auth (`DASHBOARD_PASSWORD`). It sorts every visible site into four
-tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:33`) —
+tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:34`) —
 worst-band-wins, with the watch band being the soft zone beneath the alert floor (a Lighthouse
 score in [75, 85), a check stale past 30 days). A watch reason the operator has explicitly
 accepted is routed to `acceptedReasons` and leaves the band rather than raising it
-(`fleet-cockpit.ts:180`, `:287`).
+(`fleet-cockpit.ts:180`, `:287–289`).
 
 **The "Needs you" feed** is real and is the thing to read first
-(`src/dashboard/fleet-cockpit.ts:390–412`, rendered at `src/dashboard/fleet-render.ts:228`).
+(`src/dashboard/fleet-cockpit.ts:390–412`, rendered by `renderNeedsYouFeed`,
+`src/dashboard/fleet-render.ts:209–228`).
 One row per site, every reason combined, ordered `broken` → `watch` → `approval`, critical-first
 within `broken`. A vuln the fleet is still auto-patching is amber `watch`; a vuln whose
 auto-fix is **exhausted** is a hard `broken`, as is any non-vuln attention item. If the feed is
@@ -123,13 +124,13 @@ the operator, not for a week of cover.
 
 Everything below degrades harmlessly. Leave it:
 
-| Signal                                         | What actually happens over a week                                                                                                                                                                                                                                                                                               |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Renovate PRs sitting open, green and unmerged  | Renovate runs every 12 hours and merges from inside its own run. Green + unmerged is far more often a rule working than a rule broken — under a grouped preset a single held package makes the whole branch non-automergeable. Naming the rule that would have to permit the merge is a prerequisite to calling anything stuck. |
-| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, the alarm simply comes back (`src/alerts/digest-collectors.ts:592–596`, `:660`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break.                                                |
-| A red nightly that goes green on the next run  | Every tracking issue in section 1 auto-closes on recovery. One red night in a week is noise; the same issue still open on day three is not.                                                                                                                                                                                     |
-| Drafts accumulating in the approve queue       | See the two gates above. This is the system working.                                                                                                                                                                                                                                                                            |
-| Lighthouse scores drifting into the watch band | Watch is the soft band beneath the alert floor, by design (`src/dashboard/fleet-cockpit.ts:36–38`).                                                                                                                                                                                                                             |
+| Signal                                         | What actually happens over a week                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Renovate PRs sitting open, green and unmerged  | Renovate runs every 12 hours and merges from inside its own run. Green + unmerged is far more often a rule working than a rule broken — under a grouped preset a single held package makes the whole branch non-automergeable. Naming the rule that would have to permit the merge is a prerequisite to calling anything stuck.   |
+| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:592–596`, consulted at `:660`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
+| A red nightly that goes green on the next run  | Every tracking issue in section 1 auto-closes on recovery. One red night in a week is noise; the same issue still open on day three is not.                                                                                                                                                                                       |
+| Drafts accumulating in the approve queue       | See the two gates above. This is the system working.                                                                                                                                                                                                                                                                              |
+| Lighthouse scores drifting into the watch band | Watch is the soft band beneath the alert floor, by design (`src/dashboard/fleet-cockpit.ts:36–38`).                                                                                                                                                                                                                               |
 
 ---
 
@@ -314,7 +315,7 @@ message: `Report recipients (To)` and `Report recipients (CC)` on the Websites r
 `sites.report_recipients_to` / `report_recipients_cc` in Turso
 (`src/reports/airtable/websites.ts:483–484`, `src/db/fleet-state.ts:108–109`). Form
 notifications have their own per-site routing, including field-value → recipient routes with a
-fallback (`src/reports/airtable/websites.ts:23–34`).
+fallback (`NotifyRouting`, `src/reports/airtable/websites.ts:20–38`).
 
 > **Known trap — MSOT and Revogen resolve to the same recipient.** The Lane 2 preflight found
 > both sites pointing at `accounting@revogenbiologics.com`, which means an MSOT report would
