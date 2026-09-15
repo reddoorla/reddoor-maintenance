@@ -76,11 +76,16 @@ export const TURSO_IS_AUTHORITATIVE = true;
  */
 export async function mirrorWrite(
   label: string,
-  run: () => Promise<void>,
+  /** Resolves `false` when the write's UPDATE matched no row (#647) — the
+   *  writers that report a row count (`mirrorReportPatch`, `mirrorSiteFields`,
+   *  …) hand it straight through; a writer that reports nothing resolves void,
+   *  which counts as landed. */
+  run: () => Promise<void | boolean>,
   strict: boolean = TURSO_IS_AUTHORITATIVE,
 ): Promise<void> {
+  let matched: void | boolean;
   try {
-    await run();
+    matched = await run();
   } catch (err) {
     if (strict) {
       throw new Error(
@@ -90,5 +95,20 @@ export async function mirrorWrite(
       );
     }
     console.error(`[${label}] Turso mirror failed (sync will converge it): ${String(err)}`);
+    return;
+  }
+  // `missed` is its own outcome, distinct from both success and failure (#647):
+  // the UPDATE ran fine and matched no row. Before the freeze the hourly sync
+  // would import the row and the next write would land; after it nothing
+  // converges the miss, so a green run here would be claiming a write that
+  // never happened. Same rule `makeSiteMirror` already applies.
+  if (matched === false) {
+    console.error(`[${label}] Turso mirror matched no row (mirrored=missed)`);
+    if (strict) {
+      throw new Error(
+        `[${label}] Turso mirror matched no row and Turso is authoritative — ` +
+          `no such row in Turso, and nothing converges a row that was never inserted`,
+      );
+    }
   }
 }
