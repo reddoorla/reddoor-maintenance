@@ -2515,3 +2515,107 @@ and this one last, newest at the bottom, as the rule says.
 with its proofs on approval; the continuity page; the week's meter line. Decisions that are the
 operator's, collected in `08-second-pass.md` §4 and the spec §3, plus one new
 one: tick `unpend-branch` on reddoor-starter #97 or not.
+
+## 2026-09-15 — Clearing the issue backlog: 98 real issues down to 50, and six instruments that lied on the way (#797–#816, twelve sibling PRs)
+
+The operator asked to clear the GitHub issues that had piled up across `reddoorla`
+and the personal repos. The pile was 142 open — 141 in the org, 1 personal — and the
+first useful measurement was that 44 of them were `Dependency Dashboard`, leaving 98
+real issues. Of the 44, seventeen were orphans: Renovate opened them under the
+operator's own token before the 2026-08-03 migration to the `reddoor-renovate` GitHub
+App, and the App has kept its own dashboard in each repo ever since, so those
+seventeen had not updated since 2026-08-01 and nothing was reading them. Sixteen
+closed with that citation. The seventeenth, `the-pointe#9`, refused: the repo is
+archived, so the issue is **locked** and even a comment is rejected. The
+archived-repo trap in CLAUDE.md is written as a push-time trap; it is wider than that,
+and this is the cheap way to find out.
+
+The method was triage before fixing. Five read-only agents, one per cluster, each
+returning one verdict per issue — ALREADY-FIXED, QUICK-FIX, WORK, DECISION,
+SUPERSEDED — with a `file:line` or a PR number as the evidence. That pass alone closed
+twelve issues that were already fixed or superseded and cost nothing but reading;
+`#598` and `#679` had both shipped inside #703 whose body never cited them, and
+`#734` had been closed by #733's code three days earlier. Then eight fix workers, each
+in its own worktree, TDD with the red output pasted into the PR body. Thirty-three PRs
+merged: twenty here (#797–#816) and thirteen across data-dynamiq, the-pointe-burbank,
+vida-legacy-foundation, reddoor-starter, reddoor-starter-blux, beachfront-dentistry,
+claude-skills and 29-navy. The real backlog ended the day at 50, with 63 issues closed.
+
+**Six instruments lied, and they are the whole value of the day.**
+
+*The auto-filed alarm prescribed the wrong fix.* `#775` "Time-travel suite failing"
+told the reader to find the clock-dependent test and freeze it. There was no clock. The
+suite died on `browserType.launch: Executable doesn't exist` — `time-travel.yml` runs
+`pnpm install` then `pnpm test` and never installed Chromium, which `ci.yml` has done
+since #703 added a real-browser test on 09-10, between the last green run (09-07) and
+the red one. Worse, `tests/ci-gate.test.ts` **already had** a derived guard asserting
+that every workflow running the suite installs a browser — and it matched only
+`^\s*- run: pnpm test`, so `time-travel.yml`'s named step (`- name:` / `run: pnpm
+test`) was invisible to it. That is the 2026-09-09 memory note about setup drifting
+where the gate cannot look, recurring in the gate written to prevent it. Both fixed in
+#797, and the auto-file template now says that a missing browser is the environment,
+not a clock.
+
+*The template was generated from a branch nobody had pushed.* Every shipped body in
+`src/recipes/match-harness/template.ts` was byte-identical to beachfront's `matching/`
+**working tree**, which sits on the local-only branch `fix/p751-unanchored-score`, not
+on `origin/main`. Anyone regenerating from `origin/main` would have silently reverted
+#751 out of `harness.mjs` and `next.mjs` — a 155-line un-shipping with no conflict and
+no warning. Caught before it landed; the two commits were rebase-merged in
+beachfront#61 so they became their own patches, which also closed the local-only audit
+issue beachfront#60 by patch-id.
+
+*A shadow write that had never once landed.* `#782` said report drafts throw on the
+Airtable field `Analytics soft-fail at`, so the Turso column is never written. Describing
+the table settled it: `Websites` has 110 fields and that is not one of them. The field
+has never existed, so the write has failed every time since it was added, and because
+the Turso mirror sat after it in the same `try`, the authoritative store never got the
+stamp either. Turso now goes first, in its own `try` (#811).
+
+*A fallback that could never run.* Writing the first test for vida-legacy-foundation's
+`/api/csp-report` (#59) turned up a real 500: `request.json()` consumes the body
+stream before it fails to parse, so the `catch { request.text() }` fallback threw `Body
+is unusable`. A malformed CSP report has always 500'd, and because the endpoint is
+fire-and-forget no browser ever told us. Mutation score across the five audited files
+went 80.93% → 94.85%.
+
+*CI's formatter has been blind to every Svelte file in two repos.* data-dynamiq#46 and
+the-pointe-burbank#30 asked to adopt the shared `.prettierrc.json` instead of the CLI
+`--plugin` idiom. The grep for `--plugin` in `.github/` came back empty, which looked
+like the issue was stale — but both repos delegate to the reusable
+`reddoorla/.github` CI, which runs `prettier --check .` bare. With no
+`prettier-plugin-svelte` and no checked-in config, every `.svelte` file was silently
+skipped in CI; only the local `pnpm lint` ever checked them. **Any fleet repo on the
+reusable CI without a `.prettierrc.json` has the same blind spot** — that is a sweep
+worth running, and it is not tracked yet.
+
+*The fleet alarm was reporting its own permissions as a posture gap.* `#754` names
+public repos as GAP because the sweep "cannot read secret-scanning alerts". The
+`reddoor-renovate` App has no `secret_scanning_alerts` permission, and `gh.ts` maps 403
+and 404 alike to `unavailable`, so roughly fourteen public repos read as unreadable
+rather than clean. Under the operator's own token there is one real open alert each on
+`reddoor-starter` and `gallerysonder`. The instrument needs a permission, and then the
+two alerts need triage; neither was done, because granting an App permission is the
+operator's.
+
+**Honest accounting.** The merge model was the expensive mistake. Eight workers opening
+PRs against a strict `main` with repo-wide auto-merge disabled turned merging into an
+O(workers²) race: one batch of four PRs took fifteen CI runs, and a single test-only PR
+fell BEHIND six times. Two PRs (#801, #803) were abandoned mid-race by their worker and
+landed afterwards by hand. Next time the workers should push and open PRs but never
+merge, with one serial landing loop doing the merges. My own landing loop then lied
+twice in the same class it was written to avoid — `gh pr checks --watch` exits 0 on a
+BEHIND PR, and an **empty** check list read as "checks finished", so the script reported
+"gave up" on two perfectly healthy PRs within seconds of opening them. The third
+version treats an empty rollup as "CI has not started".
+
+One worker died mid-task on the account's monthly spend limit, having already created
+the 29-navy Netlify build hook and written both docs files but committed nothing; the
+work was recovered from its uncommitted worktrees rather than redone. 29-navy#31 stays
+open on purpose: the hook exists and the docs shipped to all three tracks (#36,
+reddoor-starter#129, reddoor-starter-blux#14), but pasting the URL into Prismic's
+webhook settings is not something a repo can do or verify. `#731` also stays open by
+design — its derived guard shipped, its "are recipes library API or CLI-only" half is a
+decision. Of the 50 issues left, a large share are decisions rather than work: `#646`
+Phase 6 still needs an explicit go, `#623`, `#545`, `#672`, `#776` and `#711` are all
+waiting on the operator, and five more are waiting on a client.
