@@ -79,6 +79,36 @@ describe("readGitHubConfig — `gh auth token` keyring fallback (#665)", () => {
     expect(readGitHubConfig({ execFileSync: ghSays("gho_keyring") })?.token).toBe("gho_keyring");
   });
 
+  /**
+   * THE GUARD CI CAN ACTUALLY FAIL ON, and the reason it is written here rather
+   * than only where the defect surfaced.
+   *
+   * #808 resolved the token as `process.env.GITHUB_TOKEN?.trim() || ghAuthToken()`.
+   * `""` is falsy, so an EXPLICITLY emptied `GITHUB_TOKEN` fell through to the
+   * keyring and a machine that had run `gh auth login` resolved a token anyway.
+   * `tests/cli/prismic-ci-command.test.ts` stubs `GITHUB_TOKEN` empty to land
+   * deterministically on the "GITHUB_TOKEN not set" gate — so that test passed
+   * on runners (logged out) and failed on any developer machine (logged in).
+   * CI was structurally incapable of seeing it: the bug needs a keyring the
+   * runner does not have.
+   *
+   * This assertion needs no keyring either way. The spawn is INJECTED, so
+   * `not.toHaveBeenCalled()` fails in CI and on a laptop alike the moment an
+   * explicit "no token" starts consulting `gh` again.
+   */
+  it("env set to the EMPTY STRING is a deliberate 'no token': null, and gh is NEVER asked", () => {
+    process.env.GITHUB_TOKEN = "";
+    const gh = ghSays("gho_keyring\n");
+    expect(readGitHubConfig({ execFileSync: gh })).toBeNull();
+    expect(gh).not.toHaveBeenCalled();
+  });
+
+  it("an empty GITHUB_TOKEN is not rescued by RENOVATE_TOKEN — null means null", () => {
+    process.env.GITHUB_TOKEN = "";
+    process.env.RENOVATE_TOKEN = "ghp_narrow";
+    expect(readGitHubConfig({ execFileSync: ghSays("gho_keyring\n") })).toBeNull();
+  });
+
   it("gh throws (not installed / not logged in): null, the pre-#665 'not configured' signal", () => {
     expect(readGitHubConfig({ execFileSync: ghFails() })).toBeNull();
   });
