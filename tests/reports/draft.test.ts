@@ -6,7 +6,13 @@ import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 // The GA client talks to Google over the network; mock it. readGaConfig is NOT mocked —
 // it reads process.env, which the tests control (GA_SUBJECT set/unset).
-vi.mock("../../src/reports/ga/client.js", () => ({ fetchPeriodUsers: vi.fn() }));
+// Only the network call is mocked. `measuredHostnames` is pure, and letting the
+// real one run means this suite proves the site row's URL actually reaches the
+// query as a host filter.
+vi.mock("../../src/reports/ga/client.js", async (importActual) => ({
+  ...(await importActual<typeof import("../../src/reports/ga/client.js")>()),
+  fetchPeriodUsers: vi.fn(),
+}));
 import { fetchPeriodUsers } from "../../src/reports/ga/client.js";
 
 // The Search Console client also talks to Google over the network; mock it. Search
