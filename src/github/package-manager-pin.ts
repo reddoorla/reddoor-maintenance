@@ -191,8 +191,10 @@ export function parsePnpmActionSetupPins(workflow: string): string[] {
 
 /** The fleet's pnpm pin, DERIVED from the fleet rather than hand-typed here.
  *  A constant in this file would be one more copy of the number to drift —
- *  `convert-to-pnpm.ts` still carries `DEFAULT_PNPM_VERSION = "10.33.1"`,
- *  which is exactly what a hand-typed pin does when nothing watches it. */
+ *  `convert-to-pnpm.ts` carried `DEFAULT_PNPM_VERSION = "10.33.1"` for about a
+ *  year while the fleet ran `11.11.0`, which is exactly what a hand-typed pin
+ *  does when nothing watches it. That constant is corrected and now has a test
+ *  watching it (#835); this value is derived, so it cannot need one. */
 export type FleetPin =
   | { state: "majority"; pin: string; count: number; total: number }
   | { state: "split"; counts: Array<{ pin: string; count: number }>; total: number }
