@@ -9,9 +9,10 @@ import {
   PACKAGE_MANAGER_ACCEPTED_GAPS,
   type PackageManagerPinDeps,
 } from "../../src/github/package-manager-pin.js";
+import type { AcceptedGap } from "../../src/audits/protection-coverage.js";
 
 const ORG = "reddoorla";
-const NOW = new Date("2026-09-16T12:00:00Z");
+const NOW = new Date("2026-09-15T12:00:00Z");
 
 const pkg = (pin: string | null): string =>
   JSON.stringify(pin === null ? { name: "x", private: true } : { name: "x", packageManager: pin });
@@ -246,12 +247,34 @@ function makeDeps(repos: RepoFixture[]): PackageManagerPinDeps {
 /**
  * THE PASS CONTROL, and it is the whole fleet.
  *
- * Modelled on the measurement posted to #690 on 2026-09-16: 24 repos carrying
- * `pnpm@11.11.0` with no drift, two carrying no field at all (`claude-skills`,
- * `reddoor-md-pdf` — the latter pinning its pnpm in `ci.yml` instead), and
- * three with no `package.json` at all. A check that has only ever been seen to
- * fail is an untested assertion, so the instrument is driven against the real
- * fleet's shape and must find NOTHING live there.
+ * RE-DERIVED 2026-09-15 from live GitHub: the org repo listing (32 repos, with
+ * each one's `isArchived` and `visibility`), every repo's `package.json`, and
+ * all 75 files under `.github/workflows` parsed by this module's own
+ * `parsePnpmActionSetupPins`. It is not hand-maintained and not carried
+ * forward, because the shape it replaces was already untrue the day it was
+ * written and then went on to encode a state the fleet had left:
+ *
+ *  - it listed `claude-skills` as a judged repo with no `packageManager`
+ *    field. `claude-skills` is PRIVATE, so this sweep SKIPS it and has never
+ *    judged it at all — the acceptance naming it could not have applied even
+ *    before the field landed;
+ *  - it gave `reddoor-md-pdf` no field and a pnpm-pinning `ci.yml`. It now
+ *    carries `pnpm@11.11.0` and its `pnpm/action-setup` step takes no
+ *    `version:` input;
+ *  - it called `reddoor-prospect-runner` and `reddoor-rfp-analyses`
+ *    out-of-scope package-less repos. Both are PRIVATE and are skipped before
+ *    the out-of-scope branch is reached; `.github` is the only repo that
+ *    actually reaches it;
+ *  - and six of its repo names (`naked`, `reddoor-la`, `erp`, `hedloc-web`,
+ *    `invitations`, …) are not repos in this org at all.
+ *
+ * The judged population is 26 non-archived PUBLIC repos: 25 carry
+ * `pnpm@11.11.0`, `.github` has no `package.json`, NOBODY pins a workflow
+ * `version:` input, and six repos are skipped as archived or private.
+ *
+ * A check that has only ever been seen to fail is an untested assertion, so
+ * the instrument is driven against the real fleet's shape and must find
+ * NOTHING live there.
  */
 function realFleet(): RepoFixture[] {
   const pinned = [
@@ -269,16 +292,17 @@ function realFleet(): RepoFixture[] {
     "data-dynamiq",
     "gallerysonder",
     "la-homelessness-initiative",
+    "la-homelessness-youth",
     "reddoor-website",
     "espada",
-    "naked",
+    "hedloc",
     "29-navy",
     "medical-solutions-of-texas",
     "1836dig",
-    "hedloc-web",
-    "reddoor-la",
-    "erp",
-    "invitations",
+    "erp-industrial",
+    "vineyard-custom-homes",
+    "revogen",
+    "reddoor-md-pdf",
   ].map((name) => ({
     name,
     packageJson: pkg("pnpm@11.11.0"),
@@ -286,65 +310,108 @@ function realFleet(): RepoFixture[] {
   }));
   return [
     ...pinned,
-    { name: "claude-skills", packageJson: pkg(null) },
-    {
-      name: "reddoor-md-pdf",
-      packageJson: pkg(null),
-      workflows: { ".github/workflows/ci.yml": PINNING_CI },
-    },
+    // The only repo that reaches the out-of-scope branch.
     {
       name: ".github",
       packageJson: null,
       workflows: { ".github/workflows/renovate.yml": HEALTHY_CI },
     },
-    { name: "reddoor-prospect-runner", packageJson: null },
-    { name: "reddoor-rfp-analyses", packageJson: null },
+    // SKIPPED — private. Their pins are given deliberately DRIFTED values so
+    // that a skip which stopped skipping could not pass unnoticed: these would
+    // gap loudly and move the fleet pin if they were ever judged.
+    { name: "claude-skills", visibility: "private", packageJson: pkg("pnpm@9.0.0") },
+    { name: "reddoor-prospect-runner", visibility: "private", packageJson: null },
+    { name: "reddoor-rfp-analyses", visibility: "private", packageJson: null },
+    // SKIPPED — archived.
+    { name: "reddoor-test", archived: true, visibility: "private", packageJson: pkg("pnpm@9.0.0") },
+    { name: "the-pointe", archived: true, packageJson: pkg("pnpm@9.0.0") },
+    { name: "the-tower", archived: true, packageJson: pkg("pnpm@9.0.0") },
   ];
 }
 
 describe("collectPackageManagerPins", () => {
-  it("the REAL fleet (2026-09-16) produces no live gap — the two known ones are accepted, with expiry", async () => {
+  it("the REAL fleet (re-derived 2026-09-15) produces no gap AND masks nothing", async () => {
     const rows = await collectPackageManagerPins(ORG, makeDeps(realFleet()), NOW);
     expect(rows.filter((r) => r.gaps.length > 0)).toEqual([]);
 
-    const accepted = rows.filter((r) => r.accepted.length > 0).map((r) => r.repo);
-    expect(accepted).toEqual(["reddoorla/claude-skills", "reddoorla/reddoor-md-pdf"]);
-    expect(rows.find((r) => r.repo === "reddoorla/reddoor-md-pdf")!.accepted[0]).toContain(
-      "accepted until 2026-10-01",
-    );
+    // Nothing is ACCEPTED either, and that is the point of this run. An
+    // acceptance is a mute scoped to one repo and one surface; while it stands
+    // the named repo is the one repo whose gap cannot gate. Both original
+    // entries outlived their fix, so the two repos most recently proven able
+    // to lose the field were the two that could not have reported losing it.
+    expect(rows.filter((r) => r.accepted.length > 0)).toEqual([]);
+    expect(PACKAGE_MANAGER_ACCEPTED_GAPS).toEqual([]);
 
-    // The three package-less repos read as out of scope, NOT as gaps — they
-    // would otherwise light up every night forever.
-    expect(rows.filter((r) => r.scope === "out-of-scope").map((r) => r.repo)).toEqual([
-      "reddoorla/.github",
+    // claude-skills is PRIVATE — SKIPPED, never judged. The retired acceptance
+    // naming it could not have applied even while it stood.
+    expect(rows.find((r) => r.repo === "reddoorla/claude-skills")!.scope).toBe("skipped");
+    expect(rows.filter((r) => r.scope === "skipped").map((r) => r.repo)).toEqual([
+      "reddoorla/claude-skills",
       "reddoorla/reddoor-prospect-runner",
       "reddoorla/reddoor-rfp-analyses",
+      "reddoorla/reddoor-test",
+      "reddoorla/the-pointe",
+      "reddoorla/the-tower",
+    ]);
+
+    // `.github` is the ONLY repo that reaches the out-of-scope branch.
+    expect(rows.filter((r) => r.scope === "out-of-scope").map((r) => r.repo)).toEqual([
+      "reddoorla/.github",
     ]);
     expect(packageManagerPinSummary(rows)).toContain("fleetPin=pnpm@11.11.0");
     expect(packageManagerPinSummary(rows)).toContain("gaps=0");
+    expect(packageManagerPinSummary(rows)).toContain("pinned=25");
+    // The six skipped repos carry drifted pins; none of them moved the fleet
+    // pin, so the skip really is happening before the read.
+    expect(packageManagerPinSummary(rows)).toContain("skipped=6");
   });
 
   /** THE FAIL-ON-PURPOSE RUN: the same fleet, one repo moved off the pin. */
   it("one drifted repo in that same fleet IS a gap", async () => {
     const drifted = realFleet();
-    drifted[0] = { ...drifted[0]!, packageJson: pkg("pnpm@11.9.0") };
+    const i = drifted.findIndex((r) => r.name === "reddoor-maintenance");
+    drifted[i] = { ...drifted[i]!, packageJson: pkg("pnpm@11.9.0") };
     const rows = await collectPackageManagerPins(ORG, makeDeps(drifted), NOW);
     const gapped = rows.filter((r) => r.gaps.length > 0);
     expect(gapped).toHaveLength(1);
     expect(gapped[0]!.repo).toBe("reddoorla/reddoor-maintenance");
     expect(gapped[0]!.gaps[0]).toContain(
-      "packageManager is pnpm@11.9.0 but the fleet pin is pnpm@11.11.0 (23/24 repos agree)",
+      "packageManager is pnpm@11.9.0 but the fleet pin is pnpm@11.11.0 (24/25 repos agree)",
     );
     expect(packageManagerPinSummary(rows)).toContain("gaps=1");
   });
 
-  it("a repo that adds the missing field while KEEPING the workflow input gaps immediately", async () => {
+  /**
+   * THE REGRESSION THE RETIRED ACCEPTANCE WOULD HAVE MASKED, stated as a test.
+   * `reddoor-md-pdf` losing its field again before 2026-10-01 would have been
+   * reported as accepted-with-expiry and gated nothing.
+   */
+  it("a repo that LOSES its packageManager field gaps immediately", async () => {
     const fleet = realFleet();
     const i = fleet.findIndex((r) => r.name === "reddoor-md-pdf");
-    fleet[i] = { ...fleet[i]!, packageJson: pkg("pnpm@11.11.0") };
+    fleet[i] = { ...fleet[i]!, packageJson: pkg(null) };
     const rows = await collectPackageManagerPins(ORG, makeDeps(fleet), NOW);
     const gapped = rows.filter((r) => r.gaps.length > 0);
     expect(gapped).toHaveLength(1);
+    expect(gapped[0]!.repo).toBe("reddoorla/reddoor-md-pdf");
+    expect(gapped[0]!.gaps[0]).toContain("no packageManager field");
+  });
+
+  /**
+   * The collision clause's failing arm is INJECTED, not borrowed. No repo in
+   * the fleet pins a workflow `version:` input any more, and a failing arm
+   * that depends on one repo's current shape silently stops being exercised
+   * the day that repo is fixed — which is exactly what happened to the
+   * version of this test that used `reddoor-md-pdf`'s real `ci.yml`.
+   */
+  it("a repo pinning a workflow version input ALONGSIDE the field gaps immediately", async () => {
+    const fleet = realFleet();
+    const i = fleet.findIndex((r) => r.name === "reddoor-md-pdf");
+    fleet[i] = { ...fleet[i]!, workflows: { ".github/workflows/ci.yml": PINNING_CI } };
+    const rows = await collectPackageManagerPins(ORG, makeDeps(fleet), NOW);
+    const gapped = rows.filter((r) => r.gaps.length > 0);
+    expect(gapped).toHaveLength(1);
+    expect(gapped[0]!.repo).toBe("reddoorla/reddoor-md-pdf");
     expect(gapped[0]!.gaps[0]).toContain("hard-errors on a mismatch");
   });
 
@@ -361,14 +428,40 @@ describe("collectPackageManagerPins", () => {
     expect(rows.every((r) => r.gaps.length === 0)).toBe(true);
   });
 
-  it("an acceptance that has EXPIRED stops accepting", async () => {
-    const rows = await collectPackageManagerPins(
-      ORG,
-      makeDeps(realFleet()),
-      new Date("2026-10-01T00:00:00Z"),
+  /**
+   * The expiry mechanism, driven through the INJECTED `accepted` list rather
+   * than the shipped constant — which is empty now, so a test reading it would
+   * assert nothing while looking like it asserted something. Both states have
+   * to be supplied for either to mean anything.
+   */
+  it("an acceptance accepts before its expiry and stops accepting ON it", async () => {
+    const fleet = realFleet();
+    const i = fleet.findIndex((r) => r.name === "reddoor-md-pdf");
+    fleet[i] = { ...fleet[i]!, packageJson: pkg(null) };
+    const accepted: AcceptedGap[] = [
+      {
+        repo: "reddoorla/reddoor-md-pdf",
+        detailPrefix: "no packageManager field",
+        reason: "a named, tracked, pending fix",
+        until: "2026-10-01",
+      },
+    ];
+
+    const before = await collectPackageManagerPins(ORG, makeDeps(fleet), NOW, accepted);
+    expect(before.filter((r) => r.gaps.length > 0)).toEqual([]);
+    expect(before.find((r) => r.repo === "reddoorla/reddoor-md-pdf")!.accepted[0]).toContain(
+      "accepted until 2026-10-01",
     );
-    const gapped = rows.filter((r) => r.gaps.length > 0).map((r) => r.repo);
-    expect(gapped).toEqual(["reddoorla/claude-skills", "reddoorla/reddoor-md-pdf"]);
+
+    const after = await collectPackageManagerPins(
+      ORG,
+      makeDeps(fleet),
+      new Date("2026-10-01T00:00:00Z"),
+      accepted,
+    );
+    expect(after.filter((r) => r.gaps.length > 0).map((r) => r.repo)).toEqual([
+      "reddoorla/reddoor-md-pdf",
+    ]);
   });
 
   it("a read that THROWS is a gap, never a silent pass", async () => {
@@ -381,11 +474,18 @@ describe("collectPackageManagerPins", () => {
     expect(rows[0]!.gaps[0]).toContain("probe failed");
   });
 
-  it("every accepted entry names one repo, one surface, and an expiry (the doctrine)", () => {
+  /** The shipped list is empty, and an emptiness assertion is the only arm of
+   *  this pair that can actually fail today — the doctrine loop below is
+   *  vacuous while the list is empty, and is kept for the entries that come. */
+  it("the shipped acceptance list is EMPTY — no gap in this fleet is muted", () => {
+    expect(PACKAGE_MANAGER_ACCEPTED_GAPS).toEqual([]);
+  });
+
+  it("any accepted entry names one repo, one surface, and an expiry (the doctrine)", () => {
     for (const a of PACKAGE_MANAGER_ACCEPTED_GAPS) {
       expect(a.repo).toMatch(/^[\w.-]+\/[\w.-]+$/);
       expect(a.detailPrefix.length).toBeGreaterThan(0);
-      expect(a.reason).toContain("#690");
+      expect(a.reason.length).toBeGreaterThan(0);
       expect(Number.isNaN(Date.parse(a.until))).toBe(false);
     }
   });
