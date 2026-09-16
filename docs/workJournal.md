@@ -2767,7 +2767,7 @@ Turso migration, promotion authority, the cockpit redesign, and a dozen client o
 calls. Two follow-ups from the review are in flight as this is written — the citation gate's
 blind spot and the Blux brand literals.
 
-## 2026-09-16 — The audit was docking 60 points for copy the assistant reads (#828)
+## 2026-09-16 — The audit was docking 60 points for copy the assistant reads (#828, PR #844, `85dcd166`)
 
 `extractPage` never walked a `<script>` body, so any word that shipped inside a structured
 JSON payload was measured as "only appears after JavaScript runs". That is the normal shape
