@@ -3,7 +3,8 @@ import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
-import { convertToPnpm } from "../../src/recipes/convert-to-pnpm.js";
+import { convertToPnpm, DEFAULT_PNPM_VERSION } from "../../src/recipes/convert-to-pnpm.js";
+import { parsePackageManagerField } from "../../src/github/package-manager-pin.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
@@ -70,7 +71,10 @@ describe("recipes/convert-to-pnpm", () => {
     const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf-8")) as {
       packageManager?: string;
     };
-    expect(pkg.packageManager).toMatch(/^pnpm@/);
+    // The EXACT pin, not merely "some pnpm version". `/^pnpm@/` passed happily
+    // on the year-stale `10.33.1` of #835 — a shape assertion cannot see a
+    // wrong value, only a wrong format.
+    expect(pkg.packageManager).toBe(`pnpm@${DEFAULT_PNPM_VERSION}`);
 
     const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd,
@@ -190,5 +194,41 @@ describe("recipes/convert-to-pnpm", () => {
     const result = await convertToPnpm({ path: cwd }, { spawn: failingSpawn });
     expect(result.status).toBe("failed");
     expect(result.notes).toMatch(/pnpm install/i);
+  });
+});
+
+/**
+ * The guard #835 asked for, and the drift it was filed about.
+ *
+ * `DEFAULT_PNPM_VERSION` sat at `10.33.1` for roughly a year while this repo and
+ * all 24 pinned fleet repos ran `pnpm@11.11.0`. Every site the recipe converted
+ * was therefore born a year behind the fleet, and no signal fired: the field was
+ * well-formed, `pnpm install` succeeded, and the conversion test asserted only
+ * that the value matched `/^pnpm@/`.
+ *
+ * This reads the repo's OWN `packageManager` field rather than a second literal
+ * typed beside the constant. That is the whole mechanism: a test comparing two
+ * hard-coded strings can only fail when a human edits one of them, which is the
+ * original silence wearing a test's clothes. This one fails on the next pnpm
+ * bump to this repo — the moment the drift is actually created.
+ *
+ * It is parsed with `parsePackageManagerField`, the reader the #834 fleet pin
+ * guard uses, so this test and that guard cannot disagree about what the field
+ * says.
+ */
+describe("DEFAULT_PNPM_VERSION", () => {
+  it("matches this package's own packageManager pin", async () => {
+    const raw = await readFile(resolve(here, "../../package.json"), "utf-8");
+    const field = parsePackageManagerField(raw);
+
+    // Assert the source of truth RESOLVED before comparing anything to it. A
+    // moved package.json, or a dropped `packageManager` field, would otherwise
+    // leave this comparing the constant against nothing and passing green —
+    // and a check that cannot fail is precisely what #835 is about.
+    expect(field.state).toBe("present");
+    const pin = field.state === "present" ? field.value : "(unresolved)";
+    expect(pin).toMatch(/^pnpm@/);
+
+    expect(pin).toBe(`pnpm@${DEFAULT_PNPM_VERSION}`);
   });
 });

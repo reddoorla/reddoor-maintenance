@@ -13,9 +13,20 @@ export type ConvertToPnpmOptions = {
   pnpmVersion?: string;
 };
 
-/** Pinned default — matches the `packageManager` field of this package
- *  (kept in sync with package.json). Sites can override per-recipe. */
-const DEFAULT_PNPM_VERSION = "10.33.1";
+/** Version this recipe stamps into a converted site's `packageManager` field.
+ *  Sites can override it per-recipe via `pnpmVersion`.
+ *
+ *  Hand-typed, and therefore WATCHED: the guard in
+ *  `tests/recipes/convert-to-pnpm.test.ts` reads this package's own
+ *  `packageManager` field and fails the moment the two disagree. It is exported
+ *  for that guard — a constant nothing can read is a constant nothing can check.
+ *
+ *  The comment this replaces asserted the value was "kept in sync with
+ *  package.json". It was not. It read `10.33.1` for roughly a year while this
+ *  repo and all 24 pinned fleet repos ran `pnpm@11.11.0`, so every site the
+ *  recipe converted was born a year behind the fleet (#835). Nothing caught it,
+ *  because a stale pin is a plausible number whose install succeeds. */
+export const DEFAULT_PNPM_VERSION = "11.11.0";
 
 async function exists(path: string): Promise<boolean> {
   try {
