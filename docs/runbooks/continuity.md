@@ -213,7 +213,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and since the Airtable freeze, Turso is the only store
 there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
-pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:422`,
+pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:458`,
 `.github/workflows/fleet-db-backup.yml:160`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
@@ -390,7 +390,7 @@ written in.
    ```
 
    `--url` never defaults — production is deliberately out of reach
-   (`src/cli/commands/db.ts:366`). Expect a line of this shape, and exit 0:
+   (`src/cli/commands/db.ts:402`). Expect a line of this shape, and exit 0:
 
    ```
    RESTORE loaded=true tables=11 rows=803 blob_bytes=7777769 mismatches=0
@@ -406,7 +406,7 @@ written in.
 
 5. **Repoint `TURSO_DATABASE_URL` at the new database.** This is the step the rehearsals never
    needed and the one most likely to be missed. `db restore` refuses a non-empty target
-   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:390–392`) — a restore is for an
+   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:426–428`) — a restore is for an
    EMPTY target, so a real recovery **always lands on a new database**, and nothing points at it
    until you say so. Set two names, `TURSO_DATABASE_URL` (the url from step 3) and
    `TURSO_AUTH_TOKEN` (the token from step 3 — the same value you passed as
