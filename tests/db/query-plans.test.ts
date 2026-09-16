@@ -550,6 +550,34 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => deadletter.countUnreplayedDeadLettersBySlug(db),
     },
     {
+      // #786: the operator's write-off. Reads the target ids under the same
+      // predicate the alarm counts on, then updates them by id — an operator
+      // gesture, not a request path, but it touches the queue the alarm reads.
+      //
+      // Creates its OWN row rather than abandoning the shared `acme` fixture:
+      // the markDeadLetterReplayed scenario below needs that one still queued,
+      // and taking it made this gate fail with "dead-letter row vanished" —
+      // which says nothing about query plans. Scenarios here share one database
+      // and run in order, so a scenario that CONSUMES state has to bring it.
+      name: "abandonDeadLetters (operator resolves a dead slug by decision)",
+      covers: ["abandonDeadLetters"],
+      run: async (db) => {
+        await deadletter.createDeadLetter(db, {
+          siteSlug: "gate-abandon",
+          payload: { name: "Ada" },
+          turnstile: { outcome: "pass", hostname: "acme.example.com" },
+          error: "gate probe",
+          receivedAt: new Date("2026-08-10T00:00:00.000Z"),
+        });
+        await deadletter.abandonDeadLetters(db, {
+          slug: "gate-abandon",
+          by: "gate",
+          reason: "query-plan gate probe",
+          now: new Date("2026-09-15T00:00:00.000Z"),
+        });
+      },
+    },
+    {
       name: "markDeadLetterReplayed",
       covers: ["markDeadLetterReplayed"],
       run: async (db) => {

@@ -288,6 +288,25 @@ function renderArchivedLane(model: CockpitModel): string {
   return `<details class="archived"><summary>🗄 Archived (${rows.length})</summary>${lis}</details>`;
 }
 
+/** #786. Attention items that belong to no site card, which the grid would
+ *  otherwise drop in silence. Today that is a dead letter whose slug resolves to
+ *  no fleet site — leads are being dropped for a site the fleet does not know
+ *  it has, and the cockpit is the surface the operator actually watches.
+ *
+ *  No `/s/<slug>` link: the whole point is that the site does not exist, and the
+ *  collectors' own rule is never to render a broken link. Returns "" when empty. */
+function renderCardlessLane(model: CockpitModel): string {
+  const items = model.cardless ?? [];
+  if (items.length === 0) return "";
+  const rows = items
+    .map(
+      (i) =>
+        `<div class="approve-row"><strong>${escapeHtml(i.siteName)}</strong> <span class="muted">${escapeHtml(i.title)}</span></div>`,
+    )
+    .join("");
+  return `<details class="cardless"><summary>⚠ Not on any site card (${items.length})</summary>${rows}</details>`;
+}
+
 /** The quiet inbox lane: newest submissions + the 30-day spam roll-up, in one collapsed
  *  <details>. Submissions are a separate work stream — they never raise the verdict. */
 function renderInboxLane(model: CockpitModel): string {
@@ -498,6 +517,7 @@ export function renderCockpitHtml(
   ${renderFleetBrowsePanel(model)}
   ${renderRecentlyLane(model)}
   ${renderArchivedLane(model)}
+  ${renderCardlessLane(model)}
   ${renderInboxLane(model)}
   ${AUDIT_SCRIPT}
   ${FLEET_BROWSE_SCRIPT}

@@ -383,6 +383,17 @@ export type CockpitModel = {
    *  invisible to every fleet op, so the Needs-you feed surfaces them as amber watch
    *  rows (optional for back-compat). */
   unrecognizedStatus?: OffFleetSiteEntry[];
+  /** #786. Attention items that belong to NO site card. The grid is built from
+   *  the visible sites and items are grouped onto it by `siteName`, so an item
+   *  naming a site the fleet does not have matched nothing and was dropped —
+   *  silently, on the one surface the operator actually watches.
+   *
+   *  The collector that produces them is the one whose entire point is that the
+   *  site is missing: a dead letter for a slug resolving to no fleet row means
+   *  leads are being dropped RIGHT NOW. Kept general rather than
+   *  dead-letter-specific, so a future card-less item lands here instead of
+   *  vanishing the same way. Optional for back-compat with hand-built models. */
+  cardless?: AttentionItem[];
 };
 
 export type NeedsYouGroup = "broken" | "watch" | "approval";
@@ -784,6 +795,12 @@ export function buildCockpitModel(
     });
   }
 
+  // #786. Anything that found no card. `cards` is built from the visible sites,
+  // so this is exactly the set that the siteName grouping above dropped on the
+  // floor — today, the `(unknown site: <slug>)` dead letters.
+  const cardedNames = new Set(cards.map((c) => c.site.name));
+  const cardless = tagged.filter((it) => !cardedNames.has(it.siteName));
+
   const summary: CockpitSummary = {
     attention: cards.filter((c) => c.tier === "attention").length,
     watch: cards.filter((c) => c.tier === "watch").length,
@@ -824,6 +841,7 @@ export function buildCockpitModel(
   return {
     summary,
     cards,
+    cardless,
     pending,
     submissions,
     spam: spamTotals

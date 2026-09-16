@@ -63,6 +63,15 @@ export interface SubmissionDeadletterTable {
   replayed_at: string | null;
   replay_outcome: string | null;
   replay_submission_id: string | null;
+  /** Resolved by operator DECISION rather than by replay outcome (migrations
+   *  0022-0024, #786). A slug that is genuinely dead but still deployed would
+   *  otherwise queue leads forever, hold `db replay-deadletters` at exit 1, and
+   *  keep a standing CRITICAL cockpit item. Distinct from `replayed_at`, which
+   *  means the pipeline actually gave the lead an answer. `by`/`reason` are the
+   *  audit trail: the decision has to outlive the person who made it. */
+  abandoned_at: string | null;
+  abandoned_by: string | null;
+  abandoned_reason: string | null;
 }
 
 /** Operator-owned fleet config (migration 0007). PK = Airtable rec id (D1).
