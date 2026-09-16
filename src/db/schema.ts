@@ -251,6 +251,12 @@ export interface ProspectAuditsTable {
   /** ISO-8601 of the last fetch that did NOT carry an edit session. Null when
    *  nobody outside the edit flow has opened it. */
   opened_at: string | null;
+  /** #676. The operator's hand-chosen search terms and buyer questions, as JSON
+   *  arrays. NULL means the audit generated its own — deliberately distinct
+   *  from an empty list, because "we chose these with you" and "we chose these
+   *  from your site" are different claims the report has to be able to make. */
+  chosen_terms: string | null;
+  chosen_questions: string | null;
 }
 
 /** The digest's prior-run snapshot (migration 0011). One row, `id` = the

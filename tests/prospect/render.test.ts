@@ -1065,3 +1065,34 @@ describe("AI visibility — namesakes and per-query attribution", () => {
     expect(html).toContain("best roofer in Boise");
   });
 });
+
+/**
+ * #676. Which searches "Where you stand" was built from is a claim about how
+ * far its number travels: terms chosen with the client stay fixed between
+ * audits, terms read off the site may not. The report says which rather than
+ * letting the reader assume the stronger one.
+ */
+describe("renderProspectReport — where the searches came from", () => {
+  it("says the searches were chosen with the client", () => {
+    const html = renderProspectReport(
+      result({ analyze: { ok: true, data: analyzeData({ termsSource: "chosen" }) } }),
+    );
+    expect(html).toMatch(/searches we chose with you/i);
+    expect(html).not.toMatch(/searches we chose from your site/i);
+  });
+
+  it("says the searches were chosen from the site", () => {
+    const html = renderProspectReport(
+      result({ analyze: { ok: true, data: analyzeData({ termsSource: "generated" }) } }),
+    );
+    expect(html).toMatch(/searches we chose from your site/i);
+    expect(html).not.toMatch(/searches we chose with you/i);
+  });
+
+  it("claims NEITHER on a report stored before the choice existed", () => {
+    // The safe direction: an older report genuinely does not know, and guessing
+    // would put a comparability claim on a number that never earned one.
+    const html = renderProspectReport(result({ analyze: { ok: true, data: analyzeData() } }));
+    expect(html).not.toMatch(/searches we chose/i);
+  });
+});

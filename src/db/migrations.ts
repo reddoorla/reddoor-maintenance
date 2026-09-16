@@ -501,4 +501,30 @@ export const MIGRATIONS: Migration[] = [
     id: "0024_deadletter_abandoned_reason",
     sql: `ALTER TABLE submission_deadletter ADD COLUMN abandoned_reason TEXT;`,
   },
+  {
+    // #676. The searches behind "Where you stand" were chosen entirely by the
+    // analyze stage from what it read on the site. For a client we know, better
+    // ones can be written in two minutes — and a comparison over time needs the
+    // terms to stay FIXED, which a model re-reading the site cannot promise.
+    //
+    // Stored on the ROW rather than only inside `result_json` for the two
+    // reasons the issue names: a re-run can reuse them, and the /audits listing
+    // can show which audits used chosen terms — that listing deliberately never
+    // selects `result_json` (large, and useless to a list), so a value only
+    // present in the blob could not reach it.
+    //
+    // JSON arrays in TEXT, NULL when nothing was chosen. Null is the load-
+    // bearing state: it means the audit chose its own, which is not the same as
+    // an operator supplying an empty list.
+    //
+    // TWO MIGRATIONS, NOT ONE — the rule 0003, 0013, 0015 and 0018 carry:
+    // `migrate.ts` swallows "duplicate column name" and then records the marker
+    // unconditionally, which is sound only for a single statement.
+    id: "0025_prospect_audits_chosen_terms",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN chosen_terms TEXT;`,
+  },
+  {
+    id: "0026_prospect_audits_chosen_questions",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN chosen_questions TEXT;`,
+  },
 ];

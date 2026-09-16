@@ -655,6 +655,14 @@ cli
     "--email",
     "Email the internal sheet (scores, what wasn't measured, top fixes, the link) to PROSPECT_AUDIT_RECIPIENTS.",
   )
+  .option(
+    "--terms <list>",
+    "Comma-separated search terms for the visibility section, chosen by hand. Blank generates them from the site, as before.",
+  )
+  .option(
+    "--questions <list>",
+    "Comma-separated buyer questions, chosen by hand. Blank asks the goal's fixed set. A chosen set gets its own version key, so comparisons never mix sets.",
+  )
   .action(
     async (
       url: string,
