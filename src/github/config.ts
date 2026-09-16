@@ -58,9 +58,41 @@ export function ghAuthToken(exec: ExecFileSyncFn = defaultExecFileSync): string 
 }
 
 /**
+ * The broad token, from the environment or the keyring, or null for "nobody has
+ * one". `GITHUB_TOKEN` has THREE states here, not two, and the third is the one
+ * #665's fix collapsed by accident:
+ *
+ * - **Absent** — the recommended shape. Ask `gh auth token`.
+ * - **Set to a value** — that value wins; `gh` is never asked.
+ * - **Set to the EMPTY STRING** — `GITHUB_TOKEN=` in a shell, an env block, or
+ *   a test's `vi.stubEnv("GITHUB_TOKEN", "")`. That is a DELIBERATE "no token",
+ *   and it must resolve to null rather than quietly reaching past the operator
+ *   to the keyring. Under the previous `?.trim() || ghAuthToken()` it did not:
+ *   `""` is falsy, so an explicitly-disabled token fell through and a machine
+ *   that had run `gh auth login` silently resolved one anyway. The token gate
+ *   then read as configured on a developer's laptop and unconfigured in CI —
+ *   the same code taking different paths on ambient login state, which is how
+ *   `tests/cli/prismic-ci-command.test.ts` came to pass only where `gh` was
+ *   logged out.
+ *
+ * Whitespace-only is NOT the empty string and keeps falling through to the
+ * keyring: `GITHUB_TOKEN="   "` is a mis-pasted `credentials.env` line, never
+ * an instruction, and #665 exists precisely so a bad file value cannot override
+ * a working keyring credential.
+ */
+function resolveToken(exec?: ExecFileSyncFn): string | null {
+  const set = process.env.GITHUB_TOKEN;
+  if (set === undefined) return ghAuthToken(exec);
+  const trimmed = set.trim();
+  if (trimmed) return trimmed;
+  if (set === "") return null; // explicitly disabled — do not consult the keyring
+  return ghAuthToken(exec); // blank-but-not-empty: an accident, not a decision
+}
+
+/**
  * Read GitHub config from the environment (credentials.env is loaded into process.env by the CLI).
  *
- * `GITHUB_TOKEN` wins when set; when it is unset or blank the token comes from
+ * `GITHUB_TOKEN` wins when set; when it is ABSENT the token comes from
  * `gh auth token` — the keyring `gh auth login` populated — so `GITHUB_TOKEN`
  * may be left OUT of `credentials.env` entirely, and should be: `gh.ts` hands
  * this token to `gh` as `GH_TOKEN`, so a set-but-dead file value actively
@@ -75,7 +107,7 @@ export function ghAuthToken(exec: ExecFileSyncFn = defaultExecFileSync): string 
 export function readGitHubConfig(
   opts: { execFileSync?: ExecFileSyncFn } = {},
 ): GitHubConfig | null {
-  const token = process.env.GITHUB_TOKEN?.trim() || ghAuthToken(opts.execFileSync);
+  const token = resolveToken(opts.execFileSync);
   if (!token) return null;
   const renovateToken = process.env.RENOVATE_TOKEN?.trim() || token;
   return { token, renovateToken };
