@@ -208,6 +208,28 @@ export type PageExtract = {
   inlineScriptUrls?: string[];
   /** True number of `<script src>` on the page, before `scriptSrcs` was capped. */
   scriptCount?: number;
+  /**
+   * Text carried in the page's structured data payloads — the body of every
+   * `<script type="application/json">` and `…+json` sibling, concatenated and
+   * capped.
+   *
+   * It is NOT visible text, so it stays out of `text` and out of every count
+   * built on `text`. It exists because it IS in the served bytes: an assistant
+   * with no JS engine read a value that lived only inside such a payload on 3
+   * of 3 runs, while a value written at runtime came back "not stated" on 3 of
+   * 3 (`docs/aeo-evidence-base.md`). `jsDependence` reads this field alongside
+   * `text`, so it now penalises only words that appear NOWHERE in the served
+   * HTML — a stock Next.js or Nuxt page was losing up to 60 of readability's
+   * 100 points for copy the assistant can actually see (#828).
+   *
+   * The bodies of EXECUTABLE inline scripts are excluded on purpose — see the
+   * extractor's `DATA_SCRIPT_TYPE`.
+   *
+   * Optional: absent on reports stored before this existed, and absence must
+   * read as "not measured". An empty string is the other thing: measured, and
+   * this page ships no structured payload.
+   */
+  dataText?: string;
 };
 
 export type PageCapture = {

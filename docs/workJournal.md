@@ -2837,3 +2837,50 @@ Left to the operator: the three "To decide" questions in the issue body, unchang
 pin becomes fleet-managed, whether it carries `+sha512`, and what to do about `self-update` —
 plus whether `tucksravin/invitations` should be pulled onto the fleet pin, and whether the
 guard's population should ever reach private or cross-org repos.
+
+## 2026-09-16 — The audit was docking 60 points for copy the assistant reads (#828, PR #844, `85dcd166`)
+
+`extractPage` never walked a `<script>` body, so any word that shipped inside a structured
+JSON payload was measured as "only appears after JavaScript runs". That is the normal shape
+of a stock Next.js (`__NEXT_DATA__`) or Nuxt (`__NUXT_DATA__`) page, and JS dependence is 60
+of readability's 100 points, so we were publishing a near-zero readability score for sites
+whose copy an assistant can read in full — and prescribing a rebuild they do not need. The
+defect came out of the #675 experiment rather than out of review: the probe told the two
+arms apart decisively while our own extractor could not tell them apart at all.
+
+The fix is in extraction, not in the weight. #675 established the weight is right for the
+case it was built for, and re-weighting would have traded a false penalty for a false
+compliment. `extractPage` now projects `dataText` — the bodies of `application/json`,
+`application/ld+json` and `…+json` scripts, collapsed, capped at 200,000 characters, and
+deliberately kept OUT of `text` so no word count or prose check inherits a JSON blob that no
+visitor reads. `jsDependence` unions it into the raw word set, so a rendered word is missing
+only when it appears nowhere in the served bytes.
+
+Measured on the committed #675 fixtures, before → after, weighted missing share and the
+readability score built on it:
+
+| arm                                       | avgMissing  | readability |
+| ----------------------------------------- | ----------- | ----------- |
+| control, server-rendered                  | 0.0% → 0.0% | 85 → 85     |
+| script-embedded (assistant reads it, 3/3) | 5.3% → 0.0% | 82 → 85     |
+| runtime-JS (NOT STATED, 3/3)              | 5.4% → 5.4% | 82 → 82     |
+| stock Next.js, whole copy in the payload  | 100% → 0.0% | 13 → 73     |
+
+The middle two rows are the whole point, and the second of them is the one that had to be
+checked: a change that only stopped the over-penalty would have switched off a signal we
+have direct evidence for. The runtime-JS arm is byte-identical in score before and after.
+
+**Executable inline scripts stay excluded, and the reason is measured, not stylistic.** The
+JS-FETCHED fixture's own loader contains the literal words "The Kelverhoy index for Station"
+— only the value arrives over the network. A blanket "read all script text" would therefore
+have credited that page for a sentence no assistant can see, which is exactly the false
+compliment this audit is built not to pay. The cost of the narrow rule is that Next.js App
+Router flight data (`self.__next_f.push([...])`, executable) is still counted as invisible;
+that is a known, named limit rather than an oversight, and it errs toward the penalty.
+
+The 200,000-character cap errs the same way: truncating a payload can only make a page look
+more JS-dependent, never less.
+
+Beliefs corrected: the last entry on this (`docs/aeo-evidence-base.md`, 2026-09-15) recorded
+the over-penalty as costing "up to 60 points" on a hypothesis. It is 60 points exactly, and
+now demonstrated — the stock-Next.js row above moves 13 → 73.

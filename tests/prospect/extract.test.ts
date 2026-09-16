@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { extractPage, MAX_SCRIPTS } from "../../src/prospect/extract.js";
+import { extractPage, MAX_DATA_TEXT, MAX_SCRIPTS } from "../../src/prospect/extract.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): string =>
@@ -507,5 +507,65 @@ describe("extractPage — metas and script sources", () => {
     const page = extractPage(html);
     expect(page.jsonLd).toHaveLength(1);
     expect(page.scriptSrcs).toEqual(["/x.js"]);
+  });
+});
+
+describe("extractPage — structured data payloads (#828)", () => {
+  const NEXT = `<html><body><div id="__next"></div>
+    <script id="__NEXT_DATA__" type="application/json">{"props":{"hero":"Cedar fencing in Boise"}}</script>
+    </body></html>`;
+
+  it("reads the text out of an application/json payload", () => {
+    // The shape Next.js (__NEXT_DATA__) and Nuxt (__NUXT_DATA__) ship. It is in
+    // the served bytes, and an assistant with no JS engine read it 3 of 3 runs.
+    expect(extractPage(NEXT).dataText).toContain("Cedar fencing in Boise");
+  });
+
+  it("keeps the payload OUT of the visible text, which no visitor reads", () => {
+    // `text` feeds word counts and prose checks — a JSON blob is not something
+    // a visitor reads, and letting it in there would inflate all of them.
+    expect(extractPage(NEXT).text).not.toContain("Cedar");
+  });
+
+  it("does NOT read the body of an executable inline script", () => {
+    // The #675 JS-FETCHED arm, and the reason this is typed rather than blanket:
+    // the loader's own source contains the words of the sentence it will write,
+    // so counting code as text would credit a page for copy no assistant can
+    // read — switching off the signal jsDependence exists to raise.
+    const html = `<html><body><p id="r">Loading…</p>
+      <script>fetch("/d.json").then((r) => r.json()).then((d) => {
+        document.getElementById("r").textContent = \`The Kelverhoy index is \${d.value}\`;
+      });</script></body></html>`;
+    const page = extractPage(html);
+    expect(page.dataText).toBe("");
+    expect(page.text).not.toContain("Kelverhoy");
+  });
+
+  it("reads ld+json and vendor +json spellings, and ignores media-type parameters", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"@type":"Organization","name":"Bramwell Fencing"}</script>
+      <script type="application/vnd.api+json">{"note":"vendorpayload"}</script>
+      <script type="application/json; charset=utf-8">{"note":"parameterised"}</script>
+    </head><body>x</body></html>`;
+    const page = extractPage(html);
+    expect(page.dataText).toContain("Bramwell Fencing");
+    expect(page.dataText).toContain("vendorpayload");
+    expect(page.dataText).toContain("parameterised");
+    // ld+json keeps its own home too — schema scoring reads that, not this.
+    expect(page.jsonLd).toHaveLength(1);
+  });
+
+  it("is an empty string — measured, nothing there — on a page with no payload", () => {
+    // Distinct from `undefined`, which is what a report stored before this
+    // existed carries, and which must read as "not measured".
+    expect(extractPage("<html><body><p>Plain page</p></body></html>").dataText).toBe("");
+  });
+
+  it("caps the payload text, because the extract is persisted per page", () => {
+    const huge = "word ".repeat(MAX_DATA_TEXT);
+    const page = extractPage(
+      `<html><body><script type="application/json">{"copy":"${huge}"}</script></body></html>`,
+    );
+    expect(page.dataText!.length).toBe(MAX_DATA_TEXT);
   });
 });
