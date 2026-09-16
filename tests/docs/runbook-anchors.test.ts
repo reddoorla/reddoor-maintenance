@@ -13,7 +13,20 @@ import { fileURLToPath } from "node:url";
  *
  *   1. The cited file exists.
  *   2. The cited line range lies inside it.
- *   3. The cited range still contains something the surrounding prose names.
+ *   3. The cited range still contains something the prose names FOR THAT CITATION — the
+ *      backticked terms written since the previous citation in the same block, which is the
+ *      clause the citation is parenthetical to. Only when a citation introduces no term of its
+ *      own does the whole block's pool stand in for it, which keeps the shape that leads with
+ *      the citation and names its term afterwards (`src/x.ts:1–9` — `sendOne` **throws**).
+ *
+ * Scoping (3) that way is what closes the blind spot found on 2026-09-15. `continuity.md` read
+ * "exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:405–418`)" and then
+ * listed three refusals by name. `db.ts` grew 36 lines, the mismatch code moved to 441–454, and
+ * the stale range came to rest on `RESTORE refused=auth-token-absent` — a term the same
+ * paragraph does name, two sentences later, about something else entirely. The checker found "a
+ * term the paragraph names" inside the range and marked the citation VERIFIED: a gate passing
+ * where it should fail, on the one class this repo cares about most. A citation is now anchored
+ * only by the terms it was written to point at.
  *
  * (3) is the one that catches the dangerous case: a citation that still resolves and still
  * points INTO the file, but now lands on unrelated code because everything above it moved.
@@ -120,6 +133,8 @@ type Citation = {
   readonly end: number;
   /** 1-based line in the runbook, so a failure names where to go and edit. */
   readonly line: number;
+  /** Position among the code spans of its block, which is what scopes its anchor terms. */
+  readonly order: number;
 };
 
 type RunbookReport = {
@@ -258,8 +273,8 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
 
   for (const block of codeSpanBlocks(lines)) {
     const citations: Citation[] = [];
-    const tokens: string[] = [];
-    for (const span of block) {
+    const tokens: Array<{ text: string; order: number }> = [];
+    block.forEach((span, order) => {
       const match = CITATION.exec(span.text);
       const written = match?.[1];
       if (match !== undefined && match !== null && written !== undefined) {
@@ -270,18 +285,33 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
             start: Number(match[2]),
             end: Number(match[3] ?? match[2]),
             line: span.line,
+            order,
           });
-          continue;
+          return;
         }
       }
-      if (span.text.length >= MIN_TOKEN_LENGTH && !STOPLIST.has(span.text)) tokens.push(span.text);
-    }
+      if (span.text.length >= MIN_TOKEN_LENGTH && !STOPLIST.has(span.text)) {
+        tokens.push({ text: span.text, order });
+      }
+    });
 
     // A bare `:N` only ever means "the file just cited in this same parenthetical", so its
     // antecedent is scoped to the block, not the whole document.
     let lastResolvedInBlock: string | null = null;
 
+    // Where the previous citation of this block sat among its code spans. Terms before it
+    // belong to that citation, not to this one.
+    let previousCitationOrder = -1;
+
     for (const citation of citations) {
+      // The terms THIS citation introduces: everything backticked between the previous
+      // citation and this one. A paragraph that cites one thing and then names three others
+      // must not have the later three vouch for the earlier citation's range.
+      const introduced = tokens
+        .filter((t) => t.order > previousCitationOrder && t.order < citation.order)
+        .map((t) => t.text);
+      previousCitationOrder = citation.order;
+
       let path = citation.written;
       if (path === "") {
         if (lastResolvedInBlock === null) continue; // no antecedent: not a citation we can read
@@ -313,7 +343,12 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
         continue;
       }
 
-      const candidates = [...new Set(tokens)];
+      // A citation that introduces nothing of its own (it leads its sentence, or shares a
+      // parenthetical with the citation before it) falls back to the block's whole pool —
+      // no evidence is better than evidence borrowed from the wrong clause.
+      const candidates = [
+        ...new Set(introduced.length > 0 ? introduced : tokens.map((t) => t.text)),
+      ];
       if (candidates.length === 0) {
         unanchored += 1;
         continue;
@@ -327,7 +362,7 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
       } else {
         failures.push(
           `${where} — citation \`${citation.raw}\` no longer points at what the prose says it ` +
-            `does: none of the terms its paragraph names appear in ${path} lines ` +
+            `does: none of the terms the prose names for it appear in ${path} lines ` +
             `${citation.start}–${citation.end} (of ${fileLines.length}). ` +
             `Looked for: ${candidates.map((t) => JSON.stringify(t)).join(", ")}. ` +
             `Either the code moved (re-number the citation) or the prose did (re-word it).`,
@@ -399,6 +434,53 @@ describe("the runbook-citation checker", () => {
     expect(failure).toContain("lines 31–31");
     expect(failure).toContain('"attention"');
     expect(failure).toContain('"healthy"');
+  });
+
+  // The 2026-09-15 blind spot, in miniature. The paragraph cites the mismatch code and THEN
+  // names three refusals; the refusals live above it in the file. Before anchor terms were
+  // scoped to the citation that introduces them, a range that had drifted onto a refusal was
+  // marked verified, because the checker only asked whether the range held a term the
+  // paragraph names somewhere — not whether it held the term this citation is about.
+  const RESTORE = [
+    "export async function restore(opts) {", // 1
+    '  if (!token) return "RESTORE refused=auth-token-absent";', // 2
+    '  if (!manifest) return "RESTORE refused=manifest-absent";', // 3
+    '  if (existing) return "RESTORE refused=target-not-empty";', // 4
+    "  const bad = [];", // 5
+    "  for (const t of tables) if (counts[t] !== want[t]) bad.push(t);", // 6
+    "  return `RESTORE loaded=true mismatches=${bad.length}`;", // 7
+    "}", // 8
+  ].join("\n");
+  const RESTORE_FILES = { "src/restore.ts": RESTORE };
+  const restoreMd = (range: string) =>
+    "What you are checking is `mismatches=0`. A restore that came up short of the origin\n" +
+    `manifest exits non-zero with a ✗ line per mismatch (\`src/restore.ts:${range}\`). Three\n` +
+    "refusals you may see instead: `RESTORE refused=auth-token-absent`,\n" +
+    "`RESTORE refused=manifest-absent`, and `RESTORE refused=target-not-empty`.\n";
+
+  it("verifies the citation while it still points at the mismatch code (PASS control)", () => {
+    const report = auditRunbook("fixture.md", restoreMd("5–7"), fixtureReader(RESTORE_FILES));
+    expect(report.failures).toEqual([]);
+    expect(report).toMatchObject({ cited: 1, verified: 1, unanchored: 0 });
+  });
+
+  it("fails it once it drifts onto a refusal the same paragraph happens to name", () => {
+    const report = auditRunbook("fixture.md", restoreMd("1–4"), fixtureReader(RESTORE_FILES));
+    expect(report.verified).toBe(0);
+    expect(report.failures).toHaveLength(1);
+    const failure = report.failures[0]!;
+    expect(failure).toContain("`src/restore.ts:1–4`");
+    expect(failure).toContain('"mismatches=0"');
+    // The terms lines 1–4 DO contain are named after the citation, so they are not evidence
+    // for it. Their absence from "Looked for:" is the whole fix.
+    expect(failure).not.toContain("auth-token-absent");
+  });
+
+  it("still anchors a citation that precedes the term it names (fallback control)", () => {
+    const md = "- `src/example.ts:21` — the `Tier` union every cockpit lane sorts on.\n";
+    const report = auditRunbook("fixture.md", md, fixtureReader(FILES));
+    expect(report.failures).toEqual([]);
+    expect(report).toMatchObject({ cited: 1, verified: 1, unanchored: 0 });
   });
 
   it("is case-sensitive, so `attention` does not anchor on `diffAttention`", () => {
