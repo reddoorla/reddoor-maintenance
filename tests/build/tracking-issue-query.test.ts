@@ -4,8 +4,10 @@ import { mkdtemp, mkdir, writeFile, chmod, readFile, readdir } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { join } from "node:path";
-import { runProtectionAuditCommand } from "../../src/cli/commands/protection-audit.js";
-import type { ProtectionCoverageDeps } from "../../src/audits/protection-coverage.js";
+import {
+  runProtectionAuditCommand,
+  type ProtectionAuditDeps,
+} from "../../src/cli/commands/protection-audit.js";
 import { desiredRuleset, FLEET_RULESET_NAME } from "../../src/github/rulesets.js";
 import { stepRunScript, withoutComments, workflowPath } from "./_helpers/workflow-source.js";
 
@@ -141,7 +143,7 @@ const FRESH = () => new Date().toISOString();
 async function sweepOutput(
   repos: Array<{ name: string; visibility?: string }>,
 ): Promise<{ output: string; code: number }> {
-  const deps: ProtectionCoverageDeps = {
+  const deps: ProtectionAuditDeps = {
     listOrgRepos: async () =>
       repos.map((r) => ({
         name: r.name,
@@ -155,6 +157,8 @@ async function sweepOutput(
     dependencyDashboard: async () => ({ present: true, blockedBranches: [], unknownSections: [] }),
     openSecretAlerts: async () => 0,
     renovateMergeWindow: async () => ({ merges: [], truncated: false }),
+    repoTextFile: async () => null,
+    listWorkflowPaths: async () => [],
     branchTip: async () => null,
   };
   return runProtectionAuditCommand({ org: "reddoorla" }, deps);
