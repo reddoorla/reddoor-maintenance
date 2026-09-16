@@ -65,6 +65,11 @@ work:
 - **Stay in your charter.** If the operator scoped the session to a problem,
   don't opportunistically pick up other fleet signals without the claim check
   above.
+- **No local browser while agents run.** The 2026-08-24 overload was six agents
+  under a concurrency cap of ten plus a local Chrome. Browser checks belong on
+  Actions runners (form-e2e already is); if a local Chrome or Playwright run is
+  unavoidable, do it in a session with no agents live, and never dispatch agents
+  while one is open.
 - **Re-verify after any pause.** After a session-limit pause, compaction, or
   long gap: `git log --oneline -3` and `git status` before committing, and
   re-confirm the PR head SHA before merging — the world may have changed
@@ -85,6 +90,12 @@ Three of the 39 checkouts on the operator's machine cannot take a commit:
 `reddoor-mailer` and `the-pointe` are **archived** on GitHub, and `rfp-analyze`
 has no `origin` at all. Iterate `--pushable` and **report** the rest in the
 summary; do not discover them at push time.
+
+A **fourth** archived repo, `reddoorla/the-tower`, has no local checkout, and
+the script enumerates the disk — so it cannot see it and never will (verified
+2026-09-14: `gh repo view reddoorla/the-tower --json isArchived` → `true`, and
+`--skipped` lists three). The script answers "of the repos you have cloned",
+never "of the org"; for org-wide claims, enumerate from the GitHub API.
 
 **An archived repo is invisible from inside its clone.** `git remote -v` shows a
 normal URL, `git ls-remote` succeeds, `git fetch` succeeds — only the push

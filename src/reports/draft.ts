@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ReportType, LighthouseScores } from "./types.js";
 import { renderReportHtml } from "./render.js";
-import { siteSlug, updateAnalyticsHealth } from "./airtable/websites.js";
+import { analyticsHealthFields, siteSlug, updateAnalyticsHealth } from "./airtable/websites.js";
 import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
@@ -285,19 +285,34 @@ export async function draftReportForSite(
   // Record this site's GA/Search enrichment health for the per-site analytics-failure
   // signal (cockpit/digest). Only when analytics is configured for THIS site — set the
   // timestamp on a soft-fail, clear it (null) on a clean enrichment so the signal
-  // self-heals. Best-effort: the `Analytics soft-fail at` column is operator-added, so
-  // until it exists the write throws UNKNOWN_FIELD_NAME — which must NOT break drafting.
+  // self-heals.
+  //
+  // Turso FIRST, in its own try (#782). The Airtable `Analytics soft-fail at` column
+  // is operator-added and has never existed in the base, so that write throws
+  // UNKNOWN_FIELD_NAME on every real draft — and while the Turso mirror sat after it
+  // inside one try, `site_health.analytics_soft_fail_at` was never written either, so
+  // the digest collector reading it was green on a question it could not fail. Turso
+  // is authoritative; Airtable is the best-effort shadow Phase 6 deletes. Both stay
+  // best-effort here: a stamp is re-derived on every draft, so a lost one costs a
+  // period's signal, not the draft the operator is waiting on — and each failure is
+  // logged naming its store.
   if (readGaConfig() !== null && Boolean(siteRow.ga4PropertyId || siteRow.searchQuery)) {
+    const at = softFailures.length > 0 ? today.toISOString() : null;
+    // One payload for both stores, so the two writes cannot diverge.
+    const fields = analyticsHealthFields(at);
     try {
-      const fields = await updateAnalyticsHealth(
-        base,
-        siteRow.id,
-        softFailures.length > 0 ? today.toISOString() : null,
-      );
-      // Mirror the EXACT FieldSet Airtable got, so the two writes cannot diverge.
       await options.siteMirror?.health(siteRow.id, fields);
     } catch (e) {
-      console.warn(`⚠ analytics-health write skipped for ${siteRow.name}: ${(e as Error).message}`);
+      console.warn(
+        `⚠ analytics-health Turso mirror failed for ${siteRow.name}: ${(e as Error).message}`,
+      );
+    }
+    try {
+      await updateAnalyticsHealth(base, siteRow.id, at);
+    } catch (e) {
+      console.warn(
+        `⚠ analytics-health Airtable shadow write skipped for ${siteRow.name}: ${(e as Error).message}`,
+      );
     }
   }
 

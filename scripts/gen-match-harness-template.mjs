@@ -12,12 +12,15 @@
 // from the source repo — the source repo has moved on, and a "previous" render
 // taken from it would match no site on earth. Add a version directory when you
 // ship; the files in it are extracted once from `git show <tag>:…/template.ts`
-// and then never touched again.
+// and then never touched again. Copied AND authored files get entries: a
+// changed authored body (the route, the fixture test) is byte-compared on an
+// installed site exactly like a copied script.
 //
 // Do NOT hand-edit template.ts: escaping backticks and ${ by hand is exactly the
 // kind of silent corruption a round-trip check exists to catch, and it is checked
 // below for every constant before anything is written.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -132,17 +135,30 @@ has been quietly widened and nothing records who widened it, or why.
   it is accepted, and the evidence: a spec citation, a census row, a gate run.
 `;
 
+/** The MACHINE tell the installed twin puts in front of its own 404 message for
+ *  a uid it does not have. The `launch` recipe's dev-guard denies on it: an
+ *  unguarded twin asked for a missing uid 404s through the site's own
+ *  `+error.svelte`, byte-for-byte the guard's PASS condition, so the message
+ *  is the only thing that tells "the guard fired" from "no such uid". Matching
+ *  the human wording for that (#719) failed OPEN on a reword; this string is
+ *  the contract instead, exported from template.ts so launch.ts imports it
+ *  rather than re-typing it. */
+const UNGUARDED_TWIN_TELL = "reddoor-match-twin:no-assembly";
+
 const ROUTE_SERVER = `import { error } from "@sveltejs/kit";
 import { dev } from "$app/environment";
 import { documents } from "$lib/site-pages.js";
 
-// Local matching surface: renders the EXACT assembly \`reddoor-maint
-// prismic-seed\` publishes, from the same module, so a fix made to pass a gate
-// is a fix to what ships. Not prerendered, SSR-on-demand, dev-only.
+// Local matching surface: renders the assemblies in $lib/site-pages.js — the
+// same module a Prismic Migration API script publishes from (start from the
+// starter's scripts/import/migrate.example.ts; no \`reddoor-maint\` command does
+// this, the seed is per-site work) — so a fix made to pass a gate is a fix to
+// what ships. Not prerendered, SSR-on-demand, dev-only.
 export const prerender = false;
 
-// The seed resolves images to asset ids; here they only need a URL. Dimensions
-// are nominal — slices size their own image boxes in CSS.
+// A migration script resolves images to asset ids (migration.createAsset);
+// here they only need a URL. Dimensions are nominal — slices size their own
+// image boxes in CSS.
 const devImg = (u: string) => ({
   url: u,
   alt: null,
@@ -160,9 +176,14 @@ export async function load({ params }) {
 
   const docs = documents(devImg) as Array<{ uid: string; data: { slices?: unknown[] } }>;
   const doc = docs.find((d) => d.uid === params.uid);
+  // The leading token is a MACHINE tell for the launch recipe's dev-guard. This
+  // 404 renders through the site's own +error.svelte exactly like a guarded
+  // route's does, so on a site whose uids lack "home" an UNGUARDED twin would
+  // pass the deployed check forever; the token is what tells the two apart.
+  // Reword the prose freely — the token is the contract (#719).
   if (!doc)
     error(404, {
-      message: \`no assembly for "\${params.uid}" (have: \${docs.map((d) => d.uid).join(", ") || "none"})\`,
+      message: \`${UNGUARDED_TWIN_TELL}: no assembly for "\${params.uid}" (have: \${docs.map((d) => d.uid).join(", ") || "none"})\`,
     });
 
   return { uid: params.uid, slices: doc.data.slices ?? [] };
@@ -180,10 +201,11 @@ const ROUTE_PAGE = `<script lang="ts">
 `;
 
 const SITE_PAGES = `// The page assemblies for this site — the SINGLE source of truth for both
-// consumers: \`reddoor-maint prismic-seed\`, which publishes them through the
-// Migration API, and src/routes/dev/match/[uid], the local matching surface.
-// Because both read from here, any fix made to pass a gate is a fix to what
-// ships.
+// consumers: a Prismic Migration API script, which publishes them (start from
+// the starter's scripts/import/migrate.example.ts — no \`reddoor-maint\` command
+// does this; the seed is per-site work), and src/routes/dev/match/[uid], the
+// local matching surface. Because both read from here, any fix made to pass a
+// gate is a fix to what ships.
 //
 // THE MIGRATION API DROPS SILENTLY. It validates against the slice models
 // registered in Prismic and discards every field the model does not declare —
@@ -209,7 +231,9 @@ export function documents(img) {
 
 const SITE_PAGES_TEST = `// The page assemblies in src/lib/site-pages.js are the SINGLE source of truth
 // shared by two consumers: the local matching route (src/routes/dev/match/[uid])
-// and \`reddoor-maint prismic-seed\`, which publishes them to Prismic.
+// and a Prismic Migration API script, which publishes them (start from the
+// starter's scripts/import/migrate.example.ts — no \`reddoor-maint\` command does
+// this; the seed is per-site work).
 //
 // Those two consumers do NOT validate the same way. The dev route hands the
 // object straight to the slice components, so any field a fixture sets is
@@ -405,6 +429,10 @@ self-describing, so a nonstandard threshold or an undisclosed mask is visible.
 The threshold and the matrix are whatever \`matching/harness.json\` says, on every
 page, never a subset.
 
+**Check:** \`bash matching/census.sh <page>\` exits 0 — the Phase 3 style gate,
+and the only one that sees an 11px footer line or a cyan-vs-teal link the pixel
+diff is structurally blind to. A remaining row is fixed at its source or
+declared in \`matching/census-deviations.mjs\` with a LEDGER line, never ignored.
 **Operator's challenge:** _"paste the gate header."_
 
 ### 5. A commit is a checkpoint, not a stopping point
@@ -438,9 +466,11 @@ operator's call.
    not.
 3. Fix, each change citing its source line.
 4. \`bash matching/gate.sh <tag> <page>\` — paste the header.
-5. Append to \`matching/LEDGER.md\` at the moment a deviation, floor or mask is
+5. \`bash matching/census.sh <page>\` — exits 0 or the round is not closed; a
+   remaining row is fixed at its source or declared with a LEDGER line.
+6. Append to \`matching/LEDGER.md\` at the moment a deviation, floor or mask is
    decided, not reconstructed at the end.
-6. \`pnpm verify\`, then commit and push.
+7. \`pnpm verify\`, then commit and push.
 `;
 
 /** Verbatim from the source repo: these have a single source of truth. */
@@ -489,15 +519,20 @@ const parts = [
   ``,
 ];
 const files = [];
+/** Every shipped body, for the digest manifest written at the end. See the
+ *  block above DIGESTS for why it exists. */
+const shippedBodies = [];
 for (const [name, rel] of COPIED) {
   const body = readFileSync(join(SRC, rel), "utf8");
   parts.push(`export const ${name}_RELATIVE = ${JSON.stringify(rel)};`);
   parts.push(`export const ${name}_TEMPLATE = \`${embed(name, body)}\`;`, ``);
   files.push([name, "recipe"]);
+  shippedBodies.push([rel, body]);
 }
 for (const [name, rel, body] of AUTHORED) {
   parts.push(`export const ${name}_RELATIVE = ${JSON.stringify(rel)};`);
   parts.push(`export const ${name}_TEMPLATE = \`${embed(name, body)}\`;`, ``);
+  shippedBodies.push([rel, body]);
   // harness.json, floors, census-deviations, the spec sections, LEDGER and
   // site-pages.js are records a site edits; the rest are recipe-owned.
   const siteOwned = /HARNESS_JSON|FLOORS|CENSUS_DEVIATIONS|SPEC_|LEDGER|SITE_PAGES_JS/.test(name);
@@ -542,6 +577,13 @@ parts.push(
 const PREV_ROOT = join(HERE, "match-harness-previous");
 const currentBody = new Map(files.map(([n]) => [n, null]));
 for (const [name, rel] of COPIED) currentBody.set(name, readFileSync(join(SRC, rel), "utf8"));
+for (const [name, , body] of AUTHORED) currentBody.set(name, body);
+// AUTHORED files carry a history too: the recipe-owned route and fixture test
+// are byte-compared on re-run exactly like the copied scripts, so a prose
+// correction to one (#763 was the first) needs its pre-change body here or
+// every installed site gets `flag`. Site-owned entries are harmless — never
+// consulted, `planFileWrite` skips a site record before reading `previous`.
+const HISTORIED = [...COPIED, ...AUTHORED].map(([name, rel]) => [name, rel]);
 
 const prevVersions = existsSync(PREV_ROOT)
   ? readdirSync(PREV_ROOT, { withFileTypes: true })
@@ -552,7 +594,7 @@ const prevVersions = existsSync(PREV_ROOT)
 const prevConsts = [];
 const prevByRel = new Map();
 for (const version of prevVersions) {
-  for (const [name, rel] of COPIED) {
+  for (const [name, rel] of HISTORIED) {
     const path = join(PREV_ROOT, version, rel);
     if (!existsSync(path)) continue;
     const body = readFileSync(path, "utf8");
@@ -606,6 +648,11 @@ parts.push(
   ].map((r) => `  ${JSON.stringify(r)},`),
   `];`,
   ``,
+  `/** The machine tell the installed /dev/match twin emits ahead of its 404`,
+  ` *  message for a uid it lacks. launch's dev-guard denies on this, never on`,
+  ` *  the human wording (#719). */`,
+  `export const UNGUARDED_TWIN_TELL = ${JSON.stringify(UNGUARDED_TWIN_TELL)};`,
+  ``,
   `export const GITIGNORE_MARKER =`,
   `  "# reddoor-maint match-harness: scripts + records tracked, workspace ignored";`,
   `export const GITIGNORE_BLOCK = \`${embed("GITIGNORE_BLOCK", GITIGNORE_BLOCK)}\`;`,
@@ -619,6 +666,47 @@ parts.push(
 );
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, parts.join("\n"), "utf8");
+
+// ---------------------------------------------------------------------------
+// DIGESTS. The seven COPIED bodies come from a client repo that does not exist
+// in CI, so until now NOTHING could detect a hand edit to one of them in
+// template.ts: the file's own header tells readers to regenerate, and the next
+// regeneration silently reverts the edit. That happened — three corrections
+// were applied to template.ts alone and a regeneration reverted all three
+// (#738 item 1).
+//
+// This is the half of the guard that needs no checkout. The digest is over the
+// RAW body, which is the same string on both sides: here it is `body`, and in
+// the test it is `MATCH_HARNESS_FILES[].template`. Neither side re-derives the
+// generator's escaping, so the guard cannot fail for a reason that is really
+// about backticks.
+//
+// A hand edit to template.ts changes a body and not its digest, and CI reddens.
+// A legitimate regeneration rewrites both in the same run, which is why this is
+// written HERE and not maintained by hand.
+// ---------------------------------------------------------------------------
+const DIGESTS = join(HERE, "match-harness-bodies.sha256");
+const digestLines = shippedBodies
+  .map(([rel, body]) => [rel, createHash("sha256").update(body, "utf8").digest("hex")])
+  .sort(([a], [b]) => (a < b ? -1 : 1))
+  .map(([rel, hash]) => `${hash}  ${rel}`);
+writeFileSync(
+  DIGESTS,
+  [
+    "# sha256 of every body the match-harness recipe ships, as committed in",
+    "# src/recipes/match-harness/template.ts. GENERATED by",
+    "# scripts/gen-match-harness-template.mjs — do not hand-edit.",
+    "#",
+    "# Verified by tests/recipes/match-harness-generator.test.ts. It exists so a",
+    "# hand edit to a COPIED body in template.ts, whose source is a client repo",
+    "# absent from CI, cannot pass unnoticed (#738).",
+    "",
+    ...digestLines,
+    "",
+  ].join("\n"),
+  "utf8",
+);
+
 const carried = [...prevByRel.entries()];
 console.log(
   `wrote ${OUT} — ${files.length} files, all round-trip verified; ` +

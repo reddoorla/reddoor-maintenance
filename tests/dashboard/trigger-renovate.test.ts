@@ -57,6 +57,24 @@ describe("triggerRenovateForSite", () => {
     expect(calls).toEqual([]); // a non-owner/repo value never reaches a doomed dispatch
   });
 
+  it("returns no-repo (no dispatch) for a traversal segment (#724 — util/git's validator)", async () => {
+    // `owner/..` matched the dashboard's own two-segment regex because `.` is a
+    // legal repo character; it would then be interpolated into the dispatch
+    // path. `isOwnerRepo` rejects `..` explicitly — this is the one validator.
+    const calls: string[] = [];
+    const r = await triggerRenovateForSite(
+      deps({
+        getSite: async () => makeWebsiteRow({ id: "r", name: "X", gitRepo: "owner/.." }),
+        dispatch: async (repo) => {
+          calls.push(repo);
+        },
+      }),
+      "x",
+    );
+    expect(r).toEqual({ status: "no-repo", slug: "x" });
+    expect(calls).toEqual([]);
+  });
+
   it("returns failed (never throws) when dispatch throws", async () => {
     const r = await triggerRenovateForSite(
       deps({

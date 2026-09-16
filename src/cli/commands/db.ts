@@ -8,6 +8,14 @@ export type DbCommandOptions = {
   /** import-airtable / sync: run despite the freeze — a deliberate
    *  rollback-window converge from the frozen Airtable shadow. */
   force?: boolean;
+  /** replay-deadletters: abandon this slug's queued leads (or one `dl_…` row id)
+   *  as resolved-by-decision instead of replaying them (#786). */
+  abandon?: string;
+  /** replay-deadletters --abandon: why. Required — an undocumented write-off of
+   *  a client's leads is the thing this is meant to stop being necessary. */
+  reason?: string;
+  /** replay-deadletters --abandon: who decided. Defaults to OPERATOR_EMAIL. */
+  by?: string;
   cwd?: string;
   verbose?: boolean;
 };
@@ -84,10 +92,52 @@ export async function runDbCommand(
   // run as "all leads landed". Zero rows is a clean 0: nothing owed.
   if (action === "replay-deadletters") {
     const { readDbConfig, openDb } = await import("../../db/client.js");
+    // #786. `--abandon` is the escape hatch for the queue #785 deliberately
+    // stopped draining: a slug that is genuinely dead but still deployed keeps
+    // dead-lettering leads, holds this command at exit 1, and leaves a standing
+    // CRITICAL cockpit item. Validated BEFORE opening any store, so a missing
+    // reason refuses without needing Turso creds.
+    if (opts.abandon !== undefined) {
+      const reason = (opts.reason ?? "").trim();
+      if (reason === "") {
+        return {
+          output:
+            'db replay-deadletters --abandon refused: pass --reason "…". Abandoning writes ' +
+            "off a client's captured leads, and the record of WHY has to outlive the decision.",
+          code: 1,
+        };
+      }
+      const by = opts.by ?? process.env.OPERATOR_EMAIL ?? "operator";
+      const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
+      const { abandonDeadLetters } = await import("../../db/deadletter.js");
+      // Row ids are minted `dl_…` (newDeadLetterId), and a site slug never is —
+      // so the one argument can name either without a second flag.
+      const target = opts.abandon.startsWith("dl_") ? { id: opts.abandon } : { slug: opts.abandon };
+      const ids = await abandonDeadLetters(db, { ...target, by, reason, now: new Date() });
+      const lines = [
+        ...ids.map((id) => `abandoned ${id}`),
+        `DEADLETTER_ABANDONED target=${opts.abandon} rows=${ids.length} by=${by}`,
+      ];
+      return { output: lines.join("\n"), code: 0 };
+    }
     const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
     const { getWebsiteBySlug } = await import("../../reports/airtable/websites.js");
-    const base = openBase(readAirtableConfig());
+    const { getSiteBySlug } = await import("../../db/fleet-state.js");
+    const { makeLazySiteLookup } = await import("../../forms/site-lookup.js");
+    // #645. Recovery now resolves sites through the SAME lookup the live ingest
+    // path uses. It used to call the Airtable `getWebsiteBySlug` directly, so
+    // post-#643 the two disagreed about what the fleet is: a site created since
+    // the freeze was invisible to the replay, and a row only Airtable still held
+    // would have attached a recovered lead to a site the system no longer
+    // believes in. `openBase` is passed UNCALLED — under the freeze no Airtable
+    // credential is read at all, where before a missing PAT refused the whole
+    // replay (`readAirtableConfig()` throws) with real leads sitting in the queue.
+    const lookupSite = makeLazySiteLookup({
+      fromDb: (s) => getSiteBySlug(db, s),
+      openAirtable: () => openBase(readAirtableConfig()),
+      fromAirtable: (base, s) => getWebsiteBySlug(base, s),
+    });
     const {
       createSubmission,
       stampNotified,
@@ -116,7 +166,7 @@ export async function runDbCommand(
     // forbids and strips it — a throwing lookup must retry, not duplicate) and
     // minus `defer` (a CLI has no post-response phase; the inline tail is fine).
     const result = await replayDeadLetters(db, {
-      getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
+      getWebsiteBySlug: lookupSite,
       createSubmission: (input) => createSubmission(db, input),
       notify: makeNotify(send),
       stampNotified: (id, status, messageId) => stampNotified(db, id, status, messageId),

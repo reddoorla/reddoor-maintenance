@@ -64,6 +64,8 @@ keeps working exactly as it does today.
 
 ## Repo topology
 
+> Superseded in part by CLAUDE.md "Two starter templates" — cherry-pick, never merge starter/main.
+
 ```
 reddoorla/reddoor-starter        template · native sites · default for /new-site
 reddoorla/reddoor-starter-blux   template · Blux migrations · /new-site --track blux

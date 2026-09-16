@@ -51,6 +51,9 @@ const FLAGS = {
   "--out": "out",
   "--json": "json",
   "--email": "email",
+  // #676. Chosen by hand when we know the client; blank still generates.
+  "--terms": "terms",
+  "--questions": "questions",
 } as const satisfies Record<string, keyof ProspectAuditCliOptions>;
 
 type Uncovered = Exclude<

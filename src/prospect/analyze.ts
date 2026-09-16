@@ -9,7 +9,7 @@ import type {
   PageCapture,
 } from "./types.js";
 import type { SiteGoal } from "./goals.js";
-import { questionSetFor, type QuestionSet } from "./questions.js";
+import { questionSetFor, questionSetFromChosen, type QuestionSet } from "./questions.js";
 import type { GoalFit } from "./goals.js";
 
 /** Bounds on what reaches the model: enough site to judge, small enough to stay
@@ -533,13 +533,30 @@ export async function analyzeSite(
   deps: AnalyzeDeps = defaultAnalyzeDeps(),
   goal: SiteGoal = "unknown",
   goalFit: GoalFit | null = null,
+  /** #676. What the operator chose by hand, if anything. BLANK MEANS GENERATE —
+   *  this is an override on a cold audit's behaviour, never a new requirement,
+   *  so an absent or all-blank list leaves the existing path untouched. */
+  chosen: { terms?: string[]; questions?: string[] } = {},
 ): Promise<AnalyzeResult> {
-  const set = questionSetFor(goal);
+  const clean = (xs: string[] | undefined): string[] =>
+    (xs ?? []).map((x) => x.trim()).filter((x) => x !== "");
+  const chosenQuestions = clean(chosen.questions);
+  const chosenTerms = clean(chosen.terms);
+  // A hand-written set gets its own derived id so two audits still compare
+  // exactly when the same questions were asked — see questionSetFromChosen.
+  const set =
+    chosenQuestions.length > 0 ? questionSetFromChosen(chosenQuestions) : questionSetFor(goal);
   const raw = await deps.run(buildAnalyzeInput(url, crawl, checks, set, goalFit));
   const parsed = AnalyzeSchema.parse(raw);
   const conformed: AnalyzeResult = {
     ...parsed,
     questionSetId: set.id,
+    questionsSource: chosenQuestions.length > 0 ? "chosen" : "generated",
+    // The operator's searches replace the model's outright. They are the five
+    // searches "Where you stand" is built from, and the whole reason to choose
+    // them is that a comparison over time needs them to stay fixed.
+    categoryQueries: chosenTerms.length > 0 ? chosenTerms : parsed.categoryQueries,
+    termsSource: chosenTerms.length > 0 ? "chosen" : "generated",
     buyerQuestions: conformToSet(parsed.buyerQuestions, set),
     // Stamped here, at the one place model fixes enter the system, so the
     // renderer can label them as judgement and never as a finding.

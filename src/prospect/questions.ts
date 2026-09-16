@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SiteGoal } from "./goals.js";
 
 /**
@@ -139,6 +140,37 @@ export function questionSetFor(goal: SiteGoal): QuestionSet {
     id: `${goal}-v${QUESTION_SET_VERSION}`,
     goal,
     questions: [...UNIVERSAL, ...specific],
+  };
+}
+
+/**
+ * The set an operator wrote by hand (#676).
+ *
+ * For a client we know, better questions can be written in two minutes than any
+ * fixed list covers — but the property the fixed sets exist to protect must
+ * survive: two Answers scores are comparable exactly when the same questions
+ * were asked. So the id is DERIVED FROM THE QUESTIONS THEMSELVES, not from a
+ * constant like "custom":
+ *
+ *   - re-running with the same list gives the same id, so the comparison the
+ *     operator chose fixed terms in order to make still works;
+ *   - editing one word gives a different id, so `sameQuestionSet` refuses the
+ *     comparison rather than silently averaging two different tests;
+ *   - it can never collide with a goal set's `${goal}-v${N}` id, so a chosen
+ *     set is never mistaken for the universal one.
+ *
+ * Blank entries are dropped rather than asked — an empty question renders as a
+ * site failing to answer nothing at all.
+ */
+export function questionSetFromChosen(questions: string[]): QuestionSet {
+  const cleaned = questions.map((q) => q.trim()).filter((q) => q !== "");
+  // Order is part of the identity: the operator chose it, and a reordered list
+  // renders differently, so it must not read as the same instrument.
+  const digest = createHash("sha256").update(cleaned.join("\n")).digest("hex").slice(0, 8);
+  return {
+    id: `chosen-${digest}-v${QUESTION_SET_VERSION}`,
+    goal: "unknown",
+    questions: cleaned.map((question, i) => ({ id: `chosen-${i + 1}`, question })),
   };
 }
 

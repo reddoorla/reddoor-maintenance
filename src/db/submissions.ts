@@ -5,6 +5,7 @@ import type { SubmissionsTable } from "./schema.js";
 import {
   type SubmissionRow,
   type SubmissionInput,
+  type BounceDetail,
   toFormType,
   toStatus,
   toNotifyStatus,
@@ -50,6 +51,10 @@ function rowFromDb(r: Selectable<SubmissionsTable>): SubmissionRow {
     spamScore: typeof r.spam_score === "number" ? r.spam_score : null,
     spamReason: r.spam_reason,
     fanoutStatus: r.fanout_status,
+    bounceType: r.bounce_type,
+    bounceSubType: r.bounce_subtype,
+    bounceMessage: r.bounce_message,
+    bounceAckAt: r.bounce_ack_at,
   };
 }
 
@@ -93,6 +98,12 @@ export async function createSubmission(db: Db, input: SubmissionInput): Promise<
       spam_reason: input.spamReason ?? null,
       // Always null at insert: the fan-out runs after the row exists (stampFanout).
       fanout_status: null,
+      // Always null at insert too: a bounce is reported by a webhook minutes
+      // later, and the ack is an operator gesture after that (#783).
+      bounce_type: null,
+      bounce_subtype: null,
+      bounce_message: null,
+      bounce_ack_at: null,
     })
     .execute();
   const created = await getSubmissionById(db, id);
@@ -492,6 +503,10 @@ export async function backfillSubmission(db: Db, row: SubmissionRow): Promise<vo
       spam_score: row.spamScore ?? null,
       spam_reason: row.spamReason ?? null,
       fanout_status: row.fanoutStatus ?? null,
+      bounce_type: row.bounceType ?? null,
+      bounce_subtype: row.bounceSubType ?? null,
+      bounce_message: row.bounceMessage ?? null,
+      bounce_ack_at: row.bounceAckAt ?? null,
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();
@@ -546,11 +561,30 @@ export async function markFilteredAsRead(db: Db, filter: SubmissionFilter): Prom
  *  path handles it). Idempotent: a svix replay re-writes the same terminal value. In
  *  practice only 'sent' rows can match — stampNotified stamps the message id and the
  *  'sent' status together, and failed/skipped rows carry no id. */
-export async function markNotifyBouncedByMessageId(db: Db, messageId: string): Promise<boolean> {
+export async function markNotifyBouncedByMessageId(
+  db: Db,
+  messageId: string,
+  /** Resend's `data.bounce`, parsed (#783). Null for a complaint, which carries
+   *  no bounce object, and for any payload whose shape we did not recognize.
+   *
+   *  A null detail deliberately does NOT clear a classification already stored:
+   *  a svix replay of the same event, or a later complaint on a message that
+   *  already bounced, must not erase the diagnosis the first delivery carried. */
+  detail: BounceDetail | null = null,
+): Promise<boolean> {
   if (messageId === "") return false;
   const res = await db
     .updateTable("submissions")
-    .set({ notify_status: "bounced" })
+    .set(
+      detail === null
+        ? { notify_status: "bounced" }
+        : {
+            notify_status: "bounced",
+            bounce_type: detail.type,
+            bounce_subtype: detail.subType,
+            bounce_message: detail.message,
+          },
+    )
     .where("resend_message_id", "=", messageId)
     .executeTakeFirst();
   if (Number(res.numUpdatedRows) > 0) return true;
@@ -565,21 +599,79 @@ export async function markNotifyBouncedByMessageId(db: Db, messageId: string): P
   return existing !== undefined;
 }
 
+/** Acknowledge ONE bounced notification as "not a dead address" (#783).
+ *
+ *  The row keeps its bounce record — status, type, sub-type and the receiving
+ *  server's message all stay — and simply stops counting toward the alarm. That
+ *  is the difference from the production workaround this replaces, which flipped
+ *  `bounced` back to `sent` by id and destroyed the evidence along with the
+ *  alarm.
+ *
+ *  Guarded on `notify_status = 'bounced'` (there is nothing to acknowledge on a
+ *  healthy row) and on `bounce_ack_at IS NULL`, which makes it idempotent and
+ *  keeps the FIRST acknowledgement's timestamp — the honest one, since that is
+ *  when the operator actually looked. Returns whether this call was the one that
+ *  wrote. A PERMANENT bounce is deliberately still ackable: the ack means "I
+ *  have looked at this", not "this was a false alarm", and refusing it would
+ *  leave no way to close the case after genuinely fixing the mailbox. */
+export async function ackNotifyBounce(db: Db, id: string, now: Date): Promise<boolean> {
+  const res = await db
+    .updateTable("submissions")
+    .set({ bounce_ack_at: now.toISOString() })
+    .where("id", "=", id)
+    .where("notify_status", "=", "bounced")
+    .where("bounce_ack_at", "is", null)
+    .executeTakeFirst();
+  return Number(res.numUpdatedRows) > 0;
+}
+
+/** Per-site bounce counts, split by whether the payload said the ADDRESS is bad. */
+export type NotifyBounceCounts = {
+  /** Unacknowledged bounced notifications in the window. */
+  total: number;
+  /** How many of those Resend classified `Permanent` (#783). Counted ONLY where
+   *  the payload actually said so: a null classification — every row written
+   *  before migration 0018, and every complaint — counts toward `total` and
+   *  never toward this. Reading null as permanent would keep accusing the
+   *  address on exactly the rows that caused the false alarm. */
+  permanent: number;
+};
+
 /** Per-site counts of bounced lead notifications on/after `sinceDate` (ISO), keyed by
  *  the Websites record id (`site_id`). Powers the notify-bounce attention collector —
  *  the caller picks the window (like `countAutoSpamSince`), keeping this query pure.
  *  Windowed on `submitted_at`: the bounce lands minutes after the submission, and
- *  submissions carry no bounce timestamp column (append-only schema, 2026-07-16). */
+ *  submissions carry no bounce timestamp column (append-only schema, 2026-07-16).
+ *
+ *  Acknowledged rows are excluded outright (#783), which is what lets a diagnosed
+ *  false alarm clear the same day instead of aging out over fourteen. A site whose
+ *  every bounce is acked drops out of the map entirely, exactly like a site that
+ *  never bounced — both are "nothing to raise". */
 export async function countNotifyBouncedBySite(
   db: Db,
   sinceDate: string,
-): Promise<Map<string, number>> {
+): Promise<Map<string, NotifyBounceCounts>> {
   const rows = await db
     .selectFrom("submissions")
-    .select(["site_id", (eb) => eb.fn.countAll<number>().as("n")])
+    .select([
+      "site_id",
+      (eb) => eb.fn.countAll<number>().as("n"),
+      // lower() is ASCII-only in SQLite, which is all this needs: the value is a
+      // Resend enum ("Permanent"/"Transient"/"Undetermined"). Matching it
+      // case-insensitively here keeps the SQL agreeing with isPermanentBounce.
+      sql<number>`sum(case when lower(bounce_type) = 'permanent' then 1 else 0 end)`.as(
+        "permanent_n",
+      ),
+    ])
     .where("notify_status", "=", "bounced")
     .where("submitted_at", ">=", sinceDate)
+    .where("bounce_ack_at", "is", null)
     .groupBy("site_id")
     .execute();
-  return new Map(rows.map((r) => [r.site_id, Number(r.n)]));
+  return new Map(
+    rows.map((r) => [
+      r.site_id,
+      { total: Number(r.n) || 0, permanent: Number(r.permanent_n) || 0 },
+    ]),
+  );
 }

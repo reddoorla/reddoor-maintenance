@@ -34,20 +34,26 @@ export async function runEnsureSiteCommand(
       },
       await makeSiteMirror(),
     );
-    const filled =
-      result.updatedFields.length > 0
-        ? ` — filled blank field(s): ${result.updatedFields.join(", ")}`
-        : "";
+    // #664: a Name change on the exists path is a rename the operator asked
+    // for with --name, not a blank the bootstrap filled — say so.
+    const renamed = result.updatedFields.includes("Name") ? ` — Name set to "${opts.name}"` : "";
+    const blanks = result.updatedFields.filter((f) => f !== "Name");
+    const filled = blanks.length > 0 ? ` — filled blank field(s): ${blanks.join(", ")}` : "";
     const skipped =
       result.skippedMismatches.length > 0
         ? ` — differs from existing, left untouched (edit in Airtable): ${result.skippedMismatches.join(", ")}`
         : "";
+    // #645. Loud, and its own clause: a healed row means this site's leads were
+    // being answered `unknown-site` and dropped until this run.
+    const healed = result.healedDbRow
+      ? ` — HEALED: the Turso row was MISSING and has been inserted; leads for this slug were being dropped (run \`db replay-deadletters\`)`
+      : "";
     const nameNote =
       result.status === "created" && !opts.name
-        ? ` — Name set to "${slug}"; retitle in Airtable before forms/announce go live (or re-create with --name)`
+        ? ` — Name set to "${slug}"; retitle in Airtable before forms/announce go live (or re-run with --name)`
         : "";
     return {
-      output: `[${slug}] ${result.status} (${result.siteId})${filled}${skipped}${nameNote}`,
+      output: `[${slug}] ${result.status} (${result.siteId})${healed}${renamed}${filled}${skipped}${nameNote}`,
       code: 0,
     };
   } catch (err) {

@@ -1,14 +1,17 @@
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
-import { WEBSITES_TABLE, listWebsites, siteSlug } from "./websites.js";
+import { WEBSITES_TABLE, mapRow, siteSlug, type WebsiteRow } from "./websites.js";
 import { toAirtableStatus } from "./site-status.js";
 
 export type EnsureSiteInput = {
   /** Canonical slug — matches by siteSlug(Name); the Name on create when no displayName given. */
   slug: string;
-  /** Human display name written to Name on create. Name is consumed VERBATIM in
-   *  client-facing copy (forms auto-reply intro, report subjects), so a bare
-   *  machine slug there reads as "Thanks for reaching out to acme-co." Must
+  /** Human display name written to Name on create, and — unlike every other
+   *  input — UPDATED on an existing row when it differs (#664). Name is
+   *  consumed VERBATIM in client-facing copy (forms auto-reply intro, report
+   *  subjects), so a bare machine slug there reads as "Thanks for reaching out
+   *  to acme-co." — and the row that has it is exactly the one created before
+   *  the name was settled, which only this command re-run can fix. Must
    *  slugify to the same slug or the row wouldn't be found on re-run. */
   displayName?: string;
   url?: string;
@@ -25,6 +28,10 @@ export type EnsureSiteInput = {
 export type EnsureSiteMirror = {
   created: (rec: { id: string; fields: Record<string, unknown> }) => Promise<void>;
   site: (siteId: string, fields: Record<string, unknown>) => Promise<void>;
+  /** #645. Does Turso hold a row for this site id? Optional so every pre-#645
+   *  caller (and every hand-built test mirror) is byte-for-byte unchanged —
+   *  absent means the heal below never runs. */
+  hasRow?: (siteId: string) => Promise<boolean>;
 };
 
 export type EnsureSiteResult = {
@@ -36,6 +43,11 @@ export type EnsureSiteResult = {
    *  untouched (fill-blanks-only) — surfaced so a resumed bootstrap with a
    *  corrected value doesn't silently discard it. */
   skippedMismatches: string[];
+  /** #645. True when the site existed in Airtable but had NO Turso row and this
+   *  run inserted one. Surfaced rather than logged-only because it is the
+   *  difference between "nothing to do" and "this site's leads were being
+   *  dropped until just now". */
+  healedDbRow: boolean;
 };
 
 /** Column-name map (load-bearing magic strings — see websites.ts's mapRow header). */
@@ -51,9 +63,11 @@ const COLS = {
  *
  * Fill-blanks-only on the exists path: this command runs from a bootstrap skill
  * that may be re-run to resume — it must never clobber operator-edited cells.
- * Frequencies are deliberately NOT set (launch flips the lifecycle); Status is
- * only written on create ("building" — Airtable's "in development" until the
- * stage-2 vocabulary switch flips).
+ * The one exception is `displayName` (#664): `--name` targets Name and nothing
+ * else, so a differing value IS the operator's edit, and the create message
+ * sends them back here to make it. Frequencies are deliberately NOT set
+ * (launch flips the lifecycle); Status is only written on create ("building" —
+ * Airtable's "in development" until the stage-2 vocabulary switch flips).
  */
 export async function ensureSite(
   base: AirtableBase,
@@ -67,9 +81,30 @@ export async function ensureSite(
       `ensure-site: display name '${input.displayName}' slugifies to '${siteSlug(input.displayName)}', not '${slug}' — the row would not be found on re-run`,
     );
 
-  const existing = (await listWebsites(base)).find((w) => siteSlug(w.name) === slug);
+  // Paged inline rather than through `listWebsites` so the RAW stored record
+  // survives alongside the mapped row: the #645 heal below re-inserts what
+  // Airtable STORED (the same contract as the create path's mirror), and a
+  // mapped `WebsiteRow` cannot be turned back into a FieldSet. Same single
+  // select `listWebsites` issues — no extra Airtable read.
+  const raw: Array<{ id: string; fields: Record<string, unknown> }> = [];
+  await base(WEBSITES_TABLE)
+    .select({ pageSize: 100 })
+    .eachPage((records, fetchNextPage) => {
+      for (const rec of records) raw.push({ id: rec.id, fields: rec.fields });
+      fetchNextPage();
+    });
+  let existing: WebsiteRow | undefined;
+  let existingRaw: { id: string; fields: Record<string, unknown> } | undefined;
+  for (const rec of raw) {
+    const row = mapRow(rec);
+    if (siteSlug(row.name) === slug) {
+      existing = row;
+      existingRaw = rec;
+      break;
+    }
+  }
 
-  if (!existing) {
+  if (!existing || !existingRaw) {
     const fields: FieldSet = {
       Name: input.displayName ?? slug,
       Status: toAirtableStatus("building"),
@@ -88,7 +123,27 @@ export async function ensureSite(
       siteId: rec.id,
       updatedFields: [],
       skippedMismatches: [],
+      // The create path just inserted the row; there is nothing to heal, and a
+      // `hasRow` probe here would be a round-trip whose answer is already known.
+      healedDbRow: false,
     };
+  }
+
+  // #645. THE gap: before this, `exists` meant "Airtable has it" and said nothing
+  // about Turso. Post-flip (#643) the form-ingest lookup reads Turso ONLY, so a
+  // site with an Airtable row and no Turso row has every lead answered
+  // `unknown-site` — silently, permanently, and with no alarm once Phase 6 (#646)
+  // deletes `mirror_missed`. `ensure-site` is the command an operator already
+  // re-runs to finish a half-created site, so the heal belongs here.
+  //
+  // FIRST, before the fill-blanks update below: `mirror.site` is an UPDATE, and
+  // under the freeze a no-match THROWS (`SITE_MIRROR … no such row in Turso`).
+  // Healing second would abort ensure-site on exactly the site it exists to
+  // repair. `mirrorSiteInsert` is an upsert, so a lost race just re-writes.
+  let healedDbRow = false;
+  if (mirror?.hasRow && !(await mirror.hasRow(existingRaw.id))) {
+    await mirror.created(existingRaw);
+    healedDbRow = true;
   }
 
   const updates: FieldSet = {};
@@ -102,6 +157,14 @@ export async function ensureSite(
   consider(COLS.url, input.url, existing.url || null);
   consider(COLS.pointOfContact, input.pointOfContact, existing.pointOfContact);
   consider(COLS.gitRepo, input.gitRepo, existing.gitRepo);
+  // #664: Name is NOT fill-blanks. It is never blank (the slug match found it),
+  // and `--name` is the only way to retitle a row created before the display
+  // name was settled — the slugify guard above already proved the new value
+  // resolves to the same row. Goes through the same update + mirror below, so
+  // Turso gets it too.
+  if (input.displayName && existing.name !== input.displayName) {
+    updates["Name"] = input.displayName;
+  }
 
   const updatedFields = Object.keys(updates);
   if (updatedFields.length > 0) {
@@ -110,5 +173,5 @@ export async function ensureSite(
     // filled a blank `url` would otherwise leave Turso stale until the sync.
     await mirror?.site(existing.id, updates);
   }
-  return { status: "exists", siteId: existing.id, updatedFields, skippedMismatches };
+  return { status: "exists", siteId: existing.id, updatedFields, skippedMismatches, healedDbRow };
 }

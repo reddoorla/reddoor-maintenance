@@ -158,21 +158,32 @@ describe("ensureSite", () => {
  * the bootstrap fires reports `mirrored=missed` with no row to update.
  */
 describe("ensureSite → the Turso mirror", () => {
-  const stub = () => {
+  const stub = (opts: { hasRow?: boolean } = {}) => {
     const created: Array<{ id: string; fields: Record<string, unknown> }> = [];
     const updated: Array<{ id: string; fields: Record<string, unknown> }> = [];
-    return {
-      created,
-      updated,
-      mirror: {
-        created: async (rec: { id: string; fields: Record<string, unknown> }) => {
-          created.push(rec);
-        },
-        site: async (id: string, fields: Record<string, unknown>) => {
-          updated.push({ id, fields });
-        },
+    /** Call order across the mirror ops — the heal must precede `site`. */
+    const ops: string[] = [];
+    const mirror: {
+      created: (rec: { id: string; fields: Record<string, unknown> }) => Promise<void>;
+      site: (id: string, fields: Record<string, unknown>) => Promise<void>;
+      hasRow?: (siteId: string) => Promise<boolean>;
+    } = {
+      created: async (rec: { id: string; fields: Record<string, unknown> }) => {
+        ops.push("created");
+        created.push(rec);
+      },
+      site: async (id: string, fields: Record<string, unknown>) => {
+        ops.push("site");
+        updated.push({ id, fields });
       },
     };
+    if (opts.hasRow !== undefined) {
+      mirror.hasRow = async () => {
+        ops.push("hasRow");
+        return opts.hasRow!;
+      };
+    }
+    return { created, updated, ops, mirror };
   };
 
   it("hands the created record — as Airtable echoed it — to mirror.created", async () => {
@@ -212,10 +223,140 @@ describe("ensureSite → the Turso mirror", () => {
     expect(s.updated).toHaveLength(0);
   });
 
+  it("#664: exists + a differing --name updates Name in BOTH stores and reports it", async () => {
+    // The first real /new-site run created the row before the display name was
+    // settled, so Name was the bare slug — the value client-facing copy uses
+    // VERBATIM. Re-running with --name printed `exists` and silently dropped
+    // the flag: it was read on the create path only. Name is the one field the
+    // flag explicitly targets, so a differing value is the operator's
+    // correction, not a fill-blanks candidate.
+    const base = makeFakeBase({ Websites: [existingSite({ Name: "acme-co" })] });
+    const s = stub({ hasRow: true });
+    const result = await ensureSite(base, { slug: "acme-co", displayName: "Acme Co" }, s.mirror);
+
+    expect(result.status).toBe("exists");
+    expect(result.updatedFields).toContain("Name");
+    const updates = base.__calls.filter((c) => c.kind === "update");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.kind === "update" && updates[0]!.records[0]!.fields).toMatchObject({
+      Name: "Acme Co",
+    });
+    // Turso must get the new name too, through the same site-mirror path.
+    expect(s.updated).toEqual([
+      { id: "recEXIST", fields: expect.objectContaining({ Name: "Acme Co" }) },
+    ]);
+  });
+
+  it("#664: exists + the SAME --name writes nothing (idempotent re-run)", async () => {
+    const base = makeFakeBase({ Websites: [existingSite({ Name: "Acme Co" })] });
+    const s = stub({ hasRow: true });
+    const result = await ensureSite(base, { slug: "acme-co", displayName: "Acme Co" }, s.mirror);
+    expect(result.updatedFields).toEqual([]);
+    expect(base.__calls.filter((c) => c.kind === "update")).toHaveLength(0);
+    expect(s.updated).toEqual([]);
+  });
+
   it("still works with no mirror injected (the pre-Phase-5 callers)", async () => {
     const base = makeFakeBase({ Websites: [] });
     await expect(ensureSite(base, { slug: "roalson" })).resolves.toMatchObject({
       status: "created",
     });
+  });
+});
+
+/**
+ * #645 item 1 — the `exists` path had no idea whether Turso held a row.
+ *
+ * Post-flip that is the fleet's only silent lead-loser: an Airtable row with no
+ * Turso row resolves to nothing in `getSiteBySlug`, so every lead for that site
+ * is answered `unknown-site`. `ensure-site` is the one command an operator
+ * already re-runs to fix a half-created site, so it is where the heal belongs —
+ * and it is the ONLY place in the fleet that both knows a site is real and can
+ * insert it (`mirrorSiteInsert` is an upsert, so healing is idempotent).
+ */
+describe("ensureSite → healing a missing Turso row (#645)", () => {
+  const stub = (opts: { hasRow?: boolean } = {}) => {
+    const created: Array<{ id: string; fields: Record<string, unknown> }> = [];
+    const updated: Array<{ id: string; fields: Record<string, unknown> }> = [];
+    const ops: string[] = [];
+    const mirror: {
+      created: (rec: { id: string; fields: Record<string, unknown> }) => Promise<void>;
+      site: (id: string, fields: Record<string, unknown>) => Promise<void>;
+      hasRow?: (siteId: string) => Promise<boolean>;
+    } = {
+      created: async (rec) => {
+        ops.push("created");
+        created.push(rec);
+      },
+      site: async (id, fields) => {
+        ops.push("site");
+        updated.push({ id, fields });
+      },
+    };
+    if (opts.hasRow !== undefined) {
+      mirror.hasRow = async () => {
+        ops.push("hasRow");
+        return opts.hasRow!;
+      };
+    }
+    return { created, updated, ops, mirror };
+  };
+
+  it("inserts the stored Airtable record when Turso has NO row for the site", async () => {
+    const base = makeFakeBase({ Websites: [existingSite()] });
+    const s = stub({ hasRow: false });
+
+    const result = await ensureSite(base, { slug: "acme-co" }, s.mirror);
+
+    expect(result.status).toBe("exists");
+    expect(result.healedDbRow).toBe(true);
+    // The record as AIRTABLE STORED it, exactly like the create path — parity
+    // diffs Turso against the stored record.
+    expect(s.created).toEqual([
+      { id: "recEXIST", fields: expect.objectContaining({ Name: "Acme Co" }) },
+    ]);
+  });
+
+  it("does nothing when Turso already holds the row", async () => {
+    const base = makeFakeBase({ Websites: [existingSite()] });
+    const s = stub({ hasRow: true });
+
+    const result = await ensureSite(base, { slug: "acme-co" }, s.mirror);
+
+    expect(result.healedDbRow).toBe(false);
+    expect(s.created).toHaveLength(0);
+  });
+
+  it("heals BEFORE the fill-blanks mirror update, so that UPDATE has a row to match", async () => {
+    // Order is load-bearing: `mirror.site` is an UPDATE, and under the freeze a
+    // no-match THROWS (`SITE_MIRROR … no such row in Turso`). Healing second
+    // would abort ensure-site on exactly the site it exists to repair.
+    const base = makeFakeBase({ Websites: [existingSite({ url: undefined })] });
+    const s = stub({ hasRow: false });
+
+    await ensureSite(base, { slug: "acme-co", url: "https://acme.example.com" }, s.mirror);
+
+    expect(s.ops).toEqual(["hasRow", "created", "site"]);
+  });
+
+  it("never checks, and never heals, on the CREATE path", async () => {
+    const base = makeFakeBase({ Websites: [] });
+    const s = stub({ hasRow: false });
+
+    const result = await ensureSite(base, { slug: "roalson" }, s.mirror);
+
+    expect(result.status).toBe("created");
+    expect(result.healedDbRow).toBe(false);
+    expect(s.ops).toEqual(["created"]);
+  });
+
+  it("is inert for a mirror with no hasRow (every pre-#645 caller)", async () => {
+    const base = makeFakeBase({ Websites: [existingSite()] });
+    const s = stub();
+
+    const result = await ensureSite(base, { slug: "acme-co" }, s.mirror);
+
+    expect(result.healedDbRow).toBe(false);
+    expect(s.ops).toEqual([]);
   });
 });

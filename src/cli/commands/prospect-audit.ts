@@ -52,6 +52,15 @@ export type ProspectAuditCliOptions = {
    * recovered) by the code above it.
    */
   email?: boolean;
+  /**
+   * #676. Search terms and buyer questions chosen by hand, comma-separated.
+   *
+   * Blank generates them, exactly as before — this is an override for a client
+   * we already know, and for a comparison over time, where the terms have to
+   * stay fixed between runs.
+   */
+  terms?: string;
+  questions?: string;
   /** Test seam: injected pipeline deps. Never set from the CLI. */
   deps?: PipelineDeps;
 };
@@ -205,6 +214,16 @@ export async function runProspectAuditCommand(
 
   const business = opts.business?.trim();
   const goal = opts.goal?.trim();
+  // #676. Comma-separated on a flag (a newline is not typeable in one); the
+  // cockpit's textareas split on newlines instead. Both drop blanks, and both
+  // treat "nothing usable" as "generate".
+  const splitList = (v: string | undefined): string[] =>
+    (v ?? "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter((x) => x !== "");
+  const chosenTerms = splitList(opts.terms);
+  const chosenQuestions = splitList(opts.questions);
   if (goal !== undefined && goal !== "" && !isSiteGoal(goal)) {
     return fail(`--goal must be one of: ${GOALS.join(", ")}`);
   }
@@ -226,6 +245,8 @@ export async function runProspectAuditCommand(
           }
         : {}),
       ...(opts.probes === false ? { probes: false } : {}),
+      ...(chosenTerms.length > 0 ? { terms: chosenTerms } : {}),
+      ...(chosenQuestions.length > 0 ? { questions: chosenQuestions } : {}),
     },
     { ...(opts.deps ?? {}), onStage },
   );
@@ -262,6 +283,10 @@ export async function runProspectAuditCommand(
         business: result.businessName,
         status: auditStatus(result),
         resultJson: JSON.stringify(result),
+        // #676: on the ROW, not only in result_json — a re-run reuses them and
+        // the /audits listing marks them without reading the blob.
+        chosenTerms: chosenTerms.length > 0 ? chosenTerms : null,
+        chosenQuestions: chosenQuestions.length > 0 ? chosenQuestions : null,
       });
       auditId = created.id;
       token = created.token;

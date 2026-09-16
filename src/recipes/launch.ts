@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult, RecipeResult, Site } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { selfUpdating } from "./self-updating/index.js";
+import { HARNESS_JSON_RELATIVE, UNGUARDED_TWIN_TELL } from "./match-harness/template.js";
 import { runAudits } from "../audits/index.js";
 import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-airtable.js";
 import { writeAuditsToAirtable } from "../audits/write-audits-to-airtable.js";
@@ -70,23 +71,31 @@ export type LaunchDeps = {
 const SITE_404_MARKER = /<h1[^>]*>\s*404\s*<\/h1>/i;
 
 /** The UNGUARDED twin's OWN refusal. `src/routes/dev/match/[uid]/+page.server.ts`
- *  does `error(404, { message: \`no matching assembly for "${uid}" (have: ...)\` })`
- *  for any uid absent from its assembly map — and that message renders through
- *  the very same `+error.svelte` the guard's 404 uses, so it carries an
+ *  404s for any uid absent from its assembly map — and that message renders
+ *  through the very same `+error.svelte` the guard's 404 uses, so it carries an
  *  `<h1>404</h1>` too. On a site whose uid set lacks "home", a LIVE twin and a
  *  guarded one are byte-indistinguishable to SITE_404_MARKER, and the check
  *  could never fail. Verified on disk: beachfront-dentistry's copy of that route
  *  imports `$app/environment` zero times.
  *
- *  BOTH wordings are covered. The on-disk twin says "no matching assembly for";
- *  the `ROUTE_PAGE` template the `match-harness` recipe will install says "no
- *  assembly for". A marker that knew only the first would go blind the moment
- *  that recipe ships.
+ *  The contract is the MACHINE tell `UNGUARDED_TWIN_TELL`, imported from the
+ *  template that installs the route rather than re-typed here: the installed
+ *  twin puts it ahead of its human-readable message. Matching the prose was
+ *  the defect of #719 — reword the message ("no document for", "unknown uid")
+ *  and the guard silently stopped denying, i.e. failed OPEN with fixtures
+ *  public. The two prose wordings are STILL accepted, on purpose and for now:
+ *  beachfront-dentistry's on-disk twin predates the tell and says "no matching
+ *  assembly for", and any site installed before the tell says "no assembly
+ *  for". Drop the prose alternates once beachfront's twin has been
+ *  re-installed from the harness; until then they only ever widen the deny.
  *
  *  This is a DENY clause and only ever a deny — it can refuse a green, never
  *  grant one. Widening it can only ever refuse a launch that would otherwise
  *  have proceeded, so widening is always the safe direction here. */
-const UNGUARDED_TWIN_MARKER = /no (matching )?assembly for/i;
+export const UNGUARDED_TWIN_MARKER = new RegExp(
+  `${UNGUARDED_TWIN_TELL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}|no (matching )?assembly for`,
+  "i",
+);
 
 const MATCH_ROUTE_DIR = "src/routes/dev/match";
 
@@ -99,43 +108,91 @@ const MATCH_ROUTE_DIR = "src/routes/dev/match";
  *  error must never be allowed to grant a green. */
 const CHECKOUT_MARKER = "src/routes";
 
-/** Every placement a guard may legitimately take, most-preferred first.
+/** Tokens after which a `/` opens a REGEX literal rather than a division. This
+ *  is the usual JS ambiguity, answered by lookback at the last significant
+ *  character — a scanner's answer, not a parser's.
  *
- *  `src/routes/dev/+layout.server.ts` is the STRONGEST, and it is the fleet-wide
- *  class-fix for "dev routes ship in production" (#717): one `load` doing
- *  `if (!dev) error(404)` runs for every `/dev/*` route, `/dev/match/[uid]`
- *  included. Reading only inside `/dev/match` reported such a site as "the
- *  matching twin would ship" — untrue, and it penalised the better fix. It also
- *  contradicted the deployed half of this same feature, which was deliberately
- *  redesigned to survive that class-fix: see the `/health` comment at the
- *  dev-guard step for why the 200 control was moved off `/dev/a11y-fixtures`.
- *
- *  Below it, the `/dev/match` layout covers every child of the twin, present and
- *  future; the page file is the narrowest placement and so the last one tried. */
-const MATCH_GUARD_FILES = [
-  "src/routes/dev/+layout.server.ts",
-  "src/routes/dev/match/+layout.server.ts",
-  "src/routes/dev/match/[uid]/+page.server.ts",
-] as const;
+ *  `)` is deliberately NOT here. `if (x) /re/.test(y)` is legal and is read as
+ *  division, which costs nothing (the `/` is copied through unchanged, exactly
+ *  as before this function existed) and keeps `(a + b) / 2` right, which is far
+ *  commoner in that position. That is the residual: a regex literal opening
+ *  directly after `)` AND containing a quote falls back to the old behaviour and
+ *  therefore DENIES. Deny is the safe direction here — see `carriesGuard`. */
+const REGEX_PRECEDERS = /[(,=:[!&|?{};+\-*%~^<>]/;
+const REGEX_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "case",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "instanceof",
+  "do",
+  "else",
+  "yield",
+  "await",
+]);
+
+function opensRegex(prevChar: string, prevWord: string): boolean {
+  if (prevChar === "") return true;
+  if (REGEX_PRECEDERS.test(prevChar)) return true;
+  return REGEX_KEYWORDS.has(prevWord);
+}
+
+/** The last significant character emitted so far, and the identifier ending at
+ *  it. Both scanners look back over their own OUTPUT, which is why masking is
+ *  safe to interleave: masked bodies are spaces and the delimiters survive, so
+ *  the structural lookback reads the same either way. */
+function lookback(out: string): { char: string; word: string } {
+  let i = out.length - 1;
+  while (i >= 0 && /\s/.test(out[i]!)) i--;
+  if (i < 0) return { char: "", word: "" };
+  let j = i;
+  while (j >= 0 && /[A-Za-z0-9_$]/.test(out[j]!)) j--;
+  return { char: out[i]!, word: out.slice(j + 1, i + 1) };
+}
+
+/** Index of a regex literal's CLOSING `/`, or -1 if `source[at]` does not in
+ *  fact open one. `[...]` character classes are tracked because a `/` inside one
+ *  does not close the literal (`/[a-z/]/`). A newline or an unterminated run
+ *  means this was never a regex, and the caller then treats the `/` as an
+ *  ordinary character — the behaviour that predates regex-awareness. */
+function regexLiteralEnd(source: string, at: number): number {
+  let inClass = false;
+  for (let i = at + 1; i < source.length; i++) {
+    const c = source[i]!;
+    if (c === "\\") {
+      i++;
+      continue;
+    }
+    if (c === "\n") return -1;
+    if (inClass) {
+      if (c === "]") inClass = false;
+      continue;
+    }
+    if (c === "[") {
+      inClass = true;
+      continue;
+    }
+    if (c === "/") return i;
+  }
+  return -1;
+}
 
 /** Strip line and block comments, so the COMMON commented-out guard cannot
  *  satisfy the match — an import left in place above `// if (!dev) error(404);`
  *  is the likeliest real-world state, and it used to pass. String and template
  *  literals are skipped so a `//` inside a URL is not read as a comment.
  *
- *  This is a scanner, not a parser, and a REGEX LITERAL DEFEATS IT: a quote
- *  character inside one — `/[a-z0-9']+/` — opens a string that never closes, and
- *  everything to the next matching quote, comment text included, is preserved.
- *  The residual direction is therefore UNDER-strip, not over-strip; an earlier
- *  version of this comment asserted the opposite, and "can only deny" was not
- *  something it could back.
- *
- *  What stops that under-strip granting a pass today is `maskLiterals`, which
- *  `carriesGuard` runs over this output and which misreads the same region the
- *  same way — so the region is blanked rather than believed, and the observed
- *  failure on such a file is a REFUSED real guard, not an accepted absent one.
- *  Read that as one scanner's bug cancelling another's, not as a property
- *  either function guarantees. */
+ *  Regex literals are recognised (#726). Without that, a quote character inside
+ *  one — `/[a-z0-9']+/` — opened a string that never closed, and everything to
+ *  the next matching quote was preserved as if it were string content. On a
+ *  CORRECTLY guarded file that swallowed the live `if (!dev) error(404)` and the
+ *  twin read as unguarded, so a launch was blocked on a site that was fine. The
+ *  literal is now copied through verbatim, which is what a comment stripper
+ *  should do with one. */
 function stripComments(source: string): string {
   let out = "";
   for (let i = 0; i < source.length;) {
@@ -150,6 +207,17 @@ function stripComments(source: string): string {
       while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i++;
       i += 2;
       continue;
+    }
+    if (ch === "/") {
+      const { char, word } = lookback(out);
+      if (opensRegex(char, word)) {
+        const end = regexLiteralEnd(source, i);
+        if (end !== -1) {
+          out += source.slice(i, end + 1);
+          i = end + 1;
+          continue;
+        }
+      }
     }
     if (ch === '"' || ch === "'" || ch === "`") {
       out += ch;
@@ -179,13 +247,26 @@ function stripComments(source: string): string {
  *
  *  It exists because `if (!dev) console.warn("this should throw error(404)")`
  *  read as a refusal. Masking can only ever REMOVE candidate refusal tokens, so
- *  it can only ever deny. Its own edge case is the same one `stripComments` has
- *  — a regex literal containing a quote character opens a literal that never
- *  closes — and there too the failure is over-masking, which denies. */
+ *  it can only ever deny.
+ *  Regex BODIES are masked too, for the same reason and with the same effect: a
+ *  regex is data, so `if (!dev) RE = /throw/` must not be read as a refusal. It
+ *  was, before #726. */
 function maskLiterals(code: string): string {
   let out = "";
   for (let i = 0; i < code.length;) {
     const ch = code[i]!;
+    if (ch === "/") {
+      const { char, word } = lookback(out);
+      if (opensRegex(char, word)) {
+        const end = regexLiteralEnd(code, i);
+        if (end !== -1) {
+          // Delimiters and length kept, body blanked — exactly the string rule.
+          out += "/" + " ".repeat(end - i - 1) + "/";
+          i = end + 1;
+          continue;
+        }
+      }
+    }
     if (ch !== '"' && ch !== "'" && ch !== "`") {
       out += ch;
       i++;
@@ -270,6 +351,79 @@ function carriesGuard(source: string): boolean {
   return false;
 }
 
+const DEV_ROUTE_DIR = "src/routes/dev";
+
+/** Every SvelteKit route file at or below `relDir`, site-root-relative. The
+ *  gates used to read a FIXED list of three paths, which is why a `+server.ts`
+ *  endpoint and a `/dev/match/frozen` sibling were inspected by neither of them
+ *  (#723). What exists under the twin is a question for the filesystem, not for
+ *  a constant. */
+async function routeFilesUnder(sitePath: string, relDir: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(join(sitePath, relDir), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const e of entries) {
+    const rel = `${relDir}/${e.name}`;
+    if (e.isDirectory()) out.push(...(await routeFilesUnder(sitePath, rel)));
+    else if (e.name.startsWith("+")) out.push(rel);
+  }
+  return out;
+}
+
+/** `carriesGuard` for one file, memoised — a layout is asked about once per page
+ *  directory below it. An unreadable file is not a guard. */
+async function guardAt(
+  sitePath: string,
+  rel: string,
+  cache: Map<string, boolean>,
+): Promise<boolean> {
+  const hit = cache.get(rel);
+  if (hit !== undefined) return hit;
+  let ok: boolean;
+  try {
+    ok = carriesGuard(await readFile(join(sitePath, rel), "utf-8"));
+  } catch {
+    ok = false;
+  }
+  cache.set(rel, ok);
+  return ok;
+}
+
+/** The nearest guarded `+layout.server.ts` at or above `dir`, up to and
+ *  including `src/routes/dev`, or null.
+ *
+ *  `src/routes/dev/+layout.server.ts` is the STRONGEST placement and the
+ *  fleet-wide class-fix for "dev routes ship in production" (#717): one `load`
+ *  doing `if (!dev) error(404)` runs for every `/dev/*` page, `/dev/match/[uid]`
+ *  included. An earlier version read only inside `/dev/match` and so reported
+ *  such a site as "the matching twin would ship" — untrue, and it penalised the
+ *  better fix. It also contradicted the deployed half of this feature, which was
+ *  deliberately redesigned to survive that class-fix: see the `/health` comment
+ *  at the dev-guard step for why the 200 control moved off `/dev/a11y-fixtures`.
+ *
+ *  Layouts cover PAGES only. A `+server.ts` endpoint runs no layout `load` at
+ *  all, which is why `matchingDisposition` checks endpoints separately and never
+ *  lets a layout vouch for one (#723). */
+async function coveringLayout(
+  sitePath: string,
+  dir: string,
+  cache: Map<string, boolean>,
+): Promise<string | null> {
+  let d = dir;
+  for (;;) {
+    const rel = `${d}/+layout.server.ts`;
+    if (await guardAt(sitePath, rel, cache)) return rel;
+    if (d === DEV_ROUTE_DIR) return null;
+    const up = d.slice(0, d.lastIndexOf("/"));
+    if (up.length < DEV_ROUTE_DIR.length) return null;
+    d = up;
+  }
+}
+
 /**
  * Pre-flight: a checkout that still carries the matching twin must carry the
  * dev guard the `match-harness` recipe installs with it. Nothing is deleted at
@@ -299,36 +453,91 @@ export async function matchingDisposition(
       message: `no ${MATCH_ROUTE_DIR} in this checkout (${CHECKOUT_MARKER} is present, so the absence is a real one)`,
     };
   }
-  const read: string[] = [];
-  for (const rel of MATCH_GUARD_FILES) {
-    let source: string;
-    try {
-      source = await readFile(join(sitePath, rel), "utf-8");
-    } catch {
-      continue;
-    }
-    read.push(rel);
-    if (carriesGuard(source)) {
-      // Deliberately NOT "the twin is guarded in production". This function reads
-      // source text on disk; it cannot observe the deployed build, and a field
-      // that can only see configuration must not be named after the thing it
-      // cannot see. The deployed behaviour is the `dev-guard` step's job.
-      return {
-        ok: true,
-        message: `${rel} contains dev guard source — \`if (!dev)\` on \`$app/environment\` whose own branch refuses with a 404/throw (source text only; the deployed build is checked at the dev-guard step)`,
-      };
-    }
-  }
-  if (read.length === 0) {
+  const files = await routeFilesUnder(sitePath, MATCH_ROUTE_DIR);
+  if (files.length === 0) {
     return {
       ok: false,
-      message: `${MATCH_ROUTE_DIR} exists but none of ${MATCH_GUARD_FILES.join(", ")} could be read — the twin's disposition cannot be established`,
+      message: `${MATCH_ROUTE_DIR} exists but carries no route files (+page/+server/+layout) — the twin's disposition cannot be established`,
     };
   }
+
+  const cache = new Map<string, boolean>();
+  const unguarded: string[] = [];
+  const covers: string[] = [];
+
+  // Endpoints FIRST, and never covered by a layout: SvelteKit layout `load` does
+  // not run for `+server.ts`, so the #717 class-fix at src/routes/dev that
+  // legitimately covers every page leaves an endpoint fully live (#723).
+  for (const ep of files.filter((f) => f.endsWith("/+server.ts"))) {
+    if (await guardAt(sitePath, ep, cache)) covers.push(ep);
+    else
+      unguarded.push(
+        `${ep} (a \`+server.ts\` endpoint — layout \`load\` does not run for it, so it needs its own guard)`,
+      );
+  }
+
+  // Then every directory holding a page, each covered by its own guarded
+  // +page.server.ts or by a +layout.server.ts at or above it.
+  const pageDirs = [
+    ...new Set(
+      files
+        .filter((f) => /\/\+page\.(server\.ts|ts|svelte)$/.test(f))
+        .map((f) => f.slice(0, f.lastIndexOf("/"))),
+    ),
+  ];
+  for (const dir of pageDirs) {
+    const layout = await coveringLayout(sitePath, dir, cache);
+    if (layout) {
+      covers.push(layout);
+      continue;
+    }
+    const own = `${dir}/+page.server.ts`;
+    if (await guardAt(sitePath, own, cache)) {
+      covers.push(own);
+      continue;
+    }
+    unguarded.push(`${dir}/ (no guarded +page.server.ts and no covering +layout.server.ts)`);
+  }
+
+  if (unguarded.length > 0) {
+    return {
+      ok: false,
+      message: `${MATCH_ROUTE_DIR} is not fully guarded — ${unguarded.join("; ")} — an \`if (!dev)\` guard on \`$app/environment\` whose own branch refuses (\`error(404\` or \`throw\`) is required, once comments are stripped and string and regex contents masked; the matching twin would ship`,
+    };
+  }
+  // Deliberately NOT "the twin is guarded in production". This function reads
+  // source text on disk; it cannot observe the deployed build, and a field that
+  // can only see configuration must not be named after the thing it cannot see.
+  // The deployed behaviour is the `dev-guard` step's job.
   return {
-    ok: false,
-    message: `none of ${read.join(", ")} carries an \`if (!dev)\` guard on \`$app/environment\` whose own branch refuses (\`error(404\` or \`throw\`), once comments are stripped and string contents masked — the matching twin would ship`,
+    ok: true,
+    message: `every route under ${MATCH_ROUTE_DIR} is covered by dev guard source — ${[...new Set(covers)].join(", ")} (source text only; the deployed build is checked at the dev-guard step)`,
   };
+}
+
+/** The uids whose `/dev/match` twin must be proved dead, read from the harness's
+ *  OWN page table — the file `match-harness` installs and every gate already
+ *  reads — so the gate and the harness cannot disagree about which pages exist.
+ *  Probing a hardcoded "home" left every sibling uid unprobed (#723).
+ *
+ *  A page whose `uid` is null has no twin (harness.mjs says so) and is skipped.
+ *  An absent or unparseable harness.json falls back to "home": not every
+ *  launched site carries the harness, so a missing file must not become a
+ *  refusal — and must not yield an EMPTY list either, which would prove nothing
+ *  while looking like a pass. */
+async function twinUids(sitePath: string): Promise<string[]> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(join(sitePath, HARNESS_JSON_RELATIVE), "utf-8"));
+  } catch {
+    return ["home"];
+  }
+  const pages = (parsed as { pages?: Record<string, { uid?: unknown } | null> })?.pages;
+  if (!pages || typeof pages !== "object") return ["home"];
+  const uids = Object.values(pages)
+    .map((p) => p?.uid)
+    .filter((u): u is string => typeof u === "string" && u.length > 0);
+  return uids.length > 0 ? [...new Set(uids)] : ["home"];
 }
 
 /** Undici's defaults are 300s headers + 300s body, and the body timeout is an
@@ -468,10 +677,11 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
   //     repos, each declaring `prerender = false` — so a 200 from it is still a
   //     live render/function path, not a static file served by the CDN.
   const origin = target.url.replace(/\/+$/, "");
-  let twin: { status: number; body: string };
+  const uids = await twinUids(site.path);
+  const twins: Array<{ uid: string; res: { status: number; body: string } }> = [];
   let control: { status: number; body: string };
   try {
-    twin = await probe(`${origin}/dev/match/home`);
+    for (const uid of uids) twins.push({ uid, res: await probe(`${origin}/dev/match/${uid}`) });
     control = await probe(`${origin}/health`);
   } catch (err) {
     steps.push({ name: "dev-guard", result: errorOf(err) });
@@ -487,35 +697,37 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
     });
     return stop();
   }
-  const unguardedTell = twin.body.match(UNGUARDED_TWIN_MARKER);
-  if (unguardedTell) {
-    steps.push({
-      name: "dev-guard",
-      result: {
-        kind: "error",
-        message: `${origin}/dev/match/home answered ${twin.status} carrying the twin route's OWN "${unguardedTell[0]}" message — the twin is LIVE and merely has no assembly for the uid "home". That is not evidence of a dev guard.`,
-      },
-    });
-    return stop();
-  }
-  if (twin.status !== 404 || !SITE_404_MARKER.test(twin.body)) {
-    steps.push({
-      name: "dev-guard",
-      result: {
-        kind: "error",
-        message:
-          twin.status === 404
-            ? `${origin}/dev/match/home 404s, but not with this site's own error page — cannot tell the guard from a dead route`
-            : `${origin}/dev/match/home answered ${twin.status} — the matching twin is live in production`,
-      },
-    });
-    return stop();
+  for (const { uid, res } of twins) {
+    const unguardedTell = res.body.match(UNGUARDED_TWIN_MARKER);
+    if (unguardedTell) {
+      steps.push({
+        name: "dev-guard",
+        result: {
+          kind: "error",
+          message: `${origin}/dev/match/${uid} answered ${res.status} carrying the twin route's OWN "${unguardedTell[0]}" message — the twin is LIVE and merely has no assembly for the uid "${uid}". That is not evidence of a dev guard.`,
+        },
+      });
+      return stop();
+    }
+    if (res.status !== 404 || !SITE_404_MARKER.test(res.body)) {
+      steps.push({
+        name: "dev-guard",
+        result: {
+          kind: "error",
+          message:
+            res.status === 404
+              ? `${origin}/dev/match/${uid} 404s, but not with this site's own error page — cannot tell the guard from a dead route`
+              : `${origin}/dev/match/${uid} answered ${res.status} — the matching twin is live in production`,
+        },
+      });
+      return stop();
+    }
   }
   steps.push({
     name: "dev-guard",
     result: {
       kind: "probe",
-      message: `${origin}/dev/match/home 404 (site error page), /health 200`,
+      message: `${uids.map((u) => `${origin}/dev/match/${u}`).join(", ")} 404 (site error page), /health 200`,
     },
   });
 

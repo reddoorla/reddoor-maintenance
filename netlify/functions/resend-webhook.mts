@@ -5,6 +5,7 @@ import {
   STATUS_MAP,
   isStatusDowngrade,
   classifyUnmatchedEvent,
+  parseBounceDetail,
 } from "../../src/reports/webhook-events.js";
 import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airtable/reports.js";
 import { mirrorReportPatch } from "../../src/db/fleet-state.js";
@@ -113,9 +114,16 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   if (newStatus === "bounced" || newStatus === "complained") {
     try {
       const db = await openDb(readDbConfig());
-      if (await markNotifyBouncedByMessageId(db, messageId)) {
+      // #783: keep Resend's classification instead of discarding it. Without it
+      // a Permanent bounce on a dead mailbox and a Transient/ContentRejected
+      // refusal by the CLIENT's spam filter were the same stored state, and the
+      // alarm accused the point-of-contact address in both cases. A complaint
+      // carries no bounce object, so it parses to null and stores nothing.
+      const bounce = parseBounceDetail(event.data);
+      if (await markNotifyBouncedByMessageId(db, messageId, bounce)) {
         console.log(
-          `[resend-webhook] submission notify bounced (messageId=${messageId} type=${event.type})`,
+          `[resend-webhook] submission notify bounced (messageId=${messageId} type=${event.type} ` +
+            `bounceType=${bounce?.type ?? "none"} bounceSubType=${bounce?.subType ?? "none"})`,
         );
         return new Response("OK (submission notify bounced)", { status: 200 });
       }
@@ -174,10 +182,12 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     // #539/#643: mirror into Turso reports. Fatal since the freeze retired the
     // hourly sync — a swallowed failure here would be permanent divergence, so
     // mirrorWrite rethrows into the catch below and the 500 makes svix
-    // redeliver (the monotonic guard keeps the retry idempotent).
+    // redeliver (the monotonic guard keeps the retry idempotent). The row
+    // count is handed through (#647): a status for a row Turso never held is
+    // `missed`, not a green no-op.
     await mirrorWrite(`resend-webhook ${report.id}`, async () => {
       const db = await openDb(readDbConfig());
-      await mirrorReportPatch(db, report.id, { delivery_status: newStatus });
+      return mirrorReportPatch(db, report.id, { delivery_status: newStatus });
     });
     console.log(
       `[resend-webhook] updated record=${report.id} → ${newStatus} (messageId=${messageId})`,

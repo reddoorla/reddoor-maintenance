@@ -59,8 +59,11 @@ export type FormatWithPrettierOptions = {
   bin?: string;
   /** Passed straight to the spawn. Also what makes {@link SpawnFn}'s default
    *  implementation detach the child, so a timeout kills the whole process
-   *  group rather than just the wrapper. Omitted = no timeout, the historical
-   *  behaviour of this helper's two recipe callers. */
+   *  group rather than just the wrapper. Omitted = no timeout. Every recipe
+   *  caller now supplies one (60s; prismic-ci first, then match-harness in
+   *  #733 and health-endpoint + smoke-suite in #737) — the option stays
+   *  optional only for the helper's contract, not because any caller wants
+   *  an unbounded formatter. */
   timeoutMs?: number;
 };
 

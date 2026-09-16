@@ -1,0 +1,677 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "tz": "America/Los_Angeles",
+  "lane": "all",
+  "from": null,
+  "to": null,
+  "files": 3299,
+  "lines": 751025,
+  "by": [
+    "day"
+  ],
+  "total": {
+    "requests": 76627,
+    "in": 1597835,
+    "out": 67281684,
+    "cacheCreate": 316691710,
+    "cacheRead": 13977966348
+  },
+  "groups": [
+    {
+      "key": "2026-08-14",
+      "requests": 220,
+      "in": 416,
+      "out": 217033,
+      "cacheCreate": 884055,
+      "cacheRead": 34443228
+    },
+    {
+      "key": "2026-08-15",
+      "requests": 91,
+      "in": 181,
+      "out": 124556,
+      "cacheCreate": 1171830,
+      "cacheRead": 24583181
+    },
+    {
+      "key": "2026-08-16",
+      "requests": 2692,
+      "in": 92565,
+      "out": 3437562,
+      "cacheCreate": 11585726,
+      "cacheRead": 493775156
+    },
+    {
+      "key": "2026-08-17",
+      "requests": 1265,
+      "in": 29675,
+      "out": 1666105,
+      "cacheCreate": 5268204,
+      "cacheRead": 208566401
+    },
+    {
+      "key": "2026-08-18",
+      "requests": 2663,
+      "in": 40714,
+      "out": 3817627,
+      "cacheCreate": 9950327,
+      "cacheRead": 544996930
+    },
+    {
+      "key": "2026-08-19",
+      "requests": 6280,
+      "in": 40300,
+      "out": 6196071,
+      "cacheCreate": 19218027,
+      "cacheRead": 833699261
+    },
+    {
+      "key": "2026-08-20",
+      "requests": 1255,
+      "in": 10393,
+      "out": 1105453,
+      "cacheCreate": 3397268,
+      "cacheRead": 322232853
+    },
+    {
+      "key": "2026-08-21",
+      "requests": 925,
+      "in": 90571,
+      "out": 1593989,
+      "cacheCreate": 4552174,
+      "cacheRead": 132355208
+    },
+    {
+      "key": "2026-08-22",
+      "requests": 1288,
+      "in": 59948,
+      "out": 1743000,
+      "cacheCreate": 5836555,
+      "cacheRead": 257212663
+    },
+    {
+      "key": "2026-08-23",
+      "requests": 1426,
+      "in": 10730,
+      "out": 1700864,
+      "cacheCreate": 6943193,
+      "cacheRead": 229764542
+    },
+    {
+      "key": "2026-08-24",
+      "requests": 7885,
+      "in": 92221,
+      "out": 8448201,
+      "cacheCreate": 32907085,
+      "cacheRead": 1127626413
+    },
+    {
+      "key": "2026-08-25",
+      "requests": 6336,
+      "in": 32492,
+      "out": 5711709,
+      "cacheCreate": 17970103,
+      "cacheRead": 1872713690
+    },
+    {
+      "key": "2026-08-26",
+      "requests": 3384,
+      "in": 38019,
+      "out": 2820826,
+      "cacheCreate": 11073387,
+      "cacheRead": 1110822012
+    },
+    {
+      "key": "2026-08-27",
+      "requests": 42,
+      "in": 84,
+      "out": 37957,
+      "cacheCreate": 961364,
+      "cacheRead": 4638006
+    },
+    {
+      "key": "2026-08-28",
+      "requests": 8,
+      "in": 16,
+      "out": 2653,
+      "cacheCreate": 32726,
+      "cacheRead": 451639
+    },
+    {
+      "key": "2026-08-29",
+      "requests": 3,
+      "in": 3910,
+      "out": 194,
+      "cacheCreate": 27101,
+      "cacheRead": 0
+    },
+    {
+      "key": "2026-08-30",
+      "requests": 23,
+      "in": 46,
+      "out": 17083,
+      "cacheCreate": 81775,
+      "cacheRead": 2202563
+    },
+    {
+      "key": "2026-08-31",
+      "requests": 3904,
+      "in": 307426,
+      "out": 2722500,
+      "cacheCreate": 23682196,
+      "cacheRead": 518079536
+    },
+    {
+      "key": "2026-09-01",
+      "requests": 2901,
+      "in": 17792,
+      "out": 1963281,
+      "cacheCreate": 7978917,
+      "cacheRead": 703460110
+    },
+    {
+      "key": "2026-09-02",
+      "requests": 3221,
+      "in": 334097,
+      "out": 4093228,
+      "cacheCreate": 19132017,
+      "cacheRead": 579926457
+    },
+    {
+      "key": "2026-09-03",
+      "requests": 5664,
+      "in": 23160,
+      "out": 2565077,
+      "cacheCreate": 17942862,
+      "cacheRead": 854429096
+    },
+    {
+      "key": "2026-09-04",
+      "requests": 4770,
+      "in": 33419,
+      "out": 2012159,
+      "cacheCreate": 21014899,
+      "cacheRead": 674651573
+    },
+    {
+      "key": "2026-09-05",
+      "requests": 5236,
+      "in": 113420,
+      "out": 2973813,
+      "cacheCreate": 27697162,
+      "cacheRead": 690586431
+    },
+    {
+      "key": "2026-09-06",
+      "requests": 950,
+      "in": 34688,
+      "out": 1041122,
+      "cacheCreate": 7596697,
+      "cacheRead": 141046314
+    },
+    {
+      "key": "2026-09-07",
+      "requests": 43,
+      "in": 20466,
+      "out": 31273,
+      "cacheCreate": 216387,
+      "cacheRead": 2101126
+    },
+    {
+      "key": "2026-09-08",
+      "requests": 2893,
+      "in": 47708,
+      "out": 2367050,
+      "cacheCreate": 18494962,
+      "cacheRead": 544644499
+    },
+    {
+      "key": "2026-09-09",
+      "requests": 4186,
+      "in": 35777,
+      "out": 2256031,
+      "cacheCreate": 12542535,
+      "cacheRead": 683146402
+    },
+    {
+      "key": "2026-09-10",
+      "requests": 3032,
+      "in": 17890,
+      "out": 2040507,
+      "cacheCreate": 9774850,
+      "cacheRead": 683568481
+    },
+    {
+      "key": "2026-09-11",
+      "requests": 1004,
+      "in": 2008,
+      "out": 860561,
+      "cacheCreate": 4536087,
+      "cacheRead": 250591792
+    },
+    {
+      "key": "2026-09-12",
+      "requests": 2278,
+      "in": 28189,
+      "out": 2854608,
+      "cacheCreate": 11414357,
+      "cacheRead": 349459059
+    },
+    {
+      "key": "2026-09-13",
+      "requests": 48,
+      "in": 31670,
+      "out": 17231,
+      "cacheCreate": 186869,
+      "cacheRead": 1069843
+    },
+    {
+      "key": "2026-09-14",
+      "requests": 711,
+      "in": 7844,
+      "out": 842360,
+      "cacheCreate": 2620013,
+      "cacheRead": 101121883
+    }
+  ],
+  "startup": {
+    "byRepoLane": [
+      {
+        "key": "-Users-tuckerlemos | main",
+        "sessions": 1,
+        "p50": 53824,
+        "p90": 53824,
+        "max": 53824
+      },
+      {
+        "key": "29-navy | main",
+        "sessions": 4,
+        "p50": 59811,
+        "p90": 60618,
+        "max": 60618
+      },
+      {
+        "key": "29-navy | subagent",
+        "sessions": 89,
+        "p50": 41472,
+        "p90": 52828,
+        "max": 61782
+      },
+      {
+        "key": "Broken | main",
+        "sessions": 24,
+        "p50": 22418,
+        "p90": 51336,
+        "max": 52650
+      },
+      {
+        "key": "Broken | subagent",
+        "sessions": 574,
+        "p50": 29447,
+        "p90": 36432,
+        "max": 76554
+      },
+      {
+        "key": "a-budget | main",
+        "sessions": 2,
+        "p50": 52878,
+        "p90": 52878,
+        "max": 52878
+      },
+      {
+        "key": "a-budget | subagent",
+        "sessions": 4,
+        "p50": 10934,
+        "p90": 11051,
+        "max": 11051
+      },
+      {
+        "key": "beachfront-dentistry | main",
+        "sessions": 13,
+        "p50": 24455,
+        "p90": 53116,
+        "max": 53412
+      },
+      {
+        "key": "beachfront-dentistry | subagent",
+        "sessions": 25,
+        "p50": 10983,
+        "p90": 11116,
+        "max": 11134
+      },
+      {
+        "key": "caldea | main",
+        "sessions": 64,
+        "p50": 24183,
+        "p90": 51503,
+        "max": 58302
+      },
+      {
+        "key": "caldea | subagent",
+        "sessions": 147,
+        "p50": 10928,
+        "p90": 25691,
+        "max": 27006
+      },
+      {
+        "key": "dont-lose-your-head | main",
+        "sessions": 5,
+        "p50": 21228,
+        "p90": 52986,
+        "max": 52986
+      },
+      {
+        "key": "dont-lose-your-head | subagent",
+        "sessions": 89,
+        "p50": 30845,
+        "p90": 31616,
+        "max": 33340
+      },
+      {
+        "key": "gallerysonder | main",
+        "sessions": 10,
+        "p50": 53258,
+        "p90": 64427,
+        "max": 64427
+      },
+      {
+        "key": "gallerysonder | subagent",
+        "sessions": 17,
+        "p50": 11092,
+        "p90": 38596,
+        "max": 38699
+      },
+      {
+        "key": "invitations | main",
+        "sessions": 2,
+        "p50": 55874,
+        "p90": 55874,
+        "max": 55874
+      },
+      {
+        "key": "invitations | subagent",
+        "sessions": 21,
+        "p50": 34196,
+        "p90": 37184,
+        "max": 166284
+      },
+      {
+        "key": "octagonal-led-turn-counter | main",
+        "sessions": 3,
+        "p50": 46440,
+        "p90": 56423,
+        "max": 56423
+      },
+      {
+        "key": "octagonal-led-turn-counter | subagent",
+        "sessions": 97,
+        "p50": 26188,
+        "p90": 39135,
+        "max": 152919
+      },
+      {
+        "key": "reddoor-maintenance | main",
+        "sessions": 32,
+        "p50": 27681,
+        "p90": 65872,
+        "max": 77728
+      },
+      {
+        "key": "reddoor-maintenance | subagent",
+        "sessions": 183,
+        "p50": 47031,
+        "p90": 58851,
+        "max": 148023
+      },
+      {
+        "key": "reddoor-starter | main",
+        "sessions": 5,
+        "p50": 42888,
+        "p90": 64750,
+        "max": 64750
+      },
+      {
+        "key": "reddoor-starter | subagent",
+        "sessions": 86,
+        "p50": 49847,
+        "p90": 57521,
+        "max": 109015
+      },
+      {
+        "key": "reddoor-website | main",
+        "sessions": 38,
+        "p50": 29021,
+        "p90": 57084,
+        "max": 59073
+      },
+      {
+        "key": "reddoor-website | subagent",
+        "sessions": 458,
+        "p50": 40645,
+        "p90": 45856,
+        "max": 71521
+      },
+      {
+        "key": "revogen | main",
+        "sessions": 5,
+        "p50": 20260,
+        "p90": 50985,
+        "max": 50985
+      },
+      {
+        "key": "revogen | subagent",
+        "sessions": 6,
+        "p50": 11062,
+        "p90": 11179,
+        "max": 11179
+      },
+      {
+        "key": "scriptorium-setup | main",
+        "sessions": 18,
+        "p50": 25415,
+        "p90": 52840,
+        "max": 57632
+      },
+      {
+        "key": "scriptorium-setup | subagent",
+        "sessions": 57,
+        "p50": 11065,
+        "p90": 37446,
+        "max": 38662
+      },
+      {
+        "key": "songbook | main",
+        "sessions": 8,
+        "p50": 46104,
+        "p90": 51898,
+        "max": 51898
+      },
+      {
+        "key": "songbook | subagent",
+        "sessions": 332,
+        "p50": 30560,
+        "p90": 31332,
+        "max": 48958
+      },
+      {
+        "key": "the-bench | main",
+        "sessions": 13,
+        "p50": 28542,
+        "p90": 41956,
+        "max": 51847
+      },
+      {
+        "key": "the-bench | subagent",
+        "sessions": 34,
+        "p50": 10963,
+        "p90": 11080,
+        "max": 11080
+      },
+      {
+        "key": "vida-legacy-foundation | main",
+        "sessions": 21,
+        "p50": 21400,
+        "p90": 58555,
+        "max": 62402
+      },
+      {
+        "key": "vida-legacy-foundation | subagent",
+        "sessions": 419,
+        "p50": 55395,
+        "p90": 56372,
+        "max": 73010
+      },
+      {
+        "key": "welcome-to-the-flower-court | main",
+        "sessions": 14,
+        "p50": 21664,
+        "p90": 52431,
+        "max": 52515
+      },
+      {
+        "key": "welcome-to-the-flower-court | subagent",
+        "sessions": 44,
+        "p50": 11110,
+        "p90": 42238,
+        "max": 48777
+      }
+    ],
+    "byAgent": [
+      {
+        "key": "Explore",
+        "sessions": 15,
+        "p50": 22220,
+        "p90": 25965,
+        "max": 26299
+      },
+      {
+        "key": "claude-code-guide",
+        "sessions": 2,
+        "p50": 38196,
+        "p90": 38196,
+        "max": 38196
+      },
+      {
+        "key": "episodic-memory:search-conversations",
+        "sessions": 7,
+        "p50": 8175,
+        "p90": 12631,
+        "max": 12631
+      },
+      {
+        "key": "general-purpose",
+        "sessions": 269,
+        "p50": 41290,
+        "p90": 53308,
+        "max": 58327
+      },
+      {
+        "key": "subagent:unknown",
+        "sessions": 543,
+        "p50": 10968,
+        "p90": 11102,
+        "max": 43204
+      },
+      {
+        "key": "superpowers:code-reviewer",
+        "sessions": 53,
+        "p50": 43474,
+        "p90": 53302,
+        "max": 53684
+      },
+      {
+        "key": "workflow-subagent",
+        "sessions": 1793,
+        "p50": 36031,
+        "p90": 55997,
+        "max": 166284
+      }
+    ],
+    "byModel": [
+      {
+        "key": "main | claude-fable-5",
+        "sessions": 19,
+        "p50": 53258,
+        "p90": 63366,
+        "max": 65872
+      },
+      {
+        "key": "main | claude-fable-5-1",
+        "sessions": 12,
+        "p50": 52840,
+        "p90": 64750,
+        "max": 77728
+      },
+      {
+        "key": "main | claude-haiku-4-5-20251001",
+        "sessions": 194,
+        "p50": 20457,
+        "p90": 34629,
+        "max": 50416
+      },
+      {
+        "key": "main | claude-opus-5",
+        "sessions": 52,
+        "p50": 53262,
+        "p90": 62402,
+        "max": 71930
+      },
+      {
+        "key": "main | claude-sonnet-5",
+        "sessions": 5,
+        "p50": 57689,
+        "p90": 64427,
+        "max": 64427
+      },
+      {
+        "key": "subagent | claude-fable-5",
+        "sessions": 462,
+        "p50": 30306,
+        "p90": 40438,
+        "max": 48587
+      },
+      {
+        "key": "subagent | claude-fable-5-1",
+        "sessions": 298,
+        "p50": 43265,
+        "p90": 46994,
+        "max": 109015
+      },
+      {
+        "key": "subagent | claude-haiku-4-5-20251001",
+        "sessions": 197,
+        "p50": 10968,
+        "p90": 10999,
+        "max": 38196
+      },
+      {
+        "key": "subagent | claude-opus-4-5-20251101",
+        "sessions": 353,
+        "p50": 10980,
+        "p90": 11106,
+        "max": 11217
+      },
+      {
+        "key": "subagent | claude-opus-4-8",
+        "sessions": 1,
+        "p50": 31197,
+        "p90": 31197,
+        "max": 31197
+      },
+      {
+        "key": "subagent | claude-opus-5",
+        "sessions": 1250,
+        "p50": 39631,
+        "p90": 56174,
+        "max": 166284
+      },
+      {
+        "key": "subagent | claude-sonnet-5",
+        "sessions": 121,
+        "p50": 43457,
+        "p90": 49048,
+        "max": 53867
+      }
+    ]
+  }
+}

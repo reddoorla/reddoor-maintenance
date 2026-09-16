@@ -308,6 +308,40 @@ export function isDistinctiveName(brand: string): boolean {
   return tokens.some((t) => !CATEGORY_WORDS.has(t));
 }
 
+/** A domain's own label — everything before the first dot, letters and digits
+ *  only. "www.reddoorcreative.com" → "reddoorcreative". */
+function domainLabel(domain: string): string {
+  const host = domain.replace(/^www\./i, "").toLowerCase();
+  return (host.split(".")[0] ?? "").replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Is this cited domain a DIFFERENT business wearing the prospect's name?
+ *
+ * On the first real audit the most-cited domain of the entire run was
+ * reddoorcreative.com — 13 citations, and a different agency two thousand miles
+ * from the prospect. Both branded answers opened by disambiguating between
+ * several same-named agencies. A namesake outranking the prospect on their own
+ * name is a brand-collision finding and probably the most valuable thing that
+ * audit surfaced; it rendered as one anonymous row in a competitor list.
+ *
+ * Gated on `isDistinctiveName` for the reason that function exists: a prospect
+ * called Summit or Bloom shares a label with half the internet, and "a
+ * different business is using your name" has to survive the prospect reading
+ * the domain printed underneath it. A trailing category word is allowed
+ * ("reddoorcreativemarketing") because that is precisely how the real case
+ * presented; anything else is left as an ordinary competitor.
+ */
+export function isNamesake(domain: string, brand: string): boolean {
+  if (!isDistinctiveName(brand)) return false;
+  const collapsed = normalizeForMatch(brand).replace(/ /g, "");
+  if (!collapsed) return false;
+  const label = domainLabel(domain);
+  if (label === collapsed) return true;
+  if (!label.startsWith(collapsed)) return false;
+  return CATEGORY_WORDS.has(label.slice(collapsed.length));
+}
+
 /** A rate-limit response is worth one retry after a longer pause; anything else
  *  is a real failure and is left alone. */
 function isRateLimited(err: unknown): boolean {
@@ -465,6 +499,16 @@ export async function runVisibilityProbes(
       .map(([domain, count]) => ({ domain, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 8),
+    // Drawn from the same counts rather than removed from them: `competitorsSeen`
+    // is what every stored report and the current renderer read, and quietly
+    // changing what it contains would rewrite documents already sent. The
+    // renderer lifts these out for its own call-out and prints the remainder as
+    // competitors. Not capped at 8 — a namesake is never a long list, and
+    // truncating the one finding this exists to surface would be perverse.
+    namesakes: [...competitorCounts.entries()]
+      .filter(([domain]) => isNamesake(domain, brand))
+      .map(([domain, count]) => ({ domain, count }))
+      .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain)),
     categoryProbes: { attempted: categoryAttempted, answered: categoryAnswers.length },
     // Derived from `answers` above rather than accumulated during the run: it is
     // a pure read of citations already recorded, so computing it here keeps the

@@ -1,0 +1,77 @@
+{
+  "note": "Answer key for the two refute-claims controls. The workflow script NEVER reads this file and no skeptic is given its path; tests/meta-week/refute-claims.test.ts carries the same map and fails if the two disagree. Claim ids are opaque (c01..c17) precisely so that nothing a skeptic sees encodes the expected verdict. c03 is tagged kind=behavior in both packages, so its only possible verdicts are refuted and untested — a document cannot confirm what the system does.",
+  "passControl": "docs/meta-week/_data/refute-claims-levers.json",
+  "failControl": "docs/meta-week/_data/refute-claims-levers-seeded.json",
+  "passExpectation": "16 verdicts: 9 confirmed, 6 refuted, 0 unclear, 1 untested (c03, the behaviour claim). 2 or more of the expected-confirmed claims refuted means the round is a false-positive generator and does not ship; so does any verdict but untested for c03.",
+  "failExpectation": "17 verdicts: c17 refuted, and every other verdict identical to the PASS run. The delta is the signal.",
+  "expected": {
+    "c01": {
+      "verdict": "refuted",
+      "note": "the blocking JSON shape for UserPromptSubmit and Stop, in the earlier survey wrong form"
+    },
+    "c02": {
+      "verdict": "confirmed",
+      "note": "skillListingBudgetFraction default, verified form"
+    },
+    "c03": {
+      "verdict": "untested",
+      "note": "BEHAVIOUR CLAIM. The round confirmed this on 2026-09-14 from a correct verbatim quote of the documented default, and a measurement the same night ran 12 agents at once with CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY unset and 5 with it set to 4. The docs do not contradict the claim, so the only honest verdict is untested — which means run the experiment, not that the claim is true"
+    },
+    "c04": {
+      "verdict": "refuted",
+      "note": "SubagentStop access to the final message, in the earlier survey wrong form"
+    },
+    "c05": {
+      "verdict": "confirmed",
+      "note": "--max-budget-usd scope, verified form"
+    },
+    "c06": {
+      "verdict": "confirmed",
+      "note": "stopping a whole fan-out, verified form"
+    },
+    "c07": {
+      "verdict": "refuted",
+      "note": "THE HOOK-CONTRACT ERROR: PreCompact cannot inject context. R4 names this one"
+    },
+    "c08": {
+      "verdict": "confirmed",
+      "note": "how many hook events can block, verified form"
+    },
+    "c09": {
+      "verdict": "refuted",
+      "note": "the default permission mode name, in the earlier survey wrong form"
+    },
+    "c10": {
+      "verdict": "confirmed",
+      "note": "ENABLE_TOOL_SEARCH default, verified form"
+    },
+    "c11": {
+      "verdict": "confirmed",
+      "note": "SubagentStop input fields, verified form (same evidence as c04, opposite claim)"
+    },
+    "c12": {
+      "verdict": "refuted",
+      "note": "whether a Stop hook can read tool history, in the earlier survey wrong form"
+    },
+    "c13": {
+      "verdict": "confirmed",
+      "note": "UserPromptSubmit additionalContext, verified form"
+    },
+    "c14": {
+      "verdict": "confirmed",
+      "note": "maxEffortLevel scope, verified form"
+    },
+    "c15": {
+      "verdict": "refuted",
+      "note": "whether PreCompact can block, in the earlier survey wrong form"
+    },
+    "c16": {
+      "verdict": "confirmed",
+      "note": "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION status, verified form"
+    },
+    "c17": {
+      "verdict": "refuted",
+      "note": "THE SEEDED FALSE CLAIM, present only in the FAIL control. 10-token-meter.md measures two consecutive windows at 19:50 to 00:50, exactly five hours"
+    }
+  }
+}

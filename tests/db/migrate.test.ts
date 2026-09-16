@@ -24,6 +24,15 @@ describe("runMigrations", () => {
       "0015_prospect_audits_overrides",
       "0016_prospect_audits_edited_at",
       "0017_prospect_audits_opened_at",
+      "0018_submissions_bounce_type",
+      "0019_submissions_bounce_subtype",
+      "0020_submissions_bounce_message",
+      "0021_submissions_bounce_ack_at",
+      "0022_deadletter_abandoned_at",
+      "0023_deadletter_abandoned_by",
+      "0024_deadletter_abandoned_reason",
+      "0025_prospect_audits_chosen_terms",
+      "0026_prospect_audits_chosen_questions",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -59,6 +68,15 @@ describe("runMigrations", () => {
       "0015_prospect_audits_overrides",
       "0016_prospect_audits_edited_at",
       "0017_prospect_audits_opened_at",
+      "0018_submissions_bounce_type",
+      "0019_submissions_bounce_subtype",
+      "0020_submissions_bounce_message",
+      "0021_submissions_bounce_ack_at",
+      "0022_deadletter_abandoned_at",
+      "0023_deadletter_abandoned_by",
+      "0024_deadletter_abandoned_reason",
+      "0025_prospect_audits_chosen_terms",
+      "0026_prospect_audits_chosen_questions",
     ]);
   });
 
@@ -98,6 +116,15 @@ describe("runMigrations", () => {
       "0015_prospect_audits_overrides",
       "0016_prospect_audits_edited_at",
       "0017_prospect_audits_opened_at",
+      "0018_submissions_bounce_type",
+      "0019_submissions_bounce_subtype",
+      "0020_submissions_bounce_message",
+      "0021_submissions_bounce_ack_at",
+      "0022_deadletter_abandoned_at",
+      "0023_deadletter_abandoned_by",
+      "0024_deadletter_abandoned_reason",
+      "0025_prospect_audits_chosen_terms",
+      "0026_prospect_audits_chosen_questions",
     ]);
   });
 
@@ -140,6 +167,15 @@ describe("runMigrations", () => {
       "0015_prospect_audits_overrides",
       "0016_prospect_audits_edited_at",
       "0017_prospect_audits_opened_at",
+      "0018_submissions_bounce_type",
+      "0019_submissions_bounce_subtype",
+      "0020_submissions_bounce_message",
+      "0021_submissions_bounce_ack_at",
+      "0022_deadletter_abandoned_at",
+      "0023_deadletter_abandoned_by",
+      "0024_deadletter_abandoned_reason",
+      "0025_prospect_audits_chosen_terms",
+      "0026_prospect_audits_chosen_questions",
     ]);
   });
 });

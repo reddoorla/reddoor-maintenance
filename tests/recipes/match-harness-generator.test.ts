@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -79,6 +80,36 @@ describe("match-harness generator agrees with the committed template", () => {
 });
 
 /**
+ * The installed rules must name every gate the recipe installs. `census.sh` —
+ * the Phase 3 style gate, the only one that catches an 11px footer line or a
+ * cyan-vs-teal link the pixel diff is structurally blind to — was installed by
+ * the recipe and named by no rule, no Check line and no round-protocol step, so
+ * a fresh site had no instruction that would cause anyone to run it (#736).
+ */
+describe("the installed CLAUDE.md block names census.sh", () => {
+  it("as a Check on rule 4 and as a round-protocol step between the gate and the LEDGER", () => {
+    const rule4 = CLAUDE_MD_BLOCK.slice(
+      CLAUDE_MD_BLOCK.indexOf("### 4."),
+      CLAUDE_MD_BLOCK.indexOf("### 5."),
+    );
+    expect(rule4).toMatch(/\*\*Check:\*\*[^\n]*census\.sh/);
+
+    const protocol = CLAUDE_MD_BLOCK.slice(CLAUDE_MD_BLOCK.indexOf("### Round protocol"));
+    const steps = protocol.split(/\n(?=\d+\. )/).filter((s) => /^\d+\. /.test(s));
+    const at = (re: RegExp) => steps.findIndex((s) => re.test(s));
+    const gate = at(/matching\/gate\.sh/);
+    const census = at(/matching\/census\.sh/);
+    const ledger = at(/matching\/LEDGER\.md/);
+    expect(gate).toBeGreaterThanOrEqual(0);
+    expect(census, "no round-protocol step runs census.sh").toBeGreaterThanOrEqual(0);
+    expect(census).toBe(gate + 1);
+    expect(ledger).toBe(census + 1);
+    // Numbered contiguously after the insertion.
+    expect(steps.map((s) => s.match(/^(\d+)\. /)![1])).toEqual(steps.map((_, i) => String(i + 1)));
+  });
+});
+
+/**
  * MATCH_HARNESS_PREVIOUS is what lets an ALREADY-INSTALLED site take a fix: a
  * body that does not byte-match one of these is flagged as hand-edited and left
  * broken. A corrupted entry is therefore silent in the worst way — it does not
@@ -125,10 +156,153 @@ describe("MATCH_HARNESS_PREVIOUS matches the committed prior renders", () => {
     expect(MATCH_HARNESS_COUPLED.length).toBeGreaterThan(0);
     for (const rel of MATCH_HARNESS_COUPLED)
       expect(rels, `${rel} is not an installed file`).toContain(rel);
-    // Every file that CHANGED in this release must be in the set — an upgraded
-    // script outside it could move alone.
-    for (const rel of Object.keys(MATCH_HARNESS_PREVIOUS)) {
+    // Every matching/ SCRIPT that CHANGED in this release must be in the set —
+    // an upgraded script outside it could move alone. Scoped to `matching/`:
+    // the recipe-owned files under src/ (the /dev/match route and the fixture
+    // test) neither import nor invoke harness.mjs, so a correction to one of
+    // them is free to land alone (#763 was the first).
+    for (const rel of Object.keys(MATCH_HARNESS_PREVIOUS).filter((r) =>
+      r.startsWith("matching/"),
+    )) {
       expect(MATCH_HARNESS_COUPLED, `${rel} changed but is not coupled`).toContain(rel);
     }
+  });
+});
+
+/**
+ * The harness's prose must not name a `reddoor-maint` command the CLI does not
+ * have. Two installed files told the operator to run `reddoor-maint
+ * prismic-seed` — which was never written — and on 29-navy that read as "the
+ * content is one command away from live" through a full phase of work (#763).
+ * Same class as #732 (prose naming `matching/probe-anchor-parity.mjs`, which the
+ * recipe does not install): the harness describing a tool it does not ship.
+ *
+ * The registered command list is read from `src/cli/bin.ts` itself, so a
+ * command renamed there redlines every template that still names the old one.
+ */
+describe("every `reddoor-maint <cmd>` the harness names is a command bin.ts registers", () => {
+  const binPath = resolve(here, "../../src/cli/bin.ts");
+
+  async function registeredCommands(): Promise<Set<string>> {
+    const src = await readFile(binPath, "utf-8");
+    // `.command("name [site]", …)` — the first token of the first string
+    // argument, across the single-line and the multi-line call shapes.
+    const names = [...src.matchAll(/\.command\(\s*"([a-z][a-z0-9-]*)/g)].map((m) => m[1]!);
+    return new Set(names);
+  }
+
+  /** Every `reddoor-maint <cmd>` reference in a body. A reference may wrap
+   *  across a comment line (`reddoor-maint\n// prismic-seed` — the exact shape
+   *  the route file carried), so the gap may hold whitespace and comment
+   *  leaders; a bare `reddoor-maint` followed by a backtick or punctuation is
+   *  not a command reference. */
+  function namedCommands(body: string): string[] {
+    return [...body.matchAll(/reddoor-maint[\s/#*]+([a-z][a-z0-9-]*)/g)].map((m) => m[1]!);
+  }
+
+  it("the instrument reads real data: bin.ts registers match-harness, and the harness names it", async () => {
+    const commands = await registeredCommands();
+    expect(commands.size).toBeGreaterThan(20);
+    expect(commands).toContain("match-harness");
+    expect(commands).toContain("launch");
+    // The extractor finds a reference in the shipped prose, so an empty scan
+    // could not pass the case below vacuously.
+    const bodies = [
+      ...MATCH_HARNESS_FILES.map((f) => f.template),
+      GITIGNORE_BLOCK,
+      PRETTIERIGNORE_BLOCK,
+      CLAUDE_MD_BLOCK,
+    ];
+    expect(bodies.flatMap(namedCommands)).toContain("match-harness");
+    // And it catches the wrapped shape the route file shipped with.
+    expect(namedCommands("renders what `reddoor-maint\n// prismic-seed` publishes")).toEqual([
+      "prismic-seed",
+    ]);
+  });
+
+  it("names no command the CLI does not register", async () => {
+    const commands = await registeredCommands();
+    const offenders: string[] = [];
+    for (const f of MATCH_HARNESS_FILES)
+      for (const cmd of namedCommands(f.template))
+        if (!commands.has(cmd)) offenders.push(`${f.rel}: reddoor-maint ${cmd}`);
+    for (const [name, block] of [
+      ["GITIGNORE_BLOCK", GITIGNORE_BLOCK],
+      ["PRETTIERIGNORE_BLOCK", PRETTIERIGNORE_BLOCK],
+      ["CLAUDE_MD_BLOCK", CLAUDE_MD_BLOCK],
+    ] as const)
+      for (const cmd of namedCommands(block))
+        if (!commands.has(cmd)) offenders.push(`${name}: reddoor-maint ${cmd}`);
+    expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * The SEVEN COPIED constants had no guard at all (#738 item 1). Their source is
+ * a client repo that does not exist in CI, so a hand edit to one of them in
+ * `template.ts` was invisible — and the file's own header tells readers to
+ * regenerate, which SILENTLY REVERTS the edit. That is not hypothetical: three
+ * corrections were applied to `template.ts` alone and one regeneration undid
+ * all three.
+ *
+ * `scripts/match-harness-bodies.sha256` is the half of the guard that needs no
+ * checkout: a digest of every shipped body, written by the generator in the
+ * same run that writes `template.ts`. A hand edit changes a body and not its
+ * digest, and this reddens; a legitimate regeneration rewrites both together.
+ *
+ * It covers all seventeen shipped bodies, not only the seven copied ones —
+ * the AUTHORED FILE bodies (the /dev/match route, the fixture test, the site
+ * stubs) were equally unguarded. Only the three authored BLOCKS had a check,
+ * at the top of this file.
+ *
+ * The digest is taken over the RAW body, which is the identical string on both
+ * sides: `body` in the generator, `MATCH_HARNESS_FILES[].template` here.
+ * Neither side re-derives the generator's backtick/`${` escaping, so this
+ * cannot fail for a reason that is really about escaping.
+ */
+describe("every shipped body matches its committed digest", () => {
+  const manifestPath = resolve(here, "../../scripts/match-harness-bodies.sha256");
+  const digest = (body: string) => createHash("sha256").update(body, "utf-8").digest("hex");
+
+  async function manifest(): Promise<Map<string, string>> {
+    const text = await readFile(manifestPath, "utf-8");
+    const rows = new Map<string, string>();
+    for (const line of text.split("\n")) {
+      if (line.trim() === "" || line.startsWith("#")) continue;
+      const m = /^([0-9a-f]{64}) {2}(.+)$/.exec(line);
+      if (!m) throw new Error(`unparseable digest line: ${line}`);
+      rows.set(m[2]!, m[1]!);
+    }
+    return rows;
+  }
+
+  it("covers every installed file, and names none the recipe does not install", async () => {
+    // Both directions: a body added to the manifest without being installed is
+    // as wrong as an installed one with no digest, and the second is how this
+    // guard would quietly stop covering a file.
+    const rows = await manifest();
+    expect([...rows.keys()].sort()).toEqual([...MATCH_HARNESS_FILES.map((f) => f.rel)].sort());
+  });
+
+  it("the digest recorded for each body is the digest of the committed body", async () => {
+    const rows = await manifest();
+    const wrong: string[] = [];
+    for (const f of MATCH_HARNESS_FILES) {
+      if (rows.get(f.rel) !== digest(f.template)) wrong.push(f.rel);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("the instrument reads real data: one byte changes the digest", async () => {
+    // A manifest that came back empty, or a digest function returning a
+    // constant, would satisfy the `for` loop above vacuously — the same
+    // silent-miss shape the authored-block cases guard against, one level up.
+    const rows = await manifest();
+    expect(rows.size).toBe(MATCH_HARNESS_FILES.length);
+    expect(rows.size).toBeGreaterThan(15);
+
+    const f = MATCH_HARNESS_FILES[0]!;
+    expect(rows.get(f.rel)).toBe(digest(f.template));
+    expect(rows.get(f.rel)).not.toBe(digest(`${f.template}\n`));
   });
 });

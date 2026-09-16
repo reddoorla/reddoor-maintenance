@@ -1,0 +1,3226 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "files": 3387,
+  "prompts": 4768,
+  "tools": 93830,
+  "agentResults": 344,
+  "interrupts": 131,
+  "agents": 353,
+  "notifications": 531,
+  "classes": {
+    "fanout": {
+      "byKind": {
+        "continue-after-block": {
+          "candidates": 11,
+          "cost": {
+            "requests": 1199,
+            "in": 37908,
+            "out": 1504133,
+            "cacheCreate": 10169023,
+            "cacheRead": 170570637
+          }
+        },
+        "orphaned-agent": {
+          "candidates": 13,
+          "cost": {
+            "requests": 654,
+            "in": 1518,
+            "out": 433849,
+            "cacheCreate": 2188939,
+            "cacheRead": 86786915,
+            "agentTotal": 89411221
+          }
+        },
+        "spend-after-stop": {
+          "candidates": 4,
+          "cost": {
+            "requests": 21,
+            "in": 166,
+            "out": 8667,
+            "cacheCreate": 84106,
+            "cacheRead": 1825101
+          }
+        },
+        "same-turn-many-sessions": {
+          "candidates": 8,
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0
+          }
+        }
+      },
+      "candidates": [
+        {
+          "kind": "continue-after-block",
+          "sessionId": "4fc94047-696b-4e53-849b-047a6943ffa6",
+          "repo": "songbook",
+          "ts": "2026-08-25T01:34:31.962Z",
+          "window": {
+            "from": "2026-08-25T01:34:31.962Z",
+            "to": "2026-08-25T03:21:24.320Z"
+          },
+          "cost": {
+            "requests": 310,
+            "in": 620,
+            "out": 466241,
+            "cacheCreate": 2499208,
+            "cacheRead": 14043523
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T20:14:09.037Z",
+          "window": {
+            "from": "2026-08-24T20:14:09.037Z",
+            "to": "2026-08-24T22:03:07.821Z"
+          },
+          "cost": {
+            "requests": 208,
+            "in": 416,
+            "out": 240038,
+            "cacheCreate": 1329419,
+            "cacheRead": 25219090
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "3384a925-2b39-4825-a43c-c31d00401414",
+          "repo": "vida-legacy-foundation",
+          "ts": "2026-09-02T18:29:48.825Z",
+          "window": {
+            "from": "2026-09-02T18:29:48.825Z",
+            "to": "2026-09-02T21:47:26.801Z"
+          },
+          "cost": {
+            "requests": 28,
+            "in": 2445,
+            "out": 140362,
+            "cacheCreate": 644465,
+            "cacheRead": 14746007
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "6257e022-dcea-403a-803b-31ce4a7a6e3e",
+          "repo": "reddoor-website",
+          "ts": "2026-09-05T23:28:53.329Z",
+          "window": {
+            "from": "2026-09-05T23:28:53.329Z",
+            "to": "2026-09-06T03:29:51.916Z"
+          },
+          "cost": {
+            "requests": 210,
+            "in": 5974,
+            "out": 131456,
+            "cacheCreate": 1904780,
+            "cacheRead": 13420126
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T01:32:48.231Z",
+          "window": {
+            "from": "2026-08-25T01:32:48.231Z",
+            "to": "2026-08-25T03:21:29.269Z"
+          },
+          "cost": {
+            "requests": 121,
+            "in": 242,
+            "out": 129329,
+            "cacheCreate": 1437360,
+            "cacheRead": 15283185
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "5a73f238-5ad6-40d1-8612-5ba8d908005a",
+          "repo": "Broken",
+          "ts": "2026-09-02T18:28:04.935Z",
+          "window": {
+            "from": "2026-09-02T18:28:04.935Z",
+            "to": "2026-09-02T21:47:19.543Z"
+          },
+          "cost": {
+            "requests": 40,
+            "in": 21898,
+            "out": 98686,
+            "cacheCreate": 477317,
+            "cacheRead": 15839776
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T20:21:22.320Z",
+          "window": {
+            "from": "2026-08-24T20:21:22.320Z",
+            "to": "2026-08-24T22:03:19.406Z"
+          },
+          "cost": {
+            "requests": 38,
+            "in": 76,
+            "out": 93814,
+            "cacheCreate": 179196,
+            "cacheRead": 5744376
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "f5a358f1-92e7-4a55-9f4c-aa1db57c4eb1",
+          "repo": "reddoor-website",
+          "ts": "2026-09-02T18:29:42.304Z",
+          "window": {
+            "from": "2026-09-02T18:29:42.304Z",
+            "to": "2026-09-02T21:47:37.218Z"
+          },
+          "cost": {
+            "requests": 19,
+            "in": 4667,
+            "out": 82100,
+            "cacheCreate": 503148,
+            "cacheRead": 8333522
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:15:35.851Z",
+          "window": {
+            "from": "2026-08-24T23:15:35.851Z",
+            "to": "2026-08-24T23:52:07.683Z"
+          },
+          "cost": {
+            "requests": 95,
+            "in": 190,
+            "out": 70779,
+            "cacheCreate": 269048,
+            "cacheRead": 16161654,
+            "agentTotal": 16501671
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-24T20:37:18.678Z",
+          "window": {
+            "from": "2026-08-24T20:37:18.678Z",
+            "to": "2026-08-24T22:04:08.195Z"
+          },
+          "cost": {
+            "requests": 125,
+            "in": 250,
+            "out": 69496,
+            "cacheCreate": 665815,
+            "cacheRead": 39141200
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:15:20.140Z",
+          "window": {
+            "from": "2026-08-24T23:15:20.140Z",
+            "to": "2026-08-24T23:52:07.128Z"
+          },
+          "cost": {
+            "requests": 103,
+            "in": 206,
+            "out": 69311,
+            "cacheCreate": 239141,
+            "cacheRead": 16596997,
+            "agentTotal": 16905655
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:17:20.699Z",
+          "window": {
+            "from": "2026-08-24T23:17:20.699Z",
+            "to": "2026-08-24T23:52:08.560Z"
+          },
+          "cost": {
+            "requests": 95,
+            "in": 190,
+            "out": 58379,
+            "cacheCreate": 224723,
+            "cacheRead": 14150971,
+            "agentTotal": 14434263
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:17:44.180Z",
+          "window": {
+            "from": "2026-08-24T23:17:44.180Z",
+            "to": "2026-08-24T23:52:09.245Z"
+          },
+          "cost": {
+            "requests": 123,
+            "in": 246,
+            "out": 52678,
+            "cacheCreate": 196221,
+            "cacheRead": 15061009,
+            "agentTotal": 15310154
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:17:31.512Z",
+          "window": {
+            "from": "2026-08-24T23:17:31.512Z",
+            "to": "2026-08-24T23:52:09.315Z"
+          },
+          "cost": {
+            "requests": 93,
+            "in": 186,
+            "out": 46526,
+            "cacheCreate": 198915,
+            "cacheRead": 11534910,
+            "agentTotal": 11780537
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:27:36.828Z",
+          "window": {
+            "from": "2026-08-24T23:27:36.828Z",
+            "to": "2026-08-24T23:52:09.704Z"
+          },
+          "cost": {
+            "requests": 76,
+            "in": 152,
+            "out": 45246,
+            "cacheCreate": 212021,
+            "cacheRead": 9118678,
+            "agentTotal": 9376097
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "88807007-12b0-40c3-8360-a98724dfd04b",
+          "repo": "beachfront-dentistry",
+          "ts": "2026-08-24T20:13:24.021Z",
+          "window": {
+            "from": "2026-08-24T20:13:24.021Z",
+            "to": "2026-08-24T22:03:52.563Z"
+          },
+          "cost": {
+            "requests": 88,
+            "in": 400,
+            "out": 43064,
+            "cacheCreate": 367583,
+            "cacheRead": 16831231
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "4566f58b-e032-432f-b593-9c756a12a87b",
+          "repo": "welcome-to-the-flower-court",
+          "ts": "2026-09-05T23:16:37.169Z",
+          "window": {
+            "from": "2026-09-05T23:16:37.169Z",
+            "to": "2026-09-05T23:27:26.946Z"
+          },
+          "cost": {
+            "requests": 8,
+            "in": 226,
+            "out": 28515,
+            "cacheCreate": 136148,
+            "cacheRead": 536139,
+            "agentTotal": 701028
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T07:22:25.634Z",
+          "window": {
+            "from": "2026-09-09T07:22:25.634Z",
+            "to": "2026-09-09T13:00:59.953Z"
+          },
+          "cost": {
+            "requests": 25,
+            "in": 50,
+            "out": 26548,
+            "cacheCreate": 389548,
+            "cacheRead": 1653505,
+            "agentTotal": 2069651
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T20:11:12.084Z",
+          "window": {
+            "from": "2026-08-24T20:11:12.084Z",
+            "to": "2026-08-24T20:14:08.011Z"
+          },
+          "cost": {
+            "requests": 9,
+            "in": 18,
+            "out": 11966,
+            "cacheCreate": 63236,
+            "cacheRead": 515696,
+            "agentTotal": 590916
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T20:10:23.932Z",
+          "window": {
+            "from": "2026-08-24T20:10:23.932Z",
+            "to": "2026-08-24T20:13:13.556Z"
+          },
+          "cost": {
+            "requests": 9,
+            "in": 18,
+            "out": 11353,
+            "cacheCreate": 70309,
+            "cacheRead": 579593,
+            "agentTotal": 661273
+          }
+        },
+        {
+          "kind": "continue-after-block",
+          "sessionId": "4cd3d84c-36f3-4c54-bd25-58976328cc3f",
+          "repo": "beachfront-dentistry",
+          "ts": "2026-09-03T00:34:38.308Z",
+          "window": {
+            "from": "2026-09-03T00:34:38.308Z",
+            "to": "2026-09-03T02:40:09.303Z"
+          },
+          "cost": {
+            "requests": 12,
+            "in": 920,
+            "out": 9547,
+            "cacheCreate": 160732,
+            "cacheRead": 1968601
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T20:10:37.269Z",
+          "window": {
+            "from": "2026-08-24T20:10:37.269Z",
+            "to": "2026-08-24T20:12:58.880Z"
+          },
+          "cost": {
+            "requests": 5,
+            "in": 10,
+            "out": 9410,
+            "cacheCreate": 66010,
+            "cacheRead": 276216,
+            "agentTotal": 351646
+          }
+        },
+        {
+          "kind": "spend-after-stop",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-26T20:16:07.577Z",
+          "window": {
+            "from": "2026-08-26T20:16:07.577Z",
+            "to": "2026-08-26T20:21:30.880Z"
+          },
+          "cost": {
+            "requests": 16,
+            "in": 156,
+            "out": 6943,
+            "cacheCreate": 73425,
+            "cacheRead": 650888
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "d2b6a2f6-11de-427a-980c-0cefc80d9fdb",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-09-11T01:18:26.636Z",
+          "window": {
+            "from": "2026-09-11T01:18:26.636Z",
+            "to": "2026-09-11T03:42:40.491Z"
+          },
+          "cost": {
+            "requests": 5,
+            "in": 10,
+            "out": 2252,
+            "cacheCreate": 55740,
+            "cacheRead": 267997,
+            "agentTotal": 325999
+          }
+        },
+        {
+          "kind": "spend-after-stop",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:50:36.701Z",
+          "window": {
+            "from": "2026-08-24T23:50:36.701Z",
+            "to": "2026-08-24T23:50:44.575Z"
+          },
+          "cost": {
+            "requests": 1,
+            "in": 2,
+            "out": 1191,
+            "cacheCreate": 2033,
+            "cacheRead": 230667
+          }
+        },
+        {
+          "kind": "orphaned-agent",
+          "sessionId": "3384a925-2b39-4825-a43c-c31d00401414",
+          "repo": "vida-legacy-foundation",
+          "ts": "2026-09-02T18:26:35.560Z",
+          "window": {
+            "from": "2026-09-02T18:26:35.560Z",
+            "to": "2026-09-02T18:27:42.673Z"
+          },
+          "cost": {
+            "requests": 8,
+            "in": 16,
+            "out": 886,
+            "cacheCreate": 67879,
+            "cacheRead": 333550,
+            "agentTotal": 402331
+          }
+        },
+        {
+          "kind": "spend-after-stop",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:51:55.603Z",
+          "window": {
+            "from": "2026-08-24T23:51:55.603Z",
+            "to": "2026-08-24T23:53:03.295Z"
+          },
+          "cost": {
+            "requests": 3,
+            "in": 6,
+            "out": 523,
+            "cacheCreate": 7051,
+            "cacheRead": 759123
+          }
+        },
+        {
+          "kind": "spend-after-stop",
+          "sessionId": "cb4a3de7-c798-4396-aef6-3264490cafa5",
+          "repo": "gallerysonder",
+          "ts": "2026-08-31T17:49:31.614Z",
+          "window": {
+            "from": "2026-08-31T17:49:31.614Z",
+            "to": "2026-08-31T18:00:40.898Z"
+          },
+          "cost": {
+            "requests": 1,
+            "in": 2,
+            "out": 10,
+            "cacheCreate": 1597,
+            "cacheRead": 184423
+          }
+        },
+        {
+          "kind": "same-turn-many-sessions",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T21:33:18.441Z",
+          "window": {
+            "from": "2026-08-24T21:33:18.441Z",
+            "to": "2026-08-24T21:33:46.681Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0
+          }
+        },
+        {
+          "kind": "same-turn-many-sessions",
+          "sessionId": "4fc94047-696b-4e53-849b-047a6943ffa6",
+          "repo": "songbook",
+          "ts": "2026-08-25T15:48:04.807Z",
+          "window": {
+            "from": "2026-08-25T15:48:04.807Z",
+            "to": "2026-08-25T15:49:37.550Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0
+          }
+        },
+        {
+          "kind": "same-turn-many-sessions",
+          "sessionId": "8c12e2ef-6249-4ff4-894d-fefb1a82bf4b",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-31T22:19:28.089Z",
+          "window": {
+            "from": "2026-08-31T22:19:28.089Z",
+            "to": "2026-08-31T22:19:42.782Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0
+          }
+        },
+        {
+          "kind": "same-turn-many-sessions",
+          "sessionId": "f5a358f1-92e7-4a55-9f4c-aa1db57c4eb1",
+          "repo": "reddoor-website",
+          "ts": "2026-09-01T05:07:14.537Z",
+          "window": {
+            "from": "2026-09-01T05:07:14.537Z",
+            "to": "2026-09-01T05:07:35.164Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0
+          }
+        },
+        {
+          "kind": "same-turn-many-sessions",
+          "sessionId": "5a73f238-5ad6-40d1-8612-5ba8d908005a",
+          "repo": "Broken",
+          "ts": "2026-09-02T21:17:19.543Z",
+          "window": {
+            "from": "2026-09-02T21:17:19.543Z",
+            "to": "2026-09-02T21:17:37.218Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0
+          }
+        },
+        {
+          "kind": "same-turn-many-sessions",
+          "sessionId": "a55e35eb-8ceb-4f27-9915-7fc384fa25b1",
+          "repo": "octagonal-led-turn-counter",
+          "ts": "2026-09-04T21:49:59.119Z",
+          "window": {
+            "from": "2026-09-04T21:49:59.119Z",
+            "to": "2026-09-04T21:50:38.100Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0
+          }
+        },
+        {
+          "kind": "same-turn-many-sessions",
+          "sessionId": "6257e022-dcea-403a-803b-31ce4a7a6e3e",
+          "repo": "reddoor-website",
+          "ts": "2026-09-05T21:37:44.352Z",
+          "window": {
+            "from": "2026-09-05T21:37:44.352Z",
+            "to": "2026-09-05T21:39:25.502Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0
+          }
+        },
+        {
+          "kind": "same-turn-many-sessions",
+          "sessionId": "6257e022-dcea-403a-803b-31ce4a7a6e3e",
+          "repo": "reddoor-website",
+          "ts": "2026-09-05T21:38:37.576Z",
+          "window": {
+            "from": "2026-09-05T21:38:37.576Z",
+            "to": "2026-09-05T21:39:12.373Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0
+          }
+        }
+      ]
+    },
+    "redo": {
+      "byKind": {
+        "reread-after-compaction": {
+          "candidates": 19,
+          "cost": {
+            "requests": 2459,
+            "in": 11237,
+            "out": 2340602,
+            "cacheCreate": 5136841,
+            "cacheRead": 499600021
+          }
+        },
+        "duplicate-agent-prompt": {
+          "candidates": 100,
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 4557286
+          }
+        }
+      },
+      "candidates": [
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-18T22:27:13.451Z",
+          "window": {
+            "from": "2026-08-18T22:27:13.451Z",
+            "to": "2026-08-18T23:27:13.451Z"
+          },
+          "cost": {
+            "requests": 94,
+            "in": 188,
+            "out": 188976,
+            "cacheCreate": 303661,
+            "cacheRead": 17695716
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "e83b35c6-2ecb-492d-8de8-3bd50652daf9",
+          "repo": "Broken",
+          "ts": "2026-08-31T22:40:32.953Z",
+          "window": {
+            "from": "2026-08-31T22:40:32.953Z",
+            "to": "2026-08-31T23:40:32.953Z"
+          },
+          "cost": {
+            "requests": 151,
+            "in": 302,
+            "out": 158906,
+            "cacheCreate": 340568,
+            "cacheRead": 35205151
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "4fc94047-696b-4e53-849b-047a6943ffa6",
+          "repo": "songbook",
+          "ts": "2026-08-25T19:00:10.470Z",
+          "window": {
+            "from": "2026-08-25T19:00:10.470Z",
+            "to": "2026-08-25T20:00:10.470Z"
+          },
+          "cost": {
+            "requests": 234,
+            "in": 468,
+            "out": 156072,
+            "cacheCreate": 297319,
+            "cacheRead": 46341933
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-25T18:56:52.458Z",
+          "window": {
+            "from": "2026-08-25T18:56:52.458Z",
+            "to": "2026-08-25T19:56:52.458Z"
+          },
+          "cost": {
+            "requests": 155,
+            "in": 310,
+            "out": 153332,
+            "cacheCreate": 301970,
+            "cacheRead": 33796072
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "432e8c1f-bc1a-4932-9a6f-f0292df88dd0",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-25T22:33:02.733Z",
+          "window": {
+            "from": "2026-08-25T22:33:02.733Z",
+            "to": "2026-08-25T23:33:02.733Z"
+          },
+          "cost": {
+            "requests": 264,
+            "in": 528,
+            "out": 152019,
+            "cacheCreate": 335972,
+            "cacheRead": 60112773
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-26T23:57:30.103Z",
+          "window": {
+            "from": "2026-08-26T23:57:30.103Z",
+            "to": "2026-08-27T00:57:30.103Z"
+          },
+          "cost": {
+            "requests": 146,
+            "in": 292,
+            "out": 147332,
+            "cacheCreate": 318707,
+            "cacheRead": 36109777
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-27T00:14:28.686Z",
+          "window": {
+            "from": "2026-08-27T00:14:28.686Z",
+            "to": "2026-08-27T01:14:28.686Z"
+          },
+          "cost": {
+            "requests": 125,
+            "in": 250,
+            "out": 141770,
+            "cacheCreate": 378111,
+            "cacheRead": 30617643
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-25T22:25:43.586Z",
+          "window": {
+            "from": "2026-08-25T22:25:43.586Z",
+            "to": "2026-08-25T23:25:43.586Z"
+          },
+          "cost": {
+            "requests": 109,
+            "in": 218,
+            "out": 141141,
+            "cacheCreate": 273151,
+            "cacheRead": 25210324
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-26T15:16:08.287Z",
+          "window": {
+            "from": "2026-08-26T15:16:08.287Z",
+            "to": "2026-08-26T16:16:08.287Z"
+          },
+          "cost": {
+            "requests": 110,
+            "in": 220,
+            "out": 132704,
+            "cacheCreate": 272050,
+            "cacheRead": 21284944
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-19T21:53:21.177Z",
+          "window": {
+            "from": "2026-08-19T21:53:21.177Z",
+            "to": "2026-08-19T22:53:21.177Z"
+          },
+          "cost": {
+            "requests": 160,
+            "in": 320,
+            "out": 132615,
+            "cacheCreate": 308033,
+            "cacheRead": 34239588
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-27T02:08:11.777Z",
+          "window": {
+            "from": "2026-08-27T02:08:11.777Z",
+            "to": "2026-08-27T03:08:11.777Z"
+          },
+          "cost": {
+            "requests": 180,
+            "in": 360,
+            "out": 131880,
+            "cacheCreate": 514789,
+            "cacheRead": 36204259
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "432e8c1f-bc1a-4932-9a6f-f0292df88dd0",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-26T15:07:36.732Z",
+          "window": {
+            "from": "2026-08-26T15:07:36.732Z",
+            "to": "2026-08-26T16:07:36.732Z"
+          },
+          "cost": {
+            "requests": 252,
+            "in": 504,
+            "out": 126815,
+            "cacheCreate": 305061,
+            "cacheRead": 54946249
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "5f3eb023-f1c7-4961-bdb2-0bf691d33bef",
+          "repo": "octagonal-led-turn-counter",
+          "ts": "2026-08-16T18:41:01.233Z",
+          "window": {
+            "from": "2026-08-16T18:41:01.233Z",
+            "to": "2026-08-16T19:41:01.233Z"
+          },
+          "cost": {
+            "requests": 85,
+            "in": 170,
+            "out": 110193,
+            "cacheCreate": 193066,
+            "cacheRead": 14744233
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "accd6bd5-a461-4764-92f9-24ab4bb9ea7f",
+          "repo": "reddoor-website",
+          "ts": "2026-08-16T19:37:34.541Z",
+          "window": {
+            "from": "2026-08-16T19:37:34.541Z",
+            "to": "2026-08-16T20:37:34.541Z"
+          },
+          "cost": {
+            "requests": 121,
+            "in": 242,
+            "out": 103073,
+            "cacheCreate": 189391,
+            "cacheRead": 17278969
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "accd6bd5-a461-4764-92f9-24ab4bb9ea7f",
+          "repo": "reddoor-website",
+          "ts": "2026-08-16T23:32:24.989Z",
+          "window": {
+            "from": "2026-08-16T23:32:24.989Z",
+            "to": "2026-08-17T00:32:24.989Z"
+          },
+          "cost": {
+            "requests": 89,
+            "in": 178,
+            "out": 99637,
+            "cacheCreate": 174151,
+            "cacheRead": 12649449
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "28add6be-aea7-415d-a9a4-df932ac94ad6",
+          "repo": "reddoor-website",
+          "ts": "2026-08-17T19:41:30.703Z",
+          "window": {
+            "from": "2026-08-17T19:41:30.703Z",
+            "to": "2026-08-17T20:41:30.703Z"
+          },
+          "cost": {
+            "requests": 53,
+            "in": 2233,
+            "out": 91520,
+            "cacheCreate": 204651,
+            "cacheRead": 8059316
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "28add6be-aea7-415d-a9a4-df932ac94ad6",
+          "repo": "reddoor-website",
+          "ts": "2026-08-17T23:39:49.044Z",
+          "window": {
+            "from": "2026-08-17T23:39:49.044Z",
+            "to": "2026-08-18T00:39:49.044Z"
+          },
+          "cost": {
+            "requests": 46,
+            "in": 92,
+            "out": 69936,
+            "cacheCreate": 139772,
+            "cacheRead": 4926731
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "e83b35c6-2ecb-492d-8de8-3bd50652daf9",
+          "repo": "Broken",
+          "ts": "2026-09-01T00:55:08.643Z",
+          "window": {
+            "from": "2026-09-01T00:55:08.643Z",
+            "to": "2026-09-01T01:55:08.643Z"
+          },
+          "cost": {
+            "requests": 38,
+            "in": 4268,
+            "out": 61118,
+            "cacheCreate": 167891,
+            "cacheRead": 4441822
+          }
+        },
+        {
+          "kind": "reread-after-compaction",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-26T19:43:13.839Z",
+          "window": {
+            "from": "2026-08-26T19:43:13.839Z",
+            "to": "2026-08-26T20:43:13.839Z"
+          },
+          "cost": {
+            "requests": 47,
+            "in": 94,
+            "out": 41563,
+            "cacheCreate": 118527,
+            "cacheRead": 5735072
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T00:57:20.796Z",
+          "window": {
+            "from": "2026-09-09T00:38:22.806Z",
+            "to": "2026-09-09T00:57:20.796Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T01:04:40.517Z",
+          "window": {
+            "from": "2026-09-09T00:47:48.565Z",
+            "to": "2026-09-09T01:04:40.517Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T01:57:41.804Z",
+          "window": {
+            "from": "2026-09-09T00:42:53.646Z",
+            "to": "2026-09-09T01:57:41.804Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T07:08:26.296Z",
+          "window": {
+            "from": "2026-09-09T06:54:51.764Z",
+            "to": "2026-09-09T07:08:26.296Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T07:22:22.138Z",
+          "window": {
+            "from": "2026-09-09T07:08:26.296Z",
+            "to": "2026-09-09T07:22:22.138Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T15:31:04.794Z",
+          "window": {
+            "from": "2026-09-09T07:08:26.296Z",
+            "to": "2026-09-09T15:31:04.794Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T16:05:37.858Z",
+          "window": {
+            "from": "2026-09-09T15:45:38.040Z",
+            "to": "2026-09-09T16:05:37.858Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T16:26:35.124Z",
+          "window": {
+            "from": "2026-09-09T16:05:37.858Z",
+            "to": "2026-09-09T16:26:35.124Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T16:49:54.378Z",
+          "window": {
+            "from": "2026-09-09T16:05:37.858Z",
+            "to": "2026-09-09T16:49:54.378Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T17:57:11.359Z",
+          "window": {
+            "from": "2026-09-09T17:35:33.743Z",
+            "to": "2026-09-09T17:57:11.359Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "99991f90-3a74-48aa-b0cb-5eb7d369683b",
+          "repo": "29-navy",
+          "ts": "2026-09-09T18:33:19.956Z",
+          "window": {
+            "from": "2026-09-09T17:57:11.359Z",
+            "to": "2026-09-09T18:33:19.956Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5a73f238-5ad6-40d1-8612-5ba8d908005a",
+          "repo": "Broken",
+          "ts": "2026-09-02T17:41:49.748Z",
+          "window": {
+            "from": "2026-09-02T17:41:23.333Z",
+            "to": "2026-09-02T17:41:49.748Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-18T23:31:47.541Z",
+          "window": {
+            "from": "2026-08-18T23:21:00.751Z",
+            "to": "2026-08-18T23:31:47.541Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-18T23:52:07.786Z",
+          "window": {
+            "from": "2026-08-18T23:31:47.541Z",
+            "to": "2026-08-18T23:52:07.786Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 61523
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-19T00:18:15.551Z",
+          "window": {
+            "from": "2026-08-18T23:48:54.201Z",
+            "to": "2026-08-19T00:18:15.551Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 130734
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-19T01:12:26.083Z",
+          "window": {
+            "from": "2026-08-19T00:18:15.551Z",
+            "to": "2026-08-19T01:12:26.083Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 97314
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-19T01:26:37.654Z",
+          "window": {
+            "from": "2026-08-19T01:05:28.874Z",
+            "to": "2026-08-19T01:26:37.654Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 209223
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-19T01:58:42.487Z",
+          "window": {
+            "from": "2026-08-19T00:18:15.551Z",
+            "to": "2026-08-19T01:58:42.487Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 199570
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-19T02:31:28.188Z",
+          "window": {
+            "from": "2026-08-19T01:58:42.487Z",
+            "to": "2026-08-19T02:31:28.188Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 126279
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-19T02:38:40.219Z",
+          "window": {
+            "from": "2026-08-19T01:58:42.487Z",
+            "to": "2026-08-19T02:38:40.219Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 185079
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-19T03:31:07.374Z",
+          "window": {
+            "from": "2026-08-19T02:38:40.219Z",
+            "to": "2026-08-19T03:31:07.374Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 197046
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-19T03:46:38.133Z",
+          "window": {
+            "from": "2026-08-19T02:38:40.219Z",
+            "to": "2026-08-19T03:46:38.133Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 186109
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "e83b35c6-2ecb-492d-8de8-3bd50652daf9",
+          "repo": "Broken",
+          "ts": "2026-08-31T23:22:09.684Z",
+          "window": {
+            "from": "2026-08-31T23:22:02.613Z",
+            "to": "2026-08-31T23:22:09.684Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "e83b35c6-2ecb-492d-8de8-3bd50652daf9",
+          "repo": "Broken",
+          "ts": "2026-08-31T23:22:16.891Z",
+          "window": {
+            "from": "2026-08-31T23:22:02.613Z",
+            "to": "2026-08-31T23:22:16.891Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "e83b35c6-2ecb-492d-8de8-3bd50652daf9",
+          "repo": "Broken",
+          "ts": "2026-09-01T05:09:17.613Z",
+          "window": {
+            "from": "2026-09-01T05:09:06.843Z",
+            "to": "2026-09-01T05:09:17.613Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "e83b35c6-2ecb-492d-8de8-3bd50652daf9",
+          "repo": "Broken",
+          "ts": "2026-09-01T05:09:18.141Z",
+          "window": {
+            "from": "2026-09-01T05:09:17.613Z",
+            "to": "2026-09-01T05:09:18.141Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "e83b35c6-2ecb-492d-8de8-3bd50652daf9",
+          "repo": "Broken",
+          "ts": "2026-09-01T06:07:23.197Z",
+          "window": {
+            "from": "2026-09-01T06:05:26.089Z",
+            "to": "2026-09-01T06:07:23.197Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "e83b35c6-2ecb-492d-8de8-3bd50652daf9",
+          "repo": "Broken",
+          "ts": "2026-09-01T06:09:00.342Z",
+          "window": {
+            "from": "2026-09-01T06:05:26.089Z",
+            "to": "2026-09-01T06:09:00.342Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T19:02:40.731Z",
+          "window": {
+            "from": "2026-08-24T19:02:27.967Z",
+            "to": "2026-08-24T19:02:40.731Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T19:02:52.028Z",
+          "window": {
+            "from": "2026-08-24T19:02:27.967Z",
+            "to": "2026-08-24T19:02:52.028Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T19:03:17.559Z",
+          "window": {
+            "from": "2026-08-24T19:03:04.800Z",
+            "to": "2026-08-24T19:03:17.559Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T19:03:28.838Z",
+          "window": {
+            "from": "2026-08-24T19:03:04.800Z",
+            "to": "2026-08-24T19:03:28.838Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T20:10:35.318Z",
+          "window": {
+            "from": "2026-08-24T20:10:21.852Z",
+            "to": "2026-08-24T20:10:35.318Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T20:10:49.434Z",
+          "window": {
+            "from": "2026-08-24T20:10:35.318Z",
+            "to": "2026-08-24T20:10:49.434Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T21:34:01.077Z",
+          "window": {
+            "from": "2026-08-24T21:33:49.020Z",
+            "to": "2026-08-24T21:34:01.077Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T21:34:11.884Z",
+          "window": {
+            "from": "2026-08-24T21:33:49.020Z",
+            "to": "2026-08-24T21:34:11.884Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T21:43:18.298Z",
+          "window": {
+            "from": "2026-08-24T21:42:28.662Z",
+            "to": "2026-08-24T21:43:18.298Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T22:13:16.458Z",
+          "window": {
+            "from": "2026-08-24T21:34:11.884Z",
+            "to": "2026-08-24T22:13:16.458Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T22:13:36.226Z",
+          "window": {
+            "from": "2026-08-24T22:13:16.458Z",
+            "to": "2026-08-24T22:13:36.226Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "04ebfa83-654f-4fc7-a814-113f3f020dad",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-24T22:13:54.579Z",
+          "window": {
+            "from": "2026-08-24T22:13:16.458Z",
+            "to": "2026-08-24T22:13:54.579Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "432e8c1f-bc1a-4932-9a6f-f0292df88dd0",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-25T18:40:09.083Z",
+          "window": {
+            "from": "2026-08-25T18:40:01.409Z",
+            "to": "2026-08-25T18:40:09.083Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "432e8c1f-bc1a-4932-9a6f-f0292df88dd0",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-25T18:40:17.653Z",
+          "window": {
+            "from": "2026-08-25T18:40:01.409Z",
+            "to": "2026-08-25T18:40:17.653Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "7edcf443-00eb-47b6-aaaf-f857cb2d93f8",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-09-14T17:50:02.517Z",
+          "window": {
+            "from": "2026-09-14T17:38:57.356Z",
+            "to": "2026-09-14T17:50:02.517Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "7edcf443-00eb-47b6-aaaf-f857cb2d93f8",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-09-14T18:06:20.429Z",
+          "window": {
+            "from": "2026-09-14T17:41:32.836Z",
+            "to": "2026-09-14T18:06:20.429Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "7edcf443-00eb-47b6-aaaf-f857cb2d93f8",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-09-14T18:35:22.679Z",
+          "window": {
+            "from": "2026-09-14T18:06:20.429Z",
+            "to": "2026-09-14T18:35:22.679Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "d2b6a2f6-11de-427a-980c-0cefc80d9fdb",
+          "repo": "reddoor-website",
+          "ts": "2026-09-10T02:25:49.431Z",
+          "window": {
+            "from": "2026-09-10T01:36:47.787Z",
+            "to": "2026-09-10T02:25:49.431Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "d2b6a2f6-11de-427a-980c-0cefc80d9fdb",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-09-10T02:49:06.966Z",
+          "window": {
+            "from": "2026-09-10T02:44:59.944Z",
+            "to": "2026-09-10T02:49:06.966Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "d2b6a2f6-11de-427a-980c-0cefc80d9fdb",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-09-10T23:06:34.658Z",
+          "window": {
+            "from": "2026-09-10T19:00:45.648Z",
+            "to": "2026-09-10T23:06:34.658Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "d2b6a2f6-11de-427a-980c-0cefc80d9fdb",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-09-11T01:18:24.026Z",
+          "window": {
+            "from": "2026-09-11T01:02:16.314Z",
+            "to": "2026-09-11T01:18:24.026Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5e11ae29-124b-4707-90c1-6f02b600874f",
+          "repo": "reddoor-starter",
+          "ts": "2026-09-08T22:40:10.749Z",
+          "window": {
+            "from": "2026-09-08T22:36:27.993Z",
+            "to": "2026-09-08T22:40:10.749Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 90243
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5e11ae29-124b-4707-90c1-6f02b600874f",
+          "repo": "reddoor-starter",
+          "ts": "2026-09-08T22:45:09.910Z",
+          "window": {
+            "from": "2026-09-08T22:40:10.749Z",
+            "to": "2026-09-08T22:45:09.910Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 113300
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5e11ae29-124b-4707-90c1-6f02b600874f",
+          "repo": "reddoor-starter",
+          "ts": "2026-09-08T22:53:46.015Z",
+          "window": {
+            "from": "2026-09-08T22:45:09.910Z",
+            "to": "2026-09-08T22:53:46.015Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 74433
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "5e11ae29-124b-4707-90c1-6f02b600874f",
+          "repo": "reddoor-starter",
+          "ts": "2026-09-08T22:58:35.403Z",
+          "window": {
+            "from": "2026-09-08T22:53:46.015Z",
+            "to": "2026-09-08T22:58:35.403Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "761cf3f4-289c-41d2-8deb-2e1dbc8aa79a",
+          "repo": "reddoor-starter",
+          "ts": "2026-09-01T06:20:35.976Z",
+          "window": {
+            "from": "2026-09-01T06:06:48.200Z",
+            "to": "2026-09-01T06:20:35.976Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "761cf3f4-289c-41d2-8deb-2e1dbc8aa79a",
+          "repo": "reddoor-starter",
+          "ts": "2026-09-01T06:28:59.023Z",
+          "window": {
+            "from": "2026-09-01T06:20:35.976Z",
+            "to": "2026-09-01T06:28:59.023Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "761cf3f4-289c-41d2-8deb-2e1dbc8aa79a",
+          "repo": "reddoor-starter",
+          "ts": "2026-09-01T06:34:55.698Z",
+          "window": {
+            "from": "2026-09-01T06:28:59.023Z",
+            "to": "2026-09-01T06:34:55.698Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f5a358f1-92e7-4a55-9f4c-aa1db57c4eb1",
+          "repo": "reddoor-website",
+          "ts": "2026-09-01T16:06:31.317Z",
+          "window": {
+            "from": "2026-09-01T16:06:09.143Z",
+            "to": "2026-09-01T16:06:31.317Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f5a358f1-92e7-4a55-9f4c-aa1db57c4eb1",
+          "repo": "reddoor-website",
+          "ts": "2026-09-01T16:06:52.288Z",
+          "window": {
+            "from": "2026-09-01T16:06:31.317Z",
+            "to": "2026-09-01T16:06:52.288Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T00:08:18.633Z",
+          "window": {
+            "from": "2026-08-25T00:01:45.348Z",
+            "to": "2026-08-25T00:08:18.633Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 104599
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T00:15:45.575Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T00:15:45.575Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 103884
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T00:21:10.799Z",
+          "window": {
+            "from": "2026-08-25T00:01:45.348Z",
+            "to": "2026-08-25T00:21:10.799Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 77399
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T00:27:01.356Z",
+          "window": {
+            "from": "2026-08-25T00:13:03.477Z",
+            "to": "2026-08-25T00:27:01.356Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 87316
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T00:29:53.338Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T00:29:53.338Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 121584
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T00:41:49.062Z",
+          "window": {
+            "from": "2026-08-25T00:21:10.799Z",
+            "to": "2026-08-25T00:41:49.062Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 79993
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T00:45:46.711Z",
+          "window": {
+            "from": "2026-08-25T00:13:03.477Z",
+            "to": "2026-08-25T00:45:46.711Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T00:46:59.342Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T00:46:59.342Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 98887
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T01:00:03.269Z",
+          "window": {
+            "from": "2026-08-25T00:21:10.799Z",
+            "to": "2026-08-25T01:00:03.269Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 109780
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T01:07:25.220Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T01:07:25.220Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 116437
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T01:24:44.323Z",
+          "window": {
+            "from": "2026-08-25T00:21:10.799Z",
+            "to": "2026-08-25T01:24:44.323Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 96729
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T01:28:20.609Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T01:28:20.609Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 97733
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T02:58:38.561Z",
+          "window": {
+            "from": "2026-08-25T00:21:10.799Z",
+            "to": "2026-08-25T02:58:38.561Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 85602
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T03:03:47.319Z",
+          "window": {
+            "from": "2026-08-25T00:21:10.799Z",
+            "to": "2026-08-25T03:03:47.319Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 145816
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T03:11:33.933Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T03:11:33.933Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 126276
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T03:21:53.154Z",
+          "window": {
+            "from": "2026-08-25T00:21:10.799Z",
+            "to": "2026-08-25T03:21:53.154Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 122161
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T03:29:05.011Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T03:29:05.011Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 125807
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T03:52:06.884Z",
+          "window": {
+            "from": "2026-08-25T00:21:10.799Z",
+            "to": "2026-08-25T03:52:06.884Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 125679
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T03:56:52.308Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T03:56:52.308Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 135659
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T04:10:40.171Z",
+          "window": {
+            "from": "2026-08-25T03:52:06.884Z",
+            "to": "2026-08-25T04:10:40.171Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 126458
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T04:18:03.848Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T04:18:03.848Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 132852
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T04:40:01.901Z",
+          "window": {
+            "from": "2026-08-25T03:52:06.884Z",
+            "to": "2026-08-25T04:40:01.901Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 131706
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T04:47:07.595Z",
+          "window": {
+            "from": "2026-08-25T03:52:06.884Z",
+            "to": "2026-08-25T04:47:07.595Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 79740
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T05:04:03.798Z",
+          "window": {
+            "from": "2026-08-25T03:52:06.884Z",
+            "to": "2026-08-25T05:04:03.798Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 101716
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T05:11:57.982Z",
+          "window": {
+            "from": "2026-08-25T00:04:19.560Z",
+            "to": "2026-08-25T05:11:57.982Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T07:00:51.337Z",
+          "window": {
+            "from": "2026-08-25T07:00:38.133Z",
+            "to": "2026-08-25T07:00:51.337Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T07:15:45.131Z",
+          "window": {
+            "from": "2026-08-25T07:15:12.844Z",
+            "to": "2026-08-25T07:15:45.131Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T15:19:36.679Z",
+          "window": {
+            "from": "2026-08-25T14:52:43.685Z",
+            "to": "2026-08-25T15:19:36.679Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-27T00:54:15.348Z",
+          "window": {
+            "from": "2026-08-27T00:54:03.889Z",
+            "to": "2026-08-27T00:54:15.348Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-27T00:54:32.833Z",
+          "window": {
+            "from": "2026-08-27T00:54:03.889Z",
+            "to": "2026-08-27T00:54:32.833Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "1caa5dcb-e869-4c86-9522-6cc08e80abd3",
+          "repo": "scriptorium-setup",
+          "ts": "2026-08-19T01:45:02.616Z",
+          "window": {
+            "from": "2026-08-19T01:07:14.091Z",
+            "to": "2026-08-19T01:45:02.616Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "1caa5dcb-e869-4c86-9522-6cc08e80abd3",
+          "repo": "scriptorium-setup",
+          "ts": "2026-08-19T02:09:45.486Z",
+          "window": {
+            "from": "2026-08-19T01:45:02.616Z",
+            "to": "2026-08-19T02:09:45.486Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "1caa5dcb-e869-4c86-9522-6cc08e80abd3",
+          "repo": "scriptorium-setup",
+          "ts": "2026-08-19T02:22:53.735Z",
+          "window": {
+            "from": "2026-08-19T02:09:45.486Z",
+            "to": "2026-08-19T02:22:53.735Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "1caa5dcb-e869-4c86-9522-6cc08e80abd3",
+          "repo": "scriptorium-setup",
+          "ts": "2026-08-19T15:32:27.955Z",
+          "window": {
+            "from": "2026-08-19T02:09:45.486Z",
+            "to": "2026-08-19T15:32:27.955Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "1caa5dcb-e869-4c86-9522-6cc08e80abd3",
+          "repo": "scriptorium-setup",
+          "ts": "2026-08-19T15:40:58.559Z",
+          "window": {
+            "from": "2026-08-19T15:32:27.955Z",
+            "to": "2026-08-19T15:40:58.559Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "1caa5dcb-e869-4c86-9522-6cc08e80abd3",
+          "repo": "scriptorium-setup",
+          "ts": "2026-08-19T16:04:57.016Z",
+          "window": {
+            "from": "2026-08-19T15:32:27.955Z",
+            "to": "2026-08-19T16:04:57.016Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "1caa5dcb-e869-4c86-9522-6cc08e80abd3",
+          "repo": "scriptorium-setup",
+          "ts": "2026-08-19T16:11:58.973Z",
+          "window": {
+            "from": "2026-08-19T02:22:53.735Z",
+            "to": "2026-08-19T16:11:58.973Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "1caa5dcb-e869-4c86-9522-6cc08e80abd3",
+          "repo": "scriptorium-setup",
+          "ts": "2026-08-19T16:23:17.693Z",
+          "window": {
+            "from": "2026-08-19T15:32:27.955Z",
+            "to": "2026-08-19T16:23:17.693Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "1caa5dcb-e869-4c86-9522-6cc08e80abd3",
+          "repo": "scriptorium-setup",
+          "ts": "2026-08-19T16:43:45.099Z",
+          "window": {
+            "from": "2026-08-19T15:32:27.955Z",
+            "to": "2026-08-19T16:43:45.099Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 0
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "4fc94047-696b-4e53-849b-047a6943ffa6",
+          "repo": "songbook",
+          "ts": "2026-08-25T04:50:33.497Z",
+          "window": {
+            "from": "2026-08-25T04:47:59.513Z",
+            "to": "2026-08-25T04:50:33.497Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 109705
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "4fc94047-696b-4e53-849b-047a6943ffa6",
+          "repo": "songbook",
+          "ts": "2026-08-25T04:55:04.028Z",
+          "window": {
+            "from": "2026-08-25T04:50:33.497Z",
+            "to": "2026-08-25T04:55:04.028Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 111385
+          }
+        },
+        {
+          "kind": "duplicate-agent-prompt",
+          "sessionId": "4fc94047-696b-4e53-849b-047a6943ffa6",
+          "repo": "songbook",
+          "ts": "2026-08-25T05:00:02.429Z",
+          "window": {
+            "from": "2026-08-25T04:55:04.028Z",
+            "to": "2026-08-25T05:00:02.429Z"
+          },
+          "cost": {
+            "requests": 0,
+            "in": 0,
+            "out": 0,
+            "cacheCreate": 0,
+            "cacheRead": 0,
+            "agentTotal": 131530
+          }
+        }
+      ]
+    },
+    "unread": {
+      "byKind": {
+        "corrected-turn": {
+          "candidates": 21,
+          "cost": {
+            "requests": 730,
+            "in": 7887,
+            "out": 432001,
+            "cacheCreate": 3293829,
+            "cacheRead": 114333856
+          }
+        }
+      },
+      "candidates": [
+        {
+          "kind": "corrected-turn",
+          "sessionId": "a55e35eb-8ceb-4f27-9915-7fc384fa25b1",
+          "repo": "octagonal-led-turn-counter",
+          "ts": "2026-09-05T00:58:46.766Z",
+          "window": {
+            "from": "2026-09-04T22:22:55.882Z",
+            "to": "2026-09-05T00:58:46.766Z"
+          },
+          "cost": {
+            "requests": 194,
+            "in": 388,
+            "out": 109174,
+            "cacheCreate": 542207,
+            "cacheRead": 17526558
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "3384a925-2b39-4825-a43c-c31d00401414",
+          "repo": "vida-legacy-foundation",
+          "ts": "2026-09-04T19:41:19.055Z",
+          "window": {
+            "from": "2026-09-04T19:04:13.203Z",
+            "to": "2026-09-04T19:41:19.055Z"
+          },
+          "cost": {
+            "requests": 329,
+            "in": 658,
+            "out": 104497,
+            "cacheCreate": 1112144,
+            "cacheRead": 43848854
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "6257e022-dcea-403a-803b-31ce4a7a6e3e",
+          "repo": "reddoor-website",
+          "ts": "2026-09-04T18:27:59.816Z",
+          "window": {
+            "from": "2026-09-04T02:19:22.843Z",
+            "to": "2026-09-04T18:27:59.816Z"
+          },
+          "cost": {
+            "requests": 49,
+            "in": 98,
+            "out": 33143,
+            "cacheCreate": 550726,
+            "cacheRead": 13756325
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-20T20:27:30.238Z",
+          "window": {
+            "from": "2026-08-20T18:36:17.255Z",
+            "to": "2026-08-20T20:27:30.238Z"
+          },
+          "cost": {
+            "requests": 26,
+            "in": 52,
+            "out": 31418,
+            "cacheCreate": 42558,
+            "cacheRead": 5383359
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-25T04:09:55.001Z",
+          "window": {
+            "from": "2026-08-25T03:39:29.435Z",
+            "to": "2026-08-25T04:09:55.001Z"
+          },
+          "cost": {
+            "requests": 18,
+            "in": 36,
+            "out": 26607,
+            "cacheCreate": 35177,
+            "cacheRead": 6965720
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "5a73f238-5ad6-40d1-8612-5ba8d908005a",
+          "repo": "Broken",
+          "ts": "2026-09-02T21:24:59.837Z",
+          "window": {
+            "from": "2026-09-02T21:17:19.543Z",
+            "to": "2026-09-02T21:24:59.837Z"
+          },
+          "cost": {
+            "requests": 8,
+            "in": 6443,
+            "out": 25457,
+            "cacheCreate": 310052,
+            "cacheRead": 2126236
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "5fe60bbc-bb43-484a-9238-599eafa182d7",
+          "repo": "Broken",
+          "ts": "2026-08-18T21:39:34.903Z",
+          "window": {
+            "from": "2026-08-18T21:32:31.783Z",
+            "to": "2026-08-18T21:39:34.903Z"
+          },
+          "cost": {
+            "requests": 7,
+            "in": 14,
+            "out": 13137,
+            "cacheCreate": 15806,
+            "cacheRead": 2636457
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "5fa00f25-f5d5-4688-9300-3735db1583be",
+          "repo": "caldea",
+          "ts": "2026-08-24T19:49:52.688Z",
+          "window": {
+            "from": "2026-08-24T19:43:41.112Z",
+            "to": "2026-08-24T19:49:52.688Z"
+          },
+          "cost": {
+            "requests": 15,
+            "in": 30,
+            "out": 12500,
+            "cacheCreate": 26849,
+            "cacheRead": 1216565
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "157136b2-f4dc-4ccd-aedf-8a39ad8db32b",
+          "repo": "reddoor-maintenance",
+          "ts": "2026-08-17T16:06:22.936Z",
+          "window": {
+            "from": "2026-08-17T15:58:20.667Z",
+            "to": "2026-08-17T16:06:22.936Z"
+          },
+          "cost": {
+            "requests": 9,
+            "in": 18,
+            "out": 11265,
+            "cacheCreate": 16205,
+            "cacheRead": 1228896
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-25T03:00:17.911Z",
+          "window": {
+            "from": "2026-08-25T02:52:34.639Z",
+            "to": "2026-08-25T03:00:17.911Z"
+          },
+          "cost": {
+            "requests": 9,
+            "in": 18,
+            "out": 10832,
+            "cacheCreate": 495072,
+            "cacheRead": 2003949
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "2fb9bf91-e565-41a2-93ff-d38f7d24ae25",
+          "repo": "reddoor-website",
+          "ts": "2026-08-21T00:55:58.764Z",
+          "window": {
+            "from": "2026-08-21T00:53:47.220Z",
+            "to": "2026-08-21T00:55:58.764Z"
+          },
+          "cost": {
+            "requests": 4,
+            "in": 8,
+            "out": 8008,
+            "cacheCreate": 74602,
+            "cacheRead": 307088
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "26238500-1ede-4b03-a76b-301e76dc7c27",
+          "repo": "caldea",
+          "ts": "2026-08-17T17:41:31.678Z",
+          "window": {
+            "from": "2026-08-17T17:38:08.408Z",
+            "to": "2026-08-17T17:41:31.678Z"
+          },
+          "cost": {
+            "requests": 4,
+            "in": 8,
+            "out": 7811,
+            "cacheCreate": 10039,
+            "cacheRead": 326226
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-25T19:00:52.906Z",
+          "window": {
+            "from": "2026-08-25T18:48:39.443Z",
+            "to": "2026-08-25T19:00:52.906Z"
+          },
+          "cost": {
+            "requests": 9,
+            "in": 18,
+            "out": 7806,
+            "cacheCreate": 11170,
+            "cacheRead": 3785131
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "bba8624a-922a-415d-a1b6-cce0539d090e",
+          "repo": "vida-legacy-foundation",
+          "ts": "2026-09-01T23:03:15.735Z",
+          "window": {
+            "from": "2026-09-01T22:10:58.331Z",
+            "to": "2026-09-01T23:03:15.735Z"
+          },
+          "cost": {
+            "requests": 13,
+            "in": 26,
+            "out": 6334,
+            "cacheCreate": 12212,
+            "cacheRead": 950337
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-25T18:41:08.310Z",
+          "window": {
+            "from": "2026-08-25T18:36:18.227Z",
+            "to": "2026-08-25T18:41:08.310Z"
+          },
+          "cost": {
+            "requests": 4,
+            "in": 8,
+            "out": 5964,
+            "cacheCreate": 7069,
+            "cacheRead": 1733931
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "761cf3f4-289c-41d2-8deb-2e1dbc8aa79a",
+          "repo": "reddoor-starter",
+          "ts": "2026-09-01T19:40:30.913Z",
+          "window": {
+            "from": "2026-09-01T19:34:29.078Z",
+            "to": "2026-09-01T19:40:30.913Z"
+          },
+          "cost": {
+            "requests": 14,
+            "in": 28,
+            "out": 5706,
+            "cacheCreate": 8605,
+            "cacheRead": 5130618
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "5a73f238-5ad6-40d1-8612-5ba8d908005a",
+          "repo": "Broken",
+          "ts": "2026-09-03T17:40:39.173Z",
+          "window": {
+            "from": "2026-09-03T17:19:29.961Z",
+            "to": "2026-09-03T17:40:39.173Z"
+          },
+          "cost": {
+            "requests": 7,
+            "in": 14,
+            "out": 4842,
+            "cacheCreate": 5844,
+            "cacheRead": 2199724
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "f82eebd3-78d6-4622-a3f1-04780907cb79",
+          "repo": "reddoor-website",
+          "ts": "2026-08-26T20:14:10.299Z",
+          "window": {
+            "from": "2026-08-26T20:03:13.148Z",
+            "to": "2026-08-26T20:14:10.299Z"
+          },
+          "cost": {
+            "requests": 1,
+            "in": 2,
+            "out": 3121,
+            "cacheCreate": 3076,
+            "cacheRead": 432442
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "bba8624a-922a-415d-a1b6-cce0539d090e",
+          "repo": "vida-legacy-foundation",
+          "ts": "2026-09-01T23:08:12.115Z",
+          "window": {
+            "from": "2026-09-01T23:03:15.735Z",
+            "to": "2026-09-01T23:08:12.115Z"
+          },
+          "cost": {
+            "requests": 3,
+            "in": 6,
+            "out": 2038,
+            "cacheCreate": 2318,
+            "cacheRead": 242722
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "6dfb4191-54bc-4620-8ac2-a9411f6b7a5e",
+          "repo": "reddoor-website",
+          "ts": "2026-08-19T23:43:43.601Z",
+          "window": {
+            "from": "2026-08-19T23:39:25.205Z",
+            "to": "2026-08-19T23:43:43.601Z"
+          },
+          "cost": {
+            "requests": 1,
+            "in": 2,
+            "out": 1375,
+            "cacheCreate": 705,
+            "cacheRead": 389104
+          }
+        },
+        {
+          "kind": "corrected-turn",
+          "sessionId": "cbbe6cc4-0229-4021-961c-30cdf78b430d",
+          "repo": "Broken",
+          "ts": "2026-08-24T23:53:03.295Z",
+          "window": {
+            "from": "2026-08-24T23:51:55.603Z",
+            "to": "2026-08-24T23:53:03.295Z"
+          },
+          "cost": {
+            "requests": 6,
+            "in": 12,
+            "out": 966,
+            "cacheCreate": 11393,
+            "cacheRead": 2143614
+          }
+        }
+      ]
+    }
+  },
+  "reverts": {
+    "since": "2026-08-16",
+    "count": 1,
+    "byRepo": {
+      "reddoor-website": 1
+    },
+    "skippedWorktrees": [
+      "reddoor-maintenance-e2ebudget",
+      "reddoor-maintenance-turso-spec"
+    ],
+    "items": [
+      {
+        "repo": "reddoor-website",
+        "sha": "c9af969",
+        "ts": "2026-08-25T18:05:12-07:00",
+        "subject": "revert(deps): stay on maintenance 0.83 — the 0.87 bump breaks CI's a11y job"
+      }
+    ]
+  }
+}

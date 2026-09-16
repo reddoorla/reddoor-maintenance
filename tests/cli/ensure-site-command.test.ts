@@ -32,6 +32,7 @@ describe("runEnsureSiteCommand", () => {
       siteId: "recNEW",
       updatedFields: [],
       skippedMismatches: [],
+      healedDbRow: false,
     });
     const res = await runEnsureSiteCommand("roalson", {
       name: "Roalson",
@@ -65,6 +66,7 @@ describe("runEnsureSiteCommand", () => {
       siteId: "recEXIST",
       updatedFields: ["url"],
       skippedMismatches: [],
+      healedDbRow: false,
     });
     const res = await runEnsureSiteCommand("acme-co", {});
     expect(res.code).toBe(0);
@@ -78,6 +80,7 @@ describe("runEnsureSiteCommand", () => {
       siteId: "recEXIST",
       updatedFields: [],
       skippedMismatches: ["url"],
+      healedDbRow: false,
     });
     const res = await runEnsureSiteCommand("acme-co", { url: "https://x.example.com" });
     expect(res.output).toContain("left untouched");
@@ -90,9 +93,27 @@ describe("runEnsureSiteCommand", () => {
       siteId: "recNEW",
       updatedFields: [],
       skippedMismatches: [],
+      healedDbRow: false,
     });
     const res = await runEnsureSiteCommand("roalson", {});
     expect(res.output).toContain("retitle in Airtable");
+    // #664: the fix it points at must be one the command can actually do —
+    // `--name` is honoured on re-run now; there is no "re-create".
+    expect(res.output).toContain("re-run with --name");
+    expect(res.output).not.toContain("re-create");
+  });
+
+  it("#664: reports a Name update on the exists path as a rename, not a filled blank", async () => {
+    vi.mocked(ensureSite).mockResolvedValue({
+      status: "exists",
+      siteId: "recEXIST",
+      updatedFields: ["Name"],
+      skippedMismatches: [],
+      healedDbRow: false,
+    });
+    const res = await runEnsureSiteCommand("roalson", { name: "Roalson" });
+    expect(res.output).toContain('Name set to "Roalson"');
+    expect(res.output).not.toContain("filled blank");
   });
 
   it("surfaces errors as exit 1", async () => {

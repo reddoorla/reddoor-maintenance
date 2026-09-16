@@ -395,6 +395,15 @@ export type AnalyzeResult = {
    *  Absent on reports stored before the set was fixed. Two audits' Answers
    *  scores are comparable exactly when this matches; see sameQuestionSet. */
   questionSetId?: string;
+  /** #676. Whether the buyer questions were chosen by hand or are the goal's
+   *  fixed set. Absent on reports stored before the choice existed, which were
+   *  all generated. */
+  questionsSource?: "chosen" | "generated";
+  /** #676. Whether `categoryQueries` are the operator's searches or the ones
+   *  the model wrote from the site. The report says which, because "searches we
+   *  chose with you" and "searches we chose from your site" are different
+   *  claims about how much the number can be trusted. */
+  termsSource?: "chosen" | "generated";
   /** Standalone searches for the visibility probes — what a buyer types before
    *  they know this company exists. Distinct from `buyerQuestions`, which are
    *  phrased about this site and are unanswerable on their own; see the schema
@@ -473,6 +482,22 @@ export type ProbesResult = {
    *  it surface this business to someone who didn't already name it"). */
   brandedRecognized: boolean;
   competitorsSeen: { domain: string; count: number }[];
+  /**
+   * Cited domains that carry the prospect's OWN business name — a different
+   * company, not a competitor. See `isNamesake` for the rule and the real case
+   * that motivated it.
+   *
+   * A subset of `competitorsSeen`, deliberately not subtracted from it: that
+   * field is what stored reports and the renderer already read, and changing
+   * what it contains would rewrite documents that have already been sent. The
+   * renderer is what separates the two.
+   *
+   * Optional because this type also describes runs deserialized from
+   * `prospect_audits.result_json`, and every report stored before this field
+   * existed lacks it. Absent means "not measured", never "no namesake" —
+   * `runVisibilityProbes` always sets it, readers must still handle absence.
+   */
+  namesakes?: { domain: string; count: number }[];
   /** How many CATEGORY probes were sent versus how many came back.
    *
    *  These differ whenever an engine errors: a probe that fails after its retry

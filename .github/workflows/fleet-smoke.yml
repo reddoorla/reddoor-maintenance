@@ -151,7 +151,8 @@ jobs:
           title="Nightly fleet smoke failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body=$(printf 'The nightly **fleet-smoke** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
-          existing=$(gh issue list --state open --json number,title \
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
@@ -166,7 +167,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Nightly fleet smoke failing"
-          for n in $(gh issue list --state open --json number,title \
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
             gh issue close "$n" --comment "Recovered — the nightly fleet-smoke run is green again." && echo "closed #$n"
           done

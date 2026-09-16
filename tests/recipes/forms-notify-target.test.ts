@@ -31,6 +31,7 @@ const fake = vi.hoisted(() => ({
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({
     created: async () => {},
+    hasRow: async () => true,
     health: async () => {},
     site: async () => {},
   }),
@@ -129,6 +130,7 @@ describe("formsNotifyTarget", () => {
       set: "on",
       siteMirror: {
         created: async () => {},
+        hasRow: async () => true,
         health: async () => {},
         site: async (id, fields) => {
           mirrored.push({ id, fields });

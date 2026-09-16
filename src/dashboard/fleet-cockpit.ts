@@ -13,6 +13,7 @@ import type { ReportType } from "../reports/types.js";
 import type { SubmissionRow, FormType } from "../reports/submission-row.js";
 import { isLeadFormType } from "../forms/types.js";
 import type { FleetEvent, FleetEventType } from "../db/fleet-events.js";
+import type { NotifyBounceCounts } from "../db/submissions.js";
 import {
   collectVulnAlerts,
   collectDeliveryFailures,
@@ -23,6 +24,7 @@ import {
   collectAnalyticsFailures,
   collectTurnstileGuardrailAlerts,
   collectNotifyBounceAlerts,
+  collectDeadLetterAlerts,
   collectPrismicDriftAlerts,
   prismicAckIsLive,
 } from "../alerts/digest-collectors.js";
@@ -382,6 +384,17 @@ export type CockpitModel = {
    *  invisible to every fleet op, so the Needs-you feed surfaces them as amber watch
    *  rows (optional for back-compat). */
   unrecognizedStatus?: OffFleetSiteEntry[];
+  /** #786. Attention items that belong to NO site card. The grid is built from
+   *  the visible sites and items are grouped onto it by `siteName`, so an item
+   *  naming a site the fleet does not have matched nothing and was dropped —
+   *  silently, on the one surface the operator actually watches.
+   *
+   *  The collector that produces them is the one whose entire point is that the
+   *  site is missing: a dead letter for a slug resolving to no fleet row means
+   *  leads are being dropped RIGHT NOW. Kept general rather than
+   *  dead-letter-specific, so a future card-less item lands here instead of
+   *  vanishing the same way. Optional for back-compat with hand-built models. */
+  cardless?: AttentionItem[];
 };
 
 export type NeedsYouGroup = "broken" | "watch" | "approval";
@@ -527,7 +540,11 @@ function collectFleetAttentionItems(
   reports: ReportRow[],
   baseUrl: string,
   now: Date,
-  notifyBounces: ReadonlyMap<string, number>,
+  notifyBounces: ReadonlyMap<string, NotifyBounceCounts>,
+  // #645. Unreplayed dead-letter rows per SLUG (countUnreplayedDeadLettersBySlug).
+  // Optional like every other libSQL input: a Turso blip drops the signal, never
+  // the cockpit.
+  deadLetters: ReadonlyMap<string, number> = new Map(),
 ): AttentionItem[] {
   return [
     ...collectVulnAlerts(sites, baseUrl),
@@ -539,6 +556,7 @@ function collectFleetAttentionItems(
     ...collectAnalyticsFailures(sites, baseUrl, now),
     ...collectTurnstileGuardrailAlerts(sites, baseUrl, now),
     ...collectNotifyBounceAlerts(sites, notifyBounces, baseUrl),
+    ...collectDeadLetterAlerts(sites, deadLetters, baseUrl),
     // Reads the nightly-persisted `Prismic Models` verdict columns — no live
     // Prismic/GitHub call, so this stays safe on the request path (the cockpit is
     // request-path; a collector that shelled out would 502 in Lambda).
@@ -576,7 +594,8 @@ export function buildSiteAlarmContext(
   reports: ReportRow[],
   baseUrl: string,
   now: Date,
-  notifyBounces: ReadonlyMap<string, number> = new Map(),
+  notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(),
+  deadLetters: ReadonlyMap<string, number> = new Map(),
 ): SiteAlarmContext {
   const sites = [site];
   const sitesById = new Map([[site.id, site]]);
@@ -587,6 +606,7 @@ export function buildSiteAlarmContext(
     baseUrl,
     now,
     notifyBounces,
+    deadLetters,
   ).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   const {
     tier,
@@ -626,7 +646,13 @@ export function buildCockpitModel(
   // Per-site bounced-lead-notification counts (countNotifyBouncedBySite, last
   // NOTIFY_BOUNCE_WINDOW_DAYS). Optional like the other libSQL inputs: a Turso
   // blip drops the signal, never the cockpit (2026-07-16).
-  notifyBounces: ReadonlyMap<string, number> = new Map(),
+  notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(),
+  // #645. Unreplayed dead-letter rows per slug. A slug with no matching visible
+  // card still produces an item (siteName `(unknown site: …)`) — see
+  // `collectDeadLetterAlerts`; the cockpit's card grid has nowhere to hang it,
+  // so the DIGEST is the surface that carries that flavour. A dead letter on a
+  // site the fleet does know lands on that site's card like any other item.
+  deadLetters: ReadonlyMap<string, number> = new Map(),
 ): CockpitModel {
   const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
@@ -682,6 +708,7 @@ export function buildCockpitModel(
     baseUrl,
     now,
     notifyBounces,
+    deadLetters,
   );
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
@@ -769,6 +796,12 @@ export function buildCockpitModel(
     });
   }
 
+  // #786. Anything that found no card. `cards` is built from the visible sites,
+  // so this is exactly the set that the siteName grouping above dropped on the
+  // floor — today, the `(unknown site: <slug>)` dead letters.
+  const cardedNames = new Set(cards.map((c) => c.site.name));
+  const cardless = tagged.filter((it) => !cardedNames.has(it.siteName));
+
   const summary: CockpitSummary = {
     attention: cards.filter((c) => c.tier === "attention").length,
     watch: cards.filter((c) => c.tier === "watch").length,
@@ -809,6 +842,7 @@ export function buildCockpitModel(
   return {
     summary,
     cards,
+    cardless,
     pending,
     submissions,
     spam: spamTotals

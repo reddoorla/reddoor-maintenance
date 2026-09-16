@@ -1407,15 +1407,6 @@ describe("ingestSubmission — persist before enrich (#539 Phase 0)", () => {
     expect(deadLetter).not.toHaveBeenCalled();
   });
 
-  it("a lookup that RESOLVES null is still unknown-site, never dead-lettered", async () => {
-    // The store answered; a junk slug is a rejection, not a lead to save.
-    const deadLetter = vi.fn();
-    const d = deps({ getWebsiteBySlug: vi.fn().mockResolvedValue(null), deadLetter });
-    const r = await ingestSubmission(d, "nope", { email: "a@b.co" });
-    expect(r.status).toBe("unknown-site");
-    expect(deadLetter).not.toHaveBeenCalled();
-  });
-
   it("propagates when the dead-letter write ALSO fails — both stores down, 502 is honest", async () => {
     const d = deps({
       getWebsiteBySlug: outage(),
@@ -1433,5 +1424,105 @@ describe("ingestSubmission — persist before enrich (#539 Phase 0)", () => {
     const r = await ingestSubmission(d, "acme", { nope: true }, "pass");
     expect(r.status).toBe("rejected");
     expect(deadLetter).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #645 item 2. Until now `unknown-site` returned empty-handed: no row anywhere,
+ * no alarm, no way back. The comment that justified it — "the store answered; a
+ * junk slug is a rejection, not a lead to save" — was written while Airtable was
+ * authoritative, and #643 retired the premise underneath it.
+ *
+ * TWO facts overturn it:
+ *
+ *  1. `/api/forms/:slug` is token-gated BEFORE anything here runs. Nothing
+ *     without `FORMS_INGEST_TOKEN` reaches this branch, so a slug arriving here
+ *     is a FLEET SITE's slug, not a bot's guess. "Junk slug" was never the
+ *     population this branch actually sees.
+ *  2. Post-flip the lookup reads Turso only. A real client site whose Turso row
+ *     is missing (a half-finished `ensure-site`, a deleted row, Phase 6) answers
+ *     null here — identically to a typo. Dropping it loses a paying client's
+ *     lead permanently and silently.
+ *
+ * So the lead is CAPTURED, and the HTTP contract is untouched: still
+ * `unknown-site`, still a 404 at the handler, so the sending site still learns
+ * its slug is wrong. The row is the record; the attention item is the alarm;
+ * `db replay-deadletters` is the recovery.
+ */
+describe("ingestSubmission — an unknown site dead-letters the lead (#645)", () => {
+  const noSite = () => vi.fn().mockResolvedValue(null);
+
+  it("writes a dead-letter row through the SAME writer the throw path uses", async () => {
+    const deadLetter = vi.fn().mockResolvedValue({ id: "dl_unknown" });
+    const d = deps({ getWebsiteBySlug: noSite(), deadLetter });
+
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" }, "pass");
+
+    expect(r).toEqual({ status: "unknown-site", slug: "acme", deadLetterId: "dl_unknown" });
+    // Identical envelope to the outage path: raw payload, slug, and the
+    // verification computed at receipt (tokens expire in 300s).
+    expect(deadLetter).toHaveBeenCalledWith({
+      siteSlug: "acme",
+      payload: { email: "a@b.co", message: "hi" },
+      turnstile: { outcome: "pass", hostname: null },
+      error: expect.stringContaining("unknown-site"),
+      receivedAt: new Date("2026-06-14T12:00:00Z"),
+    });
+    expect(d.createSubmission).not.toHaveBeenCalled();
+    expect(d.notify).not.toHaveBeenCalled();
+  });
+
+  it("names the slug in the stored error, so the row says what to fix", async () => {
+    const deadLetter = vi.fn().mockResolvedValue({ id: "dl_2" });
+    const d = deps({ getWebsiteBySlug: noSite(), deadLetter });
+
+    await ingestSubmission(d, "acme-co", { email: "a@b.co" });
+
+    expect(deadLetter.mock.calls[0]![0]!.error).toContain("acme-co");
+  });
+
+  it("returns a bare unknown-site when deadLetter is not wired", async () => {
+    // Every non-handler caller (and every test predating #645) is unchanged.
+    const d = deps({ getWebsiteBySlug: noSite() });
+    await expect(ingestSubmission(d, "nope", { email: "a@b.co" })).resolves.toEqual({
+      status: "unknown-site",
+      slug: "nope",
+    });
+  });
+
+  it("writes NOTHING for a testMode probe on an unknown slug", async () => {
+    // The probe persists nothing by design; a synthetic lead in the dead-letter
+    // queue would be a fake alarm AND a row the replay would try to deliver.
+    const deadLetter = vi.fn();
+    const d = deps({ getWebsiteBySlug: noSite(), deadLetter });
+
+    const r = await ingestSubmission(d, "nope", { email: "a@b.co", testMode: true });
+
+    expect(r).toEqual({ status: "unknown-site", slug: "nope" });
+    expect(deadLetter).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid payload before it can be dead-lettered", async () => {
+    const deadLetter = vi.fn();
+    const d = deps({ getWebsiteBySlug: noSite(), deadLetter });
+
+    const r = await ingestSubmission(d, "acme", { nope: true });
+
+    expect(r.status).toBe("rejected");
+    expect(deadLetter).not.toHaveBeenCalled();
+  });
+
+  it("propagates when the dead-letter write itself fails", async () => {
+    // The lookup just succeeded, so Turso is up — a failure here is a real write
+    // failure and there is nowhere left to put the lead. A 500 the sending site
+    // can surface beats a 404 that quietly discards it.
+    const d = deps({
+      getWebsiteBySlug: noSite(),
+      deadLetter: vi.fn().mockRejectedValue(new Error("turso write failed")),
+    });
+
+    await expect(ingestSubmission(d, "acme", { email: "a@b.co" })).rejects.toThrow(
+      /turso write failed/,
+    );
   });
 });

@@ -803,6 +803,7 @@ describe("draftReportForSite → the Turso create mirror", () => {
       ...NO_HEADER,
       siteMirror: {
         created: async () => {},
+        hasRow: async () => true,
         health: async (id, fields) => {
           mirrored.push({ id, fields });
         },
@@ -813,6 +814,94 @@ describe("draftReportForSite → the Turso create mirror", () => {
     expect(mirrored).toHaveLength(1);
     expect(mirrored[0]!.id).toBe("rec_site_acme");
     expect(mirrored[0]!.fields["Analytics soft-fail at"]).toEqual(expect.any(String));
+  });
+
+  it("#782: Airtable rejecting the field (UNKNOWN_FIELD_NAME) still writes the Turso stamp — exactly once", async () => {
+    // The Airtable column is operator-added and absent from the base, so every
+    // real Maintenance draft threw `Unknown field name: "Analytics soft-fail at"`
+    // — and because the Turso mirror sat AFTER that call inside the same try,
+    // `site_health.analytics_soft_fail_at` was never written either. The digest
+    // collector reading it could never fire: green on a question it cannot
+    // fail. Turso is authoritative, so it is written FIRST; Airtable is the
+    // best-effort shadow.
+    process.env.GA_SUBJECT = "tucker@reddoorla.com";
+    vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("GA down"));
+    const inner = makeFakeBase({ Reports: [] });
+    const base = ((table: string) => {
+      const t = inner(table);
+      if (table !== "Websites") return t;
+      return {
+        ...t,
+        update: async () => {
+          const e = new Error('Unknown field name: "Analytics soft-fail at"') as Error & {
+            error?: string;
+          };
+          e.error = "UNKNOWN_FIELD_NAME";
+          throw e;
+        },
+      };
+    }) as unknown as typeof inner;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    const result = await draftReportForSite(
+      base,
+      siteFixture({ ga4PropertyId: "G-123" }),
+      "Maintenance",
+      {
+        ...NO_HEADER,
+        siteMirror: {
+          created: async () => {},
+          hasRow: async () => true,
+          health: async (id, fields) => {
+            mirrored.push({ id, fields });
+          },
+          site: async () => {},
+        },
+      },
+    );
+
+    expect(mirrored).toHaveLength(1);
+    expect(mirrored[0]!.id).toBe("rec_site_acme");
+    expect(mirrored[0]!.fields).toEqual({ "Analytics soft-fail at": expect.any(String) });
+    expect(
+      new Date(mirrored[0]!.fields["Analytics soft-fail at"] as string).getTime(),
+    ).not.toBeNaN();
+    // The draft itself still completes — the shadow's field gap must not cost it.
+    expect(result.queued).toBe(true);
+    // …and the swallowed shadow failure names the store that failed.
+    expect(warn.mock.calls.flat().join("\n")).toMatch(/Airtable.*Unknown field name/);
+    warn.mockRestore();
+  });
+
+  it("#782: a clean enrichment clears the Turso stamp (null) — the signal self-heals", async () => {
+    // The other direction of the proof: no soft failure → the mirror is asked
+    // to write null, not skipped.
+    process.env.GA_SUBJECT = "tucker@reddoorla.com";
+    vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 10, previous: 8 });
+    // Search runs too (the brand query defaults to the site name), so it must
+    // succeed as well for the enrichment to count as clean.
+    vi.mocked(fetchSearchPresence).mockResolvedValue({
+      foundOnPage1: true,
+      position: 2,
+      propertyFound: true,
+    });
+    const base = makeFakeBase({ Reports: [] });
+    const mirrored: Array<Record<string, unknown>> = [];
+
+    await draftReportForSite(base, siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
+      ...NO_HEADER,
+      siteMirror: {
+        created: async () => {},
+        hasRow: async () => true,
+        health: async (_id, fields) => {
+          mirrored.push(fields);
+        },
+        site: async () => {},
+      },
+    });
+
+    expect(mirrored).toEqual([{ "Analytics soft-fail at": null }]);
   });
 
   it("drafts exactly as before when no mirror is supplied", async () => {

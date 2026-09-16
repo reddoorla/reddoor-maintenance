@@ -46,6 +46,13 @@ export type AttentionItem = {
     | "preflight"
     | "turnstile"
     | "notify-bounce"
+    /** #645. Leads captured by the dead-letter because their site could not be
+     *  placed — a store outage during the lookup, or (since #645) a slug with no
+     *  Turso row at all. Until this kind existed a dropped lead had NO alarm
+     *  anywhere: the queue could fill and nothing said so. Keyed by SLUG, not by
+     *  site id, because the whole point of the worst case is that the slug
+     *  resolves to no site. */
+    | "deadletter"
     /** The nightly Prismic model sweep. THREE item flavors share this kind —
      *  `prismic-drift:` (repo and Prismic diverge), `prismic-unknown:` (the check
      *  ran and could not answer), `prismic-stale:` (nobody has re-established the

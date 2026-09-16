@@ -404,6 +404,17 @@ export async function getSiteBySlug(db: Db, slug: string): Promise<WebsiteRow | 
   return r ? rowFromJoined(r as JoinedRow) : null;
 }
 
+/** #645. Does `sites` hold this row at all? One column, no join, no row mapping —
+ *  `getSiteById` would answer the same question (its joins are LEFT, so a site
+ *  missing its site_health/site_schedule companions still resolves) but it pays
+ *  for a full `rowFromJoined` to return a boolean, and it would tie the heal's
+ *  decision to whatever that mapper does next. `sites.id` is the PK and it is
+ *  exactly what `mirrorSiteInsert` conflicts on. */
+export async function siteRowExists(db: Db, siteId: string): Promise<boolean> {
+  const r = await db.selectFrom("sites").select("id").where("id", "=", siteId).executeTakeFirst();
+  return r !== undefined;
+}
+
 /** By Airtable rec id (the PK) — approve-report's lookup shape. */
 export async function getSiteById(db: Db, id: string): Promise<WebsiteRow | null> {
   const r = await joined(db).where("sites.id", "=", id).executeTakeFirst();
@@ -628,14 +639,29 @@ export type ReportMirrorPatch = Partial<
 /** Mirror an Airtable report write into Turso so the page re-render after an
  *  approve/override/bounce shows the new state immediately. Callers route
  *  failures through `mirrorWrite`, which decides fatal vs swallowed by the
- *  freeze switch; an empty patch is a no-op, never invalid SQL. */
+ *  freeze switch; an empty patch is a no-op, never invalid SQL.
+ *
+ *  Returns whether the UPDATE matched a row (#647). Same contract as
+ *  `mirrorSiteFields`: this module has no error policy of its own, so the
+ *  count is REPORTED and the boundary (`mirrorWrite`, `makeReportMirror`)
+ *  decides what a miss means — logged before the freeze, fatal after it, when
+ *  no importer exists to converge a row that was never inserted. Discarding
+ *  the count is what let a stamp for a row Turso never held mirror
+ *  "successfully". An empty patch reports `true`: nothing to write is not a
+ *  miss. */
 export async function mirrorReportPatch(
   db: Db,
   reportId: string,
   patch: ReportMirrorPatch,
-): Promise<void> {
-  if (Object.keys(patch).length === 0) return;
-  await db.updateTable("reports").set(patch).where("id", "=", reportId).execute();
+): Promise<boolean> {
+  if (Object.keys(patch).length === 0) return true;
+  const res = await db
+    .updateTable("reports")
+    .set(patch)
+    .where("id", "=", reportId)
+    .executeTakeFirst();
+  // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
+  return res.numUpdatedRows > 0n;
 }
 
 /** Mirror a NEWLY CREATED Airtable Reports record into Turso (#539 Phase 5).
