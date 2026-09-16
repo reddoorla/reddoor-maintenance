@@ -2884,6 +2884,7 @@ more JS-dependent, never less.
 Beliefs corrected: the last entry on this (`docs/aeo-evidence-base.md`, 2026-09-15) recorded
 the over-penalty as costing "up to 60 points" on a hypothesis. It is 60 points exactly, and
 now demonstrated — the stock-Next.js row above moves 13 → 73.
+
 ## 2026-09-16 — The reports counted our own test suite as traffic (`fix/ga-hostname-filter`)
 
 Tucker, on Reddoor's own September maintenance report: analytics seem way
