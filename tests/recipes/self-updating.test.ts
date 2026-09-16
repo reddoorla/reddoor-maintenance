@@ -30,6 +30,10 @@ type GitHubOverrides = Partial<GitHub>;
 function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] } {
   const calls: string[] = [];
   const gh: GitHub = {
+    // Reads the pnpm-pin sweep needs. Unused by self-updating, but REQUIRED on
+    // the type: an optional dep is a check that silently measures nothing.
+    repoTextFile: async () => null,
+    listWorkflowPaths: async () => [],
     openPullRequest: async (repo) => {
       calls.push(`pr:${repo}`);
       return { url: "https://github.com/o/r/pull/1" };

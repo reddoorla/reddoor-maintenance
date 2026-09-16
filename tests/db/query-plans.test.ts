@@ -338,6 +338,13 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => submissions.countNotifyBouncedBySite(db, SINCE_DATE),
     },
     {
+      // #783. The operator's acknowledge write — by primary key, so it plans as
+      // a single-row seek rather than a scan of the fleet's one unbounded table.
+      name: "ackNotifyBounce (operator clears a diagnosed false alarm)",
+      covers: ["ackNotifyBounce"],
+      run: (db) => submissions.ackNotifyBounce(db, "sub_gate_ack", new Date()),
+    },
+    {
       name: "recordScreenOut (ingest-path upsert)",
       covers: ["recordScreenOut"],
       run: (db) => screenouts.recordScreenOut(db, "recA", "honeypot", "2026-08-10"),

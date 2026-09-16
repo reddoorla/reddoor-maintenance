@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -233,5 +234,75 @@ describe("every `reddoor-maint <cmd>` the harness names is a command bin.ts regi
       for (const cmd of namedCommands(block))
         if (!commands.has(cmd)) offenders.push(`${name}: reddoor-maint ${cmd}`);
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * The SEVEN COPIED constants had no guard at all (#738 item 1). Their source is
+ * a client repo that does not exist in CI, so a hand edit to one of them in
+ * `template.ts` was invisible — and the file's own header tells readers to
+ * regenerate, which SILENTLY REVERTS the edit. That is not hypothetical: three
+ * corrections were applied to `template.ts` alone and one regeneration undid
+ * all three.
+ *
+ * `scripts/match-harness-bodies.sha256` is the half of the guard that needs no
+ * checkout: a digest of every shipped body, written by the generator in the
+ * same run that writes `template.ts`. A hand edit changes a body and not its
+ * digest, and this reddens; a legitimate regeneration rewrites both together.
+ *
+ * It covers all seventeen shipped bodies, not only the seven copied ones —
+ * the AUTHORED FILE bodies (the /dev/match route, the fixture test, the site
+ * stubs) were equally unguarded. Only the three authored BLOCKS had a check,
+ * at the top of this file.
+ *
+ * The digest is taken over the RAW body, which is the identical string on both
+ * sides: `body` in the generator, `MATCH_HARNESS_FILES[].template` here.
+ * Neither side re-derives the generator's backtick/`${` escaping, so this
+ * cannot fail for a reason that is really about escaping.
+ */
+describe("every shipped body matches its committed digest", () => {
+  const manifestPath = resolve(here, "../../scripts/match-harness-bodies.sha256");
+  const digest = (body: string) => createHash("sha256").update(body, "utf-8").digest("hex");
+
+  async function manifest(): Promise<Map<string, string>> {
+    const text = await readFile(manifestPath, "utf-8");
+    const rows = new Map<string, string>();
+    for (const line of text.split("\n")) {
+      if (line.trim() === "" || line.startsWith("#")) continue;
+      const m = /^([0-9a-f]{64}) {2}(.+)$/.exec(line);
+      if (!m) throw new Error(`unparseable digest line: ${line}`);
+      rows.set(m[2]!, m[1]!);
+    }
+    return rows;
+  }
+
+  it("covers every installed file, and names none the recipe does not install", async () => {
+    // Both directions: a body added to the manifest without being installed is
+    // as wrong as an installed one with no digest, and the second is how this
+    // guard would quietly stop covering a file.
+    const rows = await manifest();
+    expect([...rows.keys()].sort()).toEqual([...MATCH_HARNESS_FILES.map((f) => f.rel)].sort());
+  });
+
+  it("the digest recorded for each body is the digest of the committed body", async () => {
+    const rows = await manifest();
+    const wrong: string[] = [];
+    for (const f of MATCH_HARNESS_FILES) {
+      if (rows.get(f.rel) !== digest(f.template)) wrong.push(f.rel);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("the instrument reads real data: one byte changes the digest", async () => {
+    // A manifest that came back empty, or a digest function returning a
+    // constant, would satisfy the `for` loop above vacuously — the same
+    // silent-miss shape the authored-block cases guard against, one level up.
+    const rows = await manifest();
+    expect(rows.size).toBe(MATCH_HARNESS_FILES.length);
+    expect(rows.size).toBeGreaterThan(15);
+
+    const f = MATCH_HARNESS_FILES[0]!;
+    expect(rows.get(f.rel)).toBe(digest(f.template));
+    expect(rows.get(f.rel)).not.toBe(digest(`${f.template}\n`));
   });
 });

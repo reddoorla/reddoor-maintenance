@@ -419,6 +419,55 @@ export const MIGRATIONS: Migration[] = [
     sql: `ALTER TABLE prospect_audits ADD COLUMN opened_at TEXT;`,
   },
   {
+    // #783. Resend's `email.bounced` payload carries `data.bounce = { message,
+    // subType, type }`; the webhook read only `data.email_id`, so the
+    // classification was dropped and a dead mailbox stored identically to a
+    // receiving server refusing our CONTENT. Espada sat under a CRITICAL
+    // "check the point-of-contact address" for three days in September 2026
+    // over an address that was fine — their inbound filter was refusing lead
+    // notifications whose spam_score (30 and 55) sat under our auto-filter line.
+    //
+    // Nullable and never backfilled: every row written before this migration
+    // has no classification, and `permanent` is counted only where the payload
+    // actually SAID so. Inferring a diagnosis for the historical rows would
+    // re-manufacture the exact wrong answer this change exists to stop.
+    //
+    // FOUR MIGRATIONS, NOT ONE — the same rule 0003, 0013 and 0015 carry, and
+    // for the reason spelled out on 0015: `migrate.ts` swallows "duplicate
+    // column name" and then records the marker unconditionally, which is sound
+    // for ONE statement. Batched, a crash partway leaves the marker unwritten,
+    // the re-run's first statement throws duplicate, `executeMultiple` aborts
+    // before the rest, the catch swallows it and the marker IS written —
+    // leaving the remaining columns permanently missing on a migration recorded
+    // as applied.
+    id: "0018_submissions_bounce_type",
+    sql: `ALTER TABLE submissions ADD COLUMN bounce_type TEXT;`,
+  },
+  {
+    id: "0019_submissions_bounce_subtype",
+    sql: `ALTER TABLE submissions ADD COLUMN bounce_subtype TEXT;`,
+  },
+  {
+    id: "0020_submissions_bounce_message",
+    sql: `ALTER TABLE submissions ADD COLUMN bounce_message TEXT;`,
+  },
+  {
+    // #783 item 3: the operator's exit. Before this, a diagnosed false alarm
+    // could only be cleared by 14 days of aging or by a hand-written UPDATE
+    // against the production `submissions` table — which is what actually
+    // happened on 2026-09-14, flipping the two in-window rows from `bounced`
+    // back to `sent` and destroying the evidence in the process.
+    //
+    // A stamp on the ROW rather than an `ack_until` on `sites` (the issue
+    // offers both). The row marker clears the alarm EXACTLY — only the bounces
+    // the operator actually looked at stop counting — where a site-level
+    // window would mute every future bounce for its whole duration, including
+    // a genuinely dead address appearing the next day. It also keeps the bounce
+    // record intact, which the production workaround did not.
+    id: "0021_submissions_bounce_ack_at",
+    sql: `ALTER TABLE submissions ADD COLUMN bounce_ack_at TEXT;`,
+  },
+  {
     // #786, the other half of #785. That PR made `unknown-site` NON-terminal on
     // replay so both recovery orders are safe (`ensure-site` then replay, or
     // replay then `ensure-site`) — without it, replay-before-heal silently burns

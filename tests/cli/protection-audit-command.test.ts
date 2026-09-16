@@ -2,9 +2,9 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   protectionAuditExitCode,
   runProtectionAuditCommand,
+  type ProtectionAuditDeps,
 } from "../../src/cli/commands/protection-audit.js";
 import { desiredRuleset, FLEET_RULESET_NAME } from "../../src/github/rulesets.js";
-import type { ProtectionCoverageDeps } from "../../src/audits/protection-coverage.js";
 
 const SEC_ON = { secretScanning: "enabled", pushProtection: "enabled" };
 const PUBLIC_CLEAN = { visibility: "public", archived: false, ...SEC_ON };
@@ -47,7 +47,7 @@ describe("runProtectionAuditCommand", () => {
   });
 
   it("full sweep: per-repo lines + machine summary + exit 1 on a gap", async () => {
-    const deps: ProtectionCoverageDeps = {
+    const deps: ProtectionAuditDeps = {
       listOrgRepos: async () => [
         { name: "espada", ...PUBLIC_CLEAN },
         { name: "naked", ...PUBLIC_CLEAN },
@@ -65,6 +65,8 @@ describe("runProtectionAuditCommand", () => {
       branchTip: async () => null,
       openSecretAlerts: async () => 0,
       renovateMergeWindow: async () => ({ merges: [], truncated: false }),
+      repoTextFile: async () => null,
+      listWorkflowPaths: async () => [],
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(1);
@@ -79,7 +81,7 @@ describe("runProtectionAuditCommand", () => {
   });
 
   it("clean fleet: exit 0 with gaps=0 in the summary", async () => {
-    const deps: ProtectionCoverageDeps = {
+    const deps: ProtectionAuditDeps = {
       listOrgRepos: async () => [{ name: "espada", ...PUBLIC_CLEAN }],
       listRepoRulesets: async () => [{ id: 1, name: FLEET_RULESET_NAME }],
       getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
@@ -92,9 +94,83 @@ describe("runProtectionAuditCommand", () => {
       branchTip: async () => null,
       openSecretAlerts: async () => 0,
       renovateMergeWindow: async () => ({ merges: [], truncated: false }),
+      repoTextFile: async () => null,
+      listWorkflowPaths: async () => [],
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(0);
     expect(r.output).toContain("PROTECTION_AUDIT gaps=0 covered=1 skipped=0 total=1");
+  });
+
+  /**
+   * THE MERGE POINT. The pnpm-pin sweep is a separate collector, but its gaps
+   * must land INSIDE the offending repo's own row: `fleet-security.yml` closes
+   * the tracking issue only when every repo the issue named as a GAP comes back
+   * COVERED, so a repo printing GAP and COVERED in the same sweep would close
+   * its own alarm. This asserts the merged shape and the counts the nightly
+   * gates on, not just the verdict.
+   */
+  it("folds a pnpm pin gap into the repo's own row, flipping COVERED to GAP", async () => {
+    const pkg = (pin: string | null) =>
+      JSON.stringify(pin === null ? { name: "x" } : { name: "x", packageManager: pin });
+    const deps: ProtectionAuditDeps = {
+      listOrgRepos: async () => [
+        { name: "espada", ...PUBLIC_CLEAN },
+        { name: "naked", ...PUBLIC_CLEAN },
+        { name: "drifted", ...PUBLIC_CLEAN },
+      ],
+      listRepoRulesets: async () => [{ id: 1, name: FLEET_RULESET_NAME }],
+      getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
+      workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH }),
+      dependencyDashboard: async () => ({
+        present: true,
+        blockedBranches: [],
+        unknownSections: [],
+      }),
+      branchTip: async () => null,
+      openSecretAlerts: async () => 0,
+      renovateMergeWindow: async () => ({ merges: [], truncated: false }),
+      // Two repos agree on 11.11.0, one does not — a STRICT majority, which is
+      // what lets the third read as drift rather than as a fleet-wide split.
+      repoTextFile: async (repo) =>
+        repo === "reddoorla/drifted" ? pkg("pnpm@11.9.0") : pkg("pnpm@11.11.0"),
+      listWorkflowPaths: async () => [],
+    };
+    const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
+    expect(r.code).toBe(1);
+    // Anchored at column 0 for the same reason as above: the issue body is
+    // extracted with `grep -E "^GAP"`.
+    expect(r.output).toMatch(/^GAP {5}reddoorla\/drifted — .*packageManager is pnpm@11\.9\.0/m);
+    expect(r.output).toContain("the fleet pin is pnpm@11.11.0 (2/3 repos agree)");
+    // The two sound repos are untouched — the merge must not smear one repo's
+    // gap across the fleet.
+    expect(r.output).toMatch(/^COVERED reddoorla\/espada/m);
+    expect(r.output).toMatch(/^COVERED reddoorla\/naked/m);
+    expect(r.output).toContain("PROTECTION_AUDIT gaps=1 covered=2 skipped=0 total=3");
+    expect(r.output).toContain("PACKAGE_MANAGER_PIN gaps=1");
+    expect(r.output).toContain("fleetPin=pnpm@11.11.0");
+  });
+
+  it("a repo with no package.json is OUT OF SCOPE, never a gap (.github + the runners)", async () => {
+    const deps: ProtectionAuditDeps = {
+      listOrgRepos: async () => [{ name: "dot-github", ...PUBLIC_CLEAN }],
+      listRepoRulesets: async () => [{ id: 1, name: FLEET_RULESET_NAME }],
+      getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
+      workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH }),
+      dependencyDashboard: async () => ({
+        present: true,
+        blockedBranches: [],
+        unknownSections: [],
+      }),
+      branchTip: async () => null,
+      openSecretAlerts: async () => 0,
+      renovateMergeWindow: async () => ({ merges: [], truncated: false }),
+      repoTextFile: async () => null,
+      listWorkflowPaths: async () => [],
+    };
+    const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("PROTECTION_AUDIT gaps=0 covered=1 skipped=0 total=1");
+    expect(r.output).toContain("out-of-scope=1");
   });
 });

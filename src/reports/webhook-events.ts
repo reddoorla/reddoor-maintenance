@@ -1,4 +1,7 @@
 import type { DeliveryStatus } from "./airtable/reports.js";
+import type { BounceDetail } from "./submission-row.js";
+
+export type { BounceDetail };
 
 /**
  * Resend webhook event type → Airtable Delivery status value.
@@ -77,4 +80,67 @@ export function classifyUnmatchedEvent(
   // age 0 keeps it within the normal retry window instead.
   const ageMs = Number.isNaN(createdMs) ? 0 : Math.max(0, now - createdMs);
   return { decision: ageMs > windowMs ? "orphan" : "retry", ageMs };
+}
+
+/**
+ * Cap on the stored bounce message (#783).
+ *
+ * The text is written by the RECEIVING mail server — remote-supplied, arbitrary
+ * length — and it lands both in a row we keep forever and in a chip on the
+ * dashboard. Bounding it at the boundary where it enters our store is cheaper
+ * than trusting every downstream reader to bound it.
+ */
+export const BOUNCE_MESSAGE_MAX_LEN = 500;
+
+/** A present, non-blank string, else null. A blank `message` is not a diagnosis. */
+function nonBlank(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v : null;
+}
+
+/**
+ * Parse Resend's bounce classification out of an event's `data` (#783).
+ *
+ * `email.bounced` carries `data.bounce = { message, subType, type }`; the
+ * handler previously read only `data.email_id`, so a Permanent bounce on a dead
+ * mailbox and a Transient/ContentRejected rejection by the CLIENT's spam filter
+ * were stored identically — and the alarm accused the address in both cases.
+ * `email.complained` carries no bounce object at all, so a complaint parses to
+ * null rather than to an invented classification.
+ *
+ * Returns null unless at least ONE of the three fields is a usable string: an
+ * empty `bounce: {}` would otherwise store three nulls and make the row LOOK
+ * classified when nothing was said. Non-string fields are individually nulled
+ * rather than failing the whole parse — this is a third party's wire format, and
+ * a shape change must degrade to "no diagnosis", never throw inside a webhook
+ * that would then 500 and be redelivered for hours.
+ */
+export function parseBounceDetail(
+  data: Record<string, unknown> | null | undefined,
+): BounceDetail | null {
+  const bounce = data?.bounce;
+  if (typeof bounce !== "object" || bounce === null || Array.isArray(bounce)) return null;
+  const b = bounce as Record<string, unknown>;
+  const type = nonBlank(b.type);
+  const subType = nonBlank(b.subType);
+  const rawMessage = nonBlank(b.message);
+  if (type === null && subType === null && rawMessage === null) return null;
+  return {
+    type,
+    subType,
+    message: rawMessage === null ? null : rawMessage.slice(0, BOUNCE_MESSAGE_MAX_LEN),
+  };
+}
+
+/**
+ * Does this classification mean the ADDRESS itself is bad?
+ *
+ * True only for Resend's `Permanent`. `Transient` (greylisting, a full mailbox,
+ * a content rejection) and `Undetermined` are not evidence of a dead
+ * point-of-contact, and neither is an absent or unrecognized type — an unknown
+ * value must never be promoted to "the address is dead", which is precisely the
+ * wrong diagnosis #783 is about. Case-insensitive so a casing change upstream
+ * cannot silently downgrade a real permanent bounce.
+ */
+export function isPermanentBounce(detail: BounceDetail | null): boolean {
+  return detail?.type?.toLowerCase() === "permanent";
 }

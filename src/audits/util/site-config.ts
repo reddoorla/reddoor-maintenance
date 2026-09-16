@@ -14,6 +14,26 @@ export type SiteConfig = {
    * its routes are clean. Omitted (never `[]`) when unset or unusable.
    */
   a11yRoutes?: string[];
+  /**
+   * Which server the browser gates run against: `"dev"` (the default — `vite
+   * dev`) or `"preview"` (a real `vite build`, served by `vite preview`).
+   *
+   * Both gates measured the dev server, so the production bundle was built in
+   * CI and then never opened by a browser — and dev does not merely fail to
+   * reproduce some defects, it hides them. Module graph, code splitting,
+   * minification and asset hashing are most of what "hydration works" means,
+   * and a stylesheet can even be fetched under a different CSP directive in
+   * each (#700).
+   *
+   * Opt-in, because a preview costs a `pnpm build` per run and because the
+   * `/dev/*` fixture routes the axe scan targets are not guaranteed to survive
+   * one — a site that flipped this without checking would trade a working gate
+   * for one reporting every fixture as a missing route. Omitted (never
+   * defaulted here) so each caller states its own default.
+   *
+   * Requires a `preview` script in the site's package.json; the starter has one.
+   */
+  gateServer?: "dev" | "preview";
 };
 
 /**
@@ -55,5 +75,11 @@ export async function readSiteConfig(sitePath: string): Promise<SiteConfig> {
       .filter((r) => r.length > 0);
     if (clean.length > 0) out.a11yRoutes = clean;
   }
+  // Anything but the two known values reads as absent. This string reaches a
+  // shell as part of a `webServer.command`, so a typo must fall back to the
+  // default rather than be forwarded — `"prod"` would become `npm run prod`.
+  const gate = (cfg as { gateServer?: unknown }).gateServer;
+  if (gate === "dev" || gate === "preview") out.gateServer = gate;
+
   return out;
 }

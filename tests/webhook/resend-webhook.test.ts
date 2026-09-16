@@ -217,12 +217,15 @@ function signedResendPost(event: unknown): Request {
 
 function resendEvent(
   type: string,
-  opts: { emailId?: string; createdAt?: string } = {},
+  opts: { emailId?: string; createdAt?: string; bounce?: unknown } = {},
 ): Record<string, unknown> {
   return {
     type,
     created_at: opts.createdAt ?? new Date().toISOString(),
-    data: { email_id: opts.emailId ?? "msgId_abc123" },
+    data: {
+      email_id: opts.emailId ?? "msgId_abc123",
+      ...(opts.bounce === undefined ? {} : { bounce: opts.bounce }),
+    },
   };
 }
 
@@ -375,7 +378,7 @@ describe("Resend webhook signed-POST path", () => {
     markBouncedMock.mockResolvedValue(true);
     const res = await post(resendEvent("email.bounced", { emailId: "msg_sub_1" }));
     expect(res.status).toBe(200);
-    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_1");
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_1", null);
     expect(findReportMock).not.toHaveBeenCalled();
     expect(setStatusMock).not.toHaveBeenCalled();
   });
@@ -384,7 +387,7 @@ describe("Resend webhook signed-POST path", () => {
     markBouncedMock.mockResolvedValue(true);
     const res = await post(resendEvent("email.complained", { emailId: "msg_sub_2" }));
     expect(res.status).toBe(200);
-    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_2");
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_2", null);
     expect(findReportMock).not.toHaveBeenCalled();
   });
 
@@ -394,6 +397,56 @@ describe("Resend webhook signed-POST path", () => {
     const res = await post(resendEvent("email.bounced", { emailId: "msg_report_9" }));
     expect(res.status).toBe(200);
     expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "bounced");
+  });
+
+  it("#783: hands the parsed bounce classification through to the submission write", async () => {
+    // The whole point. Before this the payload's `bounce` object was dropped, so
+    // a content rejection by the client's own filter was stored identically to a
+    // dead mailbox — and the alarm accused the address in both cases.
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(
+      resendEvent("email.bounced", {
+        emailId: "msg_classified",
+        bounce: {
+          message: "552 5.7.1 Message rejected as spam by Content Filtering",
+          subType: "ContentRejected",
+          type: "Transient",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_classified", {
+      type: "Transient",
+      subType: "ContentRejected",
+      message: "552 5.7.1 Message rejected as spam by Content Filtering",
+    });
+  });
+
+  it("#783: passes a PERMANENT classification through unchanged", async () => {
+    markBouncedMock.mockResolvedValue(true);
+    await post(
+      resendEvent("email.bounced", {
+        emailId: "msg_dead",
+        bounce: { message: "550 no such user", subType: "General", type: "Permanent" },
+      }),
+    );
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_dead", {
+      type: "Permanent",
+      subType: "General",
+      message: "550 no such user",
+    });
+  });
+
+  it("#783: a malformed bounce object degrades to no classification, not a 500", async () => {
+    // Third-party wire format: a shape change must cost the diagnosis, never the
+    // delivery record, and must not make the webhook 500 into an hours-long
+    // svix redelivery loop.
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(
+      resendEvent("email.bounced", { emailId: "msg_weird", bounce: "Permanent" }),
+    );
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_weird", null);
   });
 
   it("never consults submissions for a delivered event (bounce/complaint only)", async () => {

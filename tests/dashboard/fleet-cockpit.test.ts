@@ -557,7 +557,7 @@ describe("buildCockpitModel", () => {
       null,
       [],
       0,
-      new Map([["a", 4]]),
+      new Map([["a", { total: 4, permanent: 4 }]]),
     );
     const espada = m.cards.find((c) => c.site.name === "Espada")!;
     expect(espada.tier).toBe("attention");

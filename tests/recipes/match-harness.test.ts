@@ -2213,6 +2213,7 @@ describe("the installed harness reports, not just refuses", () => {
     cwd: string,
     mode: string,
     args: string[] = ["smoke", "home"],
+    env: NodeJS.ProcessEnv = {},
   ): Promise<{ code: number | string; out: string }> {
     const skill = await stubPageDiff();
     return withServer(
@@ -2222,6 +2223,7 @@ describe("the installed harness reports, not just refuses", () => {
         return runIn(cwd, "bash", ["matching/gate.sh", ...args], {
           MATCHING_SKILL_DIR: skill,
           STUB_PD_MODE: mode,
+          ...env,
         });
       },
     );
@@ -2793,6 +2795,63 @@ export const ACCEPTED = [
     expect(out).not.toMatch(/########## /);
   });
 
+  // --- gate.sh:53-60 — the hyphenated round tag (#738 item 4)
+  //
+  // Output dirs are `out-<TAG>-<page>` and next.mjs recovers the page with
+  // /^out-[^-]+-(.+)$/ — the FIRST hyphen. So `gate.sh r-forms home` writes a
+  // directory next.mjs reads back as the page "forms-home", and that run is
+  // never counted: the round LOOKS green because next.mjs keeps scoring an
+  // older report for the page you just changed. The refusal is the cheap end
+  // of that, and nothing exercised it.
+  it("gate.sh refuses a hyphenated round tag, before it can hide the run from next.mjs", async () => {
+    const cwd = await install();
+    await writeSpec(cwd, ["home"]);
+
+    const { code, out } = await gate(cwd, "ok", ["r-forms", "home"]);
+    expect(out).toMatch(/round tag must not contain a hyphen \(got 'r-forms'\)/);
+    expect(code).toBe(2);
+    // It refuses BEFORE the reference preflight and before any page runs, so
+    // neither a REF line nor a page header can appear.
+    expect(out).not.toMatch(/########## /);
+    expect(out).not.toMatch(/ALL DONE/);
+  });
+
+  it("gate.sh still accepts the same round, hyphen-free — the refusal is about the tag", async () => {
+    // THE CONTROL. A guard proven only to refuse is indistinguishable from a
+    // gate that cannot run at all: this is the identical invocation with the
+    // hyphen taken out, and it must reach ALL DONE.
+    const cwd = await install();
+    await writeSpec(cwd, ["home"]);
+
+    const { code, out } = await gate(cwd, "ok", ["rforms", "home"]);
+    expect(out).toMatch(/ALL DONE \(rforms\) — 1 of 1 page\(s\) measured/);
+    expect(code).toBe(0);
+    expect(out).not.toMatch(/must not contain a hyphen/);
+  });
+
+  // --- gate.sh:100-104 — SPEC_OPTIONAL=1 (#738 item 4)
+  it("gate.sh REFUSES a page with no SPEC.md section — the state SPEC_OPTIONAL exempts", async () => {
+    // The premise, stated: without the exemption this page does not run.
+    const cwd = await install();
+    const { code, out } = await gate(cwd, "ok");
+    expect(out).toMatch(/REFUSED: no '## home' section in matching\/SPEC\.md/);
+    expect(out).not.toMatch(/Running anyway/);
+    expect(code).toBe(2);
+  });
+
+  it("SPEC_OPTIONAL=1 warns and runs the page anyway, for a read-only baseline", async () => {
+    const cwd = await install();
+    const { code, out } = await gate(cwd, "ok", ["smoke", "home"], { SPEC_OPTIONAL: "1" });
+    expect(out).toMatch(/WARNING: no '## home' section in matching\/SPEC\.md/);
+    expect(out).toMatch(/Running anyway because SPEC_OPTIONAL=1 \(baseline read only\)/);
+    expect(out).toMatch(/Do NOT apply geometry fixes off this run/);
+    // and it really RAN the page rather than only printing the warning
+    expect(out).toMatch(/########## home ##########/);
+    expect(out).toMatch(/ALL DONE \(smoke\) — 1 of 1 page\(s\) measured/);
+    expect(code).toBe(0);
+    expect(out).not.toMatch(/REFUSED/);
+  });
+
   it("gate.sh and next.mjs agree on what counts: a mask-photos run is refused by the gate and named by the scorer", async () => {
     // THE DRIFT GUARD. census.sh's GUARD 2c records what happens when a printer
     // and its reader ask the same question twice: they drift, and a gate that
@@ -3345,5 +3404,66 @@ describe("every matching/ script an installed template names is one the recipe i
       expect.arrayContaining(["matching/gate.sh", "matching/harness.mjs"]),
     );
     expect(found.size).toBeGreaterThan(5);
+  });
+});
+
+/**
+ * `matching/build-spec.mjs` was INSTALLED and never once EXECUTED by anything
+ * (#738 item 2): replacing its whole body with `process.exit(0)` left the suite
+ * green. It assembles the Phase 1 deliverable that `gate.sh` preflights
+ * against, so a broken one blocks every geometry round with the most confusing
+ * failure available — a section that builds fine and then re-blocks its own
+ * page at the gate.
+ *
+ * These run the real script inside a real installed site, through the same
+ * `harness.mjs` page table gate.sh reads.
+ */
+describe("the installed build-spec.mjs assembles SPEC.md (#738)", () => {
+  it("reports the page it has no section for, and exits 1", async () => {
+    // A fresh install ships `_chrome.md` and `_header.md` and no page section,
+    // so this is the state every site starts in.
+    const cwd = await install();
+    const { code, out } = await runIn(cwd, "node", ["matching/build-spec.mjs"]);
+
+    expect(out).toMatch(/SPEC\.md built — 0\/1 pages, MISSING: home/);
+    expect(code).toBe(1);
+  });
+
+  it("builds the page's section in, and exits 0 — the GRANT", async () => {
+    const cwd = await install();
+    await writeFile(
+      join(cwd, "matching/spec-sections/home.md"),
+      "## home\n\nThe home page's per-section spec.\n",
+      "utf-8",
+    );
+    const { code, out } = await runIn(cwd, "node", ["matching/build-spec.mjs"]);
+
+    expect(out).toMatch(/SPEC\.md built — 1\/1 pages/);
+    expect(out).not.toMatch(/MISSING/);
+    expect(code).toBe(0);
+
+    // The assembled file, in order: the header, the shared-chrome section, then
+    // the page — and the `## home` heading gate.sh's has_spec() greps for.
+    const spec = await read(cwd, "matching/SPEC.md");
+    expect(spec).toMatch(/^# Reference spec/);
+    expect(spec).toContain("## shared chrome");
+    expect(spec).toContain("## home");
+    expect(spec).toContain("The home page's per-section spec.");
+    expect(spec.indexOf("## shared chrome")).toBeLessThan(spec.indexOf("## home"));
+  });
+
+  it("warns when a section does not open with its own heading — gate.sh would refuse it", async () => {
+    // Builds fine, then re-blocks its own page at the gate. The warning is the
+    // only thing standing between that and a very confusing round.
+    const cwd = await install();
+    await writeFile(
+      join(cwd, "matching/spec-sections/home.md"),
+      "## homepage\n\nHeading does not match the page key.\n",
+      "utf-8",
+    );
+    const { out } = await runIn(cwd, "node", ["matching/build-spec.mjs"]);
+
+    expect(out).toMatch(/does not open with a '## home' heading/);
+    expect(out).toMatch(/gate\.sh will still refuse this page/);
   });
 });

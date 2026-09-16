@@ -4,6 +4,8 @@ import { SUBMISSION_STATUSES } from "../reports/submission-row.js";
 export type SubmissionStatusDeps = {
   getSubmissionById: (id: string) => Promise<SubmissionRow | null>;
   setSubmissionStatusRow: (id: string, status: SubmissionStatus) => Promise<void>;
+  /** #783. Stamp this bounce as acknowledged; false when it already was. */
+  ackNotifyBounce: (id: string) => Promise<boolean>;
 };
 
 export type SubmissionStatusResult =
@@ -34,4 +36,39 @@ export async function setSubmissionStatus(
   // COUNT(*) WHERE status = 'spam' in listScreenOutsSince), not incremented here —
   // so re-marking a submission can't double-count it and un-marking self-corrects.
   return { status: "updated", submissionId, newStatus: requested };
+}
+
+/** #783. Outcome of acknowledging a bounced lead notification. */
+export type SubmissionAckResult =
+  | { status: "acked"; submissionId: string }
+  | { status: "noop"; submissionId: string; reason: "not-bounced" | "already-acked" }
+  | { status: "not-found"; submissionId: string };
+
+/**
+ * Acknowledge a bounced notification as NOT a dead point-of-contact address.
+ *
+ * The row keeps its bounce record and stops counting toward the notify-bounce
+ * alarm. Before this the only exits were fourteen days of aging or a hand-run
+ * UPDATE against the production `submissions` table — which is what happened for
+ * Espada on 2026-09-14, and which destroyed the bounce evidence along with the
+ * alarm.
+ *
+ * Refuses a row that never bounced, so the gesture cannot drift into a
+ * general-purpose "hide this submission". A PERMANENT bounce IS ackable: the ack
+ * means "I have looked at this", and the case most worth closing is the one
+ * where the operator has just fixed the mailbox.
+ */
+export async function acknowledgeNotifyBounce(
+  deps: SubmissionStatusDeps,
+  submissionId: string,
+): Promise<SubmissionAckResult> {
+  const row = await deps.getSubmissionById(submissionId);
+  if (!row) return { status: "not-found", submissionId };
+  if (row.notifyStatus !== "bounced") {
+    return { status: "noop", submissionId, reason: "not-bounced" };
+  }
+  const wrote = await deps.ackNotifyBounce(submissionId);
+  return wrote
+    ? { status: "acked", submissionId }
+    : { status: "noop", submissionId, reason: "already-acked" };
 }
