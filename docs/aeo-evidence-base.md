@@ -124,6 +124,11 @@ to read JSON-LD-adjacent script payloads, which is a larger change than this
 issue, and the honest first step is to stop the report asserting what it had not
 measured.
 
+> Corrected on 2026-09-16 in #828: `extractPage` now projects a `dataText` field
+> from `application/json` / `…+json` script bodies and `jsDependence` reads it,
+> so the SCRIPT-EMBEDDED arm above scores 0% missing while JS-FETCHED is
+> unchanged at 5.4%. The three arms below are the fixtures that gate it.
+
 ### What was NOT established
 
 - **The production instrument was not the one tested.** `CLAUDE_OAUTH` is empty

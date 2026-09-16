@@ -15,6 +15,30 @@ export const MAX_SCRIPTS = 120;
  *  bootstrap names a handful of URLs; nothing legitimate names forty. */
 export const MAX_INLINE_URLS = 40;
 
+/** How much text is kept from a page's structured data payloads. A stock
+ *  Next.js or Nuxt page ships its copy inside `<script type="application/json">`,
+ *  and on a large site those payloads run to hundreds of KB; the extract is
+ *  persisted once per page per audit, so this is capped like every other list
+ *  here. Truncation can only make a page look MORE JS-dependent than it is,
+ *  never less — the same direction the uncorrected extractor erred in, and the
+ *  safe one, since this audit must never pay a prospect a compliment it has not
+ *  measured. */
+export const MAX_DATA_TEXT = 200_000;
+
+/** Script types whose body is DATA a reader can read rather than code that has
+ *  to be run: `application/json` (Next.js `__NEXT_DATA__`, Nuxt `__NUXT_DATA__`),
+ *  `application/ld+json`, and any other `…+json` vendor spelling. Media-type
+ *  parameters are stripped before the test, so `application/json; charset=utf-8`
+ *  matches too.
+ *
+ *  Executable scripts are deliberately NOT here, and #675's JS-FETCHED arm is
+ *  why: its loader contains the literal words "The Kelverhoy index for Station",
+ *  so reading inline code as text would credit that page for copy no assistant
+ *  can see — switching off the very signal `jsDependence` exists to raise. A
+ *  data payload is read by an assistant with no JS engine at all (measured 3/3,
+ *  `docs/aeo-evidence-base.md`); code is not (measured 0/3). */
+const DATA_SCRIPT_TYPE = /^(?:application|text)\/(?:[\w.+-]+\+)?json$/;
+
 /**
  * URLs appearing in a string of JavaScript. Blunt on purpose: this answers
  * "does this script mention googletagmanager.com/gtag/js", not "what will it
@@ -203,6 +227,8 @@ type Collected = {
    *  collected — see `PageExtract.scriptSrcs`. */
   scriptSrcs: string[];
   inlineScriptUrls: string[];
+  /** Bodies of the structured-data scripts — see `DATA_SCRIPT_TYPE`. */
+  dataText: string[];
 };
 
 /** One ordered pass for the element-level signals. Document order matters: the
@@ -238,9 +264,14 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
         if (out.title === null) out.title = collapse(e.text) || null;
         break;
       case "SCRIPT": {
-        const isJsonLd =
-          (e.getAttribute("type") ?? "").toLowerCase().trim() === "application/ld+json";
+        const type = (e.getAttribute("type") ?? "").toLowerCase().split(";")[0]?.trim() ?? "";
+        const isJsonLd = type === "application/ld+json";
         if (isJsonLd) out.jsonLd.push(e.text);
+        // Text that IS in the served bytes, inside a structured payload. Kept
+        // apart from `text` because it is not visible to a visitor — only
+        // `jsDependence` reads it, and only to stop penalising words the
+        // assistant demonstrably reads (#828).
+        if (DATA_SCRIPT_TYPE.test(type)) out.dataText.push(e.text);
         const src = (e.getAttribute("src") ?? "").trim();
         if (src) {
           // Collected even for ld+json, which may legitimately be loaded from
@@ -459,6 +490,7 @@ export function extractPage(html: string): PageExtract {
     forms: [],
     scriptSrcs: [],
     inlineScriptUrls: [],
+    dataText: [],
   };
   collect(documentEl, out);
 
@@ -548,5 +580,8 @@ export function extractPage(html: string): PageExtract {
     // The TRUE total, for the same reason `anchorCount` exists: a capped list
     // must never be mistaken for a complete one.
     scriptCount: out.scriptSrcs.length,
+    // Capped for storage, never sliced mid-measurement: see `MAX_DATA_TEXT`
+    // for why truncating here can only err toward a penalty.
+    dataText: collapse(out.dataText.join(" ")).slice(0, MAX_DATA_TEXT),
   };
 }
