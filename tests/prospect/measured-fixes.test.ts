@@ -197,3 +197,40 @@ describe("measuredFixes", () => {
     }
   });
 });
+
+/**
+ * A measured fix needs a stable key, or the merge cannot dedupe it (#677).
+ *
+ * Our own report listed "Give 2 pages a top heading" (measured) and "Give the
+ * two pages with no h1 a proper headline" (model) as fixes 2 and 10 — the same
+ * defect, twice, in one document. `mergeFixes` dedupes on `addresses`, and
+ * every measured fix here passed `addresses: null`, so there was never a handle
+ * to match on. Stamping the key is the half of the fix that is reliable; a
+ * fuzzy title match is not (those two titles share only "give" and "pages").
+ */
+describe("measured fixes carry a key the merge can dedupe on", () => {
+  it("stamps a key on the missing-h1 fix", () => {
+    const fixes = measuredFixes({
+      ...empty(),
+      checks: checks({ headings: { pagesWithoutH1: 2, pagesWithLevelSkips: 0 } }),
+    });
+    expect(fixes.find((f) => f.title.includes("top heading"))?.addresses).toBe("headings-h1");
+  });
+
+  it("stamps a key on the missing-canonical fix", () => {
+    const fixes = measuredFixes({
+      ...empty(),
+      checks: checks({
+        meta: {
+          pageCount: 5,
+          missingCanonical: 3,
+          missingTitle: 0,
+          missingDescription: 0,
+          missingSocial: 0,
+          pagesWithoutExtract: 0,
+        },
+      }),
+    });
+    expect(fixes.find((f) => f.title.includes("real one"))?.addresses).toBe("meta-canonical");
+  });
+});

@@ -52,7 +52,14 @@ import {
  *  found past a per-page cutoff would read as absent, which is the one verdict
  *  this stage must never get wrong. Whole pages are dropped instead, and the
  *  drop is recorded and disclosed. */
-const MAX_PAGES = 14;
+/** Matches the crawl's own cap (`crawl.ts`, `maxPages`), deliberately, so this
+ *  stage reads everything the crawl retrieved rather than stopping six pages
+ *  short of it. A page we did not read is exactly where an `absent` verdict
+ *  becomes a wrong claim about somebody's business, and a second, lower, private
+ *  cap bought nothing: MAX_TOTAL_CHARS below is the real bound on prompt size,
+ *  and it still applies. Raising this does not raise what the report claims to
+ *  have measured — see `siteUrlCount`. */
+const MAX_PAGES = 20;
 
 /** Total site characters in the prompt. Beyond this, pages are dropped whole and
  *  `siteFullyRead` goes false, which turns every `absent` into `unverified`. */
@@ -112,7 +119,29 @@ export type AccuracyResult = {
    *  say it" is not a claim we can make about pages we did not read. */
   siteFullyRead: boolean;
   pagesRead: number;
+  /**
+   * How many pages WE CRAWLED — never how many pages the site has.
+   *
+   * This is `crawl.pages.length`, which is bounded by the crawl's own cap, so on
+   * any site larger than that cap it is our ceiling and not their total. Rendered
+   * as a denominator it produced "we read 14 of your 20 pages" about a site whose
+   * sitemap lists 49 — two of our numbers presented as a fact about the prospect,
+   * which is the one mistake this report keeps having to be stopped from making.
+   * Pair it with `siteUrlCount` for the honest sentence.
+   */
   pagesTotal: number;
+  /**
+   * How many URLs the site's OWN sitemap lists, or null when there is no sitemap
+   * to read it from.
+   *
+   * Null is "we never learned the site's size", never "the site has no other
+   * pages" — the same discipline as every other unmeasured value here. When
+   * `crawl.sitemap.truncated` is true this is a FLOOR rather than a count (we
+   * stopped reading a sitemap index before it ended); that flag lives on the
+   * crawl, which every consumer of this result also holds, so it is not
+   * duplicated here.
+   */
+  siteUrlCount: number | null;
   /** Which branded answers we had full text for. A run whose probes predate
    *  `fullAnswer` reports zero and no assertions, rather than "nothing wrong". */
   answersRead: number;
@@ -229,6 +258,14 @@ function pathDepth(url: string): number {
 
 function viewOf(page: PageCapture) {
   return page.rendered ?? page.raw;
+}
+
+/** The site's own declared size, for use beside `pagesTotal`. A sitemap we never
+ *  fetched and a site without one both leave this null: "we do not know how big
+ *  the site is" is the honest reading, and it is not the same claim as "the site
+ *  is as big as the part we crawled". */
+function siteUrlCountOf(crawl: CrawlResult): number | null {
+  return crawl.sitemap.present ? crawl.sitemap.urlCount : null;
 }
 
 /** Every page's text, whole, in one string — what an `absent` verdict is
@@ -671,6 +708,7 @@ export async function checkAccuracy(
       siteFullyRead: false,
       pagesRead: 0,
       pagesTotal: crawl.pages.length,
+      siteUrlCount: siteUrlCountOf(crawl),
       answersRead: 0,
       conflation: NO_CONFLATION,
     };
@@ -722,6 +760,7 @@ export async function checkAccuracy(
     siteFullyRead: input.fullyRead,
     pagesRead: input.pagesRead,
     pagesTotal: crawl.pages.length,
+    siteUrlCount: siteUrlCountOf(crawl),
     answersRead: branded.length,
     conflation,
   };

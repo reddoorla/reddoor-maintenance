@@ -640,3 +640,51 @@ describe("name collision", () => {
     expect(r.conflation).toEqual({ detected: false, otherNames: [], engineQuote: null });
   });
 });
+
+/**
+ * The page count was the crawl cap, presented as the site (#677).
+ *
+ * The report said "we read 14 of your 20 pages" about a site whose sitemap lists
+ * 49. Both numbers were ours — a private cap inside this file, and the crawl's
+ * cap — and neither was a fact about the prospect. An unread page is where an
+ * `absent` verdict turns into a wrong claim about somebody's business, so the
+ * accuracy pass should read everything the crawl actually retrieved, and the
+ * result should carry the site's own denominator rather than implying we
+ * measured a whole site we only sampled.
+ */
+describe("the accuracy pass and the site's real size", () => {
+  it("reads everything the crawl retrieved, not a lower private cap", () => {
+    const pages = Array.from({ length: 20 }, (_, i) =>
+      page(`https://example.com/p${i}`, `Page ${i} says something short.`),
+    );
+    expect(selectPages(crawl(pages)).pages).toHaveLength(20);
+  });
+
+  it("reports the site's own URL count, distinct from the pages we crawled", async () => {
+    const site49: CrawlResult = {
+      ...crawl([page("https://example.com/", "Seaview Dental is open on Saturdays.")]),
+      sitemap: { present: true, urlCount: 49 },
+    };
+    const r = await checkAccuracy(
+      "https://example.com",
+      site49,
+      [branded({ fullAnswer: "Seaview Dental is open on Saturdays." })],
+      [],
+      { run: async () => ({ assertions: [] }), ownership: { fetchPage: async () => null } },
+    );
+    // pagesTotal is what WE crawled — it was never the site's page count.
+    expect(r.pagesTotal).toBe(1);
+    expect(r.siteUrlCount).toBe(49);
+  });
+
+  it("leaves the site's URL count null when there is no sitemap to read it from", async () => {
+    const r = await checkAccuracy(
+      "https://example.com",
+      crawl([page("https://example.com/", "Seaview Dental is open on Saturdays.")]),
+      [branded({ fullAnswer: "Seaview Dental is open on Saturdays." })],
+      [],
+      { run: async () => ({ assertions: [] }), ownership: { fetchPage: async () => null } },
+    );
+    expect(r.siteUrlCount).toBeNull();
+  });
+});
