@@ -467,4 +467,38 @@ export const MIGRATIONS: Migration[] = [
     id: "0021_submissions_bounce_ack_at",
     sql: `ALTER TABLE submissions ADD COLUMN bounce_ack_at TEXT;`,
   },
+  {
+    // #786, the other half of #785. That PR made `unknown-site` NON-terminal on
+    // replay so both recovery orders are safe (`ensure-site` then replay, or
+    // replay then `ensure-site`) — without it, replay-before-heal silently burns
+    // every queued lead, and that is the order a person reaches for first.
+    //
+    // The cost, named at the time: a slug that is genuinely dead but still
+    // deployed and posting grows the queue without bound, holds
+    // `db replay-deadletters` at exit 1, and leaves a standing CRITICAL cockpit
+    // item with no escape short of deleting rows by hand.
+    //
+    // `abandoned` is that escape — resolved by DECISION rather than by outcome.
+    // Deliberately NOT reusing `replayed_at`/`replay_outcome`: those mean "the
+    // pipeline gave this lead an answer", and a row marked replayed reads as a
+    // lead that was placed, which is the opposite of what happened to it.
+    //
+    // who/when/why are three columns because the decision has to outlive the
+    // person who made it; a bare timestamp would leave the next operator
+    // guessing why a client's lead was written off.
+    //
+    // THREE MIGRATIONS, NOT ONE — the rule 0003, 0013 and 0015 already carry:
+    // `migrate.ts` swallows "duplicate column name" then records the marker
+    // unconditionally, which is only sound for a single statement.
+    id: "0022_deadletter_abandoned_at",
+    sql: `ALTER TABLE submission_deadletter ADD COLUMN abandoned_at TEXT;`,
+  },
+  {
+    id: "0023_deadletter_abandoned_by",
+    sql: `ALTER TABLE submission_deadletter ADD COLUMN abandoned_by TEXT;`,
+  },
+  {
+    id: "0024_deadletter_abandoned_reason",
+    sql: `ALTER TABLE submission_deadletter ADD COLUMN abandoned_reason TEXT;`,
+  },
 ];
