@@ -2543,7 +2543,7 @@ claude-skills and 29-navy. The real backlog ended the day at 50, with 63 issues 
 
 **Six instruments lied, and they are the whole value of the day.**
 
-*The auto-filed alarm prescribed the wrong fix.* `#775` "Time-travel suite failing"
+_The auto-filed alarm prescribed the wrong fix._ `#775` "Time-travel suite failing"
 told the reader to find the clock-dependent test and freeze it. There was no clock. The
 suite died on `browserType.launch: Executable doesn't exist` — `time-travel.yml` runs
 `pnpm install` then `pnpm test` and never installed Chromium, which `ci.yml` has done
@@ -2556,7 +2556,7 @@ where the gate cannot look, recurring in the gate written to prevent it. Both fi
 #797, and the auto-file template now says that a missing browser is the environment,
 not a clock.
 
-*The template was generated from a branch nobody had pushed.* Every shipped body in
+_The template was generated from a branch nobody had pushed._ Every shipped body in
 `src/recipes/match-harness/template.ts` was byte-identical to beachfront's `matching/`
 **working tree**, which sits on the local-only branch `fix/p751-unanchored-score`, not
 on `origin/main`. Anyone regenerating from `origin/main` would have silently reverted
@@ -2565,21 +2565,21 @@ no warning. Caught before it landed; the two commits were rebase-merged in
 beachfront#61 so they became their own patches, which also closed the local-only audit
 issue beachfront#60 by patch-id.
 
-*A shadow write that had never once landed.* `#782` said report drafts throw on the
+_A shadow write that had never once landed._ `#782` said report drafts throw on the
 Airtable field `Analytics soft-fail at`, so the Turso column is never written. Describing
 the table settled it: `Websites` has 110 fields and that is not one of them. The field
 has never existed, so the write has failed every time since it was added, and because
 the Turso mirror sat after it in the same `try`, the authoritative store never got the
 stamp either. Turso now goes first, in its own `try` (#811).
 
-*A fallback that could never run.* Writing the first test for vida-legacy-foundation's
+_A fallback that could never run._ Writing the first test for vida-legacy-foundation's
 `/api/csp-report` (#59) turned up a real 500: `request.json()` consumes the body
 stream before it fails to parse, so the `catch { request.text() }` fallback threw `Body
 is unusable`. A malformed CSP report has always 500'd, and because the endpoint is
 fire-and-forget no browser ever told us. Mutation score across the five audited files
 went 80.93% → 94.85%.
 
-*CI's formatter has been blind to every Svelte file in two repos.* data-dynamiq#46 and
+_CI's formatter has been blind to every Svelte file in two repos._ data-dynamiq#46 and
 the-pointe-burbank#30 asked to adopt the shared `.prettierrc.json` instead of the CLI
 `--plugin` idiom. The grep for `--plugin` in `.github/` came back empty, which looked
 like the issue was stale — but both repos delegate to the reusable
@@ -2589,7 +2589,7 @@ skipped in CI; only the local `pnpm lint` ever checked them. **Any fleet repo on
 reusable CI without a `.prettierrc.json` has the same blind spot** — that is a sweep
 worth running, and it is not tracked yet.
 
-*The fleet alarm was reporting its own permissions as a posture gap.* `#754` names
+_The fleet alarm was reporting its own permissions as a posture gap._ `#754` names
 public repos as GAP because the sweep "cannot read secret-scanning alerts". The
 `reddoor-renovate` App has no `secret_scanning_alerts` permission, and `gh.ts` maps 403
 and 404 alike to `unavailable`, so roughly fourteen public repos read as unreadable
