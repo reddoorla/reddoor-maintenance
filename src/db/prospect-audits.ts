@@ -62,12 +62,25 @@ export type NewProspectAudit = {
   url: string;
   business: string | null;
   resultJson: string;
+  /** #676. What the operator chose by hand, if anything. Absent or empty means
+   *  the audit generated its own — stored as NULL, which is deliberately
+   *  distinct from an empty operator list. */
+  chosenTerms?: string[] | null;
+  chosenQuestions?: string[] | null;
   /** Defaults to "complete" — the column's own SQL default — for callers
    *  (tests, ad-hoc scripts) that don't track per-stage outcomes. The
    *  prospect-audit CLI, the only real writer, always computes and passes
    *  this explicitly. */
   status?: ProspectAuditStatus;
 };
+
+/** A chosen list as stored: JSON, or NULL when nothing usable was chosen.
+ *  Blank entries are dropped first, so a textarea holding only whitespace
+ *  stores NULL rather than an array of empty strings. */
+function jsonListOrNull(xs: string[] | null | undefined): string | null {
+  const cleaned = (xs ?? []).map((x) => x.trim()).filter((x) => x !== "");
+  return cleaned.length === 0 ? null : JSON.stringify(cleaned);
+}
 
 export async function createProspectAudit(
   db: Db,
@@ -86,6 +99,8 @@ export async function createProspectAudit(
       created_at: new Date().toISOString(),
       status: audit.status ?? "complete",
       result_json: audit.resultJson,
+      chosen_terms: jsonListOrNull(audit.chosenTerms),
+      chosen_questions: jsonListOrNull(audit.chosenQuestions),
     })
     .execute();
   return { id, token };
@@ -105,6 +120,9 @@ export type ProspectAuditRow = {
   overrides_json: string | null;
   edited_at: string | null;
   opened_at: string | null;
+  /** #676. JSON arrays, or null when the audit chose its own. */
+  chosen_terms: string | null;
+  chosen_questions: string | null;
 };
 
 export async function getProspectAuditByToken(
@@ -123,6 +141,8 @@ export async function getProspectAuditByToken(
       "overrides_json",
       "edited_at",
       "opened_at",
+      "chosen_terms",
+      "chosen_questions",
     ])
     .where("token", "=", token)
     .executeTakeFirst();
@@ -145,6 +165,9 @@ export type ProspectAuditListItem = {
    *  an "edited" marker without reading `overrides_json`. */
   edited_at: string | null;
   opened_at: string | null;
+  /** #676. Present so the listing can mark which audits used chosen terms
+   *  WITHOUT reading `result_json`, which it deliberately never selects. */
+  chosen_terms: string | null;
 };
 
 /** Ceiling on `listRecentProspectAudits`' `limit`, enforced defensively (a
@@ -170,7 +193,17 @@ export async function listRecentProspectAudits(
 ): Promise<ProspectAuditListItem[]> {
   return db
     .selectFrom("prospect_audits")
-    .select(["id", "token", "url", "business", "status", "created_at", "edited_at", "opened_at"])
+    .select([
+      "id",
+      "token",
+      "url",
+      "business",
+      "status",
+      "created_at",
+      "edited_at",
+      "opened_at",
+      "chosen_terms",
+    ])
     .orderBy("created_at", "desc")
     .limit(clampLimit(limit))
     .execute();

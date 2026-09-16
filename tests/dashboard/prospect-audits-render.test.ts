@@ -15,6 +15,7 @@ function item(over: Partial<ProspectAuditListItem> = {}): ProspectAuditListItem 
     created_at: "2026-08-25T12:00:00.000Z",
     edited_at: null,
     opened_at: null,
+    chosen_terms: null,
     ...over,
   };
 }
@@ -184,5 +185,44 @@ describe("prospect audits list — edit state", () => {
     expect(html).toContain("Edited");
     expect(html).not.toContain("Opened");
     expect(html).not.toContain("read since you edited");
+  });
+});
+
+/**
+ * #676. The run form takes the searches and the buyer questions by hand, and
+ * the listing says which audits used them — the two surfaces the issue names.
+ */
+describe("renderProspectAuditsPageHtml — chosen terms and questions", () => {
+  it("offers optional terms and questions fields", () => {
+    const html = renderProspectAuditsPageHtml(model());
+    expect(html).toContain('name="terms"');
+    expect(html).toContain('name="questions"');
+  });
+
+  it("says plainly that leaving them blank generates, as today", () => {
+    // The contract that keeps this an override rather than a new chore: an
+    // operator who does not know the client must not think they owe the form
+    // five searches before they can run an audit.
+    expect(renderProspectAuditsPageHtml(model())).toMatch(/blank/i);
+  });
+
+  it("marks a listed audit whose searches were chosen by hand", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({ audits: [item({ chosen_terms: JSON.stringify(["roof repair Boise"]) })] }),
+    );
+    expect(html).toMatch(/chosen by hand/i);
+  });
+
+  it("does NOT mark an audit that generated its own", () => {
+    // The grant side — otherwise every row would claim a comparability it does
+    // not have.
+    const html = renderProspectAuditsPageHtml(model({ audits: [item()] }));
+    expect(html).not.toMatch(/chosen by hand/i);
+  });
+
+  it("sends both fields with the run request", () => {
+    const html = renderProspectAuditsPageHtml(model());
+    expect(html).toContain("terms:");
+    expect(html).toContain("questions:");
   });
 });

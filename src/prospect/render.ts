@@ -155,7 +155,13 @@ function formatIsoDate(iso: string): string {
  *  caller was fixed) whenever the name was rejected and the probes searched for
  *  the domain instead. Never derived from the raw ProbesResult, which has no
  *  way to say "no name was available". */
-function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string {
+function buildProbesSection(
+  p: ProbesResult,
+  businessNameUsed: boolean,
+  /** #676. Where the searches below came from. Undefined on every report stored
+   *  before the choice existed — those say nothing rather than claim either. */
+  termsSource?: "chosen" | "generated",
+): string {
   const byKind = new Map<ProbeAnswer["kind"], ProbeAnswer[]>();
   for (const a of p.answers) {
     const bucket = byKind.get(a.kind) ?? [];
@@ -172,6 +178,18 @@ function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string 
   const categoryCaveat = byKind.has("category")
     ? ""
     : `<p class="muted"><strong>No buyer-question (category) query was tested here</strong> — only name-recognition. An engine echoing back a name it was just given says nothing about whether a buyer who had never heard of the business would be shown it; treat the line above as a floor, not a visibility signal.</p>`;
+
+  // #676. Which searches these are is a claim about how far the number travels.
+  // Terms chosen with the client stay fixed between audits, so a later run
+  // measures the same thing; terms the model read off the site may differ next
+  // time, and a before/after built on them is comparing two instruments. The
+  // report says which, rather than leaving the reader to assume the stronger one.
+  const termsProvenance =
+    termsSource === "chosen"
+      ? `<p class="muted">These are searches we chose with you. They stay fixed between audits, so a later run measures the same thing.</p>`
+      : termsSource === "generated"
+        ? `<p class="muted">These are searches we chose from your site. A later audit may choose differently, so treat a before/after across them with care.</p>`
+        : "";
 
   // A degraded run says so. The score now divides by what was ASKED, so failed
   // probes push it DOWN rather than silently inflating it — which is the safe
@@ -219,7 +237,7 @@ function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string 
         .join("")}</ul>`
     : "";
 
-  return recognition + categoryCaveat + degradedNotice + groups + competitors;
+  return recognition + categoryCaveat + termsProvenance + degradedNotice + groups + competitors;
 }
 
 /** crawlerAccessMeasured is false only when the robots.txt fetch itself
@@ -431,7 +449,11 @@ export function renderProspectReport(result: ProspectAuditResult): string {
       );
 
   const probesSectionFinal = result.probes.ok
-    ? buildProbesSection(result.probes.data, businessNameUsed)
+    ? buildProbesSection(
+        result.probes.data,
+        businessNameUsed,
+        result.analyze.ok ? result.analyze.data.termsSource : undefined,
+      )
     : skippableStageNote(
         result.probes.error,
         PROBES_SKIPPED,

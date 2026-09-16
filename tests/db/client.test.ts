@@ -52,6 +52,8 @@ describe("openDb", () => {
       "0015_prospect_audits_overrides",
       "0016_prospect_audits_edited_at",
       "0017_prospect_audits_opened_at",
+      "0025_prospect_audits_chosen_terms",
+      "0026_prospect_audits_chosen_questions",
     ]);
     await db.destroy();
   });

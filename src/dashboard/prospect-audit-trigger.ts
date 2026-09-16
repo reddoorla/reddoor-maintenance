@@ -69,6 +69,17 @@ export type ProspectAuditDispatchInputs = {
   requested_by: string;
   /** One of OPERATOR_GOALS. Required: see triggerProspectAudit. */
   goal: string;
+  /** #676. Newline-separated, and PRESENT ONLY WHEN NON-EMPTY.
+   *
+   *  The audit runs by `workflow_dispatch` against a private repo whose
+   *  workflow file is not in this repository. GitHub refuses a dispatch that
+   *  carries an input the workflow does not declare, so sending these keys
+   *  unconditionally would break every run — including the ones that choose
+   *  nothing. Omitted when blank, the payload stays byte-for-byte what it is
+   *  today and only a run that actually uses the feature depends on the
+   *  workflow having been taught about it. */
+  terms?: string;
+  questions?: string;
 };
 
 /** Everything a dispatcher needs to fire one run — deliberately narrow (no
@@ -169,6 +180,9 @@ export type ProspectAuditTriggerInput = {
   requestedBy: string;
   /** What the site should get a visitor to do. Empty is refused. */
   goal: string;
+  /** #676. Hand-chosen searches and buyer questions. Blank means generate. */
+  terms?: string[];
+  questions?: string[];
 };
 
 export type ProspectAuditTriggerResult =
@@ -224,10 +238,26 @@ export async function triggerProspectAudit(
   }
 
   const business = input.business?.trim() || null;
+  // #676. Blank entries dropped, and the key omitted entirely when nothing is
+  // left — see ProspectAuditDispatchInputs for why an undeclared input would
+  // otherwise fail the whole dispatch.
+  const lines = (xs: string[] | undefined): string | null => {
+    const cleaned = (xs ?? []).map((x) => x.trim()).filter((x) => x !== "");
+    return cleaned.length === 0 ? null : cleaned.join("\n");
+  };
+  const terms = lines(input.terms);
+  const questions = lines(input.questions);
   const result = await deps.dispatch({
     repo: target.repo,
     workflowFile: target.workflowFile,
-    inputs: { url, business: business ?? "", requested_by: input.requestedBy, goal },
+    inputs: {
+      url,
+      business: business ?? "",
+      requested_by: input.requestedBy,
+      goal,
+      ...(terms === null ? {} : { terms }),
+      ...(questions === null ? {} : { questions }),
+    },
   });
   if (!result.ok) return { status: "dispatch-failed", error: result.error };
   return { status: "dispatched" };

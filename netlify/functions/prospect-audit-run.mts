@@ -115,6 +115,17 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   const business =
     typeof payload.business === "string" && payload.business.trim() ? payload.business : null;
   const goal = typeof payload.goal === "string" ? payload.goal : "";
+  // #676. One per line, as the form's textareas send them. Blank stays blank:
+  // triggerProspectAudit drops empties and omits the dispatch key entirely.
+  const lines = (v: unknown): string[] =>
+    typeof v === "string"
+      ? v
+          .split(/\r?\n/)
+          .map((x) => x.trim())
+          .filter((x) => x !== "")
+      : [];
+  const terms = lines(payload.terms);
+  const questions = lines(payload.questions);
   const requestedBy = resolveRequestedBy(auth.email);
 
   try {
@@ -125,7 +136,14 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         dispatch: makeWorkflowDispatchDispatcher({ token }),
       },
       { repo, workflowFile },
-      { url, business, requestedBy, goal },
+      {
+        url,
+        business,
+        requestedBy,
+        goal,
+        ...(terms.length > 0 ? { terms } : {}),
+        ...(questions.length > 0 ? { questions } : {}),
+      },
     );
     const recipientsLabel = prospectAuditRecipientsLabel(process.env.PROSPECT_AUDIT_RECIPIENTS);
     const { status, body } = respondToProspectAuditTrigger(result, { recipientsLabel });

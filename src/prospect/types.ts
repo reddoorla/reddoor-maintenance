@@ -395,6 +395,15 @@ export type AnalyzeResult = {
    *  Absent on reports stored before the set was fixed. Two audits' Answers
    *  scores are comparable exactly when this matches; see sameQuestionSet. */
   questionSetId?: string;
+  /** #676. Whether the buyer questions were chosen by hand or are the goal's
+   *  fixed set. Absent on reports stored before the choice existed, which were
+   *  all generated. */
+  questionsSource?: "chosen" | "generated";
+  /** #676. Whether `categoryQueries` are the operator's searches or the ones
+   *  the model wrote from the site. The report says which, because "searches we
+   *  chose with you" and "searches we chose from your site" are different
+   *  claims about how much the number can be trusted. */
+  termsSource?: "chosen" | "generated";
   /** Standalone searches for the visibility probes — what a buyer types before
    *  they know this company exists. Distinct from `buyerQuestions`, which are
    *  phrased about this site and are unanswerable on their own; see the schema
