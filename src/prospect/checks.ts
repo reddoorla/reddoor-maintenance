@@ -116,7 +116,15 @@ export function runChecks(crawl: CrawlResult): ChecksResult {
     if (!p.raw || !p.rendered) continue;
     const renderedWords = wordSet(p.rendered.text);
     if (renderedWords.size === 0) continue;
-    const rawWords = wordSet(p.raw.text);
+    // The served bytes, INCLUDING structured data payloads — not just the
+    // visible text. A stock Next.js or Nuxt page ships its copy inside
+    // `<script type="application/json">`, and an assistant with no JS engine
+    // reads it (3/3, `docs/aeo-evidence-base.md`); scoring that as "only
+    // appears after JavaScript runs" docked up to 60 of readability's 100
+    // points for content the reader can see (#828). Text that exists nowhere in
+    // the served HTML is still penalised in full — that is the case this check
+    // was built for, and the same evidence run confirms it (0/3).
+    const rawWords = wordSet(`${p.raw.text} ${p.raw.dataText ?? ""}`);
     let missing = 0;
     for (const w of renderedWords) if (!rawWords.has(w)) missing++;
     perPage.push({

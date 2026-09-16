@@ -2838,6 +2838,104 @@ pin becomes fleet-managed, whether it carries `+sha512`, and what to do about `s
 plus whether `tucksravin/invitations` should be pulled onto the fleet pin, and whether the
 guard's population should ever reach private or cross-org repos.
 
+## 2026-09-16 — The audit was docking 60 points for copy the assistant reads (#828, PR #844, `85dcd166`)
+
+`extractPage` never walked a `<script>` body, so any word that shipped inside a structured
+JSON payload was measured as "only appears after JavaScript runs". That is the normal shape
+of a stock Next.js (`__NEXT_DATA__`) or Nuxt (`__NUXT_DATA__`) page, and JS dependence is 60
+of readability's 100 points, so we were publishing a near-zero readability score for sites
+whose copy an assistant can read in full — and prescribing a rebuild they do not need. The
+defect came out of the #675 experiment rather than out of review: the probe told the two
+arms apart decisively while our own extractor could not tell them apart at all.
+
+The fix is in extraction, not in the weight. #675 established the weight is right for the
+case it was built for, and re-weighting would have traded a false penalty for a false
+compliment. `extractPage` now projects `dataText` — the bodies of `application/json`,
+`application/ld+json` and `…+json` scripts, collapsed, capped at 200,000 characters, and
+deliberately kept OUT of `text` so no word count or prose check inherits a JSON blob that no
+visitor reads. `jsDependence` unions it into the raw word set, so a rendered word is missing
+only when it appears nowhere in the served bytes.
+
+Measured on the committed #675 fixtures, before → after, weighted missing share and the
+readability score built on it:
+
+| arm                                       | avgMissing  | readability |
+| ----------------------------------------- | ----------- | ----------- |
+| control, server-rendered                  | 0.0% → 0.0% | 85 → 85     |
+| script-embedded (assistant reads it, 3/3) | 5.3% → 0.0% | 82 → 85     |
+| runtime-JS (NOT STATED, 3/3)              | 5.4% → 5.4% | 82 → 82     |
+| stock Next.js, whole copy in the payload  | 100% → 0.0% | 13 → 73     |
+
+The middle two rows are the whole point, and the second of them is the one that had to be
+checked: a change that only stopped the over-penalty would have switched off a signal we
+have direct evidence for. The runtime-JS arm is byte-identical in score before and after.
+
+**Executable inline scripts stay excluded, and the reason is measured, not stylistic.** The
+JS-FETCHED fixture's own loader contains the literal words "The Kelverhoy index for Station"
+— only the value arrives over the network. A blanket "read all script text" would therefore
+have credited that page for a sentence no assistant can see, which is exactly the false
+compliment this audit is built not to pay. The cost of the narrow rule is that Next.js App
+Router flight data (`self.__next_f.push([...])`, executable) is still counted as invisible;
+that is a known, named limit rather than an oversight, and it errs toward the penalty.
+
+The 200,000-character cap errs the same way: truncating a payload can only make a page look
+more JS-dependent, never less.
+
+Beliefs corrected: the last entry on this (`docs/aeo-evidence-base.md`, 2026-09-15) recorded
+the over-penalty as costing "up to 60 points" on a hypothesis. It is 60 points exactly, and
+now demonstrated — the stock-Next.js row above moves 13 → 73.
+
+## 2026-09-16 — The reports counted our own test suite as traffic (`fix/ga-hostname-filter`)
+
+Tucker, on Reddoor's own September maintenance report: analytics seem way
+higher than they have been. The ANALYTICS block said 15,063 Users, ▲ 510%,
+2,471 → 15,063. None of it was traffic. `fetchPeriodUsers` asked GA4 for
+`activeUsers` with a date range and a metric and nothing else — no
+`dimensionFilter` — so the number was every hit on the property from any
+host. Split by `hostName` for the thirty days to 2026-09-14, the Reddoor
+property holds 16,072 users: 15,971 on `localhost`, 87 on `reddoorla.com`,
+29 across deploy previews and staging. Source and medium agrees: 16,048 of
+them are `(direct) / (none)`.
+
+The other half of the cause is in reddoor-website, whose `app.html` ships one
+measurement id to every environment and loads it on the first pointer, key or
+scroll event. That is what a Playwright test does, and each test is a fresh
+browser context, so each is a new client id and a new "user". Its own gate
+ships in reddoorla/reddoor-website#195. Both halves were needed: that gate
+stops new noise, this filter stops the report printing the noise already
+banked in eleven months of history.
+
+Proven on a known-good input before being believed, per the rule at the top of
+CLAUDE.md. Beachfront Dentistry is a clean property (0% non-production
+traffic): unfiltered 793, filtered 793, unchanged. Reddoor: unfiltered 16,072,
+filtered 87. A filter that returned a smaller number everywhere would have
+been indistinguishable from one that was simply broken.
+
+Two judgement calls. `measuredHostnames` returns `[]` for a site row whose
+`url` is not an http(s) URL, and the query then goes out unfiltered exactly as
+before — a filter matching nothing would report zero users, which is a worse
+lie than reporting noise, and it would be silent. And the filter takes the
+apex and its www twin rather than the row's host alone, because the Airtable
+`url` column is inconsistent about `www.` and a report that dropped half a
+site's traffic on that basis would be a new defect.
+
+`hostnames` is a required field on `GaQuery`, not optional. There is one
+production call site and six in tests, and making it required forced each to
+say which behaviour it wanted rather than inheriting the broken default.
+`draft.test.ts` mocked the whole `ga/client.js` module, which would have made
+the new pure helper `undefined` at call time; it now spreads `importActual`
+and mocks only the network call, so the real derivation runs in that suite.
+
+Scope, checked rather than assumed: of the twelve GA properties the service
+account can see, only Reddoor (99% non-production) and Revogen (29%, 246
+localhost users) carry this. Every client property is between 0% and 8%, so
+no client has been mailed an inflated number. The Reddoor figure was already
+91% noise in the previous window — 1,807 localhost against 176 real — so this
+metric has been junk for months and went unremarked because 2,471 was a
+plausible number for a small studio site. It took a doubling of CI volume to
+make it absurd enough to notice. Underneath the noise, real traffic fell by
+half: 176 → 87.
+
 ## 2026-09-16 — The Turnstile verdict could never be earned: the script matcher never saw a 2xx (`fix/turnstile-script-redirect`)
 
 The cockpit had been flagging Reddoor with "Require Turnstile on; widget not
