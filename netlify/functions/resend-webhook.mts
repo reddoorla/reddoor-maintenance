@@ -5,6 +5,7 @@ import {
   STATUS_MAP,
   isStatusDowngrade,
   classifyUnmatchedEvent,
+  parseBounceDetail,
 } from "../../src/reports/webhook-events.js";
 import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airtable/reports.js";
 import { mirrorReportPatch } from "../../src/db/fleet-state.js";
@@ -113,9 +114,16 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   if (newStatus === "bounced" || newStatus === "complained") {
     try {
       const db = await openDb(readDbConfig());
-      if (await markNotifyBouncedByMessageId(db, messageId)) {
+      // #783: keep Resend's classification instead of discarding it. Without it
+      // a Permanent bounce on a dead mailbox and a Transient/ContentRejected
+      // refusal by the CLIENT's spam filter were the same stored state, and the
+      // alarm accused the point-of-contact address in both cases. A complaint
+      // carries no bounce object, so it parses to null and stores nothing.
+      const bounce = parseBounceDetail(event.data);
+      if (await markNotifyBouncedByMessageId(db, messageId, bounce)) {
         console.log(
-          `[resend-webhook] submission notify bounced (messageId=${messageId} type=${event.type})`,
+          `[resend-webhook] submission notify bounced (messageId=${messageId} type=${event.type} ` +
+            `bounceType=${bounce?.type ?? "none"} bounceSubType=${bounce?.subType ?? "none"})`,
         );
         return new Response("OK (submission notify bounced)", { status: 200 });
       }

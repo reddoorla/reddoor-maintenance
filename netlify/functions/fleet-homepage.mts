@@ -3,6 +3,7 @@ import { listSites, listAllReports } from "../../src/db/fleet-state.js";
 import { countUnreplayedDeadLettersBySlug } from "../../src/db/deadletter.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { listNewSubmissions, countAutoSpamSince } from "../../src/db/submissions.js";
+import type { NotifyBounceCounts } from "../../src/db/submissions.js";
 import { listFleetEvents } from "../../src/db/fleet-events.js";
 import { screenOutsSince } from "../../src/db/screenouts.js";
 import { readDigestState, readCockpitRollup } from "../../src/db/digest-state.js";
@@ -125,7 +126,11 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         // affordance simply absent — never blank the cockpit
       }
     }
-    const notifyBounces: ReadonlyMap<string, number> = new Map(
+    // #783: the roll-up's per-site value is a {total, permanent} breakdown now.
+    // `readCockpitRollup` normalizes an older numeric payload into it, so this
+    // stays a plain Object.entries and the cockpit keeps rendering after a
+    // deploy that lands before the next nightly digest run.
+    const notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(
       Object.entries(rollup?.notifyBounces ?? {}),
     );
     // #645. Unreplayed dead-letter rows per slug — the dropped-lead alarm.

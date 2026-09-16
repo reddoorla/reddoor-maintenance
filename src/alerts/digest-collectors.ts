@@ -9,6 +9,7 @@ import {
 } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { approveBlockers } from "../reports/preflight.js";
+import type { NotifyBounceCounts } from "../db/submissions.js";
 
 /** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe.
  *  An empty Name slugs to "" and `/s/` is a dead link — fall back to the fleet homepage,
@@ -396,19 +397,35 @@ export const NOTIFY_BOUNCE_WINDOW_DAYS = 14;
  */
 export function collectNotifyBounceAlerts(
   sites: WebsiteRow[],
-  bouncedBySite: ReadonlyMap<string, number>,
+  bouncedBySite: ReadonlyMap<string, NotifyBounceCounts>,
   baseUrl: string,
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const s of sites) {
-    const n = bouncedBySite.get(s.id) ?? 0;
+    const counts = bouncedBySite.get(s.id);
+    const n = counts?.total ?? 0;
     if (n < NOTIFY_BOUNCE_THRESHOLD) continue;
+    // #783. ONE permanent bounce is enough to keep accusing the address: Resend
+    // said the mailbox itself is bad, and that outranks any number of transient
+    // refusals alongside it. With none, the address is not the suspect — the
+    // receiving server refused our CONTENT, which is what happened to Espada,
+    // and "check the point-of-contact address" sent the operator to inspect the
+    // one thing that was working.
+    //
+    // An UNCLASSIFIED count (every row written before migration 0018, and every
+    // complaint) takes the filter wording too. That is the safe direction: the
+    // old title asserted a dead address on no evidence at all.
+    const addressIsSuspect = (counts?.permanent ?? 0) > 0;
     items.push({
       key: `notify-bounce:${s.id}`,
       kind: "notify-bounce",
       siteName: s.name,
-      title: `${n} lead notifications bounced (${NOTIFY_BOUNCE_WINDOW_DAYS}d) — check the point-of-contact address`,
+      title: addressIsSuspect
+        ? `${n} lead notifications bounced (${NOTIFY_BOUNCE_WINDOW_DAYS}d) — check the point-of-contact address`
+        : `${n} lead notifications bounced (${NOTIFY_BOUNCE_WINDOW_DAYS}d) — the client's mail filter is rejecting them; acknowledge them on the site page if the address is fine`,
       url: dashboardUrl(baseUrl, s.name),
+      // Critical either way: severity is about the LEAD, which reached nobody in
+      // both cases. Only the instruction changes.
       severity: "critical",
       metric: n,
     });

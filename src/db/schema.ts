@@ -23,6 +23,19 @@ export interface SubmissionsTable {
   spam_score: number | null;
   spam_reason: string | null;
   fanout_status: string | null;
+  /** Resend's bounce classification (migrations 0018–0020), verbatim from
+   *  `data.bounce` on the `email.bounced` webhook: `type` is Permanent /
+   *  Transient / Undetermined, `subtype` the narrower reason (Suppressed,
+   *  ContentRejected, MailboxFull …), `message` the receiving server's own
+   *  text. All null for a complaint (which carries no bounce object) and for
+   *  every row written before 0018. */
+  bounce_type: string | null;
+  bounce_subtype: string | null;
+  bounce_message: string | null;
+  /** ISO-8601 of the operator acknowledging this bounce as NOT a dead address
+   *  (migration 0021). Set, the row keeps its bounce record but stops counting
+   *  toward the notify-bounce alarm. Null on every unacknowledged row. */
+  bounce_ack_at: string | null;
 }
 
 export interface SpamScreenoutsTable {

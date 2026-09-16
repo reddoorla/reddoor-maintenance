@@ -19,7 +19,7 @@ import {
  */
 const ROLLUP: CockpitRollup = {
   spamTotals: { honeypot: 3, tooFast: 1, markedSpam: 7 },
-  notifyBounces: { recA: 2, recB: 1 },
+  notifyBounces: { recA: { total: 2, permanent: 1 }, recB: { total: 1, permanent: 0 } },
   windowDays: { screenOuts: 30, bounces: 14 },
   computedAt: "2026-08-26T03:00:00.000Z",
 };
@@ -92,6 +92,65 @@ describe("cockpit roll-up store", () => {
       .where("id", "=", COCKPIT_ROLLUP_ID)
       .execute();
     expect(rows).toHaveLength(1);
+  });
+
+  it("reads an OLD numeric notifyBounces payload as a breakdown with permanent 0", async () => {
+    // #783 changed this stored shape from `{recA: 2}` to `{recA: {total, permanent}}`.
+    // The digest writes it nightly, so after a deploy the stored blob is the old
+    // shape until the next run. Rejecting it would blank the ENTIRE strip —
+    // including spamTotals, which did not change — for up to 24h.
+    //
+    // `permanent: 0` is the honest reading: the old writer recorded no
+    // classification at all, and 0 is exactly what "nothing said the address is
+    // dead" means. It words the alarm as the mail-filter case for one night,
+    // which is the safe direction.
+    const d = await db();
+    const old = JSON.stringify({
+      spamTotals: { honeypot: 3, tooFast: 1, markedSpam: 7 },
+      notifyBounces: { recA: 2, recB: 1 },
+      windowDays: { screenOuts: 30, bounces: 14 },
+      computedAt: "2026-08-26T03:00:00.000Z",
+    });
+    await d
+      .insertInto("digest_state")
+      .values({ id: COCKPIT_ROLLUP_ID, snapshot: old, updated_at: null })
+      .execute();
+    const got = await readCockpitRollup(d);
+    expect(got).not.toBeNull();
+    expect(got!.notifyBounces).toEqual({
+      recA: { total: 2, permanent: 0 },
+      recB: { total: 1, permanent: 0 },
+    });
+    // The half that did not change must survive intact.
+    expect(got!.spamTotals).toEqual({ honeypot: 3, tooFast: 1, markedSpam: 7 });
+  });
+
+  it("drops a per-site entry that is neither a number nor a breakdown", async () => {
+    // Anything unrecognized reads as "not measured" for that SITE, rather than
+    // poisoning the map with NaN or discarding the whole roll-up.
+    const d = await db();
+    const mixed = JSON.stringify({
+      ...ROLLUP,
+      notifyBounces: { recA: { total: 2, permanent: 1 }, recBad: "lots", recNull: null },
+    });
+    await d
+      .insertInto("digest_state")
+      .values({ id: COCKPIT_ROLLUP_ID, snapshot: mixed, updated_at: null })
+      .execute();
+    expect((await readCockpitRollup(d))!.notifyBounces).toEqual({
+      recA: { total: 2, permanent: 1 },
+    });
+  });
+
+  it("round-trips the new breakdown shape unchanged", async () => {
+    // The positive control for the coercion above: a current-shape payload must
+    // pass through untouched, not be rewritten by the compatibility path.
+    const d = await db();
+    await writeCockpitRollup(d, ROLLUP);
+    expect((await readCockpitRollup(d))!.notifyBounces).toEqual({
+      recA: { total: 2, permanent: 1 },
+      recB: { total: 1, permanent: 0 },
+    });
   });
 
   it("does not collide with the digest snapshot in the same table", async () => {
