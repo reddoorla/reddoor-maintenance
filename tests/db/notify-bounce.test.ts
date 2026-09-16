@@ -79,8 +79,11 @@ describe("countNotifyBouncedBySite", () => {
     await markNotifyBouncedByMessageId(db, "msg_a2");
     await markNotifyBouncedByMessageId(db, "msg_b1");
     const counts = await countNotifyBouncedBySite(db, "2026-07-02");
-    expect(counts.get("recA")).toBe(2);
-    expect(counts.get("recB")).toBe(1);
+    // #783: the count is now a breakdown. These bounces arrived with no
+    // classification (the webhook sent none), so none of them is evidence of a
+    // dead address — `permanent` is 0 and the collector words the alarm for it.
+    expect(counts.get("recA")).toEqual({ total: 2, permanent: 0 });
+    expect(counts.get("recB")).toEqual({ total: 1, permanent: 0 });
   });
 
   it("excludes bounced rows submitted before the window start", async () => {
@@ -89,7 +92,7 @@ describe("countNotifyBouncedBySite", () => {
     await markNotifyBouncedByMessageId(db, "msg_old");
     await markNotifyBouncedByMessageId(db, "msg_new");
     const counts = await countNotifyBouncedBySite(db, "2026-07-02");
-    expect(counts.get("recA")).toBe(1);
+    expect(counts.get("recA")).toEqual({ total: 1, permanent: 0 });
   });
 
   it("returns an empty map when nothing bounced", async () => {

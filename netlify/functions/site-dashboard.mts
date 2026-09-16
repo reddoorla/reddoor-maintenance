@@ -123,7 +123,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // Cockpit alarm verdict for the header chip strip — same collectors + assignTier
     // as buildCockpitModel (see buildSiteAlarmContext). Both reads are defensive:
     // a Turso blip drops just the bounce chip; any collector throw drops the strip.
-    let notifyBounces: ReadonlyMap<string, number> = new Map();
+    let notifyBounces: Awaited<ReturnType<typeof countNotifyBouncedBySite>> = new Map();
     try {
       notifyBounces = await countNotifyBouncedBySite(
         db,

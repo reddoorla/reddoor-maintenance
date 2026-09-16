@@ -18,7 +18,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyFixtureToTmp } from "../recipes/_helpers/site-tmpdir.js";
@@ -123,6 +123,31 @@ describe("cli: match-harness", () => {
     const cwd = await copyFixtureToTmp(pristine);
     const { out, code } = cli(cwd, "match-harness", "--ref", "https://ref.test", "--matrix", "abc");
     expect(out).toContain('match-harness: --matrix "abc" is not a list of viewports');
+    expect(code).toBe(1);
+    expect(existsSync(join(cwd, "matching"))).toBe(false);
+  });
+
+  // An inventory that names nobody is not an installed fleet (#738 item 5).
+  // Measured on this branch BEFORE the refusal existed: this exact invocation
+  // printed one empty line and exited 0 — `runRecipeOverSites` joins zero rows
+  // into the empty string, and a blank line with a success exit is
+  // indistinguishable from "every site already had the harness".
+  it("refuses an inventory that resolved no sites, instead of exiting 0 over nothing", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    const inventory = join(cwd, "inventory.json");
+    await writeFile(inventory, "[]", "utf-8");
+
+    const { out, code } = cli(
+      cwd,
+      "match-harness",
+      "--ref",
+      "https://ref.test",
+      "--fleet",
+      inventory,
+    );
+
+    expect(out).toMatch(/NO SITES/i);
+    expect(out).toMatch(/Do NOT read this exit as a rollout/);
     expect(code).toBe(1);
     expect(existsSync(join(cwd, "matching"))).toBe(false);
   });

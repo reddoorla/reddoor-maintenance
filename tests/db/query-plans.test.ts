@@ -338,6 +338,13 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => submissions.countNotifyBouncedBySite(db, SINCE_DATE),
     },
     {
+      // #783. The operator's acknowledge write — by primary key, so it plans as
+      // a single-row seek rather than a scan of the fleet's one unbounded table.
+      name: "ackNotifyBounce (operator clears a diagnosed false alarm)",
+      covers: ["ackNotifyBounce"],
+      run: (db) => submissions.ackNotifyBounce(db, "sub_gate_ack", new Date()),
+    },
+    {
       name: "recordScreenOut (ingest-path upsert)",
       covers: ["recordScreenOut"],
       run: (db) => screenouts.recordScreenOut(db, "recA", "honeypot", "2026-08-10"),
@@ -548,6 +555,34 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "countUnreplayedDeadLettersBySlug (deadletter attention alarm)",
       covers: ["countUnreplayedDeadLettersBySlug"],
       run: (db) => deadletter.countUnreplayedDeadLettersBySlug(db),
+    },
+    {
+      // #786: the operator's write-off. Reads the target ids under the same
+      // predicate the alarm counts on, then updates them by id — an operator
+      // gesture, not a request path, but it touches the queue the alarm reads.
+      //
+      // Creates its OWN row rather than abandoning the shared `acme` fixture:
+      // the markDeadLetterReplayed scenario below needs that one still queued,
+      // and taking it made this gate fail with "dead-letter row vanished" —
+      // which says nothing about query plans. Scenarios here share one database
+      // and run in order, so a scenario that CONSUMES state has to bring it.
+      name: "abandonDeadLetters (operator resolves a dead slug by decision)",
+      covers: ["abandonDeadLetters"],
+      run: async (db) => {
+        await deadletter.createDeadLetter(db, {
+          siteSlug: "gate-abandon",
+          payload: { name: "Ada" },
+          turnstile: { outcome: "pass", hostname: "acme.example.com" },
+          error: "gate probe",
+          receivedAt: new Date("2026-08-10T00:00:00.000Z"),
+        });
+        await deadletter.abandonDeadLetters(db, {
+          slug: "gate-abandon",
+          by: "gate",
+          reason: "query-plan gate probe",
+          now: new Date("2026-09-15T00:00:00.000Z"),
+        });
+      },
     },
     {
       name: "markDeadLetterReplayed",

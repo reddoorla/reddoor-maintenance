@@ -1039,6 +1039,34 @@ describe("readability methods copy", () => {
 });
 
 /**
+ * competitorsSeen is the sellable artifact, and the report buried it (#601).
+ *
+ * The top cited domain of the first real audit was a different company with
+ * essentially the same name as the prospect, and it rendered as one anonymous
+ * row in a competitor list — disconnected from the query that produced it.
+ */
+describe("AI visibility — namesakes and per-query attribution", () => {
+  const html = renderProspectReport(
+    result({
+      probes: {
+        ok: true,
+        data: { ...probesData(), namesakes: [{ domain: "reddoorcreative.com", count: 13 }] },
+      },
+    }),
+  );
+
+  it("calls a namesake out as a brand collision under its own heading", () => {
+    expect(html).toContain("A different business is using your name");
+    expect(html).toContain("reddoorcreative.com");
+  });
+
+  it("attributes each cited domain to the query it came back on", () => {
+    expect(html).toContain("came back on:");
+    expect(html).toContain("best roofer in Boise");
+  });
+});
+
+/**
  * #676. Which searches "Where you stand" was built from is a claim about how
  * far its number travels: terms chosen with the client stay fixed between
  * audits, terms read off the site may not. The report says which rather than

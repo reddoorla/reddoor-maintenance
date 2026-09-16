@@ -164,13 +164,14 @@ describe("collectAttention", () => {
 
   it("emits a notify-bounce item from injected per-site counts, keyed like the cockpit", async () => {
     // The digest path takes the same pre-fetched counts shape the cockpit threads
-    // (countNotifyBouncedBySite → Map<siteId, n>); the key must be the cockpit's
-    // `notify-bounce:<siteId>` so the shared snapshot diffs NEW/WORSE across both.
+    // (countNotifyBouncedBySite → Map<siteId, {total, permanent}> since #783); the
+    // key must be the cockpit's `notify-bounce:<siteId>` so the shared snapshot
+    // diffs NEW/WORSE across both.
     const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
     const items = await collectAttention({
       base,
       baseUrl: BASE_URL,
-      notifyBounces: new Map([["rec_site_acme", 3]]),
+      notifyBounces: new Map([["rec_site_acme", { total: 3, permanent: 3 }]]),
     });
     const nb = items.find((i) => i.kind === "notify-bounce")!;
     expect(nb).toMatchObject({
@@ -214,7 +215,7 @@ describe("collectAttention", () => {
     const single = await collectAttention({
       base,
       baseUrl: BASE_URL,
-      notifyBounces: new Map([["rec_site_acme", 1]]),
+      notifyBounces: new Map([["rec_site_acme", { total: 1, permanent: 1 }]]),
     });
     expect(single.some((i) => i.kind === "notify-bounce")).toBe(false);
   });

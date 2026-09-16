@@ -1,7 +1,7 @@
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { hostnameOf } from "../util/url.js";
 import { ANALYZE_SKIPPED, PROBES_SKIPPED } from "./pipeline.js";
-import { resolveBusinessName } from "./probes.js";
+import { domainOf, resolveBusinessName } from "./probes.js";
 import type {
   AnalyzeResult,
   ChecksResult,
@@ -231,13 +231,65 @@ function buildProbesSection(
     })
     .join("");
 
-  const competitors = p.competitorsSeen.length
-    ? `<h3>Who the engines cited instead</h3><ul>${p.competitorsSeen
-        .map((c) => `<li>${escapeHtml(c.domain)} — ${c.count} time${c.count === 1 ? "" : "s"}</li>`)
+  // Which searches a domain actually came back on. Derived from the answers we
+  // already store — no new measurement — so the report can say "for this search,
+  // these came back" instead of one merged list disconnected from the queries
+  // that produced it. Stored reports may hold full URLs rather than bare hosts,
+  // so both sides go through domainOf.
+  const queriesCiting = (domain: string): string[] => [
+    ...new Set(
+      p.answers
+        .filter((a) => a.citedDomains.some((d) => domainOf(d) === domain))
+        .map((a) => a.query),
+    ),
+  ];
+
+  const attribution = (domain: string): string => {
+    const queries = queriesCiting(domain);
+    if (queries.length === 0) return "";
+    return `, came back on: ${queries.map((q) => `“${escapeHtml(q)}”`).join(", ")}`;
+  };
+
+  const countOf = (n: number): string => `${n} time${n === 1 ? "" : "s"}`;
+
+  // Absent (a report stored before the field existed) means "not measured", so
+  // nothing is claimed and every cited domain stays an ordinary competitor —
+  // exactly what those documents already said.
+  const namesakes = p.namesakes ?? [];
+  const namesakeDomains = new Set(namesakes.map((n) => n.domain));
+
+  const namesakeBlock = namesakes.length
+    ? `<h3>A different business is using your name</h3>
+        <p>The engines cited these domains, and they carry your own business name. They are not competitors — this is a brand collision, and on a search for your name it is what your buyer finds instead of you.</p>
+        <ul>${namesakes
+          .map(
+            (n) =>
+              `<li>${escapeHtml(n.domain)} — cited ${countOf(n.count)}${attribution(n.domain)}</li>`,
+          )
+          .join("")}</ul>`
+    : "";
+
+  // A namesake already has its own section above; printing it again here as a
+  // rival would file the single most valuable finding of the run under the one
+  // heading that misdescribes it.
+  const rivals = p.competitorsSeen.filter((c) => !namesakeDomains.has(c.domain));
+  const competitors = rivals.length
+    ? `<h3>Who the engines cited instead</h3><ul>${rivals
+        .map(
+          (c) => `<li>${escapeHtml(c.domain)} — ${countOf(c.count)}${attribution(c.domain)}</li>`,
+        )
         .join("")}</ul>`
     : "";
 
-  return recognition + categoryCaveat + termsProvenance + degradedNotice + groups + competitors;
+  return (
+    recognition +
+    categoryCaveat +
+    termsProvenance +
+    degradedNotice +
+    groups +
+    namesakeBlock +
+    competitors
+  );
 }
 
 /** crawlerAccessMeasured is false only when the robots.txt fetch itself

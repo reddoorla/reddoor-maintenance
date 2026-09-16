@@ -787,6 +787,19 @@ cli
       "converge from the frozen Airtable shadow. Without it both refuse while Turso is " +
       "authoritative, because an import overwrites authoritative rows.",
   )
+  .option(
+    "--abandon <slug-or-id>",
+    "replay-deadletters: mark a slug's queued leads (or one dl_… row) abandoned — terminal " +
+      "by decision, dropped from the replay queue and the cockpit alarm, row and payload kept.",
+  )
+  .option(
+    "--reason <text>",
+    "replay-deadletters --abandon: why the leads are being written off. Required.",
+  )
+  .option(
+    "--by <who>",
+    "replay-deadletters --abandon: who decided (default: OPERATOR_EMAIL, else 'operator').",
+  )
   .action(
     async (
       action: string,

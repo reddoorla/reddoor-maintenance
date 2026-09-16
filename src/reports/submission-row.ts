@@ -57,6 +57,25 @@ export type SubmissionRow = {
    *  was attempted: a non-newsletter form, a spam row, a site with no destination
    *  configured, or a row written before 0005. See ingest.ts for the token grammar. */
   fanoutStatus?: string | null;
+  /** Resend's bounce classification, kept so a content rejection by the CLIENT's
+   *  mail filter can be told apart from a dead mailbox (#783). Null for a
+   *  complaint, and for every row written before migration 0018. */
+  bounceType?: string | null;
+  bounceSubType?: string | null;
+  bounceMessage?: string | null;
+  /** ISO-8601 of the operator saying "this address is not dead" (#783). The row
+   *  keeps its bounce record and stops counting toward the alarm. */
+  bounceAckAt?: string | null;
+};
+
+/** The bounce classification as STORED — the shape `data.bounce` is parsed into
+ *  (see `parseBounceDetail` in webhook-events.ts, which owns the wire format).
+ *  Lives here, with the rest of the submission's notify vocabulary, so the db
+ *  layer never has to import the webhook module to name it. */
+export type BounceDetail = {
+  type: string | null;
+  subType: string | null;
+  message: string | null;
 };
 
 export type SubmissionInput = {

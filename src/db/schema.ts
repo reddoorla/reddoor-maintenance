@@ -23,6 +23,19 @@ export interface SubmissionsTable {
   spam_score: number | null;
   spam_reason: string | null;
   fanout_status: string | null;
+  /** Resend's bounce classification (migrations 0018–0020), verbatim from
+   *  `data.bounce` on the `email.bounced` webhook: `type` is Permanent /
+   *  Transient / Undetermined, `subtype` the narrower reason (Suppressed,
+   *  ContentRejected, MailboxFull …), `message` the receiving server's own
+   *  text. All null for a complaint (which carries no bounce object) and for
+   *  every row written before 0018. */
+  bounce_type: string | null;
+  bounce_subtype: string | null;
+  bounce_message: string | null;
+  /** ISO-8601 of the operator acknowledging this bounce as NOT a dead address
+   *  (migration 0021). Set, the row keeps its bounce record but stops counting
+   *  toward the notify-bounce alarm. Null on every unacknowledged row. */
+  bounce_ack_at: string | null;
 }
 
 export interface SpamScreenoutsTable {
@@ -63,6 +76,15 @@ export interface SubmissionDeadletterTable {
   replayed_at: string | null;
   replay_outcome: string | null;
   replay_submission_id: string | null;
+  /** Resolved by operator DECISION rather than by replay outcome (migrations
+   *  0022-0024, #786). A slug that is genuinely dead but still deployed would
+   *  otherwise queue leads forever, hold `db replay-deadletters` at exit 1, and
+   *  keep a standing CRITICAL cockpit item. Distinct from `replayed_at`, which
+   *  means the pipeline actually gave the lead an answer. `by`/`reason` are the
+   *  audit trail: the decision has to outlive the person who made it. */
+  abandoned_at: string | null;
+  abandoned_by: string | null;
+  abandoned_reason: string | null;
 }
 
 /** Operator-owned fleet config (migration 0007). PK = Airtable rec id (D1).

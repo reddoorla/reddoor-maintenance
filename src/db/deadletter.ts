@@ -57,6 +57,9 @@ export async function listUnreplayedDeadLetters(db: Db): Promise<DeadLetterRow[]
     .selectFrom("submission_deadletter")
     .select(["id", "site_slug", "payload", "turnstile", "error", "received_at"])
     .where("replayed_at", "is", null)
+    // #786: an abandoned row is terminal by decision — it must leave the replay
+    // queue, or the command it was meant to release stays at exit 1 forever.
+    .where("abandoned_at", "is", null)
     .orderBy("received_at", "asc")
     .execute();
   return rows.map((r) => ({
@@ -103,7 +106,70 @@ export async function countUnreplayedDeadLettersBySlug(
     .selectFrom("submission_deadletter")
     .select((eb) => ["site_slug", eb.fn.countAll<number>().as("n")])
     .where("replayed_at", "is", null)
+    // #786: and out of the alarm count, which is the standing CRITICAL item.
+    .where("abandoned_at", "is", null)
     .groupBy("site_slug")
     .execute();
   return new Map(rows.map((r) => [r.site_slug, Number(r.n)]));
+}
+
+/** Abandon dead letters as resolved-by-DECISION (#786).
+ *
+ *  The escape hatch #785 left open. `unknown-site` is deliberately non-terminal
+ *  on replay so that healing and replaying are safe in either order — but that
+ *  means a slug which is genuinely dead, and still deployed and posting, grows
+ *  the queue without bound, holds `db replay-deadletters` at exit 1, and leaves
+ *  a standing CRITICAL cockpit item. The only alternative today is deleting
+ *  rows by hand, which destroys the very leads the decision was made about.
+ *
+ *  Targets ONE slug or ONE row id, never "everything": a mistyped invocation
+ *  must not be able to write off the whole queue. Only rows that are still live
+ *  (neither replayed nor already abandoned) are touched, which makes the call
+ *  idempotent and keeps the FIRST decision — the one actually made — in place.
+ *  `reason` is required and non-blank, because an undocumented write-off is the
+ *  thing this exists to stop being necessary.
+ *
+ *  Returns the ids it abandoned, so the CLI can name them rather than print a
+ *  bare count.
+ */
+export async function abandonDeadLetters(
+  db: Db,
+  opts: { slug?: string; id?: string; by: string; reason: string; now: Date },
+): Promise<string[]> {
+  const bySlug = opts.slug !== undefined;
+  const byId = opts.id !== undefined;
+  if (bySlug === byId) {
+    throw new Error("abandonDeadLetters: pass exactly one of slug or id");
+  }
+  const reason = opts.reason.trim();
+  if (reason === "") {
+    throw new Error("abandonDeadLetters: a non-blank reason is required");
+  }
+
+  // Read the target ids first so the caller can be told exactly what was
+  // abandoned; the same predicate then guards the write.
+  let q = db
+    .selectFrom("submission_deadletter")
+    .select("id")
+    .where("replayed_at", "is", null)
+    .where("abandoned_at", "is", null);
+  q = bySlug ? q.where("site_slug", "=", opts.slug!) : q.where("id", "=", opts.id!);
+  const ids = (await q.execute()).map((r) => r.id);
+  if (ids.length === 0) return [];
+
+  await db
+    .updateTable("submission_deadletter")
+    .set({
+      abandoned_at: opts.now.toISOString(),
+      abandoned_by: opts.by,
+      abandoned_reason: reason,
+    })
+    .where("id", "in", ids)
+    // Re-asserted on the write: between the read and here nothing else runs
+    // (libSQL is single-writer), but the guard costs nothing and keeps the
+    // write's meaning legible on its own.
+    .where("replayed_at", "is", null)
+    .where("abandoned_at", "is", null)
+    .execute();
+  return ids;
 }

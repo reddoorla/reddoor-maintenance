@@ -1,7 +1,16 @@
 import type { Context, Config } from "@netlify/functions";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { getSubmissionById, setSubmissionStatusRow } from "../../src/db/submissions.js";
-import { setSubmissionStatus, requireOperator, denialResponse } from "../../src/dashboard/index.js";
+import {
+  getSubmissionById,
+  setSubmissionStatusRow,
+  ackNotifyBounce,
+} from "../../src/db/submissions.js";
+import {
+  setSubmissionStatus,
+  acknowledgeNotifyBounce,
+  requireOperator,
+  denialResponse,
+} from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -59,18 +68,29 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   } catch {
     return json({ ok: false, error: "invalid-json" }, 400);
   }
-  const requested = (body as { status?: unknown } | null)?.status;
+  const parsed = (body as { status?: unknown; ack?: unknown } | null) ?? {};
+  const requested = parsed.status;
+  const ack = parsed.ack;
 
   try {
     const db = await openDb(readDbConfig());
-    const result = await setSubmissionStatus(
-      {
-        getSubmissionById: (sid) => getSubmissionById(db, sid),
-        setSubmissionStatusRow: (sid, status) => setSubmissionStatusRow(db, sid, status),
-      },
-      id,
-      requested,
-    );
+    const deps = {
+      getSubmissionById: (sid: string) => getSubmissionById(db, sid),
+      setSubmissionStatusRow: (sid: string, status: Parameters<typeof setSubmissionStatusRow>[2]) =>
+        setSubmissionStatusRow(db, sid, status),
+      ackNotifyBounce: (sid: string) => ackNotifyBounce(db, sid, new Date()),
+    };
+    // #783. The acknowledge gesture rides this endpoint rather than a new one:
+    // same auth, same CSRF gate, same rate limit, and the page's single inline
+    // script already posts here. An `ack` body names it explicitly, so it can
+    // never be confused with a status transition.
+    if (ack !== undefined) {
+      if (ack !== "notify-bounce") return json({ ok: false, error: "invalid-ack", ack }, 400);
+      const acked = await acknowledgeNotifyBounce(deps, id);
+      if (acked.status === "not-found") return json(acked, 404);
+      return json(acked, 200);
+    }
+    const result = await setSubmissionStatus(deps, id, requested);
     if (result.status === "not-found") return json(result, 404);
     if (result.status === "invalid") return json(result, 400);
     return json(result, 200);

@@ -2,6 +2,7 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "./airtable/client.js";
 import { listAllReports, isPendingApproval } from "./airtable/reports.js";
 import type { ReportRow } from "./airtable/reports.js";
+import type { NotifyBounceCounts } from "../db/submissions.js";
 import { listWebsites, siteSlug, type WebsiteRow } from "./airtable/websites.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
 import { isIdempotencyConflict } from "./send/idempotency.js";
@@ -210,7 +211,7 @@ export type CollectAttentionDeps = {
   /** Pre-fetched per-site bounced-lead-notification counts (tests, or a caller with
    *  an open db). When omitted, collectAttention reads them from libSQL itself —
    *  defensively, so a missing TURSO env or a Turso blip drops just this signal. */
-  notifyBounces?: ReadonlyMap<string, number>;
+  notifyBounces?: ReadonlyMap<string, NotifyBounceCounts>;
   /** Pre-fetched unreplayed dead-letter counts per SLUG (#645). Same contract as
    *  `notifyBounces`: omitted → read from libSQL, defensively. */
   deadLetters?: ReadonlyMap<string, number>;
@@ -223,7 +224,9 @@ export type CollectAttentionDeps = {
  *  crash their CLI at require time (same rule as openDb's own lazy loads). Any
  *  failure (no TURSO env, Turso down) logs and yields an empty map: the digest
  *  must never blank over a missing optional signal. */
-async function fetchNotifyBounceCounts(now: Date): Promise<ReadonlyMap<string, number>> {
+async function fetchNotifyBounceCounts(
+  now: Date,
+): Promise<ReadonlyMap<string, NotifyBounceCounts>> {
   try {
     const [{ openDb, readDbConfig }, { countNotifyBouncedBySite }, { screenOutsSince }] =
       await Promise.all([
