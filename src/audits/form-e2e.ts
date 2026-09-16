@@ -319,8 +319,27 @@ export const TURNSTILE_WIDGET_ERROR =
 export const TURNSTILE_INIT_FAILED = /\[turnstile\] widget did not render/;
 
 /** Cloudflare's challenge script. A 2xx for it is the difference between a mount
- *  point that becomes a widget and one that just sits in the DOM. */
-export const TURNSTILE_API_JS = /challenges\.cloudflare\.com\/turnstile\/v0\/api\.js/;
+ *  point that becomes a widget and one that just sits in the DOM.
+ *
+ *  It MUST tolerate the redirect. Cloudflare answers the stable URL with a 302 to
+ *  a build-hashed sibling — measured on reddoorla.com's live /contact,
+ *  2026-09-16:
+ *
+ *    302  https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit
+ *    200  https://challenges.cloudflare.com/turnstile/v0/g/330e41bb475c/api.js
+ *
+ *  An exact `/v0/api.js` match sees ONLY the 302. `turnstileScriptLoaded` is set
+ *  from a 2xx, so it could never become true, and `turnstileVerdict` returned
+ *  null for every site on every run — 45 of 45 `site_health` rows null, zero
+ *  passes and zero fails fleet-wide, from #695 (2026-09-04) until this fix. The
+ *  verdict RULE was right the whole time; the observation could not feed it, so
+ *  the one gated site nagged "widget not verified by a browser" forever and the
+ *  check could never say "this is right". Hence the optional path segments.
+ *
+ *  Scope is unchanged in every other direction: same host, same `/turnstile/v0/`
+ *  prefix, same `api.js` leaf. `/turnstile/v0/siteverify` (server-side token
+ *  verification, src/forms/turnstile.ts) still does not match. */
+export const TURNSTILE_API_JS = /challenges\.cloudflare\.com\/turnstile\/v0\/(?:[\w.-]+\/)*api\.js/;
 
 export function turnstileVerdict(
   health: FormsHealth,
