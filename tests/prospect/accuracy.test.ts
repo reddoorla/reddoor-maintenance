@@ -688,3 +688,28 @@ describe("the accuracy pass and the site's real size", () => {
     expect(r.siteUrlCount).toBeNull();
   });
 });
+
+/**
+ * A crawl with no `sitemap` key at all must not take the stage down.
+ *
+ * `CrawlResult.sitemap` is required by the type, but this stage also runs over
+ * crawls deserialized from `prospect_audits.result_json`, and a row stored
+ * before that field existed simply has no such key. Reaching through it threw
+ * `Cannot read properties of undefined (reading 'present')` and failed the whole
+ * accuracy stage — our own missing field turned into a dead stage, which is the
+ * shape of failure this file exists to avoid.
+ */
+describe("a crawl stored before sitemap was tracked", () => {
+  it("reads as an unknown site size rather than throwing", async () => {
+    const legacy = crawl([page("https://example.com/", "Seaview Dental is open on Saturdays.")]);
+    delete (legacy as { sitemap?: unknown }).sitemap;
+    const r = await checkAccuracy(
+      "https://example.com",
+      legacy,
+      [branded({ fullAnswer: "Seaview Dental is open on Saturdays." })],
+      [],
+      { run: async () => ({ assertions: [] }), ownership: { fetchPage: async () => null } },
+    );
+    expect(r.siteUrlCount).toBeNull();
+  });
+});

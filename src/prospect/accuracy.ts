@@ -263,9 +263,19 @@ function viewOf(page: PageCapture) {
 /** The site's own declared size, for use beside `pagesTotal`. A sitemap we never
  *  fetched and a site without one both leave this null: "we do not know how big
  *  the site is" is the honest reading, and it is not the same claim as "the site
- *  is as big as the part we crawled". */
+ *  is as big as the part we crawled".
+ *
+ *  Read defensively rather than straight through the type. `CrawlResult.sitemap`
+ *  is required, but this stage also runs over crawls deserialized from
+ *  `prospect_audits.result_json`, and a row stored before that field existed has
+ *  no such key at all. Reaching through it threw `Cannot read properties of
+ *  undefined` and failed the whole accuracy stage — our own missing field
+ *  turning into a dead stage, which is precisely the failure this file exists to
+ *  avoid. Absent reads as null, the same "not measured" every other unknown here
+ *  takes. */
 function siteUrlCountOf(crawl: CrawlResult): number | null {
-  return crawl.sitemap.present ? crawl.sitemap.urlCount : null;
+  const sitemap: CrawlResult["sitemap"] | undefined = crawl.sitemap;
+  return sitemap?.present ? sitemap.urlCount : null;
 }
 
 /** Every page's text, whole, in one string — what an `absent` verdict is
