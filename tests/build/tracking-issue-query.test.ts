@@ -320,7 +320,7 @@ describe("protection-gap close loop — gated on the body's gap set, not the tit
     const r = await runStep({
       step: CLOSE_STEP,
       corpus: oneIssue(gapBody([NAVY])),
-      sweep: "protection-audit skipped: no RENOVATE_TOKEN/GH_TOKEN (fleet read) configured.\n",
+      sweep: "protection-audit skipped: no GH_TOKEN (fleet read) configured.\n",
     });
     expect(r.out).not.toContain("STUB_CLOSE");
     expect(r.out).toContain("not closing anything");

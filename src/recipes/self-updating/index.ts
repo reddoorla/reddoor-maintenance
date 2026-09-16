@@ -298,7 +298,7 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         }
       }
     }
-    // (No per-repo RENOVATE_TOKEN planting anymore: Renovate authenticates as
+    // (No per-repo Renovate PAT secret planting anymore: Renovate authenticates as
     // the reddoor-renovate GitHub App, whose RENOVATE_APP_ID / _PRIVATE_KEY are
     // org-level with all-repos visibility — a new repo needs NOTHING set. The
     // old step was already redundant for new sites (the PAT was an org secret

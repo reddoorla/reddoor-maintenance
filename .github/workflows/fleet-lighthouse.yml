@@ -142,14 +142,14 @@ jobs:
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          RENOVATE_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           # An empty token would make github-signals clean-skip (its local-dev
           # behavior) and the cockpit's GitHub columns would go silently stale —
           # the exact failure mode the PAT migration guards against. Fail loudly
           # instead (continue-on-error keeps the job's verdict unchanged, but
           # the error annotation is visible on the run).
-          if [ -z "$RENOVATE_TOKEN" ]; then
+          if [ -z "$GH_TOKEN" ]; then
             echo "::error::github-signals: minted App token is empty — the mint step failed."
             exit 1
           fi

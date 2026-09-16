@@ -1,5 +1,7 @@
 # Renovate GitHub App identity — migration runbook
 
+> **Status (2026-09-16): complete.** Renovate and the nightlies authenticate as the `reddoor-renovate` App, and the `RENOVATE_TOKEN` name was retired from live code, workflows and current docs in the PR that added this line. The rest of this runbook is the record as written.
+
 Renovate currently authenticates as the operator's PAT (`RENOVATE_TOKEN`,
 identity **tucksravin**). That is the root problem behind the 2026-07-26
 incident's forensics cost: the audit trail cannot distinguish bot from human,

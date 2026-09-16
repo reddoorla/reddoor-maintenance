@@ -482,9 +482,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
     // without GITHUB_TOKEN, so it must fall THROUGH to pnpm rather than throw or skip. Scrub the
     // env so the path is exercised even if the dev/CI shell has a token set.
     const savedGh = process.env.GITHUB_TOKEN;
-    const savedReno = process.env.RENOVATE_TOKEN;
     delete process.env.GITHUB_TOKEN;
-    delete process.env.RENOVATE_TOKEN;
     try {
       const result = await securityAudit({
         site: { path: "/fake", gitRepo: "reddoorla/acme" },
@@ -502,8 +500,6 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
     } finally {
       if (savedGh === undefined) delete process.env.GITHUB_TOKEN;
       else process.env.GITHUB_TOKEN = savedGh;
-      if (savedReno === undefined) delete process.env.RENOVATE_TOKEN;
-      else process.env.RENOVATE_TOKEN = savedReno;
     }
   });
 });

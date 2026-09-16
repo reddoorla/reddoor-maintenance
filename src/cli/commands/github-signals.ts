@@ -60,10 +60,10 @@ export async function runGitHubSignalsCommand(
   if (!opts.fleet || !opts.writeAirtable) {
     return { output: "github-signals currently supports only --fleet --write-airtable", code: 2 };
   }
-  const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  const token = process.env.GH_TOKEN?.trim();
   if (!token) {
     return {
-      output: "github-signals skipped: no RENOVATE_TOKEN/GH_TOKEN (fleet read) configured.",
+      output: "github-signals skipped: no GH_TOKEN (fleet read) configured.",
       code: 0,
     };
   }

@@ -37,10 +37,10 @@ export async function runRenovateDispatchCommand(opts: {
   if (!opts.fleet) {
     return { output: "renovate-dispatch currently supports only --fleet", code: 2 };
   }
-  const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  const token = process.env.GH_TOKEN?.trim();
   if (!token) {
     return {
-      output: "renovate-dispatch skipped: no RENOVATE_TOKEN/GH_TOKEN (fleet dispatch) configured.",
+      output: "renovate-dispatch skipped: no GH_TOKEN (fleet dispatch) configured.",
       code: 0,
     };
   }

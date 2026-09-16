@@ -46,6 +46,14 @@ describe("runProtectionAuditCommand", () => {
     expect(r.output).toContain("skipped");
   });
 
+  it("RENOVATE_TOKEN ALONE no longer authorizes the audit — the retired PAT name is not a token source", async () => {
+    process.env.RENOVATE_TOKEN = "ghp_retired_pat";
+    delete process.env.GH_TOKEN;
+    const r = await runProtectionAuditCommand({ org: "reddoorla" });
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("skipped: no GH_TOKEN");
+  });
+
   it("full sweep: per-repo lines + machine summary + exit 1 on a gap", async () => {
     const deps: ProtectionAuditDeps = {
       listOrgRepos: async () => [

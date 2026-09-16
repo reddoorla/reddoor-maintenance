@@ -76,7 +76,7 @@ function configureEnv(): void {
   process.env.DASHBOARD_PASSWORD = "s3cret";
   process.env.TURSO_DATABASE_URL = ":memory:";
   process.env.PROSPECT_AUDIT_DISPATCH_REPO = "reddoorla/prospect-audit-private";
-  process.env.RENOVATE_TOKEN = "gh_token_x";
+  process.env.GH_TOKEN = "gh_token_x";
 }
 
 function authHeader(user: string, password: string): Record<string, string> {
@@ -160,6 +160,36 @@ describe("prospect-audit-run adapter — dispatch-repo configuration", () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("unconfigured");
     expect(dispatchCalls).toHaveLength(0);
+  });
+});
+
+describe("prospect-audit-run adapter — dispatch token", () => {
+  it("RENOVATE_TOKEN ALONE no longer authorizes a dispatch: 503 not-configured, nothing dispatched", async () => {
+    configureEnv();
+    delete process.env.GH_TOKEN;
+    process.env.RENOVATE_TOKEN = "ghp_retired_pat";
+    const res = await prospectAuditRun(post(GOOD_BODY, authHeader("tucker", "s3cret")), ctx);
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("not-configured");
+    expect(dispatchCalls).toHaveLength(0);
+  });
+
+  it("the health check names GH_TOKEN, and a lone RENOVATE_TOKEN does not read as configured", async () => {
+    configureEnv();
+    delete process.env.GH_TOKEN;
+    process.env.RENOVATE_TOKEN = "ghp_retired_pat";
+    const res = await prospectAuditRun(
+      new Request("https://dash.reddoor.test/api/prospect-audit/run", {
+        method: "GET",
+        headers: authHeader("tucker", "s3cret"),
+      }),
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { env: Record<string, boolean> };
+    expect(body.env).not.toHaveProperty("RENOVATE_TOKEN");
+    expect(body.env.GH_TOKEN).toBe(false);
   });
 });
 

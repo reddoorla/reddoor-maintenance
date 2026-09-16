@@ -38,7 +38,7 @@ function json(body: unknown, status: number, extra: Record<string, string> = {})
 function gateAuth(req: Request): { token: string } | { fail: Response } {
   const auth = requireOperator(req, { wants: "json" });
   if (!auth.ok) return { fail: denialResponse(auth.denial) };
-  const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  const token = process.env.GH_TOKEN?.trim();
   if (!token) return { fail: json({ ok: false, error: "not-configured" }, 503) };
   return { token };
 }
@@ -55,9 +55,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         service: "reddoor-refresh-fleet",
         env: {
           DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
-          RENOVATE_TOKEN:
-            typeof process.env.RENOVATE_TOKEN === "string" ||
-            typeof process.env.GH_TOKEN === "string",
+          GH_TOKEN: typeof process.env.GH_TOKEN === "string",
         },
       },
       { status: 200 },

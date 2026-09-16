@@ -20,23 +20,16 @@ const ghFails = () =>
 
 describe("readGitHubConfig", () => {
   it("returns null when GITHUB_TOKEN is unset AND gh has no keyring token", () => {
-    process.env.RENOVATE_TOKEN = "r";
     expect(readGitHubConfig({ execFileSync: ghFails() })).toBeNull();
   });
-  it("returns the broad token + renovate token when present", () => {
-    process.env.GITHUB_TOKEN = "ghp_broad";
-    process.env.RENOVATE_TOKEN = "ghp_narrow";
-    expect(readGitHubConfig({ execFileSync: ghFails() })).toEqual({
-      token: "ghp_broad",
-      renovateToken: "ghp_narrow",
-    });
+  it("RENOVATE_TOKEN alone is not a token source: still null (the retired PAT name)", () => {
+    process.env.RENOVATE_TOKEN = "ghp_retired_pat";
+    expect(readGitHubConfig({ execFileSync: ghFails() })).toBeNull();
   });
-  it("falls back renovateToken to the broad token when RENOVATE_TOKEN unset", () => {
+  it("returns the broad token when present — and nothing else", () => {
     process.env.GITHUB_TOKEN = "ghp_broad";
-    expect(readGitHubConfig({ execFileSync: ghFails() })).toEqual({
-      token: "ghp_broad",
-      renovateToken: "ghp_broad",
-    });
+    process.env.RENOVATE_TOKEN = "ghp_retired_pat";
+    expect(readGitHubConfig({ execFileSync: ghFails() })).toEqual({ token: "ghp_broad" });
   });
 });
 
@@ -48,22 +41,18 @@ describe("readGitHubConfig", () => {
  * suite never shells out and never depends on the runner's own keyring.
  */
 describe("readGitHubConfig — `gh auth token` keyring fallback (#665)", () => {
-  it("env unset: returns the keyring token (trimmed), and it doubles as renovateToken", () => {
+  it("env unset: returns the keyring token (trimmed)", () => {
     const gh = ghSays("gho_keyring\n");
-    expect(readGitHubConfig({ execFileSync: gh })).toEqual({
-      token: "gho_keyring",
-      renovateToken: "gho_keyring",
-    });
+    expect(readGitHubConfig({ execFileSync: gh })).toEqual({ token: "gho_keyring" });
     expect(gh).toHaveBeenCalledOnce();
     expect(gh.mock.calls[0]?.[0]).toBe("gh");
     expect(gh.mock.calls[0]?.[1]).toEqual(["auth", "token"]);
   });
 
-  it("env unset, RENOVATE_TOKEN set: keyring token is the broad one, RENOVATE_TOKEN stays narrow", () => {
-    process.env.RENOVATE_TOKEN = "ghp_narrow";
+  it("env unset, RENOVATE_TOKEN set: the keyring token wins and RENOVATE_TOKEN is ignored", () => {
+    process.env.RENOVATE_TOKEN = "ghp_retired_pat";
     expect(readGitHubConfig({ execFileSync: ghSays("gho_keyring\n") })).toEqual({
       token: "gho_keyring",
-      renovateToken: "ghp_narrow",
     });
   });
 
@@ -105,7 +94,7 @@ describe("readGitHubConfig — `gh auth token` keyring fallback (#665)", () => {
 
   it("an empty GITHUB_TOKEN is not rescued by RENOVATE_TOKEN — null means null", () => {
     process.env.GITHUB_TOKEN = "";
-    process.env.RENOVATE_TOKEN = "ghp_narrow";
+    process.env.RENOVATE_TOKEN = "ghp_retired_pat";
     expect(readGitHubConfig({ execFileSync: ghSays("gho_keyring\n") })).toBeNull();
   });
 

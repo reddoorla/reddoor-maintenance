@@ -1,5 +1,7 @@
 # PAT retirement — rotation runbook (2026-08)
 
+> **Status (2026-09-16): complete.** The migration below is done, and the `RENOVATE_TOKEN` name was retired from live code, workflows and current docs in the PR that added this line — the CLI and dashboard read `GH_TOKEN` only. The rest of this runbook is the record as written.
+
 The org-wide classic PAT stored as the `RENOVATE_TOKEN` org secret is due for
 removal + rotation (~2026-08-16, per the 2026-08-02 architecture review).
 Renovate itself moved to the `reddoor-renovate` GitHub App on 08-02; this
