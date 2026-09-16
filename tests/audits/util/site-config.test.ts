@@ -111,3 +111,57 @@ describe("readSiteConfig — a11yRoutes", () => {
     });
   });
 });
+
+// gateServer (#700): which server the browser gates run against. Both gates
+// started `vite dev`, so nothing in CI ever opened the shipped bundle — and dev
+// does not merely fail to reproduce some defects, it hides them (hydration,
+// code splitting, and the CSP directive a stylesheet is fetched under all
+// differ). Opt-in per site, because a preview costs a build per run and the
+// `/dev/*` fixture routes the axe scan targets are not guaranteed to survive
+// one. Anything but the two known values must read as `dev`: a typo that
+// silently disabled the gate would be worse than one that changed nothing.
+describe("readSiteConfig — gateServer", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "reddoor-site-config-gate-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const write = (reddoor: unknown) =>
+    writeFile(join(dir, "package.json"), JSON.stringify({ name: "site", reddoor }));
+
+  it("reads the preview opt-in", async () => {
+    await write({ gateServer: "preview" });
+    expect(await readSiteConfig(dir)).toEqual({ gateServer: "preview" });
+  });
+
+  it("reads an explicit dev declaration", async () => {
+    await write({ gateServer: "dev" });
+    expect(await readSiteConfig(dir)).toEqual({ gateServer: "dev" });
+  });
+
+  it("omits the key when absent (the default is decided by the caller)", async () => {
+    await write({ a11yRoutes: ["/"] });
+    expect(await readSiteConfig(dir)).toEqual({ a11yRoutes: ["/"] });
+  });
+
+  it("ignores an unrecognized value rather than passing it to a shell", async () => {
+    // `"prod"` would otherwise reach `npm run prod` as a webServer command.
+    await write({ gateServer: "prod" });
+    expect(await readSiteConfig(dir)).toEqual({});
+  });
+
+  it("ignores a non-string value", async () => {
+    await write({ gateServer: true });
+    expect(await readSiteConfig(dir)).toEqual({});
+  });
+
+  it("coexists with the other keys", async () => {
+    await write({ a11yRoutes: ["/"], gateServer: "preview" });
+    expect(await readSiteConfig(dir)).toEqual({ a11yRoutes: ["/"], gateServer: "preview" });
+  });
+});

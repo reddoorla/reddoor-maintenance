@@ -36,12 +36,80 @@ async function readJsonMaybe<T>(path: string): Promise<T | null> {
   }
 }
 
-// The audit-controlled playwright config. We synthesize it (rather than
-// rely on the site's playwright.config.ts) so we can pin the dev server
-// port + force `--strictPort` — same fix as the lighthouse audit, same
-// reason (zombie vite processes squatting on 5173 would otherwise eat
-// the audit's request and return stale 404s).
-function buildPlaywrightConfig(port: number, sitePath: string): string {
+/** Budget for a webServer that only has to boot vite. */
+const DEV_SERVER_TIMEOUT_MS = 120_000;
+/** Budget for a webServer that runs a production build and then serves it. */
+const PREVIEW_SERVER_TIMEOUT_MS = 5 * 60_000;
+/** Playwright spawn budget: cold tree, chrome download, dev boot, axe. */
+const PLAYWRIGHT_TIMEOUT_MS = 5 * 60_000;
+/** The same, plus a production build. A build SIGKILLed mid-flight reports as
+ *  an audit failure with nothing to point at. */
+const PLAYWRIGHT_PREVIEW_TIMEOUT_MS = 10 * 60_000;
+
+// One `webServer` entry. Every field is a fix with a scar:
+//   --strictPort: refuse to bump to a different port if ours is taken, so the
+//     audit fails loudly instead of probing a zombie.
+//   reuseExistingServer:false: never reuse — we control the lifecycle.
+//   cwd: playwright's default webServer.cwd is the config file's directory. Our
+//     config lives under the site but off its root, so without this override
+//     "npm run vite:dev" reads the wrong package.json and ENOENTs before vite
+//     ever starts. Caltex 2026-05-28 (0.10.5).
+function webServerBlock(opts: {
+  command: string;
+  url: string;
+  sitePath: string;
+  timeoutMs: number;
+}): string {
+  return `{
+      command: ${JSON.stringify(opts.command)},
+      url: ${JSON.stringify(opts.url)},
+      cwd: ${JSON.stringify(opts.sitePath)},
+      reuseExistingServer: false,
+      timeout: ${opts.timeoutMs},
+    }`;
+}
+
+/**
+ * The audit-controlled playwright config. We synthesize it (rather than rely on
+ * the site's playwright.config.ts) so we can pin the dev server port + force
+ * `--strictPort` — same fix as the lighthouse audit, same reason (zombie vite
+ * processes squatting on 5173 would otherwise eat the audit's request and
+ * return stale 404s).
+ *
+ * `previewPort` (#700) adds a SECOND webServer running the real production
+ * build, for the hydration smoke only. The axe scan stays on the dev server —
+ * deliberately. Its targets are `/dev/a11y-fixtures` and `/dev/animate-in`, dev
+ * fixture routes with no guarantee of surviving a production build; moving them
+ * would have the route-status guard (#680) correctly report every fixture as a
+ * missing route, and a working gate would become a red one measuring nothing.
+ * `baseURL` therefore stays on the dev port, and the smoke routes carry an
+ * absolute origin instead.
+ */
+function buildPlaywrightConfig(port: number, sitePath: string, previewPort?: number): string {
+  const dev = webServerBlock({
+    command: `npm run vite:dev -- --port ${port} --strictPort`,
+    url: `http://localhost:${port}/dev/a11y-fixtures`,
+    sitePath,
+    timeoutMs: DEV_SERVER_TIMEOUT_MS,
+  });
+  // The preview server is probed on `/`, never a `/dev/*` fixture — see above.
+  const preview =
+    previewPort === undefined
+      ? undefined
+      : webServerBlock({
+          command: `npm run build && npm run preview -- --port ${previewPort} --strictPort`,
+          url: `http://localhost:${previewPort}/`,
+          sitePath,
+          timeoutMs: PREVIEW_SERVER_TIMEOUT_MS,
+        });
+  const webServer =
+    preview === undefined
+      ? dev
+      : `[
+    ${dev},
+    ${preview},
+  ]`;
+
   return `import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
@@ -55,22 +123,24 @@ export default defineConfig({
     baseURL: "http://localhost:${port}",
     trace: "on-first-retry",
   },
-  webServer: {
-    // --strictPort: refuse to bump to a different port if ours is taken,
-    //   so the audit fails loudly instead of probing a zombie.
-    // reuseExistingServer:false: never reuse — we control the lifecycle.
-    // cwd: playwright's default webServer.cwd is the config file's
-    //   directory. Our config lives in /tmp so without this override,
-    //   "npm run vite:dev" tries to read /tmp/.../package.json and
-    //   ENOENTs before vite ever starts. Caltex 2026-05-28 (0.10.5).
-    command: "npm run vite:dev -- --port ${port} --strictPort",
-    url: "http://localhost:${port}/dev/a11y-fixtures",
-    cwd: ${JSON.stringify(sitePath)},
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  webServer: ${webServer},
 });
 `;
+}
+
+/**
+ * A second free port, guaranteed different from `taken`. `findFreePort`
+ * releases its socket before returning, so two calls can legitimately hand back
+ * the same ephemeral port — and two webServers cannot share one: under
+ * `--strictPort` the second dies with "port already in use" and the failure
+ * reads as the site's rather than the allocator's.
+ */
+async function allocateDistinctPort(taken: number): Promise<number> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = await findFreePort();
+    if (candidate !== taken) return candidate;
+  }
+  throw new Error(`a11y: could not allocate a second free port distinct from ${taken}`);
 }
 
 // The spec the audit writes runs all configured routes through axe in a single
@@ -78,7 +148,7 @@ export default defineConfig({
 // writes the structured result to <cwd>/.reddoor-a11y/results.json before
 // asserting. That way, the audit can read real axe details even when the
 // expect(...).toEqual([]) assertion fails.
-function buildSpec(axePages: A11yRoute[]): string {
+function buildSpec(axePages: A11yRoute[], smokeOrigin = ""): string {
   return `import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -86,6 +156,13 @@ import { dirname } from "node:path";
 
 const pages = ${JSON.stringify(axePages)};
 const smokePages = ${JSON.stringify(smokeRoutes)};
+// Absolute origin for the hydration smoke when the site has opted its gates
+// onto a production build (#700). The axe loop runs against the dev server via
+// baseURL; these routes run against the built bundle on a second port, and the
+// origin has to be explicit or they would silently fall back to baseURL — i.e.
+// to dev — and measure exactly what this exists to stop measuring. Empty string
+// = one server for both, the default.
+const SMOKE_ORIGIN = ${JSON.stringify(smokeOrigin)};
 const OUTPUT = process.env.REDDOOR_A11Y_OUTPUT;
 
 // Playwright's default per-test timeout is 30s. We loop through every
@@ -160,7 +237,7 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   // renders empty-but-valid won't false-fail -- only a real client crash does.
   for (const { path, name } of smokePages) {
     currentRoute = name;
-    await page.goto(path);
+    await page.goto(SMOKE_ORIGIN + path);
     // Let hydration + first effects run so a TDZ/ReferenceError surfaces.
     await page.waitForTimeout(2000);
   }
@@ -237,18 +314,30 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // --fail-on-violations and most of the fleet has pre-existing debt.
     // The route path doubles as its name — the spec tags each violation with
     // `route: name`, so it has to identify the page.
-    const { a11yRoutes: siteRoutes } = await readSiteConfig(site.path);
+    const { a11yRoutes: siteRoutes, gateServer } = await readSiteConfig(site.path);
     const axePages: A11yRoute[] = [
       ...a11yRoutes,
       ...(siteRoutes ?? []).map((path) => ({ path, name: path })),
     ];
 
-    const specPath = join(specDir, "a11y.spec.ts");
-    await writeFile(specPath, buildSpec(axePages), "utf-8");
-
     const port = await findFreePort();
+    // #700: `package.json#reddoor.gateServer: "preview"` opts this site's gates
+    // onto the shipped bundle. Only the hydration smoke moves — that is the
+    // part `vite dev` hides, since the module graph, code splitting,
+    // minification and asset hashing it replaces are most of what "hydration
+    // works" means. The axe scan keeps the dev server so the `/dev/*` fixtures
+    // still resolve. Absent or unrecognized key → nothing changes.
+    const previewPort = gateServer === "preview" ? await allocateDistinctPort(port) : undefined;
+
+    const specPath = join(specDir, "a11y.spec.ts");
+    await writeFile(
+      specPath,
+      buildSpec(axePages, previewPort === undefined ? "" : `http://localhost:${previewPort}`),
+      "utf-8",
+    );
+
     const configPath = join(specDir, "playwright.config.ts");
-    await writeFile(configPath, buildPlaywrightConfig(port, site.path), "utf-8");
+    await writeFile(configPath, buildPlaywrightConfig(port, site.path, previewPort), "utf-8");
 
     const resultsPath = join(site.path, RESULTS_REL);
     // Clear stale artifacts so a failed spawn never reports old data.
@@ -266,7 +355,11 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
           // server, and runs axe over every configured route. The shared 30 s
           // default in runAudits is fine for deps/lint/security but starves
           // playwright (mirrors the lighthouse fix shipped earlier).
-          timeoutMs: 5 * 60_000,
+          // A preview run pays for a production build before the first
+          // navigation, so the budget sized for "boot vite, then axe" would
+          // SIGKILL it mid-build and report it as an audit failure.
+          timeoutMs:
+            previewPort === undefined ? PLAYWRIGHT_TIMEOUT_MS : PLAYWRIGHT_PREVIEW_TIMEOUT_MS,
         },
       );
     } catch (err) {
@@ -329,10 +422,18 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // operator bisecting markup for a `route-missing` that the artifact JSON
     // had named all along (#680); the summary is the line that reaches CI logs
     // and the cockpit, so it has to carry what the artifact knows.
+    // Name the server the smoke ran against. #697's lesson is that an opt-in
+    // which does not visibly take effect gets reverted as broken — and this one
+    // costs a build per run, so "did it actually do the expensive thing?" is
+    // the first question an operator asks.
+    const smokeNote =
+      previewPort === undefined
+        ? `+${smokeRoutes.length} hydration smoke`
+        : `+${smokeRoutes.length} hydration smoke on a production preview`;
     const named = describeViolations(artifact.violations ?? []);
     const summary =
       status === "pass"
-        ? `a11y: 0 violations across ${scanned} (+${smokeRoutes.length} hydration smoke)`
+        ? `a11y: 0 violations across ${scanned} (${smokeNote})`
         : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`;
 
     return {

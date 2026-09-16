@@ -230,6 +230,40 @@ audit with `--fail-on-violations`, and most of the fleet carries pre-existing
 accessibility debt — switching every site over centrally would red every repo at
 once. Adopt it per site once that site's routes are clean, and it stays clean.
 
+#### Running the browser gates against a production build
+
+By default both browser gates — the `a11y` audit and the site's own smoke suite
+— start `vite dev`. The production bundle is built in CI and then never opened
+by a browser, and dev does not merely fail to reproduce some defects, it hides
+them: module graph, code splitting, minification and asset hashing are most of
+what "hydration works" means, and a stylesheet can be fetched under a different
+CSP directive in each.
+
+A site opts in:
+
+```jsonc
+// package.json
+{
+  "reddoor": {
+    "gateServer": "preview", // "dev" (default) | "preview"
+  },
+}
+```
+
+It requires a `preview` script (the starter has one), and it is deliberately not
+a fleet-wide flip: a preview costs a `pnpm build` per run.
+
+Under `preview` the a11y audit **splits** its run rather than moving it. The axe
+scan keeps the dev server, because `/dev/a11y-fixtures` and `/dev/animate-in`
+are dev fixture routes with no guarantee of surviving a production build — a
+straight swap would have the route-status guard correctly report every fixture
+as a missing route, turning a working gate into a red one that measures nothing.
+The hydration smoke, which is the part dev actually hides, gets a built preview
+on its own port. The pass summary names which server ran.
+
+`REDDOOR_GATE_SERVER=preview` overrides the key for a one-off run. An
+unrecognized value reads as `dev` rather than reaching a shell.
+
 ---
 
 ## Fleet mode
