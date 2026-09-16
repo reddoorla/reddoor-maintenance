@@ -4,6 +4,7 @@ import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.js";
 import {
   SMOKE_ROUTES_RELATIVE,
   SMOKE_ROUTES_TEMPLATE,
@@ -24,6 +25,17 @@ export type SmokeSuiteDeps = {
 /** Same budget as prismic-ci and match-harness. Without one the default spawn
  *  never detaches and never kills, so a hung formatter runs unbounded. */
 const PRETTIER_TIMEOUT_MS = 60_000;
+
+/** What "the smoke suite is installed" means, as paths a fresh clone must get.
+ *  package.json is deliberately absent: it is already tracked on every site the
+ *  recipe runs on, so it can never be the path git silently drops — and it is
+ *  exactly what makes the drop invisible, because its edit alone produces a
+ *  commit and therefore an "applied". */
+export const SMOKE_SUITE_INSTALLED_PATHS = [
+  SMOKE_ROUTES_RELATIVE,
+  SMOKE_SPEC_RELATIVE,
+  PLAYWRIGHT_CONFIG_RELATIVE,
+] as const;
 
 type PackageJson = {
   scripts?: Record<string, string>;
@@ -125,6 +137,9 @@ export async function smokeSuite(
       // Relative paths this run actually wrote/changed — prettier-formatted to the
       // site's own config before committing (never operator files we left alone).
       const written: string[] = [];
+      // ...and what each of those paths held BEFORE this run, so a path git then
+      // refuses can be put back exactly as it was (null = did not exist).
+      const before = new Map<string, string | null>();
 
       // 1. Spec files — write if absent (never clobber operator edits). The
       //    routes manifest ships the starter-verbatim `footer` marker only when
@@ -154,6 +169,7 @@ export async function smokeSuite(
           await mkdir(dirname(target), { recursive: true });
           await writeFile(target, tmpl, "utf-8");
           written.push(rel);
+          before.set(rel, null);
         }
       }
 
@@ -165,11 +181,13 @@ export async function smokeSuite(
       if (existingCfg === null) {
         await writeFile(cfgPath, PLAYWRIGHT_CONFIG_TEMPLATE, "utf-8");
         written.push(PLAYWRIGHT_CONFIG_RELATIVE);
+        before.set(PLAYWRIGHT_CONFIG_RELATIVE, null);
       } else if (existingCfg.includes("REDDOOR_SMOKE_PORT")) {
         // Already R1.1-aware; leave it.
       } else if (existingCfg.trim() === PLAYWRIGHT_CONFIG_PRE_R11.trim()) {
         await writeFile(cfgPath, PLAYWRIGHT_CONFIG_TEMPLATE, "utf-8");
         written.push(PLAYWRIGHT_CONFIG_RELATIVE);
+        before.set(PLAYWRIGHT_CONFIG_RELATIVE, existingCfg);
       } else {
         notes.push(
           "playwright.config.ts exists without REDDOOR_SMOKE_PORT — add the R1.1 port block manually",
@@ -256,6 +274,18 @@ export async function smokeSuite(
       // 6. Commit. If nothing was written/changed the commit stages nothing and
       //    withRecipe reports noop (the flag note, if any, is still surfaced).
       await commit("feat: add smoke suite (test:smoke + playwright config + /health smoke routes)");
+
+      // 7. Did git TAKE the suite? This is the sharpest case of the class
+      //    (#741): package.json is tracked and always changes, so `commit()`
+      //    returns a SHA and the result reads "applied" even when the two spec
+      //    files the suite CONSISTS OF were dropped by a `tests/` rule. CI then
+      //    runs `test:smoke` against a suite that exists on nobody's disk.
+      const refusal = await refusedByGit(cwd, SMOKE_SUITE_INSTALLED_PATHS, "the smoke suite");
+      if (refusal) {
+        await undoRefusedWrites(cwd, before, refusal.missing);
+        return { kind: "failed", notes: refusal.notes + RESTORED_NOTE };
+      }
+
       return notes.length > 0 ? { kind: "ok", notes: notes.join("; ") } : { kind: "ok" };
     },
   });

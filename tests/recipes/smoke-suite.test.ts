@@ -456,3 +456,71 @@ describe("recipes/smoke-suite", () => {
     expect(second.status).toBe("noop");
   });
 });
+
+// --- git must actually TAKE the suite (#741). This is the sharpest case of the
+//     class: package.json is tracked and always changes, so the commit succeeds
+//     and the result reads "applied" while the specs the suite consists of are
+//     in no commit at all.
+
+describe("recipes/smoke-suite: the commit must carry the specs", () => {
+  async function siteIgnoring(body: string): Promise<string> {
+    const cwd = await copyFixtureToTmp(pristine);
+    await writeFile(join(cwd, ".gitignore"), body, "utf-8");
+    commitSetup(cwd);
+    return cwd;
+  }
+
+  const headTree = (cwd: string): string[] =>
+    execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "HEAD"], { cwd, encoding: "utf-8" })
+      .split("\0")
+      .filter(Boolean);
+
+  const gitOut = (cwd: string, args: string[]): string =>
+    execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+
+  const onDisk = (cwd: string, rel: string): Promise<string | null> =>
+    readFile(join(cwd, rel), "utf-8").then(
+      (s) => s,
+      () => null,
+    );
+
+  it("GRANTS a normal install — every installed path is in HEAD's tree", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    const result = await smokeSuite(
+      { path: cwd },
+      { spawn: fakeSpawn().fn, resolvePrettier: resolveSitePrettier },
+    );
+    expect(result.status).toBe("applied");
+    const tree = headTree(cwd);
+    for (const rel of [SMOKE_ROUTES_RELATIVE, SMOKE_SPEC_RELATIVE, PLAYWRIGHT_CONFIG_RELATIVE]) {
+      expect(tree, `${rel} was written but not committed`).toContain(rel);
+    }
+  });
+
+  it("REFUSES when the site ignores tests/ — the package.json edit alone is not the suite", async () => {
+    const cwd = await siteIgnoring("node_modules\ntests/\n");
+    const result = await smokeSuite(
+      { path: cwd },
+      { spawn: fakeSpawn().fn, resolvePrettier: resolveSitePrettier },
+    );
+
+    // Before the guard this was "applied": the package.json script split and
+    // playwright.config.ts landed, so `commit()` returned a SHA, and a site
+    // whose smoke suite consists of two files git refused counted as rolled out.
+    expect(result.status).toBe("failed");
+    expect(result.notes).toContain(SMOKE_ROUTES_RELATIVE);
+    expect(result.notes).toContain(SMOKE_SPEC_RELATIVE);
+    expect(result.notes).toContain(".gitignore:2:tests/");
+    const tree = headTree(cwd);
+    expect(tree).not.toContain(SMOKE_ROUTES_RELATIVE);
+    expect(tree).not.toContain(SMOKE_SPEC_RELATIVE);
+    // The half-install is rolled back whole: the specs git refused are off disk
+    // (or the next run noops "already exists"), and the package.json scripts
+    // that promised to run them went with the discarded commit.
+    expect(await onDisk(cwd, SMOKE_ROUTES_RELATIVE)).toBeNull();
+    expect(await onDisk(cwd, SMOKE_SPEC_RELATIVE)).toBeNull();
+    expect((await readPkg(cwd)).scripts?.["test:smoke"]).toBeUndefined();
+    expect(gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe("main");
+    expect(gitOut(cwd, ["status", "--porcelain"])).toBe("");
+  });
+});
