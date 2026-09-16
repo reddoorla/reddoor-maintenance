@@ -174,6 +174,18 @@ export type GitHub = {
    *  the token that may not read alerts (403/404 — needs `security_events`),
    *  and callers must treat it as unverified, never as zero. */
   openSecretAlerts: (repo: string) => Promise<number | "unavailable">;
+  /** One text file at the repo's DEFAULT branch, or `null` when it does not
+   *  exist. `null` is an ANSWER — a repo with no `package.json` is not a node
+   *  repo, which the pnpm-pin sweep must read as out of scope rather than as a
+   *  gap. Every other failure THROWS: "I could not read it" arriving
+   *  downstream as "there is no pin" is the silent-green collapse these
+   *  sweeps exist to kill. */
+  repoTextFile: (repo: string, path: string) => Promise<string | null>;
+  /** Paths of every file in `.github/workflows`, or `[]` when the directory is
+   *  absent (a repo may legitimately have no workflows). Used to find the
+   *  `pnpm/action-setup` steps that pin a pnpm `version:` input — see
+   *  parsePnpmActionSetupPins for why the file must be PARSED, not grepped. */
+  listWorkflowPaths: (repo: string) => Promise<string[]>;
 };
 
 export type WorkflowHealth =
@@ -708,6 +720,47 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         throw new Error(`openSecretAlerts(${repo}) failed: ${r.stderr.trim()}`);
       }
       return r.stdout.split("\n").filter((l) => l.trim().length > 0).length;
+    },
+    async repoTextFile(repo, path) {
+      assertUrlSegment("path", repo);
+      assertUrlSegment("path", path);
+      // spawn-direct: a 404 is the expected ANSWER "this file is not there",
+      // and only that. Anything else throws (see the type's contract).
+      const r = await spawn(
+        "gh",
+        ["api", `repos/${repo}/contents/${path}`, "--jq", '.content // ""'],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        if (/HTTP 404/.test(r.stderr)) return null;
+        throw new Error(`repoTextFile(${repo}/${path}) failed: ${r.stderr.trim()}`);
+      }
+      // The contents API returns base64 WRAPPED at 60 columns, so the newlines
+      // have to come out before decoding or the tail of every file is lost.
+      const encoded = r.stdout.replace(/\s+/g, "");
+      if (encoded.length === 0) return "";
+      return Buffer.from(encoded, "base64").toString("utf-8");
+    },
+    async listWorkflowPaths(repo) {
+      assertUrlSegment("path", repo);
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          `repos/${repo}/contents/.github/workflows`,
+          "--jq",
+          '.[] | select(.type=="file") | .path',
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        if (/HTTP 404/.test(r.stderr)) return [];
+        throw new Error(`listWorkflowPaths(${repo}) failed: ${r.stderr.trim()}`);
+      }
+      return r.stdout
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.endsWith(".yml") || l.endsWith(".yaml"));
     },
     async workflowHealth(repo, filename) {
       // spawn-direct for the workflow GET: 404 (file not registered as a

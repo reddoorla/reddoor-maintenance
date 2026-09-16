@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/test";
 
 export type A11yRoute = { path: string; name: string };
@@ -89,6 +91,43 @@ function resolvePort(): string {
 
 const port = resolvePort();
 
+export type GateServer = "dev" | "preview";
+
+/**
+ * Which server this run puts under test, read from the site's own
+ * `package.json#reddoor.gateServer`. Unknown values, a missing key, a missing
+ * or malformed package.json all read as `"dev"` — this is evaluated in every
+ * Playwright worker process at config load, so it must never throw, and the
+ * value is interpolated into a shell command, so an unrecognized one must never
+ * be forwarded (`"prod"` would run `npm run prod`).
+ */
+export function readGateServer(root: string): GateServer {
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8")) as {
+      reddoor?: { gateServer?: unknown };
+    };
+    const value = pkg?.reddoor?.gateServer;
+    return value === "preview" || value === "dev" ? value : "dev";
+  } catch {
+    return "dev";
+  }
+}
+
+/**
+ * REDDOOR_GATE_SERVER overrides the package.json key, so a one-off CI run can
+ * exercise the built bundle without a commit — the same shape as
+ * REDDOOR_SMOKE_PORT above. `process.cwd()` is the site root: Playwright is
+ * invoked from there both by `pnpm test:smoke` and by the central smoke audit.
+ */
+function resolveGateServer(): GateServer {
+  const fromEnv = process.env.REDDOOR_GATE_SERVER;
+  if (fromEnv === "preview" || fromEnv === "dev") return fromEnv;
+  return readGateServer(process.cwd());
+}
+
+const gateServer = resolveGateServer();
+const previewing = gateServer === "preview";
+
 // NOTE: default export only — sites consume this as `import base from
 // "@reddoorla/maintenance/configs/playwright-a11y"` (or re-export the default).
 // The old `playwrightA11yConfig` named alias had zero importers and was removed.
@@ -141,8 +180,17 @@ const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
     // --strictPort now only bites if the allocated port is taken in the window
     // between releasing and binding it, which is exactly the case worth failing
     // on.
-    command: `npm run vite:dev -- --port ${port} --strictPort`,
-    url: `http://localhost:${port}/dev/a11y-fixtures`,
+    //
+    // gateServer (#700): `preview` builds the site and serves the real bundle
+    // instead. The probe URL moves with it, and that move is the whole trap
+    // this had to avoid — `/dev/a11y-fixtures` is a dev fixture route with no
+    // guarantee of surviving a production build, so a flip that kept probing it
+    // would hang for the full webServer timeout on every opted-in site and
+    // report it as the site's failure. `/` is the one route every site serves.
+    command: previewing
+      ? `npm run build && npm run preview -- --port ${port} --strictPort`
+      : `npm run vite:dev -- --port ${port} --strictPort`,
+    url: previewing ? `http://localhost:${port}/` : `http://localhost:${port}/dev/a11y-fixtures`,
     // NEVER reuse (#524). This used to be `!process.env.CI`, so local runs
     // reused whatever answered the probe URL. The probe only asks "does this
     // respond?" — never "is this serving the code I am about to test?" — so a
@@ -158,7 +206,11 @@ const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
     // Because the port above is allocated rather than fixed, your own dev
     // server on 5173 keeps running untouched.
     reuseExistingServer: false,
-    timeout: 120_000,
+    // A vite boot is ~10-20s, so 120s covered it with room. A production build
+    // with prerendering is minutes, and the budget has to cover build + serve
+    // or the run dies on "Timed out waiting ... from config.webServer" while
+    // the build was still working.
+    timeout: previewing ? 5 * 60_000 : 120_000,
   },
 });
 

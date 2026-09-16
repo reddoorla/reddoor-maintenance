@@ -66,8 +66,9 @@
     "reddoor-maint": "./dist/cli/bin.js"
   },
   "scripts": {
-    "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test:coverage && pnpm test:dist",
+    "verify": "pnpm typecheck && pnpm lint && pnpm check:match-harness-snapshots && pnpm build && pnpm test:coverage && pnpm test:dist",
     "build": "tsup",
+    "check:match-harness-snapshots": "node scripts/check-match-harness-snapshots.mjs",
     "dev": "tsup --watch",
     "pretest": "pnpm run build",
     "test": "vitest run",
