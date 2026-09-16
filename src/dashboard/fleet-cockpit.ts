@@ -13,6 +13,7 @@ import type { ReportType } from "../reports/types.js";
 import type { SubmissionRow, FormType } from "../reports/submission-row.js";
 import { isLeadFormType } from "../forms/types.js";
 import type { FleetEvent, FleetEventType } from "../db/fleet-events.js";
+import type { NotifyBounceCounts } from "../db/submissions.js";
 import {
   collectVulnAlerts,
   collectDeliveryFailures,
@@ -528,7 +529,7 @@ function collectFleetAttentionItems(
   reports: ReportRow[],
   baseUrl: string,
   now: Date,
-  notifyBounces: ReadonlyMap<string, number>,
+  notifyBounces: ReadonlyMap<string, NotifyBounceCounts>,
   // #645. Unreplayed dead-letter rows per SLUG (countUnreplayedDeadLettersBySlug).
   // Optional like every other libSQL input: a Turso blip drops the signal, never
   // the cockpit.
@@ -582,7 +583,7 @@ export function buildSiteAlarmContext(
   reports: ReportRow[],
   baseUrl: string,
   now: Date,
-  notifyBounces: ReadonlyMap<string, number> = new Map(),
+  notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(),
   deadLetters: ReadonlyMap<string, number> = new Map(),
 ): SiteAlarmContext {
   const sites = [site];
@@ -634,7 +635,7 @@ export function buildCockpitModel(
   // Per-site bounced-lead-notification counts (countNotifyBouncedBySite, last
   // NOTIFY_BOUNCE_WINDOW_DAYS). Optional like the other libSQL inputs: a Turso
   // blip drops the signal, never the cockpit (2026-07-16).
-  notifyBounces: ReadonlyMap<string, number> = new Map(),
+  notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(),
   // #645. Unreplayed dead-letter rows per slug. A slug with no matching visible
   // card still produces an item (siteName `(unknown site: …)`) — see
   // `collectDeadLetterAlerts`; the cockpit's card grid has nowhere to hang it,

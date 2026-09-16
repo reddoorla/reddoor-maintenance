@@ -91,9 +91,29 @@ export function renderSubmissionRowInner(s: SubmissionRow): string {
   // detail row — a bounced notification means the LEAD never reached the client
   // even though the row looks healthy (same visible-not-tooltip rule as the
   // reason chip above). The resend-webhook flips notifyStatus to "bounced".
+  // #783: the chip now carries Resend's own classification. "notify bounced"
+  // alone could not tell a dead mailbox from the CLIENT's spam filter refusing
+  // our content, and the tooltip asserted the former in both cases.
+  const bouncePermanent = (s.bounceType ?? "").toLowerCase() === "permanent";
+  const bounceAcked = typeof s.bounceAckAt === "string" && s.bounceAckAt !== "";
+  const bounceLabel = s.bounceSubType ?? s.bounceType ?? null;
+  const bounceTitle = bouncePermanent
+    ? "The lead notification email bounced — the point-of-contact address may be dead"
+    : bounceLabel !== null
+      ? "The receiving server refused this message — the client's mail filter is rejecting lead notifications, which is not the same as a dead address"
+      : "The lead notification email bounced — Resend recorded no classification for it";
+  const bounceChipText = `notify bounced${bounceLabel !== null ? ` · ${bounceLabel}` : ""}${
+    bounceAcked ? " · acknowledged" : ""
+  }`;
   const bounceChip =
     s.notifyStatus === "bounced"
-      ? ` <span class="subm-bounce" title="The lead notification email bounced — the point-of-contact address may be dead">notify bounced</span>`
+      ? ` <span class="subm-bounce${bounceAcked ? " acked" : ""}" title="${escapeHtml(bounceTitle)}">${escapeHtml(bounceChipText)}</span>`
+      : "";
+  // The operator's exit (#783 item 3). Offered ONLY on an unacknowledged bounce,
+  // so it can never become a general-purpose way to quiet a row.
+  const ackBounce =
+    s.notifyStatus === "bounced" && !bounceAcked
+      ? `<button class="subm-status" data-id="${id}" data-ack="notify-bounce" data-url="${url}">Not dead — acknowledge</button>`
       : "";
   // Fan-out marker (2026-07-31): a newsletter signup that never reached the site
   // webhook or the Mailchimp audience is otherwise INDISTINGUISHABLE from one that
@@ -134,6 +154,11 @@ export function renderSubmissionRowInner(s: SubmissionRow): string {
     extraFieldsList(s.extraFields),
     kv("Spam", spamDetail),
     kv("Notify", s.notifyStatus),
+    kv("Bounce", [s.bounceType, s.bounceSubType].filter((x) => !!x).join(" / ")),
+    // The receiving server's own words — the single most useful line when
+    // deciding whether an address is dead or a filter is being strict.
+    kv("Bounce message", s.bounceMessage ?? null),
+    kv("Bounce acknowledged", s.bounceAckAt ?? null),
     kv("Fan-out", s.fanoutStatus ?? null),
     kv("Resend ID", s.resendMessageId),
     kv("Submission #", s.submissionId),
@@ -143,7 +168,7 @@ export function renderSubmissionRowInner(s: SubmissionRow): string {
       <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span>${provenance}${bounceChip}${fanoutChip} <span class="muted">${when}</span></summary>
       <div class="subm-detail">${details}</div>
     </details>
-    <div class="subm-actions">${recover}${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>`;
+    <div class="subm-actions">${recover}${ackBounce}${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>`;
 }
 
 export function renderSubmissionRow(s: SubmissionRow): string {
@@ -173,6 +198,7 @@ button.subm-status:disabled { opacity: 0.6; cursor: default; }
 .pill.subm-spam_auto { background: #fff4e5; color: #a65a00; }
 .subm-provenance { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fff4e5; color: #a65a00; }
 .subm-bounce { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fdecea; color: #b00; font-weight: 700; }
+.subm-bounce.acked { background: #f0f0f0; color: #666; font-weight: 400; }
 .subm-fanout-fail { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fdecea; color: #b00; font-weight: 700; }
 .subm-reasons { font-size: 0.72rem; color: #999; }
 .subm-viewall { font-size: 0.8rem; font-weight: normal; margin-left: 0.4rem; white-space: nowrap; }`;
@@ -185,7 +211,9 @@ export const SUBMISSION_STATUS_SCRIPT = `document.querySelectorAll("button.subm-
           const res = await fetch(b.dataset.url, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ status: b.dataset.status }),
+            body: JSON.stringify(
+              b.dataset.ack ? { ack: b.dataset.ack } : { status: b.dataset.status },
+            ),
           });
           b.textContent = res.ok ? "✓" : "Failed";
           if (!res.ok) b.disabled = false;
