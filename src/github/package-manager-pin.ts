@@ -4,8 +4,9 @@ import { partitionAcceptedGaps, type AcceptedGap } from "../audits/protection-co
  * The pnpm `packageManager` surface of the nightly protection sweep (#690).
  *
  * Three repos sat on a pnpm security bump for two months and nothing said so.
- * The drift itself is fixed — measured 2026-09-16, all 24 repos carrying a
- * `packageManager` field are on `pnpm@11.11.0` — but the reason it went
+ * The drift itself is fixed — re-measured against live GitHub 2026-09-15, all
+ * 25 repos carrying a `packageManager` field are on `pnpm@11.11.0` — but the
+ * reason it went
  * unseen is not: NOTHING in `src/` or `.github/workflows/` ever asked the
  * question. This module is that question, wired into the sweep that already
  * walks every repo (see `runProtectionAuditCommand`), because a fleet
@@ -19,10 +20,13 @@ import { partitionAcceptedGaps, type AcceptedGap } from "../audits/protection-co
  *  - **A pin that disagrees with the fleet's**: the original #690 condition.
  *  - **A workflow pinning a pnpm `version:` input while a `packageManager`
  *    field also exists**: `pnpm/action-setup` does not prefer one over the
- *    other, it HARD-ERRORS on a mismatch. Today exactly one repo pins a
- *    workflow input (`reddoor-md-pdf`), and it is safe only because it has no
- *    field to disagree with — i.e. the fleet is one well-meaning "add the
- *    missing pin" commit away from a red CI in a repo nobody was editing.
+ *    other, it HARD-ERRORS on a mismatch. As of 2026-09-15 NO repo in the
+ *    fleet pins a workflow input — all 75 workflow files were parsed by
+ *    `parsePnpmActionSetupPins` and none carries one. `reddoor-md-pdf` used to
+ *    be the single exception, safe only because it had no field to disagree
+ *    with; it has since gained the field AND dropped the input, which is the
+ *    correct shape. This clause is now a pure regression guard, so its failing
+ *    arm is injected in the test rather than borrowed from a live repo.
  *
  * Scope is deliberately the SAME population the coverage sweep judges —
  * non-archived PUBLIC repos. Not an oversight, and not because private repos
@@ -37,10 +41,12 @@ import { partitionAcceptedGaps, type AcceptedGap } from "../audits/protection-co
 /** A repo's raw pnpm-pin facts, as read from its default branch. */
 export type PackageManagerFacts = {
   /** `package.json` at the default branch, or `null` when the repo has none —
-   *  which is OUT OF SCOPE, never a gap. `.github`, `reddoor-prospect-runner`
-   *  and `reddoor-rfp-analyses` are all legitimately package-less, and a check
-   *  that gapped them would light three repos every night forever and teach
-   *  the operator to skim past this surface. */
+   *  which is OUT OF SCOPE, never a gap. In the judged population that is
+   *  `.github` alone (measured 2026-09-15); `reddoor-prospect-runner` and
+   *  `reddoor-rfp-analyses` are also package-less but are PRIVATE, so they are
+   *  skipped before this is ever consulted. A check that gapped them would
+   *  light repos every night forever and teach the operator to skim past this
+   *  surface. */
   packageJson: string | null;
   /** Every `pnpm/action-setup` step that pins a `version:` input, by workflow
    *  file. Empty is the healthy fleet-wide default. */
@@ -73,28 +79,22 @@ export type PackageManagerPinDeps = {
  * `ACCEPTED_GAPS`: one repo, one surface, a NAMED pending fix, and an expiry
  * past which the gap returns on its own.
  *
- * Both entries are the two repos the 2026-09-16 measurement found carrying no
- * `packageManager` field at all. Their fix is two lines each and is recorded
- * on #690, but it lands in those repos, not this one — so without these the
- * guard's very first nightly run would file a tracking issue for work already
- * scheduled, which is how an alarm channel stops being read in its first week.
- * They expire 2026-10-01: if the fix has not landed by then, the gap is real
- * again and says so.
+ * Currently EMPTY, and that is the healthy state. The two original entries —
+ * `claude-skills` and `reddoor-md-pdf`, the two repos the 2026-09-16
+ * measurement found carrying no `packageManager` field — were retired
+ * 2026-09-15 when the fix they named actually landed: both now carry
+ * `pnpm@11.11.0`, and `reddoor-md-pdf`'s `pnpm/action-setup` step no longer
+ * takes a `version:` input at all (verified against live GitHub, not inferred).
+ *
+ * An acceptance outliving its fix is not inert. It is scoped by repo AND
+ * surface, so for as long as it stands these two repos are the only two in the
+ * fleet whose "no packageManager field" gap CANNOT gate — precisely the repos
+ * that just proved they are the ones that lose the field. Had either regressed
+ * before 2026-10-01 the nightly would have reported it as accepted-with-expiry
+ * and gated nothing. A mute that survives its reason silences exactly the
+ * repo it was written about.
  */
-export const PACKAGE_MANAGER_ACCEPTED_GAPS: AcceptedGap[] = [
-  {
-    repo: "reddoorla/claude-skills",
-    detailPrefix: "no packageManager field",
-    reason: "#690 — pin to the fleet version; tracked, lands in that repo",
-    until: "2026-10-01",
-  },
-  {
-    repo: "reddoorla/reddoor-md-pdf",
-    detailPrefix: "no packageManager field",
-    reason: "#690 — add the field AND drop ci.yml's pnpm version input in the same change; tracked",
-    until: "2026-10-01",
-  },
-];
+export const PACKAGE_MANAGER_ACCEPTED_GAPS: AcceptedGap[] = [];
 
 /** What a repo's `package.json` says about pnpm. The three states are distinct
  *  shapes on purpose: a caller cannot read "I could not parse this" as "no pin"
