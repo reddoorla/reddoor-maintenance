@@ -1,5 +1,1140 @@
 # @reddoorla/maintenance
 
+## 0.96.0
+
+### Minor Changes
+
+- c1e90b6: protection-audit: measure whether Renovate updates are LANDING
+
+  The sweep's three Renovate surfaces ask whether the workflow ran, whether the
+  dashboard names a branch Renovate stopped managing, and whether that dashboard
+  still uses vocabulary we can parse. All three are green, all three are
+  literally correct, and none of them asks the only question that matters: did an
+  update arrive.
+
+  `renovateOutcome` measures days since the repo last MERGED a feature-update
+  Renovate PR, fed by one new read (`renovateMergeWindow` — a single
+  `pulls?state=closed&per_page=100` request per repo, so the metric costs one
+  call). `renovate/lock-file-maintenance` and `renovate/npm-*-vulnerability`
+  heads are excluded by name, because those two channels bypass the preset's
+  Monday window and kept flowing straight through the drought: 78 Renovate PRs
+  landed fleet-wide between 2026-08-31 and 2026-09-14, every one of them on those
+  two shapes. On the same frozen fixture, a naive "days since any renovate/\* PR"
+  finds 1 of 21 droughts; this finds 21 of 21.
+
+  It WARNS, it never gaps. The row carries the measurement, the CLI prints a
+  `WARN` line per affected repo plus a `RENOVATE_OUTCOME` summary, and neither
+  touches `gaps=`, `^GAP` or `^COVERED` — so a fleet that lands nothing for a
+  month can never open, hold open, or block the close of the posture tracking
+  issue. A test asserts a 62-day drought still leaves the row `covered`.
+
+  Both controls are frozen from real org data captured 2026-09-14 (all 242 merged
+  `renovate/*` heads on all 26 non-archived public repos), the historical one
+  being the same data filtered by merge date:
+
+  - FAIL, 2026-09-14: `RENOVATE_OUTCOME drought=21 delivering=0 unmeasured=5 threshold=21d`
+  - PASS, 2026-08-10: `RENOVATE_OUTCOME drought=0 delivering=20 unmeasured=6 threshold=21d`
+
+  21 days is justified from the gap between those populations, not chosen for
+  roundness: the worst repo while the channel was delivering sat 14 days, the
+  best repo today sits 32, and the band between them is empty. A 14-day threshold
+  would have warned on 2 of 20 repos during known-healthy operation, which is the
+  state in which a verdict is worth nothing. The control is re-asserted at
+  midnight and at end-of-day on 2026-08-10 so the result cannot ride on the hour
+  picked.
+
+  A repo with no feature merge in the window is `unmeasured`, never a drought,
+  and prints its reason every run: on a busy repo 100 closed PRs reach back under
+  a fortnight (`truncated`), and a repo that has never merged one has no elapsed
+  time to measure. "I could not measure this" must not render as "this is fine".
+
+- 7e72a05: protection-audit: an open secret-scanning alert is a gap
+
+  The sweep asked whether secret scanning is ENABLED — a question about the
+  detector, not about what it found. On 2026-09-12 a hand-run sweep turned up
+  five open alerts across five public repos, every one `resolution: null`, the
+  oldest 99 days, on repos this audit had been calling `covered` every night,
+  truthfully: both statuses were `enabled` and nothing anywhere watched the
+  outcome.
+
+  `secretScanningGaps` gains a third clause, fed by a new `openSecretAlerts`
+  read on the GitHub factory. A public repo with open alerts is a gap, named
+  with its count and its triage link, and carrying the remediation that is not
+  obvious — redacting the value at HEAD does not close an alert, because the
+  history of a public repo stays readable (beachfront's key was redacted in
+  `e30c756` and its alert stayed open the following 37 days).
+
+  `openSecretAlerts` answers `"unavailable"` for 403/404 instead of throwing,
+  and that reads as a gap, never as zero: the endpoint needs `security_events`,
+  so a scope failure would otherwise make this a third fleet instrument that is
+  green on a question it cannot fail. It counts alert ids rather than
+  `--jq length`, which prints once per page and would read 101 open alerts as
+  `100\n1`. Where scanning is off the clause is skipped — the endpoint 404s by
+  construction and the row already names that gap.
+
+  Both controls are in the test, PASS first, at the values the real org
+  returned on 2026-09-14: `erp-industrial` and `espada` at 0 alerts stay
+  `covered` (and the endpoint is proven to have been asked),
+  `beachfront-dentistry` at 1 is exactly one gap naming the repo.
+
+### Patch Changes
+
+- 5a3e72b: a11y + playwright-a11y: a site can opt its browser gates onto a production build with `package.json#reddoor.gateServer` (#700)
+
+  Both browser gates started the system under test with `npm run vite:dev`, so the
+  production bundle was built in CI and then never opened by a browser. That is
+  not a theoretical gap: dev does not merely fail to reproduce some defects, it
+  hides them. Module graph, code splitting, minification and asset hashing are
+  most of what "hydration works" actually means, and vida-legacy-foundation spent
+  a day on a `<noscript><style>` runway defect of exactly this class.
+
+  The switch is opt-in per site — `"gateServer": "preview"`, absent meaning `dev`
+  — because a preview costs a build per run, and because of the trap underneath
+  the naive version of this change. The axe scan targets `/dev/a11y-fixtures` and
+  `/dev/animate-in`, dev fixture routes with no guarantee of surviving a
+  production build; a straight swap would have had #680's route-status guard
+  correctly report every fixture as a missing route, turning a working gate into a
+  red one that measures nothing.
+
+  So the audit's run is split rather than moved, which is also the option recorded
+  from #727:
+
+  - `src/audits/a11y.ts` — under `preview` the synthesized config declares TWO
+    webServers. axe keeps `vite dev` on its own port (fast, and the fixtures
+    certainly exist there); the hydration smoke — the part dev actually hides —
+    gets `npm run build && npm run preview` on a second port, and the spec
+    navigates those routes by absolute origin so they cannot silently fall back to
+    dev. Both servers keep `--strictPort`, the site `cwd` and
+    `reuseExistingServer: false`. The playwright spawn budget goes to 10 minutes
+    so a build is not SIGKILLed mid-flight and reported as an audit failure.
+  - `src/configs/playwright-a11y.ts` — the shared config each site's smoke suite
+    re-exports gains the same opt-in, plus `REDDOOR_GATE_SERVER` for a one-off CI
+    run. Its readiness probe moves to `/` under preview: keeping it on
+    `/dev/a11y-fixtures` would hang for the whole webServer timeout and read as
+    the site's failure. The server budget goes to 5 minutes for the same reason.
+  - The summary says which server ran (`+1 hydration smoke on a production
+preview`). #697's lesson is that an opt-in which does not visibly take effect
+    gets reverted as broken.
+
+  An unrecognized value (`"prod"`) reads as `dev` everywhere rather than reaching
+  a shell as `npm run prod`. A site that has not opted in is byte-identical to
+  before, which is asserted rather than assumed.
+
+- 72d658a: a11y: a fixture route that 404s is reported as a missing route, and the fail summary names the rule and the route (#680)
+
+  The generated spec navigated each route and ran axe over whatever came back.
+  `/dev/animate-in` is not fleet-universal; on reddoor-website the audit was
+  scanning the 404 page for months and reading green because the bare fallback had
+  nothing to flag. When that site gave its 404 page a designed watermark (contrast
+  1.39 on a 3:1 rule) the step went to `a11y: 1 violations` with no route and no
+  rule in the log, and a config problem was bisected as a markup one.
+
+  Two changes in `src/audits/a11y.ts`:
+
+  - The spec captures the `goto` response. A missing or non-200 response becomes a
+    `route-missing` violation (impact `serious`, help `<path> returned <status>`)
+    and the loop `continue`s — axe never runs over the error page.
+  - The fail summary appends `<rule> on <route>` for every violation (identical
+    pairs folded to `×N`, capped at six with `+N more`), and a `route-missing`
+    entry carries its status. The artifact JSON always knew this; the summary is
+    the line that reaches CI and the cockpit, so it now says it too.
+
+  The hydration smoke loop over `/` is deliberately untouched: it exists to catch
+  client crashes on a page that may legitimately render data-less in CI, and
+  gating it on a 200 is a separate decision.
+
+- 9f5fc89: a11y: the summary counts the routes that ran, not the fixture defaults (#697)
+
+  `a11y.ts` built its pass summary from `a11yRoutes.length` — the two dev fixtures
+  imported from `configs/playwright-a11y.js` — while the list it actually scanned
+  was `axePages`, built 60 lines earlier by merging those fixtures with the site's
+  `package.json#reddoor.a11yRoutes`. So every site that opted in was told its
+  routes had not run, in output byte-identical to before the key existed, on the
+  one command an operator uses to confirm the opt-in worked.
+
+  Hit live on `vida-legacy-foundation`: eight real routes added, audit reported
+  `0 violations across 2 routes (+1 hydration smoke)`. All ten pages had been
+  scanned the whole time. Settling that needed racing the `finally` that deletes
+  the generated spec — the count is the only thing the operator can see, and it
+  was the one thing lying.
+
+  The failure mode this invites is the expensive one, and it is worth naming
+  because the fix is one line and the damage would not be: conclude the key is
+  broken, revert it, and lose exactly the coverage it exists to provide. Scanning
+  only fixtures is how a critical `image-alt` violation shipped to five production
+  pages on `gallerysonder` with CI green throughout.
+
+  Two things went in alongside the count, both from the issue:
+
+  - **The split is named when there is one** — `across 10 routes (2 fixtures + 8
+from package.json)`. "10 routes" alone still leaves an operator counting on
+    their fingers to check their eight arrived, and the confirmation is the whole
+    point of the line. A site with no opt-in keeps its old summary byte-for-byte,
+    which is nearly the whole fleet.
+  - **The fail path carries the count too.** It was a bare
+    `a11y: N violations`, so a failing run could not tell you how much it had
+    covered either.
+
+  The merge was always correct and always tested; what nothing asserted was the
+  sentence. Telling "2" from "2 + 0" needs a fixture whose config contributes
+  routes, which is why no existing test could have caught it — so the new ones do
+  exactly that, and were checked against the unfixed source: three fail without
+  it, and the two guarding the unchanged cases pass either way.
+
+- 0d002e5: The accuracy pass reads what the crawl retrieved, and the result carries the site's own size (#677)
+
+  Our report said "we read 14 of your 20 pages" about a site whose sitemap lists 49. Both numbers were ours — a private cap inside `accuracy.ts` and the crawl's
+  cap — and neither was a fact about the prospect. That is our ceiling reported as
+  their total, which is the one mistake this report keeps having to be stopped
+  from making.
+
+  `MAX_PAGES` in the accuracy pass was 14 against a crawl cap of 20, so the stage
+  stopped six pages short of what had already been fetched. An unread page is
+  exactly where an `absent` verdict becomes a wrong claim about somebody's
+  business, and the second cap bought nothing: `MAX_TOTAL_CHARS` is the real bound
+  on prompt size and still applies. It now matches the crawl.
+
+  `AccuracyResult.siteUrlCount` is the site's own declared size from its sitemap,
+  or null when there is no sitemap to read it from — null meaning "we never
+  learned how big the site is", never "the site has no other pages". `pagesTotal`
+  is unchanged in value and keeps its name, because it is persisted into
+  `prospect_audits.result_json` and read by the website's renderer; its docstring
+  now says plainly that it is how many pages we crawled and never how many pages
+  the site has. When `crawl.sitemap.truncated` is set the count is a floor rather
+  than a total; that flag stays on the crawl, which every consumer of this result
+  also holds, rather than being duplicated.
+
+  Separately, the duplicate-fix half: `mergeFixes` dedupes on `addresses`, and
+  every fix `measuredFixes` wrote passed `addresses: null`, so there was never a
+  handle to match on — which is how "Give 2 pages a top heading" (measured) and
+  "Give the two pages with no h1 a proper headline" (model) both reached the same
+  report as fixes 2 and 10. The measured fixes now carry stable keys
+  (`headings-h1`, `meta-canonical`), so the existing dedupe can fire when a model
+  fix is tagged with the same key.
+
+  **Not done, deliberately:** sampling pages by sitemap priority. `crawl.ts` parses
+  only `<loc>` — `<priority>`, `<lastmod>` and `<changefreq>` appear nowhere in the
+  crawler — so there is no priority to sample on without first extending the
+  sitemap parser. `selectPages` already orders by path depth after the homepage,
+  which is a reasonable stand-in for "the pages a buyer lands on". The fuzzy
+  title-match option for the duplicate fixes was also rejected rather than shipped:
+  the two real titles above share only "give" and "pages", so any threshold loose
+  enough to catch them would drop unrelated fixes.
+
+- 1d61f16: A namesake is a brand collision, not a competitor, and cited domains name the query that produced them (#601)
+
+  The first real audit's most-cited domain — 13 citations, more than anyone else —
+  was a different agency two thousand miles away wearing essentially the prospect's
+  name. Both branded answers opened by disambiguating between several same-named
+  agencies. That is arguably the most valuable thing the audit surfaced, and it
+  rendered as one anonymous row in a list headed "Who the engines cited instead".
+
+  `isNamesake` now identifies a cited domain whose own label carries the
+  prospect's business name, optionally trailed by a single category word — which
+  is exactly how the real case presented (`reddoorcreativemarketing.com`). It is
+  gated on `isDistinctiveName` for the same reason that function exists: a
+  prospect called Summit shares a label with half the internet, and "a different
+  business is using your name" has to survive the prospect reading the domain
+  printed underneath it.
+
+  `ProbesResult.namesakes` is a subset of `competitorsSeen`, deliberately not
+  subtracted from it: that field is what stored reports and the renderer already
+  read, and changing what it contains would rewrite documents that have already
+  been sent. The renderer is what separates the two — namesakes get their own
+  call-out, and the competitor list prints the remainder, each domain now naming
+  the queries it actually came back on rather than arriving as one merged list
+  disconnected from the searches that produced it.
+
+  The field is optional, so a report stored before it existed reads as "not
+  measured" rather than "no namesake".
+
+- b7615ad: Drafting writes the analytics soft-fail stamp to Turso FIRST, so the missing Airtable field can no longer blind the digest (#782)
+
+  Every real `report <slug> --type Maintenance` draft printed
+  `Unknown field name: "Analytics soft-fail at"` from the Airtable write — the
+  column is operator-added and, checked against the base on 2026-09-15, has
+  never existed there. The Turso mirror sat after that call inside the same
+  `try`, so `site_health.analytics_soft_fail_at` was never written either, and
+  the digest collector reading it was green on a question it could not fail.
+
+  The stamp is now built once (`analyticsHealthFields`) and written to Turso in
+  its own try before the Airtable shadow; each store's failure is logged naming
+  that store and neither costs the draft. The Airtable write stays, best-effort,
+  until Phase 6 (#646) deletes the shadow layer.
+
+- 2c65ac0: Choose a prospect audit's search terms and buyer questions by hand; generate only when blank (#676)
+
+  "Where you stand" is only as good as the five searches behind it, and those were
+  chosen entirely by the analyze stage from what it read on the site. For a client
+  we know, better ones can be written in two minutes — and for a comparison over
+  time the terms have to stay fixed, which a model re-reading the site each run
+  cannot promise.
+
+  The cockpit run form and the `prospect-audit` CLI now take optional `terms` and
+  `questions` (one per line). **Blank still generates, exactly as before** — this
+  is an override on a cold audit, never a new requirement, and that is the property
+  most of the new tests exist to protect.
+
+  Migrations 0025–0026 store both lists on the `prospect_audits` row rather than
+  only inside `result_json`, so a re-run can reuse them and the /audits listing can
+  show which audits used chosen terms (that listing deliberately never selects
+  `result_json`). NULL means generated, which is deliberately distinct from an
+  operator supplying an empty list.
+
+  Hand-written questions get their own version key, derived from the questions
+  themselves: re-running the same list compares, editing one word does not, and a
+  chosen set can never collide with a goal set's `${goal}-v${N}` id. That keeps
+  `sameQuestionSet`'s promise — two Answers scores are comparable exactly when the
+  same questions were asked — instead of quietly averaging two different tests. The
+  report says which it was: searches we chose with you, or from your site.
+
+  Note for deployment: the audit runs by `workflow_dispatch` against a private
+  repo, and GitHub rejects a dispatch carrying an input the workflow does not
+  declare. The new inputs are therefore sent ONLY when non-empty, so an audit that
+  chooses nothing dispatches exactly the payload it does today; the private
+  workflow must declare `terms` and `questions` before the new fields can be used
+  from the cockpit.
+
+- 2694cc0: forms: a lead whose site cannot be placed is never dropped silently again (#645)
+
+  Post-flip (#643) the form-ingest site lookup reads Turso alone, so a site with an
+  Airtable row and no Turso row answers `unknown-site` — and `unknown-site`
+  returned empty-handed: no row, no alarm, no recovery. It is the only failure in
+  the fleet that loses revenue-bearing client data silently and permanently, and
+  the one thing that currently notices a missing Turso row (`mirror_missed` in the
+  strict shadow write) is deleted by Phase 6 (#646). The migration plan's own order
+  puts this first.
+
+  Four changes, in #645's order:
+
+  - `ensure-site`'s `exists` path now probes Turso (`SiteMirror.hasRow`) and
+    re-inserts the stored Airtable record when the row is missing, BEFORE its
+    fill-blanks mirror update — which is an UPDATE that throws on a no-match under
+    the freeze, so healing second would abort the command on exactly the site it
+    repairs. The result carries `healedDbRow` and the CLI says so loudly.
+  - `ingestSubmission` dead-letters an `unknown-site` lead through the same writer
+    the lookup-outage path uses. The HTTP contract is unchanged (still 404), so a
+    site with a wrong slug still learns it; what changes is that the lead now
+    exists. `/api/forms/:slug` is token-gated before any of this, so the slugs that
+    reach the branch are fleet sites' slugs, not bots' guesses — the "junk slug"
+    premise the old behaviour rested on was never the population it saw.
+  - `db replay-deadletters` resolves through the shared `makeLazySiteLookup`, so
+    recovery and the live path agree about what the fleet is. It also stops opening
+    the Airtable base eagerly: `readAirtableConfig()` throws on a missing PAT, so a
+    replay that never consults Airtable was being refused outright with real leads
+    queued.
+  - A `deadletter` attention kind reaches the digest and the cockpit, critical at a
+    single row. A slug that resolves to no fleet site is named rather than dropped.
+
+  Consequently `unknown-site` is no longer a terminal replay outcome: `ensure-site`
+  can now heal the row, so burning it would make replay-before-heal lose every
+  queued lead — and that is the order a person reaches for first.
+
+- 302358e: recipes/convert-to-pnpm: stop stamping a year-stale pnpm pin into every converted site, and put a test under the constant (#835)
+
+  `DEFAULT_PNPM_VERSION` read `10.33.1`. This repo's own `package.json` pins
+  `pnpm@11.11.0`, and so does every one of the 24 fleet repos carrying the field.
+  So the recipe that converts a site to pnpm wrote a version roughly a year behind
+  everything else into the site it had just converted, and then committed it.
+
+  Nothing caught it for a year, and the reason is worth naming: a stale pin is a
+  _plausible_ number. The field is well-formed, `pnpm install` succeeds, the
+  lockfile it produces is valid, and the conversion's own test asserted
+  `expect(pkg.packageManager).toMatch(/^pnpm@/)` — a shape assertion, which passes
+  on any version string ever published. The defect was invisible to every signal
+  pointed at it.
+
+  The pin is now `11.11.0`, and `DEFAULT_PNPM_VERSION` is exported so a guard can
+  read it. That guard, in `tests/recipes/convert-to-pnpm.test.ts`, compares it
+  against this package's **own** `packageManager` field — parsed with
+  `parsePackageManagerField`, the same reader the #834 fleet guard uses, so the
+  test and the guard cannot disagree about what the field says. The recipe's
+  conversion test now asserts the exact pin it writes rather than its shape.
+
+  Reading the repo's real field is the load-bearing part. A test comparing the
+  constant to a literal typed next to it can only fail when someone edits one of
+  the two — the same silence in a new costume. This one fails on the next `pnpm`
+  bump to this repo, which is the moment the drift is actually born.
+
+  Two states of the source of truth are asserted before the comparison: the field
+  must parse, and it must be `present`. An absent or unreadable `package.json`
+  would otherwise leave the guard comparing the constant against nothing and
+  passing — a check that cannot fail is the thing this issue is about.
+
+  Proven in both directions before landing: the guard fails on a deliberately
+  mismatched constant (`10.33.1`, naming both values) and passes on the corrected
+  one. Also corrects the now-false citation in `src/github/package-manager-pin.ts`,
+  which pointed at this constant in the present tense as its example of rot.
+
+- dc73639: Dead letters can be abandoned by decision, and card-less items get a cockpit lane (#786)
+
+  Two follow-ups to #645/#785.
+
+  **A terminal `abandoned` outcome.** #785 made `unknown-site` non-terminal on
+  replay so that both recovery orders are safe — `ensure-site` then replay, or
+  replay then `ensure-site` — because replay-before-heal would otherwise burn every
+  queued lead, and that is the order a person reaches for first. The cost was named
+  at the time: a slug that is genuinely dead but still deployed and posting grows
+  the queue without bound, holds `db replay-deadletters` at exit 1, and leaves a
+  standing CRITICAL cockpit item with no escape short of deleting rows by hand.
+
+  `db replay-deadletters --abandon <slug-or-id> --reason "…"` is that escape.
+  Migrations 0022–0024 add `abandoned_at`/`abandoned_by`/`abandoned_reason` to
+  `submission_deadletter`; abandoned rows leave both the replay queue and the alarm
+  count, and the row and its payload are kept — unlike deleting them, which
+  destroys the leads the decision was made about. It is deliberately not
+  `replayed_at`: that means the pipeline gave the lead an answer, and a row marked
+  replayed reads as a lead that was placed. The reason is required, one slug or one
+  row id only (a mistyped invocation must never mean "abandon everything"), and the
+  first decision stands on a repeat call.
+
+  **A cockpit lane for card-less items.** The card grid is built from the visible
+  sites and attention items are grouped onto it by `siteName`, so an item naming a
+  site the fleet does not have matched no card and was dropped — silently, on the
+  surface the operator actually watches. The one collector that produces such an
+  item is the one whose whole point is the missing site: a dead letter for a slug
+  resolving to no fleet row means leads are being dropped right now. Those items
+  now reach `CockpitModel.cardless` and render in their own lane. It is general
+  rather than dead-letter-specific, so a future card-less item lands there instead
+  of vanishing the same way.
+
+- 69bb070: ensure-site honours `--name` on an existing row, and the create message points at a fix the command can do (#664)
+
+  `--name` was read on the create path only, so a row created before the
+  display name was settled — Name left as the bare slug, the value client-facing
+  copy uses verbatim — could not be retitled by the command that created it:
+  re-running with `--name` printed `exists`, wrote nothing, and exited 0. The
+  create message meanwhile said "re-create with --name", which the command
+  cannot do either.
+
+  On the exists path a differing `displayName` now updates Name, through the
+  same Airtable update + Turso site mirror the fill-blanks path already uses,
+  and lands in `updatedFields`. It is the one deliberate exception to
+  fill-blanks-only: `--name` targets Name and nothing else, and the slugify
+  guard already proves the new value resolves to the same row. The CLI reports
+  it as `Name set to "…"` rather than a filled blank, and the create note says
+  "re-run with --name".
+
+- 8554768: Maintenance reports count only the site's own hostnames.
+
+  The GA4 query asked for `activeUsers` with no `dimensionFilter`, so every
+  environment serving the same analytics tag was counted as traffic to the
+  site. On reddoorla.com for the thirty days to 2026-09-14 that was 15,971
+  `localhost` users against 87 real ones — a test suite, reported to the
+  operator as a 510% rise while real traffic had in fact halved.
+
+  The query now filters `hostName` to the site row's own host and its www/apex
+  twin. A site row with no usable http(s) URL is queried unfiltered as before,
+  since a filter matching nothing would report zero, which is a worse lie than
+  reporting noise.
+
+- 34abced: github/config: an explicitly EMPTY `GITHUB_TOKEN` means "no token", and stops falling through to the `gh` keyring (#665 follow-up)
+
+  `readGitHubConfig` resolved its token as
+  `process.env.GITHUB_TOKEN?.trim() || ghAuthToken()`. The empty string is falsy,
+  so `GITHUB_TOKEN=""` — a deliberate "use no token", written by a shell, an env
+  block, or a test's `vi.stubEnv` — reached straight past the operator to the
+  keyring and silently resolved a token anyway.
+
+  That made the token gate depend on ambient machine state: the same code was
+  "configured" on a laptop where `gh auth login` had been run and "unconfigured"
+  on a CI runner that had never logged in. `tests/cli/prismic-ci-command.test.ts`
+  stubs `GITHUB_TOKEN` empty precisely so the gate it lands on next is
+  deterministic, and it therefore passed in CI and failed on every developer
+  machine with `gh` logged in — a class of defect CI is structurally incapable of
+  seeing, because reproducing it needs a keyring the runner does not have.
+
+  `GITHUB_TOKEN` now has three states rather than two: absent asks
+  `gh auth token`, a value wins outright, and the empty string resolves to null
+  without consulting `gh` at all. Whitespace-only still falls through to the
+  keyring — `GITHUB_TOKEN="   "` is a mis-pasted `credentials.env` line, not an
+  instruction, and #665 exists so a bad file value cannot override a working
+  keyring credential.
+
+  The new guard in `tests/github/config.test.ts` injects the spawn, so it asserts
+  `gh` is never asked without needing a keyring — it fails in CI and on a laptop
+  alike if this regresses.
+
+- 48151bc: github/config: fall back to `gh auth token` when GITHUB_TOKEN is unset (#665)
+
+  `readGitHubConfig` returned null whenever `GITHUB_TOKEN` was unset, so the
+  only way to run the recipes was a token in `credentials.env` — and `gh.ts`
+  hands that token to `gh` as `GH_TOKEN`, so a set-but-dead file value actively
+  overrode the keyring `gh auth login` had populated. Every recipe 401'd
+  (`gh: Bad credentials`) on a machine where `gh` itself was authenticated the
+  whole time, and the workaround — a file COPY of the keyring token — goes
+  stale on the next `gh auth login/refresh/logout`.
+
+  When `GITHUB_TOKEN` is unset or blank the token now comes from
+  `gh auth token`, run with `GITHUB_TOKEN` and `GH_TOKEN` stripped from the
+  child env (gh echoes either back when set, which is how the original failure
+  was misdiagnosed once). A thrown or empty result is still null — the
+  "not configured" signal every consumer already understands. Nothing pings an
+  endpoint to validate the token: a fine-grained token can be refused by
+  `/user` and still work for the calls it is scoped to. The spawn is injected
+  so the suite never shells out. `GITHUB_TOKEN` may now be left out of
+  `credentials.env`, and the setup docs say so.
+
+- abc1ea8: header-image: dismiss cookie/consent UI before the shutter, so a banner and its scrim never ship over the hero (#654)
+
+  Sonder's report header showed the homepage behind the site's own consent panel,
+  with the scrim greying the teal hero to flat bands. Settle time was irrelevant —
+  the banner never leaves on its own — and clicking Accept restored the real
+  hero. `refreshHeaderImage` regenerates with no options, so the handling has to
+  live in the capture itself.
+
+  `defaultShooter` now, after load / idle / fonts and before the settle wait:
+
+  - best-effort clicks a button whose accessible name is an accept / reject /
+    decline / got-it variant, on a 1.5s timeout that is swallowed — the site's own
+    dismissal is what unwinds a scrim living outside the banner element;
+  - injects a style tag hiding `[class*="cookie" i],[id*="cookie" i],[class*="consent" i],[id*="consent" i]`,
+    for a banner with no matching button or one that fades slower than the
+    settle.
+
+  The click goes first because once the rule hides the button it is no longer
+  actionable. Both are pure additions: a site with nothing to dismiss pays the
+  click timeout and captures exactly as before.
+
+  `consentSelector` is a new optional shoot / capture / generate option, and
+  `header-image --consent-selector <css>`, for a site whose consent or
+  interstitial UI the heuristic misses; it is joined onto the heuristic, never a
+  replacement. The rule builder `consentHideRule()` is exported and tested
+  without a browser.
+
+  Not done here: the issue's second half (make `assertNotBlank` reject a capture
+  whose visible text still carries consent copy). Sonder's scrim is dark, so the
+  near-white check passes on precisely the case it names; that is a separate
+  change to the backstop.
+
+- f106876: The report's JS-dependence copy says what we measured, not what we assumed (#675)
+
+  Readability gives JS dependence 60 of its 100 points, and the report justified
+  that to the client with "Most AI crawlers do not run JavaScript" — an inference
+  from the Vercel/MERJ crawler study of December 2024, which measured index
+  crawlers on one host's network and says nothing about what our own instrument
+  reads at answer time. That was our assumption printed as a fact about a
+  stranger's site.
+
+  The experiment is now in `docs/aeo-evidence-base.md`, with the fixtures and all
+  nine raw transcripts under `docs/experiments/js-dependence/`. Three pages
+  identical but for where one nonce fact lives — server HTML, inside a script tag,
+  and behind a runtime `fetch` — probed three times each. The control returned its
+  fact 3/3, so the negatives are worth something; text written at runtime came back
+  `NOT STATED` 3/3, and the transcripts show the model never requested the data
+  file it could see referenced in the script source.
+
+  So the premise holds and the weight stays at 60. Only the copy changes: both the
+  readability paragraph and the score-card hint now cite the controlled result
+  rather than asserting a fact about crawlers in general.
+
+  Two things the experiment found that the weight does not yet reflect, recorded in
+  the evidence file rather than silently fixed: `extractPage` does not walk script
+  contents, so a page shipping its text inside `<script type="application/json">`
+  (every stock Next.js and Nuxt page) is scored as fully JS-dependent even though
+  the probe read that text 3/3 — a real over-penalty on a common stack. And the
+  audit's probe engines never fetch the prospect's page at all (`WebFetch` is in
+  `BASE_DISALLOWED`; `claudeWebSearchEngine` only runs `web_search`), so the
+  experiment the issue described could not be run as written.
+
+- 3459a27: prospect: read the copy out of `<script type="application/json">` before scoring JS dependence (#828)
+
+  `extractPage` dropped every `<script>` body, so text shipped inside a structured
+  JSON payload was measured as "only appears after JavaScript runs" — and that is
+  the normal shape of a stock Next.js (`__NEXT_DATA__`) or Nuxt (`__NUXT_DATA__`)
+  page. Such a site lost up to 60 of readability's 100 points for copy an
+  assistant demonstrably reads, and every prospect report already sent for one
+  understates it. The "fix" we handed that prospect was work they did not need to
+  do.
+
+  The correction is in extraction, not in the weight: #675 confirmed the 60-point
+  weight is right for the case it was built for. `extractPage` now projects a
+  `dataText` field — the bodies of `application/json`, `application/ld+json` and
+  `…+json` scripts, capped and kept out of the visible `text` — and `jsDependence`
+  counts a rendered word as missing only when it appears nowhere in the served
+  HTML, payload included.
+
+  Executable inline scripts are deliberately still excluded. #675's JS-FETCHED arm
+  is why: its loader's own source contains the literal words of the sentence it
+  writes at runtime, so reading code as text would credit a page for copy no
+  assistant can see.
+
+  Measured on the committed #675 fixtures, both directions, before → after:
+
+  | arm                                      | avgMissing  | readability |
+  | ---------------------------------------- | ----------- | ----------- |
+  | script-embedded (assistant reads it 3/3) | 5.3% → 0.0% | 82 → 85     |
+  | runtime-JS (NOT STATED 3/3)              | 5.4% → 5.4% | 82 → 82     |
+  | stock Next.js, whole copy in the payload | 100% → 0.0% | 13 → 73     |
+
+- 6086893: launch: the dev-guard denies on a machine tell the installed twin emits, not on its human-readable message (#719)
+
+  The `launch` dev-guard refused an unguarded `/dev/match` twin by matching the
+  prose of its 404 — `/no (matching )?assembly for/i`. The clause is load-bearing:
+  an unguarded twin asked for a uid it lacks 404s through the site's own
+  `+error.svelte`, byte-for-byte the guard's PASS condition, so on any site whose
+  fixtures lack `home` the message was the only thing separating "the guard
+  fired" from "no such uid". Reword that message in the harness template — "no
+  document for", "unknown uid" — and the guard silently stopped denying. It
+  failed OPEN: the launch proceeded with the site's fixtures public, and nothing
+  logged it.
+
+  The contract is now a machine tell, `UNGUARDED_TWIN_TELL`
+  (`reddoor-match-twin:no-assembly`), exported from the match-harness template
+  and placed ahead of the human text in the installed route's 404. `launch.ts`
+  builds its marker from that imported constant, so the route and the guard
+  cannot drift apart without a type error. The two prose wordings are still
+  accepted, on purpose and for now: beachfront-dentistry's on-disk twin predates
+  the tell and any site installed before it says "no assembly for"; drop the
+  alternates once beachfront's twin is re-installed from the harness — until then
+  they only widen the deny.
+
+  The test takes the installed template string itself: it trips the marker, and
+  still trips it with every "assembly for" wording replaced — the tell alone
+  carries the deny. Red before: the template carried no tell, and a reworded
+  template matched nothing.
+
+  The route body this changes was corrected once already in 0.95.1's successor
+  (#763) and never tagged since, so the 0.95.1 snapshot under
+  `scripts/match-harness-previous/` remains the pre-change body every installed
+  site holds; no new snapshot is needed for the upgrade path.
+
+- d8c468e: launch: both /dev/match gates enumerate instead of hardcoding — +server.ts endpoints and non-home uids are no longer unchecked (#723)
+
+  The two launch gates that keep a matching twin out of production each looked at a
+  fixed list. `matchingDisposition` inspected three hardcoded paths and returned on
+  the first guarded one; the deployed `dev-guard` probed exactly one url,
+  `/dev/match/home`. Between them that left two shapes where **both gates pass
+  while a dev twin is live** — the one thing the pair exists to prevent.
+
+  **`+server.ts` endpoints.** SvelteKit layout `load` does not run for them, so a
+  site whose only guard is `src/routes/dev/+layout.server.ts` — the #717
+  class-fix, and the _better_ placement for pages — satisfied the filesystem gate
+  while `src/routes/dev/match/[uid]/+server.ts` shipped. The deployed gate missed
+  it too: it probes the page path, which 404s correctly. The filesystem half now
+  walks `src/routes/dev/match/**` and requires every `+server.ts` to carry its
+  **own** guard, layouts notwithstanding.
+
+  **Siblings.** A `/dev/match/frozen` index — a natural thing for a match harness
+  to grow — was inspected by neither gate. Every page directory under
+  `/dev/match` must now be covered, either by its own guarded `+page.server.ts` or
+  by a `+layout.server.ts` at or above it.
+
+  **Non-home uids.** `dev-guard` now reads `matching/harness.json` — the page table
+  the `match-harness` recipe installs and every gate already reads — and probes
+  `/dev/match/<uid>` for each page, so the gate and the harness cannot disagree
+  about which pages exist. Pages whose `uid` is `null` have no twin and are
+  skipped, as `harness.mjs` documents. An absent or unparseable harness.json falls
+  back to `home`: not every launched site carries the harness, and a missing file
+  must not become a refusal — nor may it quietly probe nothing, which would let an
+  absence grant the green.
+
+  Both refusals name the offending file or uid rather than reporting a generic
+  failure, because the previous message named a fixed list that no longer
+  describes what was checked.
+
+  Red first, and the controls matter as much as the failures: a self-guarded
+  `+server.ts` and the absent-harness fallback both passed **before** the change,
+  so the new rules were shown capable of passing before any refusal they produce
+  was trusted. The three gap fixtures — a layout-guarded site with an unguarded
+  endpoint, a guarded twin beside an unguarded `frozen/` sibling, and a live twin
+  on the uid `services` — returned `ok: true` / `complete: true` before it and
+  refuse after.
+
+- ddc13f6: launch: the dev-guard source scan understands regex literals, so a quote inside one no longer blocks a correctly guarded launch (#726)
+
+  `matchingDisposition` decides whether a site's `/dev/match` twin carries a real
+  dev guard by scanning source text through two passes: `stripComments` (so a
+  commented-out guard cannot pass) and `maskLiterals` (so a refusal word appearing
+  only inside a string cannot pass). Neither knew what a regex literal was.
+
+  A quote character inside one — `/[a-z0-9']+/`, most plausibly an apostrophe in a
+  character class — opened a string literal that never closed. `stripComments`
+  then under-stripped to the end of the file, and `maskLiterals` blanked that same
+  region and took the live `if (!dev) error(404)` with it. The predicate returned
+  `ok: false` on a file that **is** correctly guarded, and `launch` stopped at step
+  0 telling the operator "the matching twin would ship" about a site that was
+  fine. The shipped comment described this as two scanner bugs cancelling, which
+  is exactly what it was — a property neither function guaranteed.
+
+  Both scanners now recognise regex literals, sharing one lookback that resolves
+  the regex-vs-division ambiguity by the last significant character. A comment
+  stripper copies the literal through verbatim; the masker blanks its body,
+  keeping the delimiters and the length, on the same reasoning that masks strings
+  — a regex is data, so `if (!dev) RE = /throw/` must not read as a refusal. That
+  second half closes a false **grant** the old code had and no test covered.
+
+  The residual is named rather than papered over: `)` is not treated as opening a
+  regex, so `if (x) /re/.test(y)` is read as division. That case falls back to the
+  previous behaviour and therefore denies, which is the safe direction — a
+  blocked launch is visible and recoverable in a minute, a twin shipped to a
+  client's production site is neither.
+
+  Not done as a machine tell (#719's approach, which the issue prefers): the tell
+  that exists, `UNGUARDED_TWIN_TELL`, is emitted by the LIVE route at request time
+  and is a DENY signal — its presence proves the twin answered. A tell in source
+  text would be a GRANT signal self-asserted by the very file under inspection,
+  which a site can keep after deleting the guard. Substituting one for the other
+  would hand this gate the shape it exists to refuse: an assertion granting a
+  green.
+
+  Red first: a correctly guarded fixture whose regex literal contains an
+  apostrophe returned `ok: false`, and `if (!dev) RE = /throw/` returned
+  `ok: true`. Two controls in the same commit — a commented-out guard below a
+  regex literal, and `/` used as division — passed before and after, so the
+  fixtures can pass and the two failures were the defects, not the test.
+
+- 29e2c2a: match-harness: the installed CLAUDE.md rules name census.sh, so Phase 3 has a Check and a round-protocol step (#736)
+
+  The recipe installs `matching/census.sh` — the Phase 3 style gate, and the
+  only gate that catches an 11px footer line or a cyan-vs-teal link, which the
+  pixel diff is structurally blind to — and the rules it installs alongside never
+  mentioned it. On a fresh site the gate had no rule, no **Check:** line, no
+  operator's challenge and no place in the round protocol: the script was there
+  and nothing would cause anyone to run it.
+
+  Rule 4 ("a gate closes an item, nothing else") now carries a **Check:** that
+  `bash matching/census.sh <page>` exits 0, and the round protocol gains a step
+  between the gate and the LEDGER: a remaining row is fixed at its source or
+  declared in `matching/census-deviations.mjs` with a LEDGER line, never ignored.
+
+  This is the first block body the recipe has ever superseded, so it is also the
+  first entry in `MATCH_HARNESS_BLOCK_PREVIOUS`: the 0.95.1 body, sourced from
+  `git show v0.95.1` per that table's own rules. Without it every installed site
+  would have been flagged as hand-edited and kept the old rules. Measured with
+  the shipped table and no injection: a 0.95.1 site (terminated region) and a
+  0.95.0 site (marker-only region) both upgrade in place with the site's own
+  prose untouched.
+
+- 7b3bd41: match-harness: the commit says what the run did — an upgrade is no longer committed as an install (#760)
+
+  Every run committed as `feat: install the matching harness (…)`, including a
+  run that installed nothing. Measured on 29-navy: three scripts upgraded and
+  three block regions terminated — 6 files, 436 lines — labelled a first install,
+  directly above a previous install commit saying exactly the same thing. The
+  notes told the two apart the whole time; the message is what survives into
+  `git log`, and 0.95.1's whole job is to make upgrade commits the common case
+  across the fleet.
+
+  The message is now derived from the per-file actions the recipe already
+  computes. Anything written for the first time is an install; only
+  replace/terminate is an upgrade; both is both:
+
+  - `feat: install the matching harness (…)` — unchanged, byte-for-byte, for a
+    pristine install.
+  - `chore: upgrade the matching harness (N files from a previously shipped version)`,
+    with the paths in the body, so `git log` answers "when did this site's
+    gate.sh change" without a diff.
+  - `feat: install and upgrade the matching harness (…)` when one run does both,
+    again naming each in the body.
+
+  The test asserts the thing that had no coverage: a pristine install and a
+  re-run over the committed 0.95.0 bodies now produce different subjects. Before
+  the change both read `feat: install the matching harness (/…`.
+
+- c92dd5e: match-harness: next.mjs no longer prescribes the uninstalled probe-anchor-parity.mjs (#732), census.sh honours matching/PAUSED (#735), next.mjs exits 2 on a report shorter than its anchors predict instead of "Backlog is empty" (#756), strikes.mjs skips operator-ACCEPTED regions and says how many (#772); plus the source-side hygiene from beachfront-dentistry#61 (DIR exported from harness.mjs, page keys validated at load, "known pages" drawn from the table). The 0.95.1 bodies are snapshotted so installed sites upgrade rather than flag.
+- 10d5021: match-harness: the installed prose no longer names `reddoor-maint prismic-seed`, a command that does not exist (#763)
+
+  Three files the recipe installs — the `/dev/match/[uid]` route, `site-pages.js`
+  and `site-pages.test.ts` — told the operator that `reddoor-maint prismic-seed`
+  publishes the page assemblies to Prismic. No such command was ever written: the
+  CLI has 27 commands and none of them takes `site-pages.js` as input. On 29-navy
+  that read as "the content is one command away from live" through a full phase
+  of work. The route file made the strongest version of the claim, that the dev
+  surface renders _exactly what the seed publishes_, which cannot be true of a
+  seed that does not exist.
+
+  The prose now names what does exist: the Prismic Migration API, with the
+  starter's `scripts/import/migrate.example.ts` as the starting point, and says
+  plainly that the seed is per-site work and no `reddoor-maint` command does it.
+
+  Two mechanisms went in with the wording:
+
+  - A test reads the command list out of `src/cli/bin.ts` and refuses any
+    `reddoor-maint <cmd>` the harness's prose names that the CLI does not
+    register — the wrapped shape the route carried (`reddoor-maint\n//
+prismic-seed`) included. Same class as #732; this closes it for commands.
+  - The generator's shipped-history table now covers AUTHORED files, not only the
+    seven copied from beachfront. The route and the fixture test are recipe-owned
+    and byte-compared on re-run like any script, so without their 0.95.1 bodies
+    under `scripts/match-harness-previous/0.95.1/` every installed site would have
+    been flagged as hand-edited and kept the wrong prose forever. Measured: with
+    the table covering copied files only, a 0.95.1 install re-ran as `noop` with
+    both files accused of a hand edit; with the entries it upgrades both in place.
+
+- a3344ed: match-harness: `--fleet` over an inventory naming nobody refuses instead of exiting 0 over nothing (#738)
+
+  `runRecipeOverSites` joins zero result rows into the empty string, so
+  `match-harness --ref <url> --fleet <inventory>` over an inventory that resolved
+  no sites printed one blank line and exited 0. Measured before the change: exit
+  code 0, output one empty line. A success exit over no rows at all is
+  indistinguishable from "every site already had the harness", and an Airtable
+  view filter, an empty JSON file or a dynamic inventory returning `[]` all
+  produce exactly it.
+
+  The command now opens with the same refusal `prismic-ci` does — name the
+  condition, name the likely causes, exit 1 — before `prepareFleetSites` clones
+  anything.
+
+- 61358c2: match-harness: a fail-closed release guard — a shipped body cannot change without a snapshot of the one it replaces (#753)
+
+  `MATCH_HARNESS_PREVIOUS` is what lets an ALREADY-INSTALLED site take a fix: the
+  recipe byte-compares the site's copy against the renders it previously shipped,
+  and `replace`s a match. A body with no recorded predecessor gets `flag` instead
+  — the site is accused of a hand edit it never made, and because the recipe never
+  overwrites a flagged file, that file is left broken permanently.
+
+  Nothing enforced the pairing. The generator's own comment called snapshotting
+  "a manual step at release time", which is another way of saying the guard was a
+  person remembering.
+
+  `scripts/check-match-harness-snapshots.mjs` now compares every shipped body
+  against the previous release tag and fails when a **recipe-owned** body changed
+  and no committed snapshot carries what that tag shipped. It runs in `pnpm
+verify`, so `ci.yml` gains the step and `fetch-depth: 0` — a shallow checkout
+  has no tags, and the guard refuses to pass over a comparison it could not make
+  rather than reporting a clean bill of health.
+
+  Proven in both directions before being trusted. Green on the tree as it stands:
+  17 bodies compared against `v0.95.1`, no offenders. Red on a deliberately
+  unsnapshotted change — mutating `matching/gate.sh` (byte-identical at `v0.95.1`
+  and HEAD, with no `0.95.1` snapshot) reports exactly `matching/gate.sh`, with
+  the mutation asserted applied first so it cannot pass for the wrong reason. A
+  **site**-owned body changing is correctly not an offence: `planFileWrite` skips
+  a site record before `previous` is ever consulted.
+
+  Two findings from building it, both recorded because they nearly became wrong
+  claims. Snapshots are matched by CONTENT across any version directory, not by
+  `<version>/<rel>` path: `census.sh`, `strikes.mjs` and `build-spec.mjs` are
+  byte-identical at v0.95.0 and v0.95.1, so a per-version rule would have
+  false-alarmed on three files. And two successive hand-rolled parsers of the
+  generated `template.ts` produced confident false "the snapshots are corrupt"
+  verdicts — one terminating a body on an escaped ``\`;`` inside
+  `build-spec.mjs`, the next dropping each body's trailing newline (every
+  "mismatch" was off by exactly one byte). Every committed snapshot in fact
+  matches its tag byte-for-byte.
+
+- 865103d: A client-side spam rejection no longer reads as a dead point-of-contact address (#783)
+
+  The resend-webhook mapped both `email.bounced` and `email.complained` onto
+  `notify_status = 'bounced'` and read only `data.email_id`, so Resend's `bounce`
+  object — the classification and the receiving server's own message — was
+  discarded. A Permanent bounce on a dead mailbox and a Transient/ContentRejected
+  refusal by the _client's_ spam filter became the same stored state, and
+  `collectNotifyBounceAlerts` told the operator to "check the point-of-contact
+  address" for both. Espada sat CRITICAL across the 2026-09-11, 09-12 and 09-14
+  digests over an address that was fine; their inbound filter was refusing lead
+  notifications whose spam_score (30 and 55) fell under our auto-filter line.
+
+  The classification is now kept (migrations 0018–0020: `bounce_type`,
+  `bounce_subtype`, `bounce_message`), the webhook parses `data.bounce` through a
+  pure `parseBounceDetail`, and the alarm words itself from it: any Permanent
+  bounce keeps the address wording, while none — including every unclassified row
+  written before 0018 — says the client's mail filter is rejecting them. Severity
+  stays critical either way, because the lead reached nobody in both cases.
+
+  Migration 0021 adds `bounce_ack_at`, the operator's exit: acknowledging a bounce
+  on the site page drops it from the alarm while KEEPING the bounce record. That
+  replaces the workaround actually used on 2026-09-14 — a hand-written UPDATE
+  against the production `submissions` table flipping `bounced` back to `sent`,
+  which cleared the alarm by destroying the evidence. The ack is per row, so it
+  clears exactly what was reviewed rather than muting a site for a fixed window,
+  and a genuinely dead address appearing the next day still alarms.
+
+- 4267ac4: One owner/repo validator: `isOwnerRepo` in util/git, everywhere (#724)
+
+  Three copies of the same two-segment regex validated a GitHub `owner/repo`
+  identity independently — `src/dashboard/site-details.ts` (`REPO_RE`, also
+  consumed by `trigger-renovate`), `src/cli/fleet/clone-if-needed.ts`
+  (`GIT_REPO_RE`) and `src/util/git.ts` (`OWNER_REPO_RE` behind `isOwnerRepo`).
+  A reader finding three could not tell which was authoritative, and only the
+  util one carried the explicit `..` reject: `.` is a legal repo character, so
+  the bare regex admitted `owner/..`, which the dashboard then wrote to Airtable,
+  `trigger-renovate` interpolated into a dispatch path, and `clone-if-needed`
+  turned into `https://github.com/owner/...git` — despite its own comment
+  promising to block traversal.
+
+  The dashboard and the fleet clone now import `isOwnerRepo`; the two local
+  regexes are gone. The only behavioural change is that a `..` segment is now
+  rejected on all three paths, each pinned by a test that was red against the
+  old regex.
+
+- 4d921a4: The nightly sweep now audits the pnpm `packageManager` pin (#690)
+
+  Three repos sat on a pnpm security bump for two months and nothing said so:
+  nothing in `src/` or `.github/workflows/` ever asked whether the fleet agreed
+  on a pnpm version. The nightly protection-coverage sweep now asks, per public
+  repo — a missing `packageManager` field where a `package.json` exists, a pin
+  that disagrees with the fleet's, and a workflow pinning a pnpm `version:` input
+  alongside a `packageManager` field, which `pnpm/action-setup` hard-errors on
+  rather than resolving either way.
+
+  The fleet pin is DERIVED (the value a strict majority of pinned repos carry),
+  not hand-typed here — a constant in this file would be one more copy to drift,
+  which is exactly what `convert-to-pnpm.ts`'s `DEFAULT_PNPM_VERSION` did. With
+  no strict majority the sweep reports `fleetPin=SPLIT` and gaps nobody on that
+  clause rather than firing on 24 repos over one unmade decision.
+
+  A repo with no `package.json` reads as out of scope, never as a gap, and the
+  workflow input is parsed from the `pnpm/action-setup` step's own block: a
+  grep for `version:` matches `node-version:` from `setup-node` and reported
+  eleven healthy workflows as broken when this was measured by hand.
+
+- 122c66c: github/package-manager-pin: retire both accepted gaps, which now mask a real regression, and re-derive the fleet fixture from live GitHub (#690)
+
+  `PACKAGE_MANAGER_ACCEPTED_GAPS` accepted "no packageManager field" for
+  `reddoorla/claude-skills` and `reddoorla/reddoor-md-pdf` until 2026-10-01. Both
+  acceptances are dead, verified against live GitHub rather than inferred:
+
+  - both repos carry `packageManager: "pnpm@11.11.0"`;
+  - `reddoor-md-pdf`'s `pnpm/action-setup` step no longer takes a `version:`
+    input at all — no repo in the fleet does;
+  - and `claude-skills` is PRIVATE, so this sweep skips it and has never judged
+    it. The acceptance naming it could not have applied even while it stood.
+
+  A dead acceptance is not inert. It is scoped to one repo AND one surface, so
+  for as long as it stands the named repo is the only repo in the fleet whose
+  "no packageManager field" gap cannot gate. Had either of these two lost the
+  field again before the expiry date, the nightly would have reported it as
+  accepted-with-expiry and gated nothing — silencing exactly the two repos that
+  had most recently proven they were the ones that lose it.
+
+  The `realFleet()` fixture is re-derived from the org repo listing, every
+  repo's `package.json`, and all 75 workflow files parsed by this module's own
+  `parsePnpmActionSetupPins`. The shape it replaces was already untrue when it
+  was written: it listed `claude-skills` as a judged repo with no field (it is
+  private and skipped), called `reddoor-prospect-runner` and
+  `reddoor-rfp-analyses` out-of-scope package-less repos (both private, skipped
+  before that branch), and named six repos that do not exist in this org. The
+  judged population is 26 non-archived public repos — 25 on `pnpm@11.11.0`,
+  `.github` out of scope, six skipped.
+
+  The gate's own failing arms are kept and strengthened. Both now inject their
+  failure rather than borrowing a live repo's shape: a failing arm that depends
+  on one repo's current state stops being exercised the day that repo is fixed,
+  which is what happened to the arm built on `reddoor-md-pdf`'s real `ci.yml`.
+  The expiry mechanism is now driven through the injected `accepted` parameter,
+  because a test reading an empty shipped constant asserts nothing while looking
+  like it asserts something.
+
+- e5c50bc: prismic-ci: refuse when Airtable's 'Git repo' and the checkout's origin name different repositories (#713)
+
+  `gitPush` pushes to the checkout's `origin`; `openPullRequest` files at `repo`,
+  which `resolveOwnerRepo` takes from Airtable's 'Git repo' whenever the cell is
+  set. When the two disagreed — a stale cell after a rename or transfer, a fork or
+  personal mirror as origin, a row copy-pasted from another client — the branch
+  landed in one repository and the PR was requested in another with a head that
+  did not exist there. GitHub answered 422, but only after a real branch, a real
+  commit and a real push had reached a client repo, and the `finally` restore
+  cleans the local checkout without deleting the pushed branch.
+
+  The recipe now compares the two with `sameOwnerRepo` right after the identity
+  resolves, and returns `failed` naming both sides before any write. A checkout
+  with no origin at all is left to the push, which fails there before anything
+  reaches GitHub. No existing test had `gitRepo` and an origin together, which
+  is why nothing pinned the divergence; the new one does, alongside a control
+  proving agreement across case and the `.git` suffix still applies.
+
+- 659ad82: every recipe that creates NEW paths proves git took them — a11y-fixtures-page, health-endpoint, smoke-suite, prismic-ci, self-updating (#741)
+
+  `commit()` stages with `git add -A`, which honours the target site's
+  `.gitignore` and exits 0 either way, and git cannot re-include a file whose
+  parent directory is excluded. #734 closed that for `match-harness` only; the
+  primitive it added (`pathsMissingFromHead` + `ignoreRulesFor`) is generic and
+  the defect class was not.
+
+  The five recipes that create new paths now check, after the commit, that every
+  path they claim to have installed is FOUND in `git ls-tree -r -z --name-only
+HEAD`, and refuse — naming the ignore rule and the file it came from — when it
+  is not. The shared `refusedByGit` / `undoRefusedWrites` helpers live in
+  `src/recipes/_head-guard.ts`.
+
+  What each was reporting before, all of it measured in the new tests rather than
+  assumed:
+
+  - `smoke-suite` reported **applied**. `package.json` is tracked and always
+    changes, so `commit()` returned a SHA even when a `tests/` rule dropped both
+    spec files — the suite CI runs `test:smoke` against existed on nobody's disk.
+  - `prismic-ci` reported **noop, "already present and identical in the
+    checkout"** — a statement about a file that was in no commit at all.
+  - `self-updating` reported **applied** on a PARTIAL drop: one config committed,
+    so the branch was pushed and a PR opened for a repo that would never become
+    self-updating, after which every later run said "self-updating PR already
+    open".
+  - `a11y-fixtures-page` and `health-endpoint` reported **noop** (single file, so
+    nothing staged), then noop'd on "already exists" forever after, because the
+    file git refused stayed on disk.
+
+  That last point is why a refusal also puts the checkout back: only the paths
+  this run wrote and git then refused are removed, with the directories it created
+  pruned while they are empty. `git checkout -f` cannot do it — those paths are
+  ignored, so git does not know they exist.
+
+  Presence, not content: a path in HEAD with the wrong bytes still passes. The
+  check answers "the commit contains what the recipe says it installed", never
+  "the recipe worked".
+
+- 0cccc26: recipes: health-endpoint and smoke-suite format with the site's own prettier, bounded (#737)
+
+  Both recipes called `formatWithPrettier` with neither `bin` nor `timeoutMs`,
+  which the helper turns into `pnpm exec prettier --write …` with no timeout and
+  no process group to kill. On `--fleet` — the normal input, since
+  `prepareFleetSites` clones and never installs — every site arrives without
+  `node_modules`, so `pnpm exec` first ran a full, unbounded `pnpm install` in a
+  live client repo and then, where that install left no prettier of its own, fell
+  through to the CALLING repo's binary and exited 0: success reported for a format
+  the target never did.
+
+  Both now take the pattern prismic-ci and match-harness (#733) already use:
+  resolve the target's own `node_modules/.bin/prettier` positively, invoke it by
+  absolute path under a 60s timeout, and when there is none, push the flag note
+  and spawn nothing. smoke-suite resolves after its own `pnpm install` step so a
+  site that just gained its devDependencies still gets formatted.
+
+  Intended consequence: on `--fleet` both recipes now return the prettier flag
+  note for every fresh clone. That note is the honest answer, not noise.
+
+- 8f08d8d: mirrorReportPatch reports its row count, and a 0-row update is `missed` — logged loose, fatal under the freeze (#647)
+
+  `mirrorReportPatch` ended in `.execute()` and threw the row count away, so a
+  report row that did not exist in Turso mirrored "successfully": the run stayed
+  green and, post-freeze, nothing converged the miss. Its sibling
+  `makeSiteMirror` already treated the identical case as `mirrored=missed` —
+  strict-fatal, because after the flip no importer exists and an absent row is a
+  bug rather than a wait. The two mirrors disagreed about the freeze's own rule,
+  and the headline guarantee of b238a19 ("a lost sent-stamp mirror reds the run")
+  did not hold for a row that was never inserted.
+
+  `mirrorReportPatch` now uses `executeTakeFirst()` and returns
+  `numUpdatedRows > 0n` (an empty patch is `true` — nothing to write is not a
+  miss). Both boundaries consume it: `mirrorWrite` accepts a `run` that resolves
+  `false`, logs `mirrored=missed`, and throws under strict; `makeReportMirror`'s
+  `patch` op logs `mirrored=missed` / throws `no such row in Turso` exactly as
+  `makeSiteMirror` does. Every caller hands the count through — the send batch's
+  stamp-sent closure, `approve-report`, `resend-webhook` (now a 500 so Resend
+  redelivers) and `report-commentary` — so a write for a ghost row reds its
+  run or request instead of passing.
+
+- 5de4d58: resolveOwnerRepo proves the GitHub write identity instead of deriving one (#712)
+
+  `parseOwnerRepo` stripped `^https?://[^/]+/` — discarding the HOST — and
+  returned the last two path segments of whatever was left. Every one of these
+  produced a correctly-shaped GitHub `owner/repo` for a repository the code was
+  not in: `https://gitlab.com/acme/site.git` → `acme/site` (written on GitHub),
+  `https://user@evil.example.com/attacker/target` → `attacker/target`,
+  `https://github.com/ok/repo/../../evil/target` → `evil/target`,
+  `https://github.com/ok/repo?x=/evil/other` → `evil/other`, and a local-path
+  origin — not exotic in a bootstrap flow that clones from a template —
+  → `GitHub/reddoor-starter`. The remote is now parsed: the host must be
+  `github.com` (or GitHub's `ssh.github.com` / `www.github.com`), the path must be
+  exactly two segments, and a `..` anywhere is refused rather than normalised,
+  because https and ssh disagree about which repository such a URL names.
+
+  `resolveOwnerRepo` also stopped inferring in two other ways. `git remote
+get-url` walks UP, so a site directory with no clone in it yet — what the
+  positional `/new-site` route points at — resolved to whatever repository
+  enclosed it; run from under the maintenance checkout, the token secret and
+  ruleset landed on `reddoorla/reddoor-maintenance`. It now refuses unless
+  `site.path` is the work tree root, naming both the directory asked about and
+  the checkout git walked up to. And the catch no longer collapses every git
+  failure to `null`: only "not a work tree" and "no origin configured" are the
+  benign nothing-wired state, while ENOENT, EACCES and dubious-ownership now
+  throw instead of printing "add an origin remote".
+
+  Callers that already catch and report keep working; a blank or space-padded
+  Airtable `Git repo` cell is now trimmed rather than failing closed.
+
+- 2f50d6c: security: a Dependabot alert on a manifest GitHub no longer tracks is a warn, not a permanent fail (#702)
+
+  GitHub's dependency graph retains a manifest after the file is deleted from
+  the default branch and keeps filing advisories against that frozen snapshot.
+  `erp-industrial` and `data-dynamiq` each sat red for five days on a high
+  against a `package-lock.json` deleted months earlier, while their real
+  `pnpm-lock.yaml` pinned a clean version. No dependency update can close such an
+  alert, and the cockpit read the red as "Renovate exhausted" — the wrong
+  diagnosis.
+
+  The audit was structurally blind: `mapDependabotAlert` dropped
+  `dependency.manifest_path` and folded `relationship: "inconclusive"` (GitHub's
+  own stamp on these) to null.
+
+  - `DependabotAlert` now carries `manifestPath` and keeps `"inconclusive"`.
+  - `GitHubRest.manifestExists(repo, path)` resolves a path against the default
+    branch via the contents endpoint: 200 → true, 404 → false, anything else
+    throws.
+  - `dependabotAudit` resolves each distinct manifest once per audit. Alerts whose
+    manifest is gone go to `details.ghostAdvisories`, are excluded from the
+    severity tallies, and produce one line: `N alert(s) on a manifest GitHub no
+longer tracks (package-lock.json) — dismiss as inaccurate`. Ghosts alone are
+    `warn`; live counts keep their own status and the line is appended.
+  - Fail-loud on every uncertainty: no `manifest_path`, a lookup that throws, or
+    injected deps with no lookup all count the alert exactly as before.
+
+  A site with no ghosts keeps its summary byte-for-byte.
+
+- f226868: smoke-dist derives its recipe-export expectations from the barrel; `healthEndpoint`, `smokeSuite` and `matchHarness` reach the entry point (#731)
+
+  `src/recipes/index.ts` exported twelve recipe functions; `src/index.ts`
+  re-exported nine of them by name, and `scripts/smoke-dist.mjs` checked a
+  third hand-written copy of the same list. A recipe missing from both of the
+  downstream lists — `healthEndpoint`, `smokeSuite`, `matchHarness` — was
+  invisible to every gate: build, typecheck, lint, the full suite, `test:dist`,
+  `--help` and `list-recipes` all stayed green with the exports gone, because
+  the check was a truthful pass about the names it had been told to look at.
+
+  The recipe block of `requiredExports` is now derived at gate time from the
+  source barrel's runtime exports, loaded under `node --import tsx` (tsup emits
+  no `dist/recipes/index.js`, so there is no dist copy to ask), with a self-check
+  that the derivation saw `syncConfigs` so an empty list cannot pass vacuously.
+  The three recipe commands join `expectedSubcommands`, giving the gate a hold on
+  their registration. Proven against the unfixed source first: `test:dist`
+  failed naming exactly the three exports; adding them to `src/index.ts` — the
+  additive option — turns it green. Whether they should be library API at all,
+  or CLI-only with the barrel exports dropped, remains open on the issue.
+
+- 94f25af: form-e2e: the Turnstile script matcher follows Cloudflare's redirect, so a healthy widget can finally earn a `pass`
+
+  `TURNSTILE_API_JS` matched `/turnstile/v0/api.js` exactly. Cloudflare answers
+  that URL with a 302 to a build-hashed sibling, so the only response the matcher
+  ever saw was the redirect — measured on reddoorla.com's live `/contact`,
+  2026-09-16:
+
+      302  https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit
+      200  https://challenges.cloudflare.com/turnstile/v0/g/330e41bb475c/api.js
+
+  `turnstileScriptLoaded` is set from a 2xx, so it could never become true.
+  `turnstileVerdict` then took its `container but no script → null` arm on every
+  site, every run, since #695 landed on 2026-09-04: all 45 `site_health` rows
+  null, zero passes and zero fails fleet-wide. Reddoor is the only site with
+  `Require Turnstile` on, so it was the only one that could surface the
+  consequence — a permanent cockpit watch reading "Require Turnstile on; widget
+  not verified by a browser", which no amount of healthy widget could clear. A
+  check that can never say "this is right" is a complaint, not a measurement.
+
+  The verdict RULE was correct throughout and is unchanged; `window.turnstile`
+  was an `object` on the live page the whole time. The defect was entirely in the
+  observation that feeds it — which had **no test at all**, while the rule it
+  feeds was pinned exhaustively in `turnstile-verdict.test.ts`. That asymmetry is
+  how this shipped green.
+
+  - `TURNSTILE_API_JS` now allows optional path segments between `/turnstile/v0/`
+    and `api.js`. Same host, same prefix, same leaf: `/turnstile/v0/siteverify`
+    (server-side token verification) still does not match, nor does another API
+    version.
+  - `tests/audits/turnstile-script-url.test.ts` covers the matcher, including the
+    build-hashed URL verbatim — the case that decides whether a pass is reachable.
+
+  Proven on known-good input before being trusted: driving the live reddoorla.com
+  form with the REAL constants and the REAL `turnstileVerdict` imported from
+  source, the unfixed matcher observes `scriptLoaded: false` and returns null;
+  the fixed one matches the 2xx and returns `pass`.
+
+  What `pass` still does NOT mean is unchanged and worth restating: that a human
+  can solve the challenge. Cloudflare answers every driven browser with 600010
+  regardless of configuration, so `pass` remains "the widget is deployed and is
+  not mis-hostnamed". Confirming a real token stays the manual browser check in
+  docs/runbooks/turnstile-widgets.md.
+
 ## 0.95.1
 
 ### Patch Changes
