@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runChecks, SECURITY_HEADERS } from "../../src/prospect/checks.js";
+import { computeScores, runChecks, SECURITY_HEADERS } from "../../src/prospect/checks.js";
 import { extractPage } from "../../src/prospect/extract.js";
 import type { CrawlResult, PageCapture } from "../../src/prospect/types.js";
 import { readFileSync } from "node:fs";
@@ -125,6 +125,85 @@ describe("runChecks — JS dependence", () => {
     );
     expect(c.jsDependence.avgMissing).not.toBeNull();
     expect(c.jsDependence.avgMissing!).toBeLessThan(0.1);
+  });
+});
+
+/**
+ * Both directions of #828, on the SAME fixtures the #675 experiment probed —
+ * committed at `docs/experiments/js-dependence/`, written up in
+ * `docs/aeo-evidence-base.md`, with the raw transcripts beside them.
+ *
+ * An assistant with no JS engine read the script-embedded value on 3 of 3 runs
+ * and reported the runtime-written one as NOT STATED on 3 of 3, with the
+ * control returning its own sentinel 3 of 3. So one arm must stop being
+ * penalised and the other must keep being penalised; a change that only
+ * delivered the first would turn a real, measured signal off.
+ */
+describe("runChecks — JS dependence against the measured #675 arms", () => {
+  const experiment = (name: string): string =>
+    readFileSync(resolve(here, "../../docs/experiments/js-dependence", name), "utf-8");
+
+  // What the browser leaves in the DOM once the arm's own script has run: the
+  // placeholder replaced by the sentence carrying that arm's nonce.
+  const LOADING = "Loading the Kelverhoy index…";
+  const rendered = (name: string, nonce: number): string =>
+    experiment(name).replace(
+      LOADING,
+      `The Kelverhoy index for Station Marrowick is ${nonce} millibars.`,
+    );
+
+  const armChecks = (name: string, nonce: number) =>
+    runChecks(
+      crawl({
+        pages: [page("https://arm.example/", experiment(name), rendered(name, nonce))],
+      }),
+    );
+
+  it("stops penalising the script-embedded arm, whose value the assistant reads 3/3", () => {
+    const c = armChecks("script-embedded.html", 5209);
+    // Every rendered word is somewhere in the served bytes — "5209" and
+    // "millibars" only inside <script type="application/json">, which is
+    // exactly the shape a stock Next.js or Nuxt page ships.
+    expect(c.jsDependence.avgMissing).toBe(0);
+  });
+
+  it("still penalises the runtime-JS arm, which came back NOT STATED 3/3", () => {
+    const c = armChecks("js-fetched.html", 8827);
+    // The nonce is in no byte the server sent — it arrives only when a JS
+    // engine runs and makes a second request. This is the case the 60-point
+    // weight was built for and it must survive the fix intact.
+    expect(c.jsDependence.avgMissing).not.toBeNull();
+    expect(c.jsDependence.avgMissing!).toBeGreaterThan(0);
+    const raw = extractPage(experiment("js-fetched.html"));
+    expect(`${raw.text} ${raw.dataText ?? ""}`).not.toContain("8827");
+  });
+
+  it("costs a stock Next.js page ~60 readability points less than a client-rendered one", () => {
+    // The two differ ONLY in where the copy lives. Before this fix both scored
+    // as fully invisible, so a site that ships every word in its payload was
+    // told to rebuild something that already works.
+    const copy =
+      "Bramwell Fencing installs cedar privacy fencing and steel gates across the Treasure Valley. " +
+      "Our crews replace storm damaged panels, set new posts in concrete, and stain finished runs.";
+    const shell = (tail: string): string =>
+      `<html><head><title>Bramwell Fencing</title></head><body><div id="__next"></div>${tail}</body></html>`;
+    const renderedPage = `<html><head><title>Bramwell Fencing</title></head><body><div id="__next"><p>${copy}</p></div></body></html>`;
+
+    const embedded = shell(
+      `<script id="__NEXT_DATA__" type="application/json">{"props":{"copy":${JSON.stringify(copy)}}}</script>`,
+    );
+    const fetched = shell(`<script src="/_next/static/chunks/main.js"></script>`);
+
+    const scoreOf = (raw: string): number | null =>
+      computeScores({
+        checks: runChecks(crawl({ pages: [page("https://arm.example/", raw, renderedPage)] })),
+        lighthouse: null,
+        analyze: null,
+        probes: null,
+      }).readability;
+
+    expect(scoreOf(fetched)).toBeLessThan(20);
+    expect(scoreOf(embedded)!).toBeGreaterThan(scoreOf(fetched)! + 55);
   });
 });
 
