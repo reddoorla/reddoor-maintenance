@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { realpath } from "node:fs/promises";
 import type { Site } from "../types.js";
 
 const exec = promisify(execFile);
@@ -163,18 +164,69 @@ export function sameOwnerRepo(a: string, b: string): boolean {
   return na.toLowerCase() === nb.toLowerCase();
 }
 
-/** Derive `owner/repo` from a git remote URL (https or scp-style). Null if unparseable. */
+/**
+ * The git remote hosts this project will derive a GitHub WRITE identity from.
+ * The host is part of the identity: `https://gitlab.com/acme/site.git` names a
+ * repository that exists on GitLab, and answering `acme/site` to a caller about
+ * to write a repo secret on GitHub is a wrong-repo write, not a parse (#712).
+ *
+ * `ssh.github.com` is GitHub's documented port-443 SSH endpoint for networks
+ * that block 22 — an origin real checkouts really carry; `www.github.com`
+ * redirects to the apex and git follows it. Every other host resolves to
+ * `null`, deliberately, so the caller refuses instead of guessing.
+ */
+const GITHUB_REMOTE_HOSTS = new Set(["github.com", "www.github.com", "ssh.github.com"]);
+
+/**
+ * Derive `owner/repo` from a GITHUB git remote URL (https, ssh, git:// or
+ * scp-style). `null` when the remote is not a GitHub repository URL: another
+ * host, a traversal segment, a nested or too-short path, a local filesystem
+ * path, anything unparseable.
+ *
+ * PARSED, not pattern-matched (#712). The previous implementation stripped
+ * `^https?://[^/]+/` — throwing the HOST away — and returned the last two path
+ * segments of whatever remained, so each of these yielded a confident,
+ * correctly-shaped GitHub write target for a repository the code was not in:
+ * `https://gitlab.com/acme/site.git` -> `acme/site`;
+ * `https://user@evil.example.com/attacker/target` -> `attacker/target`;
+ * `https://github.com/ok/repo/../../evil/target` -> `evil/target`;
+ * `https://github.com/ok/repo?x=/evil/other` -> `evil/other`;
+ * `/Users/me/Documents/GitHub/reddoor-starter` -> `GitHub/reddoor-starter`.
+ *
+ * A `..` anywhere in the raw remote is REFUSED rather than resolved: `new URL`
+ * (like curl, and so git-over-https) collapses `ok/repo/../../evil/target` to
+ * `/evil/target`, while ssh hands the literal path to the server. The two
+ * transports disagree about which repository the remote names, so neither
+ * answer is proven — and `..` is already inadmissible in an identity this
+ * project accepts (see {@link isOwnerRepo}).
+ */
 export function parseOwnerRepo(remoteUrl: string): string | null {
-  const trimmed = remoteUrl
-    .trim()
+  const raw = remoteUrl.trim();
+  if (raw.length === 0) return null;
+  if (raw.includes("..")) return null;
+  // scp-style `[user@]host:path` (git@github.com:owner/repo.git). The negative
+  // lookahead keeps `https://…`, `ssh://…` and friends out of this branch —
+  // their colon is followed by a slash.
+  const scp = raw.match(/^(?:[A-Za-z0-9._-]+@)?([A-Za-z0-9._-]+):(?!\/)(.+)$/);
+  let url: URL;
+  try {
+    url = new URL(scp ? `ssh://${scp[1]!}/${scp[2]!}` : raw);
+  } catch {
+    return null; // not a URL at all — a local path, a typo, free text
+  }
+  if (!GITHUB_REMOTE_HOSTS.has(url.hostname.toLowerCase())) return null;
+  // EXACTLY two segments. `/org/team/repo` is not a GitHub repository path, and
+  // its last two name a repository that does not exist. `url.pathname` is the
+  // path git resolves — a query string or fragment is not part of it.
+  const segments = url.pathname
     .replace(/\.git$/, "")
-    .replace(/\/$/, "");
-  // scp-style: git@github.com:owner/repo
-  const scp = trimmed.match(/^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:(.+)$/);
-  const path = scp ? scp[1]! : trimmed.replace(/^https?:\/\/[^/]+\//, "");
-  const segments = path.split("/").filter(Boolean);
-  if (segments.length < 2) return null;
-  return `${segments[segments.length - 2]}/${segments[segments.length - 1]}`;
+    .split("/")
+    .filter(Boolean);
+  if (segments.length !== 2) return null;
+  const ownerRepo = `${segments[0]!}/${segments[1]!}`;
+  // Percent-encoding and anything else outside the identity's character class
+  // ends here rather than reaching a `gh` path.
+  return isOwnerRepo(ownerRepo) ? ownerRepo : null;
 }
 
 /** `origin` remote URL for a checkout, trimmed. Throws (via git) if there's no origin. */
@@ -183,16 +235,65 @@ export async function getRemoteUrl(cwd: string): Promise<string> {
   return stdout.trim();
 }
 
+/** What `execFile` rejects with: `code` is git's exit status, or a string errno
+ *  (`ENOENT`, `EACCES`) when the process could not be run at all. */
+type GitFailure = { code?: number | string; stderr?: string };
+
+/** No `origin` remote is configured — exit 2, `error: No such remote 'origin'`
+ *  (measured, git 2.54). The one benign "nothing wired" failure. */
+function isNoSuchRemote(err: unknown): boolean {
+  const e = err as GitFailure;
+  return e.code === 2 && /No such remote/i.test(e.stderr ?? "");
+}
+
+/** `cwd` is not inside a git work tree — exit 128, `fatal: not a git repository`
+ *  (measured). Distinct from a dubious-ownership refusal, which also exits 128
+ *  but says something else and is NOT benign. */
+function isNotAWorkTree(err: unknown): boolean {
+  const e = err as GitFailure;
+  return e.code === 128 && /not a git repository/i.test(e.stderr ?? "");
+}
+
+/** Realpath'd `git rev-parse --show-toplevel` for `cwd`; `null` when `cwd` is
+ *  not inside a work tree. Every OTHER git failure throws — see
+ *  {@link resolveOwnerRepo} for why that distinction is load-bearing. */
+async function repoToplevel(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await git(cwd, ["rev-parse", "--show-toplevel"]);
+    return await realpath(stdout.trim());
+  } catch (err) {
+    if (isNotAWorkTree(err)) return null;
+    throw err;
+  }
+}
+
 /**
- * Resolve the `owner/repo` a recipe will act on. An explicit `site.gitRepo`
- * (Airtable, or a JSON inventory) wins; otherwise derive it from the checkout's
- * `origin`.
+ * Resolve the `owner/repo` a recipe will act on, and PROVE it rather than infer
+ * it. An explicit `site.gitRepo` (Airtable, or a JSON inventory) wins;
+ * otherwise it is derived from the checkout's `origin`.
  *
- * Returns `null` when there is nothing to act on (no `gitRepo`, no origin) — a
- * benign "nothing wired" state. THROWS when a value IS present but does not
- * match the strict `owner/repo` shape: callers write repo secrets, branch
- * protection and pull requests at this identity, so a typo'd or
- * attacker-controlled value must be rejected here, before the first `gh` call.
+ * Returns `null` for the two states that genuinely mean "nothing is wired
+ * here": `site.path` is not inside a git work tree, and the work tree has no
+ * `origin`. Everything else THROWS, naming both sides, because callers write
+ * repo secrets, branch-protection rulesets and pull requests at this identity
+ * — a wrong one is not cosmetic (#712):
+ *
+ *  - a value that is present but is not a clean `owner/repo`;
+ *  - an `origin` that is not a GitHub repository URL. A GitLab or impostor host
+ *    answered with a GitHub write target is the core of this class;
+ *  - a `site.path` that is not the ROOT of its work tree. `git remote get-url`
+ *    walks UP, so a site directory with no clone in it yet — exactly what the
+ *    positional `/new-site` route points at — resolved to whatever repository
+ *    happened to enclose it. Run a recipe against such a directory from under
+ *    the maintenance checkout and the token secret plus a ruleset landed on
+ *    `reddoorla/reddoor-maintenance`. No attacker required; a wrong `cd` was
+ *    enough. The cost is that "run me from a subdirectory" now refuses instead
+ *    of guessing — the refusal names the root, so the fix is one `cd`, or an
+ *    explicit identity;
+ *  - any git failure that is not one of the two benign shapes above. "There is
+ *    no remote" and "git could not run" used to be the same answer to the
+ *    caller, so `selfUpdating` printed "add an origin remote" for a missing
+ *    binary, an unreadable path and a dubious-ownership refusal alike.
  *
  * Extracted from `self-updating`'s private `resolveRepo` because `prismic-ci`
  * read `site.gitRepo` directly and therefore refused every POSITIONAL run with
@@ -202,24 +303,51 @@ export async function getRemoteUrl(cwd: string): Promise<string> {
  * statuses), so the positional path is the ONLY one `/new-site` can use.
  */
 export async function resolveOwnerRepo(site: Site): Promise<string | null> {
-  if (site.gitRepo) {
-    if (!isOwnerRepo(site.gitRepo)) {
+  // Trimmed: a hand-typed Airtable cell with a trailing space is a typo, not a
+  // malformed identity, and a blank cell means "unset" — fall through to origin
+  // rather than fail closed with an alarming refusal.
+  const declared = site.gitRepo?.trim();
+  if (declared) {
+    if (!isOwnerRepo(declared)) {
       throw new Error(
         `refusing to act on malformed repo identity: expected "owner/repo", got ${JSON.stringify(site.gitRepo)}`,
       );
     }
-    return site.gitRepo;
+    return declared;
   }
-  let fromOrigin: string | null;
-  try {
-    fromOrigin = parseOwnerRepo(await getRemoteUrl(site.path));
-  } catch {
-    return null;
-  }
-  if (fromOrigin === null) return null;
-  if (!isOwnerRepo(fromOrigin)) {
+
+  const toplevel = await repoToplevel(site.path);
+  if (toplevel === null) return null; // not a work tree — nothing here to derive from
+  if ((await realpath(site.path)) !== toplevel) {
+    let enclosing = "";
+    try {
+      const id = parseOwnerRepo(await getRemoteUrl(site.path));
+      if (id !== null) enclosing = ` — ${id}`;
+    } catch {
+      // Naming the enclosing repository is a courtesy. Failing to name it is
+      // not a reason to stop refusing.
+    }
     throw new Error(
-      `refusing to act on malformed repo identity from origin: ${JSON.stringify(fromOrigin)}`,
+      `refusing to derive a write identity from ${JSON.stringify(site.path)}: it is not the root ` +
+        `of a git repository. git walks up to the checkout at ${toplevel}${enclosing}, which is ` +
+        `not the directory that was asked about — cd to the repository root, or set the repo ` +
+        `identity explicitly.`,
+    );
+  }
+
+  let originUrl: string;
+  try {
+    originUrl = await getRemoteUrl(site.path);
+  } catch (err) {
+    if (isNoSuchRemote(err)) return null; // the one benign "nothing wired" failure
+    throw err;
+  }
+  const fromOrigin = parseOwnerRepo(originUrl);
+  if (fromOrigin === null) {
+    throw new Error(
+      `could not determine a GitHub owner/repo from origin ${JSON.stringify(originUrl)} — ` +
+        `expected https://github.com/<owner>/<repo>, git@github.com:<owner>/<repo> or ` +
+        `ssh://git@github.com/<owner>/<repo>; refusing to guess a write identity`,
     );
   }
   return fromOrigin;

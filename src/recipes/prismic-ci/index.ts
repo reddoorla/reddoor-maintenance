@@ -20,6 +20,7 @@ import {
 } from "../../util/git.js";
 import { siteLabel } from "../../util/site.js";
 import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.js";
 import {
   APPLY_BRANCH,
   PRISMIC_CI_WORKFLOW,
@@ -302,6 +303,11 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
   try {
     await createBranch(site.path, branch);
     const dest = join(site.path, WORKFLOW_PATH);
+    // What the path held before this run, so a write git then refuses can be put
+    // back exactly as it was (null = the file did not exist).
+    const before = new Map<string, string | null>([
+      [WORKFLOW_PATH, await readFile(dest, "utf-8").catch(() => null)],
+    ]);
     await mkdir(dirname(dest), { recursive: true });
     await writeFile(dest, workflow, "utf-8");
 
@@ -333,6 +339,18 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
     }
 
     const sha = await gitCommit(site.path, "ci: deliver Prismic model changes from merged PRs");
+
+    // Did git TAKE the workflow? Here the drop does not even read as a failure:
+    // with the path ignored, `commit()` stages nothing, returns null, and the
+    // branch below reports "already present and identical in the checkout" — a
+    // statement about a file that is in no commit at all. Checked BEFORE the
+    // push, so nothing reaches the client repo on a refusal (#741).
+    const refusal = await refusedByGit(site.path, [WORKFLOW_PATH], "the Prismic delivery workflow");
+    if (refusal) {
+      await undoRefusedWrites(site.path, before, refusal.missing);
+      return resultOf(site, "failed", refusal.notes + RESTORED_NOTE, sha ? [sha] : []);
+    }
+
     if (!sha) {
       // Git saw no change: the checkout already holds this exact workflow even
       // though the default branch does not. Nothing to push and nothing to
