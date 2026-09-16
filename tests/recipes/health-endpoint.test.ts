@@ -199,3 +199,52 @@ describe("recipes/health-endpoint", () => {
     await access(join(cwd, HEALTH_ENDPOINT_RELATIVE));
   });
 });
+
+// --- git must actually TAKE the write (#741). `git add -A` honours the site's
+//     .gitignore and exits 0 either way, so "the recipe did not error" is not
+//     evidence that /health exists for a fresh clone or for CI.
+
+describe("recipes/health-endpoint: the commit must carry the endpoint", () => {
+  async function siteIgnoring(body: string): Promise<string> {
+    const cwd = await copyFixtureToTmp(pristine);
+    await writeFile(join(cwd, ".gitignore"), body, "utf-8");
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "seed .gitignore"], { cwd, stdio: "ignore" });
+    return cwd;
+  }
+
+  const headTree = (cwd: string): string[] =>
+    execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "HEAD"], { cwd, encoding: "utf-8" })
+      .split("\0")
+      .filter(Boolean);
+
+  const gitOut = (cwd: string, args: string[]): string =>
+    execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+
+  it("GRANTS a normal install — /health is in HEAD's tree and the result still applies", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    const { spawn } = recordingSpawn();
+    const result = await healthEndpoint({ path: cwd }, { spawn });
+    expect(result.status).toBe("applied");
+    expect(headTree(cwd)).toContain(HEALTH_ENDPOINT_RELATIVE);
+  });
+
+  it("REFUSES when the site ignores the route's directory, and names the rule", async () => {
+    const cwd = await siteIgnoring("node_modules\nsrc/routes/health/\n");
+    const { spawn } = recordingSpawn();
+    const result = await healthEndpoint({ path: cwd }, { spawn });
+
+    expect(result.status).toBe("failed");
+    expect(result.notes).toContain(HEALTH_ENDPOINT_RELATIVE);
+    expect(result.notes).toContain(".gitignore:2:src/routes/health/");
+    // True refusal: the endpoint the function-health audit fetches is in no
+    // commit, so the Report Health Gate would have blocked on "unknown" while
+    // the rollout reported the site done.
+    expect(headTree(cwd)).not.toContain(HEALTH_ENDPOINT_RELATIVE);
+    // ...and the file this run wrote is gone, so the next run cannot noop on
+    // "already exists" over a file a fresh clone would never get.
+    await expect(access(join(cwd, HEALTH_ENDPOINT_RELATIVE))).rejects.toThrow();
+    expect(gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe("main");
+    expect(gitOut(cwd, ["status", "--porcelain"])).toBe("");
+  });
+});
