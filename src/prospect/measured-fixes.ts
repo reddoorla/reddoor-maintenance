@@ -118,7 +118,12 @@ export function measuredFixes(input: MeasuredInput): Fix[] {
         impact: "medium",
         effort: "low",
         tier: "technical",
-        addresses: null,
+        // A stable key, because `mergeFixes` dedupes on `addresses` and every
+        // fix here used to pass null — so there was no handle to match on, and
+        // our own report printed "Give 2 pages a top heading" (measured) and
+        // "Give the two pages with no h1 a proper headline" (model) as fixes 2
+        // and 10. The same defect, twice, in one document.
+        addresses: "headings-h1",
         origin: "measured",
       });
     }
@@ -129,7 +134,7 @@ export function measuredFixes(input: MeasuredInput): Fix[] {
         impact: "medium",
         effort: "low",
         tier: "technical",
-        addresses: null,
+        addresses: "meta-canonical",
         origin: "measured",
       });
     }
