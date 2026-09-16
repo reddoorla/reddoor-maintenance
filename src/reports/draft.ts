@@ -14,7 +14,7 @@ import { autoTickChecklist } from "./auto-tick.js";
 import { uploadAttachment } from "./airtable/attachments.js";
 import type { AirtableBase } from "./airtable/client.js";
 import { readGaConfig } from "./ga/config.js";
-import { fetchPeriodUsers } from "./ga/client.js";
+import { fetchPeriodUsers, measuredHostnames } from "./ga/client.js";
 import { fetchSearchPresence } from "./search/client.js";
 import type { SearchPresence } from "./search/client.js";
 import { generateHeaderImage } from "./header-image/index.js";
@@ -437,7 +437,12 @@ export async function fetchGaUsers(
   if (!cfg || !siteRow.ga4PropertyId) return NO_ENRICHMENT;
   try {
     const value = await fetchPeriodUsers(
-      { propertyId: siteRow.ga4PropertyId, subjects: cfg.subjects, keyPath: cfg.keyPath },
+      {
+        propertyId: siteRow.ga4PropertyId,
+        subjects: cfg.subjects,
+        keyPath: cfg.keyPath,
+        hostnames: measuredHostnames(siteRow.url),
+      },
       periodStart,
       periodEnd,
     );

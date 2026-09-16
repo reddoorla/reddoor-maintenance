@@ -16,7 +16,7 @@ vi.mock("google-auth-library", () => ({
   }),
 }));
 
-import { fetchPeriodUsers } from "../../../src/reports/ga/client.js";
+import { fetchPeriodUsers, measuredHostnames } from "../../../src/reports/ga/client.js";
 import { JWT } from "google-auth-library";
 
 // Real temp key file (JWT is mocked, so contents need only be valid JSON).
@@ -43,7 +43,7 @@ describe("fetchPeriodUsers", () => {
     runReport.mockResolvedValueOnce(resp(666)).mockResolvedValueOnce(resp(540));
 
     const out = await fetchPeriodUsers(
-      { propertyId: "471880366", subjects: ["tucker@reddoorla.com"], keyPath },
+      { propertyId: "471880366", subjects: ["tucker@reddoorla.com"], keyPath, hostnames: [] },
       start,
       end,
     );
@@ -68,7 +68,7 @@ describe("fetchPeriodUsers", () => {
   it("builds a JWT with the impersonation subject + analytics.readonly scope", async () => {
     runReport.mockResolvedValue(resp(1));
     await fetchPeriodUsers(
-      { propertyId: "1", subjects: ["imp@reddoorla.com"], keyPath },
+      { propertyId: "1", subjects: ["imp@reddoorla.com"], keyPath, hostnames: [] },
       start,
       end,
     );
@@ -86,7 +86,7 @@ describe("fetchPeriodUsers", () => {
   it("defaults to 0 when a window has no rows", async () => {
     runReport.mockResolvedValue([{ rows: [] }]);
     const out = await fetchPeriodUsers(
-      { propertyId: "1", subjects: ["s@x.com"], keyPath },
+      { propertyId: "1", subjects: ["s@x.com"], keyPath, hostnames: [] },
       start,
       end,
     );
@@ -101,7 +101,12 @@ describe("fetchPeriodUsers", () => {
       .mockResolvedValueOnce(resp(8));
 
     const out = await fetchPeriodUsers(
-      { propertyId: "1", subjects: ["dead@reddoorla.com", "reports@reddoorla.com"], keyPath },
+      {
+        propertyId: "1",
+        subjects: ["dead@reddoorla.com", "reports@reddoorla.com"],
+        keyPath,
+        hostnames: [],
+      },
       start,
       end,
     );
@@ -121,15 +126,91 @@ describe("fetchPeriodUsers", () => {
       .mockRejectedValueOnce(Object.assign(new Error("first"), { code: 7 }))
       .mockRejectedValueOnce(Object.assign(new Error("last"), { code: 7 }));
     await expect(
-      fetchPeriodUsers({ propertyId: "1", subjects: ["a@x.com", "b@x.com"], keyPath }, start, end),
+      fetchPeriodUsers(
+        { propertyId: "1", subjects: ["a@x.com", "b@x.com"], keyPath, hostnames: [] },
+        start,
+        end,
+      ),
     ).rejects.toThrow("last");
   });
 
   it("does NOT fail over on a non-auth error", async () => {
     runReport.mockRejectedValue(new Error("socket hang up"));
     await expect(
-      fetchPeriodUsers({ propertyId: "1", subjects: ["a@x.com", "b@x.com"], keyPath }, start, end),
+      fetchPeriodUsers(
+        { propertyId: "1", subjects: ["a@x.com", "b@x.com"], keyPath, hostnames: [] },
+        start,
+        end,
+      ),
     ).rejects.toThrow("socket hang up");
     expect(vi.mocked(JWT)).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("measuredHostnames", () => {
+  it("returns the apex and its www twin, whichever the site row carries", () => {
+    expect(measuredHostnames("https://reddoorla.com/")).toEqual([
+      "reddoorla.com",
+      "www.reddoorla.com",
+    ]);
+    expect(measuredHostnames("https://www.beachfrontdentistry.com/")).toEqual([
+      "beachfrontdentistry.com",
+      "www.beachfrontdentistry.com",
+    ]);
+  });
+
+  it("treats a subdomain as its own host, so staging is never the production apex", () => {
+    expect(measuredHostnames("https://staging.reddoorla.com/")).toEqual([
+      "staging.reddoorla.com",
+      "www.staging.reddoorla.com",
+    ]);
+  });
+
+  it("returns nothing for a value that is not an http(s) URL, leaving the query unfiltered", () => {
+    // Unfiltered is the deliberate fallback: a filter matching nothing would
+    // report zero users, which is a worse lie than reporting noise.
+    for (const bad of ["", "not a url", "file:///etc/passwd", "reddoorla.com"]) {
+      expect(measuredHostnames(bad)).toEqual([]);
+    }
+  });
+});
+
+describe("fetchPeriodUsers host filtering", () => {
+  const start = new Date("2026-05-03T00:00:00Z");
+  const end = new Date("2026-06-02T00:00:00Z");
+
+  it("asks GA4 for the site's own hosts only, in both windows", async () => {
+    runReport.mockResolvedValueOnce(resp(87)).mockResolvedValueOnce(resp(176));
+
+    await fetchPeriodUsers(
+      {
+        propertyId: "1",
+        subjects: ["s@x.com"],
+        keyPath,
+        hostnames: ["reddoorla.com", "www.reddoorla.com"],
+      },
+      start,
+      end,
+    );
+
+    expect(runReport.mock.calls).toHaveLength(2);
+    for (const call of runReport.mock.calls) {
+      expect(call[0]!.dimensionFilter).toEqual({
+        filter: {
+          fieldName: "hostName",
+          inListFilter: { values: ["reddoorla.com", "www.reddoorla.com"] },
+        },
+      });
+    }
+  });
+
+  it("sends no filter at all when there is no usable hostname", async () => {
+    runReport.mockResolvedValue(resp(1));
+    await fetchPeriodUsers(
+      { propertyId: "1", subjects: ["s@x.com"], keyPath, hostnames: [] },
+      start,
+      end,
+    );
+    expect(runReport.mock.calls[0]![0]).not.toHaveProperty("dimensionFilter");
   });
 });

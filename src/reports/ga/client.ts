@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { JWT } from "google-auth-library";
 import { BetaAnalyticsDataClient } from "@google-analytics/data";
 import { withSubjectFailover } from "./failover.js";
+import { hostnameOf, isHttpUrl } from "../../util/url.js";
 
 const ANALYTICS_READONLY = "https://www.googleapis.com/auth/analytics.readonly";
 const MS_PER_DAY = 86_400_000;
@@ -14,7 +15,35 @@ export type GaQuery = {
   subjects: string[];
   /** Path to the service-account JSON key. */
   keyPath: string;
+  /** Hostnames this site's own traffic arrives on. When non-empty the query is
+   *  filtered to them, so `localhost` and Netlify preview hosts are excluded.
+   *  Empty means "unfiltered", which is the pre-2026-09 behaviour and the
+   *  deliberate fallback for a site row with no usable URL: a filter matching
+   *  nothing would silently report zero, which is worse than reporting noise. */
+  hostnames: string[];
 };
+
+/**
+ * The hostnames a site's own traffic can legitimately arrive on: the URL's
+ * host and its www/apex twin.
+ *
+ * Without this the report counts every environment that serves the same
+ * analytics tag. On reddoorla.com for the thirty days to 2026-09-14 that was
+ * 15,971 `localhost` users against 87 real ones — the smoke suite, which
+ * clicks and scrolls and so trips the tag's interaction gate, once per fresh
+ * browser context. The report mailed it as a 510% rise while real traffic had
+ * halved.
+ *
+ * Returns [] for anything that is not an http(s) URL, which the caller treats
+ * as "do not filter" rather than "match nothing".
+ */
+export function measuredHostnames(siteUrl: string): string[] {
+  if (!isHttpUrl(siteUrl)) return [];
+  const host = hostnameOf(siteUrl).toLowerCase();
+  if (!host.includes(".")) return [];
+  const apex = host.startsWith("www.") ? host.slice(4) : host;
+  return [apex, `www.${apex}`];
+}
 
 /** UTC YYYY-MM-DD — matches the rest of the reports pipeline's date handling. */
 function ymd(d: Date): string {
@@ -58,6 +87,19 @@ export async function fetchPeriodUsers(
         property,
         dateRanges: [{ startDate: ymd(start), endDate: ymd(end) }],
         metrics: [{ name: "activeUsers" }],
+        // Only the site's own hosts. Omitted entirely when we have no usable
+        // hostname, so the number degrades to the old unfiltered one instead
+        // of to zero.
+        ...(query.hostnames.length > 0
+          ? {
+              dimensionFilter: {
+                filter: {
+                  fieldName: "hostName",
+                  inListFilter: { values: query.hostnames },
+                },
+              },
+            }
+          : {}),
       });
       const raw = resp.rows?.[0]?.metricValues?.[0]?.value ?? "0";
       const n = Number.parseInt(raw, 10);

@@ -2884,3 +2884,54 @@ more JS-dependent, never less.
 Beliefs corrected: the last entry on this (`docs/aeo-evidence-base.md`, 2026-09-15) recorded
 the over-penalty as costing "up to 60 points" on a hypothesis. It is 60 points exactly, and
 now demonstrated — the stock-Next.js row above moves 13 → 73.
+
+## 2026-09-16 — The reports counted our own test suite as traffic (`fix/ga-hostname-filter`)
+
+Tucker, on Reddoor's own September maintenance report: analytics seem way
+higher than they have been. The ANALYTICS block said 15,063 Users, ▲ 510%,
+2,471 → 15,063. None of it was traffic. `fetchPeriodUsers` asked GA4 for
+`activeUsers` with a date range and a metric and nothing else — no
+`dimensionFilter` — so the number was every hit on the property from any
+host. Split by `hostName` for the thirty days to 2026-09-14, the Reddoor
+property holds 16,072 users: 15,971 on `localhost`, 87 on `reddoorla.com`,
+29 across deploy previews and staging. Source and medium agrees: 16,048 of
+them are `(direct) / (none)`.
+
+The other half of the cause is in reddoor-website, whose `app.html` ships one
+measurement id to every environment and loads it on the first pointer, key or
+scroll event. That is what a Playwright test does, and each test is a fresh
+browser context, so each is a new client id and a new "user". Its own gate
+ships in reddoorla/reddoor-website#195. Both halves were needed: that gate
+stops new noise, this filter stops the report printing the noise already
+banked in eleven months of history.
+
+Proven on a known-good input before being believed, per the rule at the top of
+CLAUDE.md. Beachfront Dentistry is a clean property (0% non-production
+traffic): unfiltered 793, filtered 793, unchanged. Reddoor: unfiltered 16,072,
+filtered 87. A filter that returned a smaller number everywhere would have
+been indistinguishable from one that was simply broken.
+
+Two judgement calls. `measuredHostnames` returns `[]` for a site row whose
+`url` is not an http(s) URL, and the query then goes out unfiltered exactly as
+before — a filter matching nothing would report zero users, which is a worse
+lie than reporting noise, and it would be silent. And the filter takes the
+apex and its www twin rather than the row's host alone, because the Airtable
+`url` column is inconsistent about `www.` and a report that dropped half a
+site's traffic on that basis would be a new defect.
+
+`hostnames` is a required field on `GaQuery`, not optional. There is one
+production call site and six in tests, and making it required forced each to
+say which behaviour it wanted rather than inheriting the broken default.
+`draft.test.ts` mocked the whole `ga/client.js` module, which would have made
+the new pure helper `undefined` at call time; it now spreads `importActual`
+and mocks only the network call, so the real derivation runs in that suite.
+
+Scope, checked rather than assumed: of the twelve GA properties the service
+account can see, only Reddoor (99% non-production) and Revogen (29%, 246
+localhost users) carry this. Every client property is between 0% and 8%, so
+no client has been mailed an inflated number. The Reddoor figure was already
+91% noise in the previous window — 1,807 localhost against 176 real — so this
+metric has been junk for months and went unremarked because 2,471 was a
+plausible number for a small studio site. It took a doubling of CI volume to
+make it absurd enough to notice. Underneath the noise, real traffic fell by
+half: 176 → 87.
