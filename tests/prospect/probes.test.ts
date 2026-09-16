@@ -5,6 +5,7 @@ import {
   resolveBusinessName,
   mentionsBrand,
   isDistinctiveName,
+  isNamesake,
   domainOf,
   runVisibilityProbes,
   perplexityEngine,
@@ -752,5 +753,58 @@ describe("isDistinctiveName — a category noun is not an identity", () => {
 
   it("a single word is still not distinctive", () => {
     expect(isDistinctiveName("summit")).toBe(false);
+  });
+});
+
+/**
+ * A namesake is not a competitor (#601).
+ *
+ * On the first real audit the top cited domain across the whole run was
+ * reddoorcreative.com, 13 times — a DIFFERENT company with essentially the same
+ * name as the prospect. That is a brand-collision finding, arguably the most
+ * valuable thing the audit surfaced, and it rendered as one anonymous row in a
+ * competitor list.
+ */
+describe("isNamesake", () => {
+  it("flags a cited domain that carries the prospect's own business name", () => {
+    expect(isNamesake("reddoorcreative.com", "Reddoor Creative")).toBe(true);
+  });
+
+  it("flags a namesake that trails a category word", () => {
+    expect(isNamesake("reddoorcreativemarketing.com", "Reddoor Creative")).toBe(true);
+  });
+
+  it("does not flag an unrelated competitor", () => {
+    expect(isNamesake("bestroofs.example", "Acme Roofing")).toBe(false);
+  });
+
+  // Same reasoning as isDistinctiveName: a one-word common noun collides with
+  // everything, and "a different business is using your name" has to survive the
+  // prospect reading the domain underneath it.
+  it("does not flag on a name too generic for a collision to mean anything", () => {
+    expect(isNamesake("summit.com", "Summit")).toBe(false);
+  });
+});
+
+describe("namesakes on the probe result", () => {
+  it("surfaces a namesake separately from the competitors", async () => {
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "RedDoor Creative Marketing is a Hampton Roads agency.",
+        citedDomains: ["reddoorcreative.com", "someagency.example"],
+      })),
+    ];
+    const result = await runVisibilityProbes(
+      {
+        url: "https://reddoorla.com/",
+        business: "Reddoor Creative",
+        categoryQueries: ["branding agency Los Angeles"],
+        competitors: [],
+      },
+      engines,
+      { delayMs: 0 },
+    );
+    expect(result.namesakes!.map((n) => n.domain)).toContain("reddoorcreative.com");
+    expect(result.namesakes!.map((n) => n.domain)).not.toContain("someagency.example");
   });
 });

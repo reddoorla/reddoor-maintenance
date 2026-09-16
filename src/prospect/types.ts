@@ -473,6 +473,22 @@ export type ProbesResult = {
    *  it surface this business to someone who didn't already name it"). */
   brandedRecognized: boolean;
   competitorsSeen: { domain: string; count: number }[];
+  /**
+   * Cited domains that carry the prospect's OWN business name — a different
+   * company, not a competitor. See `isNamesake` for the rule and the real case
+   * that motivated it.
+   *
+   * A subset of `competitorsSeen`, deliberately not subtracted from it: that
+   * field is what stored reports and the renderer already read, and changing
+   * what it contains would rewrite documents that have already been sent. The
+   * renderer is what separates the two.
+   *
+   * Optional because this type also describes runs deserialized from
+   * `prospect_audits.result_json`, and every report stored before this field
+   * existed lacks it. Absent means "not measured", never "no namesake" —
+   * `runVisibilityProbes` always sets it, readers must still handle absence.
+   */
+  namesakes?: { domain: string; count: number }[];
   /** How many CATEGORY probes were sent versus how many came back.
    *
    *  These differ whenever an engine errors: a probe that fails after its retry
