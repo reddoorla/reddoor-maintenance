@@ -2935,3 +2935,71 @@ metric has been junk for months and went unremarked because 2,471 was a
 plausible number for a small studio site. It took a doubling of CI volume to
 make it absurd enough to notice. Underneath the noise, real traffic fell by
 half: 176 → 87.
+
+## 2026-09-16 — The Turnstile verdict could never be earned: the script matcher never saw a 2xx (`fix/turnstile-script-redirect`)
+
+The cockpit had been flagging Reddoor with "Require Turnstile on; widget not
+verified by a browser". It was not the widget. `TURNSTILE_API_JS` matched
+`/turnstile/v0/api.js` exactly, and Cloudflare answers that URL with a 302 to a
+build-hashed sibling. Measured on reddoorla.com's live `/contact` today:
+
+    302  https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit
+    200  https://challenges.cloudflare.com/turnstile/v0/g/330e41bb475c/api.js
+
+`turnstileScriptLoaded` is set from a 2xx, so it could never become true, and
+`turnstileVerdict` took its `container but no script → null` arm on every site
+on every run. The state bears that out: **45 of 45 `site_health` rows null,
+zero passes and zero fails fleet-wide**, from #695 (09-04) until now. Reddoor is
+the only site with `Require Turnstile` on, so it was the only one that could
+surface the consequence — which is why this read as one site's problem.
+
+**The rule was right the whole time.** `turnstileVerdict` is pinned exhaustively
+in `turnstile-verdict.test.ts`, including `scriptLoaded: false → null`, which is
+correct and deliberate. The observation that feeds it had **no test at all**.
+That asymmetry is the whole story: a well-tested rule starved by an untested
+sensor stays green forever, because nothing red ever reaches it. The new
+`turnstile-script-url.test.ts` covers the matcher, with the build-hashed URL
+verbatim — the case that decides whether a pass is reachable at all.
+
+Proven before being trusted, per the repo's own gate rule. Driving the live form
+with the REAL constants and the REAL `turnstileVerdict` imported from source,
+in one run: the unfixed matcher observes `scriptLoaded: false` and returns null;
+the fixed one matches the 2xx and returns **`pass`**. `window.turnstile` was an
+`object` on that page throughout — the script had been loading fine all along.
+
+**Beliefs corrected on contact, in order, because each cost a detour.** I first
+suspected the `forms.testMode` preflight was turning the probe away; `/health`
+reports `testMode: true` and the nightly log shows `✔ reddoor: all green (10s)`,
+so it was probed, not skipped. I then suspected 600010, which the live page does
+emit — but the code already documents that Cloudflare returns it to every driven
+browser regardless of configuration, so it is the harness's signature and is
+deliberately excluded. Both dead ends were mine to walk; the code had written
+down the answer to the second one before I got there.
+
+Two measurement errors worth recording. My first headless probe set
+`scriptLoaded` by **assignment**, where the audit sets it **monotonically**
+(`if (2xx) … = true`); a later response could clear mine, so that run proved
+nothing and had to be redone faithfully. And a `grep` for the blast radius used
+`turnstile/v0/api\.js` against source that stores the pattern as a regex literal
+with escaped slashes — it matched nothing and I briefly read that as "no other
+callers". Redone, the answer held: the constant is defined once (`:323`) and
+used once (`:753`); `/turnstile/v0/siteverify` in `src/forms/turnstile.ts` is
+server-side token verification and is untouched.
+
+What `pass` still does not mean is unchanged: that a human can solve the
+challenge. No automated browser can establish that. `pass` is "the widget is
+deployed and is not mis-hostnamed" — the failure mode that silently loses every
+lead on a gated site. Confirming a real token stays the manual browser check in
+`docs/runbooks/turnstile-widgets.md`. For Reddoor that check was done the same
+day, by hand, and **passed**: the live `/contact` loaded in an ordinary browser
+carries a non-empty `cf-turnstile-response` of ~770 characters. The widget is
+minting tokens for real visitors and the gated site is not losing leads — the
+only thing broken here was the sensor. It is also the cleanest demonstration of
+why 600010 is excluded: the same page that hands a human a full token hands a
+driven browser nothing at all.
+
+One cost of the fix: the doc comment added 19 net lines to `form-e2e.ts`, which
+shifted four citations in `turnstile-widgets.md` off their anchors. The
+runbook-anchor gate caught all four and named the terms it had looked for, so
+re-numbering was checkable rather than guesswork — each was verified against its
+anchor term, not just shifted by the delta. That gate earned its keep today.
