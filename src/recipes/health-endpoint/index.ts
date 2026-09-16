@@ -4,6 +4,7 @@ import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.js";
 import {
   HEALTH_ENDPOINT_RELATIVE,
   HEALTH_ENDPOINT_TEMPLATE,
@@ -109,6 +110,18 @@ export async function healthEndpoint(
       }
 
       await commit("feat: add /health endpoint (function-health probe)");
+
+      // Did git TAKE it? `git add -A` honours the site's .gitignore and exits 0
+      // either way, so without this the recipe reports the site done while the
+      // endpoint the function-health audit fetches is in no commit — and the
+      // Report Health Gate goes on blocking that site's report on "unknown"
+      // (#741).
+      const refusal = await refusedByGit(cwd, [HEALTH_ENDPOINT_RELATIVE], "the /health endpoint");
+      if (refusal) {
+        await undoRefusedWrites(cwd, new Map([[HEALTH_ENDPOINT_RELATIVE, null]]), refusal.missing);
+        return { kind: "failed", notes: refusal.notes + RESTORED_NOTE };
+      }
+
       return notes.length > 0 ? { kind: "ok", notes: notes.join("; ") } : { kind: "ok" };
     },
   });
