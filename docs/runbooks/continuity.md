@@ -153,7 +153,7 @@ learns its slug does not resolve, but **the lead now exists somewhere**
 (`src/forms/ingest.ts:202–231`). Probes (`testMode`) are never dead-lettered.
 
 **What a week-long break looks like now.** The queue grows and the alarm gets louder, not
-quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:435–460`) raises one
+quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:452–477`) raises one
 `deadletter` attention item per slug, counting unreplayed rows, and it reaches both the cockpit
 and the digest. Two shapes:
 
@@ -182,7 +182,7 @@ DEADLETTER_REPLAY replayed=<n> still_failing=<n>
 
 Exit code is 1 while anything is still failing. If Resend is unconfigured the replay still
 runs and the recovered leads land un-emailed (`notify=failed`) rather than blocking — you can
-re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:85–172`). If the
+re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:93–208`). If the
 alarm named an unresolvable slug, run `ensure-site <slug>` **first**, then replay.
 
 ### 3.2 Turnstile stops minting tokens on a site
@@ -226,7 +226,7 @@ right direction but means a red quota job is sometimes the probe, not the plan.
 
 ### 3.4 A bounced or complained-on report
 
-`collectDeliveryFailures` (`src/alerts/digest-collectors.ts:208–228`) raises an attention item
+`collectDeliveryFailures` (`src/alerts/digest-collectors.ts:209–229`) raises an attention item
 for any report row whose `deliveryStatus` is `bounced` (warning) or `complained` (**critical**).
 A spam complaint from a client is worth a same-day human reply; do not let it sit a week.
 
@@ -399,7 +399,7 @@ written in.
    The row and byte figures are whatever the dump carried (those are the 2026-08-31 values);
    what you are checking is `mismatches=0`. Row and byte counts are compared against the
    dump's origin manifest, so a restore that "succeeded" with fewer rows than the origin held
-   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:405–418`). Three
+   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:441–454`). Three
    refusals you may see instead, each naming itself: `RESTORE refused=auth-token-absent` (a
    remote url with no token), `RESTORE refused=manifest-absent` (not a dump this tool
    produced), and `RESTORE refused=target-not-empty`.
