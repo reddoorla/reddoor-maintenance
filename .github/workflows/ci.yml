@@ -17,7 +17,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 so the tags are present. `pnpm
+      # check:match-harness-snapshots` compares every shipped match-harness body
+      # against the PREVIOUS RELEASE TAG, and a shallow clone carries no tags at
+      # all — the guard refuses loudly rather than reporting a clean bill of
+      # health over a comparison it could not make, so without this the step
+      # fails closed on every run. release.yml's checkout already has it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
@@ -59,6 +67,7 @@ jobs:
       # vitest.config.ts. Plain `pnpm test` stays fast for local TDD.
       - run: pnpm typecheck
       - run: pnpm lint
+      - run: pnpm check:match-harness-snapshots
       - run: pnpm build
       - run: pnpm test:coverage
       - run: pnpm test:dist
