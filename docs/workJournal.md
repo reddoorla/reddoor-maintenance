@@ -2892,7 +2892,13 @@ What `pass` still does not mean is unchanged: that a human can solve the
 challenge. No automated browser can establish that. `pass` is "the widget is
 deployed and is not mis-hostnamed" — the failure mode that silently loses every
 lead on a gated site. Confirming a real token stays the manual browser check in
-`docs/runbooks/turnstile-widgets.md`, and for Reddoor it is still outstanding.
+`docs/runbooks/turnstile-widgets.md`. For Reddoor that check was done the same
+day, by hand, and **passed**: the live `/contact` loaded in an ordinary browser
+carries a non-empty `cf-turnstile-response` of ~770 characters. The widget is
+minting tokens for real visitors and the gated site is not losing leads — the
+only thing broken here was the sensor. It is also the cleanest demonstration of
+why 600010 is excluded: the same page that hands a human a full token hands a
+driven browser nothing at all.
 
 One cost of the fix: the doc comment added 19 net lines to `form-e2e.ts`, which
 shifted four citations in `turnstile-widgets.md` off their anchors. The
