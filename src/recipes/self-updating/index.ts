@@ -1,6 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
+import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.js";
 import { templatesByName } from "../sync-configs/templates.js";
 import {
   renovateActionGaps,
@@ -158,9 +159,13 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         // silently rewritten (e.g. un-quoting its scalars) in the same PR.
         // On a fresh repo every template path is missing, so `drifted`
         // already contains all of them and bootstrap is unaffected.
+        // What each written path held BEFORE this run, so one git then refuses
+        // can be put back exactly as it was (null = the file did not exist).
+        const before = new Map<string, string | null>();
         for (const t of templates) {
           if (!drifted.includes(t.path)) continue;
           const dest = join(site.path, t.path);
+          before.set(t.path, await readFile(dest, "utf-8").catch(() => null));
           await mkdir(dirname(dest), { recursive: true });
           // For a genuinely non-compliant renovate.yml, carry the site's own
           // (still-digest-pinned) action refs forward onto the template before
@@ -175,6 +180,19 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         }
         const sha = await gitCommit(site.path, "ci: enable self-updating (Renovate auto-merge)");
         if (sha) commits.push(sha);
+
+        // Did git TAKE the configs? The PARTIAL drop is the one that bites: with
+        // one of the two paths ignored the other still commits, so `commit()`
+        // returns a SHA and — before this check — the branch was pushed and a PR
+        // opened for a repo that would never become self-updating, after which
+        // every later run reported "self-updating PR already open" forever.
+        // Checked BEFORE the push, so nothing reaches GitHub on a refusal (#741).
+        const refusal = await refusedByGit(site.path, drifted, "the Renovate configuration");
+        if (refusal) {
+          await undoRefusedWrites(site.path, before, refusal.missing);
+          return resultOf(site, "failed", refusal.notes + RESTORED_NOTE, commits);
+        }
+
         await (deps.pushBranch ?? gitPush)(site.path, maintBranch);
         const pr = await github.openPullRequest(repo, {
           head: maintBranch,

@@ -650,3 +650,51 @@ describe("prismicCi", () => {
     expect(d.github!.openPullRequest).not.toHaveBeenCalled();
   });
 });
+
+// --- git must actually TAKE the workflow (#741). Here the drop does not even
+//     read as a failure: `commit()` returns null, and the recipe reported
+//     "already present and identical in the checkout" — a statement about a
+//     file that is in no commit at all.
+describe("prismicCi: the commit must carry the workflow", () => {
+  const headTree = (): string[] =>
+    execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "HEAD"], {
+      cwd: dir,
+      encoding: "utf-8",
+    })
+      .split("\0")
+      .filter(Boolean);
+
+  it("GRANTS a normal delivery — the workflow is in the pushed branch's tree", async () => {
+    await prismicSite();
+    const { d, pushed } = deps();
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("applied");
+    expect(
+      execFileSync("git", ["ls-tree", "-r", "--name-only", pushed[0]!], {
+        cwd: dir,
+        encoding: "utf-8",
+      }),
+    ).toContain(WORKFLOW_PATH);
+  });
+
+  it("REFUSES, without pushing or opening a PR, when the site ignores .github/", async () => {
+    await prismicSite();
+    await writeFile(join(dir, ".gitignore"), "node_modules\n.github/\n", "utf-8");
+    git(["add", "-A"]);
+    git(["commit", "-qm", "seed .gitignore"]);
+
+    const { d, pushed } = deps();
+    const r = await prismicCi(site(), d);
+
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain(WORKFLOW_PATH);
+    expect(r.notes).toContain(".gitignore:2:.github/");
+    // The old wording claimed the workflow was already present and identical.
+    expect(r.notes).not.toContain("already present and identical");
+    expect(headTree()).not.toContain(WORKFLOW_PATH);
+    // Nothing reached the client repo, and the file this run wrote is gone.
+    expect(pushed).toEqual([]);
+    expect(d.github!.openPullRequest).not.toHaveBeenCalled();
+    expect(await exists(join(dir, WORKFLOW_PATH))).toBe(false);
+  });
+});

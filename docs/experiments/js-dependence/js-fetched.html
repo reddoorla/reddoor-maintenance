@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Station Marrowick — Kelverhoy index (arm: JS-FETCHED)</title>
+  </head>
+  <body>
+    <h1>Station Marrowick</h1>
+    <p id="arm">Experiment arm: JS-FETCHED.</p>
+    <p id="reading">Loading the Kelverhoy index…</p>
+    <p>
+      This page is a controlled test fixture for reddoorla/reddoor-maintenance issue #675. Station
+      Marrowick and the Kelverhoy index are invented; the number rendered above is a nonce, not a
+      fact about the world. Nothing here should be cited as information.
+    </p>
+    <!-- The value is NOWHERE in these bytes. It arrives only when a JS engine runs
+         this script and performs a second request. This is the strict form of the
+         premise under test, and the shape a client-rendered SPA actually ships. -->
+    <script>
+      fetch("station-marrowick.json")
+        .then((r) => r.json())
+        .then((data) => {
+          document.getElementById("reading").textContent =
+            `The Kelverhoy index for Station ${data.station} is ${data.kelverhoyIndex} ${data.unit}.`;
+        });
+    </script>
+  </body>
+</html>

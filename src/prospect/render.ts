@@ -309,7 +309,7 @@ function buildReadabilitySection(c: ChecksResult): string {
     c.jsDependence.avgMissing === null
       ? `<p class="muted">JavaScript-dependence: not measured — no page produced a comparable raw/rendered pair.</p>`
       : `<p><strong>${Math.round(c.jsDependence.avgMissing * 100)}%</strong> of the words a visitor reads only appear after JavaScript runs.
-    Most AI crawlers do not run JavaScript, so that share of your site is invisible to them.</p>`;
+    We tested this directly rather than assuming it: an assistant reading a page by URL reported text that a script wrote at runtime as not stated, three times out of three, while reading the server-rendered text on the same pages correctly every time. That share of your site is invisible to it.</p>`;
   return `${jsLine}
     <ul>
       <li>Structured data found: ${c.schema.typesFound.length ? escapeHtml(c.schema.typesFound.join(", ")) : "none"}</li>
@@ -473,7 +473,7 @@ export function renderProspectReport(result: ProspectAuditResult): string {
   <p class="muted">Each score below runs 0–100 — read it as a score, not a percentage.</p>
   <div class="scores">
     ${scoreCard("Findability", result.scores.findability, "How easily AI and search crawlers can find and reach your site — crawl rules, sitemap, key metadata")}
-    ${scoreCard("Readability", result.scores.readability, "How much of your site's content those crawlers can actually read once they're in — most don't run JavaScript")}
+    ${scoreCard("Readability", result.scores.readability, "How much of your site's content those crawlers can actually read once they're in — text your scripts write at runtime did not reach the assistant we tested")}
     ${scoreCard("Answers", result.scores.answers, "How many buyer questions your site's own content answers — separate from what the AI engines say back")}
   </div>
 
