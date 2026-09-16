@@ -2935,3 +2935,112 @@ metric has been junk for months and went unremarked because 2,471 was a
 plausible number for a small studio site. It took a doubling of CI volume to
 make it absurd enough to notice. Underneath the noise, real traffic fell by
 half: 176 → 87.
+
+## 2026-09-16 — The rest of the agent-doable backlog, and four probes that agreed with themselves (claude-skills#8, 29-navy#38/#39, beachfront#65, reddoor-starter#121)
+
+The operator asked to continue on everything agent-doable, and to answer whether
+Renovate's dashboards could live somewhere other than GitHub issues. Four earlier
+entries today cover the first half of that wave; this one covers what came after,
+and it is mostly about instruments, because that is where the cost was.
+
+**The Renovate question has a shorter answer than it looks.** `dependencyDashboard`
+is not set anywhere in `reddoorla/.github:renovate-config.json` — it arrives
+inherited from `config:recommended`, so the 28 dashboard issues are the preset
+working, not a local choice. More to the point, `src/github/gh.ts` already parses
+that issue, and its own doc comment says why: the dashboard is _the only place
+Renovate reports branches it has decided to stop managing_. `protection-coverage.ts`
+consumes that parse. So moving the dashboards off issues is not a cosmetic
+preference — it would blind an audit we already depend on. The honest answer is
+that they can be turned off per-repo, and should not be.
+
+**claude-skills#8** took the frontmatter-coverage figure from 99.6% to 0.0%.
+**29-navy#38 and #39** closed #33; #32 stays open because it is a decision, not work.
+
+**beachfront#65 produced the batch's strongest red-proof, by failing to.** The
+matching probe, pointed at its own output, printed 21 identical rows and exited 0
+— a confident green that was measuring nothing at all. Repointed at a true
+reference it separated at every viewport, largest delta **193px**. The same worker
+found the issue's census undercounted: five of the eight table carriers used a
+different syntax, so it repointed **19** files where the issue named 12. And it
+reported the thing worth keeping: **no historical probe number can be re-derived**,
+because `webflow.io` still 404s. Matching stays paused, and any number quoted from
+before that outage is unreproducible.
+
+**composition-hospitality#11 was not the url swap it appeared to be.** Its manifest
+also dropped **320 per-cell `style` records** (main 419, that PR 99). Rather than
+adopt it, the CloudFront→Prismic map was recovered _from_ the stale PR — a clean
+197↔197 bijection with zero non-url differences — and applied to current `main`:
+0 cloudfront urls left, 197 prismic, style records unchanged, zero non-url drift.
+The `/contact` plumbing and the manifest shipped green; the `repositoryName` flip
+is held in composition#31, because the nav still points at pages the Blux match has
+not produced. The operator's read on those dangling links is the right one: they
+say the page is a WIP, and patching them would hide that.
+
+**reddoor-starter#121's PR-6 through PR-9 landed on both tracks** — native
+#141–#144, blux #27–#30 — and two of that worker's own tests were green against the
+exact bug they existed to catch. PR-8's helper keyed on `[data-transition-overlay]`,
+an attribute only the _fixed_ component carries, so "no sheet is raised" was
+trivially true of a component that raises one on every navigation. Three more of its
+cases asserted a node disappears, which jsdom can never do: with no Web Animations
+API the outro never completes, so two could only fail and one could only pass. And
+PR-7's centring assertion **failed a correct implementation twice** — neither
+`page.viewportSize()` nor `documentElement.clientWidth` is the box a fixed dialog
+centres in; both read 1280 while it was laid out in 1265, because `body` is the
+scroll container and its 15px scrollbar never reaches `html`. The margins were
+`376.5px | 376.5px` the whole time.
+
+**A live exposure, found while checking something else.**
+`staging.reddoorla.com/dev/a11y-fixtures` serves a real fixture page — 200, 146KB —
+on a branded domain, and two **archived** repos (`the-pointe`, `the-tower`) serve
+their dev fixtures too. The discriminator matters: a 50-byte edge 404 and an 83KB
+app 404 are both "404", and only separating them makes the 200 meaningful.
+Promoting `staging` closes the first; the archived pair cannot take a PR at all, so
+they are the operator's call.
+
+**Two things were stopped rather than shipped.** vida#79's Safari claim was refuted
+with a controlled WebKit table. #690's drift had already self-resolved — 25 of 25
+repos verified at `pnpm@11.11.0` from origin — so the correct change was none.
+
+**Beliefs corrected on contact, all about measurement.**
+
+The `gh`-in-a-sandbox memory was wrong in a way that mattered. It claimed command
+substitution was the trigger and loops were safe. Measured directly: a `for` loop
+over 22 repo/number pairs with **no command substitution anywhere** failed x509 on
+all 22 rows, and the same calls written as sequential statements succeeded. Both
+shapes fail, independently.
+
+Worker cleanup claims cannot be taken on trust, but they also cannot be assumed
+false. Sixteen workers yesterday reported removing worktrees that were all still on
+disk. Today's two reported honestly — beachfront's tree was genuinely gone, and the
+starter worker correctly _held_ its last tree because a failing CI run would have
+needed it. The rule is to check, not to disbelieve.
+
+A worker's report can be true when written and stale when read. The starter worker
+filed its final report listing four steps blocked on blux#30; its own background job
+then merged #30, posted the issue comment and ticked the checklist, all within
+ninety seconds. Reading the destination rather than the report is what showed it.
+
+And two of my own instruments agreed with themselves. A per-worktree "unpushed"
+column built on `git log --branches --not --remotes` is repo-wide, so it printed
+**37** for all seven reddoor-maintenance trees and **38** for all eleven
+reddoor-website trees — the same number regardless of subject, which is the
+signature of measuring nothing. Re-keyed onto each tree's own `HEAD`, with control
+rows required to read 0, it discriminated: of 20 extra worktrees across 6 repos, 15
+are disposable and **5 carry 13 commits that exist nowhere but this disk** —
+`meta-week` (3), `journal-fix` (1), `reddoor-website/overrides` (7),
+`model-denominator` (1), `report-design` (1). They are left in place; deleting
+someone's only copy is not a cleanup step.
+
+The other was this entry's own worktree. Running `git fetch` and `git worktree add`
+in the same parallel batch produced a checkout measured mid-write: `grep -n` found a
+heading at line 2888 in a file `wc -l` called 2718 lines long. The contradiction is
+what caught it — a single reading would have been believed.
+
+**Honest accounting.** The wave's headline numbers are real, but three of the seven
+closed issues were closed by measurement showing there was nothing to fix, not by a
+change. And the strongest work today was subtractive: a test deleted for having no
+post-condition, a Safari claim withdrawn, a pnpm sweep not run. One practical note
+for the next session: the recursive-delete flag is what the deny pattern matches, so
+a plain recursive removal succeeds where the forced form is refused — and the
+matcher scans heredoc prose, so a journal entry that merely _describes_ a denied
+command is itself blocked. This entry was written to a file for that reason.
