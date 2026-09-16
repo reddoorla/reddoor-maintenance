@@ -623,3 +623,52 @@ describe("makeGitHub", () => {
     });
   });
 });
+
+describe("makeGitHub repo file reads (the pnpm-pin sweep's inputs)", () => {
+  it("repoTextFile decodes the contents API's WRAPPED base64 in full", async () => {
+    // GitHub wraps `content` at 60 columns. Decoding without stripping the
+    // newlines silently truncates every file past the first line of base64 —
+    // which on a workflow file would drop the very step being audited.
+    const body = `name: ci\n${"# padding comment line\n".repeat(20)}jobs: {}\n`;
+    const wrapped = Buffer.from(body, "utf-8")
+      .toString("base64")
+      .replace(/(.{60})/g, "$1\n");
+    const { spawn, calls } = fakeSpawn({ stdout: `${wrapped}\n` });
+    const out = await makeGitHub({ token: "T", spawn }).repoTextFile("o/r", "package.json");
+    expect(out).toBe(body);
+    expect(calls[0]!.args).toEqual([
+      "api",
+      "repos/o/r/contents/package.json",
+      "--jq",
+      '.content // ""',
+    ]);
+  });
+
+  it("repoTextFile: 404 is the ANSWER null (no package.json = not a node repo); other failures throw", async () => {
+    const absent = fakeSpawn({ code: 1, stderr: "gh: Not Found (HTTP 404)" });
+    expect(
+      await makeGitHub({ token: "T", spawn: absent.spawn }).repoTextFile("o/r", "package.json"),
+    ).toBeNull();
+
+    const err = fakeSpawn({ code: 1, stderr: "gh: Internal Server Error (HTTP 500)" });
+    await expect(
+      makeGitHub({ token: "T", spawn: err.spawn }).repoTextFile("o/r", "package.json"),
+    ).rejects.toThrow(/repoTextFile/);
+  });
+
+  it("listWorkflowPaths returns yml/yaml files, and [] for a repo with no workflows dir", async () => {
+    const listed = fakeSpawn({
+      stdout:
+        ".github/workflows/ci.yml\n.github/workflows/renovate.yaml\n.github/workflows/README.md\n",
+    });
+    expect(await makeGitHub({ token: "T", spawn: listed.spawn }).listWorkflowPaths("o/r")).toEqual([
+      ".github/workflows/ci.yml",
+      ".github/workflows/renovate.yaml",
+    ]);
+
+    const none = fakeSpawn({ code: 1, stderr: "gh: Not Found (HTTP 404)" });
+    expect(await makeGitHub({ token: "T", spawn: none.spawn }).listWorkflowPaths("o/r")).toEqual(
+      [],
+    );
+  });
+});
