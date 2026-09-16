@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Station Marrowick — Kelverhoy index (arm: SCRIPT-EMBEDDED)</title>
+  </head>
+  <body>
+    <h1>Station Marrowick</h1>
+    <p id="arm">Experiment arm: SCRIPT-EMBEDDED.</p>
+    <p id="reading">Loading the Kelverhoy index…</p>
+    <p>
+      This page is a controlled test fixture for reddoorla/reddoor-maintenance issue #675. Station
+      Marrowick and the Kelverhoy index are invented; the number rendered above is a nonce, not a
+      fact about the world. Nothing here should be cited as information.
+    </p>
+    <!-- The value IS in the bytes, but only inside a script tag — the shape Next.js
+         (__NEXT_DATA__) and Nuxt ship. A fetcher that strips scripts cannot see it;
+         one that passes script text through can, with no JS engine at all. -->
+    <script id="station-data" type="application/json">
+      { "station": "Marrowick", "kelverhoyIndex": 5209, "unit": "millibars" }
+    </script>
+    <script>
+      const data = JSON.parse(document.getElementById("station-data").textContent);
+      document.getElementById("reading").textContent =
+        `The Kelverhoy index for Station ${data.station} is ${data.kelverhoyIndex} ${data.unit}.`;
+    </script>
+  </body>
+</html>

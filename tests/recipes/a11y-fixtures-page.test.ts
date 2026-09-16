@@ -55,3 +55,52 @@ describe("recipes/a11y-fixtures-page", () => {
     await access(join(cwd, "src/routes/dev/a11y-fixtures/+page.svelte"));
   });
 });
+
+// --- git must actually TAKE the write, not merely not-error on `git add -A`
+//     (#741, the defect class #734 closed for match-harness only).
+
+describe("recipes/a11y-fixtures-page: the commit must carry the route", () => {
+  /** A site whose committed .gitignore is exactly `body`. */
+  async function siteIgnoring(body: string): Promise<string> {
+    const cwd = await copyFixtureToTmp(pristine);
+    await writeFile(join(cwd, ".gitignore"), body, "utf-8");
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "seed .gitignore"], { cwd, stdio: "ignore" });
+    return cwd;
+  }
+
+  const headTree = (cwd: string): string[] =>
+    execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "HEAD"], { cwd, encoding: "utf-8" })
+      .split("\0")
+      .filter(Boolean);
+
+  const gitOut = (cwd: string, args: string[]): string =>
+    execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+
+  it("GRANTS a normal install — the route is in HEAD's tree and the result still applies", async () => {
+    // The positive half. Without it, a typo in the guarded path would refuse
+    // EVERY install and the refusal test below would stay green.
+    const cwd = await copyFixtureToTmp(pristine);
+    const result = await a11yFixturesPage({ path: cwd });
+    expect(result.status).toBe("applied");
+    expect(headTree(cwd)).toContain(A11Y_FIXTURES_PAGE_RELATIVE);
+  });
+
+  it("REFUSES when the site ignores the route's directory, and names the rule", async () => {
+    const cwd = await siteIgnoring("node_modules\nsrc/routes/dev/\n");
+    const result = await a11yFixturesPage({ path: cwd });
+
+    expect(result.status).toBe("failed");
+    expect(result.notes).toContain(A11Y_FIXTURES_PAGE_RELATIVE);
+    expect(result.notes).toContain(".gitignore:2:src/routes/dev/");
+    // The refusal is TRUE: HEAD really does not carry the route, so a fresh
+    // clone, CI and the a11y audit get a route that does not exist.
+    expect(headTree(cwd)).not.toContain(A11Y_FIXTURES_PAGE_RELATIVE);
+    // Nothing is left on disk: the file this run wrote and git refused would
+    // otherwise make every later run noop on "already exists" — a false done
+    // that outlives the fix.
+    await expect(access(join(cwd, A11Y_FIXTURES_PAGE_RELATIVE))).rejects.toThrow();
+    expect(gitOut(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe("main");
+    expect(gitOut(cwd, ["status", "--porcelain"])).toBe("");
+  });
+});
