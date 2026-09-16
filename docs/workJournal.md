@@ -2767,6 +2767,77 @@ Turso migration, promotion authority, the cockpit redesign, and a dozen client o
 calls. Two follow-ups from the review are in flight as this is written — the citation gate's
 blind spot and the Blux brand literals.
 
+## 2026-09-16 — #690's pnpm pin is clean everywhere it is watched, and the one drifted repo is outside what the guard can see (measurement only)
+
+Issue #690 was filed because three repos sat on a pnpm security bump and nothing said so. The
+repo-level fixes landed weeks ago and the guard shipped as #834, so this session's job was to
+**measure with that guard** rather than write another scanner, and to say what is left. The
+answer is that the watched fleet is clean and the remaining drift sits in a repo the guard is
+built not to look at.
+
+**The measurement.** `collectPackageManagerPins` was driven against live GitHub with deps
+mirroring `makeGitHub`'s own implementations — same endpoints, same `--jq`, same
+404-is-an-answer semantics, same base64 whitespace strip. It produced `PACKAGE_MANAGER_PIN
+gaps=0 pinned=25 judged=25 out-of-scope=1 skipped=6 fleetPin=pnpm@11.11.0`. All 25 judged
+repos read `pnpm@11.11.0`, and the fleet pin is a 25/25 majority derived from the repos
+themselves rather than a constant anyone typed.
+
+**`gaps=0` was not allowed to count on its own.** A positive control required four rows the
+run must find — `reddoor-maintenance` judged at `pnpm@11.11.0`, `.github` out-of-scope for
+having no `package.json`, `claude-skills` skipped as private, `the-pointe` skipped as archived
+— and a negative control fed four planted fact sets through `packageManagerGaps` against the
+pin this run derived: a repo behind the fleet, one ahead of it, one with no field, and one
+whose workflow pins a `version:` input that disagrees. All four produced their gap lines.
+Without that second half a clean sweep is an untested assertion, which is the failure this
+repo keeps paying for.
+
+**The CLI could not produce it.** `protection-audit --org reddoorla` dies with `gh: Bad
+credentials (HTTP 401)` before printing a single line, inside the coverage sweep that runs
+ahead of the pin sweep — while the exact `orgs/reddoorla/repos` call the pin sweep starts from
+succeeds standalone, both with the keyring token and with `GH_TOKEN` set. The nightly runs
+this with a minted App token, so it is most likely a scope the local OAuth token lacks on one
+of the coverage endpoints rather than a defect; it was not chased further. Related and worth
+knowing before someone trusts it: `RENOVATE_TOKEN` in `~/.config/reddoor-maint/credentials.env`
+is 93 characters and 401s, which is exactly what an expired GitHub App installation token looks
+like — those last an hour, and that one is in a static file.
+
+**The one drifted repo.** `tucksravin/invitations` — the checkout named
+`welcome-to-the-flower-court`, precisely the remote/directory mismatch CLAUDE.md warns about —
+carries `pnpm@11.25.0` on `main`. Fed through `packageManagerGaps` with the live fleet pin it
+reports a gap, so it is not a repo the guard judges and clears; it is a repo the guard never
+reaches. It is excluded twice over, and both exclusions are deliberate: the sweep takes
+`--org reddoorla` and this is a different owner, and it judges public repos only so that
+`fleet-security.yml` can print `COVERED` for everything it ever gapped. Widening the population
+naively re-creates the orphan-issue failure the module documents in its own header.
+
+**A belief corrected on contact.** I expected this to be the issue's second hazard — `pnpm
+self-update` rewriting the field in whatever repo a dev is standing in, then being swept into
+an unrelated commit. It is not. `9caa0a3` (2026-09-05) is the commit that _created_
+`package.json`, already reading `11.25.0`. The repo was scaffolded with the machine's own pnpm
+and has never carried the fleet pin. Same root cause — nothing owns the field — but a different
+mechanism, and a different remediation: this repo is ahead of the pin rather than behind it, is
+private, and is not a maintained client site, so "bump it to match" is a decision rather than a
+fix.
+
+**The `self-update` half, measured rather than assumed.** Across all 42 checkouts on disk, zero
+working trees carry an uncommitted `packageManager` rewrite today; the `+sha512` diff quoted in
+the issue body is gone from `gallerysonder`, and no pin anywhere in the fleet carries that hash.
+That zero is only worth reading because the detector was proved first on a planted repo — `HEAD`
+at `pnpm@11.11.0`, working tree at `pnpm@11.25.0+sha512.…`, reported `DIRTY` — and on a clean
+one that reported `ok`. This half is an operator-machine concern, not a code fix: nothing in
+this repo can stop `pnpm self-update` from writing to a working tree on someone's laptop, and
+the guard already catches the result the moment it reaches a watched repo's default branch.
+
+**One artifact worth naming.** That same disk scan read `claude-skills` as having no
+`packageManager` field at all. Live, it is `pnpm@11.11.0`; the local checkout is two commits
+behind. A scan of working trees answers "what is on this disk", never "what is in the fleet",
+and the two produce identical-looking tables.
+
+Left to the operator: the three "To decide" questions in the issue body, unchanged — whether the
+pin becomes fleet-managed, whether it carries `+sha512`, and what to do about `self-update` —
+plus whether `tucksravin/invitations` should be pulled onto the fleet pin, and whether the
+guard's population should ever reach private or cross-org repos.
+
 ## 2026-09-16 — The Turnstile verdict could never be earned: the script matcher never saw a 2xx (`fix/turnstile-script-redirect`)
 
 The cockpit had been flagging Reddoor with "Require Turnstile on; widget not
