@@ -40,17 +40,16 @@ Four moving parts, each needing its own credentials: **Airtable** (data), the **
 
 ## Phase 1 — Accounts & tokens (collect these once)
 
-| Token / secret          | From where                                                                                                                                                                         | Used by                                      |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `AIRTABLE_PAT`          | Airtable → Builder Hub → Personal access tokens (scopes: `data.records:read/write`, `schema.bases:read`; grant the base)                                                           | CLI, dashboard, crons                        |
-| `AIRTABLE_BASE_ID`      | The base URL (`https://airtable.com/<appXXXX>/…`) — this fleet's is `appHG8nLOzULzXOER`                                                                                            | CLI, dashboard, crons                        |
-| `RESEND_API_KEY`        | Resend → API Keys                                                                                                                                                                  | CLI (`report --send-ready`), crons           |
-| `RESEND_WEBHOOK_SECRET` | Resend → Webhooks → (the signing secret of the endpoint you add in Phase 5)                                                                                                        | dashboard webhook only                       |
-| `DASHBOARD_PASSWORD`    | A strong random string YOU choose (`openssl rand -hex 24`) — the single operator password                                                                                          | dashboard only                               |
-| `RENOVATE_TOKEN`        | A GitHub PAT (or fine-grained token) with **read** access to all fleet repos                                                                                                       | crons (Renovate-failing + last-commit sweep) |
-| `GH_TOKEN`              | `gh auth token` (or a PAT with repo write) — for `self-updating`/`launch` repo mutations                                                                                           | local CLI                                    |
-| `GITHUB_TOKEN`          | **Leave it out.** The recipes (`self-updating`, `prismic-ci`, the security audit) fall back to `gh auth token` when it is unset (#665); a set-but-dead value overrides the keyring | local CLI (optional)                         |
-| GA service-account JSON | Google Cloud → a service account with **domain-wide delegation**; share GA4 + Search Console with it                                                                               | CLI/cron reports (optional enrichment)       |
+| Token / secret          | From where                                                                                                                                                                         | Used by                                |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `AIRTABLE_PAT`          | Airtable → Builder Hub → Personal access tokens (scopes: `data.records:read/write`, `schema.bases:read`; grant the base)                                                           | CLI, dashboard, crons                  |
+| `AIRTABLE_BASE_ID`      | The base URL (`https://airtable.com/<appXXXX>/…`) — this fleet's is `appHG8nLOzULzXOER`                                                                                            | CLI, dashboard, crons                  |
+| `RESEND_API_KEY`        | Resend → API Keys                                                                                                                                                                  | CLI (`report --send-ready`), crons     |
+| `RESEND_WEBHOOK_SECRET` | Resend → Webhooks → (the signing secret of the endpoint you add in Phase 5)                                                                                                        | dashboard webhook only                 |
+| `DASHBOARD_PASSWORD`    | A strong random string YOU choose (`openssl rand -hex 24`) — the single operator password                                                                                          | dashboard only                         |
+| `GH_TOKEN`              | `gh auth token` (or a PAT with repo write) — for `self-updating`/`launch` repo mutations; on the dashboard, a token with `actions:write` for its dispatch buttons                  | local CLI, dashboard                   |
+| `GITHUB_TOKEN`          | **Leave it out.** The recipes (`self-updating`, `prismic-ci`, the security audit) fall back to `gh auth token` when it is unset (#665); a set-but-dead value overrides the keyring | local CLI (optional)                   |
+| GA service-account JSON | Google Cloud → a service account with **domain-wide delegation**; share GA4 + Search Console with it                                                                               | CLI/cron reports (optional enrichment) |
 
 > Keep these out of the repo. The CLI reads them from `~/.config/reddoor-maint/credentials.env` (Phase 3); the dashboard and crons get them from Netlify/GitHub settings (Phases 5–6).
 
@@ -120,7 +119,7 @@ For each repo:
 
 ```bash
 reddoor-maint init <path-to-site>          # convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures → audit
-reddoor-maint self-updating <path-to-site> # adds CI + Renovate, branch protection (required check `ci / ci`), RENOVATE_TOKEN secret; DISABLES GitHub platform auto-merge
+reddoor-maint self-updating <path-to-site> # adds CI + Renovate, branch protection (required check `ci / ci`), no per-repo token (Renovate authenticates as the org-installed `reddoor-renovate` App); DISABLES GitHub platform auto-merge
 ```
 
 Each recipe is branch-isolated + idempotent (re-running on a done site is a `noop`), and creates a `maint/*` branch to PR. Then add the site's row to the Airtable `Websites` table: `Name`, `url`, `Git repo`, `Report recipients (To)`, a `maintenence freq`, a `Header image`, and a `Dashboard Token` value (to make it appear on the cockpit). The site is now in the loop.
@@ -151,13 +150,13 @@ To log in: visit `/`, the browser prompts for Basic Auth — any username, the `
 
 Two scheduled workflows in `.github/workflows/` do the unattended work. Set their inputs in this repo's **Settings → Secrets and variables → Actions**:
 
-**Secrets:** `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RESEND_API_KEY`, `RENOVATE_TOKEN` (the fleet-read token — best as an **org** secret so every repo's CI can use it).
-**Variables:** `OPERATOR_EMAIL` (where the daily digest goes — set this or the digest falls back to `info@reddoorla.com`), `DASHBOARD_BASE_URL` (so digest links point at your dashboard).
+**Secrets:** `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RESEND_API_KEY`, `RENOVATE_APP_PRIVATE_KEY` (the `reddoor-renovate` GitHub App's key — an **org** secret, visible to all repos).
+**Variables:** `RENOVATE_APP_ID` (**org** variable, same App). The nightlies mint a short-lived installation token from the pair and hand it to the CLI as `GH_TOKEN`; there is no long-lived fleet PAT. `OPERATOR_EMAIL` (where the daily digest goes — set this or the digest falls back to `info@reddoorla.com`), `DASHBOARD_BASE_URL` (so digest links point at your dashboard).
 
 | Workflow               | Schedule (UTC) | Runs                                                                                    | Needs                                                                                             |
 | ---------------------- | -------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `daily-reports.yml`    | `23 9 * * *`   | `report --due` → `report --send-ready` → `report --digest`                              | `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RESEND_API_KEY`; vars `OPERATOR_EMAIL`, `DASHBOARD_BASE_URL` |
-| `fleet-lighthouse.yml` | `0 8 * * *`    | fleet Lighthouse audit (`--write-airtable`) + `github-signals --fleet --write-airtable` | `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RENOVATE_TOKEN`                                              |
+| `fleet-lighthouse.yml` | `0 8 * * *`    | fleet Lighthouse audit (`--write-airtable`) + `github-signals --fleet --write-airtable` | `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RENOVATE_APP_PRIVATE_KEY`; var `RENOVATE_APP_ID`             |
 
 (`ci.yml` is the reusable per-repo CI the self-updating sites call; `release.yml` publishes the npm package via changesets + GitHub's `GITHUB_TOKEN` / npm OIDC.)
 
@@ -190,7 +189,7 @@ This runs the chain — **bootstrap (`self-updating`) → first audit → draft 
 ## Phase 9 — Outstanding follow-ups (do these once)
 
 - [ ] Add the **`Launch`** option to the Reports `Report type` single-select in the Airtable UI (Airtable's API can't add select options) — needed before the first `launch`.
-- [ ] Set the `RENOVATE_TOKEN` **org** secret (fleet-read) so both the nightly sweep and every repo's Renovate can use it.
+- [ ] Confirm the `reddoor-renovate` App's `RENOVATE_APP_ID` (org variable) and `RENOVATE_APP_PRIVATE_KEY` (org secret) are visible to all repos, so both the nightly sweep and every repo's Renovate can mint a token (`docs/runbooks/renovate-app-identity.md`).
 - [ ] Set the `OPERATOR_EMAIL` + `DASHBOARD_BASE_URL` Actions **variables** so the digest reaches you with working links.
 - [ ] (Optional) Manually trigger `fleet-lighthouse.yml` once (`gh workflow run fleet-lighthouse.yml`) to populate the cockpit's GitHub signals immediately instead of waiting for the first nightly run.
 
@@ -198,20 +197,21 @@ This runs the chain — **bootstrap (`self-updating`) → first audit → draft 
 
 ## Quick reference — where each secret lives
 
-| Secret                  | `~/.config/reddoor-maint/credentials.env` (CLI) | Netlify env (dashboard) | GitHub Actions secret (crons) | Actions variable |
-| ----------------------- | :---------------------------------------------: | :---------------------: | :---------------------------: | :--------------: |
-| `AIRTABLE_PAT`          |                        ✓                        |            ✓            |               ✓               |                  |
-| `AIRTABLE_BASE_ID`      |                        ✓                        |            ✓            |               ✓               |                  |
-| `RESEND_API_KEY`        |                        ✓                        |                         |               ✓               |                  |
-| `RESEND_WEBHOOK_SECRET` |                                                 |            ✓            |                               |                  |
-| `DASHBOARD_PASSWORD`    |                                                 |            ✓            |                               |                  |
-| `DASHBOARD_BASE_URL`    |                                                 |            ✓            |                               |        ✓         |
-| `RENOVATE_TOKEN`        |                                                 |                         |            ✓ (org)            |                  |
-| `GH_TOKEN`              |                ✓ (or `gh auth`)                 |                         |                               |                  |
-| `GITHUB_TOKEN`          |      omit — falls back to `gh auth token`       |                         |                               |                  |
-| `OPERATOR_EMAIL`        |                                                 |                         |                               |        ✓         |
-| `GA_SUBJECT`            |                        ✓                        |                         |               ✓               |                  |
-| `GA_SA_KEY_JSON`        |         ✓ (as a file, `GA_SA_KEY_PATH`)         |                         |               ✓               |                  |
+| Secret                     | `~/.config/reddoor-maint/credentials.env` (CLI) | Netlify env (dashboard) | GitHub Actions secret (crons) | Actions variable |
+| -------------------------- | :---------------------------------------------: | :---------------------: | :---------------------------: | :--------------: |
+| `AIRTABLE_PAT`             |                        ✓                        |            ✓            |               ✓               |                  |
+| `AIRTABLE_BASE_ID`         |                        ✓                        |            ✓            |               ✓               |                  |
+| `RESEND_API_KEY`           |                        ✓                        |                         |               ✓               |                  |
+| `RESEND_WEBHOOK_SECRET`    |                                                 |            ✓            |                               |                  |
+| `DASHBOARD_PASSWORD`       |                                                 |            ✓            |                               |                  |
+| `DASHBOARD_BASE_URL`       |                                                 |            ✓            |                               |        ✓         |
+| `RENOVATE_APP_PRIVATE_KEY` |                                                 |                         |            ✓ (org)            |                  |
+| `RENOVATE_APP_ID`          |                                                 |                         |                               |     ✓ (org)      |
+| `GH_TOKEN`                 |                ✓ (or `gh auth`)                 |            ✓            |                               |                  |
+| `GITHUB_TOKEN`             |      omit — falls back to `gh auth token`       |                         |                               |                  |
+| `OPERATOR_EMAIL`           |                                                 |                         |                               |        ✓         |
+| `GA_SUBJECT`               |                        ✓                        |                         |               ✓               |                  |
+| `GA_SA_KEY_JSON`           |         ✓ (as a file, `GA_SA_KEY_PATH`)         |                         |               ✓               |                  |
 
 ### GA / Search Console in the daily cron
 

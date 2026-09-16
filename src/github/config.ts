@@ -3,8 +3,6 @@ import { execFileSync } from "node:child_process";
 export type GitHubConfig = {
   /** Broad PAT used by the tool's own `gh` calls (PRs, branch protection, secrets). */
   token: string;
-  /** Narrow PAT stored per-repo as the RENOVATE_TOKEN secret. Falls back to `token`. */
-  renovateToken: string;
 };
 
 /** The shape of `node:child_process`'s `execFileSync` that `ghAuthToken` needs —
@@ -100,15 +98,11 @@ function resolveToken(exec?: ExecFileSyncFn): string | null {
  * goes stale on the next `gh auth login/refresh/logout` (#665). Returns null
  * only when neither source has a token — the signal that git/GitHub features
  * aren't configured.
- *
- * `RENOVATE_TOKEN` falls back to the resolved token when unset (a narrower token
- * is recommended but optional).
  */
 export function readGitHubConfig(
   opts: { execFileSync?: ExecFileSyncFn } = {},
 ): GitHubConfig | null {
   const token = resolveToken(opts.execFileSync);
   if (!token) return null;
-  const renovateToken = process.env.RENOVATE_TOKEN?.trim() || token;
-  return { token, renovateToken };
+  return { token };
 }

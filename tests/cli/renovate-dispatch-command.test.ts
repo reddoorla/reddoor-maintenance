@@ -28,6 +28,19 @@ describe("runRenovateDispatchCommand guards", () => {
     expect(r.code).toBe(0);
     expect(r.output).toContain("skipped");
   });
+
+  it("RENOVATE_TOKEN ALONE no longer authorizes a dispatch — the retired PAT name is not a token source", async () => {
+    process.env.RENOVATE_TOKEN = "ghp_retired_pat";
+    delete process.env.GH_TOKEN;
+    // An empty fleet: had the retired name been honoured, the run would read it
+    // and report "nothing to dispatch" instead of the no-token skip.
+    const r = await runRenovateDispatchCommand({
+      fleet: true,
+      base: makeFakeBase({ Websites: [] }),
+    });
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("skipped: no GH_TOKEN");
+  });
 });
 
 // Counter bookkeeping must run even when there is nothing to dispatch — the
@@ -45,7 +58,7 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
   });
 
   it("resets stale auto-fix counters on a fully-clean fleet (zero targets)", async () => {
-    process.env.RENOVATE_TOKEN = "tok";
+    process.env.GH_TOKEN = "tok";
     const base = makeFakeBase({
       Websites: [
         {
@@ -80,7 +93,7 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
     // This counter is written by the nightly Renovate dispatch, which was never
     // part of the Phase 3 sweep — so it reached Turso only via the hourly sync.
     // The cockpit's "auto-fix exhausted" chip reads it.
-    process.env.RENOVATE_TOKEN = "tok";
+    process.env.GH_TOKEN = "tok";
     const base = makeFakeBase({
       Websites: [
         {
@@ -116,7 +129,7 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
   });
 
   it("makes no Airtable write when the counter is already 0 (or absent)", async () => {
-    process.env.RENOVATE_TOKEN = "tok";
+    process.env.GH_TOKEN = "tok";
     const base = makeFakeBase({
       Websites: [
         {
@@ -152,7 +165,7 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
   });
 
   it("does not reset while advisories remain (repo-less row keeps targets empty)", async () => {
-    process.env.RENOVATE_TOKEN = "tok";
+    process.env.GH_TOKEN = "tok";
     // No "Git repo" → selectRenovateTargets stays empty, so makeGitHub is never
     // constructed and no network is touched — while the vulns block the reset.
     const base = makeFakeBase({

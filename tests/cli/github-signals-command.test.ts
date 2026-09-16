@@ -53,6 +53,28 @@ describe("runGitHubSignalsCommand guards", () => {
     expect(r.code).toBe(0);
     expect(r.output).toContain("skipped");
   });
+
+  it("RENOVATE_TOKEN ALONE no longer authorizes the sweep — the retired PAT name is not a token source", async () => {
+    // The nightly passes the minted App token as GH_TOKEN. A leftover
+    // RENOVATE_TOKEN (the retired operator PAT) must not quietly revive the
+    // old identity: without GH_TOKEN this is the no-token skip, and Airtable is
+    // never opened.
+    process.env.RENOVATE_TOKEN = "ghp_retired_pat";
+    delete process.env.GH_TOKEN;
+    let opened = false;
+    const r = await runGitHubSignalsCommand(
+      { fleet: true, writeAirtable: true },
+      {
+        openBase: () => {
+          opened = true;
+          throw new Error("opened Airtable on the strength of RENOVATE_TOKEN alone");
+        },
+      },
+    );
+    expect(opened).toBe(false);
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("skipped: no GH_TOKEN");
+  });
 });
 
 describe("the github-signals Turso mirror (#539 Phase 3 dual-write)", () => {
@@ -60,8 +82,8 @@ describe("the github-signals Turso mirror (#539 Phase 3 dual-write)", () => {
   const originalGh = process.env.GH_TOKEN;
 
   beforeEach(() => {
-    process.env.RENOVATE_TOKEN = "test-token";
-    delete process.env.GH_TOKEN;
+    process.env.GH_TOKEN = "test-token";
+    delete process.env.RENOVATE_TOKEN;
   });
 
   afterEach(() => {

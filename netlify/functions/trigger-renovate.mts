@@ -38,9 +38,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
           AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
           AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
           DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
-          RENOVATE_TOKEN:
-            typeof process.env.RENOVATE_TOKEN === "string" ||
-            typeof process.env.GH_TOKEN === "string",
+          GH_TOKEN: typeof process.env.GH_TOKEN === "string",
         },
       },
       { status: 200 },
@@ -57,7 +55,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   // The dashboard's first request-path GitHub write needs a token with
   // actions:write. Absent → degrade cleanly (button shows "not configured").
-  const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  const token = process.env.GH_TOKEN?.trim();
   if (!token) return json({ ok: false, error: "not-configured" }, 503);
 
   if (!process.env.TURSO_DATABASE_URL) {

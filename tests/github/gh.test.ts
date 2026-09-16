@@ -184,11 +184,11 @@ describe("makeGitHub", () => {
 
   it("setRepoSecret calls gh secret set", async () => {
     const { spawn, calls } = fakeSpawn({});
-    await makeGitHub({ token: "T", spawn }).setRepoSecret("o/r", "RENOVATE_TOKEN", "v");
+    await makeGitHub({ token: "T", spawn }).setRepoSecret("o/r", "SOME_SECRET", "v");
     expect(calls[0]!.args).toEqual([
       "secret",
       "set",
-      "RENOVATE_TOKEN",
+      "SOME_SECRET",
       "--repo",
       "o/r",
       "--body",
@@ -287,9 +287,9 @@ describe("makeGitHub", () => {
   });
 
   it("secretExists checks the secret name list", async () => {
-    const has = fakeSpawn({ code: 0, stdout: "RENOVATE_TOKEN\nOTHER\n" });
+    const has = fakeSpawn({ code: 0, stdout: "SOME_SECRET\nOTHER\n" });
     expect(
-      await makeGitHub({ token: "T", spawn: has.spawn }).secretExists("o/r", "RENOVATE_TOKEN"),
+      await makeGitHub({ token: "T", spawn: has.spawn }).secretExists("o/r", "SOME_SECRET"),
     ).toBe(true);
     // per_page=100: the REST default of 30 would false-negative on a repo with >30 secrets,
     // making setRepoSecret needlessly overwrite an already-present one.
@@ -301,7 +301,7 @@ describe("makeGitHub", () => {
     ]);
     const none = fakeSpawn({ code: 0, stdout: "OTHER\n" });
     expect(
-      await makeGitHub({ token: "T", spawn: none.spawn }).secretExists("o/r", "RENOVATE_TOKEN"),
+      await makeGitHub({ token: "T", spawn: none.spawn }).secretExists("o/r", "SOME_SECRET"),
     ).toBe(false);
   });
 

@@ -39,10 +39,10 @@ export async function runProtectionAuditCommand(
   if (!org) {
     return { output: "protection-audit requires --org <org>", code: 2 };
   }
-  const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  const token = process.env.GH_TOKEN?.trim();
   if (!depsOverride && !token) {
     return {
-      output: "protection-audit skipped: no RENOVATE_TOKEN/GH_TOKEN (fleet read) configured.",
+      output: "protection-audit skipped: no GH_TOKEN (fleet read) configured.",
       code: 0,
     };
   }

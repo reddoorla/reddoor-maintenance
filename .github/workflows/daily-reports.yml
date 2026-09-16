@@ -205,7 +205,7 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           # The digest's Renovate/CI signals now come from the nightly-persisted
           # fields (collectRenovateAlerts/collectCiAlerts), so no live GitHub sweep
-          # runs here — RENOVATE_TOKEN is no longer needed for this step.
+          # runs here — no GitHub token is needed for this step.
           # Both optional — the CLI falls back to the operator inbox
           # (src/util/operator.ts) and https://reddoor-maintenance.netlify.app
           # when unset/empty. Set the repo Actions *variables* (not secrets) to

@@ -165,7 +165,7 @@ jobs:
           # red run — it's Renovate silently never dispatching again.
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          RENOVATE_TOKEN: ${{ steps.app-token-late.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token-late.outputs.token }}
         run: |
           node dist/cli/bin.js renovate-dispatch --fleet | tee /tmp/dispatch.out || true
           summary=$(grep -oE "RENOVATE_DISPATCH_SUMMARY dispatched=[0-9]+ skipped=[0-9]+ failed=[0-9]+" /tmp/dispatch.out | tail -n1 || true)
@@ -191,7 +191,7 @@ jobs:
         id: protection
         continue-on-error: true
         env:
-          RENOVATE_TOKEN: ${{ steps.app-token-late.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token-late.outputs.token }}
         run: |
           # pipefail is NOT in Actions' default `bash -e {0}` shell — without it,
           # `| tee` would swallow the audit's exit 1 and this step could never
@@ -200,7 +200,7 @@ jobs:
           # An empty minted token (failed mint step) must be a FAILURE here, not
           # the CLI's local-dev clean-skip: a skip verifies zero repos, and
           # treating it as success would auto-close real gap issues below.
-          if [ -z "$RENOVATE_TOKEN" ]; then
+          if [ -z "$GH_TOKEN" ]; then
             echo "::error::protection-audit: minted App token is empty — cannot verify coverage."
             exit 1
           fi

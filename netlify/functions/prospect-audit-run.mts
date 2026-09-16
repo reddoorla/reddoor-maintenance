@@ -49,9 +49,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
           DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
           PROSPECT_AUDIT_DISPATCH_REPO:
             typeof process.env.PROSPECT_AUDIT_DISPATCH_REPO === "string",
-          RENOVATE_TOKEN:
-            typeof process.env.RENOVATE_TOKEN === "string" ||
-            typeof process.env.GH_TOKEN === "string",
+          GH_TOKEN: typeof process.env.GH_TOKEN === "string",
           TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
         },
       },
@@ -91,9 +89,9 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
   // Same token the dashboard's Renovate trigger uses — reused here rather than
   // adding a second secret, per the design doc's deploy-time note.
-  const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  const token = process.env.GH_TOKEN?.trim();
   if (!token) {
-    console.error("[prospect-audit-run] no RENOVATE_TOKEN/GH_TOKEN configured");
+    console.error("[prospect-audit-run] no GH_TOKEN configured");
     return json({ ok: false, error: "not-configured" }, 503);
   }
 
