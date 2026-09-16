@@ -127,24 +127,91 @@ const MATCH_GUARD_FILES = [
   "src/routes/dev/match/[uid]/+page.server.ts",
 ] as const;
 
+/** Tokens after which a `/` opens a REGEX literal rather than a division. This
+ *  is the usual JS ambiguity, answered by lookback at the last significant
+ *  character — a scanner's answer, not a parser's.
+ *
+ *  `)` is deliberately NOT here. `if (x) /re/.test(y)` is legal and is read as
+ *  division, which costs nothing (the `/` is copied through unchanged, exactly
+ *  as before this function existed) and keeps `(a + b) / 2` right, which is far
+ *  commoner in that position. That is the residual: a regex literal opening
+ *  directly after `)` AND containing a quote falls back to the old behaviour and
+ *  therefore DENIES. Deny is the safe direction here — see `carriesGuard`. */
+const REGEX_PRECEDERS = /[(,=:[!&|?{};+\-*%~^<>]/;
+const REGEX_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "case",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "instanceof",
+  "do",
+  "else",
+  "yield",
+  "await",
+]);
+
+function opensRegex(prevChar: string, prevWord: string): boolean {
+  if (prevChar === "") return true;
+  if (REGEX_PRECEDERS.test(prevChar)) return true;
+  return REGEX_KEYWORDS.has(prevWord);
+}
+
+/** The last significant character emitted so far, and the identifier ending at
+ *  it. Both scanners look back over their own OUTPUT, which is why masking is
+ *  safe to interleave: masked bodies are spaces and the delimiters survive, so
+ *  the structural lookback reads the same either way. */
+function lookback(out: string): { char: string; word: string } {
+  let i = out.length - 1;
+  while (i >= 0 && /\s/.test(out[i]!)) i--;
+  if (i < 0) return { char: "", word: "" };
+  let j = i;
+  while (j >= 0 && /[A-Za-z0-9_$]/.test(out[j]!)) j--;
+  return { char: out[i]!, word: out.slice(j + 1, i + 1) };
+}
+
+/** Index of a regex literal's CLOSING `/`, or -1 if `source[at]` does not in
+ *  fact open one. `[...]` character classes are tracked because a `/` inside one
+ *  does not close the literal (`/[a-z/]/`). A newline or an unterminated run
+ *  means this was never a regex, and the caller then treats the `/` as an
+ *  ordinary character — the behaviour that predates regex-awareness. */
+function regexLiteralEnd(source: string, at: number): number {
+  let inClass = false;
+  for (let i = at + 1; i < source.length; i++) {
+    const c = source[i]!;
+    if (c === "\\") {
+      i++;
+      continue;
+    }
+    if (c === "\n") return -1;
+    if (inClass) {
+      if (c === "]") inClass = false;
+      continue;
+    }
+    if (c === "[") {
+      inClass = true;
+      continue;
+    }
+    if (c === "/") return i;
+  }
+  return -1;
+}
+
 /** Strip line and block comments, so the COMMON commented-out guard cannot
  *  satisfy the match — an import left in place above `// if (!dev) error(404);`
  *  is the likeliest real-world state, and it used to pass. String and template
  *  literals are skipped so a `//` inside a URL is not read as a comment.
  *
- *  This is a scanner, not a parser, and a REGEX LITERAL DEFEATS IT: a quote
- *  character inside one — `/[a-z0-9']+/` — opens a string that never closes, and
- *  everything to the next matching quote, comment text included, is preserved.
- *  The residual direction is therefore UNDER-strip, not over-strip; an earlier
- *  version of this comment asserted the opposite, and "can only deny" was not
- *  something it could back.
- *
- *  What stops that under-strip granting a pass today is `maskLiterals`, which
- *  `carriesGuard` runs over this output and which misreads the same region the
- *  same way — so the region is blanked rather than believed, and the observed
- *  failure on such a file is a REFUSED real guard, not an accepted absent one.
- *  Read that as one scanner's bug cancelling another's, not as a property
- *  either function guarantees. */
+ *  Regex literals are recognised (#726). Without that, a quote character inside
+ *  one — `/[a-z0-9']+/` — opened a string that never closed, and everything to
+ *  the next matching quote was preserved as if it were string content. On a
+ *  CORRECTLY guarded file that swallowed the live `if (!dev) error(404)` and the
+ *  twin read as unguarded, so a launch was blocked on a site that was fine. The
+ *  literal is now copied through verbatim, which is what a comment stripper
+ *  should do with one. */
 function stripComments(source: string): string {
   let out = "";
   for (let i = 0; i < source.length;) {
@@ -159,6 +226,17 @@ function stripComments(source: string): string {
       while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i++;
       i += 2;
       continue;
+    }
+    if (ch === "/") {
+      const { char, word } = lookback(out);
+      if (opensRegex(char, word)) {
+        const end = regexLiteralEnd(source, i);
+        if (end !== -1) {
+          out += source.slice(i, end + 1);
+          i = end + 1;
+          continue;
+        }
+      }
     }
     if (ch === '"' || ch === "'" || ch === "`") {
       out += ch;
@@ -188,13 +266,26 @@ function stripComments(source: string): string {
  *
  *  It exists because `if (!dev) console.warn("this should throw error(404)")`
  *  read as a refusal. Masking can only ever REMOVE candidate refusal tokens, so
- *  it can only ever deny. Its own edge case is the same one `stripComments` has
- *  — a regex literal containing a quote character opens a literal that never
- *  closes — and there too the failure is over-masking, which denies. */
+ *  it can only ever deny.
+ *  Regex BODIES are masked too, for the same reason and with the same effect: a
+ *  regex is data, so `if (!dev) RE = /throw/` must not be read as a refusal. It
+ *  was, before #726. */
 function maskLiterals(code: string): string {
   let out = "";
   for (let i = 0; i < code.length;) {
     const ch = code[i]!;
+    if (ch === "/") {
+      const { char, word } = lookback(out);
+      if (opensRegex(char, word)) {
+        const end = regexLiteralEnd(code, i);
+        if (end !== -1) {
+          // Delimiters and length kept, body blanked — exactly the string rule.
+          out += "/" + " ".repeat(end - i - 1) + "/";
+          i = end + 1;
+          continue;
+        }
+      }
+    }
     if (ch !== '"' && ch !== "'" && ch !== "`") {
       out += ch;
       i++;
@@ -336,7 +427,7 @@ export async function matchingDisposition(
   }
   return {
     ok: false,
-    message: `none of ${read.join(", ")} carries an \`if (!dev)\` guard on \`$app/environment\` whose own branch refuses (\`error(404\` or \`throw\`), once comments are stripped and string contents masked — the matching twin would ship`,
+    message: `none of ${read.join(", ")} carries an \`if (!dev)\` guard on \`$app/environment\` whose own branch refuses (\`error(404\` or \`throw\`), once comments are stripped and string and regex contents masked — the matching twin would ship`,
   };
 }
 
