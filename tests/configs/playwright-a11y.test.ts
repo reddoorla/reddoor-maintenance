@@ -123,3 +123,114 @@ describe("configs/playwright-a11y", () => {
     expect(mod.default.use?.contextOptions?.reducedMotion).toBe("reduce");
   });
 });
+
+/**
+ * gateServer (#700). This config starts the system under test for every site
+ * smoke suite in the fleet, and it started `npm run vite:dev` unconditionally —
+ * so the production bundle was built in CI and then never opened by a browser.
+ * Hydration, code splitting and asset hashing are exactly what dev replaces,
+ * and a stylesheet is even fetched under a different CSP directive in each.
+ *
+ * The switch is opt-in, and the trap it has to avoid is the naive version of
+ * itself: the readiness probe points at `/dev/a11y-fixtures`, a route that is
+ * not guaranteed to exist in a production build. A flip that keeps that probe
+ * turns a working gate into one that times out for 120 seconds on every
+ * opted-in site.
+ */
+describe("configs/playwright-a11y — gateServer (#700)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete process.env.REDDOOR_GATE_SERVER;
+    vi.resetModules();
+  });
+
+  async function importWithGate(gate: string | undefined, port = "41234") {
+    vi.resetModules();
+    vi.stubEnv("REDDOOR_SMOKE_PORT", port);
+    if (gate === undefined) {
+      vi.stubEnv("REDDOOR_GATE_SERVER", "");
+      delete process.env.REDDOOR_GATE_SERVER;
+    } else {
+      vi.stubEnv("REDDOOR_GATE_SERVER", gate);
+    }
+    return await import("../../src/configs/playwright-a11y.js");
+  }
+
+  type Server = { command: string; url: string; timeout: number; reuseExistingServer: boolean };
+
+  // The grant side: a site that has not opted in must get byte-identical
+  // behaviour, because every fleet site is one until it says otherwise.
+  it("defaults to the dev server, probing the fixture route", async () => {
+    const mod = await importWithGate(undefined);
+    const server = mod.default.webServer as Server;
+    expect(server.command).toBe("npm run vite:dev -- --port 41234 --strictPort");
+    expect(server.url).toBe("http://localhost:41234/dev/a11y-fixtures");
+    expect(server.timeout).toBe(120_000);
+  });
+
+  it("builds and serves the production bundle when the site opts in", async () => {
+    const mod = await importWithGate("preview");
+    const server = mod.default.webServer as Server;
+    expect(server.command).toBe("npm run build && npm run preview -- --port 41234 --strictPort");
+  });
+
+  // The trap, asserted directly.
+  it("never probes a /dev/* route under preview", async () => {
+    const mod = await importWithGate("preview");
+    const server = mod.default.webServer as Server;
+    expect(server.url).toBe("http://localhost:41234/");
+    expect(server.url).not.toContain("/dev/");
+  });
+
+  it("gives the preview server a budget that covers a production build", async () => {
+    const mod = await importWithGate("preview");
+    const server = mod.default.webServer as Server;
+    // A vite boot is ~10-20s; a SvelteKit build with prerendering is minutes.
+    expect(server.timeout).toBeGreaterThanOrEqual(300_000);
+  });
+
+  it("keeps the port binding and the never-reuse rule under preview", async () => {
+    const mod = await importWithGate("preview");
+    const server = mod.default.webServer as Server;
+    const probed = new URL(server.url).port;
+    expect(server.command).toContain(`--port ${probed}`);
+    expect(server.command).toContain("--strictPort");
+    expect(server.reuseExistingServer).toBe(false);
+    expect(mod.default.use?.baseURL).toBe(`http://localhost:${probed}`);
+  });
+
+  it("falls back to dev on an unrecognized value rather than shelling it", async () => {
+    const mod = await importWithGate("prod");
+    const server = mod.default.webServer as Server;
+    expect(server.command).toBe("npm run vite:dev -- --port 41234 --strictPort");
+  });
+
+  describe("readGateServer", () => {
+    it("reads package.json#reddoor.gateServer from a directory", async () => {
+      const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const mod = await import("../../src/configs/playwright-a11y.js");
+      const dir = await mkdtemp(join(tmpdir(), "reddoor-gate-"));
+      try {
+        // No package.json at all — a bare checkout must not throw here, because
+        // this runs at Playwright config-evaluation time in every worker.
+        expect(mod.readGateServer(dir)).toBe("dev");
+        await writeFile(
+          join(dir, "package.json"),
+          JSON.stringify({ name: "site", reddoor: { gateServer: "preview" } }),
+        );
+        expect(mod.readGateServer(dir)).toBe("preview");
+        await writeFile(
+          join(dir, "package.json"),
+          JSON.stringify({ name: "site", reddoor: { gateServer: "prod" } }),
+        );
+        expect(mod.readGateServer(dir)).toBe("dev");
+        await writeFile(join(dir, "package.json"), "{ not json");
+        expect(mod.readGateServer(dir)).toBe("dev");
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+});

@@ -844,4 +844,263 @@ describe("recipes/launch", () => {
     await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: true });
     await rm(dir, { recursive: true, force: true });
   });
+
+  it("accepts a correct guard in a file whose regex literal contains a quote (#726)", async () => {
+    // The scanner pair was not regex-aware: the apostrophe inside `/[a-z0-9']+/`
+    // opened a string literal that never closed, so `stripComments` under-stripped
+    // from there and `maskLiterals` then blanked the rest of the file — taking the
+    // live `if (!dev) error(404)` with it. A correctly guarded twin read as
+    // unguarded and `launch` stopped at step 0 saying "the matching twin would
+    // ship". This is the fixture #726 asks for.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-regex-quote-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        'import { error } from "@sveltejs/kit";',
+        "export const prerender = false;",
+        "const SLUG = /[a-z0-9']+/;",
+        "export async function load({ params }) {",
+        '  if (!dev) error(404, { message: "Not found" });',
+        "  return { uid: params.uid, ok: SLUG.test(params.uid) };",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: true });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a refusal that exists only inside a REGEX literal", async () => {
+    // The other half of regex-awareness, and the reason the regex body is masked
+    // rather than passed through: `maskLiterals` exists so a refusal token that is
+    // only ever data cannot grant a pass. A regex is data too — without this, the
+    // guard's own consequent `RE = /throw/` matched REFUSAL and granted.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-regex-refusal-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        "export const prerender = false;",
+        "let RE;",
+        "export async function load({ params }) {",
+        "  if (!dev) RE = /throw/;",
+        "  return { uid: params.uid };",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: false });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("still refuses a COMMENTED-OUT guard that sits below a regex literal", async () => {
+    // Regex-awareness must not widen the grant: the comment stripper still has to
+    // reach a commented-out guard on the far side of a regex containing a quote.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-regex-commented-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        'import { error } from "@sveltejs/kit";',
+        "export const prerender = false;",
+        "const SLUG = /[a-z0-9']+/;",
+        "export async function load({ params }) {",
+        '  // if (!dev) error(404, { message: "Not found" });',
+        "  return { uid: params.uid, ok: SLUG.test(params.uid) };",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: false });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("reads `/` after an identifier as DIVISION, not as a regex literal", async () => {
+    // The disambiguation's other direction. If division opened a regex literal,
+    // the scan would run to the next `/` and could swallow the guard — so this is
+    // the control that proves the lookback is not simply calling every `/` a
+    // regex.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-division-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        'import { error } from "@sveltejs/kit";',
+        "export const prerender = false;",
+        "export async function load({ params, total = 10 }) {",
+        "  const half = total / 2;",
+        "  const ratio = half / total;",
+        '  if (!dev) error(404, { message: "Not found" });',
+        "  return { uid: params.uid, ratio };",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: true });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** A guarded twin page, so a fixture exercising ANOTHER gap still clears the
+   *  page half of the pre-flight. */
+  const GUARDED_TWIN = [
+    'import { dev } from "$app/environment";',
+    'import { error } from "@sveltejs/kit";',
+    "export const prerender = false;",
+    "export async function load({ params }) {",
+    '  if (!dev) error(404, { message: "Not found" });',
+    "  return { uid: params.uid };",
+    "}",
+  ].join("\n");
+
+  it("refuses a +server.ts under /dev/match that a LAYOUT guard cannot cover (#723)", async () => {
+    // SvelteKit layout `load` does not run for `+server.ts` endpoints, so a site
+    // whose only guard is the /dev layout satisfies the old fixed-path check
+    // while the endpoint is served in production. The deployed gate misses it
+    // too: it probes the page path, which 404s correctly.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-endpoint-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/+layout.server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        'import { error } from "@sveltejs/kit";',
+        "export function load() {",
+        '  if (!dev) error(404, { message: "Not found" });',
+        "}",
+      ].join("\n"),
+    );
+    await writeFile(join(dir, "src/routes/dev/match/[uid]/+page.server.ts"), GUARDED_TWIN);
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+server.ts"),
+      [
+        "import { json } from '@sveltejs/kit';",
+        "export async function GET({ params }) {",
+        "  return json({ uid: params.uid });",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining("+server.ts"),
+    });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("accepts a +server.ts that carries its OWN guard", async () => {
+    // The control for the rule above: the endpoint rule must be able to PASS, or
+    // the refusal it produces is not evidence of anything.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-endpoint-ok-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(join(dir, "src/routes/dev/match/[uid]/+page.server.ts"), GUARDED_TWIN);
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+server.ts"),
+      [
+        'import { dev } from "$app/environment";',
+        'import { error, json } from "@sveltejs/kit";',
+        "export async function GET({ params }) {",
+        '  if (!dev) error(404, { message: "Not found" });',
+        "  return json({ uid: params.uid });",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: true });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("refuses an unguarded SIBLING route under /dev/match (#723)", async () => {
+    // The old check inspected three fixed paths and returned on the first guarded
+    // one, so a /dev/match/frozen index — a natural thing for a match harness to
+    // grow — was inspected by neither gate. The deployed half probes only
+    // /dev/match/home and never sees it either.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-sibling-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await mkdir(join(dir, "src/routes/dev/match/frozen"), { recursive: true });
+    await writeFile(join(dir, "src/routes/dev/match/[uid]/+page.server.ts"), GUARDED_TWIN);
+    await writeFile(
+      join(dir, "src/routes/dev/match/frozen/+page.server.ts"),
+      [
+        "export const prerender = false;",
+        "export async function load() {",
+        "  return { comps: [] };",
+        "}",
+      ].join("\n"),
+    );
+    await expect(matchingDisposition(dir)).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining("frozen"),
+    });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("probes EVERY uid in matching/harness.json, not just home (#723)", async () => {
+    // harness.json is the real uid source — it is what the match-harness recipe
+    // installs and what the gates read. Probing a hardcoded "home" leaves every
+    // sibling uid unprobed, so a LIVE twin on any other uid passed the deployed
+    // gate untouched.
+    const dir = await mkdtemp(join(tmpdir(), "launch-devguard-uids-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(join(dir, "src/routes/dev/match/[uid]/+page.server.ts"), GUARDED_TWIN);
+    await mkdir(join(dir, "matching"), { recursive: true });
+    await writeFile(
+      join(dir, "matching/harness.json"),
+      JSON.stringify({
+        pages: {
+          home: { uid: "home", cand: "/dev/match/home" },
+          services: { uid: "services", cand: "/dev/match/services" },
+          legal: { uid: null, cand: "/legal" },
+        },
+      }),
+    );
+    const base = makeFakeBase(websitesSeed());
+    const result = await launch(
+      { path: dir, name: "Acme Co" },
+      {
+        ...deps(base),
+        probe: async (url: string) => {
+          // home is correctly guarded; services is the LIVE twin, announcing
+          // itself with the machine tell.
+          if (url.endsWith("/dev/match/services"))
+            return {
+              status: 404,
+              body: `<h1>404</h1><p>${UNGUARDED_TWIN_TELL}: no assembly for "services"</p>`,
+            };
+          if (url.includes("/dev/match/")) return { status: 404, body: "<h1>404</h1>" };
+          return { status: 200, body: '{"ok":true}' };
+        },
+      },
+    );
+    expect(result.complete).toBe(false);
+    const devGuard = result.steps.find((s) => s.name === "dev-guard");
+    expect(devGuard?.result).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("services"),
+    });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("falls back to /dev/match/home when there is no matching/harness.json", async () => {
+    // Not every launched site carries the harness. An absent harness.json must
+    // keep the previous behaviour rather than becoming a hard failure — and this
+    // control is what proves the enumeration did not turn absence into a refusal.
+    const dir = await mkdtemp(join(tmpdir(), "launch-devguard-no-harness-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(join(dir, "src/routes/dev/match/[uid]/+page.server.ts"), GUARDED_TWIN);
+    const base = makeFakeBase(websitesSeed());
+    const probed: string[] = [];
+    const result = await launch(
+      { path: dir, name: "Acme Co" },
+      {
+        ...deps(base),
+        probe: async (url: string) => {
+          probed.push(url);
+          if (url.endsWith("/dev/match/home")) return { status: 404, body: "<h1>404</h1>" };
+          return { status: 200, body: '{"ok":true}' };
+        },
+      },
+    );
+    expect(result.complete).toBe(true);
+    expect(probed.some((u) => u.endsWith("/dev/match/home"))).toBe(true);
+    await rm(dir, { recursive: true, force: true });
+  });
 });

@@ -1009,3 +1009,59 @@ describe("renderProspectReport", () => {
     });
   });
 });
+
+/**
+ * The methods copy may only say what we measured (#675).
+ *
+ * "Most AI crawlers do not run JavaScript" was an inference from someone else's
+ * crawler study, printed to a client as a fact about their site. The experiment
+ * in docs/aeo-evidence-base.md settled the underlying question for our own
+ * instrument, so the report now cites that instead of the assumption.
+ */
+describe("readability methods copy", () => {
+  const withJsDependence = renderProspectReport(
+    result({
+      checks: {
+        ok: true,
+        data: { ...checksData(), jsDependence: { avgMissing: 0.4, perPage: [] } },
+      },
+    }),
+  );
+
+  it("does not assert an unmeasured claim about what AI crawlers do", () => {
+    expect(withJsDependence).not.toContain("Most AI crawlers do not run JavaScript");
+    expect(withJsDependence).not.toContain("most don't run JavaScript");
+  });
+
+  it("cites the controlled result instead", () => {
+    expect(withJsDependence).toContain("three times out of three");
+  });
+});
+
+/**
+ * competitorsSeen is the sellable artifact, and the report buried it (#601).
+ *
+ * The top cited domain of the first real audit was a different company with
+ * essentially the same name as the prospect, and it rendered as one anonymous
+ * row in a competitor list — disconnected from the query that produced it.
+ */
+describe("AI visibility — namesakes and per-query attribution", () => {
+  const html = renderProspectReport(
+    result({
+      probes: {
+        ok: true,
+        data: { ...probesData(), namesakes: [{ domain: "reddoorcreative.com", count: 13 }] },
+      },
+    }),
+  );
+
+  it("calls a namesake out as a brand collision under its own heading", () => {
+    expect(html).toContain("A different business is using your name");
+    expect(html).toContain("reddoorcreative.com");
+  });
+
+  it("attributes each cited domain to the query it came back on", () => {
+    expect(html).toContain("came back on:");
+    expect(html).toContain("best roofer in Boise");
+  });
+});

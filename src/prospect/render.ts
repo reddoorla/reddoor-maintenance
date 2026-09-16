@@ -1,7 +1,7 @@
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { hostnameOf } from "../util/url.js";
 import { ANALYZE_SKIPPED, PROBES_SKIPPED } from "./pipeline.js";
-import { resolveBusinessName } from "./probes.js";
+import { domainOf, resolveBusinessName } from "./probes.js";
 import type {
   AnalyzeResult,
   ChecksResult,
@@ -213,13 +213,57 @@ function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string 
     })
     .join("");
 
-  const competitors = p.competitorsSeen.length
-    ? `<h3>Who the engines cited instead</h3><ul>${p.competitorsSeen
-        .map((c) => `<li>${escapeHtml(c.domain)} — ${c.count} time${c.count === 1 ? "" : "s"}</li>`)
+  // Which searches a domain actually came back on. Derived from the answers we
+  // already store — no new measurement — so the report can say "for this search,
+  // these came back" instead of one merged list disconnected from the queries
+  // that produced it. Stored reports may hold full URLs rather than bare hosts,
+  // so both sides go through domainOf.
+  const queriesCiting = (domain: string): string[] => [
+    ...new Set(
+      p.answers
+        .filter((a) => a.citedDomains.some((d) => domainOf(d) === domain))
+        .map((a) => a.query),
+    ),
+  ];
+
+  const attribution = (domain: string): string => {
+    const queries = queriesCiting(domain);
+    if (queries.length === 0) return "";
+    return `, came back on: ${queries.map((q) => `“${escapeHtml(q)}”`).join(", ")}`;
+  };
+
+  const countOf = (n: number): string => `${n} time${n === 1 ? "" : "s"}`;
+
+  // Absent (a report stored before the field existed) means "not measured", so
+  // nothing is claimed and every cited domain stays an ordinary competitor —
+  // exactly what those documents already said.
+  const namesakes = p.namesakes ?? [];
+  const namesakeDomains = new Set(namesakes.map((n) => n.domain));
+
+  const namesakeBlock = namesakes.length
+    ? `<h3>A different business is using your name</h3>
+        <p>The engines cited these domains, and they carry your own business name. They are not competitors — this is a brand collision, and on a search for your name it is what your buyer finds instead of you.</p>
+        <ul>${namesakes
+          .map(
+            (n) =>
+              `<li>${escapeHtml(n.domain)} — cited ${countOf(n.count)}${attribution(n.domain)}</li>`,
+          )
+          .join("")}</ul>`
+    : "";
+
+  // A namesake already has its own section above; printing it again here as a
+  // rival would file the single most valuable finding of the run under the one
+  // heading that misdescribes it.
+  const rivals = p.competitorsSeen.filter((c) => !namesakeDomains.has(c.domain));
+  const competitors = rivals.length
+    ? `<h3>Who the engines cited instead</h3><ul>${rivals
+        .map(
+          (c) => `<li>${escapeHtml(c.domain)} — ${countOf(c.count)}${attribution(c.domain)}</li>`,
+        )
         .join("")}</ul>`
     : "";
 
-  return recognition + categoryCaveat + degradedNotice + groups + competitors;
+  return recognition + categoryCaveat + degradedNotice + groups + namesakeBlock + competitors;
 }
 
 /** crawlerAccessMeasured is false only when the robots.txt fetch itself
@@ -309,7 +353,7 @@ function buildReadabilitySection(c: ChecksResult): string {
     c.jsDependence.avgMissing === null
       ? `<p class="muted">JavaScript-dependence: not measured — no page produced a comparable raw/rendered pair.</p>`
       : `<p><strong>${Math.round(c.jsDependence.avgMissing * 100)}%</strong> of the words a visitor reads only appear after JavaScript runs.
-    Most AI crawlers do not run JavaScript, so that share of your site is invisible to them.</p>`;
+    We tested this directly rather than assuming it: an assistant reading a page by URL reported text that a script wrote at runtime as not stated, three times out of three, while reading the server-rendered text on the same pages correctly every time. That share of your site is invisible to it.</p>`;
   return `${jsLine}
     <ul>
       <li>Structured data found: ${c.schema.typesFound.length ? escapeHtml(c.schema.typesFound.join(", ")) : "none"}</li>
@@ -473,7 +517,7 @@ export function renderProspectReport(result: ProspectAuditResult): string {
   <p class="muted">Each score below runs 0–100 — read it as a score, not a percentage.</p>
   <div class="scores">
     ${scoreCard("Findability", result.scores.findability, "How easily AI and search crawlers can find and reach your site — crawl rules, sitemap, key metadata")}
-    ${scoreCard("Readability", result.scores.readability, "How much of your site's content those crawlers can actually read once they're in — most don't run JavaScript")}
+    ${scoreCard("Readability", result.scores.readability, "How much of your site's content those crawlers can actually read once they're in — text your scripts write at runtime did not reach the assistant we tested")}
     ${scoreCard("Answers", result.scores.answers, "How many buyer questions your site's own content answers — separate from what the AI engines say back")}
   </div>
 
