@@ -500,6 +500,10 @@ cli
   .option("--write-airtable", "Upload to the Websites row instead of writing a local file")
   .option("--out-dir <path>", "Directory for local output (default: reports/)")
   .option("--settle-ms <ms>", "Override the post-load settle delay for slow/animated homepages")
+  .option(
+    "--consent-selector <css>",
+    "Extra CSS selector(s) to hide before the shutter (consent UI the heuristic misses)",
+  )
   .action(
     async (
       site: string | undefined,
@@ -509,6 +513,7 @@ cli
         writeAirtable?: boolean;
         outDir?: string;
         settleMs?: string;
+        consentSelector?: string;
         cwd?: string;
         verbose?: boolean;
       },
@@ -650,6 +655,14 @@ cli
     "--email",
     "Email the internal sheet (scores, what wasn't measured, top fixes, the link) to PROSPECT_AUDIT_RECIPIENTS.",
   )
+  .option(
+    "--terms <list>",
+    "Comma-separated search terms for the visibility section, chosen by hand. Blank generates them from the site, as before.",
+  )
+  .option(
+    "--questions <list>",
+    "Comma-separated buyer questions, chosen by hand. Blank asks the goal's fixed set. A chosen set gets its own version key, so comparisons never mix sets.",
+  )
   .action(
     async (
       url: string,
@@ -773,6 +786,19 @@ cli
     "import-airtable / sync: run despite the freeze (#643) — a deliberate rollback-window " +
       "converge from the frozen Airtable shadow. Without it both refuse while Turso is " +
       "authoritative, because an import overwrites authoritative rows.",
+  )
+  .option(
+    "--abandon <slug-or-id>",
+    "replay-deadletters: mark a slug's queued leads (or one dl_… row) abandoned — terminal " +
+      "by decision, dropped from the replay queue and the cockpit alarm, row and payload kept.",
+  )
+  .option(
+    "--reason <text>",
+    "replay-deadletters --abandon: why the leads are being written off. Required.",
+  )
+  .option(
+    "--by <who>",
+    "replay-deadletters --abandon: who decided (default: OPERATOR_EMAIL, else 'operator').",
   )
   .action(
     async (

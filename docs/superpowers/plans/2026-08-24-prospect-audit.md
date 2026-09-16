@@ -4121,7 +4121,7 @@ gh pr create --title "feat(prospect): external AEO/SEO audit tool" --body "Imple
 
 These are NOT code and must not be attempted silently — report them to Tucker with the PR:
 
-1. Create the Perplexity API account and add `PERPLEXITY_API_KEY` to the local credentials file (`~/.config/reddoor-maint/credentials.env`) and to Netlify (`netlify env:set PERPLEXITY_API_KEY --secret --context production branch-deploy deploy-preview` on the `reddoor-maintenance` site — remember `env:clone` silently corrupts secrets).
+1. Create the Perplexity API account and add `PERPLEXITY_API_KEY` to the local credentials file (`~/.config/reddoor-maint/credentials.env`) and to Netlify (from a checkout linked with `netlify link --id <site id>`: `netlify env:set PERPLEXITY_API_KEY --secret --context production branch-deploy deploy-preview`, then `netlify env:list --plain | grep PERPLEXITY_API_KEY` must print the key — `env:set` ignores `--site` and exits 0 having written nothing outside a linked directory (#710); and remember `env:clone` silently corrupts secrets).
 2. After the deploy, fetch a real `/r/<token>` link on `reddoor-maintenance.netlify.app` and confirm it renders WITHOUT a basic-auth prompt and returns `x-robots-tag: noindex`.
 3. Optional and separate: the `audit.reddoorla.com` DNS record plus the Netlify domain alias.
 

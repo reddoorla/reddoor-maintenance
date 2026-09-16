@@ -4,6 +4,7 @@ import {
   createDeadLetter,
   listUnreplayedDeadLetters,
   markDeadLetterReplayed,
+  countUnreplayedDeadLettersBySlug,
 } from "../../src/db/deadletter.js";
 import { createSubmission, stampNotified } from "../../src/db/submissions.js";
 import { replayDeadLetters } from "../../src/forms/replay.js";
@@ -119,13 +120,55 @@ describe("replayDeadLetters", () => {
     expect(await listUnreplayedDeadLetters(db)).toEqual([]);
   });
 
-  it("marks unknown-site terminal — a slug the store rejects can never improve", async () => {
+  /**
+   * #645 REVERSES this. It used to read "marks unknown-site terminal — a slug the
+   * store rejects can never improve", and that was true while `unknown-site` was
+   * a dead end: nothing could ever create the missing row, so burning the row
+   * cost nothing.
+   *
+   * Two things changed. `ensure-site` can now HEAL a missing Turso row, so the
+   * lookup's answer is no longer fixed; and `ingestSubmission` now dead-letters
+   * `unknown-site` leads, so real client leads sit in this queue. Together they
+   * make terminality an ordering trap: an operator who runs `replay-deadletters`
+   * BEFORE `ensure-site` would mark every one of those leads replayed-and-lost,
+   * and the losing order is the one a person reaches for first.
+   *
+   * The cost of the reversal is a slug that is genuinely gone piling up rows and
+   * holding the command at exit 1 forever. That is the right trade: it is loud,
+   * it is visible in the cockpit, and a lead nobody can place is a lead somebody
+   * should look at — where the old behaviour's cost was silent and unrecoverable.
+   */
+  it("leaves unknown-site UNREPLAYED — ensure-site can still heal the row (#645)", async () => {
     const db = await openDb({ url: ":memory:" });
     await createDeadLetter(db, { ...LEAD, siteSlug: "gone" });
     const deps = replayDeps(db, { getWebsiteBySlug: vi.fn().mockResolvedValue(null) });
+
     const result = await replayDeadLetters(db, deps);
-    expect(result.replayed).toEqual([
-      { id: expect.stringMatching(/^dl_/), outcome: "unknown-site", submissionId: null },
+
+    expect(result.replayed).toEqual([]);
+    expect(result.stillFailing).toEqual([
+      { id: expect.stringMatching(/^dl_/), error: expect.stringContaining("unknown-site") },
+    ]);
+    expect(result.stillFailing[0]!.error).toContain("gone");
+    // Still queued: the next run, after the row is healed, converges it.
+    expect(await listUnreplayedDeadLetters(db)).toHaveLength(1);
+  });
+
+  it("converges that same row once the site resolves — the heal-then-replay order", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await createDeadLetter(db, { ...LEAD, siteSlug: "gone" });
+
+    const missing = await replayDeadLetters(
+      db,
+      replayDeps(db, { getWebsiteBySlug: vi.fn().mockResolvedValue(null) }),
+    );
+    expect(missing.stillFailing).toHaveLength(1);
+
+    // `ensure-site` heals the Turso row; the same queue is replayed again.
+    const healed = await replayDeadLetters(db, replayDeps(db));
+
+    expect(healed.replayed).toEqual([
+      { id: expect.stringMatching(/^dl_/), outcome: "accepted", submissionId: expect.any(String) },
     ]);
     expect(await listUnreplayedDeadLetters(db)).toEqual([]);
   });
@@ -165,5 +208,38 @@ describe("replayDeadLetters", () => {
     const row = await getSubmissionById(db, result.replayed[0]!.submissionId!);
     expect(row?.status).toBe("spam_auto");
     expect(row?.spamReason).toContain("turnstile-required-failed");
+  });
+});
+
+/**
+ * #645. The alarm's input. Counted in SQL because these rows carry full lead
+ * payloads — a dashboard request must never pull a client's PII across just to
+ * learn how many rows there are.
+ */
+describe("countUnreplayedDeadLettersBySlug (#645)", () => {
+  it("is empty when nothing is queued", async () => {
+    const db = await openDb({ url: ":memory:" });
+    expect([...(await countUnreplayedDeadLettersBySlug(db))]).toEqual([]);
+  });
+
+  it("groups unreplayed rows by slug", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await createDeadLetter(db, { ...LEAD, siteSlug: "acme" });
+    await createDeadLetter(db, { ...LEAD, siteSlug: "acme" });
+    await createDeadLetter(db, { ...LEAD, siteSlug: "ghost" });
+
+    const counts = await countUnreplayedDeadLettersBySlug(db);
+
+    expect(counts.get("acme")).toBe(2);
+    expect(counts.get("ghost")).toBe(1);
+  });
+
+  it("drops a slug once its last row is replayed — the alarm clears itself", async () => {
+    const db = await openDb({ url: ":memory:" });
+    const { id } = await createDeadLetter(db, { ...LEAD, siteSlug: "acme" });
+
+    await markDeadLetterReplayed(db, id, "accepted", "sub_1", NOW);
+
+    expect((await countUnreplayedDeadLettersBySlug(db)).has("acme")).toBe(false);
   });
 });

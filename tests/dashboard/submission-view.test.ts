@@ -161,6 +161,89 @@ describe("renderSubmissionRow — bounced notification marker", () => {
   });
 });
 
+/**
+ * #783. The chip said "notify bounced" and its tooltip said the address "may be
+ * dead" — for Espada that was wrong, and there was nothing on the row to say
+ * otherwise. The classification Resend sent is now on the row.
+ */
+describe("renderSubmissionRow — bounce classification (#783)", () => {
+  const bounced = (over: Partial<SubmissionRow> = {}) =>
+    row({ notifyStatus: "bounced", resendMessageId: "msg_x", ...over });
+
+  it("names the sub-type on the chip so the two failure modes read differently", () => {
+    const html = renderSubmissionRow(
+      bounced({ bounceType: "Transient", bounceSubType: "ContentRejected" }),
+    );
+    const summary = html.slice(0, html.indexOf("</summary>"));
+    expect(summary).toContain("ContentRejected");
+  });
+
+  it("says the client's mail filter refused it, NOT that the address is dead", () => {
+    const html = renderSubmissionRow(
+      bounced({ bounceType: "Transient", bounceSubType: "ContentRejected" }),
+    );
+    expect(html).toContain("mail filter");
+    expect(html).not.toContain("address may be dead");
+  });
+
+  it("still says the address may be dead for a PERMANENT bounce", () => {
+    // The grant side — the original wording has to survive where it was right.
+    const html = renderSubmissionRow(
+      bounced({ bounceType: "Permanent", bounceSubType: "Suppressed" }),
+    );
+    expect(html).toContain("address may be dead");
+    expect(html).not.toContain("mail filter");
+  });
+
+  it("keeps the old unqualified chip for an unclassified bounce", () => {
+    // Every row written before migration 0018. Nothing is claimed about it.
+    const html = renderSubmissionRow(bounced());
+    expect(html).toContain("notify bounced");
+    expect(html).not.toContain("mail filter");
+  });
+
+  it("shows the receiving server's own message in the detail block, escaped", () => {
+    const html = renderSubmissionRow(
+      bounced({
+        bounceType: "Transient",
+        bounceSubType: "ContentRejected",
+        bounceMessage: '552 rejected <as> "spam"',
+      }),
+    );
+    expect(html).toContain("552 rejected &lt;as&gt;");
+    expect(html).not.toContain("<as>");
+  });
+
+  it("offers the acknowledge control on an unacknowledged bounce", () => {
+    const html = renderSubmissionRow(bounced({ bounceType: "Transient" }));
+    expect(html).toContain('data-ack="notify-bounce"');
+    expect(html).toContain('data-url="/api/submissions/sub_1/status"');
+  });
+
+  it("shows the acknowledgement instead of the button once acked", () => {
+    const html = renderSubmissionRow(
+      bounced({ bounceType: "Transient", bounceAckAt: "2026-09-14T10:00:00.000Z" }),
+    );
+    expect(html).toContain("acknowledged");
+    expect(html).not.toContain('data-ack="notify-bounce"');
+  });
+
+  it("never offers the acknowledge control on a row that did not bounce", () => {
+    // The control must not become a general-purpose way to quiet a row.
+    for (const s of ["sent", "failed", "skipped"] as const) {
+      expect(renderSubmissionRow(row({ notifyStatus: s }))).not.toContain("data-ack=");
+    }
+  });
+});
+
+describe("SUBMISSION_STATUS_SCRIPT — the acknowledge control posts an ack", () => {
+  it("sends the ack field rather than a status for an ack button", () => {
+    // The page ships ONE inline script; a bounce ack has to ride the same
+    // listener as the triage buttons rather than adding a second block.
+    expect(SUBMISSION_STATUS_SCRIPT).toContain("dataset.ack");
+  });
+});
+
 describe("SUBMISSION_STYLES", () => {
   it("styles the spam_auto pill so a new status is not unstyled", () => {
     expect(SUBMISSION_STYLES).toContain(".pill.subm-spam_auto");

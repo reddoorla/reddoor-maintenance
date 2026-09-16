@@ -2,7 +2,7 @@ import { stat, readdir, mkdir } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { Site } from "../../types.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
-import { sameOwnerRepo } from "../../util/git.js";
+import { isOwnerRepo, sameOwnerRepo } from "../../util/git.js";
 
 export type CloneIfNeededOptions = {
   workdir: string;
@@ -109,11 +109,6 @@ async function assertCheckoutMatches(site: Site, path: string, spawn: SpawnFn): 
   }
 }
 
-/** GitHub repo identity `owner/repo`: exactly two `[\w.-]` segments. Constrained
- *  so it can't smuggle a scheme, host, extra path segment, traversal, or an argv
- *  flag into the derived clone URL below. */
-const GIT_REPO_RE = /^[\w.-]+\/[\w.-]+$/;
-
 /**
  * Resolve the URL to clone from. An explicit `repoUrl` wins; otherwise derive
  * one from `gitRepo` (`owner/repo` → `https://github.com/owner/repo.git`). The
@@ -126,7 +121,10 @@ const GIT_REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 function resolveCloneUrl(site: Site): string | undefined {
   if (site.repoUrl) return site.repoUrl;
   if (!site.gitRepo) return undefined;
-  if (!GIT_REPO_RE.test(site.gitRepo)) {
+  // `isOwnerRepo` (util/git) is the ONE owner/repo validator (#724). The local
+  // regex it replaces promised to block traversal but admitted `owner/..`,
+  // because `.` is a legal repo character; the shared check rejects it outright.
+  if (!isOwnerRepo(site.gitRepo)) {
     throw new Error(`unsafe gitRepo: expected "owner/repo" (got: ${JSON.stringify(site.gitRepo)})`);
   }
   return `https://github.com/${site.gitRepo}.git`;

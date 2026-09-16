@@ -12,12 +12,15 @@ import {
   createBranch,
   currentBranch,
   deleteBranch,
+  getRemoteUrl,
   isWorkingTreeClean,
   push as gitPush,
   resolveOwnerRepo,
+  sameOwnerRepo,
 } from "../../util/git.js";
 import { siteLabel } from "../../util/site.js";
 import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.js";
 import {
   APPLY_BRANCH,
   PRISMIC_CI_WORKFLOW,
@@ -126,6 +129,33 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
       "could not determine a GitHub repo for this site — set Airtable 'Git repo', or give " +
         "the checkout an origin remote whose URL is a GitHub owner/repo",
     );
+  }
+
+  // 1b. The two identities must agree (#713). `gitPush` goes to the CHECKOUT's
+  //     origin; `openPullRequest` goes to `repo`, which Airtable's 'Git repo'
+  //     wins when set. When they name different repositories the branch lands
+  //     in one and the PR is filed in the other with a head that does not
+  //     exist there — a 422, but only AFTER a real push into a client repo,
+  //     which the `finally` restore below does not undo. A stale cell after a
+  //     rename, a fork as origin, a row copy-pasted from another client: all
+  //     operator-data problems, so refuse before the first write rather than
+  //     guess which side is right. A checkout with NO origin is left alone —
+  //     the push itself will fail there, before anything reaches GitHub.
+  if (site.gitRepo) {
+    let originUrl: string | null;
+    try {
+      originUrl = await getRemoteUrl(site.path);
+    } catch {
+      originUrl = null;
+    }
+    if (originUrl !== null && !sameOwnerRepo(repo, originUrl)) {
+      return resultOf(
+        site,
+        "failed",
+        `'Git repo' ${repo} does not match the checkout's origin ${originUrl} — refusing to ` +
+          "push into one repo and open the PR in another; fix the Airtable cell or the remote",
+      );
+    }
   }
 
   // 2. Is this a Prismic site? `readPrismicConfig` returns null for "no Prismic
@@ -273,6 +303,11 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
   try {
     await createBranch(site.path, branch);
     const dest = join(site.path, WORKFLOW_PATH);
+    // What the path held before this run, so a write git then refuses can be put
+    // back exactly as it was (null = the file did not exist).
+    const before = new Map<string, string | null>([
+      [WORKFLOW_PATH, await readFile(dest, "utf-8").catch(() => null)],
+    ]);
     await mkdir(dirname(dest), { recursive: true });
     await writeFile(dest, workflow, "utf-8");
 
@@ -304,6 +339,18 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
     }
 
     const sha = await gitCommit(site.path, "ci: deliver Prismic model changes from merged PRs");
+
+    // Did git TAKE the workflow? Here the drop does not even read as a failure:
+    // with the path ignored, `commit()` stages nothing, returns null, and the
+    // branch below reports "already present and identical in the checkout" — a
+    // statement about a file that is in no commit at all. Checked BEFORE the
+    // push, so nothing reaches the client repo on a refusal (#741).
+    const refusal = await refusedByGit(site.path, [WORKFLOW_PATH], "the Prismic delivery workflow");
+    if (refusal) {
+      await undoRefusedWrites(site.path, before, refusal.missing);
+      return resultOf(site, "failed", refusal.notes + RESTORED_NOTE, sha ? [sha] : []);
+    }
+
     if (!sha) {
       // Git saw no change: the checkout already holds this exact workflow even
       // though the default branch does not. Nothing to push and nothing to

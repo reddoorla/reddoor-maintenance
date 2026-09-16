@@ -1,5 +1,6 @@
 import type { Context, Config } from "@netlify/functions";
 import { getSiteBySlug, listReportsForSite } from "../../src/db/fleet-state.js";
+import { countUnreplayedDeadLettersBySlug } from "../../src/db/deadletter.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { listSubmissionsForSite, countNotifyBouncedBySite } from "../../src/db/submissions.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
@@ -122,7 +123,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // Cockpit alarm verdict for the header chip strip — same collectors + assignTier
     // as buildCockpitModel (see buildSiteAlarmContext). Both reads are defensive:
     // a Turso blip drops just the bounce chip; any collector throw drops the strip.
-    let notifyBounces: ReadonlyMap<string, number> = new Map();
+    let notifyBounces: Awaited<ReturnType<typeof countNotifyBouncedBySite>> = new Map();
     try {
       notifyBounces = await countNotifyBouncedBySite(
         db,
@@ -130,6 +131,13 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       );
     } catch {
       // bounce chip simply absent
+    }
+    // #645. Dead-letter rows for THIS site's slug reach its own page the same way.
+    let deadLetters: ReadonlyMap<string, number> = new Map();
+    try {
+      deadLetters = await countUnreplayedDeadLettersBySlug(db);
+    } catch {
+      // dead-letter chip simply absent
     }
     let alarm: SiteAlarmContext | null = null;
     try {
@@ -139,6 +147,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL),
         new Date(),
         notifyBounces,
+        deadLetters,
       );
     } catch (e) {
       console.error(`[site-dashboard] alarm context failed: ${String(e)}`);

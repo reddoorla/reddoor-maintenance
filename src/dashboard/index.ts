@@ -12,8 +12,12 @@ export type {
 export { renderLoginPageHtml, renderAuthChrome, loginErrorMessage } from "./auth/render.js";
 export { approveReport, APPROVED_BY } from "./approve.js";
 export type { ApproveDeps, ApproveResult } from "./approve.js";
-export { setSubmissionStatus } from "./submission-status.js";
-export type { SubmissionStatusDeps, SubmissionStatusResult } from "./submission-status.js";
+export { setSubmissionStatus, acknowledgeNotifyBounce } from "./submission-status.js";
+export type {
+  SubmissionStatusDeps,
+  SubmissionStatusResult,
+  SubmissionAckResult,
+} from "./submission-status.js";
 export { triggerRenovateForSite } from "./trigger-renovate.js";
 export type { TriggerRenovateDeps, TriggerRenovateResult } from "./trigger-renovate.js";
 export {

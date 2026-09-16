@@ -939,23 +939,35 @@ export async function updateScores(
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: scoreFields(scores) }]);
 }
 
+/** The `Analytics soft-fail at` FieldSet, as a pure function of the stamp (#782).
+ *  Drafting mirrors THIS into Turso first — the authoritative store — and only
+ *  then shadows it to Airtable, so the two writes carry one payload and the
+ *  shadow's field gap cannot cost the real write. `at` is an ISO timestamp when
+ *  the site's last draft had a GA/Search soft-failure, `null` after a clean
+ *  enrichment (the signal self-heals). */
+export function analyticsHealthFields(at: string | null): FieldSet {
+  const fields: Record<string, string | null> = { "Analytics soft-fail at": at };
+  return fields as FieldSet;
+}
+
 /**
  * Record (or clear) the per-site GA/Search enrichment health on the `Analytics
- * soft-fail at` column. `at` is an ISO timestamp when the site's last draft had a
- * GA/Search soft-failure, or `null` to clear it after a clean enrichment. The
- * caller (drafting) swallows errors: this column is operator-added, so until it
- * exists Airtable throws UNKNOWN_FIELD_NAME — which must not break a draft.
+ * soft-fail at` column. The caller (drafting) swallows errors: this column is
+ * operator-added and — checked against the base on 2026-09-15 — has never
+ * existed there, so Airtable throws UNKNOWN_FIELD_NAME on every call. That is
+ * why drafting writes Turso BEFORE this (#782): Turso is authoritative and the
+ * Airtable layer is the shadow Phase 6 (#646) deletes.
  */
 export async function updateAnalyticsHealth(
   base: AirtableBase,
   recordId: string,
   at: string | null,
 ): Promise<FieldSet> {
-  const fields: Record<string, string | null> = { "Analytics soft-fail at": at };
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
+  const fields = analyticsHealthFields(at);
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   // Same contract as updateNextDueDates/updateAuditFields: the #539 Turso mirror
   // consumes the returned FieldSet, so the two writes cannot diverge.
-  return fields as FieldSet;
+  return fields;
 }
 
 /** Persist a11y violation count. */

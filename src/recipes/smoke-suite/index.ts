@@ -3,7 +3,8 @@ import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
-import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.js";
 import {
   SMOKE_ROUTES_RELATIVE,
   SMOKE_ROUTES_TEMPLATE,
@@ -14,7 +15,27 @@ import {
   PLAYWRIGHT_CONFIG_PRE_R11,
 } from "./template.js";
 
-export type SmokeSuiteDeps = { spawn: SpawnFn };
+export type SmokeSuiteDeps = {
+  spawn: SpawnFn;
+  /** Resolve the TARGET repo's own prettier. Injected so a test can assert the
+   *  absolute-path spawn without a populated `node_modules`. */
+  resolvePrettier?: (repoRoot: string) => Promise<string | null>;
+};
+
+/** Same budget as prismic-ci and match-harness. Without one the default spawn
+ *  never detaches and never kills, so a hung formatter runs unbounded. */
+const PRETTIER_TIMEOUT_MS = 60_000;
+
+/** What "the smoke suite is installed" means, as paths a fresh clone must get.
+ *  package.json is deliberately absent: it is already tracked on every site the
+ *  recipe runs on, so it can never be the path git silently drops — and it is
+ *  exactly what makes the drop invisible, because its edit alone produces a
+ *  commit and therefore an "applied". */
+export const SMOKE_SUITE_INSTALLED_PATHS = [
+  SMOKE_ROUTES_RELATIVE,
+  SMOKE_SPEC_RELATIVE,
+  PLAYWRIGHT_CONFIG_RELATIVE,
+] as const;
 
 type PackageJson = {
   scripts?: Record<string, string>;
@@ -116,6 +137,9 @@ export async function smokeSuite(
       // Relative paths this run actually wrote/changed — prettier-formatted to the
       // site's own config before committing (never operator files we left alone).
       const written: string[] = [];
+      // ...and what each of those paths held BEFORE this run, so a path git then
+      // refuses can be put back exactly as it was (null = did not exist).
+      const before = new Map<string, string | null>();
 
       // 1. Spec files — write if absent (never clobber operator edits). The
       //    routes manifest ships the starter-verbatim `footer` marker only when
@@ -145,6 +169,7 @@ export async function smokeSuite(
           await mkdir(dirname(target), { recursive: true });
           await writeFile(target, tmpl, "utf-8");
           written.push(rel);
+          before.set(rel, null);
         }
       }
 
@@ -156,11 +181,13 @@ export async function smokeSuite(
       if (existingCfg === null) {
         await writeFile(cfgPath, PLAYWRIGHT_CONFIG_TEMPLATE, "utf-8");
         written.push(PLAYWRIGHT_CONFIG_RELATIVE);
+        before.set(PLAYWRIGHT_CONFIG_RELATIVE, null);
       } else if (existingCfg.includes("REDDOOR_SMOKE_PORT")) {
         // Already R1.1-aware; leave it.
       } else if (existingCfg.trim() === PLAYWRIGHT_CONFIG_PRE_R11.trim()) {
         await writeFile(cfgPath, PLAYWRIGHT_CONFIG_TEMPLATE, "utf-8");
         written.push(PLAYWRIGHT_CONFIG_RELATIVE);
+        before.set(PLAYWRIGHT_CONFIG_RELATIVE, existingCfg);
       } else {
         notes.push(
           "playwright.config.ts exists without REDDOOR_SMOKE_PORT — add the R1.1 port block manually",
@@ -221,13 +248,44 @@ export async function smokeSuite(
       //    fleet CI's format check stays green across heterogeneous configs
       //    (quotes/tabs/printWidth vary). Best-effort — a site without prettier
       //    just commits unformatted with a flag note.
-      if (!(await formatWithPrettier(deps.spawn, cwd, written))) {
-        notes.push(PRETTIER_FLAG_NOTE);
+      //
+      //    Resolved AFTER step 4 so a site that just gained its devDependencies
+      //    has a prettier to run — and resolved POSITIVELY, invoked by absolute
+      //    path. `pnpm exec prettier` would, on a clone with no node_modules
+      //    (the NORMAL path on `--fleet`, because `prepareFleetSites` clones and
+      //    never installs), first run a full unbounded `pnpm install` in the
+      //    client's checkout and then, in a repo whose install left no prettier
+      //    of its own, fall through to the CALLING repo's binary and exit 0. A
+      //    clone with no prettier gets the flag note and no spawn at all (#737).
+      if (written.length > 0) {
+        const bin = await (deps.resolvePrettier ?? resolveTargetPrettier)(cwd);
+        if (bin === null) {
+          notes.push(PRETTIER_FLAG_NOTE);
+        } else if (
+          !(await formatWithPrettier(deps.spawn, cwd, written, {
+            bin,
+            timeoutMs: PRETTIER_TIMEOUT_MS,
+          }))
+        ) {
+          notes.push(PRETTIER_FLAG_NOTE);
+        }
       }
 
       // 6. Commit. If nothing was written/changed the commit stages nothing and
       //    withRecipe reports noop (the flag note, if any, is still surfaced).
       await commit("feat: add smoke suite (test:smoke + playwright config + /health smoke routes)");
+
+      // 7. Did git TAKE the suite? This is the sharpest case of the class
+      //    (#741): package.json is tracked and always changes, so `commit()`
+      //    returns a SHA and the result reads "applied" even when the two spec
+      //    files the suite CONSISTS OF were dropped by a `tests/` rule. CI then
+      //    runs `test:smoke` against a suite that exists on nobody's disk.
+      const refusal = await refusedByGit(cwd, SMOKE_SUITE_INSTALLED_PATHS, "the smoke suite");
+      if (refusal) {
+        await undoRefusedWrites(cwd, before, refusal.missing);
+        return { kind: "failed", notes: refusal.notes + RESTORED_NOTE };
+      }
+
       return notes.length > 0 ? { kind: "ok", notes: notes.join("; ") } : { kind: "ok" };
     },
   });

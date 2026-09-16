@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { a11yAudit } from "../../src/audits/a11y.js";
+import { a11yAudit, describeViolations } from "../../src/audits/a11y.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 async function tmpSite(): Promise<string> {
@@ -12,7 +12,7 @@ async function tmpSite(): Promise<string> {
 type A11yArtifact = {
   totalViolations: number;
   byImpact: Partial<Record<"minor" | "moderate" | "serious" | "critical", number>>;
-  violations?: Array<{ id: string; impact: string; route: string }>;
+  violations?: Array<{ id: string; impact: string; route: string; help?: string }>;
 };
 
 /**
@@ -376,5 +376,377 @@ describe("audits/a11y — per-site real routes", () => {
     expect(result.status).toBe("pass");
     expect(source()).toContain("/dev/a11y-fixtures");
     expect(source()).not.toContain("not-an-array");
+  });
+});
+
+// The summary string (#697). The merge above was always correct and always
+// tested; what nothing asserted was the sentence the operator actually reads,
+// which counted the fixture defaults instead of the list that ran. A site that
+// opted in was told its routes had not — identical output to before the key
+// existed — on the one command used to confirm the opt-in worked. Telling "2"
+// from "2 + 0" needs a fixture whose config contributes routes, which is why no
+// existing test could have caught it.
+describe("audits/a11y — what the summary reports", () => {
+  const writePkg = (dir: string, reddoor?: unknown) =>
+    writeFile(
+      join(dir, "package.json"),
+      JSON.stringify(reddoor ? { name: "site", reddoor } : { name: "site" }),
+    );
+
+  const clean = () => playwrightSpawn({ totalViolations: 0, byImpact: {} }, 0);
+
+  it("counts the routes that ran, not the fixture defaults", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/", "/es", "/about", "/es/about"] });
+    const result = await a11yAudit({ site: { path: cwd }, spawn: clean() });
+
+    // 2 fixtures + 4 configured. Before the fix this said "across 2 routes".
+    expect(result.summary).toContain("across 6 routes");
+    expect(result.summary).not.toContain("across 2 routes");
+  });
+
+  it("names the split, so the operator can see their own routes arrived", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/", "/es", "/about", "/es/about"] });
+    const result = await a11yAudit({ site: { path: cwd }, spawn: clean() });
+    expect(result.summary).toContain("(2 fixtures + 4 from package.json)");
+  });
+
+  it("leaves a site with no opt-in reading exactly as it did", async () => {
+    // The whole fleet bar a handful is this case, and it should not churn.
+    const cwd = await tmpSite();
+    await writePkg(cwd);
+    const result = await a11yAudit({ site: { path: cwd }, spawn: clean() });
+    expect(result.summary).toBe("a11y: 0 violations across 2 routes (+1 hydration smoke)");
+  });
+
+  it("reports coverage on the fail path too, which carried no count at all", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/", "/about"] });
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 2,
+          byImpact: { critical: 2 },
+          violations: [
+            { id: "image-alt", impact: "critical", route: "/" },
+            { id: "image-alt", impact: "critical", route: "/about" },
+          ],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    // Was bare "a11y: 2 violations" — no way to tell what it had covered.
+    expect(result.summary).toBe(
+      "a11y: 2 violations across 4 routes (2 fixtures + 2 from package.json) — image-alt on /, image-alt on /about",
+    );
+  });
+
+  it("does not claim site routes when the key is present but unusable", async () => {
+    // readSiteConfig rejects a non-array; the summary must not then advertise a
+    // split that did not happen.
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: "not-an-array" });
+    const result = await a11yAudit({ site: { path: cwd }, spawn: clean() });
+    expect(result.summary).toBe("a11y: 0 violations across 2 routes (+1 hydration smoke)");
+  });
+});
+
+// #680: a fixture route that 404s used to be scanned as if it existed — axe ran
+// over the error page and the summary reported a count with no route and no
+// rule, so a config problem read as a markup problem and was bisected as one.
+describe("audits/a11y — a route that 404s is a missing route, not a scan (#680)", () => {
+  const specCapturingSpawn = (sink: { spec: string }): SpawnFn => {
+    return async (_cmd, args, opts) => {
+      const specPath = args[args.length - 1] as string;
+      sink.spec = await readFile(specPath, "utf-8");
+      const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
+      await mkdir(out, { recursive: true });
+      await writeFile(
+        join(out, "results.json"),
+        JSON.stringify({ totalViolations: 0, byImpact: {} }),
+        "utf-8",
+      );
+      return { code: 0, stdout: "", stderr: "" };
+    };
+  };
+
+  it("emits a spec that guards every axe navigation on a 200 and skips axe otherwise", async () => {
+    const cwd = await tmpSite();
+    const sink = { spec: "" };
+    await a11yAudit({ site: { path: cwd }, spawn: specCapturingSpawn(sink) });
+    // The navigation's response is captured, not discarded.
+    expect(sink.spec).toMatch(/const response = await page\.goto\(path\)/);
+    // A missing or non-200 response becomes its own violation id …
+    expect(sink.spec).toMatch(/!response \|\| response\.status\(\) !== 200/);
+    expect(sink.spec).toContain('id: "route-missing"');
+    expect(sink.spec).toContain('impact: "serious"');
+    // … whose help names the path and the status …
+    expect(sink.spec).toMatch(/returned \$\{response \? response\.status\(\) : "no response"\}/);
+    // … and axe is NOT run over whatever the error page was.
+    const guardAt = sink.spec.indexOf('id: "route-missing"');
+    const continueAt = sink.spec.indexOf("continue;", guardAt);
+    const axeAt = sink.spec.indexOf("new AxeBuilder({ page })", guardAt);
+    expect(continueAt).toBeGreaterThan(guardAt);
+    expect(axeAt).toBeGreaterThan(continueAt);
+  });
+
+  it("fails on a route-missing violation and names the route and status in the summary", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 1,
+          byImpact: { serious: 1 },
+          violations: [
+            {
+              id: "route-missing",
+              impact: "serious",
+              route: "animate-in demo",
+              help: "/dev/animate-in returned 404",
+            },
+          ],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    // Was "a11y: 1 violations across 2 routes" — no route, no rule, no status.
+    expect(result.summary).toContain(
+      "route-missing on animate-in demo (/dev/animate-in returned 404)",
+    );
+  });
+
+  it("names the rule id and route for real axe violations too", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 3,
+          byImpact: { serious: 3 },
+          violations: [
+            { id: "color-contrast", impact: "serious", route: "a11y fixtures" },
+            { id: "color-contrast", impact: "serious", route: "a11y fixtures" },
+            { id: "image-alt", impact: "serious", route: "/" },
+          ],
+        },
+        1,
+      ),
+    });
+    expect(result.summary).toBe(
+      "a11y: 3 violations across 2 routes — color-contrast ×2 on a11y fixtures, image-alt on /",
+    );
+  });
+});
+
+describe("audits/a11y — describeViolations", () => {
+  it("groups identical rule+route pairs and caps the list", () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      id: `rule-${i}`,
+      impact: "minor" as const,
+      route: "/",
+    }));
+    const text = describeViolations(many);
+    expect(text).toContain("rule-0 on /");
+    expect(text).toContain("rule-5 on /");
+    expect(text).not.toContain("rule-6 on /");
+    expect(text).toMatch(/\+3 more$/);
+  });
+
+  it("carries the help text only for route-missing, where it holds the status", () => {
+    const text = describeViolations([
+      { id: "route-missing", impact: "serious", route: "x", help: "/x returned 404" },
+      {
+        id: "color-contrast",
+        impact: "serious",
+        route: "y",
+        help: "Elements must have sufficient color contrast",
+      },
+    ]);
+    expect(text).toBe("route-missing on x (/x returned 404), color-contrast on y");
+  });
+
+  it("is empty for no violations", () => {
+    expect(describeViolations([])).toBe("");
+  });
+});
+
+/**
+ * gateServer (#700). The synthesized config started the site with `vite dev`,
+ * so the one browser that ever opens a fleet site in CI never opened the
+ * shipped bundle. Hydration is the clearest case: a hydration smoke run against
+ * `vite dev` cannot fail the way production fails, because the module graph,
+ * code splitting, minification and asset hashing are most of what "hydration
+ * works" means.
+ *
+ * The design, and why it is not a straight swap. The axe scan targets
+ * `/dev/a11y-fixtures` and `/dev/animate-in`, and those are not guaranteed to
+ * survive a production build — under a build that excludes them, #680's
+ * route-status guard would correctly report every fixture as a missing route,
+ * and a working gate would become a red one measuring nothing. So the opt-in
+ * splits the run: axe keeps the dev server (fast, and the fixtures certainly
+ * exist there), and the hydration smoke — the part dev actually hides — gets a
+ * built preview on its own port.
+ */
+describe("audits/a11y — gateServer opt-in (#700)", () => {
+  function capture(): { spawn: SpawnFn; spec: () => string; config: () => string } {
+    let specSrc = "";
+    let configSrc = "";
+    const spawn: SpawnFn = async (_cmd, args, opts) => {
+      specSrc = await readFile(args[args.length - 1] as string, "utf-8");
+      const cfgArg = args.find((a) => a.startsWith("--config="));
+      configSrc = await readFile(cfgArg!.slice("--config=".length), "utf-8");
+      const cwd = opts?.cwd ?? process.cwd();
+      await mkdir(join(cwd, ".reddoor-a11y"), { recursive: true });
+      await writeFile(
+        join(cwd, ".reddoor-a11y", "results.json"),
+        JSON.stringify({ totalViolations: 0, byImpact: {} }),
+        "utf-8",
+      );
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    return { spawn, spec: () => specSrc, config: () => configSrc };
+  }
+
+  const writePkg = (dir: string, reddoor?: unknown) =>
+    writeFile(
+      join(dir, "package.json"),
+      JSON.stringify(reddoor ? { name: "site", reddoor } : { name: "site" }),
+    );
+
+  const devPortOf = (config: string) => Number(config.match(/vite:dev -- --port (\d+)/)![1]);
+  const previewPortOf = (config: string) =>
+    Number(config.match(/npm run preview -- --port (\d+)/)![1]);
+
+  // The grant side. Every fleet site is a non-adopter until it opts in, so the
+  // default path has to stay exactly what it was.
+  it("default: a single dev webServer, and the smoke routes ride its baseURL", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd);
+    const { spawn, spec, config } = capture();
+    const result = await a11yAudit({ site: { path: cwd }, spawn });
+    expect(result.status).toBe("pass");
+
+    expect(config()).toContain("npm run vite:dev -- --port");
+    expect(config()).not.toContain("npm run build");
+    expect(config()).not.toContain("npm run preview");
+    // One server, not an array.
+    expect(config()).toMatch(/webServer:\s*\{/);
+    // Smoke navigation stays relative to baseURL — no second origin.
+    expect(spec()).not.toContain("http://localhost:");
+  });
+
+  it("preview: axe keeps the dev server so the fixtures still resolve", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { gateServer: "preview" });
+    const { spawn, spec, config } = capture();
+    await a11yAudit({ site: { path: cwd }, spawn });
+
+    // baseURL is what the axe loop navigates against (relative paths), and it
+    // must still be the dev server — that is the whole point of the split.
+    const baseURLPort = Number(config().match(/baseURL:\s*"http:\/\/localhost:(\d+)"/)![1]);
+    expect(baseURLPort).toBe(devPortOf(config()));
+    expect(spec()).toContain("/dev/a11y-fixtures");
+  });
+
+  it("preview: the hydration smoke gets a built preview on its own port", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { gateServer: "preview" });
+    const { spawn, spec, config } = capture();
+    await a11yAudit({ site: { path: cwd }, spawn });
+
+    expect(config()).toMatch(/webServer:\s*\[/);
+    const preview = previewPortOf(config());
+    expect(config()).toContain(
+      `npm run build && npm run preview -- --port ${preview} --strictPort`,
+    );
+    // Two servers cannot share a port.
+    expect(preview).not.toBe(devPortOf(config()));
+    // The smoke loop must aim at the preview origin absolutely, or it would
+    // silently fall back to baseURL — i.e. to dev — and measure nothing new.
+    expect(spec()).toContain(`http://localhost:${preview}`);
+  });
+
+  it("preview: both servers keep --strictPort, the site cwd and never-reuse", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { gateServer: "preview" });
+    const { spawn, config } = capture();
+    await a11yAudit({ site: { path: cwd }, spawn });
+
+    expect(config().match(/--strictPort/g)).toHaveLength(2);
+    expect(config().match(/reuseExistingServer:\s*false/g)).toHaveLength(2);
+    expect(config().match(new RegExp(`cwd: ${JSON.stringify(cwd)}`, "g"))).toHaveLength(2);
+    // The preview server has to be probed on a route a production build
+    // certainly serves — never a /dev/* fixture.
+    const preview = previewPortOf(config());
+    expect(config()).toContain(`url: "http://localhost:${preview}/"`);
+  });
+
+  // #697's lesson: an opt-in that does not say it took effect gets reverted as
+  // broken. The summary is the one line an operator reads to confirm it.
+  it("preview: the summary says the smoke ran against a production build", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { gateServer: "preview" });
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn({ totalViolations: 0, byImpact: {} }, 0),
+    });
+    expect(result.summary).toMatch(/production preview/);
+  });
+
+  it("default: the summary is unchanged", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd);
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn({ totalViolations: 0, byImpact: {} }, 0),
+    });
+    expect(result.summary).toBe("a11y: 0 violations across 2 routes (+1 hydration smoke)");
+  });
+
+  // A preview run pays for a production build before the first navigation. The
+  // 5-minute budget was sized for "boot vite, then run axe"; leaving it there
+  // would SIGKILL opted-in sites mid-build and report it as an audit failure.
+  it("preview: the playwright spawn gets a budget that covers the build", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { gateServer: "preview" });
+    let previewBudget = 0;
+    let devBudget = 0;
+    const record = (into: (n: number) => void): SpawnFn => {
+      return async (_cmd, args, opts) => {
+        into(opts?.timeoutMs ?? 0);
+        const out = join(opts?.cwd ?? cwd, ".reddoor-a11y");
+        await mkdir(out, { recursive: true });
+        await writeFile(
+          join(out, "results.json"),
+          JSON.stringify({ totalViolations: 0, byImpact: {} }),
+          "utf-8",
+        );
+        void args;
+        return { code: 0, stdout: "", stderr: "" };
+      };
+    };
+    await a11yAudit({ site: { path: cwd }, spawn: record((n) => (previewBudget = n)) });
+
+    const devCwd = await tmpSite();
+    await writePkg(devCwd);
+    await a11yAudit({ site: { path: devCwd }, spawn: record((n) => (devBudget = n)) });
+
+    expect(devBudget).toBe(5 * 60_000);
+    expect(previewBudget).toBeGreaterThan(devBudget);
+  });
+
+  it("an unrecognized gateServer value runs the dev path", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { gateServer: "prod" });
+    const { spawn, config } = capture();
+    const result = await a11yAudit({ site: { path: cwd }, spawn });
+    expect(result.status).toBe("pass");
+    expect(config()).toContain("npm run vite:dev -- --port");
+    expect(config()).not.toContain("npm run preview");
   });
 });

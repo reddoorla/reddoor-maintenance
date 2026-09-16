@@ -32,6 +32,7 @@ h2 { font-size: 1.1rem; margin: 1.75rem 0 0.75rem; }
 /* font-size:16px on the inputs, not the surrounding 0.9rem label text, keeps
    iOS Safari from zooming the viewport on focus — the whole point of this
    page is being usable from a phone. */
+.run-form textarea { font: inherit; font-size: 16px; width: 100%; box-sizing: border-box; }
 .run-form input[type="url"], .run-form input[type="text"] {
   font: 16px system-ui, -apple-system, sans-serif;
   padding: 0.6rem 0.7rem;
@@ -109,7 +110,13 @@ const RUN_SCRIPT = `<script>
     fetch('/api/prospect-audit/run', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: url, business: business, goal: form.elements.goal.value }),
+      body: JSON.stringify({
+        url: url,
+        business: business,
+        goal: form.elements.goal.value,
+        terms: form.elements.terms ? form.elements.terms.value : '',
+        questions: form.elements.questions ? form.elements.questions.value : '',
+      }),
     })
       .then(function (res) {
         return res.json().catch(function () { return null; }).then(function (data) {
@@ -208,6 +215,7 @@ function auditRow(a: ProspectAuditListItem, now: Date): string {
       <span class="audit-when">${when}</span>
     </div>
     ${urlLine}
+    ${a.chosen_terms ? `<div class="audit-chosen muted">searches chosen by hand</div>` : ""}
     ${editState(a, now)}
     <div class="audit-row-foot">${reportLink}</div>
   </div>`;
@@ -264,6 +272,13 @@ export function renderProspectAuditsPageHtml(model: ProspectAuditsPageModel): st
         <option value="partner">Ask about distribution or partnership</option>
       </select>
     </label>
+    <label>Search terms (optional — one per line)
+      <textarea name="terms" rows="4" placeholder="commercial roof replacement cost San Antonio&#10;TPO roofing contractor for warehouses"></textarea>
+    </label>
+    <label>Buyer questions (optional — one per line)
+      <textarea name="questions" rows="4" placeholder="Do you service my postcode?&#10;How fast can you come out?"></textarea>
+    </label>
+    <p class="run-note">Leave either blank and the audit chooses its own, as it does today. Fixed terms are what make two audits of the same site comparable.</p>
     <button type="submit">Run audit</button>
     <div id="audit-run-status" class="run-status" aria-live="polite"></div>
   </form>

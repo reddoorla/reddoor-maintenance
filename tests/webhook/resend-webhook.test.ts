@@ -217,12 +217,15 @@ function signedResendPost(event: unknown): Request {
 
 function resendEvent(
   type: string,
-  opts: { emailId?: string; createdAt?: string } = {},
+  opts: { emailId?: string; createdAt?: string; bounce?: unknown } = {},
 ): Record<string, unknown> {
   return {
     type,
     created_at: opts.createdAt ?? new Date().toISOString(),
-    data: { email_id: opts.emailId ?? "msgId_abc123" },
+    data: {
+      email_id: opts.emailId ?? "msgId_abc123",
+      ...(opts.bounce === undefined ? {} : { bounce: opts.bounce }),
+    },
   };
 }
 
@@ -248,9 +251,10 @@ describe("Resend webhook signed-POST path", () => {
     markBouncedMock.mockResolvedValue(false);
     openDbMock.mockReset();
     openDbMock.mockResolvedValue({} as Awaited<ReturnType<typeof openDb>>);
-    // Default: the authoritative Turso patch succeeds (the healthy world).
+    // Default: the authoritative Turso patch succeeds AND matched the row
+    // (the healthy world). `false` is the #647 outcome: the row was never there.
     mirrorPatchMock.mockReset();
-    mirrorPatchMock.mockResolvedValue(undefined);
+    mirrorPatchMock.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -374,7 +378,7 @@ describe("Resend webhook signed-POST path", () => {
     markBouncedMock.mockResolvedValue(true);
     const res = await post(resendEvent("email.bounced", { emailId: "msg_sub_1" }));
     expect(res.status).toBe(200);
-    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_1");
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_1", null);
     expect(findReportMock).not.toHaveBeenCalled();
     expect(setStatusMock).not.toHaveBeenCalled();
   });
@@ -383,7 +387,7 @@ describe("Resend webhook signed-POST path", () => {
     markBouncedMock.mockResolvedValue(true);
     const res = await post(resendEvent("email.complained", { emailId: "msg_sub_2" }));
     expect(res.status).toBe(200);
-    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_2");
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_2", null);
     expect(findReportMock).not.toHaveBeenCalled();
   });
 
@@ -393,6 +397,56 @@ describe("Resend webhook signed-POST path", () => {
     const res = await post(resendEvent("email.bounced", { emailId: "msg_report_9" }));
     expect(res.status).toBe(200);
     expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "bounced");
+  });
+
+  it("#783: hands the parsed bounce classification through to the submission write", async () => {
+    // The whole point. Before this the payload's `bounce` object was dropped, so
+    // a content rejection by the client's own filter was stored identically to a
+    // dead mailbox — and the alarm accused the address in both cases.
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(
+      resendEvent("email.bounced", {
+        emailId: "msg_classified",
+        bounce: {
+          message: "552 5.7.1 Message rejected as spam by Content Filtering",
+          subType: "ContentRejected",
+          type: "Transient",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_classified", {
+      type: "Transient",
+      subType: "ContentRejected",
+      message: "552 5.7.1 Message rejected as spam by Content Filtering",
+    });
+  });
+
+  it("#783: passes a PERMANENT classification through unchanged", async () => {
+    markBouncedMock.mockResolvedValue(true);
+    await post(
+      resendEvent("email.bounced", {
+        emailId: "msg_dead",
+        bounce: { message: "550 no such user", subType: "General", type: "Permanent" },
+      }),
+    );
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_dead", {
+      type: "Permanent",
+      subType: "General",
+      message: "550 no such user",
+    });
+  });
+
+  it("#783: a malformed bounce object degrades to no classification, not a 500", async () => {
+    // Third-party wire format: a shape change must cost the diagnosis, never the
+    // delivery record, and must not make the webhook 500 into an hours-long
+    // svix redelivery loop.
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(
+      resendEvent("email.bounced", { emailId: "msg_weird", bounce: "Permanent" }),
+    );
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_weird", null);
   });
 
   it("never consults submissions for a delivered event (bounce/complaint only)", async () => {
@@ -426,6 +480,20 @@ describe("Resend webhook signed-POST path", () => {
     // The Airtable shadow write still ran (it precedes the mirror) — harmless,
     // idempotent on retry, and gone entirely in Phase 6.
     expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "bounced");
+    errorSpy.mockRestore();
+  });
+
+  it("#647: a status for a report row Turso never held is `missed`, not a green 200", async () => {
+    // Before #647 the patch's row count was thrown away, so a delivery status
+    // for a row that never reached Turso "mirrored" fine and the handler said
+    // OK — the one outcome the freeze calls a bug, invisible. Post-freeze
+    // nothing converges it, so this is a 500 like any other lost mirror.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mirrorPatchMock.mockResolvedValue(false);
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_ghost_row" }));
+    expect(res.status).toBe(500);
+    expect(errorSpy.mock.calls.flat().join("\n")).toContain("mirrored=missed");
     errorSpy.mockRestore();
   });
 });

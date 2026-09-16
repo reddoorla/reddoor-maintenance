@@ -10,6 +10,7 @@ import {
   collectCiAlerts,
   collectAnalyticsFailures,
   collectPreflightBlocked,
+  collectDeadLetterAlerts,
 } from "../../src/alerts/digest-collectors.js";
 import type { WebsiteRow, SecurityAdvisory } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
@@ -767,10 +768,13 @@ describe("collectTurnstileGuardrailAlerts", () => {
 });
 
 describe("collectNotifyBounceAlerts", () => {
+  /** #783: the collector now takes a breakdown, not a bare count. */
+  const counts = (total: number, permanent = 0) => ({ total, permanent });
+
   it("alarms (critical) a site at the 2-bounce threshold; metric carries the count", () => {
     const items = collectNotifyBounceAlerts(
       [site({ id: "recA", name: "Acme Co" })],
-      new Map([["recA", 2]]),
+      new Map([["recA", counts(2, 2)]]),
       BASE,
     );
     expect(items).toHaveLength(1);
@@ -786,7 +790,11 @@ describe("collectNotifyBounceAlerts", () => {
   });
 
   it("stays quiet on a single bounce (transient greylist/full-mailbox blip)", () => {
-    const items = collectNotifyBounceAlerts([site({ id: "recA" })], new Map([["recA", 1]]), BASE);
+    const items = collectNotifyBounceAlerts(
+      [site({ id: "recA" })],
+      new Map([["recA", counts(1, 1)]]),
+      BASE,
+    );
     expect(items).toEqual([]);
   });
 
@@ -799,8 +807,8 @@ describe("collectNotifyBounceAlerts", () => {
     const items = collectNotifyBounceAlerts(
       sites,
       new Map([
-        ["recA", 4],
-        ["recB", 2],
+        ["recA", counts(4, 4)],
+        ["recB", counts(2, 2)],
       ]),
       BASE,
     );
@@ -811,7 +819,7 @@ describe("collectNotifyBounceAlerts", () => {
   it("ignores a count for a site id not in the fleet rows (orphan → no broken link)", () => {
     const items = collectNotifyBounceAlerts(
       [site({ id: "recA" })],
-      new Map([["recGONE", 5]]),
+      new Map([["recGONE", counts(5, 5)]]),
       BASE,
     );
     expect(items).toEqual([]);
@@ -819,5 +827,150 @@ describe("collectNotifyBounceAlerts", () => {
 
   it("emits nothing on an empty counts map (libSQL blip / nothing bounced)", () => {
     expect(collectNotifyBounceAlerts([site({ id: "recA" })], new Map(), BASE)).toEqual([]);
+  });
+
+  /**
+   * #783. The alarm used to accuse the address in every case. Espada's bounces
+   * were their own inbound filter refusing our lead notifications as spam — the
+   * address was fine, and "check the point-of-contact address" sent the operator
+   * looking at the one thing that was not broken.
+   */
+  describe("wording follows the classification", () => {
+    it("keeps the address wording when Resend called ANY of them Permanent", () => {
+      // The grant side: the diagnosis that WAS right must survive the change.
+      const items = collectNotifyBounceAlerts(
+        [site({ id: "recA", name: "Acme Co" })],
+        new Map([["recA", counts(2, 2)]]),
+        BASE,
+      );
+      expect(items[0]!.title).toContain("point-of-contact");
+      expect(items[0]!.title).not.toContain("mail filter");
+    });
+
+    it("says the CLIENT's mail filter is rejecting when none was permanent", () => {
+      const items = collectNotifyBounceAlerts(
+        [site({ id: "recA", name: "Acme Co" })],
+        new Map([["recA", counts(2, 0)]]),
+        BASE,
+      );
+      expect(items).toHaveLength(1);
+      expect(items[0]!.title).toContain("mail filter");
+      // The wrong instruction must be gone, not merely accompanied.
+      expect(items[0]!.title).not.toContain("point-of-contact");
+      // Still the same key and metric — this is a re-WORDING, not a new item, so
+      // the digest diff and the cockpit card keep tracking one thing.
+      expect(items[0]).toMatchObject({ key: "notify-bounce:recA", metric: 2 });
+    });
+
+    it("treats a MIXED site as an address problem — one permanent bounce is evidence", () => {
+      const items = collectNotifyBounceAlerts(
+        [site({ id: "recA", name: "Acme Co" })],
+        new Map([["recA", counts(3, 1)]]),
+        BASE,
+      );
+      expect(items[0]!.title).toContain("point-of-contact");
+    });
+
+    it("words an UNCLASSIFIED site as the filter case, not as a dead address", () => {
+      // Every row written before migration 0018 has no classification. The old
+      // wording would keep accusing the address on exactly the historical rows
+      // that produced the false alarm.
+      const items = collectNotifyBounceAlerts(
+        [site({ id: "recA", name: "Acme Co" })],
+        new Map([["recA", counts(2, 0)]]),
+        BASE,
+      );
+      expect(items[0]!.title).not.toContain("point-of-contact");
+    });
+
+    it("stays CRITICAL either way — a lead that reached nobody is still lost", () => {
+      const filter = collectNotifyBounceAlerts(
+        [site({ id: "recA" })],
+        new Map([["recA", counts(2, 0)]]),
+        BASE,
+      );
+      const dead = collectNotifyBounceAlerts(
+        [site({ id: "recA" })],
+        new Map([["recA", counts(2, 2)]]),
+        BASE,
+      );
+      expect(filter[0]!.severity).toBe("critical");
+      expect(dead[0]!.severity).toBe("critical");
+    });
+  });
+});
+
+/**
+ * #645 item 4. A dead-lettered lead had no alarm anywhere: the table could fill
+ * up and the only way to learn about it was to run `db replay-deadletters` on a
+ * hunch. Post-flip this is the fleet's only silent lead-loser, and the one thing
+ * that currently notices a missing Turso row — `mirror_missed` in the strict
+ * shadow write — is deleted by Phase 6 (#646).
+ *
+ * The item is CRITICAL at a single row, unlike notify-bounce's threshold of 2: a
+ * bounce may be a greylist blip, whereas a dead letter is by construction a lead
+ * that did not reach anyone.
+ *
+ * Grouping is the interesting part. A dead letter is keyed by SLUG, and the
+ * failure it reports is "this slug resolves to nothing" — so for the worst case
+ * there is no site row to hang it on. Rather than drop it (the cockpit groups by
+ * siteName and would), the item names the slug in the `(unknown site: …)`
+ * pseudo-name, following the `(unlinked site)` precedent already used for an
+ * orphan report. It carries no `url`, because `/s/<slug>` would 404.
+ */
+describe("collectDeadLetterAlerts (#645)", () => {
+  const acme = makeWebsiteRow({ id: "recACME", name: "Acme Co" });
+  const base = "https://dash.example.com";
+
+  it("emits nothing when the queue is empty", () => {
+    expect(collectDeadLetterAlerts([acme], new Map(), base)).toEqual([]);
+  });
+
+  it("is CRITICAL at ONE row — a dead letter is never a blip", () => {
+    const items = collectDeadLetterAlerts([acme], new Map([["acme-co", 1]]), base);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      key: "deadletter:acme-co",
+      kind: "deadletter",
+      siteName: "Acme Co",
+      severity: "critical",
+      metric: 1,
+      url: "https://dash.example.com/s/acme-co",
+    });
+    expect(items[0]!.title).toMatch(/1 lead/);
+  });
+
+  it("counts rows in `metric`, so a growing queue diffs WORSE", () => {
+    const items = collectDeadLetterAlerts([acme], new Map([["acme-co", 4]]), base);
+    expect(items[0]!.metric).toBe(4);
+    expect(items[0]!.title).toMatch(/4 leads/);
+  });
+
+  it("names an UNRESOLVABLE slug rather than dropping it, and links nowhere", () => {
+    // The #645 worst case: the slug has no fleet row at all, which is exactly why
+    // its leads were dropped. An item that vanished with the site would hide the
+    // one failure this collector exists to surface.
+    const items = collectDeadLetterAlerts([acme], new Map([["ghost-co", 2]]), base);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.siteName).toBe("(unknown site: ghost-co)");
+    expect(items[0]!.key).toBe("deadletter:ghost-co");
+    expect(items[0]!.url).toBeUndefined();
+    expect(items[0]!.severity).toBe("critical");
+  });
+
+  it("one item per slug, slug-ordered for a stable digest", () => {
+    const items = collectDeadLetterAlerts(
+      [acme],
+      new Map([
+        ["zed-co", 1],
+        ["acme-co", 1],
+      ]),
+      base,
+    );
+    expect(items.map((i) => i.key)).toEqual(["deadletter:acme-co", "deadletter:zed-co"]);
+  });
+
+  it("ignores a slug whose count is zero", () => {
+    expect(collectDeadLetterAlerts([acme], new Map([["acme-co", 0]]), base)).toEqual([]);
   });
 });

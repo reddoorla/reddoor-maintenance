@@ -1,0 +1,85 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "tz": "America/Los_Angeles",
+  "lane": "all",
+  "from": null,
+  "to": null,
+  "files": 3295,
+  "lines": 748972,
+  "by": [
+    "agent"
+  ],
+  "total": {
+    "requests": 76261,
+    "in": 1596613,
+    "out": 66874603,
+    "cacheCreate": 315519656,
+    "cacheRead": 13918927684
+  },
+  "groups": [
+    {
+      "key": "Explore",
+      "requests": 350,
+      "in": 700,
+      "out": 97035,
+      "cacheCreate": 1787670,
+      "cacheRead": 30200389
+    },
+    {
+      "key": "claude-code-guide",
+      "requests": 16,
+      "in": 134,
+      "out": 25406,
+      "cacheCreate": 199578,
+      "cacheRead": 851249
+    },
+    {
+      "key": "episodic-memory:search-conversations",
+      "requests": 133,
+      "in": 1282,
+      "out": 32954,
+      "cacheCreate": 410847,
+      "cacheRead": 4176547
+    },
+    {
+      "key": "general-purpose",
+      "requests": 9435,
+      "in": 95561,
+      "out": 7447885,
+      "cacheCreate": 36512896,
+      "cacheRead": 1141651338
+    },
+    {
+      "key": "main",
+      "requests": 36639,
+      "in": 298183,
+      "out": 39034909,
+      "cacheCreate": 135343042,
+      "cacheRead": 10340093052
+    },
+    {
+      "key": "subagent:unknown",
+      "requests": 704,
+      "in": 699424,
+      "out": 116577,
+      "cacheCreate": 1989546,
+      "cacheRead": 7663207
+    },
+    {
+      "key": "superpowers:code-reviewer",
+      "requests": 1243,
+      "in": 2486,
+      "out": 1151835,
+      "cacheCreate": 6957443,
+      "cacheRead": 127993827
+    },
+    {
+      "key": "workflow-subagent",
+      "requests": 27741,
+      "in": 498843,
+      "out": 18968002,
+      "cacheCreate": 132318634,
+      "cacheRead": 2266298075
+    }
+  ]
+}

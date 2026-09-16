@@ -22,6 +22,7 @@
  */
 import type { Db } from "./client.js";
 import type { DigestSnapshot } from "../alerts/digest-state.js";
+import type { NotifyBounceCounts } from "./submissions.js";
 
 /** The singleton row's key. A constant rather than a magic string at each call
  *  site, so the "there is exactly one row" invariant is visible in one place. */
@@ -91,8 +92,9 @@ export const COCKPIT_ROLLUP_ID = "cockpit_rollup";
  */
 export type CockpitRollup = {
   spamTotals: { honeypot: number; tooFast: number; markedSpam: number };
-  /** site id → notify=bounced count inside the bounce window. */
-  notifyBounces: Record<string, number>;
+  /** site id → unacknowledged bounce counts inside the bounce window, split by
+   *  whether Resend called any of them Permanent (#783). */
+  notifyBounces: Record<string, NotifyBounceCounts>;
   /** The windows these were computed over, so a changed constant is visible
    *  rather than silently re-labelling old numbers. */
   windowDays: { screenOuts: number; bounces: number };
@@ -111,6 +113,42 @@ export type CockpitRollup = {
  * A malformed blob is also null: same reasoning, and it must never throw on a
  * request path.
  */
+/**
+ * Normalize the stored per-site bounce map (#783).
+ *
+ * The shape changed from `{recA: 2}` to `{recA: {total, permanent}}`, and this
+ * blob is written by the NIGHTLY digest — so after a deploy the stored payload
+ * is the old shape until the next run. Rejecting it outright would blank the
+ * whole strip, `spamTotals` included, for a number that is merely less detailed.
+ *
+ * An old numeric entry reads as `permanent: 0`, which is the honest translation:
+ * that writer recorded no classification, and 0 is exactly "nothing said the
+ * address is dead". It words the alarm as the mail-filter case for one night,
+ * which is the safe direction. Anything else is dropped per SITE rather than
+ * poisoning the map with NaN or discarding the roll-up.
+ */
+function coerceBounces(raw: unknown): Record<string, NotifyBounceCounts> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const out: Record<string, NotifyBounceCounts> = {};
+  for (const [siteId, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "number" && Number.isFinite(v)) {
+      out[siteId] = { total: v, permanent: 0 };
+      continue;
+    }
+    if (typeof v !== "object" || v === null || Array.isArray(v)) continue;
+    const o = v as Record<string, unknown>;
+    if (
+      typeof o.total === "number" &&
+      Number.isFinite(o.total) &&
+      typeof o.permanent === "number" &&
+      Number.isFinite(o.permanent)
+    ) {
+      out[siteId] = { total: o.total, permanent: o.permanent };
+    }
+  }
+  return out;
+}
+
 export async function readCockpitRollup(db: Db): Promise<CockpitRollup | null> {
   const row = await db
     .selectFrom("digest_state")
@@ -134,7 +172,7 @@ export async function readCockpitRollup(db: Db): Promise<CockpitRollup | null> {
     ) {
       return null;
     }
-    return parsed as CockpitRollup;
+    return { ...(parsed as CockpitRollup), notifyBounces: coerceBounces(parsed.notifyBounces) };
   } catch {
     return null;
   }

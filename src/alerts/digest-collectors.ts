@@ -9,6 +9,7 @@ import {
 } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { approveBlockers } from "../reports/preflight.js";
+import type { NotifyBounceCounts } from "../db/submissions.js";
 
 /** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe.
  *  An empty Name slugs to "" and `/s/` is a dead link — fall back to the fleet homepage,
@@ -396,19 +397,84 @@ export const NOTIFY_BOUNCE_WINDOW_DAYS = 14;
  */
 export function collectNotifyBounceAlerts(
   sites: WebsiteRow[],
-  bouncedBySite: ReadonlyMap<string, number>,
+  bouncedBySite: ReadonlyMap<string, NotifyBounceCounts>,
   baseUrl: string,
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const s of sites) {
-    const n = bouncedBySite.get(s.id) ?? 0;
+    const counts = bouncedBySite.get(s.id);
+    const n = counts?.total ?? 0;
     if (n < NOTIFY_BOUNCE_THRESHOLD) continue;
+    // #783. ONE permanent bounce is enough to keep accusing the address: Resend
+    // said the mailbox itself is bad, and that outranks any number of transient
+    // refusals alongside it. With none, the address is not the suspect — the
+    // receiving server refused our CONTENT, which is what happened to Espada,
+    // and "check the point-of-contact address" sent the operator to inspect the
+    // one thing that was working.
+    //
+    // An UNCLASSIFIED count (every row written before migration 0018, and every
+    // complaint) takes the filter wording too. That is the safe direction: the
+    // old title asserted a dead address on no evidence at all.
+    const addressIsSuspect = (counts?.permanent ?? 0) > 0;
     items.push({
       key: `notify-bounce:${s.id}`,
       kind: "notify-bounce",
       siteName: s.name,
-      title: `${n} lead notifications bounced (${NOTIFY_BOUNCE_WINDOW_DAYS}d) — check the point-of-contact address`,
+      title: addressIsSuspect
+        ? `${n} lead notifications bounced (${NOTIFY_BOUNCE_WINDOW_DAYS}d) — check the point-of-contact address`
+        : `${n} lead notifications bounced (${NOTIFY_BOUNCE_WINDOW_DAYS}d) — the client's mail filter is rejecting them; acknowledge them on the site page if the address is fine`,
       url: dashboardUrl(baseUrl, s.name),
+      // Critical either way: severity is about the LEAD, which reached nobody in
+      // both cases. Only the instruction changes.
+      severity: "critical",
+      metric: n,
+    });
+  }
+  return items;
+}
+
+/**
+ * One CRITICAL attention item per slug holding unreplayed dead-letter rows —
+ * leads that were captured but never placed (#645).
+ *
+ * CRITICAL at a single row, unlike notify-bounce's threshold of 2. A bounce may
+ * be a greylist blip; a dead letter is by construction a lead that reached
+ * nobody, and post-flip the commonest way to get one is a site whose Turso row
+ * is missing — the fleet's only silent, permanent lead-loser.
+ *
+ * Keyed `deadletter:<slug>` because the queue is keyed by slug and the worst case
+ * is precisely a slug that resolves to no site. Such a slug is NOT dropped: it
+ * gets the `(unknown site: …)` pseudo-name (the `(unlinked site)` precedent above)
+ * and no `url`, since `/s/<slug>` would 404. `metric` is the row count, so a
+ * growing queue diffs WORSE. PURE: takes pre-fetched counts
+ * (`countUnreplayedDeadLettersBySlug`); slug-ordered for a stable digest.
+ */
+export function collectDeadLetterAlerts(
+  sites: WebsiteRow[],
+  unreplayedBySlug: ReadonlyMap<string, number>,
+  baseUrl: string,
+): AttentionItem[] {
+  const bySlug = new Map<string, WebsiteRow>();
+  for (const s of sites) {
+    const slug = siteSlug(s.name);
+    if (slug) bySlug.set(slug, s);
+  }
+  const items: AttentionItem[] = [];
+  for (const slug of [...unreplayedBySlug.keys()].sort()) {
+    const n = unreplayedBySlug.get(slug) ?? 0;
+    if (n < 1) continue;
+    const site = bySlug.get(slug);
+    const noun = n === 1 ? "lead" : "leads";
+    items.push({
+      key: `deadletter:${slug}`,
+      kind: "deadletter",
+      siteName: site ? site.name : `(unknown site: ${slug})`,
+      title: site
+        ? `${n} ${noun} dead-lettered and not yet replayed — run \`db replay-deadletters\``
+        : `${n} ${noun} dead-lettered for '${slug}', which resolves to NO fleet site — leads are being dropped; run \`ensure-site ${slug}\` then \`db replay-deadletters\``,
+      // No link for an unresolvable slug: /s/<slug> would 404, and the
+      // collectors' own rule is never to render a broken link.
+      ...(site ? { url: dashboardUrl(baseUrl, site.name) } : {}),
       severity: "critical",
       metric: n,
     });

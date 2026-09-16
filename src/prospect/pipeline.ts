@@ -240,6 +240,15 @@ export type ProspectAuditOptions = {
    *  inference — supply it when the prospect has told us, leave it out for a
    *  cold audit and let the site speak for itself. */
   goal?: SiteGoal;
+  /** #676. The searches "Where you stand" is built from, chosen by hand. Blank
+   *  means generate, exactly as before — for a client we know we can write
+   *  better ones than the site can, and a comparison over time needs them
+   *  fixed. */
+  terms?: string[];
+  /** #676. Buyer questions chosen by hand. Blank means ask the goal's fixed
+   *  set. A hand-written set gets its own version key so two audits never
+   *  compare across different question sets. */
+  questions?: string[];
 };
 
 async function stage<T>(
@@ -381,6 +390,12 @@ export async function runProspectAudit(
           deps.analyze ?? envAnalyzeDeps(),
           opts.goal ?? "unknown",
           operatorFit,
+          // #676. Threaded exactly like `goal`: it must reach the stage that
+          // asks, not be applied after it.
+          {
+            ...(opts.terms ? { terms: opts.terms } : {}),
+            ...(opts.questions ? { questions: opts.questions } : {}),
+          },
         ),
       )
     : { ok: false, error: ANALYZE_SKIPPED };

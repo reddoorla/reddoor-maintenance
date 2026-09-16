@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -30,6 +30,10 @@ type GitHubOverrides = Partial<GitHub>;
 function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] } {
   const calls: string[] = [];
   const gh: GitHub = {
+    // Reads the pnpm-pin sweep needs. Unused by self-updating, but REQUIRED on
+    // the type: an optional dep is a check that silently measures nothing.
+    repoTextFile: async () => null,
+    listWorkflowPaths: async () => [],
     openPullRequest: async (repo) => {
       calls.push(`pr:${repo}`);
       return { url: "https://github.com/o/r/pull/1" };
@@ -83,6 +87,8 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
     workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: null }),
     dependencyDashboard: async () => ({ present: true, blockedBranches: [], unknownSections: [] }),
     branchTip: async () => null,
+    openSecretAlerts: async () => 0,
+    renovateMergeWindow: async () => ({ merges: [], truncated: false }),
     ...over,
   };
   return { gh, calls };
@@ -638,5 +644,69 @@ describe("selfUpdating recipe", () => {
     }
     // No mutating gh call should have run for any malformed value.
     expect(calls).toEqual([]);
+  });
+});
+
+// --- git must actually TAKE the configs (#741). The partial drop is the one
+//     that bites: one template lands, so `commit()` returns a SHA, the branch
+//     is pushed and a PR opens — and the repo never becomes self-updating,
+//     while every later run reports "self-updating PR already open".
+describe("selfUpdating: the commit must carry the configs", () => {
+  const RENOVATE_ACTION_PATH = SELF_UPDATING_TEMPLATES.find(
+    (t) => t.config === "renovate-action",
+  )!.path;
+  const RENOVATE_CONFIG_PATH = SELF_UPDATING_TEMPLATES.find(
+    (t) => t.config === "renovate-config",
+  )!.path;
+
+  function seedGitignore(dir: string, body: string): void {
+    writeFileSync(join(dir, ".gitignore"), body);
+    execFileSync("git", ["add", "-A"], { cwd: dir });
+    execFileSync("git", ["commit", "-qm", "seed .gitignore"], { cwd: dir });
+  }
+
+  it("GRANTS a normal bootstrap — both configs are in the pushed branch's tree", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh } = fakeGitHub();
+    let tree = "";
+    const push = vi.fn(async (cwd: string, branch: string) => {
+      tree = execFileSync("git", ["ls-tree", "-r", "--name-only", branch], {
+        cwd,
+        encoding: "utf-8",
+      });
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("applied");
+    expect(tree).toContain(RENOVATE_ACTION_PATH);
+    expect(tree).toContain(RENOVATE_CONFIG_PATH);
+  });
+
+  it("REFUSES a PARTIAL bootstrap: renovate.json ignored, nothing pushed, no PR", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    seedGitignore(dir, `node_modules\n${RENOVATE_CONFIG_PATH}\n`);
+    const startBranch = currentBranchOf(dir);
+    const { gh, calls } = fakeGitHub();
+    const push = vi.fn(async () => {});
+
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain(RENOVATE_CONFIG_PATH);
+    expect(r.notes).toContain(`.gitignore:2:${RENOVATE_CONFIG_PATH}`);
+    // The renovate.yml half committed, which is exactly why the old code
+    // pushed and opened a PR for a repo that would never self-update.
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).not.toContain("pr:o/r");
+    // The operator is back where they started, and the refused file is gone.
+    expect(currentBranchOf(dir)).toBe(startBranch);
+    expect(existsSync(join(dir, RENOVATE_CONFIG_PATH))).toBe(false);
   });
 });

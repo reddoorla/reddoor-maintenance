@@ -164,13 +164,14 @@ describe("collectAttention", () => {
 
   it("emits a notify-bounce item from injected per-site counts, keyed like the cockpit", async () => {
     // The digest path takes the same pre-fetched counts shape the cockpit threads
-    // (countNotifyBouncedBySite → Map<siteId, n>); the key must be the cockpit's
-    // `notify-bounce:<siteId>` so the shared snapshot diffs NEW/WORSE across both.
+    // (countNotifyBouncedBySite → Map<siteId, {total, permanent}> since #783); the
+    // key must be the cockpit's `notify-bounce:<siteId>` so the shared snapshot
+    // diffs NEW/WORSE across both.
     const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
     const items = await collectAttention({
       base,
       baseUrl: BASE_URL,
-      notifyBounces: new Map([["rec_site_acme", 3]]),
+      notifyBounces: new Map([["rec_site_acme", { total: 3, permanent: 3 }]]),
     });
     const nb = items.find((i) => i.kind === "notify-bounce")!;
     expect(nb).toMatchObject({
@@ -181,6 +182,32 @@ describe("collectAttention", () => {
     });
   });
 
+  it("emits a deadletter item from injected per-slug counts (#645)", async () => {
+    // The digest is the surface that carries BOTH flavours: a slug the fleet
+    // knows, and a slug it does not — the latter has no cockpit card by
+    // construction, and it is the flavour that means leads are being dropped.
+    const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
+    const items = await collectAttention({
+      base,
+      baseUrl: BASE_URL,
+      deadLetters: new Map([
+        ["acme-co", 2],
+        ["ghost-co", 1],
+      ]),
+    });
+    const known = items.find((i) => i.key === "deadletter:acme-co")!;
+    expect(known).toMatchObject({ kind: "deadletter", siteName: "Acme Co", severity: "critical" });
+    const ghost = items.find((i) => i.key === "deadletter:ghost-co")!;
+    expect(ghost).toMatchObject({ siteName: "(unknown site: ghost-co)", severity: "critical" });
+    expect(ghost.url).toBeUndefined();
+  });
+
+  it("emits no deadletter item when the queue is empty", async () => {
+    const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
+    const none = await collectAttention({ base, baseUrl: BASE_URL, deadLetters: new Map() });
+    expect(none.some((i) => i.kind === "deadletter")).toBe(false);
+  });
+
   it("emits no notify-bounce item when counts are empty or below the 2-bounce floor", async () => {
     const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
     const none = await collectAttention({ base, baseUrl: BASE_URL, notifyBounces: new Map() });
@@ -188,7 +215,7 @@ describe("collectAttention", () => {
     const single = await collectAttention({
       base,
       baseUrl: BASE_URL,
-      notifyBounces: new Map([["rec_site_acme", 1]]),
+      notifyBounces: new Map([["rec_site_acme", { total: 1, permanent: 1 }]]),
     });
     expect(single.some((i) => i.kind === "notify-bounce")).toBe(false);
   });

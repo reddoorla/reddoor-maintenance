@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildSiteAlarmContext, buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { NotifyBounceCounts } from "../../src/db/submissions.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
@@ -29,7 +30,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
 }
 
 /** The keys the cockpit surfaces for one site — the parity yardstick. */
-function cockpitItemKeys(s: WebsiteRow, notify = new Map<string, number>()): string[] {
+function cockpitItemKeys(s: WebsiteRow, notify = new Map<string, NotifyBounceCounts>()): string[] {
   const m = buildCockpitModel([s], [], {}, BASE, NOW, [], null, [], 0, notify);
   const card = m.cards.find((c) => c.site.id === s.id)!;
   return card.items.map((i) => i.key).sort();
@@ -54,7 +55,13 @@ describe("buildSiteAlarmContext", () => {
 
   it("surfaces bounced lead notifications as a critical notify-bounce item", () => {
     const s = site({ id: "a", name: "Espada" });
-    const alarm = buildSiteAlarmContext(s, [], BASE, NOW, new Map([["a", 4]]));
+    const alarm = buildSiteAlarmContext(
+      s,
+      [],
+      BASE,
+      NOW,
+      new Map([["a", { total: 4, permanent: 4 }]]),
+    );
     expect(alarm.tier).toBe("attention");
     const bounce = alarm.items.find((i) => i.kind === "notify-bounce")!;
     expect(bounce.severity).toBe("critical");
@@ -82,7 +89,7 @@ describe("buildSiteAlarmContext", () => {
     ).toEqual(cockpitItemKeys(vuln));
 
     const bouncing = site({ id: "c", name: "Espada" });
-    const notify = new Map([["c", 4]]);
+    const notify = new Map([["c", { total: 4, permanent: 4 }]]);
     expect(
       buildSiteAlarmContext(bouncing, [], BASE, NOW, notify)
         .items.map((i) => i.key)

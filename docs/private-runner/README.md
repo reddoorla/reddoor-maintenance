@@ -53,11 +53,15 @@ Without `ANTHROPIC_API_KEY` and `PERPLEXITY_API_KEY` the audit still runs,
 persists and emails — the answerability and AI-visibility sections simply read
 "not measured", which is the behaviour the whole tool is built around.
 
-**3. Point the cockpit at it.** On the `reddoor-maintenance` Netlify site:
+**3. Point the cockpit at it.** On the `reddoor-maintenance` Netlify site.
+Link first and read back: `netlify env:set` silently ignores `--site <id>` and,
+outside a linked directory, writes nothing while still exiting 0 (#710).
 
 ```bash
+netlify link --id <reddoor-maintenance site id>   # once per checkout
 netlify env:set PROSPECT_AUDIT_DISPATCH_REPO reddoorla/reddoor-prospect-runner \
   --context production branch-deploy deploy-preview
+netlify env:list --plain | grep PROSPECT_AUDIT_DISPATCH_REPO   # must print the key
 ```
 
 **4. Give the cockpit a token that can dispatch it.** The dashboard already

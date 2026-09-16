@@ -21,6 +21,7 @@ import {
   mirrorHealthFields,
   mirrorScheduleFields,
   mirrorReportPatch,
+  mirrorReportInsert,
   storeRenderedHtml,
   getReportHtml,
   listAllReports,
@@ -539,7 +540,19 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
 
   it("an empty patch is a no-op, not invalid SQL", async () => {
     const db = await importOf([RICH]);
-    await expect(mirrorReportPatch(db, "recX", {})).resolves.toBeUndefined();
+    // Nothing to write is not a miss: there is no row it could have failed to
+    // match, so it reports matched rather than sending a strict caller to throw.
+    await expect(mirrorReportPatch(db, "recX", {})).resolves.toBe(true);
+  });
+
+  it("#647: reports whether the UPDATE matched a row, like mirrorSiteFields", async () => {
+    // Before #647 the row count was discarded, so a report row that never
+    // reached Turso mirrored "successfully" — the one outcome the freeze calls
+    // a bug (`mirrored=missed`) was indistinguishable from a landed write.
+    const db = await importOf([RICH]);
+    await mirrorReportInsert(db, { id: "recRPT1", fields: { "Report ID": "R1" } });
+    await expect(mirrorReportPatch(db, "recRPT1", { draft_ready: 0 })).resolves.toBe(true);
+    await expect(mirrorReportPatch(db, "recNEVER", { draft_ready: 0 })).resolves.toBe(false);
   });
   it("carries COMMENTARY, so an edit shows on the next render not the next sync", async () => {
     // #539 Phase 4: the console now edits report commentary, and the page
