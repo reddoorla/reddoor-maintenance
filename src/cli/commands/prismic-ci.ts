@@ -151,7 +151,7 @@ export async function runPrismicCiCommand(
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
-    // Passed through because `--fleet airtable` derives each site's path from
+    // Passed through because `--fleet turso` derives each site's path from
     // it; without it the keyword inventory would resolve paths under a different
     // workdir than the one this run then prepares and commits in.
     ...(opts.workdir !== undefined ? { workdir: opts.workdir } : {}),

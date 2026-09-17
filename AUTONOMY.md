@@ -59,7 +59,7 @@ Local + reversible-remote. The agent does these freely:
   `PRISMIC_WRITE_TOKEN`. Named here because the derivation invites a
   hand-written list and four of the fifteen do not match their repo's directory
   name; the agent may print the checklist
-  (`prismic-models --fleet airtable --tokens`, read-only) and never mint from it.
+  (`prismic-models --fleet turso --tokens`, read-only) and never mint from it.
   See [`docs/runbooks/prismic-model-delivery.md`](docs/runbooks/prismic-model-delivery.md).
 - **Prismic model deletes** — always. A model delete destroys published content's
   schema and is not `git revert`-able. The `prismic-models` code has no delete

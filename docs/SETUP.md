@@ -124,7 +124,7 @@ reddoor-maint self-updating <path-to-site> # adds CI + Renovate, branch protecti
 
 Each recipe is branch-isolated + idempotent (re-running on a done site is a `noop`), and creates a `maint/*` branch to PR. Then add the site's row to the Airtable `Websites` table: `Name`, `url`, `Git repo`, `Report recipients (To)`, a `maintenence freq`, a `Header image`, and a `Dashboard Token` value (to make it appear on the cockpit). The site is now in the loop.
 
-> Fleet-wide commands take `--fleet airtable` (read the inventory from Airtable) — e.g. `reddoor-maint audit --fleet airtable --only lighthouse --write-back`.
+> Fleet-wide commands take `--fleet turso` (read the fleet roster from the database; `--fleet airtable` is a deprecated alias that reads the same roster and warns) — e.g. `reddoor-maint audit --fleet turso --only lighthouse --write-back`.
 
 ---
 

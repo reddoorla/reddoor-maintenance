@@ -158,7 +158,7 @@ Installs the matching harness used to rebuild a site against a live reference (a
 ```bash
 reddoor-maint match-harness --ref https://client.webflow.io
 reddoor-maint match-harness acme --ref https://acme.webflow.io --cand http://localhost:4173
-reddoor-maint match-harness --fleet airtable --ref https://client.webflow.io --matrix 1440,834,390
+reddoor-maint match-harness --fleet turso --ref https://client.webflow.io --matrix 1440,834,390
 ```
 
 `--ref` is **required**. The harness gates against a live reference; with no reference it can only ever report an absence of errors, so the recipe refuses instead of installing something that goes green on nothing. `--cand` defaults to `http://localhost:5173` and `--matrix` to `1440,834,390`.
