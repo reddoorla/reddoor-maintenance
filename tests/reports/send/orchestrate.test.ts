@@ -167,13 +167,37 @@ vi.mock("../../../src/audits/fleet-events-writer.js", () => ({
 }));
 
 import { openBase } from "../../../src/reports/airtable/client.js";
+import { readAirtableConfig } from "../../../src/reports/airtable/client.js";
+import { listWebsites } from "../../../src/reports/airtable/websites.js";
+import { listSendableReports } from "../../../src/reports/airtable/reports.js";
+
+/**
+ * #646 step 4: the send reads its queue, its roster and its header plate from
+ * TURSO, through the three readers below.
+ *
+ * Injected here from the SAME fake base every test already seeds — `openBase` is
+ * mocked, so this reads the fixture rather than a store — because what this file
+ * pins is the send behaviour (gates, recipients, stamping, mirrors), all of which
+ * still write Airtable. `loadHeaderPlate` returns null on purpose: that is the
+ * Airtable-attachment FALLBACK path, which is what these fixtures' `Header image`
+ * cells and the stubbed `global.fetch` describe. The Turso-plate path and the
+ * Turso-backed queue are driven end to end in send-turso.test.ts.
+ */
+const io = () => {
+  const base = openBase(readAirtableConfig());
+  return {
+    sendable: () => listSendableReports(base),
+    roster: () => listWebsites(base),
+    loadHeaderPlate: async () => null,
+  };
+};
 import { recordFleetEventsBestEffort } from "../../../src/audits/fleet-events-writer.js";
 
 describe("sendApprovedReports", () => {
   it("returns 0 and 'No reports ready' when nothing is sendable", async () => {
     vi.mocked(openBase).mockReturnValue(makeFakeBase({ Reports: [], Websites: [siteRow()] }));
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res).toEqual({ output: "No reports ready to send.", code: 0 });
   });
 
@@ -181,7 +205,7 @@ describe("sendApprovedReports", () => {
     const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
     vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     expect(res.output).toContain("✓ sent:");
     expect(captured).toHaveLength(1);
@@ -200,7 +224,7 @@ describe("sendApprovedReports", () => {
       makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     expect(captured[0]!.to).toEqual(["explicit@acme.example.com"]);
   });
 
@@ -212,7 +236,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     expect(captured[0]!.to).toEqual(["ops@acme.example.com"]);
   });
 
@@ -224,7 +248,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     expect(captured[0]!.cc).toEqual(["cc@acme.example.com", "info@reddoorla.com"]);
   });
 
@@ -236,7 +260,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     expect(captured[0]!.cc).toEqual(["info@reddoorla.com"]);
   });
 
@@ -248,7 +272,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("no recipients");
   });
@@ -264,7 +288,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("no recipients");
     // The expensive path (header fetch) never ran for the bad-recipients site.
@@ -279,7 +303,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("malformed");
     expect(global.fetch).not.toHaveBeenCalled();
@@ -293,7 +317,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("no Header image");
   });
@@ -306,7 +330,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("malformed");
     expect(res.output).toMatch(/bare address only/i);
@@ -322,7 +346,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toMatch(/Lighthouse/);
     expect(res.output).toMatch(/numeric/i);
@@ -344,7 +368,7 @@ describe("sendApprovedReports", () => {
     });
     vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
 
     expect(res.code).toBe(1);
     expect(res.output).toContain("✗");
@@ -362,7 +386,7 @@ describe("sendApprovedReports", () => {
     const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
     vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);
   });
@@ -383,7 +407,7 @@ describe("sendApprovedReports", () => {
     });
     vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);
     const html = captured[0]!.html;
@@ -429,7 +453,7 @@ describe("sendApprovedReports", () => {
     });
     vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(captured).toHaveLength(0);
     expect(res.output).toContain("Maint: CMS Checked");
@@ -471,7 +495,7 @@ describe("sendApprovedReports", () => {
     const base = makeFakeBase({ Reports: [overriddenReport], Websites: [siteRow()] });
     vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);
     expect(vi.mocked(recordFleetEventsBestEffort)).toHaveBeenCalled();
@@ -497,7 +521,7 @@ describe("sendApprovedReports", () => {
     for (const k of Object.keys(fields)) if (k.startsWith("Maint: ")) delete fields[k];
     vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);
   });
@@ -510,7 +534,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     expect(captured[0]!.subject).toBe("Custom Subject");
   });
 
@@ -519,7 +543,7 @@ describe("sendApprovedReports", () => {
       makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     // reportRow fixture: Completed on = 2026-05-26 → "May 2026".
     expect(captured[0]!.subject).toBe("Acme Co — May 2026 Maintenance Report");
   });
@@ -529,7 +553,7 @@ describe("sendApprovedReports", () => {
       makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     const atts = captured[0]!.attachments ?? [];
     const header = atts.find((a) => a.inlineContentId === "acme-co-header");
     const check = atts.find((a) => a.inlineContentId === "rd-check-png");
@@ -636,7 +660,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     const atts = captured[0]!.attachments ?? [];
     expect(atts.find((a) => a.inlineContentId === "rd-blurred-tests-jpg")).toBeUndefined();
@@ -657,7 +681,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     const atts = captured[0]!.attachments ?? [];
     expect(atts.find((a) => a.inlineContentId === "rd-blurred-tests-jpg")).toBeUndefined();
@@ -674,7 +698,7 @@ describe("sendApprovedReports", () => {
     for (const k of Object.keys(fields)) if (k.startsWith("Maint: ")) delete fields[k];
     vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     const atts = captured[0]!.attachments ?? [];
     expect(atts.map((a) => a.inlineContentId)).toEqual(["acme-co-header"]);
@@ -685,7 +709,7 @@ describe("sendApprovedReports", () => {
       makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     expect(captured[0]!.idempotencyKey).toBe("report:rec_report_1");
   });
 
@@ -697,7 +721,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     expect(captured[0]!.html).toContain("Page 1 Google Result (#4)");
   });
 
@@ -710,7 +734,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client, captured } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     expect(captured[0]!.html).toContain("vs the previous 30 days");
   });
 
@@ -722,7 +746,7 @@ describe("sendApprovedReports", () => {
       }),
     );
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("Site row not found for id=rec_orphan");
   });
@@ -734,7 +758,7 @@ describe("sendApprovedReports", () => {
     });
     vi.mocked(openBase).mockReturnValue(base);
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     expect(res.output).toContain("✓ sent:");
     expect(res.output).toContain("flipped to maintained");
@@ -765,6 +789,7 @@ describe("sendApprovedReports", () => {
     const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
 
     await sendApprovedReports({
+      ...io(),
       resend: client,
       siteMirror: {
         created: async () => {},
@@ -786,7 +811,7 @@ describe("sendApprovedReports", () => {
     const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
     vi.mocked(openBase).mockReturnValue(base);
     const { client } = captureClient();
-    await sendApprovedReports({ resend: client });
+    await sendApprovedReports({ ...io(), resend: client });
     const flip = base.__calls.find(
       (c) =>
         c.kind === "update" &&
@@ -805,7 +830,7 @@ describe("sendApprovedReports", () => {
     const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
     vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = idempotencyConflictClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
 
     expect(res.code).toBe(0);
     // Treated as a success by the caller (so the Launch flip runs); the
@@ -830,7 +855,7 @@ describe("sendApprovedReports", () => {
     const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
     vi.mocked(openBase).mockReturnValue(base);
     const { client } = genericErrorClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
 
     expect(res.code).toBe(1);
     expect(res.output).toContain("✗");
@@ -849,7 +874,7 @@ describe("sendApprovedReports", () => {
     });
     vi.mocked(openBase).mockReturnValue(base);
     const { client } = idempotencyConflictClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
 
     expect(res.code).toBe(0);
     expect(res.output).toContain("flipped to maintained");
@@ -893,7 +918,7 @@ describe("sendApprovedReports", () => {
     patched.__records = base.__records;
     vi.mocked(openBase).mockReturnValue(patched);
     const { client } = captureClient();
-    const res = await sendApprovedReports({ resend: client });
+    const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("✓ sent:");
     expect(res.output).toContain("launch flip failed");
@@ -910,6 +935,7 @@ describe("sendApprovedReports", () => {
     const { client } = captureClient();
     const stamps: Array<{ id: string; sentAt: Date; messageId: string | null }> = [];
     const res = await sendApprovedReports({
+      ...io(),
       resend: client,
       reportSentMirror: async (id, sentAt, messageId) => {
         stamps.push({ id, sentAt, messageId });
@@ -928,6 +954,7 @@ describe("sendApprovedReports", () => {
     const { client } = idempotencyConflictClient();
     const stamps: Array<string | null> = [];
     const res = await sendApprovedReports({
+      ...io(),
       resend: client,
       reportSentMirror: async (_id, _sentAt, messageId) => {
         stamps.push(messageId);
@@ -949,6 +976,7 @@ describe("sendApprovedReports", () => {
     const { client } = captureClient();
     const mirrored: string[] = [];
     const res = await sendApprovedReports({
+      ...io(),
       resend: client,
       siteMirror: {
         created: async () => {},

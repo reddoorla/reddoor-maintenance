@@ -674,6 +674,31 @@ export async function listReportsForSite(db: Db, siteId: string): Promise<Report
   return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
+/** Same contract as the Airtable `listSendableReports`: the send queue —
+ *  `Draft ready` ∧ `Approved to send` ∧ `Sent at` BLANK, which is exactly the
+ *  filterByFormula that reader sends. Airtable evaluated the predicate server-side;
+ *  here it is a WHERE, so the three-part rule is stated once, in SQL, and
+ *  tests/reports/send/sendable-predicate.test.ts drives every combination of the
+ *  three columns through it.
+ *
+ *  Body-free like the other list reads: the send renders from the row, and
+ *  `rendered_html` is fetched separately by the paths that want the stored body.
+ *  It scans `reports` (16 rows, ~44/month) exactly as `listAllReports` does, and
+ *  the query-plan gate carries that as a named allowance rather than a silent one. */
+export async function listSendableReports(db: Db): Promise<ReportRow[]> {
+  const rows = await db
+    .selectFrom("reports")
+    .select(REPORT_LIST_COLUMNS)
+    .select(HAS_RENDERED_HTML)
+    .where("draft_ready", "=", 1)
+    .where("approved_to_send", "=", 1)
+    .where("sent_at", "is", null)
+    .orderBy("period_start", "desc")
+    .orderBy("id")
+    .execute();
+  return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
+}
+
 /** Columns a report writer mirrors after its Airtable write (same pattern as
  *  mirrorSiteField): the approve/override flow, the resend-webhook's delivery
  *  status, and — since #539 Phase 5 — the drafting path's queue flag and a

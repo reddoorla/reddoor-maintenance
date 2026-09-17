@@ -1,8 +1,8 @@
-import { openBase, readAirtableConfig } from "../airtable/client.js";
-import { listSendableReports, stampSent } from "../airtable/reports.js";
-import { listWebsites, updateLaunched } from "../airtable/websites.js";
-import type { WebsiteRow } from "../airtable/websites.js";
-import type { ReportRow } from "../airtable/reports.js";
+import { openBase, readAirtableConfig, type AirtableBase } from "../airtable/client.js";
+import { stampSent } from "../airtable/reports.js";
+import { updateLaunched } from "../airtable/websites.js";
+import { siteSlug, type WebsiteRow } from "../../fleet/site-row.js";
+import type { ReportRow } from "../report-row.js";
 import { fetchAttachmentBytes } from "../airtable/attachments.js";
 import { renderReportFromRow, requireLighthouse } from "./render-from-row.js";
 import { defaultResendClient, type ResendClient } from "./resend.js";
@@ -35,6 +35,25 @@ export function withGlobalCc(perSiteCc: string[] | null, to: string[]): string[]
 
 export type OrchestrateOptions = {
   resend?: ResendClient;
+  /**
+   * #646 step 4: the send queue and the fleet roster, read from TURSO.
+   *
+   * Required rather than defaulted, for the reason the mirrors below are: this
+   * function is called directly by tests, and a default would let one reach a
+   * live store. The CLI wires `listSendableReports`/`listSites` over one
+   * connection.
+   */
+  sendable: () => Promise<ReportRow[]>;
+  roster: () => Promise<WebsiteRow[]>;
+  /**
+   * The site's header plate, from `sites.header_image*` (design D5 made Turso its
+   * source; the re-render path has read it from there since #643). `null` means
+   * Turso holds no bytes for that site, and the send falls back to the site's
+   * Airtable attachment — which is the ONLY reason this path still reads
+   * Airtable, and why the fallback fetches ONE site's record rather than the
+   * roster it used to get the signed url from.
+   */
+  loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>;
   /** #539 Phase 5: Turso write-through for the Websites row a Launch send
    *  updates. Injected rather than defaulted — this function is called directly
    *  by tests, and a default would open a real libSQL handle inside the suite. */
@@ -49,15 +68,18 @@ export type OrchestrateOptions = {
 };
 
 export async function sendApprovedReports(
-  options: OrchestrateOptions = {},
+  options: OrchestrateOptions,
 ): Promise<{ output: string; code: number }> {
+  // Airtable is still opened on this path: `stampSent`, `updateLaunched` and the
+  // header fallback below are all Airtable calls. What moved in #646 step 4 are
+  // the two READS that decided what the run does at all.
   const base = openBase(readAirtableConfig());
   const client = options.resend ?? defaultResendClient();
 
-  const sendable = await listSendableReports(base);
+  const sendable = await options.sendable();
   if (sendable.length === 0) return { output: "No reports ready to send.", code: 0 };
 
-  const websites = await listWebsites(base);
+  const websites = await options.roster();
   const sites = new Map(websites.map((w) => [w.id, w]));
 
   const lines: string[] = [];
@@ -70,7 +92,7 @@ export async function sendApprovedReports(
       continue;
     }
     try {
-      const sent = await sendOne(client, base, site, report);
+      const sent = await sendOne(client, base, site, report, options.loadHeaderPlate);
       lines.push(`✓ sent: ${report.reportId} (${sent.display})`);
       // Mirror the stamp into Turso. Caught here rather than thrown so one
       // report's lost mirror still lets the batch continue AND still runs this
@@ -144,6 +166,43 @@ export async function sendApprovedReports(
   return { output: lines.join("\n"), code: anyFailed ? 1 : 0 };
 }
 
+/**
+ * The header plate for one send: Turso first, the site's Airtable attachment as
+ * the fallback (#646 step 4).
+ *
+ * Turso first for the reason the re-render path already had: the bytes are local,
+ * and an Airtable attachment url is SIGNED and expiring, so fetching one when the
+ * same image is already in hand is latency plus a dependency on a url that may be
+ * dead. The fallback exists because the plate columns were backfilled, not
+ * enforced — a site whose image never made it across must still be able to send,
+ * exactly as it did before this change.
+ *
+ * The fallback is a ONE-SITE Airtable lookup, not the whole Websites table: the
+ * roster no longer comes from Airtable, so the signed url is not already in hand.
+ * A site with no record there (every `site_<ULID>` site) and no plate gets a named
+ * error with the command that fixes it — not a silent unillustrated report.
+ */
+async function headerPlateFor(
+  base: AirtableBase,
+  site: WebsiteRow,
+  loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>,
+): Promise<{ bytes: Uint8Array; source: "turso" | "airtable" }> {
+  const stored = await loadHeaderPlate(site.id);
+  if (stored) return { bytes: stored, source: "turso" };
+  const slug = siteSlug(site.name);
+  const { findWebsiteRecordBySlug } = await import("../airtable/ensure-site.js");
+  const { mapRow } = await import("../airtable/websites.js");
+  const rec = slug ? await findWebsiteRecordBySlug(base, slug) : null;
+  const url = rec ? mapRow(rec).headerImage?.url : undefined;
+  if (!url) {
+    throw new Error(
+      `Site '${site.name}' has no Header image: no header plate in Turso and no Airtable ` +
+        `attachment to fall back to — run \`reddoor-maint header-image ${slug || site.name} --write-back\``,
+    );
+  }
+  return { bytes: (await fetchAttachmentBytes(url)).bytes, source: "airtable" };
+}
+
 /** What the caller needs to mirror the stamp: the exact values stampSent wrote
  *  (`messageId` null on the 409 path, where Airtable's field is left untouched
  *  too), plus the display string for the ✓ line. */
@@ -154,6 +213,7 @@ async function sendOne(
   base: ReturnType<typeof openBase>,
   site: WebsiteRow,
   report: ReportRow,
+  loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>,
 ): Promise<SentStamp> {
   // Hard health gate: a Maintenance/Testing report whose gating evidence isn't all pass/n/a must
   // never go out — even if "Approved to send" was set directly in Airtable. Throw so the row is
@@ -169,9 +229,6 @@ async function sendOne(
       })
       .join("; ");
     throw new Error(`Report ${report.reportId} health gate not clear — ${failing}`);
-  }
-  if (!site.headerImage) {
-    throw new Error(`Site '${site.name}' has no Header image set on the Websites row`);
   }
   // Fail fast, before the header fetch and the sharp downscale. Same rule and
   // same message the renderer enforces — shared, not restated.
@@ -210,11 +267,12 @@ async function sendOne(
     }
   }
 
-  const original = await fetchAttachmentBytes(site.headerImage.url);
+  const header = await headerPlateFor(base, site, loadHeaderPlate);
+  console.log(`REPORT_SEND report=${report.reportId} site=${site.name} header=${header.source}`);
   // ONE render path, shared with the console's on-demand re-render — so a
   // preview cannot drift from what the client actually receives. The assembly
   // that used to live here moved into renderReportFromRow unchanged.
-  const { html, attachments, subject } = await renderReportFromRow(site, report, original.bytes);
+  const { html, attachments, subject } = await renderReportFromRow(site, report, header.bytes);
 
   const payload: Parameters<ResendClient["send"]>[0] = {
     from: FROM_ADDRESS,
