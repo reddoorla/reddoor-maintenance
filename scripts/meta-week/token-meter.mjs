@@ -178,10 +178,15 @@ async function main() {
     );
   }
   if (result.blocks) {
-    process.stdout.write(`\nBLOCKS\t${result.blocks.length}\n`);
+    // A model block ("You've reached your Fable limit") caps one model, not the account:
+    // print its kind with the model name so it is never read as a session or weekly wall.
+    const kindOf = (b) => (b.kind === "model" ? `model:${b.model}` : b.kind);
+    const byKind = {};
+    for (const b of result.blocks) byKind[kindOf(b)] = (byKind[kindOf(b)] || 0) + 1;
+    process.stdout.write(`\nBLOCKS\t${result.blocks.length}\tbyKind=${JSON.stringify(byKind)}\n`);
     for (const b of result.blocks) {
       process.stdout.write(
-        `${b.ts}\t${b.kind}\t${b.repo}\t${b.lane}\tspend5h out=${fmt(b.spend5h.out)} cacheCreate=${fmt(b.spend5h.cacheCreate)} cacheRead=${fmt(b.spend5h.cacheRead)}\n`,
+        `${b.ts}\t${kindOf(b)}\t${b.repo}\t${b.lane}\tspend5h out=${fmt(b.spend5h.out)} cacheCreate=${fmt(b.spend5h.cacheCreate)} cacheRead=${fmt(b.spend5h.cacheRead)}\n`,
       );
     }
   }

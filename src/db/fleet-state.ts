@@ -291,6 +291,10 @@ export async function mirrorSiteFields(
 
 /** Mirror a NEWLY CREATED Airtable Websites record into Turso (#539 Phase 5).
  *
+ *  Since #646 step 3 a new site is created in Turso by {@link insertSiteRows}
+ *  instead; this survives as the #645 heal's ADOPT — an Airtable site with no
+ *  Turso row is inserted under its own `rec` id by `ensure-site`.
+ *
  *  `ensure-site` CREATES a row, and every other site mirror is an UPDATE, which
  *  does nothing at all for a row that does not exist yet — so a site
  *  bootstrapped at 09:05 was invisible until the 09:20 sync, and every mirror
@@ -365,6 +369,85 @@ export async function mirrorHealthFields(
     .where("site_id", "=", siteId)
     .executeTakeFirst();
   // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
+  return res.numUpdatedRows > 0n;
+}
+
+/** A site as the Turso-native creator INSERTS it (#646 step 3). Only the columns
+ *  `ensure-site` owns; everything else starts at its schema default (null, or 0
+ *  for `require_turnstile`) exactly as an imported Airtable row with blank cells
+ *  did. */
+export type NewSiteRow = {
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  url: string | null;
+  pointOfContact: string | null;
+  gitRepo: string | null;
+};
+
+/** Insert a brand-new site's three rows: `sites`, `site_health`, `site_schedule`.
+ *
+ *  Plain INSERTs, not upserts — the id was just minted, so a conflict on any of
+ *  the three primary keys, or on `sites.slug`, means something is wrong and must
+ *  fail loudly rather than overwrite. Atomicity is the CALLER's: `src/db/site-
+ *  create.ts` runs this inside one transaction (a Kysely `Transaction` is a
+ *  `Db`), so a failure on the third insert leaves none of the three behind.
+ *  Why all three: every reader LEFT JOINs the companions, but the nightly health
+ *  and schedule writers are UPDATEs, and under the freeze an UPDATE that matches
+ *  no row throws (`mirrored=missed`). */
+export async function insertSiteRows(db: Db, site: NewSiteRow, computedAt: string): Promise<void> {
+  await db
+    .insertInto("sites")
+    .values({
+      id: site.id,
+      slug: site.slug,
+      name: site.name,
+      status: site.status,
+      url: site.url,
+      point_of_contact: site.pointOfContact,
+      git_repo: site.gitRepo,
+      require_turnstile: 0,
+    })
+    .execute();
+  await db.insertInto("site_health").values({ site_id: site.id }).execute();
+  await db
+    .insertInto("site_schedule")
+    .values({
+      site_id: site.id,
+      next_maintenance_at: null,
+      next_testing_at: null,
+      computed_at: computedAt,
+    })
+    .execute();
+}
+
+/** The columns `ensure-site` may change on an EXISTING site: its fill-blanks
+ *  inputs and the `--name` retitle. `slug` is absent BY TYPE — it is the stable
+ *  external handle (URLs, `/api/forms/:slug`, deployed sites) and no rename may
+ *  move it (operator decision 2026-09-17). */
+export type SiteIdentityPatch = {
+  name?: string;
+  url?: string;
+  pointOfContact?: string;
+  gitRepo?: string;
+};
+
+/** Apply a {@link SiteIdentityPatch} to one `sites` row by PK. Returns whether a
+ *  row matched; an empty patch runs no SQL and returns true (nothing to write is
+ *  not a miss) — the same contract as {@link mirrorSiteFields}. */
+export async function updateSiteIdentity(
+  db: Db,
+  siteId: string,
+  patch: SiteIdentityPatch,
+): Promise<boolean> {
+  const set: Updateable<SitesTable> = {};
+  if (patch.name !== undefined) set.name = patch.name;
+  if (patch.url !== undefined) set.url = patch.url;
+  if (patch.pointOfContact !== undefined) set.point_of_contact = patch.pointOfContact;
+  if (patch.gitRepo !== undefined) set.git_repo = patch.gitRepo;
+  if (Object.keys(set).length === 0) return true;
+  const res = await db.updateTable("sites").set(set).where("id", "=", siteId).executeTakeFirst();
   return res.numUpdatedRows > 0n;
 }
 
