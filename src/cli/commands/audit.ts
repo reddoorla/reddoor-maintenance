@@ -13,6 +13,7 @@ import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 import { fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
 import type { AirtableBase } from "../../reports/airtable/client.js";
+import type { FleetRoster } from "../../fleet/roster.js";
 import type { HealthMirror } from "../../audits/health-mirror.js";
 import type { FleetEvent } from "../../db/fleet-events.js";
 
@@ -345,7 +346,6 @@ export async function runAuditCommand(
   let writeBackFailed = false;
   if (opts.writeBack !== undefined) {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { listWebsites } = await import("../../reports/airtable/websites.js");
 
     if (opts.fleet !== undefined) {
       const wb = await runFleetWriteBack({ results, which });
@@ -368,8 +368,12 @@ export async function runAuditCommand(
             title: `Write to Airtable[${slug}]`,
             task: async (_ctx, task) => {
               const base = openBase(readAirtableConfig());
-              task.output = "loading Websites…";
-              const websites = await listWebsites(base);
+              // #646 step 4: the row to write is found in Turso, which holds every
+              // site — a `site_<ULID>` site has no Airtable record to find. The
+              // Airtable write below stays as the shadow and skips non-`rec` ids.
+              task.output = "loading the fleet roster…";
+              const { readFleetRoster } = await import("../../fleet/roster.js");
+              const websites = await readFleetRoster();
               task.output = "writing scores…";
               writeSummary = await writeAuditsToAirtable({ base, websites, slug, results });
               // #539 Phase 5: the FLEET path has mirrored since Phase 3, this
@@ -414,6 +418,9 @@ export async function runFleetWriteBack(args: {
   which: AuditName[];
   deps?: {
     openBase?: () => AirtableBase;
+    /** #646 step 4: the rows results are matched against. Defaults to Turso
+     *  (`readFleetRoster`); tests inject. */
+    roster?: FleetRoster;
     makeMirror?: () => Promise<HealthMirror | null>;
     recordEvents?: (events: FleetEvent[], now: Date) => Promise<void>;
     /** #612. `true` = post-freeze, where a mirror failure, a missed row or an
@@ -432,8 +439,17 @@ export async function runFleetWriteBack(args: {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
     base = openBase(readAirtableConfig());
   }
-  const { listWebsites } = await import("../../reports/airtable/websites.js");
-  const websites = await listWebsites(base);
+  // #646 step 4: match results against the TURSO roster. Every site is there,
+  // including a `site_<ULID>` site with no Airtable record — matched against
+  // Airtable it failed with "No Websites row matched". Airtable stays the
+  // shadow: updateAuditFields skips a non-`rec` id and logs the skip.
+  const roster =
+    deps.roster ??
+    (async () => {
+      const { readFleetRoster } = await import("../../fleet/roster.js");
+      return readFleetRoster();
+    });
+  const websites = await roster();
   // Phase 3 dual-write (#539): mirror each site's written FieldSet into
   // site_health. Null when libSQL creds are absent — Airtable write-back
   // proceeds exactly as before.

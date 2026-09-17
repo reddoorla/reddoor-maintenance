@@ -1,6 +1,11 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { runRenovateDispatchCommand } from "../../src/cli/commands/renovate-dispatch.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+import { makeFakeBase, type FakeAirtableBase } from "../reports/_helpers/fake-airtable-base.js";
+import { listWebsites } from "../../src/reports/airtable/websites.js";
+
+/** #646 step 4: the roster comes from Turso. Injected from the fake base here —
+ *  the counter write it drives is the Airtable shadow write these tests pin. */
+const rosterOf = (base: FakeAirtableBase) => () => listWebsites(base);
 
 // Mirrors tests/cli/github-signals-command.test.ts: the two guard branches that
 // the fleet-security.yml step relies on to never fail. (The dispatch happy path
@@ -37,6 +42,7 @@ describe("runRenovateDispatchCommand guards", () => {
     const r = await runRenovateDispatchCommand({
       fleet: true,
       base: makeFakeBase({ Websites: [] }),
+      roster: async () => [],
     });
     expect(r.code).toBe(0);
     expect(r.output).toContain("skipped: no GH_TOKEN");
@@ -75,7 +81,7 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
         },
       ],
     });
-    const r = await runRenovateDispatchCommand({ fleet: true, base });
+    const r = await runRenovateDispatchCommand({ fleet: true, base, roster: rosterOf(base) });
     expect(r.code).toBe(0);
     expect(r.output).toContain("RENOVATE_DISPATCH_SUMMARY dispatched=0 skipped=0 failed=0");
     expect(r.output).toContain("AUTO_FIX_ATTEMPTS_SUMMARY written=1 failed=0");
@@ -115,6 +121,7 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
     await runRenovateDispatchCommand({
       fleet: true,
       base,
+      roster: rosterOf(base),
       siteMirror: {
         created: async () => {},
         hasRow: async () => true,
@@ -158,7 +165,7 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
         },
       ],
     });
-    const r = await runRenovateDispatchCommand({ fleet: true, base });
+    const r = await runRenovateDispatchCommand({ fleet: true, base, roster: rosterOf(base) });
     expect(r.code).toBe(0);
     expect(r.output).toContain("AUTO_FIX_ATTEMPTS_SUMMARY written=0 failed=0");
     expect(base.__calls.filter((c) => c.kind === "update")).toEqual([]);
@@ -182,7 +189,7 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
         },
       ],
     });
-    const r = await runRenovateDispatchCommand({ fleet: true, base });
+    const r = await runRenovateDispatchCommand({ fleet: true, base, roster: rosterOf(base) });
     expect(r.code).toBe(0);
     expect(r.output).toContain("AUTO_FIX_ATTEMPTS_SUMMARY written=0 failed=0");
     expect(base.__calls.filter((c) => c.kind === "update")).toEqual([]);

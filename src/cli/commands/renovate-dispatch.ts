@@ -1,6 +1,7 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import type { SiteMirror } from "../../db/site-mirror.js";
-import { listWebsites, updateAutoFixAttempts } from "../../reports/airtable/websites.js";
+import { updateAutoFixAttempts } from "../../reports/airtable/websites.js";
+import type { FleetRoster } from "../../fleet/roster.js";
 import { makeGitHub } from "../../github/gh.js";
 import {
   selectRenovateTargets,
@@ -27,8 +28,13 @@ import {
  */
 export async function runRenovateDispatchCommand(opts: {
   fleet?: boolean | undefined;
-  /** Inject a pre-opened Airtable base (tests). Defaults to env config. */
+  /** Inject a pre-opened Airtable base (tests). Defaults to env config. Still
+   *  needed: the auto-fix counter write is an Airtable SHADOW write. */
   base?: AirtableBase;
+  /** #646 step 4: the fleet roster targets are selected from. Default: Turso
+   *  (`readFleetRoster`) — an Airtable roster cannot see a `site_<ULID>` site,
+   *  so its vulnerabilities would never dispatch Renovate. */
+  roster?: FleetRoster;
   /** #539 Phase 5: Turso write-through for the auto-fix counter. Injected from
    *  bin.ts rather than defaulted here — this function is called directly by
    *  tests, and a default would open a real libSQL handle inside the suite. */
@@ -46,7 +52,13 @@ export async function runRenovateDispatchCommand(opts: {
   }
 
   const base = opts.base ?? openBase(readAirtableConfig());
-  const websites = await listWebsites(base);
+  const websites = await (
+    opts.roster ??
+    (async () => {
+      const { readFleetRoster } = await import("../../fleet/roster.js");
+      return readFleetRoster();
+    })
+  )();
   const targets = selectRenovateTargets(websites);
 
   const lines: string[] = [];
