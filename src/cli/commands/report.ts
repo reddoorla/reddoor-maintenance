@@ -138,24 +138,44 @@ export async function runReportCommand(
     const { makeSiteMirror } = await import("../../db/site-mirror.js");
     const { mirrorWrite } = await import("../../db/freeze.js");
     const { openDb, readDbConfig } = await import("../../db/client.js");
-    const { mirrorReportPatch } = await import("../../db/fleet-state.js");
-    return sendApprovedReports({
-      siteMirror: await makeSiteMirror(),
-      // stampSent's Turso shadow, routed through mirrorWrite so the freeze
-      // switch owns the semantics: strict rethrows and the send loop reds the
-      // run. Mirrors stampSent exactly — the 409 replay path leaves Airtable's
-      // `Resend message ID` untouched, so the shadow omits it there too. The
-      // row count is handed through (#647): a stamp for a report row Turso
-      // never held is `missed`, not a green no-op.
-      reportSentMirror: (reportId, sentAt, messageId) =>
-        mirrorWrite(`stamp-sent ${reportId}`, async () => {
-          const db = await openDb(readDbConfig());
-          return mirrorReportPatch(db, reportId, {
-            sent_at: sentAt.toISOString(),
-            ...(messageId !== null ? { resend_message_id: messageId } : {}),
-          });
-        }),
-    });
+    const { mirrorReportPatch, listSendableReports, listSites } =
+      await import("../../db/fleet-state.js");
+    const { loadHeaderImage } = await import("../../db/header-images.js");
+    // #646 step 4: the queue, the roster and the header plate all come from Turso,
+    // over ONE connection opened on the first of those reads and closed when the
+    // run ends. The Airtable calls left on this path are writes (`stampSent`,
+    // `updateLaunched`) plus the one-site header fallback inside the orchestrator.
+    type FleetDb = Awaited<ReturnType<typeof openDb>>;
+    // Held in an object rather than a `let`: the only assignment happens inside the
+    // closure below, and TypeScript's flow analysis then narrows the variable to
+    // `null` for the `finally` that has to close it.
+    const held: { db: FleetDb | null } = { db: null };
+    const getFleetDb = async (): Promise<FleetDb> => (held.db ??= await openDb(readDbConfig()));
+    try {
+      return await sendApprovedReports({
+        sendable: async () => listSendableReports(await getFleetDb()),
+        roster: async () => listSites(await getFleetDb()),
+        loadHeaderPlate: async (siteId) =>
+          (await loadHeaderImage(await getFleetDb(), siteId))?.bytes ?? null,
+        siteMirror: await makeSiteMirror(),
+        // stampSent's Turso shadow, routed through mirrorWrite so the freeze
+        // switch owns the semantics: strict rethrows and the send loop reds the
+        // run. Mirrors stampSent exactly — the 409 replay path leaves Airtable's
+        // `Resend message ID` untouched, so the shadow omits it there too. The
+        // row count is handed through (#647): a stamp for a report row Turso
+        // never held is `missed`, not a green no-op.
+        reportSentMirror: (reportId, sentAt, messageId) =>
+          mirrorWrite(`stamp-sent ${reportId}`, async () => {
+            const db = await openDb(readDbConfig());
+            return mirrorReportPatch(db, reportId, {
+              sent_at: sentAt.toISOString(),
+              ...(messageId !== null ? { resend_message_id: messageId } : {}),
+            });
+          }),
+      });
+    } finally {
+      if (held.db) await held.db.destroy();
+    }
   }
 
   // Refresh ONE unsent report's stored body so the console preview reflects

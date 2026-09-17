@@ -99,6 +99,11 @@ const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }>
     table: "reports",
     why: "the cockpit reads every report today (13 rows, ~44/month growth) — window it before Phase 4's report review adds volume",
   },
+  {
+    scenario: "listSendableReports (the send queue)",
+    table: "reports",
+    why: "same table and same bound as listAllReports above — the send reads the queue once a day over a table sized by the fleet's report cadence; a partial index on three low-cardinality columns would not change the plan",
+  },
   // The two SubmissionFilter shapes that cannot be served by any B-tree index.
   // Both are `LIKE '%…%'` with a LEADING wildcard — `search` ORs it across four
   // columns, `reason` applies it to a `',' || spam_reason || ','` expression — and
@@ -421,6 +426,13 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "listAllReports (cockpit fleet read)",
       covers: ["listAllReports"],
       run: (db) => fleetState.listAllReports(db),
+    },
+    {
+      // #646 step 4: the nightly send's queue read, moved off Airtable (where the
+      // same three-part predicate was a filterByFormula).
+      name: "listSendableReports (the send queue)",
+      covers: ["listSendableReports"],
+      run: (db) => fleetState.listSendableReports(db),
     },
     {
       name: "listReportsForSite (site page)",

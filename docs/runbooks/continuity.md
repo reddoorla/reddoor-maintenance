@@ -113,7 +113,7 @@ go out without a human approval.** Two independent gates:
 - `netlify/functions/approve-report.mts:81` — `requireOperator(req, { wants: "json" })`. Every
   approval runs through one Basic-auth credential, checked before any Airtable read, behind a
   CSRF check. No credential, no approval.
-- `src/reports/send/orchestrate.ts:158–171` — `sendOne` **throws** rather than send when the health
+- `src/reports/send/orchestrate.ts:211–232` — `sendOne` **throws** rather than send when the health
   gate is not clear, _even if "Approved to send" was set directly in Airtable_. The row is
   skipped, `Sent at` stays null, and the at-least-once retry is preserved.
 
