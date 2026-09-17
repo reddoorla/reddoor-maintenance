@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { openBase, readAirtableConfig } from "../../reports/airtable/client.js";
-import { listWebsites, siteSlug, ACTIVE_STATUSES } from "../../reports/airtable/websites.js";
+import { siteSlug, ACTIVE_STATUSES } from "../../reports/airtable/websites.js";
 import type { WebsiteRow } from "../../reports/airtable/websites.js";
 import { uploadAttachment } from "../../reports/airtable/attachments.js";
 import { generateHeaderImage } from "../../reports/header-image/index.js";
@@ -140,8 +139,12 @@ export async function runHeaderImageCommand(
   site: string | undefined,
   opts: HeaderImageOptions,
 ): Promise<{ output: string; code: number }> {
-  const base = openBase(readAirtableConfig());
-  const rows = await listWebsites(base);
+  // #646 step 4: the roster comes from Turso, which holds every site. That also
+  // makes `--all` honest about what it backfills: `headerImage` on a Turso row
+  // reflects `sites.header_image*`, the bytes the report actually renders from
+  // (design D5), not the Airtable attachment the send path no longer needs.
+  const { readFleetRoster } = await import("../../fleet/roster.js");
+  const rows = await readFleetRoster();
   const targets = resolveTargets(rows, { site, all: opts.all, force: opts.force });
   if (targets.length === 0) {
     return {
