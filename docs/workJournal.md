@@ -3350,3 +3350,96 @@ tokens and found more than the twenty-anchor spot-check did.
 for a week, the Path 2 fleet items, and the Dependabot triage. Before any refuter round, run
 `fetch-corpus.mjs` and expect red. If PP-G needs a real concurrency ceiling, run the
 fresh-session control first. Plan the Fable budget across sessions, not per session.
+
+## 2026-09-17 (later) — The setup review's remaining items, and a landing script that found its own defect on its first real run (#857, #858)
+
+The morning's entry closed the meta week. The operator then asked what the week's findings
+could be applied to today and what else was worth improving, and approved six items off that
+answer. Four were small enough to do in an afternoon; the other two went to workers.
+
+**The memory index was the one with a silent failure mode.** `MEMORY.md` for this project is
+loaded into every session, and Claude Code loads the first 200 lines or 25KB of it, whichever
+comes first, with no warning about what it drops. It stood at 109 lines and 18,797 bytes and
+grows most days, so entries at the bottom — the oldest warnings — were a few weeks from being
+silently cut. Every line was rewritten to one short hook, keeping all 128 links, and it now
+sits at 15,593 bytes. That is only 17% smaller, because the titles and file names are most of
+the bytes: the next lever, when it grows again, is folding decided or historical entries into
+single grouped lines rather than trimming prose. The live file was hashed before the rewrite
+and again before the write, because other sessions edit it; it was byte-identical to the
+verified draft afterwards.
+
+**Two stale worktrees went.** `.worktrees/journal-fix` and `.claude-worktrees/meta-week` both
+belonged to PRs merged days ago (#769, #774). Both were clean and both heads survive on
+`backup/2026-09-16/*` remote refs, so the worktrees, their local branches and the empty parent
+directories are gone. The three checkouts belonging to work in flight were left alone.
+
+**The meter could not see the limit that ended the meta week (#857).** Its detector matched
+`^You've hit your (session|weekly) limit`, and the Fable cap this morning arrived as
+`You've reached your Fable limit. Switch to another model…`, so `--blocks` listed nothing for
+this week at all. It now classifies that shape as `kind: "model"` with the model name, prints
+`model:<name>` and a per-kind count, and carries the name into the census evidence, so a
+model cap is never read as the account's own wall. On the real transcripts the block count
+goes from 243 to 271: 28 model blocks, 16 of them from an earlier "Fable 5" cap that nobody
+had noticed either. The worker found two more wordings the meter still misses — four
+`You've hit your limit · resets Aug 30, 2am` records on 08-28, which are probably weekly in
+other words and would make the meter doc's "exactly one weekly block" an undercount, and 27
+`You've hit your monthly spend limit` records between 08-26 and 09-16, which are a spending
+cap rather than a usage cap. Neither is fixed. The same PR gives vitest's hooks the
+`hookTimeout` its tests already had, after two workers lost whole files to the 10-second
+default on Tuesday.
+
+**A landing script, and what it caught (#858).** Landing a PR here has been a manual loop all
+week, run about a dozen times: update the branch when `main` has moved, wait 25 seconds, watch
+CI on the new head, merge pinned to that head SHA. `scripts/land-prs.mjs` does it serially for
+a list of PRs, refuses release PRs by AUTONOMY.md, refuses a conflicted PR before waiting on
+checks it will never get, treats the `already used by worktree` noise from a merge run inside a
+worktree as the success it is, and with `--cleanup` removes the merged branch's worktree.
+
+Its first real run landed #857 correctly and then refused to merge its own PR. The refusal was
+the interesting part. Asked for #858 immediately after #857 merged, GitHub answered
+`mergeStateStatus: UNKNOWN` while it recomputed; the script read that as "not behind", watched
+the previous head's already-passed checks, and only learned the truth at the final gate, where
+it stopped without merging. Safe, and wrong in a way no fake-runner test had covered: a state
+that is merely stale looks like a state that is fine. The fix settles `UNKNOWN` before the
+first decision and, when `BEHIND` turns up after the checks, loops back to update-branch
+instead of stopping. `--cleanup` had also kept the landed branch, because `update-branch` puts
+a merge commit on the remote and the local tip no longer equals the merged head; it now
+deletes the branch when the tip is an ancestor of the merged head, and says why when it is
+not. The second run, with the fixed script, landed #858 through exactly the path that had
+failed.
+
+**A session-start check for two things that fail quietly.** The same PR adds a hook that warns
+when the main checkout is behind `origin/main` and the commits in between touch session
+config — settings, hooks, rules, CLAUDE.md, AUTONOMY.md — because a session reads tracked
+project settings from the main checkout, not from the worktree it works in. That is exactly how
+Tuesday's stop-guard control failed. It also warns when the memory index passes 80% of the
+load limit. It reads no network, stays silent when nothing is wrong, and runs in 0.134
+seconds. It cannot warn about its own arrival: it is not loaded until the operator pulls.
+
+**Why the classifier refused what it refused.** Reading the permission docs settles most of
+this week's denials as design rather than noise. On entering auto mode, broad allow rules that
+grant arbitrary code execution are dropped — blanket `Bash(*)`, wildcarded interpreters,
+package-manager run commands, `Agent` rules — so this repo's `Bash(*)` allow does nothing
+there and every shell call and every agent spawn goes to the classifier
+(`permission-modes.md:458-467`). Writes to protected paths route to the classifier in auto mode
+and `permissions.allow` cannot pre-approve them, which is what the "Self-Modification"
+refusals on settings edits were. Explicit user intent overrides a soft block only when the
+user's message "directly and specifically describes the exact action" — "go for them" does not,
+"edit settings.local.json to add X" does. And `autoMode.allow` / `environment` / `soft_deny` /
+`hard_deny` are read only from `~/.claude/settings.json`, managed settings or `--settings`,
+never from project settings, so nothing checked into this repo can loosen the classifier. Three
+`autoMode.allow` entries covering the refusals that cost time this week are proposed to the
+operator and deliberately not applied.
+
+**Beliefs corrected.** A stale answer from GitHub is not a safe answer. A local branch equal to
+what was merged is the wrong test once `update-branch` is in play. `$TMPDIR` is not stable
+across Bash calls here — measured twice more today, once when a worker's `gh pr create` retry
+read another session's stale body file and posted a PR body about CSP-report tests. Anything
+that must survive between calls belongs in the session scratchpad, and anything that must
+survive the session belongs in `.session-logs/`, which this PR adds as the convention.
+
+**What is still owed.** The refuter round has not been re-run since the corpus re-anchor or
+since behaviour claims landed, at about 1.3M tokens per control; it waits for the weekly reset.
+The two unrecognised limit wordings above are unfixed. The `autoMode.allow` proposal is the
+operator's call. The week's remaining deferred items — the machinery review, the Path 2 fleet
+items, the Dependabot triage — are unchanged.

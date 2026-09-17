@@ -251,7 +251,7 @@ describe("fleet-prismic-drift — read-only by construction", () => {
     const argv = sweepArgv();
     expect(argv[0]).toBe("prismic-models");
     expect(argv).toContain("--fleet");
-    expect(argv[argv.indexOf("--fleet") + 1]).toBe("airtable");
+    expect(argv[argv.indexOf("--fleet") + 1]).toBe("turso");
     expect(argv).toContain("--write-back");
   });
 
@@ -332,7 +332,7 @@ describe("fleet-prismic-drift — the per-repository token env block", () => {
   // runbook's step 4 and sat in this repo's secrets with no env line to read it, so
   // the night 29 Navy's Status flips to `maintained` the sweep's FIRST run would
   // report it token-missing and write `unknown`. This does NOT make any of these
-  // sites swept — `--fleet airtable` excludes pre-launch, which is why all four are
+  // sites swept — `--fleet turso` excludes pre-launch, which is why all four are
   // still dark; it pre-positions the credential so go-live is not also a token bug.
   it("carries the pre-launch repositories whose central secret is already minted", () => {
     const names = tokens.map(([n]) => n);

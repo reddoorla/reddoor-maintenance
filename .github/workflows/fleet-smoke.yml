@@ -72,7 +72,7 @@ jobs:
           # The smoke audit self-installs deps into each fresh clone before running,
           # so a missing node_modules degrades to skip — never a false Smoke OK=fail.
           node dist/cli/bin.js audit \
-            --fleet airtable \
+            --fleet turso \
             --only smoke \
             --write-back \
             --concurrency 1 \

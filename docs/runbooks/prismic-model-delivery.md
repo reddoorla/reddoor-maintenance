@@ -73,7 +73,7 @@ The last one is a hash, not a name. An early draft of the nightly hardcoded `PRI
 **Never hand-write the list.** The authority is:
 
 ```bash
-reddoor-maint prismic-models --fleet airtable --tokens
+reddoor-maint prismic-models --fleet turso --tokens
 ```
 
 It prints one row per site — repo, Prismic repository, the exact env var, and a verdict — derived from each site's own config. It is read-only, it never calls Prismic, and it never prints a token value.
@@ -124,7 +124,7 @@ The reusable workflow's **source of truth is [`workflows/reusable/prismic-models
 
 While it is unresolved, `isPinResolved()` is false and **`prismic-ci` refuses on every site — including under `--dry`, which exits non-zero rather than previewing a rollout that cannot happen**. To resolve: publish and tag the workflow in `reddoorla/.github`, then set `REUSABLE_WORKFLOW_PIN.sha` to `gh api repos/reddoorla/.github/commits/<tag> --jq .sha` and `.tag` to that tag. Then propagate — see "After every `reddoorla/.github` tag" below.
 
-**Currently RESOLVED**: `558395431ddcb481ecba3dd84b78b38c338cfa03` (`v1.4.0`), so the recipe is armed — a `prismic-ci --fleet` run opens a pull request per site that needs one. Repos whose installed workflow already content-matches come back `noop`, and `--fleet airtable` excludes pre-launch sites from the inventory altogether, so "per site" is never the whole fleet. Read this paragraph as a fact about a moment; `isPinResolved(REUSABLE_WORKFLOW_PIN)` is the only current answer. Both directions of the refusal are held by injected-pin tests (`tests/recipes/prismic-ci.test.ts`, `tests/cli/prismic-ci-command.test.ts`) that do not depend on the shipped value, plus one tripwire — "ships either a resolved pin or a pin the recipe refuses to use" — that does.
+**Currently RESOLVED**: `558395431ddcb481ecba3dd84b78b38c338cfa03` (`v1.4.0`), so the recipe is armed — a `prismic-ci --fleet` run opens a pull request per site that needs one. Repos whose installed workflow already content-matches come back `noop`, and `--fleet turso` excludes pre-launch sites from the inventory altogether, so "per site" is never the whole fleet. Read this paragraph as a fact about a moment; `isPinResolved(REUSABLE_WORKFLOW_PIN)` is the only current answer. Both directions of the refusal are held by injected-pin tests (`tests/recipes/prismic-ci.test.ts`, `tests/cli/prismic-ci-command.test.ts`) that do not depend on the shipped value, plus one tripwire — "ships either a resolved pin or a pin the recipe refuses to use" — that does.
 
 ### After every `reddoorla/.github` tag
 
@@ -141,7 +141,7 @@ So a tag is three more steps, not one:
 
 1. Re-resolve `REUSABLE_WORKFLOW_PIN` in `src/recipes/prismic-ci/template.ts`.
 2. Release `@reddoorla/maintenance` (the recipe ships in the package).
-3. `reddoor-maint prismic-ci --fleet airtable` — the already-delivered gate content-compares the installed workflow, so a genuinely stale pin is corrected by a fresh PR per repo — **plus one positional run per pre-launch site**, because `--fleet airtable` filters `building` and `launching` rows out of the inventory entirely.
+3. `reddoor-maint prismic-ci --fleet turso` — the already-delivered gate content-compares the installed workflow, so a genuinely stale pin is corrected by a fresh PR per repo — **plus one positional run per pre-launch site**, because `--fleet turso` filters `building` and `launching` rows out of the inventory entirely.
 
 Step 3 is the whole propagation mechanism. Skipping it leaves the fleet on whatever it installed the day it was bootstrapped.
 

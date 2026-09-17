@@ -2195,7 +2195,7 @@ export async function runPrismicModelsCommand(
         ` which is not an inventory. Nothing was swept and nothing was compared. An unset` +
         ` workflow variable expands to an empty string, and an empty --fleet reads as "no` +
         ` fleet" — one directory swept and reported as the whole fleet. Pass an inventory` +
-        ` path or "airtable". Do NOT read this exit as a result.`,
+        ` path or "turso". Do NOT read this exit as a result.`,
       code: 2,
     };
   }
