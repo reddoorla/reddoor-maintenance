@@ -3443,3 +3443,150 @@ since behaviour claims landed, at about 1.3M tokens per control; it waits for th
 The two unrecognised limit wordings above are unfixed. The `autoMode.allow` proposal is the
 operator's call. The week's remaining deferred items — the machinery review, the Path 2 fleet
 items, the Dependabot triage — are unchanged.
+
+## 2026-09-17 (later still) — Retiring a token that was never expired, and taking Phase 6's prep to the end of its rope (#847, #853, #854–#866)
+
+A long operator-driven session: retire `RENOVATE_TOKEN`, close two live exposures,
+work the remaining agent-doable backlog, then take Phase 6 of the Airtable → Turso
+migration as far as its preconditions allow. Two other entries above cover
+different sessions on the same day.
+
+**The token was never expired — I said it was, and I was wrong.** A worker reported
+`RENOVATE_TOKEN` in `~/.config/reddoor-maint/credentials.env` 401ing and guessed a
+93-character value was an expired GitHub App installation token. I repeated that as
+"expired". The operator corrected it: nothing had expired, they had moved to a
+different PAT. Both halves of the guess were wrong — App installation tokens are 40
+characters (`ghs_`), and **93 is exactly the length of a fine-grained PAT**
+(`github_pat_` + 82). The file's value was a revoked or superseded token, not an
+expired one. The lesson is narrow and useful: a credential's LENGTH identifies its
+type, and guessing the type wrongly sends you to the wrong settings page.
+
+**Retiring the name turned out to be a bigger job than retiring the PAT** (#847,
+`396ee169`). The org secret was already gone and Renovate had authenticated as the
+App since 08-02, so the PAT was dead — but the NAME was load-bearing in three live
+places: the nightly workflows passed the minted App token under it, and the
+dashboard's Trigger-Renovate, refresh-fleet and prospect-audit functions all read
+`RENOVATE_TOKEN || GH_TOKEN`. Everything now reads `GH_TOKEN`; a guard test fails if
+the name reappears in `src/`, `netlify/`, `.github/workflows/` or `scripts/`. Two
+legacy per-repo secrets (hedloc, reddoor-starter) were deleted; the dead line is out
+of the credentials file.
+
+**One thing deliberately NOT done: a `gh auth token` fallback for the three fleet CLI
+commands.** It looks like a convenience and is a trap in both directions. In CI
+`readGitHubConfig` strips `GH_TOKEN` before asking `gh`, finds an empty keyring and
+returns null — and all three commands treat null as a clean skip with exit 0, which
+is precisely the stale-cockpit failure the workflows' empty-token guards exist to
+catch. Locally it is worse: these commands write Airtable and dispatch workflows
+fleet-wide, so any laptop logged into `gh` would run them as the operator instead of
+skipping. `GH_TOKEN=$(gh auth token) …` stays the one-line opt-in.
+
+**Two live exposures closed, and the discriminator mattered again.**
+`the-pointe.netlify.app` and `the-tower-burbank.netlify.app` — both **archived**
+repos, so no PR can reach them — were serving dev fixture pages (200, 47.9KB and
+36.3KB). Both now serve a 356-byte holding page that 404s every path and carries
+`X-Robots-Tag: noindex`, with builds stopped. `the-pointe` refused the first deploy:
+**its production deploys were LOCKED**, someone's deliberate pin, so that lock was
+released on purpose and the previous deploy ids were written down first
+(`6a5be49f…`, `6a7cd575…`) — restoring is one `restoreSiteDeploy` call. Residual, not
+hidden: the bare `/` still answers 200 with the holding page, because Netlify serves
+an existing `index.html` before the catch-all 404 rule.
+
+The staging half of the same finding needed no work: the guard had reached `staging`
+at 19:26Z the previous evening via a routine `main` → `staging` merge, and my
+earlier 200 was measured before that deploy. `/dev/a11y-fixtures` now returns the
+site's own 404 — byte-identical in size to a bogus path's 404 on both hosts — which
+is the only reading that distinguishes "guarded" from "Netlify edge 404".
+
+**29-navy had an unlinked `/contact` accepting real leads** (29-navy#40). Nothing
+linked to it and it was not in the sitemap, but it answered 200 with a live form and
+no Turnstile, posting into central intake as 29-navy leads. Deleted, with
+`testMode` flipped to false so the nightly form check stops submitting. Measured
+after deploy: `/contact` 404/5,110B against a bogus path's 404/5,122B — the 12-byte
+delta is the echoed URL in the canonical and `og:url` tags, confirmed by diffing the
+two bodies rather than by assuming. Residual: the site's stored form-check result in
+Airtable still reflects the era when it had a form; the check now skips the site
+rather than overwriting it.
+
+**The starter's netlify.app mirrors were indexable** (reddoor-starter#145/#146,
+blux#31/#32). Four approaches were rejected on evidence before the one that works:
+`netlify.toml`/`_headers` cannot scope by host; build-time env (`CONTEXT`, `URL`,
+`DEPLOY_PRIME_URL`) cannot help because ONE production build serves both hosts;
+`hooks.server.ts` never runs for prerendered pages, which is nearly every Prismic
+page; and `Disallow: /` would stop crawlers ever seeing the noindex. What shipped is
+an edge function setting `X-Robots-Tag: noindex, nofollow` only on `*.netlify.app`.
+⚠️ **Netlify bundles every file in `netlify/edge-functions/`** — a colocated test
+file broke the deploy preview by trying to load vitest under Deno, and Netlify's
+build log is not API-retrievable, so it was reproduced locally with
+`netlify build --offline`.
+
+**The Safari claim in both templates' CSP comments was false.** A controlled WebKit
+table (vida#79) shows WebKit honours `script-src-attr` exactly as Chromium does:
+removing only that directive blocks the handler in BOTH engines, and the no-allowance
+control blocks it in both, so the "ran" rows are real. Comment-only corrections
+landed; the policy itself was already right. vida#79 closed with the table.
+
+**The morning-report gap was the most valuable finding of the day** (#853). The
+evening review writes findings to `docs/morning-reports/` and **nothing ever turned
+them into issues**. MED-14 of the 09-02 report — the onboarding recipe still pinning
+new sites to pnpm 10.33.1 — sat for two weeks with the full diagnosis written down,
+and was only rediscovered because a worker happened to grep the file. Of that
+report's 23 findings, 8 are fixed, **15 are still open and NONE were tracked by any
+issue**. MED-2 and MED-3 were re-run and still reproduce exactly; MED-11 was half
+wrong (its "no `site_id` index" claim is false — that index has existed since #275).
+Fixed at the source: the evening-review skill now ends every brief with a **Proposed
+issues** section, filed only after operator approval and then marked `filed #N` or
+`declined`, and its look-back is keyed on unfiled entries rather than on age — the
+2-week window is exactly what dropped MED-14.
+
+**Phase 6 prep, all four steps plus report ids** (#854, #855, #856, #859, #860, #862,
+#864, #865, #866). The operator approved the PREP only; deleting the Airtable layer
+needs a separate go after several clean nights. What landed: `fleet-state` no longer
+value-imports the Airtable layer (the vendor-neutral status vocabulary and row models
+moved to `src/fleet/`); `resend-webhook` reads Turso and no longer 500s without
+Airtable env; `ensure-site` is Turso-native minting `site_<ULID>`; every batch
+command and workflow selects its roster from Turso; and reports are now minted and
+created in Turso as `report_<ULID>`.
+
+Four things from that work are worth keeping.
+
+**The checklist was wrong in four places, and only reading the code showed it.** Step
+5 was already done. Step 1 missed that `fleet-state` also imports the importer's
+column maps, which step 6 deletes with nothing replacing them. Step 2 needed an index
+on `reports.resend_message_id` that no one had listed. Step 3 covered sites but not
+reports — and report ids were the real gate on finishing step 4.
+
+**A plausible PR split would have shipped a silently wrong nightly.** The plan was
+(a) report creation, (b) drafting reads, (c) launch/announce. But the moment report
+rows exist only in Turso, `draftDueReports`' idempotency guard — still reading
+Airtable's `listAllReports` — sees none of last night's drafts and **re-drafts every
+site every night**. Not an error: a wrong answer. Minting, creation, the drafting and
+queue reads and both recipes had to land together, and did.
+
+**A guard built after a real incident was confirming the wrong store.**
+`forms-notify-target`'s read-back — added after the 2026-08-03 notify incident —
+verified Airtable, while the cell that actually decides who a submission emails is
+read from Turso by `form-ingest`. It could have confirmed success against a value
+nothing consults. It now writes and confirms Turso.
+
+**Two consequences accepted deliberately, both the same trade:** Airtable's Websites
+and Reports tables receive **no new rows** from here on, because Airtable cannot be
+told which record id to use and a shadow row would carry an id no later write could
+address. Existing `rec…` rows keep every shadow write until the layer goes.
+
+**My own landing script failed on its second PR, and the failure was in the check
+order.** It read `mergeStateStatus` once at the start of each PR, so after #859
+merged, #860 — CLEAN when the loop began — was BEHIND by the time it was reached, and
+the script stopped rather than updating it. Re-checking state per attempt (and
+treating `DIRTY` as a real conflict to bail on, never a race to wait out) landed the
+remaining three. The same shape as every instrument failure this week: the reading
+was accurate when taken and stale when used.
+
+**Honest accounting.** Three research agents' claims were spot-checked rather than
+taken on trust, and they held up, with one discrepancy worth naming: an agent counted
+26 files still calling the Airtable site-list functions and my own search found 25,
+because we searched slightly different names. Neither number was wrong; neither was
+independently reproducible either, which is the useful part. And the selection-parity
+test that justifies the whole roster move was proven by mutation — dropping non-`rec`
+ids from the Turso selector turned it red — but it compares FIXTURES. Nothing has yet
+compared the two stores' site sets on production data, so tonight's nightlies are the
+first real measurement.
