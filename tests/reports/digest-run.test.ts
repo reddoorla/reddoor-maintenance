@@ -7,7 +7,13 @@ import {
 import type { SiteSubmissionCounts } from "../../src/db/submissions.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
-import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
+import { listWebsites } from "../../src/reports/airtable/websites.js";
+import { listAllReports } from "../../src/reports/airtable/reports.js";
+import {
+  makeFakeBase,
+  type FakeRecord,
+  type FakeAirtableBase,
+} from "./_helpers/fake-airtable-base.js";
 import { OPERATOR_FALLBACK } from "../../src/util/operator.js";
 
 // The vi.mock is kept narrowly for the ONE env-config-path test below.
@@ -235,6 +241,16 @@ function idempotencyConflictClient(): ResendClient {
 
 // ── listPendingApproval ──────────────────────────────────────────────────────
 
+/** #646 step 4: runDigest reads its two datasets from TURSO, through the injected
+ *  readers below. The fixtures stay in a fake Airtable base because the digest-state
+ *  SHADOW write (`base`) is still Airtable's, and `listWebsites`/`listAllReports`
+ *  build the same row shapes the Turso readers return. A Turso-backed run end to
+ *  end is tests/reports/digest-turso.test.ts. */
+const io = (base: FakeAirtableBase) => ({
+  roster: () => listWebsites(base),
+  allReports: () => listAllReports(base),
+});
+
 describe("listPendingApproval", () => {
   it("returns only draftReady=true, approvedToSend=false, sentAt=null rows", async () => {
     const base = makeFakeBase({
@@ -283,6 +299,7 @@ describe("runDigest", () => {
     // Call without the `base` option — must reach the env-config branch
     const result = await runDigest({
       digestState: memoryDigestState(),
+      ...io(fakeBase),
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
     expect(vi.mocked(openBase)).toHaveBeenCalled();
@@ -296,6 +313,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
     expect(result.code).toBe(0);
@@ -310,6 +328,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
     expect(result.code).toBe(0);
@@ -325,6 +344,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -340,6 +360,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -363,6 +384,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -377,6 +399,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -406,6 +429,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -421,6 +445,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -433,6 +458,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app/",
     });
@@ -450,6 +476,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -465,6 +492,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -478,6 +506,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -491,6 +520,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: rejectClient("network error"),
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -508,6 +538,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: idempotencyConflictClient(),
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -522,6 +553,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: idempotencyConflictClient(),
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -539,6 +571,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: rejectClient("Resend 500"),
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -560,6 +593,7 @@ describe("runDigest", () => {
       runDigest({
         digestState: memoryDigestState(),
         base,
+        ...io(base),
         resend: badClient,
         baseUrl: "https://reddoor-maintenance.netlify.app",
       }),
@@ -571,6 +605,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: rejectClient("network error"),
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -603,6 +638,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base: poisonedBase as unknown as typeof goodBase,
+      ...io(poisonedBase as unknown as typeof goodBase),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -621,6 +657,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -645,6 +682,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -665,6 +703,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -679,6 +718,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -709,6 +749,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(JSON.parse(prior)),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -731,6 +772,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: store,
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -766,6 +808,7 @@ describe("runDigest", () => {
         },
       },
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -789,6 +832,7 @@ describe("runDigest", () => {
         write: () => Promise.reject(new Error("turso down")),
       },
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -816,6 +860,7 @@ describe("runDigest", () => {
         },
       },
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -854,6 +899,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base: poisoned as unknown as typeof good,
+      ...io(good),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -878,6 +924,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(JSON.parse(prior)),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -901,6 +948,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -921,6 +969,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -943,6 +992,7 @@ describe("runDigest", () => {
     await runDigest({
       digestState: memoryDigestState(JSON.parse(prior)),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -967,6 +1017,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(JSON.parse(prior)),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -987,6 +1038,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
       submissionCounts: counts,
@@ -1004,6 +1056,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
       submissionCounts: null,
@@ -1021,6 +1074,7 @@ describe("runDigest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
       submissionCounts: new Map([["rec_site_acme", { leads: 5, signups: 5, spamAuto: 5 }]]),

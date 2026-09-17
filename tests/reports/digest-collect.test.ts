@@ -2,9 +2,23 @@ import { describe, it, expect, vi } from "vitest";
 import { collectAttention } from "../../src/reports/digest.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { listAllReports } from "../../src/reports/airtable/reports.js";
-import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
+import {
+  makeFakeBase,
+  type FakeRecord,
+  type FakeAirtableBase,
+} from "./_helpers/fake-airtable-base.js";
 
 const BASE_URL = "https://reddoor-maintenance.netlify.app";
+
+/** #646 step 4: `collectAttention` no longer reads any store — the run's two
+ *  datasets are handed to it. These fixtures keep living in a fake Airtable base,
+ *  because `listWebsites`/`listAllReports` build the very same `WebsiteRow`/
+ *  `ReportRow` shapes the Turso readers return (pinned field-for-field by
+ *  tests/db/fleet-state.test.ts and fleet-state-reports.test.ts). */
+const rowsOf = async (base: FakeAirtableBase) => ({
+  websites: await listWebsites(base),
+  reports: await listAllReports(base),
+});
 
 /** A site row carrying the nightly-persisted GitHub-signal fields the renovate/ci
  *  collectors read (NOT a live sweep — those fields are written by github-signals).
@@ -50,7 +64,7 @@ function bouncedReport(): FakeRecord {
 describe("collectAttention", () => {
   it("fetches once, builds sitesById, and merges both collectors' items", async () => {
     const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSite()] });
-    const items = await collectAttention({ base, baseUrl: BASE_URL });
+    const items = await collectAttention({ ...(await rowsOf(base)), baseUrl: BASE_URL });
     const keys = items.map((i) => i.key).sort();
     expect(keys).toContain("vuln:rec_site_acme");
     expect(keys).toContain("delivery:rec_report_bounced");
@@ -69,7 +83,7 @@ describe("collectAttention", () => {
       },
     };
     const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [acme] });
-    const items = await collectAttention({ base, baseUrl: BASE_URL });
+    const items = await collectAttention({ ...(await rowsOf(base)), baseUrl: BASE_URL });
     const keys = items.map((i) => i.key).sort();
     expect(keys).toContain("vuln:rec_site_acme");
     expect(keys).toContain("delivery:rec_report_bounced");
@@ -87,7 +101,7 @@ describe("collectAttention", () => {
     vi.spyOn(collectors, "collectVulnAlerts").mockImplementation(() => {
       throw new Error("vuln collector boom");
     });
-    const items = await collectAttention({ base, baseUrl: BASE_URL });
+    const items = await collectAttention({ ...(await rowsOf(base)), baseUrl: BASE_URL });
     expect(items.map((i) => i.key)).toEqual(["delivery:rec_report_bounced"]);
     expect(items.some((i) => i.kind === "vuln")).toBe(false);
     expect(warn).toHaveBeenCalled();
@@ -100,7 +114,7 @@ describe("collectAttention", () => {
     // `renovate:<siteId>` / `ci:<siteId>` — the SAME keys buildCockpitModel emits,
     // which is what lets the shared Digest State snapshot badge NEW/WORSE correctly.
     const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [signalSite()] });
-    const items = await collectAttention({ base, baseUrl: BASE_URL });
+    const items = await collectAttention({ ...(await rowsOf(base)), baseUrl: BASE_URL });
     const keys = items.map((i) => i.key).sort();
     expect(keys).toContain("vuln:rec_site_acme");
     expect(keys).toContain("delivery:rec_report_bounced");
@@ -123,7 +137,7 @@ describe("collectAttention", () => {
       Reports: [],
       Websites: [signalSite({ "GitHub Signals At": sweptAt })],
     });
-    const items = await collectAttention({ base, baseUrl: BASE_URL, now });
+    const items = await collectAttention({ ...(await rowsOf(base)), baseUrl: BASE_URL, now });
     expect(items.some((i) => i.kind === "renovate")).toBe(false);
     expect(items.some((i) => i.kind === "ci")).toBe(false);
     // The vuln collector (a different sweep) is unaffected and still contributes.
@@ -133,7 +147,7 @@ describe("collectAttention", () => {
   it("emits NO renovate/ci items for a site whose persisted fields are clean/absent", async () => {
     // No "Renovate Failing CIs" / "Default Branch CI" → null → both collectors skip.
     const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSite()] });
-    const items = await collectAttention({ base, baseUrl: BASE_URL });
+    const items = await collectAttention({ ...(await rowsOf(base)), baseUrl: BASE_URL });
     expect(items.some((i) => i.kind === "renovate")).toBe(false);
     expect(items.some((i) => i.kind === "ci")).toBe(false);
     // The other collectors still contribute.
@@ -150,7 +164,7 @@ describe("collectAttention", () => {
     // A FRESH base whose tables are empty — if collectAttention re-fetches, the
     // selects show up in __calls AND the seeded rows vanish (items would be empty).
     const base = makeFakeBase({});
-    const items = await collectAttention({ base, baseUrl: BASE_URL, websites, reports });
+    const items = await collectAttention({ baseUrl: BASE_URL, websites, reports });
 
     // The pre-fetched arrays must be used: no select against either table.
     const selects = base.__calls.filter((c) => c.kind === "select");
@@ -169,7 +183,7 @@ describe("collectAttention", () => {
     // diffs NEW/WORSE across both.
     const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
     const items = await collectAttention({
-      base,
+      ...(await rowsOf(base)),
       baseUrl: BASE_URL,
       notifyBounces: new Map([["rec_site_acme", { total: 3, permanent: 3 }]]),
     });
@@ -188,7 +202,7 @@ describe("collectAttention", () => {
     // construction, and it is the flavour that means leads are being dropped.
     const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
     const items = await collectAttention({
-      base,
+      ...(await rowsOf(base)),
       baseUrl: BASE_URL,
       deadLetters: new Map([
         ["acme-co", 2],
@@ -204,16 +218,24 @@ describe("collectAttention", () => {
 
   it("emits no deadletter item when the queue is empty", async () => {
     const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
-    const none = await collectAttention({ base, baseUrl: BASE_URL, deadLetters: new Map() });
+    const none = await collectAttention({
+      ...(await rowsOf(base)),
+      baseUrl: BASE_URL,
+      deadLetters: new Map(),
+    });
     expect(none.some((i) => i.kind === "deadletter")).toBe(false);
   });
 
   it("emits no notify-bounce item when counts are empty or below the 2-bounce floor", async () => {
     const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
-    const none = await collectAttention({ base, baseUrl: BASE_URL, notifyBounces: new Map() });
+    const none = await collectAttention({
+      ...(await rowsOf(base)),
+      baseUrl: BASE_URL,
+      notifyBounces: new Map(),
+    });
     expect(none.some((i) => i.kind === "notify-bounce")).toBe(false);
     const single = await collectAttention({
-      base,
+      ...(await rowsOf(base)),
       baseUrl: BASE_URL,
       notifyBounces: new Map([["rec_site_acme", { total: 1, permanent: 1 }]]),
     });
@@ -237,7 +259,7 @@ describe("collectAttention", () => {
         }),
       ],
     });
-    const digestItems = await collectAttention({ base, baseUrl: BASE_URL });
+    const digestItems = await collectAttention({ ...(await rowsOf(base)), baseUrl: BASE_URL });
 
     // Same fake rows → cockpit path.
     const websites = await listWebsites(base);
