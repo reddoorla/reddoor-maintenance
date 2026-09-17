@@ -6,6 +6,7 @@ import { openDb, readDbConfig } from "../../src/db/client.js";
 import { makeGitHubRest } from "../../src/github/gh-rest.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
+import { isReportId } from "../../src/fleet/report-id.js";
 
 // "Refresh preview" for one report (#539 Phase 4). Dispatches
 // report-rerender.yml on THIS repo — the render needs sharp, which no function
@@ -40,7 +41,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   }
 
   const id = ctx.params?.id;
-  if (!id || !/^rec[A-Za-z0-9]+$/.test(id)) return json({ ok: false, error: "not-found" }, 404);
+  if (!id || !isReportId(id)) return json({ ok: false, error: "not-found" }, 404);
 
   try {
     const db = await openDb(readDbConfig());

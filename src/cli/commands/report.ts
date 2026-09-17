@@ -1,12 +1,7 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import type { Db } from "../../db/client.js";
-import {
-  listWebsites,
-  siteSlug,
-  updateNextDueDates,
-  type WebsiteRow,
-} from "../../reports/airtable/websites.js";
-import { listAllReports, type ReportRow } from "../../reports/airtable/reports.js";
+import { siteSlug, updateNextDueDates, type WebsiteRow } from "../../reports/airtable/websites.js";
+import type { ReportRow } from "../../reports/airtable/reports.js";
 import { findDueReports, nextDueDate, reportPeriodKey } from "../../reports/due.js";
 import { draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
@@ -242,15 +237,25 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
   // being indistinguishable from success, the failure mode that hid #585.
   const { makeReportMirror } = await import("../../reports/report-mirror.js");
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
-  const result = await draftDueReports(
-    base,
-    new Date(),
-    await makeScheduleMirrorBestEffort(),
-    await makeReportMirror(),
-    await makeSiteMirror(),
-  );
-  await alertOnFleetAnalyticsFailure(result.health);
-  return { output: result.output, code: result.code };
+  // #646 step 4: the roster and every report come from Turso, over ONE connection
+  // opened on the first read and closed when the run ends. The Airtable calls left
+  // on this path are shadow writes (next-due dates, the rendered-body attachment,
+  // the queue flag), each skipping a row Airtable cannot hold.
+  const { listSites, listAllReports } = await import("../../db/fleet-state.js");
+  const fleetDb = lazyFleetDb();
+  try {
+    const result = await draftDueReports(base, new Date(), {
+      roster: async () => listSites(await fleetDb.get()),
+      allReports: async () => listAllReports(await fleetDb.get()),
+      scheduleMirror: await makeScheduleMirrorBestEffort(),
+      reportMirror: await makeReportMirror(),
+      siteMirror: await makeSiteMirror(),
+    });
+    await alertOnFleetAnalyticsFailure(result.health);
+    return { output: result.output, code: result.code };
+  } finally {
+    await fleetDb.close();
+  }
 }
 
 /** Best-effort: when a draft run's GA/Search soft-failures look FLEET-WIDE (the shared
@@ -349,28 +354,45 @@ export async function writeNextDueDates(
   console.log(`NEXT_DUE_WRITE wrote=${wrote} skipped=${skipped} failed=${failed}${mirrorNote}`);
 }
 
+/** What the nightly draft batch reads and writes, injected at its composition
+ *  root (`runDueDraft`).
+ *
+ *  #646 step 4: `roster` and `allReports` READ FROM TURSO. They are required
+ *  rather than defaulted for the reason every other step-4 reader is — this
+ *  function is called directly by tests, and a default would let a unit suite
+ *  open a real store. They also had to move together with report creation: a
+ *  report row now exists only in Turso, so an Airtable `listAllReports` would
+ *  stop seeing last night's drafts and the period guard would re-draft every
+ *  site every night. */
+export type DraftDueDeps = {
+  /** Every site in the fleet — `site_<ULID>` sites included, which an Airtable
+   *  roster cannot see at all. */
+  roster: () => Promise<WebsiteRow[]>;
+  /** Every report, unfiltered: the period/idempotency guard and `findDueReports`
+   *  both match on siteId in memory. */
+  allReports: () => Promise<ReportRow[]>;
+  scheduleMirror?: ScheduleMirror | null;
+  /** #539 Phase 5, and since #646 step 4 the store that MINTS and holds each new
+   *  report row. Forwarded to every draftReportForSite call — the nightly batch is
+   *  the only unattended creator of report rows. */
+  reportMirror: ReportMirror;
+  /** #539 Phase 5: the Websites-row twin — drafting stamps `Analytics soft-fail
+   *  at` on the SITE row, a different Turso table from the report. */
+  siteMirror?: SiteMirror;
+};
+
 export async function draftDueReports(
   base: AirtableBase,
   today: Date,
-  scheduleMirror: ScheduleMirror | null = null,
-  /** #539 Phase 5: Turso write-through for rows this batch CREATES. Forwarded
-   *  to every draftReportForSite call — the nightly batch is the only unattended
-   *  creator of report rows, so a dropped pass-through leaves each new draft
-   *  invisible to the Turso-backed console. */
-  reportMirror?: ReportMirror,
-  /** #539 Phase 5: the Websites-row twin — drafting stamps `Analytics soft-fail
-   *  at` on the SITE row, a different Turso table from the report. */
-  siteMirror?: SiteMirror,
+  deps: DraftDueDeps,
 ): Promise<{ output: string; code: number; health: AnalyticsRunHealth }> {
+  const scheduleMirror = deps.scheduleMirror ?? null;
   const mirrorOpt = {
-    ...(reportMirror ? { reportMirror } : {}),
-    ...(siteMirror ? { siteMirror } : {}),
+    reportMirror: deps.reportMirror,
+    ...(deps.siteMirror ? { siteMirror: deps.siteMirror } : {}),
   };
-  const websites = await listWebsites(base);
-  // ONE unfiltered fetch for the whole fleet. Per-site queries can't be pushed to
-  // Airtable anyway (linked-record fields aren't formula-filterable by record id),
-  // and findDueReports + the period guard below match on siteId in memory.
-  const reports = await listAllReports(base);
+  const websites = await deps.roster();
+  const reports = await deps.allReports();
 
   // Refresh every site's code-owned next-due dates first, so they stay current even on
   // a run where nothing is due (the early return below).
@@ -550,11 +572,17 @@ async function runSingleSiteDraft(
   slug: string,
   opts: { previewOnly: boolean; enrich: boolean; reportType: ReportType },
 ): Promise<{ output: string; code: number }> {
+  // Airtable is still opened here: drafting keeps its Airtable SHADOW writes
+  // (the rendered-body attachment, the analytics-health stamp, the queue flag),
+  // each of which skips a row Airtable cannot hold. What moved in #646 step 4 is
+  // the roster READ — an Airtable roster cannot see a `site_<ULID>` site, so this
+  // command answered "No Websites row matched" for every site created since step 3.
   const base = openBase(readAirtableConfig());
-  const websites = await listWebsites(base);
+  const { readFleetRoster } = await import("../../fleet/roster.js");
+  const websites = await readFleetRoster();
   const site = websites.find((w) => siteSlug(w.name) === slug);
   if (!site) {
-    throw Object.assign(new Error(`No Websites row matched slug "${slug}"`), { exitCode: 2 });
+    throw Object.assign(new Error(`No site matched slug "${slug}"`), { exitCode: 2 });
   }
   // Phase 5 dual-write (#539) — but only on the path that actually creates a
   // row. A preview writes nothing to Airtable, so opening a libSQL handle for

@@ -567,6 +567,20 @@ function scenarios(state: { createdId: string }): Scenario[] {
         fleetState.mirrorReportInsert(db, { id: "recA", fields: { "Report ID": "acme-2026-08" } }),
     },
     {
+      // #646 step 4: the Turso-native report create. A plain INSERT — unlike the
+      // mirror's upsert above it has no conflict target, because the id was just
+      // minted — but it is planned in its own right: it is the one write that
+      // makes a report EXIST, and a future index or trigger on `reports` that
+      // turned it into a scan would do so on every nightly draft.
+      name: "insertReportRow (Turso-native report create)",
+      covers: ["insertReportRow"],
+      run: (db) =>
+        fleetState.insertReportRow(db, {
+          id: "report_01ARYZ6S41TSV4RRFFQ69G5FAV",
+          fields: { "Report ID": "acme-2026-09", Site: ["recA"], "Report type": "Maintenance" },
+        }),
+    },
+    {
       // Writes a whole rendered body by PK. Gated like every other reports
       // write: an unindexed predicate here would scan a table whose rows carry
       // ~50–90 KB of HTML each.

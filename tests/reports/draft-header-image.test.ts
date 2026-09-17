@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { refreshHeaderImage, draftReportForSite } from "../../src/reports/draft.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
+import { makeFakeReportWriter } from "./_helpers/fake-report-writer.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 // Stand in for the real capture so the wiring tests below never launch a browser.
@@ -100,7 +101,9 @@ describe("draftReportForSite header-refresh wiring", () => {
 
   it("refreshes when refreshHeader is unset — the production default", async () => {
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, scoredSite(), "Maintenance");
+    await draftReportForSite(base, scoredSite(), "Maintenance", {
+      reportMirror: makeFakeReportWriter(),
+    });
     expect(generateHeaderImage).toHaveBeenCalledTimes(1);
     expect(generateHeaderImage).toHaveBeenCalledWith({
       url: "https://acme.example.com",
@@ -110,7 +113,10 @@ describe("draftReportForSite header-refresh wiring", () => {
 
   it("skips the refresh when refreshHeader is false", async () => {
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, scoredSite(), "Maintenance", { refreshHeader: false });
+    await draftReportForSite(base, scoredSite(), "Maintenance", {
+      refreshHeader: false,
+      reportMirror: makeFakeReportWriter(),
+    });
     expect(generateHeaderImage).not.toHaveBeenCalled();
   });
 

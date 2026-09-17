@@ -7,6 +7,7 @@ import { mirrorWrite } from "../../src/db/freeze.js";
 import { requireOperator, denialResponse, setReportCommentary } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
+import { isReportId } from "../../src/fleet/report-id.js";
 
 // #539 Phase 4 report review. Path-routed on the function itself for the same
 // reason as every other dashboard endpoint: a netlify.toml 200 rewrite leaves
@@ -39,8 +40,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   }
 
   const id = ctx.params?.id;
-  // Airtable rec ids only — anything else is a probe, not a report.
-  if (!id || !/^rec[A-Za-z0-9]+$/.test(id)) return json({ ok: false, error: "not-found" }, 404);
+  // Both report id shapes — `rec…` (Airtable-minted, pre-#646) and a minted
+  // `report_<ULID>` — and nothing else: anything else is a probe, not a report.
+  if (!id || !isReportId(id)) return json({ ok: false, error: "not-found" }, 404);
 
   let body: unknown;
   try {

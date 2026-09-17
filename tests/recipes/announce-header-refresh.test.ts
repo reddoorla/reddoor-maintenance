@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { announce } from "../../src/recipes/announce.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+import { makeFakeReportWriter } from "../reports/_helpers/fake-report-writer.js";
+import { mapRow as mapSiteRow } from "../../src/reports/airtable/websites.js";
 
 // No network: GA/Search enrichment stubbed to "not configured".
 vi.mock("../../src/reports/draft.js", async (orig) => ({
@@ -76,9 +78,20 @@ function baseWithOneSite() {
  * silently disable the refresh on the operator path, where nothing would notice. So:
  * unset MUST refresh, `false` MUST NOT.
  */
+/** #646 step 4: the roster is a Turso read and the report row is a Turso write.
+ *  Both are derived from the same fake base this suite already seeds. */
+function deps(base: ReturnType<typeof makeFakeBase>) {
+  return {
+    base,
+    now: NOW,
+    roster: async () => (base.__records.get("Websites") ?? []).map(mapSiteRow),
+    reportMirror: makeFakeReportWriter(),
+  };
+}
+
 describe("announce header-refresh wiring", () => {
   it("refreshes when refreshHeader is unset — the operator default", async () => {
-    await announce({ base: baseWithOneSite(), now: NOW });
+    await announce(deps(baseWithOneSite()));
     expect(generateHeaderImage).toHaveBeenCalledTimes(1);
     expect(generateHeaderImage).toHaveBeenCalledWith({
       url: "https://acme.example.com",
@@ -87,13 +100,13 @@ describe("announce header-refresh wiring", () => {
   });
 
   it("skips the refresh when refreshHeader is false", async () => {
-    await announce({ base: baseWithOneSite(), now: NOW, refreshHeader: false });
+    await announce({ ...deps(baseWithOneSite()), refreshHeader: false });
     expect(generateHeaderImage).not.toHaveBeenCalled();
   });
 
   it("still drafts when the capture fails — the refresh is best-effort", async () => {
     vi.mocked(generateHeaderImage).mockRejectedValueOnce(new Error("net::ERR_TIMED_OUT"));
-    const res = await announce({ base: baseWithOneSite(), now: NOW });
+    const res = await announce(deps(baseWithOneSite()));
     expect(res.results[0]?.status).toBe("drafted");
   });
 });
