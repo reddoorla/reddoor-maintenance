@@ -1,6 +1,20 @@
 import { describe, it, expect, vi } from "vitest";
 import { preflight } from "../../src/reports/preflight.js";
-import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
+import { listWebsites } from "../../src/reports/airtable/websites.js";
+import { listAllReports } from "../../src/reports/airtable/reports.js";
+import {
+  makeFakeBase,
+  type FakeRecord,
+  type FakeAirtableBase,
+} from "./_helpers/fake-airtable-base.js";
+
+/** #646 step 4: preflight is handed its two reads; in production they come from
+ *  Turso. These fixtures stay in a fake Airtable base because `listWebsites`/
+ *  `listAllReports` build the same row shapes the Turso readers return. */
+const io = (base: FakeAirtableBase) => ({
+  roster: () => listWebsites(base),
+  allReports: () => listAllReports(base),
+});
 
 /** Raw Airtable Websites rows (mapRow field names), fully send-clean unless overridden. */
 function siteRecord(id: string, name: string, over: Record<string, unknown> = {}): FakeRecord {
@@ -35,7 +49,7 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
       ],
       Reports: [],
     });
-    const { results } = await preflight({ base, all: true, type: "Announcement", now: NOW });
+    const { results } = await preflight({ ...io(base), all: true, type: "Announcement", now: NOW });
     expect(results.map((r) => r.site)).toEqual(["Acme"]);
   });
 
@@ -50,7 +64,7 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
       ],
       Reports: [],
     });
-    const { results } = await preflight({ base, all: true, type: "Maintenance", now: NOW });
+    const { results } = await preflight({ ...io(base), all: true, type: "Maintenance", now: NOW });
     expect(results.map((r) => r.site).sort()).toEqual(["Acme", "Hosting Co", "Legacy Row"]);
   });
 
@@ -59,7 +73,7 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
       Websites: [siteRecord("rec1", "Acme Co"), siteRecord("rec2", "Beta Co")],
       Reports: [],
     });
-    const { results, fleet } = await preflight({ base, site: "acme-co", now: NOW });
+    const { results, fleet } = await preflight({ ...io(base), site: "acme-co", now: NOW });
     expect(results.map((r) => r.site)).toEqual(["Acme Co"]);
     expect(fleet).toEqual([]);
   });
@@ -69,7 +83,7 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
       Websites: [siteRecord("rec1", "A"), siteRecord("rec2", "B"), siteRecord("rec3", "C")],
       Reports: [],
     });
-    await preflight({ base, all: true, type: "Announcement", now: NOW });
+    await preflight({ ...io(base), all: true, type: "Announcement", now: NOW });
     const reportSelects = base.__calls.filter((c) => c.kind === "select" && c.table === "Reports");
     expect(reportSelects).toHaveLength(1);
   });
@@ -89,7 +103,7 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
         },
       ],
     });
-    const { results } = await preflight({ base, all: true, type: "Announcement", now: NOW });
+    const { results } = await preflight({ ...io(base), all: true, type: "Announcement", now: NOW });
     const acme = results.find((r) => r.site === "Acme")!;
     const beta = results.find((r) => r.site === "Beta")!;
     expect(acme.findings.map((f) => f.check)).toContain("pending-drafts");
@@ -105,7 +119,7 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
         Websites: [siteRecord("rec1", "Acme", { "maintenence freq": "Quaterly" })],
         Reports: [],
       });
-      const { results } = await preflight({ base, site: "acme", now: NOW });
+      const { results } = await preflight({ ...io(base), site: "acme", now: NOW });
       expect(results[0]!.findings.map((f) => f.check)).toContain("frequency-unrecognized");
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]![0]).toMatch(/Acme.*unrecognized frequency 'Quaterly'/);

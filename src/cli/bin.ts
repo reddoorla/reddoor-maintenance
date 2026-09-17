@@ -122,7 +122,7 @@ cli
   .option("--json", "Machine-readable JSON output")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .option(
@@ -166,7 +166,7 @@ cli
   .option("--dry", "Print diff without writing")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -192,7 +192,7 @@ cli
   .option("--group <group>", "patch | minor | major", { default: "minor" })
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -218,7 +218,10 @@ cli
     "Bootstrap a repo to keep itself updated (Renovate + protection; platform auto-merge off; ci.yml is the starter's, not managed here).",
   )
   .option("--dry", "List what would be enabled without writing or opening PRs")
-  .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable"')
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" ("airtable" is a deprecated alias)',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (
@@ -248,7 +251,10 @@ cli
     "Add the Prismic model delivery workflow to a site via PR (one PR per repo; never pushes to main).",
   )
   .option("--dry", "List the sites that would be offered the workflow, without opening any PR")
-  .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable"')
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" ("airtable" is a deprecated alias)',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (
@@ -285,7 +291,10 @@ cli
   )
   .option("--pull", "Write remote-only models into the repo (single-site; review + PR the result).")
   .option("--tokens", "Print the per-site write-token doctor: which env var, present?, reads?")
-  .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable". Read-only.')
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" ("airtable" is a deprecated alias). Read-only.',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .option("--write-back", "Fleet mode: persist each site's verdict to its Websites row")
   .option(
@@ -319,7 +328,7 @@ cli
   .example("reddoor-maint upgrade svelte-4-to-5 ./my-site")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -341,7 +350,7 @@ cli
   )
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -357,7 +366,7 @@ cli
   .command("svelte-codemods [site]", "Apply Svelte 5 gotcha codemods to an already-migrated site.")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -376,7 +385,7 @@ cli
   )
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -398,7 +407,7 @@ cli
   .option("--matrix <list>", "Breakpoint matrix, comma-separated (default 1440,834,390)")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -428,7 +437,7 @@ cli
   )
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -447,7 +456,7 @@ cli
   .option("--audits <names>", "Comma-separated audit subset: lighthouse,a11y (default: both)")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -474,7 +483,7 @@ cli
   )
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(

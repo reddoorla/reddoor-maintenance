@@ -526,9 +526,9 @@ const PRISMIC_DRIFT_STALE_DAYS = 3;
 const PRISMIC_STALE_PASS_DAYS = 7;
 
 /**
- * True when the nightly `prismic-models --fleet airtable` sweep is EXPECTED to
- * cover this site. Mirrors the Airtable inventory's own filter (src/inventory/
- * airtable.ts): live `maintenance` sites (active, not pre-launch) that carry a
+ * True when the nightly `prismic-models --fleet turso` sweep is EXPECTED to
+ * cover this site. Mirrors the fleet inventory's own filter (src/inventory/
+ * select.ts): live `maintained` sites (active, not pre-launch) that carry a
  * `url` AND a Name that yields a slug. Deliberately duplicated rather than
  * imported — the inventory builds `Site` objects and needs a workdir; this is a
  * pure predicate over a row — but the two must stay in step: widen the inventory

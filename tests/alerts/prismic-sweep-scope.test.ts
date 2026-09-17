@@ -11,12 +11,15 @@ import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
  * BECAUSE THE DUPLICATION IS DELIBERATE.
  *
  * `prismicSweepCovers` (src/alerts/digest-collectors.ts) answers "was the nightly
- * `prismic-models --fleet airtable` sweep OWED a verdict for this site?" and gates
+ * `prismic-models --fleet turso` sweep OWED a verdict for this site?" and gates
  * the `prismic-stale:` escalation — the one alarm in that collector invented from
  * an ABSENCE rather than from a verdict some run established.
  *
- * `fromAirtableBase` (src/inventory/airtable.ts) decides which rows that sweep
- * actually visits. It is fleet-wide behaviour shared by nine commands, so the
+ * `selectFleetSites` (src/inventory/select.ts) decides which rows that sweep
+ * actually visits, through either store's provider — `fromTursoDb` since #646
+ * step 4, and `fromAirtableBase`, driven below. The two providers are pinned to
+ * select identically for the same rows by tests/inventory/selection-parity.test.ts,
+ * so pinning one here pins both. It is fleet-wide behaviour shared by nine commands, so the
  * alerts layer deliberately does NOT import it: the inventory builds `Site`
  * objects and needs a workdir, while the alert needs a pure predicate over a row.
  *
@@ -75,8 +78,9 @@ function alarmExpectsASweep(row: WebsiteRow): boolean {
   );
 }
 
-/** Does the sweep's own inventory actually visit this row? The REAL provider —
- *  `--fleet airtable` resolves through exactly this function. */
+/** Does the sweep's own inventory actually visit this row? A REAL provider — the
+ *  Airtable one, whose selection `--fleet turso`'s provider is proven identical to
+ *  (tests/inventory/selection-parity.test.ts). */
 async function sweepVisits(row: WebsiteRow): Promise<boolean> {
   const base = makeFakeBase({
     Websites: [

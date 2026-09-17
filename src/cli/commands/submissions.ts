@@ -91,14 +91,21 @@ export async function rescoreNewSubmissions(
   return { scanned: rows.length, flagged };
 }
 
-/** site_id → display name for the table. Soft-fails to an empty map (raw rec ids still
- *  print) so the re-score itself never depends on Airtable being reachable. */
+/** site_id → display name for the table. Reads the roster from Turso (#646 step 4),
+ *  which is also where the submissions themselves live — an Airtable read here could
+ *  not name a `site_<ULID>` site at all. Soft-fails to an empty map (raw ids still
+ *  print) so the re-score itself never depends on the name lookup. */
 async function loadSiteNames(): Promise<Map<string, string>> {
   try {
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { listWebsites } = await import("../../reports/airtable/websites.js");
-    const sites = await listWebsites(openBase(readAirtableConfig()));
-    return new Map(sites.map((s) => [s.id, s.name] as const));
+    const { openDb, readDbConfig } = await import("../../db/client.js");
+    const { listSites } = await import("../../db/fleet-state.js");
+    const db = await openDb(readDbConfig());
+    try {
+      const sites = await listSites(db);
+      return new Map(sites.map((s) => [s.id, s.name] as const));
+    } finally {
+      await db.destroy();
+    }
   } catch (err) {
     console.error(`[submissions] site names unavailable — printing raw site ids: ${String(err)}`);
     return new Map();

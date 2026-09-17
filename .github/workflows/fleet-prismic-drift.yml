@@ -94,8 +94,8 @@ jobs:
       # strictly necessary where membership is uncertain: an extra name is inert, a
       # missing one is a site the operator never mints a secret for.
       #
-      # AN ENV LINE HERE IS NOT COVERAGE. `--fleet airtable` resolves only sites whose
-      # Airtable Status is `maintained` (ACTIVE_STATUSES minus PRE_LAUNCH_STATUSES), so
+      # AN ENV LINE HERE IS NOT COVERAGE. `--fleet turso` resolves only sites whose
+      # Status is `maintained` (ACTIVE_STATUSES minus PRE_LAUNCH_STATUSES), so
       # 29-navy, alamo-anatomy, hedloc and the-pointe-burbank all carry a line here and
       # are NOT swept — measured 2026-09-09: resolveSites returned 13 sites, none of
       # them. The line exists so the credential is already in place the night a site's
@@ -154,7 +154,7 @@ jobs:
           # site is cloned fresh tonight, and each row still names the commit it describes.
           rc=0
           node dist/cli/bin.js prismic-models \
-            --fleet airtable \
+            --fleet turso \
             --write-back \
             --workdir "${RUNNER_TEMP:-/tmp}/fleet-prismic" | tee "$out" || rc=$?
 

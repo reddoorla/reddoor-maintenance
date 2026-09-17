@@ -1,5 +1,6 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
-import { listWebsites, siteSlug, updateGitHubSignals } from "../../reports/airtable/websites.js";
+import { siteSlug, updateGitHubSignals } from "../../reports/airtable/websites.js";
+import type { FleetRoster } from "../../fleet/roster.js";
 import type { Site } from "../../types.js";
 import { collectGitHubSignals } from "../../audits/github-signals.js";
 import { makeGitHub, type GitHub } from "../../github/gh.js";
@@ -26,8 +27,12 @@ type GhProbes = Pick<
  *  same payload Airtable got). Same seam shape as
  *  `writeFleetAuditsToAirtable`'s `mirror` argument. */
 export type GitHubSignalsDeps = {
-  /** Airtable base (default: real creds via readAirtableConfig). */
+  /** Airtable base (default: real creds via readAirtableConfig). Still needed:
+   *  the signals write is an Airtable SHADOW write. */
   openBase: () => AirtableBase;
+  /** #646 step 4: the fleet roster this sweep walks. Default: Turso
+   *  (`readFleetRoster`) — Airtable cannot see a `site_<ULID>` site at all. */
+  roster: FleetRoster;
   /** GitHub probe client for the fleet token (default: makeGitHub). */
   makeGh: (token: string) => GhProbes;
   /** Turso mirror factory (default: makeHealthMirrorBestEffort — null without
@@ -68,7 +73,13 @@ export async function runGitHubSignalsCommand(
     };
   }
   const base = deps.openBase ? deps.openBase() : openBase(readAirtableConfig());
-  const websites = await listWebsites(base);
+  const websites = await (
+    deps.roster ??
+    (async () => {
+      const { readFleetRoster } = await import("../../fleet/roster.js");
+      return readFleetRoster();
+    })
+  )();
   const gh: GhProbes = deps.makeGh ? deps.makeGh(token) : makeGitHub({ token });
   const sites: Site[] = websites.map((w) => ({
     path: "",

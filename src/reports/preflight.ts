@@ -1,9 +1,9 @@
-import { openBase, readAirtableConfig } from "./airtable/client.js";
-import type { AirtableBase } from "./airtable/client.js";
-import { listWebsites, siteSlug } from "./airtable/websites.js";
-import type { WebsiteRow } from "./airtable/websites.js";
-import { listAllReports } from "./airtable/reports.js";
-import type { ReportRow } from "./airtable/reports.js";
+// #646 step 4: preflight reads through the readers its caller hands it, so this
+// file no longer touches the Airtable layer at all — its row helpers come from
+// the vendor-neutral modules step 1 moved them to.
+import { siteSlug } from "../fleet/site-row.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
+import type { ReportRow } from "./report-row.js";
 import { parseAddresses, isProbablyEmail } from "./send/orchestrate.js";
 import { ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
@@ -338,8 +338,13 @@ export function preflightFleet(sites: WebsiteRow[]): PreflightFinding[] {
 }
 
 export type PreflightDeps = {
-  /** Airtable handle. Defaults to opening the live base from credentials. */
-  base?: AirtableBase;
+  /** The fleet roster. Since #646 step 4 preflight reads it from TURSO — read by
+   *  the command that calls this — so a `site_<ULID>` site is checked like any
+   *  other. Required, so nothing can reach a store this was not handed. */
+  roster: () => Promise<WebsiteRow[]>;
+  /** Every report row, on the same contract as `roster`. Called only when the
+   *  selection is non-empty (it was one whole-table read before, and still is). */
+  allReports: () => Promise<ReportRow[]>;
   /** Slug of a single site (matched via siteSlug). Mutually exclusive with `all`. */
   site?: string;
   /** Fleet mode: for Announcement, maintenance-status sites (announce's own filter);
@@ -356,24 +361,23 @@ export type PreflightResult = {
 };
 
 /**
- * Read-only rollout preflight over the live Airtable base. One Websites fetch, one
- * Reports fetch (the --due path does the same for the same rate-limit reason), then
+ * Read-only rollout preflight over the fleet store. One roster read, one reports
+ * read (the --due path does the same, and for the same reason: the whole table), then
  * {@link preflightSite} per selected site plus {@link preflightFleet} across the
  * selection. NEVER writes and NEVER sends.
  */
-export async function preflight(deps?: PreflightDeps): Promise<PreflightResult> {
-  const base = deps?.base ?? openBase(readAirtableConfig());
+export async function preflight(deps: PreflightDeps): Promise<PreflightResult> {
   const type: ReportType = deps?.type ?? "Announcement";
   const now = deps?.now ?? new Date();
 
-  const websites = await listWebsites(base);
+  const websites = await deps.roster();
   const selected = deps?.site
     ? websites.filter((w) => siteSlug(w.name) === siteSlug(deps.site!))
     : type === "Announcement"
       ? websites.filter((w) => w.status === "maintained")
       : websites.filter((w) => w.status === null || ELIGIBLE_STATUSES.has(w.status));
 
-  const allReports = selected.length > 0 ? await listAllReports(base) : [];
+  const allReports = selected.length > 0 ? await deps.allReports() : [];
   const results = selected.map((site) =>
     preflightSite(
       site,

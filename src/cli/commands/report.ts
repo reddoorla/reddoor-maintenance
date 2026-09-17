@@ -1,4 +1,5 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
+import type { Db } from "../../db/client.js";
 import {
   listWebsites,
   siteSlug,
@@ -85,13 +86,48 @@ function dashboardBaseUrl(): string {
   return process.env.DASHBOARD_BASE_URL?.trim() || "https://reddoor-maintenance.netlify.app";
 }
 
+/** One lazily-opened, once-closed libSQL connection for a command's reads (#646
+ *  step 4). Lazy because the command that owns it may return before any read
+ *  happens, and opening a database to do nothing is how a test — or a `--help`
+ *  path — ends up needing `TURSO_DATABASE_URL`. */
+function lazyFleetDb(): { get: () => Promise<Db>; close: () => Promise<void> } {
+  let db: Db | null = null;
+  return {
+    get: async () => {
+      if (!db) {
+        const { openDb, readDbConfig } = await import("../../db/client.js");
+        db = await openDb(readDbConfig());
+      }
+      return db;
+    },
+    close: async () => {
+      if (db) await db.destroy();
+    },
+  };
+}
+
 export async function runReportCommand(
   slug: string | undefined,
   opts: ReportCommandOptions,
 ): Promise<{ output: string; code: number }> {
   if (opts.digest) {
     const { runDigest } = await import("../../reports/digest.js");
-    return runDigest({ baseUrl: dashboardBaseUrl() });
+    // #646 step 4: the digest's two datasets come from Turso. ONE connection for
+    // both reads, opened here (the command is the composition root) and closed
+    // when the run is done — Airtable is left holding only the digest-state
+    // shadow write. Opened LAZILY, on the first read: a run that never reads
+    // (a routing test, a caller that fails earlier) must not need a database.
+    const { listSites, listAllReports } = await import("../../db/fleet-state.js");
+    const fleetDb = lazyFleetDb();
+    try {
+      return await runDigest({
+        baseUrl: dashboardBaseUrl(),
+        roster: async () => listSites(await fleetDb.get()),
+        allReports: async () => listAllReports(await fleetDb.get()),
+      });
+    } finally {
+      await fleetDb.close();
+    }
   }
 
   if (opts.sendReady) {

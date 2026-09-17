@@ -67,7 +67,7 @@ jobs:
           # cross-engine/mobile/link checks, records each site's latest production Netlify deploy
           # state, and checks the deployed `/health` function + CMS reachability — no extra clone.
           node dist/cli/bin.js audit \
-            --fleet airtable \
+            --fleet turso \
             --only lighthouse,domain,browser,netlify-deploy,function-health \
             --write-back \
             --concurrency 1 \

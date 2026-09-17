@@ -150,13 +150,16 @@ export const defaultDeps = (): PrismicModelsDeps => ({
   // every one of those runs fail on module load.
   openVerdictSink: async () => {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { listWebsites, updatePrismicModels } =
-      await import("../../reports/airtable/websites.js");
+    const { updatePrismicModels } = await import("../../reports/airtable/websites.js");
+    const { readFleetRoster } = await import("../../fleet/roster.js");
     // `openBase` throttles every HTTP call this base makes at its single funnel
     // (≤4.5 req/s), so the serial writes below cannot burst past Airtable's rate
     // limit no matter how large the fleet gets.
     const base = openBase(readAirtableConfig());
-    const websites = await listWebsites(base);
+    // #646 step 4: the verdict sink's roster is Turso's — the sweep may hand it a
+    // site that has no Airtable record. `updatePrismicModels` skips a non-`rec`
+    // id itself, so the verdict lands in Turso and the shadow is skipped, logged.
+    const websites = await readFleetRoster();
     // #539 Phase 5: the verdict lands on three site_health columns. Mirroring
     // here — inside the sink, which IS this command's composition root — keeps
     // PrismicVerdictSink a two-field type that every test stub can satisfy.
@@ -2192,7 +2195,7 @@ export async function runPrismicModelsCommand(
         ` which is not an inventory. Nothing was swept and nothing was compared. An unset` +
         ` workflow variable expands to an empty string, and an empty --fleet reads as "no` +
         ` fleet" — one directory swept and reported as the whole fleet. Pass an inventory` +
-        ` path or "airtable". Do NOT read this exit as a result.`,
+        ` path or "turso". Do NOT read this exit as a result.`,
       code: 2,
     };
   }

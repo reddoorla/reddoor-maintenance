@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { runFleetWriteBack } from "../../src/cli/commands/audit.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+import { makeFakeBase, type FakeAirtableBase } from "../reports/_helpers/fake-airtable-base.js";
+import { listWebsites } from "../../src/reports/airtable/websites.js";
 import type { AuditResult } from "../../src/types.js";
 import type { FleetEvent } from "../../src/db/fleet-events.js";
 
@@ -11,6 +12,13 @@ import type { FleetEvent } from "../../src/db/fleet-events.js";
  *  test stayed green (adversarial review of #566, finding 6). */
 
 const websites = [{ id: "recA", fields: { Name: "Acme Co", Status: "maintenance" } }];
+
+/** #646 step 4: the roster is Turso's, injected here. These fixtures keep living in
+ *  the fake Airtable base because the Airtable SHADOW write is half of what this
+ *  file pins, and `listWebsites`' rows are the same `WebsiteRow`s Turso returns
+ *  (pinned field-for-field by tests/db/fleet-state.test.ts). A Turso-backed roster
+ *  driving this seam end to end is tests/cli/fleet-roster-turso.test.ts. */
+const rosterOf = (base: FakeAirtableBase) => () => listWebsites(base);
 
 function lhResult(siteSlug: string): AuditResult {
   return {
@@ -34,6 +42,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
       which: ["lighthouse"],
       deps: {
         openBase: () => base,
+        roster: rosterOf(base),
         makeMirror: async () => async (siteId: string, fields: Record<string, unknown>) => {
           calls.push({ siteId, fields });
           return true;
@@ -66,6 +75,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
       which: ["lighthouse"],
       deps: {
         openBase: () => base,
+        roster: rosterOf(base),
         makeMirror: async () => null,
         recordEvents: async () => {},
         strict: false,
@@ -88,6 +98,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
       which: ["lighthouse"],
       deps: {
         openBase: () => base,
+        roster: rosterOf(base),
         makeMirror: async () => null,
         recordEvents: async () => {},
         strict: true,
@@ -106,6 +117,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
       which: ["lighthouse"],
       deps: {
         openBase: () => base,
+        roster: rosterOf(base),
         makeMirror: async () => async () => true,
         recordEvents: async () => {},
         strict: true,
@@ -121,6 +133,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
       which: ["lighthouse"],
       deps: {
         openBase: () => base,
+        roster: rosterOf(base),
         makeMirror: async () => async () => {
           throw new Error("turso down");
         },
@@ -139,6 +152,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
       which: ["lighthouse"],
       deps: {
         openBase: () => base,
+        roster: rosterOf(base),
         makeMirror: async () => null,
         recordEvents: async () => {},
         strict: false,
