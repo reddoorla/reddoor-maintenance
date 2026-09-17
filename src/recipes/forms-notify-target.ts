@@ -2,7 +2,6 @@ import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import type { SiteMirror } from "../db/site-mirror.js";
 import {
-  listWebsites,
   siteSlug,
   updateSiteField,
   type Status,
@@ -23,16 +22,27 @@ export const VERIFY_STATUS: Status = "launching";
 
 export type FormsNotifyTargetDeps = {
   base?: AirtableBase;
-  /** Site slug or the Airtable Websites NAME (both accepted). */
+  /** Every site in the fleet, read from TURSO (#646 step 4). Required, not
+   *  defaulted: the unit suite drives this with a fake fleet, and a default would
+   *  open a real libSQL handle from inside it. The CLI wires `readFleetRoster`.
+   *
+   *  It is called TWICE on a flip — once to find the site, once to read the cell
+   *  back — and both reads matter: Turso is what `/api/forms/:slug` consults to
+   *  decide who a submission emails (`getSiteBySlug`, #643), so confirming the
+   *  Airtable cell would confirm the wrong store, and an Airtable roster cannot
+   *  see a `site_<ULID>` site at all. */
+  roster: () => Promise<WebsiteRow[]>;
+  /** Site slug or the stored site NAME (both accepted). */
   site: string;
   /** `on` routes notifications to the operator; `off` restores. Omit to read. */
   set?: "on" | "off";
   /** Status to restore with `--set off`. Required, never inferred. */
   restore?: string;
-  /** #539 Phase 5: Turso write-through for the Status cell this flips. Injected
-   *  at the CLI root, never defaulted — the unit suite calls this with a fake
-   *  base and must not open a real libSQL handle. */
-  siteMirror?: SiteMirror;
+  /** The Status write itself (#646 step 4): Turso is the store the form ingest
+   *  reads, so this is the write the read-back below confirms — the Airtable
+   *  `updateSiteField` beside it is the shadow, and it skips a `site_` id.
+   *  Required, and injected at the CLI root for the same reason `roster` is. */
+  siteMirror: SiteMirror;
 };
 
 export type FormsNotifyTargetResult = {
@@ -95,7 +105,7 @@ export async function formsNotifyTarget(
   deps: FormsNotifyTargetDeps,
 ): Promise<FormsNotifyTargetResult> {
   const base = deps.base ?? openBase(readAirtableConfig());
-  const rows = await listWebsites(base);
+  const rows = await deps.roster();
   const row = findSite(rows, deps.site);
   if (!row) {
     // The Websites NAME is not the repo slug ("Sonder", not "gallerysonder"),
@@ -107,7 +117,7 @@ export async function formsNotifyTarget(
       .filter((n) => siteSlug(n).includes(needle) || needle.includes(siteSlug(n)));
     throw Object.assign(
       new Error(
-        `No Websites row matches '${deps.site}'. The Websites NAME is not always the repo ` +
+        `No site matches '${deps.site}'. The stored NAME is not always the repo ` +
           `slug (Sonder, not gallerysonder).` +
           (near.length > 0 ? ` Did you mean: ${near.join(", ")}?` : ""),
       ),
@@ -153,16 +163,18 @@ export async function formsNotifyTarget(
   // the current Airtable vocabulary is correct. `--set off` writes the operator's
   // own string — see restoreCell.
   const cell = deps.set === "on" ? toAirtableStatus(VERIFY_STATUS) : restoreCell(restoreRaw!);
+  // The Airtable shadow first, still allowed to fail loudly while it is kept
+  // trustworthy; it skips a site id Airtable cannot hold (#646 step 3).
   await updateSiteField(base, row.id, STATUS_COLUMN, cell);
-  // Mirror the same cell. The console reads Status from Turso, so without this a
-  // site flipped into verify mode still reads as live for up to an hour — on the
-  // one surface an operator would check to confirm the flip.
-  await deps.siteMirror?.site(row.id, { [STATUS_COLUMN]: cell });
+  // The write that DECIDES: `/api/forms/:slug` reads this cell from Turso, and
+  // the console reads it there too.
+  await deps.siteMirror.site(row.id, { [STATUS_COLUMN]: cell });
 
-  // Read it back. The write returning is NOT evidence the field changed.
-  const after = findSite(await listWebsites(base), deps.site);
+  // Read it back — from Turso, the store just confirmed to be the one that
+  // matters. The write returning is NOT evidence the field changed.
+  const after = findSite(await deps.roster(), deps.site);
   if (!after) {
-    throw Object.assign(new Error(`${row.name} vanished from Websites during the flip.`), {
+    throw Object.assign(new Error(`${row.name} vanished from the fleet during the flip.`), {
       exitCode: 1,
     });
   }

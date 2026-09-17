@@ -13,7 +13,10 @@ import { canonicalizeStatus, toAirtableStatus } from "../../src/reports/airtable
  *  exact 2026-08-03 shape, where the flip was believed to have happened. */
 const fake = vi.hoisted(() => ({
   rows: [] as WebsiteRow[],
+  /** Every Status cell written to TURSO — the store the read-back confirms. */
   updates: [] as string[],
+  /** Every Status cell written to the Airtable SHADOW. */
+  airtableUpdates: [] as string[],
   writesLand: true,
   /** Store a DIFFERENT cell than the one written. Null = store what was sent.
    *  This used to model the shape a canonical-only read-back guard could not
@@ -25,43 +28,66 @@ const fake = vi.hoisted(() => ({
   substituteWrite: null as string | null,
 }));
 
+/** The TURSO Status write, shared by the deps helper and the mocked
+ *  `makeSiteMirror` the CLI composition root builds — so the CLI path lands its
+ *  write exactly as the direct calls do. */
+function applyStatus(
+  canonicalize: (raw: string) => Status | null,
+  id: string,
+  value: string,
+): void {
+  fake.updates.push(`${id}.Status=${value}`);
+  if (!fake.writesLand) return;
+  const stored = fake.substituteWrite ?? value;
+  // A re-read goes through the row mapper, which sets BOTH the canonical status
+  // and the raw cell verbatim. Modelling only `status` would hide the class of
+  // bug where the cell that landed is not the one asked for.
+  fake.rows = fake.rows.map((r) =>
+    r.id === id ? { ...r, status: canonicalize(stored), statusRaw: stored } : r,
+  );
+}
+
 // #612: the CLI composition root builds a real makeSiteMirror, which under the
 // freeze constant refuses to build without libSQL creds. Mocked so the flip
 // stays a one-line change rather than a change plus a sweep of test files.
-vi.mock("../../src/db/site-mirror.js", () => ({
-  makeSiteMirror: async () => ({
-    created: async () => {},
-    hasRow: async () => true,
-    health: async () => {},
-    site: async () => {},
-  }),
-}));
+vi.mock("../../src/db/site-mirror.js", async () => {
+  const { canonicalizeStatus: canon } = await import("../../src/reports/airtable/site-status.js");
+  return {
+    makeSiteMirror: async () => ({
+      created: async () => {},
+      hasRow: async () => true,
+      health: async () => {},
+      // #646 step 4: this is the write that decides, so the CLI path must land it
+      // in the fake fleet the read-back reads.
+      site: async (id: string, fields: Record<string, unknown>) =>
+        applyStatus(canon, id, String(fields.Status ?? "")),
+    }),
+  };
+});
 vi.mock("../../src/reports/airtable/client.js", async (orig) => {
   const actual = await orig<typeof import("../../src/reports/airtable/client.js")>();
   return { ...actual, readAirtableConfig: () => ({}), openBase: () => ({}) };
 });
 
+// The Airtable SHADOW write. Since #646 step 4 it no longer feeds the read-back:
+// the cell that decides who a submission emails is the TURSO one (form ingest
+// reads `getSiteBySlug`), so the fleet below is what the mirror writes into.
 vi.mock("../../src/reports/airtable/websites.js", async (orig) => {
   const actual = await orig<typeof import("../../src/reports/airtable/websites.js")>();
   return {
     ...actual,
-    listWebsites: async () => fake.rows.map((r) => ({ ...r })),
     updateSiteField: async (_b: unknown, id: string, column: string, value: string) => {
-      fake.updates.push(`${id}.${column}=${value}`);
-      if (!fake.writesLand) return;
-      const stored = fake.substituteWrite ?? value;
-      fake.rows = fake.rows.map((r) =>
-        // The write lands as an AIRTABLE cell value; a re-read goes through
-        // mapRow, which sets BOTH fields — the canonical status and the raw cell
-        // verbatim. Modelling only `status` here would hide the whole class of
-        // bug where the cell that landed is not the cell that was asked for.
-        r.id === id && column === "Status"
-          ? { ...r, status: canonicalizeStatus(stored), statusRaw: stored }
-          : r,
-      );
+      // The real writer skips a non-`rec` id (#646 step 3); the fake keeps that
+      // rule so a `site_<ULID>` case here behaves as production does.
+      if (!id.startsWith("rec")) return;
+      fake.airtableUpdates.push(`${id}.${column}=${value}`);
     },
   };
 });
+// The CLI composition root reads the roster from Turso; this is that read.
+vi.mock("../../src/fleet/roster.js", () => ({
+  readFleetRoster: async () => fake.rows.map((r) => ({ ...r })),
+}));
 
 function row(status: Status | null, statusRaw?: string | null): WebsiteRow {
   return {
@@ -82,9 +108,28 @@ function row(status: Status | null, statusRaw?: string | null): WebsiteRow {
 
 const base = {} as AirtableBase;
 
-function setup(status: Status | null, writesLand = true) {
-  fake.rows = [row(status)];
+/** The Turso half of the recipe's deps: the fleet read, and the Status write the
+ *  read-back confirms. `writesLand` off is the 2026-08-03 shape — the write call
+ *  returns and the cell never changes. */
+function D(over: Partial<Parameters<typeof formsNotifyTarget>[0]> & { site: string }) {
+  return {
+    base,
+    roster: async () => fake.rows.map((r) => ({ ...r })),
+    siteMirror: {
+      created: async () => {},
+      hasRow: async () => true,
+      health: async () => {},
+      site: async (id: string, fields: Record<string, unknown>) =>
+        applyStatus(canonicalizeStatus, id, String(fields.Status ?? "")),
+    },
+    ...over,
+  } as Parameters<typeof formsNotifyTarget>[0];
+}
+
+function setup(status: Status | null, writesLand = true, id = "recSite") {
+  fake.rows = [{ ...row(status), id } as WebsiteRow];
   fake.updates = [];
+  fake.airtableUpdates = [];
   fake.writesLand = writesLand;
   fake.substituteWrite = null;
 }
@@ -92,7 +137,7 @@ function setup(status: Status | null, writesLand = true) {
 describe("formsNotifyTarget", () => {
   it("reads without writing — asking must never be riskier than not asking", async () => {
     setup("maintained");
-    const r = await formsNotifyTarget({ base, site: "1836dig" });
+    const r = await formsNotifyTarget(D({ site: "1836dig" }));
     expect(r.target.audience).toBe("client");
     expect(fake.updates).toEqual([]);
     expect(r.flip).toBeUndefined();
@@ -101,13 +146,13 @@ describe("formsNotifyTarget", () => {
   it("accepts the slug or the Airtable name", async () => {
     setup("maintained");
     for (const s of ["1836dig", "1836DIG"]) {
-      expect((await formsNotifyTarget({ base, site: s })).site).toBe("1836dig");
+      expect((await formsNotifyTarget(D({ site: s }))).site).toBe("1836dig");
     }
   });
 
   it("flipping on writes the guard and confirms it by re-reading", async () => {
     setup("maintained");
-    const r = await formsNotifyTarget({ base, site: "1836dig", set: "on" });
+    const r = await formsNotifyTarget(D({ site: "1836dig", set: "on" }));
     // A LITERAL, not `${VERIFY_STATUS}`: this pins the exact cell value the write
     // puts in Airtable, which since the stage-2 flip is the NEW option name.
     // Interpolating the canonical constant would track whatever the code emits and
@@ -117,36 +162,49 @@ describe("formsNotifyTarget", () => {
     expect(r.target.audience).toBe("operator");
   });
 
-  it("mirrors the flipped Status into Turso (#539 Phase 5)", async () => {
-    // The console reads Status from Turso, so without this a site flipped into
-    // verify mode still reads as LIVE for up to an hour — on the one surface an
-    // operator would check to confirm the flip actually took.
+  it("writes the SAME cell to Turso and to the Airtable shadow (#539 Phase 5)", async () => {
+    // Turso is what `/api/forms/:slug` reads to decide who a submission emails,
+    // and what the console shows; the Airtable cell is the shadow, compared
+    // raw-to-raw by parity, so the two must carry the identical string.
     setup("maintained");
     const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
 
-    await formsNotifyTarget({
-      base,
-      site: "1836dig",
-      set: "on",
-      siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
-        health: async () => {},
-        site: async (id, fields) => {
-          mirrored.push({ id, fields });
+    await formsNotifyTarget(
+      D({
+        site: "1836dig",
+        set: "on",
+        siteMirror: {
+          created: async () => {},
+          hasRow: async () => true,
+          health: async () => {},
+          site: async (id: string, fields: Record<string, unknown>) => {
+            mirrored.push({ id, fields });
+          },
         },
-      },
-    });
+      }),
+    );
 
-    // The SAME cell the Airtable write got — parity compares raw-to-raw.
     expect(mirrored).toEqual([{ id: "recSite", fields: { Status: "launching" } }]);
+    expect(fake.airtableUpdates).toEqual(["recSite.Status=launching"]);
+  });
+
+  it("flips a Turso-only `site_<ULID>` site, whose Airtable shadow writes nothing", async () => {
+    // The case an Airtable roster could not even find (#646 steps 3–4): the site
+    // has no Websites record, so the shadow skips and the guard lives in Turso
+    // alone — which is exactly the cell form ingest reads.
+    setup("maintained", true, "site_01ARYZ6S41TSV4RRFFQ69G5FAV");
+    const r = await formsNotifyTarget(D({ site: "1836dig", set: "on" }));
+    expect(r.flip).toMatchObject({ from: "maintained", to: VERIFY_STATUS, confirmed: true });
+    expect(r.target.audience).toBe("operator");
+    expect(fake.updates).toEqual(["site_01ARYZ6S41TSV4RRFFQ69G5FAV.Status=launching"]);
+    expect(fake.airtableUpdates).toEqual([]);
   });
 
   it("REGRESSION: a flip that does NOT land is reported unconfirmed, never as success", async () => {
     // The exact 2026-08-03 failure: the write call returned, the field never
     // changed, and nothing said so. A returning write is not evidence.
     setup("maintained", false);
-    const r = await formsNotifyTarget({ base, site: "1836dig", set: "on" });
+    const r = await formsNotifyTarget(D({ site: "1836dig", set: "on" }));
     expect(fake.updates).toHaveLength(1); // the write was attempted
     expect(r.flip).toMatchObject({ confirmed: false });
     expect(r.target.audience).toBe("client"); // still dangerous — and it says so
@@ -157,7 +215,7 @@ describe("formsNotifyTarget", () => {
 
   it("refuses to flip a site that is already guarded, rather than rewriting its status", async () => {
     setup("hosted-only");
-    await expect(formsNotifyTarget({ base, site: "1836dig", set: "on" })).rejects.toThrow(
+    await expect(formsNotifyTarget(D({ site: "1836dig", set: "on" }))).rejects.toThrow(
       /nothing to flip/i,
     );
     expect(fake.updates).toEqual([]);
@@ -165,7 +223,7 @@ describe("formsNotifyTarget", () => {
 
   it("refuses --set off without --restore — the status is never inferred", async () => {
     setup(VERIFY_STATUS);
-    await expect(formsNotifyTarget({ base, site: "1836dig", set: "off" })).rejects.toThrow(
+    await expect(formsNotifyTarget(D({ site: "1836dig", set: "off" }))).rejects.toThrow(
       /--restore/,
     );
     expect(fake.updates).toEqual([]);
@@ -173,12 +231,13 @@ describe("formsNotifyTarget", () => {
 
   it("restores to the status it was given, not to a guessed one", async () => {
     setup(VERIFY_STATUS);
-    const r = await formsNotifyTarget({
-      base,
-      site: "1836dig",
-      set: "off",
-      restore: "hosted-only",
-    });
+    const r = await formsNotifyTarget(
+      D({
+        site: "1836dig",
+        set: "off",
+        restore: "hosted-only",
+      }),
+    );
     expect(fake.updates).toEqual(["recSite.Status=hosted-only"]);
     expect(r.flip).toMatchObject({ confirmed: true });
     expect(r.status).toBe("hosted-only");
@@ -198,7 +257,7 @@ describe("formsNotifyTarget", () => {
     // quietly translate it into one that does. The first tells the operator
     // their input is stale; the second hands them a status they never typed.
     setup(VERIFY_STATUS);
-    const r = await formsNotifyTarget({ base, site: "1836dig", set: "off", restore: "legacy" });
+    const r = await formsNotifyTarget(D({ site: "1836dig", set: "off", restore: "legacy" }));
     expect(fake.updates).toEqual(["recSite.Status=legacy"]);
     expect(fake.updates).not.toContain("recSite.Status=archived");
     // Reported as itself — a retired name is an unrecognized status now, which
@@ -217,25 +276,26 @@ describe("formsNotifyTarget", () => {
     // cell is caught at all.
     setup(VERIFY_STATUS);
     fake.substituteWrite = "archived";
-    const r = await formsNotifyTarget({
-      base,
-      site: "1836dig",
-      set: "off",
-      restore: "hosted-only",
-    });
+    const r = await formsNotifyTarget(
+      D({
+        site: "1836dig",
+        set: "off",
+        restore: "hosted-only",
+      }),
+    );
     expect(r.flip).toMatchObject({ confirmed: false });
   });
 
   it("an unknown site is a clean exit-2, not a crash", async () => {
     setup("maintained");
-    await expect(formsNotifyTarget({ base, site: "nope" })).rejects.toMatchObject({ exitCode: 2 });
+    await expect(formsNotifyTarget(D({ site: "nope" }))).rejects.toMatchObject({ exitCode: 2 });
   });
 });
 
 describe("formatNotifyTarget", () => {
   it("warns, with the un-recallable consequence stated, when the client is the target", async () => {
     setup("maintained");
-    const out = formatNotifyTarget(await formsNotifyTarget({ base, site: "1836dig" }));
+    const out = formatNotifyTarget(await formsNotifyTarget(D({ site: "1836dig" })));
     expect(out).toMatch(/THE CLIENT/);
     expect(out).toMatch(/cannot be recalled/i);
     expect(out).toMatch(/--set on/);
@@ -243,7 +303,7 @@ describe("formatNotifyTarget", () => {
 
   it("a confirmed verify flip prints the exact restore command, carrying the prior status", async () => {
     setup("maintained");
-    const out = formatNotifyTarget(await formsNotifyTarget({ base, site: "1836dig", set: "on" }));
+    const out = formatNotifyTarget(await formsNotifyTarget(D({ site: "1836dig", set: "on" })));
     expect(out).toMatch(/Safe to test/);
     // The printed restore command carries the canonical name; `--restore` accepts
     // either vocabulary, so the copy-pasteable line stays correct.

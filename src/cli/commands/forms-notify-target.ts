@@ -67,7 +67,7 @@ export async function runFormsNotifyTargetCommand(
   opts: FormsNotifyTargetCommandOptions,
 ): Promise<{ output: string; code: number }> {
   if (!site?.trim()) {
-    return { output: "forms-notify-target requires <site> (slug or Airtable name)", code: 2 };
+    return { output: "forms-notify-target requires <site> (slug or site name)", code: 2 };
   }
   const set = opts.set?.trim().toLowerCase();
   if (set !== undefined && set !== "on" && set !== "off") {
@@ -77,7 +77,12 @@ export async function runFormsNotifyTargetCommand(
     // #539 Phase 5: the flip writes Status on the Websites row; mirror it so the
     // console (which reads Turso) shows the new routing immediately.
     const { makeSiteMirror } = await import("../../db/site-mirror.js");
+    // #646 step 4: the fleet roster — and the flip's read-back — come from Turso,
+    // which is the store `/api/forms/:slug` reads to decide who a submission
+    // emails, and the only one that can see a `site_<ULID>` site.
+    const { readFleetRoster } = await import("../../fleet/roster.js");
     const result = await formsNotifyTarget({
+      roster: () => readFleetRoster(),
       siteMirror: await makeSiteMirror(),
       site: site.trim(),
       ...(set ? { set: set as "on" | "off" } : {}),
