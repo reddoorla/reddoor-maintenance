@@ -3,6 +3,7 @@ import { requireOperator, denialResponse } from "../../src/dashboard/index.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { getReportHtml } from "../../src/db/fleet-state.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
+import { isReportId } from "../../src/fleet/report-id.js";
 
 // Phase 2 (#539): serve a report's rendered body straight from Turso. The old
 // "draft preview" links pointed at Airtable's SIGNED attachment URL, which
@@ -39,8 +40,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   }
 
   const id = ctx.params?.id;
-  // Airtable rec ids only — anything else is a probe, not a report.
-  if (!id || !/^rec[A-Za-z0-9]+$/.test(id)) return plainText("Not found.", 404);
+  // Both report id shapes — `rec…` (Airtable-minted, pre-#646) and a minted
+  // `report_<ULID>` — and nothing else: anything else is a probe, not a report.
+  if (!id || !isReportId(id)) return plainText("Not found.", 404);
 
   try {
     const db = await openDb(readDbConfig());

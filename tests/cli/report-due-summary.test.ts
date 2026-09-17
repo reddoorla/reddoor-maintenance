@@ -21,20 +21,36 @@ vi.mock("../../src/db/site-mirror.js", () => ({
 }));
 vi.mock("../../src/reports/report-mirror.js", () => ({
   makeReportMirror: async () => ({
+    create: async (rec: { id: string }) => ({ id: rec.id }),
     created: async () => {},
+    forSite: async () => [],
     body: async () => {},
     patch: async () => {},
   }),
+}));
+// #646 step 4: the batch's roster and report list are TURSO reads, opened over
+// one connection by this very composition root. Mocked at the db boundary — not
+// swapped for an Airtable read — so this suite keeps proving the wiring reaches
+// the store the nightly run actually uses, without opening one.
+vi.mock("../../src/db/client.js", () => ({
+  readDbConfig: () => ({ url: "file::memory:" }),
+  openDb: async () => ({ destroy: async () => {} }),
+}));
+vi.mock("../../src/db/fleet-state.js", () => ({
+  listSites: async () => [
+    { id: "recA", name: "Site A" },
+    { id: "recB", name: "Site B" },
+  ],
+  listAllReports: async () => [],
 }));
 vi.mock("../../src/reports/airtable/client.js", () => ({
   readAirtableConfig: () => ({ pat: "pat", baseId: "base" }),
   openBase: () => ({}),
 }));
 vi.mock("../../src/reports/airtable/websites.js", () => ({
-  listWebsites: async () => [
-    { id: "recA", name: "Site A" },
-    { id: "recB", name: "Site B" },
-  ],
+  // Still the Airtable SHADOW's next-due write-back; the roster itself comes
+  // from the mocked Turso read above.
+  updateNextDueDates: async () => ({}),
   siteSlug: (n: string) => n,
 }));
 vi.mock("../../src/reports/airtable/reports.js", () => ({

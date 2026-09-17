@@ -192,11 +192,12 @@ describe("Airtable site writers skip a Turso-minted site_ id (#646 step 3)", () 
   }
 });
 
-describe("createDraft is not a shadow — it refuses a site_ id by name", () => {
-  // The report row is still MINTED by Airtable (report ids are a separate,
-  // pending decision on #646), so skipping here would silently produce no report.
-  // It refuses before any Airtable call, with a reason, instead of Airtable's
-  // opaque link-field rejection.
+describe("the legacy Airtable createDraft still refuses a site_ id by name", () => {
+  // It MINTS the report id from Airtable's record id, so skipping would silently
+  // produce no report: it refuses before any Airtable call, with a reason,
+  // instead of Airtable's opaque link-field rejection. Since #646 step 4 no
+  // production path calls it — reports are created in Turso
+  // (`createReportDraft`), which is what the message now points at.
   it("throws before touching Airtable", async () => {
     const base = makeFakeBase({ Reports: [] });
     await expect(
@@ -210,7 +211,7 @@ describe("createDraft is not a shadow — it refuses a site_ id by name", () => 
         lighthouse: { performance: 1, accessibility: 1, bestPractices: 1, seo: 1 },
         lastTestedDate: null,
       }),
-    ).rejects.toThrow(/report id decision/i);
+    ).rejects.toThrow(/create the report in Turso instead/i);
     expect(base.__calls).toEqual([]);
   });
 });

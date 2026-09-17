@@ -800,6 +800,24 @@ export async function mirrorReportInsert(db: Db, rec: RawRecord): Promise<void> 
     .execute();
 }
 
+/** Insert a BRAND-NEW report row (#646 step 4). The report id was just minted
+ *  (`report_<ULID>`), Turso owns the row, and no Airtable record exists for it.
+ *
+ *  A plain INSERT, deliberately not `mirrorReportInsert`'s upsert: that one
+ *  resolves a conflict because it re-mirrors a record Airtable already holds,
+ *  whereas a conflict HERE means the freshly minted id already exists — which
+ *  must fail loudly, never silently overwrite a report. Same reasoning as
+ *  `insertSiteRows`.
+ *
+ *  Maps with the importer's `mapReportRecord`, like the create mirror it replaces:
+ *  the parity harness diffs Turso against exactly that function, so a drafted row
+ *  is parity-clean by construction rather than by a second column list. The caller
+ *  builds the record's fields with `draftFields` (`src/reports/draft-fields.ts`),
+ *  whose keys are that mapper's own vocabulary. */
+export async function insertReportRow(db: Db, rec: RawRecord): Promise<void> {
+  await db.insertInto("reports").values(mapReportRecord(rec, null)).execute();
+}
+
 /**
  * Store a freshly rendered report body, replacing whatever was there.
  *

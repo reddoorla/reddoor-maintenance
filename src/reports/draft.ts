@@ -6,7 +6,7 @@ import { analyticsHealthFields, siteSlug, updateAnalyticsHealth } from "./airtab
 import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
-import { createDraft, listReportsForSite } from "./airtable/reports.js";
+import { createReportDraft } from "./create-report.js";
 import type { ReportMirror } from "./report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft } from "./queue.js";
@@ -189,11 +189,25 @@ export async function draftReportForSite(
 ): Promise<DraftResult> {
   const scores = scoresFromWebsite(siteRow);
 
+  // #646 step 4: Turso mints the report id and owns the row, so the report writer
+  // is required on every path that creates or completes one — it is also what the
+  // period derivation below reads through. Checked FIRST so a missing dependency
+  // fails before a GA fetch and a full render, not after.
+  const store = options.previewOnly ? null : (options.reportMirror ?? null);
+  if (!options.previewOnly && !store) {
+    throw new Error(
+      "draftReportForSite: a reportMirror is required when previewOnly=false — " +
+        "Turso owns the report row since #646 step 4, and the caller (a CLI command or " +
+        "recipe) wires it at its composition root",
+    );
+  }
+
   const today = new Date();
   const slug = siteSlug(siteRow.name);
 
-  const periodStart =
-    base !== null ? await derivePeriodStart(base, siteRow, reportType, today) : daysAgo(today, 30);
+  const periodStart = store
+    ? await derivePeriodStart(store, siteRow, reportType, today)
+    : daysAgo(today, 30);
 
   const periodEnd = today;
   const completedOn = today;
@@ -324,11 +338,11 @@ export async function draftReportForSite(
   // (scores, period, dates) were already written at create time; the only pieces a
   // crash drops are the attachment + the ready flag.
   if (options.completeRowId) {
-    await uploadDraftHtml(options.completeRowId, slug, periodEnd, html, options.reportMirror);
+    await uploadDraftHtml(options.completeRowId, slug, periodEnd, html, store!);
     const outcome = await queueDraft(
       base,
       { id: options.completeRowId, siteId: siteRow.id, reportType },
-      options.reportMirror,
+      store!,
     );
     return {
       reportRow: options.existingRow ?? null,
@@ -353,8 +367,12 @@ export async function draftReportForSite(
   const autoEvidence = Object.fromEntries(evidence);
 
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;
-  const created = await createDraft(
-    base,
+  // #646 step 4: the row is MINTED and written in Turso (`report_<ULID>`), not in
+  // Airtable. A `site_<ULID>` site could not be drafted for at all before this —
+  // Airtable has no Websites record for the `Site` link to point at — and the
+  // Airtable Reports row it used to create is now skipped, not written, for the
+  // reason `createReportDraft` states.
+  const created = await createReportDraft(
     {
       reportId,
       siteId: siteRow.id,
@@ -373,14 +391,14 @@ export async function draftReportForSite(
       checklistTicks,
       autoEvidence,
     },
-    options.reportMirror?.created,
+    { create: store!.create },
   );
 
-  await uploadDraftHtml(created.id, slug, periodEnd, html, options.reportMirror);
+  await uploadDraftHtml(created.id, slug, periodEnd, html, store!);
   const outcome = await queueDraft(
     base,
     { id: created.id, siteId: siteRow.id, reportType },
-    options.reportMirror,
+    store!,
   );
 
   return {
@@ -408,11 +426,14 @@ async function uploadDraftHtml(
   slug: string,
   periodEnd: Date,
   html: string,
-  mirror?: ReportMirror,
+  store: ReportMirror,
 ): Promise<void> {
   const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
+  // Airtable's copy of the body is a shadow: `uploadAttachment` skips a report id
+  // Airtable cannot hold (#646 step 3's writer rule), so a minted report's body
+  // lives only in Turso — which is where the console's preview route reads it.
   await uploadAttachment(rowId, "Rendered HTML", html, htmlFilename, "text/html");
-  await mirror?.body(rowId, html);
+  await store.body(rowId, html);
 }
 
 /** Result of an enrichment fetch: the value (null if unavailable) plus whether
@@ -552,13 +573,20 @@ export async function fetchSearch(
   }
 }
 
+/** The half-open period's start: the day after this site's last report of the same
+ *  type ended, or 30 days ago when it has none.
+ *
+ *  #646 step 4: read from TURSO (`store.forSite`). The Airtable read it replaces
+ *  returned nothing for a `site_<ULID>` site — and "nothing" is not an error here,
+ *  it is the 30-day fallback, so every report for such a site would have silently
+ *  re-measured a window it had already reported on. */
 async function derivePeriodStart(
-  base: AirtableBase,
+  store: ReportMirror,
   siteRow: WebsiteRow,
   reportType: ReportType,
   today: Date,
 ): Promise<Date> {
-  const prior = await listReportsForSite(base, siteRow.id);
+  const prior = await store.forSite(siteRow.id);
   const sameType = prior
     .filter((r) => r.reportType === reportType && r.periodEnd)
     .map((r) => r.periodEnd!)

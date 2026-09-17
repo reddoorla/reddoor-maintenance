@@ -10,6 +10,12 @@ import {
 } from "../../src/recipes/match-harness/template.js";
 import type { AuditResult, RecipeResult, Site } from "../../src/types.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+import {
+  makeFakeReportWriter,
+  type FakeReportWriter,
+} from "../reports/_helpers/fake-report-writer.js";
+import { mapRow as mapReportRow } from "../../src/reports/airtable/reports.js";
+import { mapRow as mapSiteRow } from "../../src/reports/airtable/websites.js";
 
 // uploadAttachment (src/reports/airtable/attachments.ts) POSTs to content.airtable.com
 // via global fetch. Stub fetch so the preview upload "succeeds" without a network call;
@@ -99,9 +105,19 @@ function websitesSeed() {
   };
 }
 
+/** The Turso report writer the recipe writes through (#646 step 4), exposed at
+ *  module scope so a case can read what was written. Seeded by `deps(base)` from
+ *  the same records the Airtable fake holds, so the two stores start identical. */
+let writer: FakeReportWriter;
+
 function deps(base: ReturnType<typeof makeFakeBase>) {
+  writer = makeFakeReportWriter((base.__records.get("Reports") ?? []).map(mapReportRow));
   return {
     base,
+    // #646 step 4: the fleet roster is a Turso read. Derived from the fake base's
+    // own Websites seed so a case still seeds one fleet, not two.
+    roster: async () => (base.__records.get("Websites") ?? []).map(mapSiteRow),
+    reportMirror: writer,
     bootstrap: async (): Promise<RecipeResult> => ({
       recipe: "self-updating",
       site: "Acme Co",
@@ -136,9 +152,9 @@ describe("recipes/launch", () => {
     const base = makeFakeBase(websitesSeed());
     await launch(siteOf(), deps(base));
 
-    const create = base.__calls.find((c) => c.kind === "create" && c.table === "Reports");
-    if (!create || create.kind !== "create") throw new Error("expected a Reports create");
-    const fields = create.records[0]!.fields;
+    // Written to TURSO since #646 step 4 — same field vocabulary, different store.
+    expect(writer.inserts).toHaveLength(1);
+    const fields = writer.inserts[0]!.fields;
     expect(fields["Report type"]).toBe("Launch");
     expect(fields["Lighthouse — Performance"]).toBe(87);
     expect(fields["Lighthouse — Accessibility"]).toBe(91);
@@ -173,34 +189,24 @@ describe("recipes/launch", () => {
 
   it("hands the created row to deps.reportMirror (#539 Phase 5 create-side dual-write)", async () => {
     const base = makeFakeBase(websitesSeed());
-    const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
+    await launch(siteOf(), deps(base));
 
-    await launch(siteOf(), {
-      ...deps(base),
-      reportMirror: {
-        created: async (rec: { id: string; fields: Record<string, unknown> }) => {
-          seen.push(rec);
-        },
-        body: async () => {},
-        patch: async () => {},
-      },
-    });
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0]!.fields["Report type"]).toBe("Launch");
+    expect(writer.inserts).toHaveLength(1);
+    expect(writer.inserts[0]!.id).toMatch(/^report_[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(writer.inserts[0]!.fields["Report type"]).toBe("Launch");
+    // Nothing was created in Airtable — the id it would have minted is the one
+    // Turso now owns (#646 step 4).
+    expect(base.__calls.filter((c) => c.kind === "create" && c.table === "Reports")).toHaveLength(
+      0,
+    );
   });
 
   it("flips Draft ready=true so the launch draft enters the approve queue (BLOCKER)", async () => {
     const base = makeFakeBase(websitesSeed());
     await launch(siteOf(), deps(base));
 
-    const draftReadyUpdate = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Reports" &&
-        c.records[0]!.fields["Draft ready"] === true,
-    );
-    expect(draftReadyUpdate).toBeDefined();
+    // The queue flag lands in Turso; its Airtable shadow skips a minted report id.
+    expect(writer.patches).toEqual([{ id: writer.inserts[0]!.id, patch: { draft_ready: 1 } }]);
   });
 
   it("reuses an existing Launch row on a re-run instead of creating a second", async () => {
@@ -256,20 +262,9 @@ describe("recipes/launch", () => {
         },
       ],
     });
-    const patched: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    await launch(siteOf(), deps(base));
 
-    await launch(siteOf(), {
-      ...deps(base),
-      reportMirror: {
-        created: async () => {},
-        body: async () => {},
-        patch: async (id: string, patch: Record<string, unknown>) => {
-          patched.push({ id, patch });
-        },
-      },
-    });
-
-    const scores = patched.find((p) => p.patch.lighthouse_performance !== undefined);
+    const scores = writer.patches.find((p) => p.patch.lighthouse_performance !== undefined);
     expect(scores).toMatchObject({
       id: "rec_existing_launch",
       patch: {
@@ -340,13 +335,7 @@ describe("recipes/launch", () => {
     const result = await launch(siteOf(), deps(base));
 
     expect(result.complete).toBe(true);
-    const draftReadyUpdate = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Reports" &&
-        c.records[0]!.fields["Draft ready"] === true,
-    );
-    expect(draftReadyUpdate).toBeDefined();
+    expect(writer.patches).toEqual([{ id: writer.inserts[0]!.id, patch: { draft_ready: 1 } }]);
   });
 
   it("stops at dev-guard when the matching twin still answers 200 in production", async () => {
@@ -564,6 +553,8 @@ describe("recipes/launch", () => {
       base: d.base,
       bootstrap: d.bootstrap,
       audit: d.audit,
+      roster: d.roster,
+      reportMirror: d.reportMirror,
     });
     expect(result.complete).toBe(true);
 

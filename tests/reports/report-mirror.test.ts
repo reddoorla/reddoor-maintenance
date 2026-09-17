@@ -160,6 +160,71 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     }
   });
 
+  it("create: inserts the row, logs op=create mirrored=1, and returns what Turso STORED", async () => {
+    // #646 step 4: the primary write. What comes back must be the persisted row,
+    // not a mapping of the caller's payload — the drafting path uploads a body
+    // for, and queues, whatever id this returns.
+    const db = await openDb({ url: ":memory:" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const mirror = await makeReportMirror(async () => db, false);
+    const row = await mirror.create({
+      id: "report_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      fields: { "Report ID": "acme-2026-09", Site: ["site_01ARYZ6S41TSV4RRFFQ69G5FAV"] },
+    });
+
+    expect(row.id).toBe("report_01ARYZ6S41TSV4RRFFQ69G5FAV");
+    expect(row.reportId).toBe("acme-2026-09");
+    expect(row.siteId).toBe("site_01ARYZ6S41TSV4RRFFQ69G5FAV");
+    expect(logged(log)).toContain(
+      "REPORT_MIRROR report=report_01ARYZ6S41TSV4RRFFQ69G5FAV op=create mirrored=1",
+    );
+    await db.destroy();
+  });
+
+  it("create: a colliding id FAILS rather than overwriting the existing report", async () => {
+    // A plain INSERT, deliberately not the `created` mirror's upsert: the id was
+    // just minted, so a conflict means something is wrong.
+    const db = await openDb({ url: ":memory:" });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const mirror = await makeReportMirror(async () => db, true);
+    const rec = { id: "report_DUPE", fields: { "Report ID": "first" } };
+    await mirror.create(rec);
+    await expect(mirror.create({ ...rec, fields: { "Report ID": "second" } })).rejects.toThrow(
+      /UNIQUE|constraint/i,
+    );
+    const stored = await db
+      .selectFrom("reports")
+      .select("report_id")
+      .where("id", "=", "report_DUPE")
+      .executeTakeFirst();
+    expect(stored?.report_id).toBe("first");
+    await db.destroy();
+  });
+
+  it("forSite: answers with that site's reports — the drafting path's read", async () => {
+    const db = await openDb({ url: ":memory:" });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const mirror = await makeReportMirror(async () => db, true);
+    await mirror.create({ id: "report_A", fields: { Site: ["site_1"], "Report type": "Testing" } });
+    await mirror.create({ id: "report_B", fields: { Site: ["site_2"] } });
+
+    const rows = await mirror.forSite("site_1");
+    expect(rows.map((r) => r.id)).toEqual(["report_A"]);
+    expect(rows[0]!.reportType).toBe("Testing");
+    await db.destroy();
+  });
+
+  it("forSite: refuses to answer 'no reports' when there is no store at all", async () => {
+    // A read that silently answered [] would break the single-queue rule and the
+    // period derivation without a trace — the failure mode the write side reports
+    // as mirrored=absent.
+    const mirror = await makeReportMirror(async () => {
+      throw new Error("no TURSO_DATABASE_URL");
+    }, false);
+    await expect(mirror.forSite("site_1")).rejects.toThrow(/op=forSite unavailable/);
+  });
+
   it("a write failure is reported as mirrored=0 and never breaks the draft", async () => {
     // The failure is injected at the db handle rather than by closing a real
     // one: an in-memory Kysely instance keeps answering after `destroy()`, so
