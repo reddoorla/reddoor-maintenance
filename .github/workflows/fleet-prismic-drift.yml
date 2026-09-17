@@ -155,7 +155,7 @@ jobs:
           rc=0
           node dist/cli/bin.js prismic-models \
             --fleet airtable \
-            --write-airtable \
+            --write-back \
             --workdir "${RUNNER_TEMP:-/tmp}/fleet-prismic" | tee "$out" || rc=$?
 
           # `|| true` on every grep: under `set -e` a no-match inside a command

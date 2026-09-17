@@ -50,7 +50,7 @@ describe("lighthouseScoresFromResult", () => {
 });
 
 describe("hasRealScores", () => {
-  // Behavioral contract for `audit --write-airtable`: write iff the audit
+  // Behavioral contract for `audit --write-back`: write iff the audit
   // actually produced numeric scores. Below-threshold scores ARE real data
   // worth tracking; only absent/empty summary should block the write.
   it("returns true when all four lighthouse categories are present", () => {
@@ -118,7 +118,7 @@ describe("resolveSlugFromCwd", () => {
   it("throws on package.json with no name field", async () => {
     const dir = await mkdtemp(join(tmpdir(), "lh-airtable-"));
     await writeFile(join(dir, "package.json"), JSON.stringify({ version: "1.0.0" }));
-    await expect(resolveSlugFromCwd(dir)).rejects.toThrow(/Pass --write-airtable=<slug>/);
+    await expect(resolveSlugFromCwd(dir)).rejects.toThrow(/Pass --write-back=<slug>/);
     await rm(dir, { recursive: true });
   });
 });

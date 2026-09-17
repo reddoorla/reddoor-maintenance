@@ -100,7 +100,7 @@ export type PrismicModelsCommandOptions = {
   tokens?: boolean;
   fleet?: string;
   workdir?: string;
-  writeAirtable?: boolean;
+  writeBack?: boolean;
   commentFile?: string;
   cwd?: string;
 };
@@ -127,11 +127,11 @@ export type PrismicModelsDeps = {
    */
   spawn: SpawnFn;
   /**
-   * The fleet's record, opened only by `--write-airtable` — see
+   * The fleet's record, opened only by `--write-back` — see
    * {@link PrismicVerdictSink}.
    *
    * REQUIRED rather than optional, and that is the point: an optional dep with a
-   * real-Airtable default would let any future test that passes `writeAirtable:
+   * real-Airtable default would let any future test that passes `writeBack:
    * true` reach a live base if `AIRTABLE_PAT` happened to be in the environment.
    * Required, every test has to hand over a stub, and the ones that never write
    * hand over a stub that throws.
@@ -1520,7 +1520,7 @@ export async function sweepFleet(
 
 /**
  * The fleet's record, as this command needs it — and the ONE seam through which
- * `--write-airtable` can touch Airtable.
+ * `--write-back` can touch Airtable.
  *
  * Injected (see {@link PrismicModelsDeps.openVerdictSink}) so the whole write
  * path is exercised with no base, no credential and no network.
@@ -1669,7 +1669,7 @@ export async function writeSweepToAirtable(
 }
 
 /**
- * The write step of `--write-airtable`, and its two failure shapes.
+ * The write step of `--write-back`, and its two failure shapes.
  *
  * PER-ROW failures do not redden the sweep. The three columns are operator-added,
  * so until they exist every row fails with UNKNOWN_FIELD_NAME — the feature ships
@@ -1701,7 +1701,7 @@ async function persistSweep(
   } catch (e) {
     return {
       output:
-        `⛔ --write-airtable was asked for and NOTHING WAS WRITTEN: ${describeThrown(e)}.` +
+        `⛔ --write-back was asked for and NOTHING WAS WRITTEN: ${describeThrown(e)}.` +
         ` Every verdict above is unrecorded, so the cockpit and the digest keep whatever they` +
         ` held before — which for a site that has broken since is a green tick. Do NOT read` +
         ` the report above as having reached the fleet's record.`,
@@ -1795,7 +1795,7 @@ async function runFleetSweep(
   const alarms = collisions.length + envCollisions.length;
   const code = alarms > 0 || nothingChecked !== "" ? 1 : prismicSweepExitCode(checked, failed);
 
-  if (!requested(opts.writeAirtable)) return { output, code };
+  if (!requested(opts.writeBack)) return { output, code };
 
   // THE WRITE IS APPENDED TO THE SWEEP, never substituted for it.
   //
@@ -1804,7 +1804,7 @@ async function runFleetSweep(
   // this sweep goes non-zero: a repository collision, a derived-token collision,
   // and the not-one-site-was-checked refusal. All three are conditions no
   // per-repo CI run can ever see, and all three would have exited 0 from the
-  // moment anybody added `--write-airtable` to the nightly. The sweep's own
+  // moment anybody added `--write-back` to the nightly. The sweep's own
   // verdict therefore WINS over the write's; the write can only redden a run
   // that was otherwise green.
   const persisted = await persistSweep(rows, deps);
@@ -2020,18 +2020,18 @@ function modeConflict(opts: PrismicModelsCommandOptions): string | null {
         " Nothing was written — redirect the output instead."
       );
     }
-    // NEEDED FROM TASK 17b ON. `--write-airtable` persists a fleet SWEEP's
+    // NEEDED FROM TASK 17b ON. `--write-back` persists a fleet SWEEP's
     // per-site MODEL verdicts, and the doctor produces none — it never compares a
     // model or calls Prismic at all. Until `--tokens --fleet` existed this pair
     // was caught on its way past by the unimplemented-combination guard; now the
     // tokens branch runs first and the alternative is the silent no-op this whole
     // guard exists for: a checklist printed, nothing written, exit 0, for an
     // operator who asked for a write-back. Listed INSIDE the tokens block so it
-    // also catches the pair with --fleet, which the "--write-airtable needs
+    // also catches the pair with --fleet, which the "--write-back needs
     // --fleet" rule at the end cannot see.
-    if (requested(opts.writeAirtable)) {
+    if (requested(opts.writeBack)) {
       return (
-        "cannot combine --tokens with --write-airtable. --write-airtable persists a fleet" +
+        "cannot combine --tokens with --write-back. --write-back persists a fleet" +
         " sweep's per-site MODEL verdicts to the Websites table, and the token doctor produces" +
         " none — it compares no models and calls Prismic not at all, so there is nothing for it" +
         " to write. Accepting it would print a checklist, write nothing and exit 0. Nothing was" +
@@ -2060,15 +2060,15 @@ function modeConflict(opts: PrismicModelsCommandOptions): string | null {
   }
   // LAST, so a more specific conflict gets to explain itself first.
   //
-  // `--write-airtable` persists a FLEET SWEEP's per-site verdicts, and outside
+  // `--write-back` persists a FLEET SWEEP's per-site verdicts, and outside
   // fleet mode there is no sweep to persist. Accepting it and running the in-repo
   // check anyway is the exact silent no-op the unimplemented-mode guard used to
   // stand in front of: an operator asks for a write, the run exits 0, and nothing
   // was written. That guard was this flag's last entry and Task 20 removed it, so
   // this rule is what replaces it.
-  if (requested(opts.writeAirtable) && !requested(opts.fleet)) {
+  if (requested(opts.writeBack) && !requested(opts.fleet)) {
     return (
-      "--write-airtable needs --fleet. It persists a fleet sweep's per-site verdicts to the" +
+      "--write-back needs --fleet. It persists a fleet sweep's per-site verdicts to the" +
       " Websites table, and the in-repo check has no sweep to write — its review artifact is" +
       " the PR comment (--comment-file). Accepting the flag and comparing this one repo" +
       " instead would exit 0 having written nothing. Nothing was compared, pushed or written."
@@ -2081,7 +2081,7 @@ function modeConflict(opts: PrismicModelsCommandOptions): string | null {
  * NOTHING IS UNBUILT ANY MORE — and that is why there is no guard here.
  *
  * There were two layers of unimplemented-mode machinery: a per-FLAG table
- * (`UNIMPLEMENTED_MODES`), whose last entry was `--write-airtable` until Task 20
+ * (`UNIMPLEMENTED_MODES`), whose last entry was `--write-back` until Task 20
  * built it, and a COMBINATION guard, whose last entry was `--tokens --fleet`
  * until Task 17b built it. Both are gone, and both were deleted for the same
  * stated reason rather than left in place returning null: a guard that lists
@@ -2091,7 +2091,7 @@ function modeConflict(opts: PrismicModelsCommandOptions): string | null {
  * What did NOT go with them is {@link modeConflict}. A gap and a contradiction
  * are different facts with different exit codes — 1 for "that mode does not
  * exist yet", 2 for "you asked for two things that cannot both be true" — and
- * every conflict is still refused, including the `--tokens --write-airtable`
+ * every conflict is still refused, including the `--tokens --write-back`
  * pair the combination guard used to catch on its way past.
  */
 

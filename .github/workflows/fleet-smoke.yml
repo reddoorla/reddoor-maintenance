@@ -74,7 +74,7 @@ jobs:
           node dist/cli/bin.js audit \
             --fleet airtable \
             --only smoke \
-            --write-airtable \
+            --write-back \
             --concurrency 1 \
             --workdir /tmp/fleet-smoke | tee "${RUNNER_TEMP:-/tmp}/smoke.out" || true
 

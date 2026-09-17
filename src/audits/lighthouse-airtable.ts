@@ -9,7 +9,7 @@ const LIGHTHOUSE_CATEGORIES = ["performance", "accessibility", "best-practices",
 /**
  * True when the result carries real lighthouse scores worth persisting.
  *
- * The `audit --write-airtable` policy used to refuse on any `status: "fail"`,
+ * The `audit --write-back` policy used to refuse on any `status: "fail"`,
  * but that conflates two very different failure modes:
  *   1. Infrastructure failure (no lhr-*.json written, spawn timeout, etc.)
  *      → `details.summary` empty → all-zeros would corrupt the dashboard
@@ -56,7 +56,7 @@ export function lighthouseScoresFromResult(result: AuditResult): LighthouseScore
 
 /**
  * Derive a site slug from the cwd's package.json#name. Used by
- * `audit lighthouse --write-airtable` when the operator doesn't pass an
+ * `audit lighthouse --write-back` when the operator doesn't pass an
  * explicit slug — the cwd is the site checkout, so package.json#name is
  * usually the canonical site name.
  */
@@ -70,7 +70,7 @@ export async function resolveSlugFromCwd(cwd: string): Promise<string> {
   } catch (e) {
     throw new Error(
       `Could not derive site slug from ${cwd}/package.json: ${(e as Error).message}. ` +
-        `Pass --write-airtable=<slug> explicitly.`,
+        `Pass --write-back=<slug> explicitly.`,
       { cause: e },
     );
   }

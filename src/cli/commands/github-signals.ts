@@ -46,19 +46,19 @@ export function githubSignalsExitCode(written: number, failed: number): number {
   return failed > written ? 1 : 0;
 }
 
-/** `github-signals --fleet --write-airtable`: sweep every repo-backed site for its
+/** `github-signals --fleet --write-back`: sweep every repo-backed site for its
  *  Renovate-failing count + default-branch CI state + last-commit date, write each
  *  row serially (Airtable ~5 req/sec), and emit FLEET_WRITE_SUMMARY for CI. A
  *  missing fleet token is a clean skip (local runs), not a failure. */
 export async function runGitHubSignalsCommand(
   opts: {
     fleet?: boolean | undefined;
-    writeAirtable?: boolean | undefined;
+    writeBack?: boolean | undefined;
   },
   deps: Partial<GitHubSignalsDeps> = {},
 ): Promise<{ output: string; code: number }> {
-  if (!opts.fleet || !opts.writeAirtable) {
-    return { output: "github-signals currently supports only --fleet --write-airtable", code: 2 };
+  if (!opts.fleet || !opts.writeBack) {
+    return { output: "github-signals currently supports only --fleet --write-back", code: 2 };
   }
   const token = process.env.GH_TOKEN?.trim();
   if (!token) {

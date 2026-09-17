@@ -333,30 +333,30 @@ describe("runPrismicModelsCommand — in-repo", () => {
   // in-repo check of the cwd and reported a successful sweep, exit 0 — and a
   // table of unimplemented modes refused each one until its task landed.
   //
-  // `--write-airtable` was the last entry and Task 20 built it, so the table is
-  // gone. The hole it covered is NOT: `--write-airtable` on the in-repo check has
+  // `--write-back` was the last entry and Task 20 built it, so the table is
+  // gone. The hole it covered is NOT: `--write-back` on the in-repo check has
   // nothing to write, and accepting it would compare this one repo and exit 0 for
   // an operator who asked for a fleet write-back. The mode conflict is what
   // stands there now — exit 2, because it is a malformed invocation rather than a
   // finding about a site.
-  it("refuses --write-airtable outside fleet mode instead of doing something else", async () => {
+  it("refuses --write-back outside fleet mode instead of doing something else", async () => {
     await site();
     await customType("page");
     const send = sender();
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: dir, writeAirtable: true },
+      { cwd: dir, writeBack: true },
       deps([{ kind: "customtype", id: "page", model: { id: "page" } }], send),
     );
     expect(r.code).toBe(2);
-    expect(r.output).toContain("--write-airtable");
+    expect(r.output).toContain("--write-back");
     expect(r.output).toContain("--fleet");
     expect(send).not.toHaveBeenCalled();
     // It must not have quietly run the in-repo comparison instead.
     expect(r.output).not.toContain("match Prismic");
   });
 
-  // The nightly's real invocation, `--fleet airtable --write-airtable`, was
+  // The nightly's real invocation, `--fleet airtable --write-back`, was
   // refused outright until Task 20 and now runs. That case moved to the suites
   // that own fleet fixtures — prismic-models-fleet.test.ts (the sweep still
   // happens) and prismic-models-writeback.test.ts (the verdicts land) — rather
@@ -372,7 +372,7 @@ describe("runPrismicModelsCommand — in-repo", () => {
     await customType("page");
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: dir, pull: false, tokens: false, writeAirtable: false },
+      { cwd: dir, pull: false, tokens: false, writeBack: false },
       deps([{ kind: "customtype", id: "page", model: { id: "page" } }]),
     );
     expect(r.code).toBe(0);

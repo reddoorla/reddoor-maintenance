@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-// The dual-write tests drive the writeAirtable branch — stub the real upload.
+// The dual-write tests drive the writeBack branch — stub the real upload.
 vi.mock("../../src/reports/airtable/attachments.js", () => ({
   uploadAttachment: vi.fn(async () => undefined),
 }));
@@ -104,12 +104,12 @@ describe("cli/header-image dual-write (#539 D5)", () => {
     contentType: "image/jpeg" as const,
   });
 
-  it("writeAirtable also lands the bytes in the injected Turso store, stamped as a generation", async () => {
+  it("writeBack also lands the bytes in the injected Turso store, stamped as a generation", async () => {
     const stores: Array<{ siteId: string; filename: string; generatedAt: string | null }> = [];
     const res = await generateForTargets(
       [row({ name: "Acme" })],
       {
-        writeAirtable: true,
+        writeBack: true,
         storeDb: async (siteId, img) => {
           stores.push({ siteId, filename: img.filename, generatedAt: img.generatedAt });
         },
@@ -127,7 +127,7 @@ describe("cli/header-image dual-write (#539 D5)", () => {
     const res = await generateForTargets(
       [row({ name: "Acme" })],
       {
-        writeAirtable: true,
+        writeBack: true,
         storeDb: async () => {
           throw new Error("turso down");
         },

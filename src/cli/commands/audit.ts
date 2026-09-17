@@ -27,7 +27,7 @@ export type AuditCommandOptions = {
    * in Airtable. `true` (no value) = derive slug from cwd/package.json#name;
    * string = explicit slug (e.g. "med-solutions-of-texas").
    */
-  writeAirtable?: string | boolean;
+  writeBack?: string | boolean;
   /** Exit non-zero if any a11y violations are found (overrides warn). For CI gates. */
   failOnViolations?: boolean;
   /** Audit this deployed URL directly (lighthouse only; single-site). */
@@ -273,13 +273,13 @@ export async function runAuditCommand(
   const which = parseOnly(opts.only) ?? ALL_AUDIT_NAMES;
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
 
-  // A literal --write-airtable=<slug> is single-site (the slug names one row).
-  // Boolean --write-airtable + --fleet is fine: each site's slug comes from the
+  // A literal --write-back=<slug> is single-site (the slug names one row).
+  // Boolean --write-back + --fleet is fine: each site's slug comes from the
   // inventory, so there's no cwd-derived-slug ambiguity.
-  if (typeof opts.writeAirtable === "string" && opts.fleet !== undefined) {
+  if (typeof opts.writeBack === "string" && opts.fleet !== undefined) {
     throw Object.assign(
       new Error(
-        "--write-airtable=<slug> is single-site; with --fleet each site's slug comes from the inventory. Use --write-airtable (no slug) + --fleet.",
+        "--write-back=<slug> is single-site; with --fleet each site's slug comes from the inventory. Use --write-back (no slug) + --fleet.",
       ),
       { exitCode: 2 },
     );
@@ -328,7 +328,7 @@ export async function runAuditCommand(
   if (skipNotice && !opts.json) output += `\n\n${skipNotice}`;
 
   // "Did every site actually get measured?" — emitted for any fleet sweep that ran
-  // `smoke`, independent of --write-airtable, because it is a statement about the
+  // `smoke`, independent of --write-back, because it is a statement about the
   // RUN, not about persistence. Deliberately not folded into FLEET_WRITE_SUMMARY:
   // an unmeasured site still writes (it just writes nothing new), so the write gate
   // counts it as a success. That gap is exactly what hid four nights of timeouts.
@@ -343,7 +343,7 @@ export async function runAuditCommand(
   // would see a clean run. (The single-site writer throws on failure, so it's
   // already non-zero via the propagated error.)
   let writeBackFailed = false;
-  if (opts.writeAirtable !== undefined) {
+  if (opts.writeBack !== undefined) {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
     const { listWebsites } = await import("../../reports/airtable/websites.js");
 
@@ -358,8 +358,8 @@ export async function runAuditCommand(
       const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
       const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
       const slug =
-        typeof opts.writeAirtable === "string" && opts.writeAirtable.length > 0
-          ? opts.writeAirtable
+        typeof opts.writeBack === "string" && opts.writeBack.length > 0
+          ? opts.writeBack
           : await resolveSlugFromCwd(cwd);
       let writeSummary: WriteSummary | null = null;
       await new Listr(
@@ -400,7 +400,7 @@ export async function runAuditCommand(
   return { output, code };
 }
 
-/** The fleet `--write-airtable` step: write every site's audits back to its
+/** The fleet `--write-back` step: write every site's audits back to its
  *  Websites row, dual-write each just-written FieldSet into Turso (#539
  *  Phase 3), and record fleet-activity events. Extracted from runAuditCommand
  *  so the mirror WIRING itself is pinned by test — the mutation this seam
