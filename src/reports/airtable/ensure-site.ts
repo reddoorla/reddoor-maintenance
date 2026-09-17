@@ -58,6 +58,35 @@ const COLS = {
 } as const;
 
 /**
+ * One select over Websites, returning the RAW stored record whose Name slugifies
+ * to `slug` (#646 step 3). The Turso-native creator (`src/fleet/ensure-site.ts`)
+ * uses it for the #645 heal only — to ADOPT an Airtable site that has no Turso row
+ * under its own `rec` id instead of minting a second identity for it. Raw, not a
+ * mapped `WebsiteRow`, because the adopt re-inserts what Airtable STORED.
+ */
+export async function findWebsiteRecordBySlug(
+  base: AirtableBase,
+  slug: string,
+): Promise<{ id: string; fields: Record<string, unknown> } | null> {
+  let found: { id: string; fields: Record<string, unknown> } | null = null;
+  await base(WEBSITES_TABLE)
+    .select({ pageSize: 100 })
+    .eachPage((records, fetchNextPage) => {
+      for (const rec of records) {
+        if (!found && siteSlug(mapRow(rec).name) === slug)
+          found = { id: rec.id, fields: rec.fields };
+      }
+      fetchNextPage();
+    });
+  return found;
+}
+
+/**
+ * @deprecated since #646 step 3 — the `ensure-site` command no longer calls this.
+ * New sites are created in Turso by `src/fleet/ensure-site.ts` with `site_<ULID>`
+ * ids and no Airtable record. Kept, not deleted, because removing anything from
+ * the Airtable layer is #646 steps 6–8, which need their own go.
+ *
  * Find-or-create the Websites row for a slug so a new site exists in the fleet
  * inventory (audits, form-ingest slug resolution, reports) from day one.
  *

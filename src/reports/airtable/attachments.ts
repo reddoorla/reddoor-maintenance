@@ -1,3 +1,5 @@
+import { skipsAirtableShadow } from "../../fleet/site-id.js";
+
 /** Cheap HTML sniff: an Airtable signed-URL "200" that is really a login/error page
  *  starts with `<!doctype html`, `<html`, or `<head` after an optional UTF-8 BOM /
  *  leading whitespace. We only need to catch the common error-page case, not parse
@@ -79,6 +81,10 @@ export async function uploadAttachment(
   contentType: string,
   opts: { replaceIn?: string } = {},
 ): Promise<void> {
+  // #646 step 3: a `site_<ULID>` site was created in Turso and has no Airtable
+  // record to attach to. Checked BEFORE the credential gate — skipping needs no
+  // creds, and a run without them must not fail on a write it was never going to make.
+  if (skipsAirtableShadow("uploadAttachment", recordId)) return;
   const apiKey = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;
   if (!apiKey || !baseId) {
