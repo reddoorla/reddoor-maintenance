@@ -8,13 +8,14 @@ import {
 } from "../../src/reports/webhook-events.js";
 import resendWebhook from "../../netlify/functions/resend-webhook.mjs";
 
-// The webhook handler talks to Airtable via these two functions; mock the whole
-// module so the signed-POST path can be exercised without a live base.
+// Since #646 step 2 the handler's only Airtable call is the SHADOW write; mock
+// the module so the signed-POST path can be exercised without a live base. The
+// report lookup is Turso's (fleet-state, mocked below). The real-database
+// version of these paths lives in resend-webhook-turso.test.ts.
 vi.mock("../../src/reports/airtable/reports.js", () => ({
-  findReportByMessageId: vi.fn(),
   setDeliveryStatus: vi.fn(),
 }));
-import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airtable/reports.js";
+import { setDeliveryStatus } from "../../src/reports/airtable/reports.js";
 
 // The bounce path additionally maps the event onto a SUBMISSION via libSQL; mock
 // both db modules so no real database is opened. markNotifyBouncedByMessageId
@@ -33,11 +34,12 @@ vi.mock("../../src/db/submissions.js", () => ({
 // would run against the fake db object and throw, which the old swallow hid
 // and the strict world correctly turns into a 500.
 vi.mock("../../src/db/fleet-state.js", () => ({
+  findReportByMessageId: vi.fn(),
   mirrorReportPatch: vi.fn(),
 }));
 import { openDb } from "../../src/db/client.js";
 import { markNotifyBouncedByMessageId } from "../../src/db/submissions.js";
-import { mirrorReportPatch } from "../../src/db/fleet-state.js";
+import { findReportByMessageId, mirrorReportPatch } from "../../src/db/fleet-state.js";
 
 // Imports the real STATUS_MAP from the webhook handler so a drift between code
 // and "expected" mapping fails this test. (Previously this file declared its
@@ -374,7 +376,7 @@ describe("Resend webhook signed-POST path", () => {
   // a Reports row id. The handler checks submissions FIRST on bounce/complaint;
   // a match short-circuits with 200 and the report path is never consulted.
 
-  it("maps a bounce onto the matching SUBMISSION (200, no Airtable lookup)", async () => {
+  it("maps a bounce onto the matching SUBMISSION (200, no report lookup)", async () => {
     markBouncedMock.mockResolvedValue(true);
     const res = await post(resendEvent("email.bounced", { emailId: "msg_sub_1" }));
     expect(res.status).toBe(200);
@@ -391,7 +393,7 @@ describe("Resend webhook signed-POST path", () => {
     expect(findReportMock).not.toHaveBeenCalled();
   });
 
-  it("leaves a REPORT bounce on the report path untouched (submissions miss → Airtable write)", async () => {
+  it("leaves a REPORT bounce on the report path untouched (submissions miss → report write)", async () => {
     markBouncedMock.mockResolvedValue(false);
     findReportMock.mockResolvedValue(fakeReport);
     const res = await post(resendEvent("email.bounced", { emailId: "msg_report_9" }));
@@ -477,10 +479,40 @@ describe("Resend webhook signed-POST path", () => {
     findReportMock.mockResolvedValue(fakeReport);
     const res = await post(resendEvent("email.bounced", { emailId: "msg_during_outage" }));
     expect(res.status).toBe(500);
-    // The Airtable shadow write still ran (it precedes the mirror) — harmless,
-    // idempotent on retry, and gone entirely in Phase 6.
-    expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "bounced");
+    // Since #646 step 2 the report LOOKUP is Turso too, so an outage stops the
+    // request before any write: no shadow gets ahead of the authoritative store.
+    expect(setStatusMock).not.toHaveBeenCalled();
+    expect(errorSpy.mock.calls.flat().join("\n")).toContain("Turso report lookup failed");
     errorSpy.mockRestore();
+  });
+
+  it("#646: a failed authoritative write never reaches the Airtable shadow", async () => {
+    // Turso goes first. If its write throws, the shadow must not record a
+    // status the real store does not hold.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    findReportMock.mockResolvedValue(fakeReport);
+    mirrorPatchMock.mockRejectedValue(new Error("SQLITE_BUSY"));
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_busy" }));
+    expect(res.status).toBe(500);
+    expect(setStatusMock).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("#646: with no Airtable env the status still lands in Turso — 200, shadow skipped and logged", async () => {
+    delete process.env.AIRTABLE_PAT;
+    delete process.env.AIRTABLE_BASE_ID;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.delivered", { emailId: "msg_unplugged" }));
+    expect(res.status).toBe(200);
+    expect(mirrorPatchMock).toHaveBeenCalledWith(expect.anything(), "recReport123", {
+      delivery_status: "delivered",
+    });
+    expect(setStatusMock).not.toHaveBeenCalled();
+    expect(warnSpy.mock.calls.flat().join("\n")).toContain(
+      "AIRTABLE_SHADOW skipped=env-absent record=recReport123 status=delivered",
+    );
+    warnSpy.mockRestore();
   });
 
   it("#647: a status for a report row Turso never held is `missed`, not a green 200", async () => {
@@ -494,6 +526,7 @@ describe("Resend webhook signed-POST path", () => {
     const res = await post(resendEvent("email.bounced", { emailId: "msg_ghost_row" }));
     expect(res.status).toBe(500);
     expect(errorSpy.mock.calls.flat().join("\n")).toContain("mirrored=missed");
+    expect(setStatusMock).not.toHaveBeenCalled();
     errorSpy.mockRestore();
   });
 });

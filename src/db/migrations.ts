@@ -527,4 +527,15 @@ export const MIGRATIONS: Migration[] = [
     id: "0026_prospect_audits_chosen_questions",
     sql: `ALTER TABLE prospect_audits ADD COLUMN chosen_questions TEXT;`,
   },
+  {
+    // #539 Phase 6 step 2 (#646): the resend-webhook's REPORT lookup moved from
+    // Airtable (`{Resend message ID} = "…"`) to Turso, as
+    // fleet-state's findReportByMessageId. Every Resend delivery/bounce event
+    // that is not a lead notification runs it, so the EXPLAIN-query-plan gate
+    // (tests/db/query-plans.test.ts) needs it served by an index rather than a
+    // scan of the HTML-bearing reports table — the same reason 0008 indexed
+    // submissions.resend_message_id for the bounce lookup. Single statement.
+    id: "0027_reports_resend_message_index",
+    sql: `CREATE INDEX IF NOT EXISTS idx_reports_resend_message ON reports (resend_message_id);`,
+  },
 ];
