@@ -4,6 +4,7 @@ import {
   runGitHubSignalsCommand,
   type GitHubSignalsDeps,
 } from "../../src/cli/commands/github-signals.js";
+import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { makeFakeBase, type FakeAirtableBase } from "../reports/_helpers/fake-airtable-base.js";
 import type { HealthMirror } from "../../src/audits/health-mirror.js";
 
@@ -120,6 +121,10 @@ describe("the github-signals Turso mirror (#539 Phase 3 dual-write)", () => {
     mirror: HealthMirror | null,
   ): Partial<GitHubSignalsDeps> => ({
     openBase: () => base,
+    // #646 step 4: the sweep's roster is Turso's, injected here. The fixtures stay
+    // in the fake base because the signals WRITE is an Airtable shadow write, and
+    // `listWebsites` returns the same WebsiteRow shape Turso does.
+    roster: () => listWebsites(base),
     makeGh: () => ({
       openPullRequests: async () => [],
       defaultBranchStatus: async () => ({ ciState: "passing", lastCommitAt: LAST_COMMIT }),
