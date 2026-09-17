@@ -4,9 +4,12 @@
  *  repoint is an import-only swap at a composition root — the same trick
  *  listSubmissionsForSite used for the hybrid-db cutover. The raw values live
  *  in `sites`/`site_health`/`site_schedule` (written by the importer / hourly
- *  sync); coercion to `WebsiteRow` happens HERE, reusing the Airtable module's
- *  own exported coercers (`toVerdict`, `toFrequency`, `parseNotifyRouting`,
- *  `parseSecurityAdvisories`, `trimToNull`) so there is one truth for each.
+ *  sync); coercion to `WebsiteRow` happens HERE, reusing the same coercers the
+ *  Airtable module's `mapRow` applies (`toVerdict`, `toFrequency`,
+ *  `parseNotifyRouting`, `parseSecurityAdvisories`, `trimToNull`) so there is one
+ *  truth for each. Those live in `src/fleet/site-row.ts` — outside the Airtable
+ *  directory Phase 6 deletes (#646 step 1; pinned by
+ *  tests/db/no-airtable-value-imports.test.ts).
  *
  *  The equivalence instrument (tests/db/fleet-state.test.ts) pins this module
  *  to `mapRow` field-by-field: for a fixture record, `mapRow(rec)` must deep-
@@ -45,10 +48,9 @@ import {
   parseAutoEvidence,
   type ReportRow,
   type DeliveryStatus,
-} from "../reports/airtable/reports.js";
+} from "../reports/report-row.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
-import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { canonicalizeStatus } from "../reports/airtable/site-status.js";
+import { canonicalizeStatus } from "../fleet/site-status.js";
 import {
   parseNotifyRouting,
   parseSecurityAdvisories,
@@ -56,7 +58,8 @@ import {
   toPrismicModelsVerdict,
   toVerdict,
   trimToNull,
-} from "../reports/airtable/websites.js";
+  type WebsiteRow,
+} from "../fleet/site-row.js";
 
 type JoinedRow = Record<string, unknown>;
 
