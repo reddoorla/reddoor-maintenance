@@ -6,9 +6,6 @@ import { svelteCodemods } from "./svelte-codemods.js";
 import { convertToPnpm, type ConvertToPnpmOptions } from "./convert-to-pnpm.js";
 import { onboard, type OnboardOptions, type OnboardAudit } from "./onboard.js";
 import { a11yFixturesPage } from "./a11y-fixtures-page/index.js";
-import { healthEndpoint } from "./health-endpoint/index.js";
-import { smokeSuite } from "./smoke-suite/index.js";
-import { matchHarness } from "./match-harness/index.js";
 import {
   init,
   DEFAULT_INIT_STEPS,
@@ -18,6 +15,12 @@ import {
   type InitStepResult,
 } from "./init.js";
 
+// Library value exports. Not every recipe is one: health-endpoint, smoke-suite
+// and match-harness are CLI-only (operator decision on #731) — they stay in
+// ALL_RECIPE_NAMES and run as `reddoor-maint <name>`, but the CLI commands and
+// init.ts import them from their own modules, not from here. smoke-dist requires
+// every value export of this barrel to reach dist/index.js, so adding one here
+// makes it public API.
 export {
   syncConfigs,
   bumpDeps,
@@ -26,9 +29,6 @@ export {
   convertToPnpm,
   onboard,
   a11yFixturesPage,
-  healthEndpoint,
-  smokeSuite,
-  matchHarness,
   init,
   DEFAULT_INIT_STEPS,
 };

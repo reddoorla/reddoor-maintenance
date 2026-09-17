@@ -35,15 +35,10 @@ export {
   convertToPnpm,
   onboard,
   a11yFixturesPage,
-  // The three the barrel exported but this list omitted (#731). smoke-dist now
-  // derives its recipe expectations from the barrel, so a name present there
-  // and absent here fails `pnpm test:dist` rather than shipping silently.
-  // Whether these three are library API at all — or CLI-only, with the barrel
-  // exports dropped instead — is still an open decision on the issue; this is
-  // the additive option so the guard can be green today.
-  healthEndpoint,
-  smokeSuite,
-  matchHarness,
+  // healthEndpoint, smokeSuite and matchHarness are deliberately absent: they
+  // are CLI-only (#731) and are not exported by the recipe barrel either.
+  // smoke-dist derives its recipe expectations from that barrel, so a name
+  // exported there and missing here fails `pnpm test:dist`.
   init,
   DEFAULT_INIT_STEPS,
   ALL_RECIPE_NAMES,
