@@ -1,9 +1,0 @@
----
-"@reddoorla/maintenance": patch
----
-
-Fix the report header image leaking another client's homepage across the top. `SCREEN` in `src/reports/header-image/geometry.ts` describes the laptop screen hole in the bundled plate asset; it was measured against `plate.png` in #476 and went stale when #570 re-exported the Figma frame as `plate-clean.png` with the laptop 7px right and 26px up. Nothing re-measured it, so every generated header left rows 1887..1912 and columns 1651..1655 of the plate unpainted — and what showed through was the Alamo Anatomy homepage baked into the export: a green nav bar with a "Contact Us" pill, across the top of all 13 maintained sites' header images, inside client-facing maintenance reports. `SCREEN` is now `{ x: 309, y: 1887, w: 1347, h: 841 }`, measured off the shipped asset.
-
-The old guard was a cross-check written in a comment ("the photo-to-flat-black transition lands at y=2756") — true of `plate.png`, and 29 rows inside the bezel on `plate-clean.png`. A comment cannot fail, so the guard is now a test: `tests/reports/header-image/plate-geometry.test.ts` derives the hole from the bundled bytes and fails if `geometry.ts` disagrees, and a new compose leak test sweeps that measured hole asserting no plate pixel survives the paste. Both fail on the old constant (38,956 leaked px, first at (311,1889) rgb(39,77,64)). `SCREEN` and `CANVAS` are now exported from the package entry point so `scripts/verify-header-fidelity.mjs` imports them instead of keeping the duplicate copy that drifted the same way; that script's reference census is flagged stale, and `scripts/build-header-plate.mjs` no longer writes a `plate.png` that nothing loads.
-
-Stored header images generated before this fix still carry the band and are regenerated with `reddoor-maint header-image --all --force --write-back`.
