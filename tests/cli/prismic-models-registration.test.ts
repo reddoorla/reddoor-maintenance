@@ -8,7 +8,7 @@
 //     "quietly ignored" — it is `Unknown option --tokens`, exit 1, in whatever
 //     workflow typed it.
 //   - A flag registered but NOT handled is the silent-no-op class this whole
-//     pipeline exists to eliminate: `--write-airtable` parses, lands in `opts`,
+//     pipeline exists to eliminate: `--write-back` parses, lands in `opts`,
 //     is never read, and the run exits 0 having written nothing.
 //
 // So the checks below close the loop in BOTH directions, and the chain is:
@@ -44,7 +44,7 @@ const FLAGS = {
   "--tokens": "tokens",
   "--fleet": "fleet",
   "--workdir": "workdir",
-  "--write-airtable": "writeAirtable",
+  "--write-back": "writeBack",
   "--comment-file": "commentFile",
 } as const satisfies Record<string, keyof PrismicModelsCommandOptions>;
 
@@ -150,7 +150,7 @@ describe("prismic-models CLI registration — behaviour", () => {
       "x",
       "--workdir",
       "y",
-      "--write-airtable",
+      "--write-back",
       "--comment-file",
       "z",
       "--cwd",
@@ -174,13 +174,24 @@ describe("prismic-models CLI registration — behaviour", () => {
     expect(without.out).not.toMatch(/write-token doctor/i);
   });
 
-  // `--write-airtable` is the flag whose handler is still a refusal. Either way
+  // `--write-back` is the flag whose handler is still a refusal. Either way
   // the run must SAY the flag was seen — an invocation that quietly ran the
   // in-repo check instead is the failure this file is about.
-  it("acts on --write-airtable rather than ignoring it", () => {
+  it("acts on --write-back rather than ignoring it", () => {
+    const dir = emptyDir();
+    const r = runCli(["prismic-models", "--write-back", "--cwd", dir]);
+    expect(r.out).toMatch(/write-back/);
+    expect(r.code).not.toBe(0);
+  });
+
+  // #698: the retired spelling is typed by runbooks and shell history, so it must
+  // still reach the same handler — not `Unknown option`, and not the in-repo check.
+  it("still accepts the retired --write-airtable spelling as --write-back", () => {
     const dir = emptyDir();
     const r = runCli(["prismic-models", "--write-airtable", "--cwd", dir]);
-    expect(r.out).toMatch(/write-airtable/);
+    expect(r.out).not.toMatch(/unknown option/i);
+    expect(r.out).toMatch(/--write-back needs --fleet/);
+    expect(r.out).toMatch(/--write-airtable is now --write-back/);
     expect(r.code).not.toBe(0);
   });
 });

@@ -256,7 +256,7 @@ describe("collectPrismicDriftAlerts — only sites the sweep is expected to cove
   });
 
   it("still reports a FRESH finding on an out-of-scope site — that verdict was actually established", () => {
-    // A hand-run `prismic-models --site x --write-airtable` on an archived repo
+    // A hand-run `prismic-models --site x --write-back` on an archived repo
     // still found real drift. The scope gate guards the invented alarm only.
     const items = collectPrismicDriftAlerts([site({ status: "archived" })], DASH, NOW);
     expect(items).toHaveLength(1);

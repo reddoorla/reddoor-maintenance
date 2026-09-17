@@ -565,7 +565,7 @@ function prismicSweepCovers(s: WebsiteRow): boolean {
 
 /**
  * One item per site whose nightly Prismic model verdict needs a human, from the
- * `prismic-models --fleet --write-airtable` sweep. PURE (`now` injected).
+ * `prismic-models --fleet --write-back` sweep. PURE (`now` injected).
  *
  * The verdict is THREE-valued plus blank, and each state gets its own key so the
  * digest's snapshot diff (keyed on `key`) can never let one condition stand in for

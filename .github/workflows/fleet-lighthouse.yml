@@ -69,7 +69,7 @@ jobs:
           node dist/cli/bin.js audit \
             --fleet airtable \
             --only lighthouse,domain,browser,netlify-deploy,function-health \
-            --write-airtable \
+            --write-back \
             --concurrency 1 \
             --workdir /tmp/fleet-audit | tee /tmp/audit.out || true
 
@@ -153,7 +153,7 @@ jobs:
             echo "::error::github-signals: minted App token is empty — the mint step failed."
             exit 1
           fi
-          node dist/cli/bin.js github-signals --fleet --write-airtable
+          node dist/cli/bin.js github-signals --fleet --write-back
 
       # M5 alerting (MEDIUM-I): a red nightly is otherwise only GitHub's best-effort
       # email to the last pusher. File/reopen a single deduped tracking issue so a

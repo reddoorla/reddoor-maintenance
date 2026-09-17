@@ -70,7 +70,7 @@ type WriteSummary = {
   fields?: FieldSet;
 };
 
-/** Orchestrates the per-audit Airtable writes for `audit --write-airtable`.
+/** Orchestrates the per-audit Airtable writes for `audit --write-back`.
  *  Extracted from the CLI command so it can be unit-tested with a fake base
  *  and so adding new audit types is a one-line addition here rather than
  *  growing the CLI handler.

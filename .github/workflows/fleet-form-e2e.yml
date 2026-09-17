@@ -79,7 +79,7 @@ jobs:
           node dist/cli/bin.js audit \
             --fleet airtable \
             --only form-e2e \
-            --write-airtable \
+            --write-back \
             --concurrency 1 \
             --workdir /tmp/fleet-form-e2e | tee "$out" || true
 

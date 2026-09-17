@@ -69,18 +69,18 @@ describe("cli: audit command", () => {
     expect(status).toBe(2);
   });
 
-  it("--write-airtable=<slug> combined with --fleet exits 2 before running any audits", () => {
-    // An explicit --write-airtable=<slug> names ONE row, but with --fleet each
+  it("--write-back=<slug> combined with --fleet exits 2 before running any audits", () => {
+    // An explicit --write-back=<slug> names ONE row, but with --fleet each
     // site's slug comes from the inventory — the combination is ambiguous, so we
     // refuse fast (before reading the inventory or running any audit). Boolean
-    // --write-airtable + --fleet IS allowed: fleet write-back routes each
+    // --write-back + --fleet IS allowed: fleet write-back routes each
     // result to its own row by slug (see writeFleetAuditsToAirtable).
     const { stdout, status } = runCli(
       [
         "audit",
         "--fleet",
         resolve(fixtures, "pristine-starter") + "/inventory.json",
-        "--write-airtable=somesite",
+        "--write-back=somesite",
       ],
       { allowNonZero: true },
     );

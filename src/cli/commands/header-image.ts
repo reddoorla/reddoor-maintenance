@@ -10,7 +10,7 @@ import type { StoredHeaderImage } from "../../db/header-images.js";
 export type HeaderImageOptions = {
   all?: boolean;
   force?: boolean;
-  writeAirtable?: boolean;
+  writeBack?: boolean;
   outDir?: string;
   settleMs?: string;
   consentSelector?: string;
@@ -75,7 +75,7 @@ export async function generateForTargets(
   // `reports/` does not exist on a fresh checkout, so the writeFile() below
   // would throw ENOENT for the first operator to run the default (local) path.
   // Create it once, before the loop, rather than per site.
-  if (!opts.writeAirtable) await mkdir(outDir, { recursive: true });
+  if (!opts.writeBack) await mkdir(outDir, { recursive: true });
 
   const lines: string[] = [];
   let failed = 0;
@@ -90,7 +90,7 @@ export async function generateForTargets(
         ...(settleMs === undefined ? {} : { settleMs }),
         ...(opts.consentSelector === undefined ? {} : { consentSelector: opts.consentSelector }),
       });
-      if (opts.writeAirtable) {
+      if (opts.writeBack) {
         // replaceIn: the field must hold exactly the current header — see
         // uploadAttachment, where appending left readers on a stale [0].
         await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
@@ -118,7 +118,7 @@ export async function generateForTargets(
       } else {
         const path = resolve(outDir, gen.filename);
         await writeFile(path, gen.bytes);
-        lines.push(`✔ ${row.name} — wrote ${path} (review, then re-run with --write-airtable)`);
+        lines.push(`✔ ${row.name} — wrote ${path} (review, then re-run with --write-back)`);
       }
     } catch (err) {
       failed++;
@@ -133,7 +133,7 @@ export async function generateForTargets(
 /**
  * `header-image [site]` — capture a site's live homepage and composite its
  * report header image. Defaults to writing the JPEG locally so the operator can
- * eyeball it; `--write-airtable` uploads it to the Websites row's Header image
+ * eyeball it; `--write-back` uploads it to the Websites row's Header image
  * field. `--all` backfills every live site that has no header image yet.
  */
 export async function runHeaderImageCommand(
@@ -152,7 +152,7 @@ export async function runHeaderImageCommand(
   // Wire the Turso dual-write when the env is present; a local run without it
   // still works Airtable-only (the store is per-site error-isolated above).
   let withStore = opts;
-  if (opts.writeAirtable && !opts.storeDb && process.env.TURSO_DATABASE_URL) {
+  if (opts.writeBack && !opts.storeDb && process.env.TURSO_DATABASE_URL) {
     const { openDb, readDbConfig } = await import("../../db/client.js");
     const { storeHeaderImage } = await import("../../db/header-images.js");
     const db = await openDb(readDbConfig());

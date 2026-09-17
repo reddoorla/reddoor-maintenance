@@ -252,7 +252,7 @@ describe("fleet-prismic-drift — read-only by construction", () => {
     expect(argv[0]).toBe("prismic-models");
     expect(argv).toContain("--fleet");
     expect(argv[argv.indexOf("--fleet") + 1]).toBe("airtable");
-    expect(argv).toContain("--write-airtable");
+    expect(argv).toContain("--write-back");
   });
 
   // `--apply` is refused outright in fleet mode (exit 2), so this is belt and

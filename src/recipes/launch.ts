@@ -579,7 +579,7 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
  *  3b. dev-guard — the same twin, checked against the DEPLOYED url. It sits
  *      BETWEEN collecting the scores and writing them, so a site that fails it
  *      has been audited but leaves its Websites row untouched.
- *   4. writeAuditsToAirtable — the `audit --write-airtable` writer.
+ *   4. writeAuditsToAirtable — the `audit --write-back` writer.
  *   5. createDraft — reportType "Launch", today's period, the audited scores.
  *
  * The REPORTED chain is deliberately not that order. The `audit` step is only

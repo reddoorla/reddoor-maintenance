@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { cac } from "cac";
 import type { AuditName, RecipeName } from "../types.js";
 import { loadCredentialsIntoEnv } from "../util/credentials.js";
+import { rewriteRetiredFlags } from "./retired-flags.js";
 import { resolvePackageVersion } from "./version.js";
 
 // Command modules are loaded LAZILY (dynamic `import()` inside each `.action()`),
@@ -125,7 +126,7 @@ cli
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .option(
-    "--write-airtable [slug]",
+    "--write-back [slug]",
     "After lighthouse runs, write pScore/rScore/bpScore/seoScore + timestamp to the matching Websites row. Slug defaults to cwd's package.json#name.",
   )
   .option("--fail-on-violations", "Exit non-zero if any a11y violations are found (for CI gates)")
@@ -147,7 +148,7 @@ cli
         workdir?: string;
         cwd?: string;
         verbose?: boolean;
-        writeAirtable?: string | boolean;
+        writeBack?: string | boolean;
         failOnViolations?: boolean;
         url?: string;
         concurrency?: string;
@@ -286,7 +287,7 @@ cli
   .option("--tokens", "Print the per-site write-token doctor: which env var, present?, reads?")
   .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable". Read-only.')
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
-  .option("--write-airtable", "Fleet mode: persist each site's verdict to its Websites row")
+  .option("--write-back", "Fleet mode: persist each site's verdict to its Websites row")
   .option(
     "--comment-file <path>",
     "Write the report to this file (the CI workflow posts it as a PR comment)",
@@ -300,7 +301,7 @@ cli
         tokens?: boolean;
         fleet?: string;
         workdir?: string;
-        writeAirtable?: boolean;
+        writeBack?: boolean;
         commentFile?: string;
         cwd?: string;
         verbose?: boolean;
@@ -497,7 +498,7 @@ cli
   .command("header-image [site]", "Generate a site's report header image from its live homepage.")
   .option("--all", "Every live site with no Header image yet (backfill)")
   .option("--force", "With --all, regenerate sites that already have one")
-  .option("--write-airtable", "Upload to the Websites row instead of writing a local file")
+  .option("--write-back", "Upload to the Websites row instead of writing a local file")
   .option("--out-dir <path>", "Directory for local output (default: reports/)")
   .option("--settle-ms <ms>", "Override the post-load settle delay for slow/animated homepages")
   .option(
@@ -510,7 +511,7 @@ cli
       opts: {
         all?: boolean;
         force?: boolean;
-        writeAirtable?: boolean;
+        writeBack?: boolean;
         outDir?: string;
         settleMs?: string;
         consentSelector?: string;
@@ -733,20 +734,19 @@ cli
 cli
   .command(
     "github-signals",
-    "Sweep the fleet for GitHub signals (Renovate-failing/CI/last-commit) and write Airtable.",
+    "Sweep the fleet for GitHub signals (Renovate-failing/CI/last-commit) and write each site's row.",
   )
   .option("--fleet", "Run across every site in the Airtable inventory.")
-  .option("--write-airtable", "Write each site's signals back to its Websites row.")
-  .action(
-    async (opts: { fleet?: boolean; writeAirtable?: boolean; cwd?: string; verbose?: boolean }) =>
-      runOrExit(
-        async () =>
-          (await import("./commands/github-signals.js")).runGitHubSignalsCommand({
-            fleet: opts.fleet,
-            writeAirtable: opts.writeAirtable,
-          }),
-        opts,
-      ),
+  .option("--write-back", "Write each site's signals back to its Websites row.")
+  .action(async (opts: { fleet?: boolean; writeBack?: boolean; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/github-signals.js")).runGitHubSignalsCommand({
+          fleet: opts.fleet,
+          writeBack: opts.writeBack,
+        }),
+      opts,
+    ),
   );
 
 cli
@@ -941,4 +941,6 @@ cli.on("command:*", () => {
   process.exit(1);
 });
 
-cli.parse();
+// Retired flag spellings (`--write-airtable` → `--write-back`, #698) are rewritten
+// before cac sees them, so the old names keep working without appearing in --help.
+cli.parse(rewriteRetiredFlags(process.argv));
