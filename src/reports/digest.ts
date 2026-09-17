@@ -3,7 +3,7 @@ import { openBase, readAirtableConfig, type AirtableBase } from "./airtable/clie
 import { listAllReports, isPendingApproval } from "./airtable/reports.js";
 import type { ReportRow } from "./airtable/reports.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
-import { listWebsites, siteSlug, type WebsiteRow } from "./airtable/websites.js";
+import { siteSlug, type WebsiteRow } from "../fleet/site-row.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
 import { isIdempotencyConflict } from "./send/idempotency.js";
 import {
@@ -194,15 +194,15 @@ export async function listPendingApproval(base: AirtableBase): Promise<ReportRow
 // ── collectAttention (IO wrapper, sibling to runDigest) ──────────────────────
 
 export type CollectAttentionDeps = {
-  base: AirtableBase;
   /** Same baseUrl value runDigest threads; used for the /s/<slug> links. */
   baseUrl: string;
-  /** Pre-fetched Websites rows. When supplied (runDigest already read them),
-   *  collectAttention reuses them instead of issuing a second `listWebsites`. */
-  websites?: WebsiteRow[];
-  /** Pre-fetched Reports rows. When supplied (runDigest already read them),
-   *  collectAttention reuses them instead of issuing a second `listAllReports`. */
-  reports?: ReportRow[];
+  /** The run's Websites rows. Read ONCE by runDigest — from Turso since #646
+   *  step 4 — and threaded in; collectAttention never opens a store of its own
+   *  for them. Required since that step: an optional array with a store-reading
+   *  fallback is how a test silently reaches a live base. */
+  websites: WebsiteRow[];
+  /** The run's Reports rows, on the same contract as `websites`. */
+  reports: ReportRow[];
   /** Clock for the GitHub-signals staleness gate (collectCiAlerts /
    *  collectRenovateAlerts skip a >3-day-stale sweep). Defaults to wall-clock;
    *  runDigest threads its run-start `today` so a quiet repo's frozen CI/Renovate
@@ -476,11 +476,10 @@ function runCollector(label: string, fn: () => AttentionItem[]): AttentionItem[]
 }
 
 /**
- * Fetch the free signals once (listAllReports + listWebsites) — or reuse the
- * `reports`/`websites` arrays runDigest already read, so a single run reads each
- * table once — build the sitesById map the delivery collector needs, and run each
+ * Take the run's `reports`/`websites` (runDigest read them once, from Turso since
+ * #646 step 4), build the sitesById map the delivery collector needs, and run each
  * pure collector isolated. Returns the union of items; diffing/badging happens in
- * runDigest.
+ * runDigest. This function opens no store of its own for those two datasets.
  *
  * The Renovate + CI signals come from the SAME persisted collectors the operator
  * cockpit (`buildCockpitModel`) runs — `collectRenovateAlerts` (key
@@ -492,8 +491,7 @@ function runCollector(label: string, fn: () => AttentionItem[]): AttentionItem[]
  * matched the cockpit's keys, so its cards badged NEW forever).
  */
 export async function collectAttention(deps: CollectAttentionDeps): Promise<AttentionItem[]> {
-  const reports = deps.reports ?? (await listAllReports(deps.base));
-  const websites = deps.websites ?? (await listWebsites(deps.base));
+  const { reports, websites } = deps;
   const now = deps.now ?? new Date();
   const notifyBounces = deps.notifyBounces ?? (await fetchNotifyBounceCounts(now));
   const deadLetters = deps.deadLetters ?? (await fetchDeadLetterCounts());
@@ -531,8 +529,21 @@ export type DigestRunOptions = {
   /** Dashboard origin for the /s/<slug> links, e.g. "https://reddoor-maintenance.netlify.app". */
   baseUrl: string;
   /**
-   * Inject a pre-opened Airtable base (tests, server handlers).
-   * When omitted, `openBase(readAirtableConfig())` is called from the environment.
+   * The run's two datasets. Since #646 step 4 they come from TURSO, read by the
+   * command that calls this (one connection, both reads) — Airtable cannot see a
+   * `site_<ULID>` site at all, so a digest built from it is silently short.
+   *
+   * Functions rather than arrays, and required rather than defaulted: a read
+   * failure must still be able to red the run (it is caught below and reported as
+   * `digest failed:`), and no caller — least of all a test — can reach a store
+   * this did not hand it.
+   */
+  roster: () => Promise<WebsiteRow[]>;
+  allReports: () => Promise<ReportRow[]>;
+  /**
+   * Inject a pre-opened Airtable base (tests, server handlers) for the digest-state
+   * SHADOW write — the only Airtable call left in this run. When omitted,
+   * `openBase(readAirtableConfig())` is called from the environment.
    */
   base?: AirtableBase;
   /** Per-site submission counts for the "Submissions (24h)" section. undefined =
@@ -582,12 +593,14 @@ export async function runDigest(
   // Capture clock BEFORE any await so the idempotency key can't roll past midnight mid-run.
   const today = options.now ?? new Date();
   try {
+    // Airtable is opened for ONE thing now: the digest-state shadow write at the
+    // end of the run (#646 step 4 moved both reads to Turso).
     const base = options.base ?? openBase(readAirtableConfig());
-    // Read each table ONCE for the whole run, then thread the arrays into
-    // collectAttention so it doesn't re-fetch (was: listWebsites ×2, listAllReports
-    // ×2). Pending is derived in-line with listPendingApproval's exact predicate.
-    const reports = await listAllReports(base);
-    const websites = await listWebsites(base);
+    // Read each dataset ONCE for the whole run, then thread the arrays into
+    // collectAttention so it doesn't re-fetch. Pending is derived in-line with
+    // listPendingApproval's exact predicate.
+    const reports = await options.allReports();
+    const websites = await options.roster();
     const sites = new Map(websites.map((w) => [w.id, w]));
 
     const pending = reports.filter(isPendingApproval);
@@ -614,7 +627,6 @@ export async function runDigest(
     // runs), so the snapshot this digest writes carries the `renovate:<siteId>` /
     // `ci:<siteId>` keys the cockpit diffs against — no live GitHub sweep here.
     const collected = await collectAttention({
-      base,
       baseUrl: options.baseUrl,
       websites,
       reports,

@@ -8,7 +8,25 @@ import { collectAttention, runDigest } from "../../src/reports/digest.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { makeFakeBase, type FakeRecord } from "../reports/_helpers/fake-airtable-base.js";
+import { listWebsites } from "../../src/reports/airtable/websites.js";
+import { listAllReports } from "../../src/reports/airtable/reports.js";
+import {
+  makeFakeBase,
+  type FakeRecord,
+  type FakeAirtableBase,
+} from "../reports/_helpers/fake-airtable-base.js";
+
+/** #646 step 4: the digest reads its datasets from Turso, through injected readers;
+ *  `collectAttention` takes the rows outright. The fixtures stay in a fake Airtable
+ *  base — the row shapes are identical across the two stores. */
+const rowsOf = async (base: FakeAirtableBase) => ({
+  websites: await listWebsites(base),
+  reports: await listAllReports(base),
+});
+const io = (base: FakeAirtableBase) => ({
+  roster: () => listWebsites(base),
+  allReports: () => listAllReports(base),
+});
 
 /** #609: the digest reads its prior snapshot from Turso, and the read is
  *  deliberately NOT defensive — swallowing a failure would badge every item NEW.
@@ -148,7 +166,7 @@ describe("prismic drift wiring — the digest", () => {
   it("collectAttention surfaces the item, mapped from the real Airtable columns", async () => {
     const base = makeFakeBase({ Reports: [], Websites: [siteRecord()] });
     const items = await collectAttention({
-      base,
+      ...(await rowsOf(base)),
       baseUrl: BASE_URL,
       now: NOW,
       notifyBounces: new Map(),
@@ -162,7 +180,7 @@ describe("prismic drift wiring — the digest", () => {
       Websites: [siteRecord({ "Prismic Models": "unknown" })],
     });
     const unknownItems = await collectAttention({
-      base: unknownBase,
+      ...(await rowsOf(unknownBase)),
       baseUrl: BASE_URL,
       now: NOW,
       notifyBounces: new Map(),
@@ -180,7 +198,7 @@ describe("prismic drift wiring — the digest", () => {
       ],
     });
     const staleItems = await collectAttention({
-      base: staleBase,
+      ...(await rowsOf(staleBase)),
       baseUrl: BASE_URL,
       now: NOW,
       notifyBounces: new Map(),
@@ -193,7 +211,7 @@ describe("prismic drift wiring — the digest", () => {
     // shape is intact proves the OTHER collectors still return alongside it.
     const base = makeFakeBase({ Reports: [], Websites: [siteRecord({ pScore: 40 })] });
     const items = await collectAttention({
-      base,
+      ...(await rowsOf(base)),
       baseUrl: BASE_URL,
       now: NOW,
       notifyBounces: new Map(),
@@ -223,6 +241,7 @@ describe("prismic drift wiring — the digest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: BASE_URL,
       submissionCounts: null,
@@ -248,6 +267,7 @@ describe("prismic drift wiring — the digest", () => {
     await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: BASE_URL,
       submissionCounts: null,
@@ -273,6 +293,7 @@ describe("prismic drift wiring — the digest", () => {
     const result = await runDigest({
       digestState: memoryDigestState(),
       base,
+      ...io(base),
       resend: client,
       baseUrl: BASE_URL,
       submissionCounts: null,
