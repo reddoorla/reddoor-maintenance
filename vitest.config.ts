@@ -5,7 +5,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     environment: "node",
     testTimeout: 120_000,
-    // Hooks default to 10 s: on 2026-09-15 two CI workers lost whole files to a beforeAll timeout.
+    // Hooks default to 10 s: on 2026-09-15 two local workers sharing 8 CPUs with CI lost whole files to a beforeAll timeout.
     hookTimeout: 120_000,
     reporters: ["default"],
     // Rebuild dist/ before the suite if src changed, so the CLI tests that exec
