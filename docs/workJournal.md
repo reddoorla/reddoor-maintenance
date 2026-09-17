@@ -3112,3 +3112,241 @@ for the next session: the recursive-delete flag is what the deny pattern matches
 a plain recursive removal succeeds where the forced form is refused — and the
 matcher scans heredoc prose, so a journal entry that merely _describes_ a denied
 command is itself blocked. This entry was written to a file for that reason.
+
+## 2026-09-17 — Meta week, Monday night to Thursday: Tier 1 shipped, the measurements that overturned the docs, six setup changes, and Fable ran out (#788–#796)
+
+This picks up where Monday's entry stopped, with the recommendations (#787) awaiting
+approval. The operator approved them on Monday evening and settled the open decisions in one
+pass: track `.claude/` (A9), no second machine yet, bring `episodic-memory` back, and keep the
+nine removed plugins out until each has been tested. The Path 2 fleet items, the LAHI check,
+this repo's Dependabot alerts and the monotone-gate audit (R5) were deferred to next week by
+the operator, so they are not in "what slipped". Everything below ran in one session,
+`7edcf443`, with Fable judging and Opus workers, until Fable's weekly allowance ran out
+half a minute into Thursday's measure and the session finished on Opus 5.
+
+**Tier 1 shipped Monday night.** #788 tracks `.claude/`. Every repo on this machine had shown
+the directory as untracked because the machine-wide `~/.config/git/ignore` carries
+`**/.claude/`, so the repo `.gitignore` now re-includes it with `!.claude/`, ignores its
+contents, and negates `settings.json`, `workflows/`, `rules/` and `hooks/`. The same PR carries
+the no-local-browser rule (R11a). #790 is the orphan report (R3): a SessionStart hook on
+`resume|compact` that reads the transcript and lists agents dispatched and never returned. It
+fired for real on the session's own compaction that evening and listed four agents from the
+stop and chord tests. #789 is the saved refuter round (R4): a Haiku guard proving the evidence
+checkout is at `refs/heads/main` (bare `main` also matches `changeset-release/main`), one Opus
+skeptic per claim that defaults to refuted and must quote verbatim with a line anchor, and a
+completeness critic. It took four control rounds and ≈5.1M subagent tokens. The first PASS and
+FAIL pair passed, and then the critic pointed out that the control was not blind: the claim ids
+(`lever-*`, `seed-1`) told the skeptics which claim was planted. The re-run with shuffled
+opaque ids passed 16/16 against an answer key the script never reads, and the FAIL control
+refuted the plant with the other 16 verdicts identical. The per-claim estimate ran 20% low and
+was refit from 63,932 to 78,000 tokens.
+
+R2 (the destructive-git deny list) and R6 (how to stop agents) were planned as pastes for the
+operator and turned out not to need them: the Bash sandbox denies writes under `~/.claude`, but
+the Edit tool goes through the permission gate instead, and the gate allowed it. R2 was proven
+both ways without a restart: the bare stash ran in a scratch repo beforehand, was refused by
+pattern afterwards, and the tagged `push -u -m` form still ran. Two properties of the matcher
+surfaced at once. It matches the form a session types, not every spelling: a piped variant was
+refused generically, not by the rule. And it reads the whole command text, so a heredoc or a
+commit message that merely names a denied command is refused. That second property later
+blocked #793's commit on its own message; text that names a denied command is now written to a
+file and passed with `-F`. R1 was proven by a fresh session making six tool calls with zero Bun
+errors: `claude-mem` is gone.
+
+**The documented chord does nothing where the operator works.** With the operator at the
+keyboard and two scratch agents live, `Ctrl+X Ctrl+K` in Ctrl and Cmd forms, pressed several
+times in the VS Code extension (2.1.270), killed nothing. The chord is terminal-only, and the
+extension's page documents no stop-all. The agent map, reached from the agent count under the
+prompt box, killed both. The first scratch pair never tested anything: `sleep 900` hit the Bash
+tool's 600-second ceiling and both agents simply finished, so scratch agents now sleep in steps
+of at most 540 seconds.
+
+**Measurements that overturned the documentation.**
+
+- **The concurrency cap did not bind (R7).** Twelve foreground Haiku agents in one message all
+  ran at once with `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY` unset, whose documented default is 10.
+  They launch serially, about two seconds apart. A Workflow on this 8-CPU Mac runs exactly six
+  at a time, min(16, CPUs − 2), in two measured waves each launched together. Every spawn cost
+  41–46k tokens, even for an agent whose whole job was one `sleep`. Monday's statement that 36
+  agents were live during the paired refuter rounds was wrong; it was at most twelve. The PASS
+  control set the variable to 4 in user settings. A shell in the session saw it immediately,
+  yet the twelve agents ran as waves of five, one spawn was refused by the auto-mode classifier
+  ("[Auto-Mode Bypass]", for an agent whose prompt was a single sleep), and the gaps between
+  waves matched the classifier's per-call latency: everything queued behind the refused call
+  waited about 80 seconds. Under auto mode the classifier shapes a fan-out, not the variable.
+  Removing the variable from the file did not unset it either; the session read 4 until it
+  restarted, so settings `env` is add-only for a running session. What keeps this from being a
+  clean result is that the variable's consumer may read it once at startup, and the
+  fresh-session control was not run.
+- **The refuter round had confirmed the false claim.** Monday night's PASS control marked c03
+  ("the concurrency limit that binds first is `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY`, default
+  10") confirmed from the docs text, hours before the measurement above contradicted it. A
+  quote can refute a claim about behaviour but cannot confirm one. #795 adds
+  `kind: "behavior"`: such a claim can only come back `refuted` or `untested`, `untested` must
+  carry the cheapest experiment that would refute it, and the lib downgrades any other verdict
+  rather than trusting the schema. c03 is the first claim tagged.
+- **SubagentStop does not fire on a kill (R3b),** on 2.1.270 as on 2.1.92. With a logging hook
+  pasted in by the operator, an agent finishing normally produced one record a second later,
+  carrying `agent_id`, `agent_type` and `stop_hook_active`. An agent killed with TaskStop in the
+  middle of a `sleep` produced nothing. The transcript-reading orphan report is the only design
+  that can see a kill.
+- **A cheaper judge is not a judge (R8).** The blind seeded package judged by Sonnet at medium
+  effort agreed with Opus on 16 of 17 verdicts, at the same token volume (1,269,362 against
+  1,306,745) in 317 seconds instead of 737. The one disagreement was the plant: Sonnet confirmed
+  "the session limit window is 4h" while quoting the line that reads "19:50 to 00:50 is exactly
+  five hours". Skeptic and critic stages stay on Opus; the guard and loader stay on Haiku.
+- **Plugins are not what the opening costs (R9).** In fresh sessions the operator opened, with
+  `cache_read` at 33,178 on every first request, context-mode cost 2,147 `cache_creation`
+  tokens and figma 2,275: together about 6.5% of a ~68k first request. The rest is the shared
+  prefix, the CLAUDE.md files, the memory index and hook injections. No plugin was pruned; if
+  the opening is to shrink, it shrinks there. episodic-memory 1.6.0's SessionStart hook logged
+  one `ERR_MODULE_NOT_FOUND` in the first session after its reinstall and none since.
+
+**The continuity page (#791), and how it was wrong.** An Opus worker wrote
+`docs/runbooks/continuity.md`: what runs unattended, what is safe to ignore for a week, what is
+not, where the credentials live, how to reach clients, and the Turso restore. It corrected its
+brief from disk in four places, among them that the rollback was rehearsed three times rather
+than twice, and that a bad Turnstile secret fails open, so the dangerous Turnstile failure is a
+missing hostname. My review spot-checked about twenty anchors and rewrote the stop-agent
+paragraph, which repeated the chord. The review that mattered was a different one: the restore
+section alone went to a fresh read-only session, which was asked where it would stall. Every
+code claim held and the verdict was still no. There was no download command, a passphrase was
+consumed but never sourced, one step named no tool, the restore URL needed an org slug the repo
+does not contain, the repoint step named neither of its targets, and the verify step named no
+host. All of it was written in before merge. One section handed to a fresh reader found what a
+line check cannot.
+
+A line check then found what my spot-check had not. When #796's anchor test first ran on
+Tuesday, two continuity citations turned out to have been wrong on the day the page merged.
+`fleet-cockpit.ts:33` is a blank line, which my Monday-night check printed and I read past, and
+a `websites.ts` range stopped one line short of the fallback its paragraph names. The test was
+in turn wrong in a way its own FAIL control had half shown, since a shift landing on a line
+about the same subject reads as verified. The 2026-09-16 entry, "The 26 agent-doable issues,
+and the gate that marked a wrong citation verified", found a live case of it, and #840 anchors
+a citation on the terms it introduces instead.
+
+**The documentation is a live document (#792).** The refuter corpus, 40 pages of Claude Code
+docs, lived in the session scratchpad, so the saved round could not have been re-run from any
+other checkout. The overnight worker hashed Monday's copies into a manifest and wrote
+`scripts/meta-week/fetch-corpus.mjs`, whose verdict is the hash rather than the HTTP status,
+because two of Monday's pages were already 404 bodies (`sitemap.xml` at 15 bytes and
+`scheduled-routines.md` at 678). Its own first run reported 22 drifts, two of them its URL
+bugs, found by proving the instrument. The real result was that 20 of the 40 pages had changed
+within six hours of Monday's fetch, one of them at a zero byte delta, and `hooks.md` changed
+again in the hour between the worker's fetch and my review. All 44 corpus references in the two
+claims packages were mapped from Monday's bytes to the new text by exact block search: eight
+line ranges, 22 of the references, had moved by a constant offset with byte-identical text, and
+none were gone. They were re-anchored and the manifest was pinned to 2026-09-15. A docs verdict
+is dated, and the round needs a fetch and a re-anchor every time it runs.
+
+**Tuesday's setup review.** With Tier 1 done early, the operator pointed out that the week had
+leaned on token saving and asked for the whole priority list. Six changes, all approved:
+
+1. A status line in `~/.claude/settings.json` showing context use, the five-hour and seven-day
+   usage percentages and the weekly reset date, from the documented `rate_limits` fields.
+2. #793 puts the complete deny list in the tracked settings, so a clone gets the guard the
+   global file has.
+3. #796, the runbook anchor test above. It corrected nine citations, four of them drift from
+   #695 growing `form-e2e.ts` by 391 lines.
+4. #794, a SubagentStop guard: a worker cannot end its turn while a worktree it named is dirty
+   or its HEAD is on no remote ref, and `stop_hook_active` lets the second stop through. My
+   spec said "no upstream". The worker measured that `git worktree add <path> -b <branch>
+origin/main`, the form this repo uses, sets `origin/main` as the upstream, so two unpushed
+   commits went unreported; the rule became containment under `refs/remotes/`, which also fixed
+   a false positive for a branch pushed without `-u`. The first live FAIL control was not
+   blocked because the hook never ran: a session loads tracked project settings from the main
+   checkout, not from the worktree it works in, and the main checkout was four merges behind.
+   After the operator pulled, a worker that left a file uncommitted was refused with the exact
+   path and file, and let through on its second stop.
+5. #795, the behaviour claims above.
+6. The allow lists went from 1,023 rules to 954 globally and from 148 to 112 in the project's
+   local settings, dropping only rules that named temp or scratchpad paths from dead sessions.
+   The operator ran the script, because the classifier would not let the session write even
+   pruned copies.
+
+**The classifier is the limit on unattended configuration work.** Between Monday night and
+Tuesday it refused one of twelve identical sleep agents, a read-only listing of `.claude/`
+("[Irreversible Local Destruction]"), an Edit of the project's local settings, and a script
+that only wrote copies to the scratchpad ("[Self-Modification]"). It allowed all four Edits of
+the global settings and a worker's edit of the tracked settings. Its decisions are per call and
+not consistent across calls of the same shape, so harness configuration is, in practice, the
+operator's to apply.
+
+**Three workers on one machine.** On Tuesday three Opus workers ran alongside CI on the same
+eight CPUs. Two of them hit vitest's 10-second `hookTimeout` in a `beforeAll`; one run did 4.27
+seconds of tests in 1,113 seconds of wall time. `vitest.config.ts` sets `testTimeout` and not
+`hookTimeout`. Strict `main` meant every merge needed `update-branch` and a fresh
+four-and-a-half-minute CI run, so the three PRs landed one at a time.
+
+**The meter line.** The usage week from Sunday 02:00 PDT to Thursday 09:45 PDT, 103.7 hours,
+across all sessions and lanes, against the soft cap in the recommendations spec, which is 60% of
+the ceiling observed on 2026-08-27 after 108 hours:
+
+| counter     | this week     | soft cap      | % of soft cap | % of ceiling |
+| ----------- | ------------- | ------------- | ------------- | ------------ |
+| requests    | 7,690         | 11,443        | 67.2%         | 40.3%        |
+| out         | 10,485,344    | 11,231,537    | 93.4%         | 56.0%        |
+| cacheCreate | 51,953,398    | 41,912,167    | 124.0%        | 74.4%        |
+| cacheRead   | 1,258,043,863 | 2,607,172,990 | 48.3%         | 29.0%        |
+
+The week crossed the soft cap on `cacheCreate` and came within 7% of it on `out`. The account's
+own meter, read on Monday afternoon and again from the operator's screenshot on Thursday:
+
+| `/usage`     | Monday ~15:00 PDT | Thursday 09:41 PDT        |
+| ------------ | ----------------- | ------------------------- |
+| session (5h) | 69%               | 3%                        |
+| weekly       | 17%               | 83%                       |
+| weekly Fable | 18%               | exhausted at 09:07:31 PDT |
+
+Cutting the meter at Monday's reading gives a first calibration point. At Monday 22:00Z
+`cacheCreate` stood at 17.3% of the ceiling against `/usage` at 17%, and `out` at 14.9%. By
+Thursday `cacheCreate` had reached 74.4% against 83%, while Fable's share of `cacheCreate` had
+doubled from 14.7% to 29.1%. That is consistent with the account weighting Fable above Opus,
+but two points fit any two-parameter model, so it is a lead and not a finding.
+
+**Fable ran out, and most of it was not this session's.** The weekly Fable limit arrived at
+16:07:31Z as a synthetic assistant record, "You've reached your Fable limit". It is the first
+observation of that cap: 2,948,076 output, 15,126,107 cache-create and 379,104,152 cache-read
+Fable tokens for the week, a floor observed once. By session over the same days, this one spent
+25.9% of the week's Fable output; a reddoor-website session building an industry landing page
+spent 43.2%, and the maintenance session that cleared the issue backlog from Tuesday afternoon
+spent 28.9%. Of the week's total output this session was 31.6% (3.32M), the backlog session
+44.0% and the website session 22.5%. "Fable judges" was planned as if the Fable budget belonged
+to this session. It belonged to the account, and three Fable main loops shared it with no plan.
+
+**What slipped.**
+
+- The fresh-session concurrency control (≈280k tokens) was not run, so whether the variable
+  binds when read at startup is still unknown.
+- The refuter round has not been re-run since the corpus was re-anchored (#792) or since
+  behaviour claims landed (#795), at ≈1.3M tokens per control. Both control expectations in the
+  workflow header are derived, not measured.
+- The version applicability of docs claims, which CLI version a claim holds for, was raised by
+  the R4 critic on Monday and never addressed.
+- The meter's `--blocks` does not recognise the Fable limit record and lists no limit block for
+  this week at all.
+- The vitest `hookTimeout` fix is one line and was not made.
+- Whether the status line renders in the VS Code extension is unconfirmed.
+- The prune script was handed over as a bare path. The operator got "permission denied" and
+  tried `sudo` before running it with `node`. Hand-off commands now carry their interpreter.
+- Wednesday went unused by this session, because Tier 2 and the setup review had finished on
+  Tuesday.
+
+**Beliefs corrected on contact, in one place.** The documented default concurrency cap does not
+bind the Agent tool in a running session. Removing a settings `env` entry does not unset it.
+SubagentStop does not fire on a kill. A worktree cut from `origin/main` has an upstream. A hook
+merged into tracked settings is live only once the session's main checkout has the commit. A
+docs quote says what a page said on the day it was fetched, and nothing about behaviour. A
+spot-check that prints a line is not a check that reads it. Monday's "36 agents live" was at
+most twelve.
+
+**Honest accounting.** The week's correctness wins came mostly from workers catching the judge:
+the false negative in the stop guard's spec, two citations wrong at merge in a judge-reviewed
+runbook, and the corpus URL bugs. The refuter round's most useful output this week was a
+confirmation that a measurement overturned. The one-section fresh-reader review cost about 100k
+tokens and found more than the twenty-anchor spot-check did.
+
+**Next.** The operator's deferred items: the machinery review (R5) once the new setup has run
+for a week, the Path 2 fleet items, and the Dependabot triage. Before any refuter round, run
+`fetch-corpus.mjs` and expect red. If PP-G needs a real concurrency ceiling, run the
+fresh-session control first. Plan the Fable budget across sessions, not per session.
