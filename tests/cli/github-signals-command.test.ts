@@ -42,14 +42,14 @@ describe("runGitHubSignalsCommand guards", () => {
   });
 
   it("rejects a non-fleet invocation with exit 2", async () => {
-    const r = await runGitHubSignalsCommand({ fleet: false, writeAirtable: true });
+    const r = await runGitHubSignalsCommand({ fleet: false, writeBack: true });
     expect(r.code).toBe(2);
   });
 
   it("clean-skips (exit 0) when no fleet token is configured", async () => {
     delete process.env.RENOVATE_TOKEN;
     delete process.env.GH_TOKEN;
-    const r = await runGitHubSignalsCommand({ fleet: true, writeAirtable: true });
+    const r = await runGitHubSignalsCommand({ fleet: true, writeBack: true });
     expect(r.code).toBe(0);
     expect(r.output).toContain("skipped");
   });
@@ -63,7 +63,7 @@ describe("runGitHubSignalsCommand guards", () => {
     delete process.env.GH_TOKEN;
     let opened = false;
     const r = await runGitHubSignalsCommand(
-      { fleet: true, writeAirtable: true },
+      { fleet: true, writeBack: true },
       {
         openBase: () => {
           opened = true;
@@ -130,7 +130,7 @@ describe("the github-signals Turso mirror (#539 Phase 3 dual-write)", () => {
   });
 
   const run = (base: FakeAirtableBase, mirror: HealthMirror | null) =>
-    runGitHubSignalsCommand({ fleet: true, writeAirtable: true }, deps(base, mirror));
+    runGitHubSignalsCommand({ fleet: true, writeBack: true }, deps(base, mirror));
 
   it("a THROWING mirror never moves an Airtable-written row into failed, and never reds the sweep", async () => {
     // Kills the delete-the-inner-try/catch mutation: a mirror throw landing in

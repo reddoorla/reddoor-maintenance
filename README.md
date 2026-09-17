@@ -419,10 +419,10 @@ Nothing is written and nothing is sent.
 0. **Prereq: refresh Lighthouse scores on each Websites row.** From each site's checkout:
 
    ```bash
-   reddoor-maint audit lighthouse --write-airtable
+   reddoor-maint audit lighthouse --write-back
    ```
 
-   This runs Lighthouse and writes the 4 scores directly to the matching Websites row (slug auto-derived from `package.json#name`; pass `--write-airtable=<slug>` to override), along with a `Last lighthouse audit at` timestamp. The report orchestrator copies these into the new Reports row — drafting a report for a site missing scores fails with a clear error.
+   This runs Lighthouse and writes the 4 scores directly to the matching Websites row (slug auto-derived from `package.json#name`; pass `--write-back=<slug>` to override), along with a `Last lighthouse audit at` timestamp. The report orchestrator copies these into the new Reports row — drafting a report for a site missing scores fails with a clear error.
 
 1. **Draft overdue reports**
 

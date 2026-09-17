@@ -85,15 +85,15 @@ export type WebsiteRow = {
   acceptedWatchConditions: string[];
   /** First attachment in the Header image field (Airtable's signed URL — fetch before expiry). */
   headerImage: { url: string; filename: string; type: string } | null;
-  /** Lighthouse "current state" snapshot, kept fresh by `audit lighthouse --write-airtable`. */
+  /** Lighthouse "current state" snapshot, kept fresh by `audit lighthouse --write-back`. */
   pScore: number | null;
   rScore: number | null;
   bpScore: number | null;
   seoScore: number | null;
-  /** ISO timestamp set by `audit lighthouse --write-airtable` when scores were last refreshed. */
+  /** ISO timestamp set by `audit lighthouse --write-back` when scores were last refreshed. */
   lastLighthouseAuditAt: string | null;
   /** Last-known counts from non-lighthouse audits, written by
-   *  `audit --write-airtable`. `null` = never audited (or this audit
+   *  `audit --write-back`. `null` = never audited (or this audit
    *  type was skipped on the last run). 0 = audited, clean. */
   a11yViolations: number | null;
   /** Declared-range drift vs the Reddoor baseline (what package.json asks for). */
@@ -222,7 +222,7 @@ export type WebsiteRow = {
   formE2eOk: "pass" | "fail" | null;
   formE2eCheckedAt: string | null;
   /**
-   * Nightly Prismic model drift sweep (`prismic-models --fleet --write-airtable`).
+   * Nightly Prismic model drift sweep (`prismic-models --fleet --write-back`).
    *
    * FOUR-VALUED, unlike every other verdict column in this table, and the extra
    * state is the point:
@@ -928,7 +928,7 @@ function formE2eFields(r: FormE2eResult): FieldSet {
 
 /**
  * Write the four Lighthouse scores + a refreshed-at timestamp onto a Websites row.
- * Called by `audit lighthouse --write-airtable` after a successful audit run, so
+ * Called by `audit lighthouse --write-back` after a successful audit run, so
  * the operator never has to paste numbers manually before drafting a report.
  */
 export async function updateScores(

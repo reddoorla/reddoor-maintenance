@@ -199,7 +199,7 @@ export async function draftReportForSite(
   const completedOn = today;
   // "Last Tested" on the Maintenance email is the REAL timestamp of the most recent automated
   // Lighthouse audit — stamped live on the Websites row (`Last lighthouse audit at`) by
-  // `audit lighthouse --write-airtable` every time the scores refresh. It is deliberately NOT
+  // `audit lighthouse --write-back` every time the scores refresh. It is deliberately NOT
   // the `testing day` field: that's the recurrence anchor consumed by due.ts and is hand-set, so
   // it goes stale. Reading the audit timestamp keeps the date current with no manual upkeep.
   const lastTestedDate =

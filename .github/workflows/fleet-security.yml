@@ -89,7 +89,7 @@ jobs:
           node dist/cli/bin.js audit \
             --fleet airtable \
             --only security,deps \
-            --write-airtable \
+            --write-back \
             --concurrency 1 \
             --workdir /tmp/fleet-security | tee /tmp/audit.out || true
 

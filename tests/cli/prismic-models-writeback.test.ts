@@ -1,4 +1,4 @@
-// `--write-airtable`: the nightly sweep's verdicts reaching the fleet's record.
+// `--write-back`: the nightly sweep's verdicts reaching the fleet's record.
 //
 // THE ONE RULE, at the last hop before an operator reads it: "I could not read
 // X" must never produce the same result as "X does not exist". Here it decides
@@ -153,7 +153,7 @@ describe("writeSweepToAirtable", () => {
 
   // Airtable's Name is the fleet's join key everywhere else in this repo, via
   // siteSlug — so "Espada" and "espada" are one site, exactly as they are for
-  // `audit --write-airtable`.
+  // `audit --write-back`.
   it("joins on the slug, not on an exact name match", async () => {
     const update = recorder();
     const res = await writeSweepToAirtable(
@@ -321,30 +321,30 @@ const deps = (
   openVerdictSink,
 });
 
-describe("runPrismicModelsCommand — --write-airtable", () => {
+describe("runPrismicModelsCommand — --write-back", () => {
   // THE GUARD THIS TASK REMOVED used to be the only thing standing between
-  // `--write-airtable` and a silent no-op. Outside fleet mode the flag has
+  // `--write-back` and a silent no-op. Outside fleet mode the flag has
   // nothing to write, so it must be refused rather than accepted and ignored.
-  it("refuses --write-airtable without --fleet", async () => {
+  it("refuses --write-back without --fleet", async () => {
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: root, writeAirtable: true },
+      { cwd: root, writeBack: true },
       deps({}, {}),
     );
     expect(r.code).toBe(2);
-    expect(r.output).toContain("--write-airtable");
+    expect(r.output).toContain("--write-back");
     expect(r.output).toMatch(/--fleet/);
     // …and it must not have quietly done the in-repo comparison instead.
     expect(r.output).not.toMatch(/model\(s\) match Prismic/);
   });
 
-  it("no longer reports --write-airtable as unimplemented", async () => {
+  it("no longer reports --write-back as unimplemented", async () => {
     await makeSite("espada", "espada", ["page"]);
     const fleet = await inventory(["espada"]);
     const sink = fakeSink([{ id: "rec1", name: "espada" }]);
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: root, fleet, workdir, writeAirtable: true },
+      { cwd: root, fleet, workdir, writeBack: true },
       deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" }, sink.open),
     );
     expect(r.output).not.toContain("NOT IMPLEMENTED");
@@ -360,7 +360,7 @@ describe("runPrismicModelsCommand — --write-airtable", () => {
     ]);
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: root, fleet, workdir, writeAirtable: true },
+      { cwd: root, fleet, workdir, writeBack: true },
       deps(
         // espada agrees with Prismic; hedloc's remote is empty, so it diverges.
         { espada: [customType("page")], hedloc: [] },
@@ -403,14 +403,14 @@ describe("runPrismicModelsCommand — --write-airtable", () => {
     // No PRISMIC_TOKEN_ESPADA in the environment: the check cannot run.
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: root, fleet, workdir, writeAirtable: true },
+      { cwd: root, fleet, workdir, writeBack: true },
       deps({ espada: [customType("page")] }, {}, sink.open),
     );
     expect(written(sink.update)[1].verdict).toBe("unknown");
     expect(r.output).toContain("1 site(s) could not be read");
   });
 
-  // THE PLAN'S WIRING DROPPED THIS. Its `--write-airtable` branch returned early
+  // THE PLAN'S WIRING DROPPED THIS. Its `--write-back` branch returned early
   // with `prismicSweepExitCode(checked, failed)` alone, so a fleet where two
   // repos overwrite each other's models — every site individually readable —
   // exited 0 as soon as anybody added the flag.
@@ -424,7 +424,7 @@ describe("runPrismicModelsCommand — --write-airtable", () => {
     ]);
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: root, fleet, workdir, writeAirtable: true },
+      { cwd: root, fleet, workdir, writeBack: true },
       deps(
         { "the-tower-burbank": [customType("page")] },
         { PRISMIC_TOKEN_THE_TOWER_BURBANK: "a" },
@@ -446,7 +446,7 @@ describe("runPrismicModelsCommand — --write-airtable", () => {
     });
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: root, fleet, workdir, writeAirtable: true },
+      { cwd: root, fleet, workdir, writeBack: true },
       deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" }, async () => ({
         websites: [{ id: "rec1", name: "espada" }],
         update,
@@ -464,7 +464,7 @@ describe("runPrismicModelsCommand — --write-airtable", () => {
     const fleet = await inventory(["espada"]);
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: root, fleet, workdir, writeAirtable: true },
+      { cwd: root, fleet, workdir, writeBack: true },
       deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" }, async () => {
         throw new Error("AIRTABLE_PAT is not set");
       }),

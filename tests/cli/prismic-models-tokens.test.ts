@@ -669,17 +669,14 @@ describe("runPrismicModelsCommand — refusals that outlive --tokens --fleet", (
     ["--tokens --comment-file", { tokens: true, commentFile: "comment.md" }],
     ["--tokens --pull", { tokens: true, pull: true }],
     ["--tokens --fleet --apply", { tokens: true, fleet: "inventory.json", apply: true }],
-    ["--write-airtable without --fleet", { writeAirtable: true }],
-    // NEW WITH THIS TASK. `--write-airtable` persists a fleet SWEEP's per-site
+    ["--write-back without --fleet", { writeBack: true }],
+    // NEW WITH THIS TASK. `--write-back` persists a fleet SWEEP's per-site
     // model verdicts; the doctor produces none. Before Task 17b this pair was
     // caught by the unimplemented-combination guard on its way past; with
     // `--tokens --fleet` built, the tokens branch runs FIRST and the run would
     // print a checklist, write nothing, and exit 0 for an operator who asked for
     // a write-back.
-    [
-      "--tokens --fleet --write-airtable",
-      { tokens: true, fleet: "inventory.json", writeAirtable: true },
-    ],
+    ["--tokens --fleet --write-back", { tokens: true, fleet: "inventory.json", writeBack: true }],
   ];
   for (const [name, opts] of cases) {
     it(`still refuses ${name}`, async () => {

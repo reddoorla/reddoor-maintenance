@@ -132,7 +132,7 @@ export async function applyReportTypeHeadline(
     const existing = await headlineInkCount(header);
     if (existing > HEADLINE_INK_TOLERANCE) {
       console.warn(
-        `⚑ header headline skipped: the stored header already carries a headline (${existing} ink px in the band) — it predates the clean-plate switch, so stamping would overprint. Sending it as stored; run \`header-image ${"<site>"} --write-airtable\` to regenerate it clean.`,
+        `⚑ header headline skipped: the stored header already carries a headline (${existing} ink px in the band) — it predates the clean-plate switch, so stamping would overprint. Sending it as stored; run \`header-image ${"<site>"} --write-back\` to regenerate it clean.`,
       );
       return header;
     }

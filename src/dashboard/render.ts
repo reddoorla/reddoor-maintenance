@@ -861,7 +861,7 @@ export function renderSiteDashboardHtml(
     site.pScore === null && site.rScore === null && site.bpScore === null && site.seoScore === null;
 
   const scoresSection = allScoresNull
-    ? `<div class="empty">No lighthouse data yet — run <code>reddoor-maint audit --write-airtable</code> from the site checkout.</div>`
+    ? `<div class="empty">No lighthouse data yet — run <code>reddoor-maint audit --write-back</code> from the site checkout.</div>`
     : `<div class="tiles">
         ${scoreTile("Performance", site.pScore)}
         ${scoreTile("Accessibility", site.rScore)}
@@ -873,7 +873,7 @@ export function renderSiteDashboardHtml(
   const allHealthNull =
     site.a11yViolations === null && site.depsDrifted === null && secTotal === null;
   const healthSection = allHealthNull
-    ? `<div class="empty">No health data yet — run <code>reddoor-maint audit --write-airtable</code> from the site checkout.</div>`
+    ? `<div class="empty">No health data yet — run <code>reddoor-maint audit --write-back</code> from the site checkout.</div>`
     : `<div class="tiles">
         ${healthTile("Accessibility issues", site.a11yViolations, null)}
         ${healthTile("Dependency updates", site.depsDrifted, depsSub(site.depsMajorBehind))}

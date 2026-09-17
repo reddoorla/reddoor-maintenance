@@ -961,8 +961,8 @@ describe("runPrismicModelsCommand — fleet sweep", () => {
     expect(r.output).toContain("COMMIT NOT RESOLVED");
   });
 
-  // Task 20 built `--write-airtable`, so the nightly's real invocation
-  // (`--fleet airtable --write-airtable`) must now SWEEP rather than refuse — the
+  // Task 20 built `--write-back`, so the nightly's real invocation
+  // (`--fleet airtable --write-back`) must now SWEEP rather than refuse — the
   // inverse of what this case asserted while the mode was unbuilt, and worth
   // keeping in that form: a refusal that outlives its reason is a nightly that
   // silently stops sweeping.
@@ -971,13 +971,13 @@ describe("runPrismicModelsCommand — fleet sweep", () => {
   // nothing was written and the run goes non-zero — which is the right answer for
   // "asked to write, wrote nothing", and is asserted here as such. The verdicts
   // actually landing is tests/cli/prismic-models-writeback.test.ts.
-  it("sweeps rather than refusing when --write-airtable is added to --fleet", async () => {
+  it("sweeps rather than refusing when --write-back is added to --fleet", async () => {
     await makeSite("espada", { repositoryName: "espada", models: ["page"] });
     const fleet = await inventory(["espada"]);
     const d = deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" });
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: root, fleet, workdir, writeAirtable: true },
+      { cwd: root, fleet, workdir, writeBack: true },
       d,
     );
     expect(r.output).not.toContain("NOT IMPLEMENTED");

@@ -223,7 +223,7 @@ export function preflightSite(
         level: "warn",
         check: "scores-missing",
         message:
-          "Websites row is missing Lighthouse scores — `announce` will skip this site; run `audit lighthouse --write-airtable` first",
+          "Websites row is missing Lighthouse scores — `announce` will skip this site; run `audit lighthouse --write-back` first",
       });
     } else {
       // report <site> / report --due HARD-THROW here (scoresFromWebsite in draft.ts).
@@ -231,7 +231,7 @@ export function preflightSite(
         level: "fail",
         check: "scores-missing",
         message:
-          "Websites row is missing Lighthouse scores — drafting will throw (scoresFromWebsite); run `audit lighthouse --write-airtable` first",
+          "Websites row is missing Lighthouse scores — drafting will throw (scoresFromWebsite); run `audit lighthouse --write-back` first",
       });
     }
   }

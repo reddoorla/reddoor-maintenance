@@ -124,7 +124,7 @@ reddoor-maint self-updating <path-to-site> # adds CI + Renovate, branch protecti
 
 Each recipe is branch-isolated + idempotent (re-running on a done site is a `noop`), and creates a `maint/*` branch to PR. Then add the site's row to the Airtable `Websites` table: `Name`, `url`, `Git repo`, `Report recipients (To)`, a `maintenence freq`, a `Header image`, and a `Dashboard Token` value (to make it appear on the cockpit). The site is now in the loop.
 
-> Fleet-wide commands take `--fleet airtable` (read the inventory from Airtable) — e.g. `reddoor-maint audit --fleet airtable --only lighthouse --write-airtable`.
+> Fleet-wide commands take `--fleet airtable` (read the inventory from Airtable) — e.g. `reddoor-maint audit --fleet airtable --only lighthouse --write-back`.
 
 ---
 
@@ -153,10 +153,10 @@ Two scheduled workflows in `.github/workflows/` do the unattended work. Set thei
 **Secrets:** `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RESEND_API_KEY`, `RENOVATE_APP_PRIVATE_KEY` (the `reddoor-renovate` GitHub App's key — an **org** secret, visible to all repos).
 **Variables:** `RENOVATE_APP_ID` (**org** variable, same App). The nightlies mint a short-lived installation token from the pair and hand it to the CLI as `GH_TOKEN`; there is no long-lived fleet PAT. `OPERATOR_EMAIL` (where the daily digest goes — set this or the digest falls back to `info@reddoorla.com`), `DASHBOARD_BASE_URL` (so digest links point at your dashboard).
 
-| Workflow               | Schedule (UTC) | Runs                                                                                    | Needs                                                                                             |
-| ---------------------- | -------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `daily-reports.yml`    | `23 9 * * *`   | `report --due` → `report --send-ready` → `report --digest`                              | `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RESEND_API_KEY`; vars `OPERATOR_EMAIL`, `DASHBOARD_BASE_URL` |
-| `fleet-lighthouse.yml` | `0 8 * * *`    | fleet Lighthouse audit (`--write-airtable`) + `github-signals --fleet --write-airtable` | `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RENOVATE_APP_PRIVATE_KEY`; var `RENOVATE_APP_ID`             |
+| Workflow               | Schedule (UTC) | Runs                                                                            | Needs                                                                                             |
+| ---------------------- | -------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `daily-reports.yml`    | `23 9 * * *`   | `report --due` → `report --send-ready` → `report --digest`                      | `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RESEND_API_KEY`; vars `OPERATOR_EMAIL`, `DASHBOARD_BASE_URL` |
+| `fleet-lighthouse.yml` | `0 8 * * *`    | fleet Lighthouse audit (`--write-back`) + `github-signals --fleet --write-back` | `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RENOVATE_APP_PRIVATE_KEY`; var `RENOVATE_APP_ID`             |
 
 (`ci.yml` is the reusable per-repo CI the self-updating sites call; `release.yml` publishes the npm package via changesets + GitHub's `GITHUB_TOKEN` / npm OIDC.)
 
