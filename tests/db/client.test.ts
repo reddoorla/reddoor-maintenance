@@ -61,6 +61,7 @@ describe("openDb", () => {
       "0024_deadletter_abandoned_reason",
       "0025_prospect_audits_chosen_terms",
       "0026_prospect_audits_chosen_questions",
+      "0027_reports_resend_message_index",
     ]);
     await db.destroy();
   });

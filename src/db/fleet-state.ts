@@ -711,6 +711,23 @@ export async function getReportById(db: Db, id: string): Promise<ReportRow | nul
   return r ? reportRowFromDb(r, r.rendered_html !== null) : null;
 }
 
+/** By Resend message id — the resend-webhook's report lookup (#539 Phase 6 step 2,
+ *  #646). Same contract as the Airtable `findReportByMessageId` it replaces: the
+ *  first matching row, or null. Served by idx_reports_resend_message (0027), and
+ *  body-free like the list reads — the webhook needs the row's id and current
+ *  delivery status, never the HTML. `resend_message_id` is stamped by the send
+ *  path's `reportSentMirror` (#643) and was imported for historical rows. */
+export async function findReportByMessageId(db: Db, messageId: string): Promise<ReportRow | null> {
+  const r = await db
+    .selectFrom("reports")
+    .select(REPORT_LIST_COLUMNS)
+    .select(HAS_RENDERED_HTML)
+    .where("resend_message_id", "=", messageId)
+    .limit(1)
+    .executeTakeFirst();
+  return r ? reportRowFromDb(r, r.has_rendered_html !== 0) : null;
+}
+
 /** The preview route's read: the stored rendered body, or null when the report
  *  has none (imported while its signed URL was expired, or predates rendering). */
 export async function getReportHtml(
