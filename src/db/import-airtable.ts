@@ -1,6 +1,6 @@
 import type { Db } from "./client.js";
 import type { SitesTable, SiteHealthTable, SiteScheduleTable, ReportsTable } from "./schema.js";
-import { siteSlug } from "../reports/airtable/websites.js";
+import { siteSlug } from "../fleet/site-row.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
 
 /** One raw Airtable record: id + the fields object exactly as the API returns it

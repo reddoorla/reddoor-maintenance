@@ -313,9 +313,9 @@ bounce/complaint attention items in §3.4.
 **The per-site recipient field.** Who a report actually reaches is configured per site, not per
 message: `Report recipients (To)` and `Report recipients (CC)` on the Websites row, mirrored to
 `sites.report_recipients_to` / `report_recipients_cc` in Turso
-(`src/reports/airtable/websites.ts:483–484`, `src/db/fleet-state.ts:108–109`). Form
+(`src/reports/airtable/websites.ts:88–89`, `src/db/fleet-state.ts:111–112`). Form
 notifications have their own per-site routing, including field-value → recipient routes with a
-fallback (`NotifyRouting`, `src/reports/airtable/websites.ts:20–38`).
+fallback (`NotifyRouting`, `src/fleet/site-row.ts:26–44`).
 
 > **Known trap — MSOT and Revogen resolve to the same recipient.** The Lane 2 preflight found
 > both sites pointing at `accounting@revogenbiologics.com`, which means an MSOT report would
