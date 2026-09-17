@@ -87,7 +87,7 @@ jobs:
           # gate on the machine-readable FLEET_WRITE_SUMMARY line, not the exit code (same pattern as
           # fleet-lighthouse).
           node dist/cli/bin.js audit \
-            --fleet airtable \
+            --fleet turso \
             --only security,deps \
             --write-back \
             --concurrency 1 \

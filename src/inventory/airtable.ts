@@ -1,12 +1,7 @@
 import type { Site, InventoryProvider } from "../types.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
-import {
-  listWebsites,
-  siteSlug,
-  ACTIVE_STATUSES,
-  isPreLaunch,
-} from "../reports/airtable/websites.js";
-import { isHttpUrl } from "../util/url.js";
+import { listWebsites } from "../reports/airtable/websites.js";
+import { selectFleetSites, requireFleetWorkdir } from "./select.js";
 
 export type AirtableInventoryOptions = {
   /**
@@ -19,71 +14,27 @@ export type AirtableInventoryOptions = {
 
 /**
  * Read sites from the Airtable Websites table as an InventoryProvider.
- * Each row becomes one Site; `path` is computed as `{workdir}/{slug}`.
- * Only LIVE `maintenance` sites that have a `url` are included — pre-launch
- * stages ("launching" / "building", via isPreLaunch) are excluded so a
- * not-yet-live site is never audited as production (its deploy/domain/uptime/CMS
- * audits would fail against nothing and red its Airtable row) nor swept by other
- * `--fleet airtable` ops; it re-enters the fleet when a Launch report flips its
- * Status to "maintained". The production URL is exposed as `Site.deployedUrl` so
- * the lighthouse audit can run against it with no checkout. `repoUrl` is
- * intentionally NOT set from `url` — a clone source must come from `gitRepo`
- * (`owner/repo`), never the production URL.
+ *
+ * No longer what `--fleet` resolves through: since #646 step 4 the fleet roster
+ * is read from Turso (`fromTursoDb`, `src/inventory/turso.ts`), because a site
+ * created by the Turso-native `ensure-site` has no Airtable record at all. This
+ * stays as the Airtable half of the selection-parity instrument and a public
+ * export until the operator approves deleting the Airtable layer (steps 6–8).
+ *
+ * The selection rule itself is `selectFleetSites` — shared, so the two providers
+ * cannot drift. `meta.airtableRowId` is kept alongside `meta.siteId` for any
+ * consumer that still reads the old key.
  */
 export function fromAirtableBase(
   base: AirtableBase,
   opts: AirtableInventoryOptions = {},
 ): InventoryProvider {
   return async (): Promise<Site[]> => {
-    const workdir = opts.workdir ?? process.env.REDDOOR_FLEET_WORKDIR;
-    if (!workdir) {
-      throw new Error(
-        "fromAirtableBase requires `workdir` option or REDDOOR_FLEET_WORKDIR env (sites need a local path)",
-      );
-    }
+    const workdir = requireFleetWorkdir(opts.workdir, "fromAirtableBase");
     const websites = await listWebsites(base);
-    return websites
-      .filter(
-        (w) =>
-          w.status !== null &&
-          ACTIVE_STATUSES.has(w.status) &&
-          !isPreLaunch(w.status) &&
-          w.url.length > 0,
-      )
-      .flatMap((w) => {
-        const slug = siteSlug(w.name);
-        // An empty slug (a Name with no slug-able characters) can't form a stable
-        // path and — fatally — can't be matched back to its Websites row on
-        // write-back: every empty-slug site would collapse under the "" key and
-        // mis-write or fail. Skip it loudly rather than silently mis-map it.
-        if (slug.length === 0) {
-          console.warn(
-            `[inventory] skipping "${w.name}" (row ${w.id}): Name has no slug-able characters (empty slug)`,
-          );
-          return [];
-        }
-        const site: Site = {
-          path: `${workdir}/${slug}`,
-          name: slug,
-          meta: { airtableRowId: w.id, displayName: w.name },
-        };
-        // Scheme-allowlist the Airtable `url` before exposing it as the
-        // deployed-audit target (it's handed straight to Chrome/lhci). A
-        // `file://`/`gopher://`/internal-host value would be a local-file read
-        // or SSRF — skip the deployed audit for that site rather than trust it.
-        if (isHttpUrl(w.url)) {
-          site.deployedUrl = w.url;
-        } else {
-          console.warn(
-            `[inventory] skipping deployed audit for "${w.name}": url is not http(s): ${JSON.stringify(w.url)}`,
-          );
-        }
-        if (w.gitRepo) site.gitRepo = w.gitRepo;
-        // Expose the Netlify site id (operator-set identity column) so the
-        // netlify-deploy audit can query the API with no checkout. Absent → that
-        // audit skips for this site. Not derived from the URL.
-        if (w.netlifyId) site.netlifyId = w.netlifyId;
-        return [site];
-      });
+    return selectFleetSites(websites, workdir).map((s) => ({
+      ...s,
+      meta: { airtableRowId: s.meta?.siteId, ...s.meta },
+    }));
   };
 }

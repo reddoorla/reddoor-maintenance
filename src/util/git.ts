@@ -299,7 +299,7 @@ async function repoToplevel(cwd: string): Promise<string | null> {
  * read `site.gitRepo` directly and therefore refused every POSITIONAL run with
  * "no Git repo on this site" — `localPath()` (src/inventory/local.ts:11) builds
  * `{ path, name }` and nothing else. A site being bootstrapped is exactly the
- * case that has no Airtable row yet (`--fleet airtable` filters pre-launch
+ * case that is not in the fleet roster yet (`--fleet turso` filters pre-launch
  * statuses), so the positional path is the ONLY one `/new-site` can use.
  */
 export async function resolveOwnerRepo(site: Site): Promise<string | null> {

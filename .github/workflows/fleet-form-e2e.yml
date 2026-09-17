@@ -77,7 +77,7 @@ jobs:
           # (form-e2e is checkout-free when the URL is present, and such a site
           # self-skips anyway) — mirrors fleet-lighthouse.
           node dist/cli/bin.js audit \
-            --fleet airtable \
+            --fleet turso \
             --only form-e2e \
             --write-back \
             --concurrency 1 \
