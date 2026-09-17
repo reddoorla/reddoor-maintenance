@@ -80,6 +80,15 @@
             "command": "node scripts/hooks/orphaned-agents-report.mjs"
           }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hooks/session-start-checks.mjs"
+          }
+        ]
       }
     ],
     "SubagentStop": [

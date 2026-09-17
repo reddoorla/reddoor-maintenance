@@ -15,6 +15,15 @@ The meter streams every `.jsonl` under `~/.claude/projects` — 3,294 files at t
 last, ~748,000 lines, 2.7 GB on the day of the run — and emits three kinds of event: deduplicated
 API usage, compaction boundaries, and account-limit blocks.
 
+**A model limit is a block of its own kind.** Besides the account's session and weekly
+blocks, the corpus holds a per-model cap: a synthetic `assistant` record (`message.model`
+`<synthetic>`, zero usage, `error: "rate_limit"`) whose text begins _"You've reached your
+Fable limit. Switch to another model, or manage usage credits at …"_ (earlier _"Fable 5
+limit"_). Since 2026-09-17 the meter reports it as kind `model` with the model named
+(`model:Fable` in the text output) rather than as a session or weekly wall; every block
+count in this document was taken before that, when the pattern did not match it, so
+none of them include it.
+
 **The dedupe rule is `requestId`, not `uuid`.** One API response is written to the
 transcript as several `assistant` records, one per content block (thinking, text,
 each `tool_use`), and each carries a `message.usage` snapshot whose `output_tokens`
