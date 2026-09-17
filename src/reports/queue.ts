@@ -1,6 +1,6 @@
 import type { ReportType } from "./types.js";
 import type { AirtableBase } from "./airtable/client.js";
-import { listReportsForSite, isPendingApproval, setDraftReady } from "./airtable/reports.js";
+import { isPendingApproval, setDraftReady } from "./airtable/reports.js";
 import type { ReportMirror } from "./report-mirror.js";
 
 /**
@@ -45,18 +45,25 @@ export type QueueOutcome = {
  * much as the new one — un-queueing them is the whole point of this function, so
  * a mirror covering only `report.id` would leave the console showing a site with
  * two queued reports until the next hourly sync.
+ *
+ * #646 step 4: the site's other reports are READ from Turso (`mirror.forSite`),
+ * which is why `mirror` is no longer optional. The Airtable read this replaces
+ * could not see a report drafted for a `site_<ULID>` site — and an empty answer
+ * does not fail, it silently queues a second report for a site that already had
+ * one. The Airtable `setDraftReady` stays as the shadow; it skips a report id
+ * Airtable cannot hold.
  */
 export async function queueDraft(
   base: AirtableBase,
   report: { id: string; siteId: string; reportType: ReportType },
-  mirror?: ReportMirror,
+  mirror: ReportMirror,
 ): Promise<QueueOutcome> {
   const setReady = async (id: string, ready: boolean): Promise<void> => {
     await setDraftReady(base, id, ready);
-    await mirror?.patch(id, { draft_ready: ready ? 1 : 0 });
+    await mirror.patch(id, { draft_ready: ready ? 1 : 0 });
   };
   const newTier = reportTier(report.reportType);
-  const others = (await listReportsForSite(base, report.siteId))
+  const others = (await mirror.forSite(report.siteId))
     .filter(isPendingApproval)
     .filter((r) => r.id !== report.id);
 

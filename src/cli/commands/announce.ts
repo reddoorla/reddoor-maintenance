@@ -35,7 +35,15 @@ export async function runAnnounceCommand(
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
   const reportMirror = await makeReportMirror();
   const siteMirror = await makeSiteMirror();
-  const result = await announce({ ...(site ? { site } : {}), reportMirror, siteMirror });
+  // #646 step 4: the fleet roster comes from Turso — an Airtable roster cannot
+  // see a `site_<ULID>` site, so one created since step 3 was never announced.
+  const { readFleetRoster } = await import("../../fleet/roster.js");
+  const result = await announce({
+    ...(site ? { site } : {}),
+    roster: () => readFleetRoster(),
+    reportMirror,
+    siteMirror,
+  });
   const hadError = result.results.some((r) => r.status === "error");
   return { output: formatAnnounceResult(result), code: hadError ? 1 : 0 };
 }

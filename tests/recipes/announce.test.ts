@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { announce } from "../../src/recipes/announce.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+import {
+  makeFakeReportWriter,
+  type FakeReportWriter,
+} from "../reports/_helpers/fake-report-writer.js";
+import { mapRow as mapReportRow } from "../../src/reports/airtable/reports.js";
+import { mapRow as mapSiteRow } from "../../src/reports/airtable/websites.js";
 
 // GA + Search enrichment is the report pipeline's soft-failing wrappers. Mock them so the
 // recipe never hits Google in tests; the default is "not configured" (null) so existing
@@ -47,6 +53,25 @@ function scoredFields(over: Record<string, unknown> = {}): Record<string, unknow
     rScore: 91,
     bpScore: 100,
     seoScore: 95,
+    ...over,
+  };
+}
+
+/** The Turso report writer the recipe writes through (#646 step 4), exposed so a
+ *  case can read what was written. Built by `A(base, …)` from the same records the
+ *  Airtable fake holds, so the two stores start identical. */
+let writer: FakeReportWriter;
+
+/** `announce` deps for a case: the fake Airtable base for the shadow writes, plus
+ *  the two Turso reads/writes that replaced Airtable enumeration and creation. */
+function A(base: ReturnType<typeof makeFakeBase>, over: Record<string, unknown> = {}) {
+  writer = makeFakeReportWriter((base.__records.get("Reports") ?? []).map(mapReportRow));
+  return {
+    base,
+    roster: async () => (base.__records.get("Websites") ?? []).map(mapSiteRow),
+    reportMirror: writer,
+    now: NOW,
+    refreshHeader: false as const,
     ...over,
   };
 }
@@ -104,7 +129,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, now: NOW, refreshHeader: false });
+    const result = await announce(A(base));
 
     expect(result.results.map((r) => r.site)).toEqual(["Acme Co"]);
   });
@@ -129,23 +154,15 @@ describe("recipes/announce", () => {
       ],
       Reports: [],
     });
-    const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
+    await announce(A(base));
 
-    await announce({
-      base,
-      now: NOW,
-      refreshHeader: false,
-      reportMirror: {
-        created: async (rec: { id: string; fields: Record<string, unknown> }) => {
-          seen.push(rec);
-        },
-        body: async () => {},
-        patch: async () => {},
-      },
-    });
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0]!.fields["Report type"]).toBe("Announcement");
+    expect(writer.inserts).toHaveLength(1);
+    expect(writer.inserts[0]!.id).toMatch(/^report_[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(writer.inserts[0]!.fields["Report type"]).toBe("Announcement");
+    // Nothing was created in Airtable — Turso owns the row and its id (#646 step 4).
+    expect(base.__calls.filter((c) => c.kind === "create" && c.table === "Reports")).toHaveLength(
+      0,
+    );
   });
 
   it("filters to a single site by slug when deps.site is set", async () => {
@@ -173,7 +190,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, site: "Delta Co", now: NOW, refreshHeader: false });
+    const result = await announce(A(base, { site: "Delta Co" }));
 
     expect(result.results.map((r) => r.site)).toEqual(["Delta Co"]);
   });
@@ -197,7 +214,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, now: NOW, refreshHeader: false });
+    const result = await announce(A(base));
 
     expect(result.results).toEqual([{ site: "Acme Co", status: "skipped-no-scores" }]);
     const reportCreates = base.__calls.filter((c) => c.kind === "create" && c.table === "Reports");
@@ -221,7 +238,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, now: NOW, refreshHeader: false });
+    const result = await announce(A(base));
 
     expect(result.results).toEqual([
       {
@@ -233,9 +250,9 @@ describe("recipes/announce", () => {
       },
     ]);
 
-    const create = base.__calls.find((c) => c.kind === "create" && c.table === "Reports");
-    if (!create || create.kind !== "create") throw new Error("expected a Reports create");
-    const fields = create.records[0]!.fields;
+    // Written to TURSO since #646 step 4 — same field vocabulary, different store.
+    expect(writer.inserts).toHaveLength(1);
+    const fields = writer.inserts[0]!.fields;
     expect(fields["Report type"]).toBe("Announcement");
     // Subject: "report" (not "schedule"), and the full site name with its bare domain.
     expect(fields["Subject override"]).toBe(
@@ -244,13 +261,7 @@ describe("recipes/announce", () => {
     expect(fields["Lighthouse — Performance"]).toBe(87);
     expect(fields["Period"]).toBe(PERIOD);
 
-    const draftReadyUpdate = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Reports" &&
-        c.records[0]!.fields["Draft ready"] === true,
-    );
-    expect(draftReadyUpdate).toBeDefined();
+    expect(writer.patches).toEqual([{ id: writer.inserts[0]!.id, patch: { draft_ready: 1 } }]);
   });
 
   it("reports recipientMissing=true when the row has no Report recipients (To)", async () => {
@@ -269,7 +280,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, now: NOW, refreshHeader: false });
+    const result = await announce(A(base));
 
     expect(result.results[0]).toMatchObject({
       site: "Acme Co",
@@ -305,7 +316,7 @@ describe("recipes/announce", () => {
       ],
     });
 
-    const result = await announce({ base, now: NOW, refreshHeader: false });
+    const result = await announce(A(base));
 
     expect(result.results[0]).toMatchObject({
       site: "Acme Co",
@@ -364,22 +375,9 @@ describe("recipes/announce", () => {
         },
       ],
     });
-    const patched: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    await announce(A(base));
 
-    await announce({
-      base,
-      now: NOW,
-      refreshHeader: false,
-      reportMirror: {
-        created: async () => {},
-        body: async () => {},
-        patch: async (id: string, patch: Record<string, unknown>) => {
-          patched.push({ id, patch });
-        },
-      },
-    });
-
-    const scores = patched.find((p) => p.patch.lighthouse_performance !== undefined);
+    const scores = writer.patches.find((p) => p.patch.lighthouse_performance !== undefined);
     expect(scores).toMatchObject({
       id: "rec_existing_announce",
       patch: {
@@ -419,11 +417,9 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    await announce({ base, now: NOW, refreshHeader: false });
+    await announce(A(base));
 
-    const create = base.__calls.find((c) => c.kind === "create" && c.table === "Reports");
-    if (!create || create.kind !== "create") throw new Error("expected a Reports create");
-    const fields = create.records[0]!.fields;
+    const fields = writer.inserts[0]!.fields;
     expect(fields["GA users (period)"]).toBe(280);
     expect(fields["GA users (prev period)"]).toBe(275);
     expect(fields["Search found page 1"]).toBe(true);
@@ -456,31 +452,19 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    // Force the FIRST site's createDraft to throw by making the create call fail
-    // only when the payload is for "Bad Co". The good site must still draft.
-    const realTableFn = base as unknown as (table: string) => {
-      select: (opts?: Record<string, unknown>) => unknown;
-      create: (recs: Array<{ fields: Record<string, unknown> }>) => Promise<unknown>;
-      update: (recs: Array<{ id: string; fields: Record<string, unknown> }>) => Promise<unknown>;
+    // Force the FIRST site's report creation to throw. Since #646 step 4 the row
+    // is written to TURSO, so the failure is injected there — the store that can
+    // actually refuse a draft now.
+    const deps = A(base);
+    const realCreate = deps.reportMirror.create;
+    deps.reportMirror.create = async (rec) => {
+      if (String(rec.fields["Report ID"] ?? "").startsWith("Bad Co")) {
+        throw new Error("boom on Bad Co");
+      }
+      return realCreate(rec);
     };
-    const baseAsFn = realTableFn;
-    const wrapped = ((table: string) => {
-      const t = baseAsFn(table);
-      if (table !== "Reports") return t;
-      return {
-        ...t,
-        create: async (recs: Array<{ fields: Record<string, unknown> }>) => {
-          const reportId = String(recs[0]?.fields["Report ID"] ?? "");
-          if (reportId.startsWith("Bad Co")) throw new Error("boom on Bad Co");
-          return t.create(recs);
-        },
-      };
-    }) as unknown as typeof base;
-    // Preserve the call-capture handles the fake exposes.
-    (wrapped as unknown as { __calls: unknown }).__calls = base.__calls;
-    (wrapped as unknown as { __records: unknown }).__records = base.__records;
 
-    const result = await announce({ base: wrapped, now: NOW, refreshHeader: false });
+    const result = await announce(deps);
 
     const byName = new Map(result.results.map((r) => [r.site, r]));
     expect(byName.get("Bad Co")?.status).toBe("error");
@@ -509,7 +493,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    await announce({ base, now: NOW, refreshHeader: false });
+    await announce(A(base));
 
     expect(analyticsHealthWrite(base)?.["Analytics soft-fail at"]).toBe(NOW.toISOString());
   });
@@ -536,19 +520,18 @@ describe("recipes/announce", () => {
     });
     const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
 
-    await announce({
-      base,
-      now: NOW,
-      refreshHeader: false,
-      siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
-        health: async (id: string, fields: Record<string, unknown>) => {
-          mirrored.push({ id, fields });
+    await announce(
+      A(base, {
+        siteMirror: {
+          created: async () => {},
+          hasRow: async () => true,
+          health: async (id: string, fields: Record<string, unknown>) => {
+            mirrored.push({ id, fields });
+          },
+          site: async () => {},
         },
-        site: async () => {},
-      },
-    });
+      }),
+    );
 
     expect(mirrored).toEqual([
       { id: "rec_acme", fields: { "Analytics soft-fail at": NOW.toISOString() } },
@@ -577,7 +560,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    await announce({ base, now: NOW, refreshHeader: false });
+    await announce(A(base));
 
     expect(analyticsHealthWrite(base)).toBeDefined();
     expect(analyticsHealthWrite(base)?.["Analytics soft-fail at"]).toBeNull();
@@ -603,7 +586,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    await announce({ base, now: NOW, refreshHeader: false });
+    await announce(A(base));
 
     expect(analyticsHealthWrite(base)).toBeUndefined();
   });

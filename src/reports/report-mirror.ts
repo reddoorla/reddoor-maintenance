@@ -1,4 +1,7 @@
-/** #539 Phase 5: the Turso write-through for the Reports write surface.
+/** #539 Phase 5: the Turso write-through for the Reports write surface — and,
+ *  since #646 step 4, the surface itself: `create` MINTS nothing (the creator
+ *  does) but it is the only place a report row comes into existence, and
+ *  `forSite` is the drafting path's read.
  *
  *  Before this, the only report mirrors were UPDATEs on the request path
  *  (approve, override, delivery status, commentary). Everything the DRAFTING
@@ -18,21 +21,43 @@
  */
 import { openDb, readDbConfig, type Db } from "../db/client.js";
 import {
+  getReportById,
+  insertReportRow,
+  listReportsForSite,
   mirrorReportInsert,
   mirrorReportPatch,
   storeRenderedHtml,
   type ReportMirrorPatch,
 } from "../db/fleet-state.js";
-import type { CreatedDraftMirror } from "./airtable/reports.js";
+import type { ReportRow } from "./report-row.js";
 import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 
-/** The three shapes a report write takes. Injected as ONE object rather than
- *  three parameters because they share a db handle and always travel together:
- *  a caller holding `created` but not `body` produces exactly the half-mirrored
- *  state (row present, preview 404) this module exists to prevent. */
+/** The drafting path's whole report surface. Injected as ONE object rather than
+ *  as separate parameters because they share a db handle and always travel
+ *  together: a caller holding `create` but not `body` produces exactly the
+ *  half-written state (row present, preview 404) this module exists to prevent.
+ *
+ *  Since #646 step 4 this is no longer only a mirror. `create` is the PRIMARY
+ *  write — Turso mints the report id and owns the row, and there is no Airtable
+ *  record for it to shadow (see `src/reports/create-report.ts`) — and `forSite`
+ *  is a READ the drafting path used to make against Airtable, which cannot see a
+ *  report for a `site_<ULID>` site. `body` and `patch` keep their older meaning:
+ *  write-throughs for state whose `rec…` rows Airtable may still shadow. The name
+ *  is kept because every composition root and every injection site already uses
+ *  it, and a rename would churn ten files to say what this comment says. */
 export type ReportMirror = {
-  /** A row Airtable just CREATED, as Airtable echoed it back. */
-  created: CreatedDraftMirror;
+  /** Insert a brand-new report row and return what Turso stored. Not a mirror:
+   *  the row exists nowhere else. */
+  create: (rec: { id: string; fields: Record<string, unknown> }) => Promise<ReportRow>;
+  /** A row AIRTABLE created, as Airtable echoed it back — the pre-step-4 shape.
+   *  NO production path calls it any more: it pairs with the legacy Airtable
+   *  `createDraft`, which nothing calls either. Both are kept rather than
+   *  deleted because deleting from the Airtable layer is step 6, and both go
+   *  together when it comes. */
+  created: (rec: { id: string; fields: Record<string, unknown> }) => Promise<void>;
+  /** Every report for one site — the single-queue rule's and the period
+   *  derivation's read. */
+  forSite: (siteId: string) => Promise<ReportRow[]>;
   /** A freshly rendered body for an existing row. */
   body: (reportId: string, html: string) => Promise<void>;
   /** Columns just written to an existing row. */
@@ -94,8 +119,34 @@ export async function makeReportMirror(
     }
   };
 
+  /** The two READS. They take the same handle but none of `run`'s write
+   *  semantics: there is no `mirrored=` outcome to report for a read, and a read
+   *  that cannot reach the store is never something to swallow — under the freeze
+   *  a missing handle already threw at construction, so this only restates it for
+   *  the non-strict world, where a drafting read silently answering "no reports"
+   *  would break the single-queue rule instead of failing. */
+  const reading = (op: string): Db => {
+    if (!db) throw new Error(`REPORT_MIRROR op=${op} unavailable: ${why}`);
+    return db;
+  };
+
   return {
+    create: async (rec) => {
+      await run(rec.id, "create", (d) => insertReportRow(d, rec));
+      // Read back rather than map the input: the caller gets what Turso STORED,
+      // so a coercion in the mapper can never diverge the returned row from the
+      // persisted one. The same rule the Airtable create followed by returning
+      // Airtable's echo.
+      const row = await getReportById(reading("create"), rec.id);
+      if (!row)
+        throw new Error(`REPORT_MIRROR report=${rec.id} op=create: row not found after insert`);
+      return row;
+    },
     created: (rec) => run(rec.id, "created", (d) => mirrorReportInsert(d, rec)),
+    // `async` so a missing handle REJECTS rather than throwing synchronously —
+    // every caller awaits this, and a synchronous throw would escape a
+    // `.catch()` written around the await.
+    forSite: async (siteId) => listReportsForSite(reading("forSite"), siteId),
     body: (reportId, html) => run(reportId, "body", (d) => storeRenderedHtml(d, reportId, html)),
     patch: (reportId, patch) =>
       run(reportId, "patch", (d) => mirrorReportPatch(d, reportId, patch)),

@@ -10,13 +10,11 @@ import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-
 import { writeAuditsToAirtable } from "../audits/write-audits-to-airtable.js";
 import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
-import { listWebsites, siteSlug } from "../reports/airtable/websites.js";
+import { siteSlug } from "../reports/airtable/websites.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import {
-  createDraft,
-  findReportByPeriod,
-  updateReportScores,
-} from "../reports/airtable/reports.js";
+import { updateReportScores } from "../reports/airtable/reports.js";
+import { createReportDraft, findReportForPeriod } from "../reports/create-report.js";
+import type { DraftInput } from "../reports/draft-fields.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import type { ReportMirror } from "../reports/report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
@@ -48,12 +46,16 @@ export type LaunchDeps = {
   audit?: (site: Site) => Promise<AuditResult[]>;
   /** Airtable handle. Defaults to opening the live base from credentials. */
   base?: AirtableBase;
-  /** #539 Phase 5: Turso write-through for everything this recipe writes — the
-   *  Launch row (or a re-run's refreshed scores), the rendered body, and the
-   *  queue flag. Wired at the CLI composition root, never defaulted here — the
-   *  unit suite calls `launch` with a fake base and must not open a real
-   *  libSQL handle. */
-  reportMirror?: ReportMirror;
+  /** Every site in the fleet, read from TURSO (#646 step 4) — the Airtable
+   *  roster this replaces could not see a `site_<ULID>` site, so launching one
+   *  failed at "no Websites row matched". Required, not defaulted: the unit
+   *  suite calls `launch` with a fake base and must not open a real libSQL
+   *  handle. The CLI composition root wires `readFleetRoster`. */
+  roster: () => Promise<WebsiteRow[]>;
+  /** #539 Phase 5, and since #646 step 4 the store that MINTS and holds the
+   *  Launch row: the row itself (or a re-run's refreshed scores), the rendered
+   *  body, and the queue flag. Required for the same reason `roster` is. */
+  reportMirror: ReportMirror;
   /** #539 Phase 5: the Websites-row twin — launch writes the site's FIRST audit
    *  results and (on send) its launched status. Injected at the CLI root. */
   siteMirror?: SiteMirror;
@@ -590,7 +592,7 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
  * other says what has been proved. Only step 0 precedes a GitHub write —
  * dev-guard cannot, because it needs the row from step 3 to know the url.
  */
-export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchResult> {
+export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult> {
   const label = siteLabel(site);
   const bootstrap = deps.bootstrap ?? selfUpdating;
   const audit = deps.audit ?? runAudits;
@@ -649,12 +651,12 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
     seo: rawScores.seo ?? 0,
   };
 
-  const websites = await listWebsites(base);
+  const websites = await deps.roster();
   const target = websites.find((w) => siteSlug(w.name) === siteSlug(label));
   if (!target) {
     steps.push({
       name: "audit",
-      result: { kind: "error", message: `no Websites row matched site "${label}"` },
+      result: { kind: "error", message: `no site row matched site "${label}"` },
     });
     return stop();
   }
@@ -761,7 +763,7 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
     // Re-run dedupe: reuse an existing Launch row for this (site, period) instead
     // of stacking a second draft. findReportByPeriod is the same idempotency
     // lookup draft.ts documents (dashboard/digest point lookup).
-    const existing = await findReportByPeriod(base, target.id, "Launch", period);
+    const existing = await findReportForPeriod(deps.reportMirror, target.id, "Launch", period);
     if (existing) {
       // Reuse path: the row was created on a prior run with THAT run's scores. This
       // re-run just produced fresh audit scores AND will re-render the preview from
@@ -770,7 +772,7 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
       // create path already writes fresh scores via createDraft.
       await updateReportScores(base, existing.id, scores, today);
       // Mirror the same refresh — see the announce reuse path for why.
-      await deps.reportMirror?.patch(existing.id, {
+      await deps.reportMirror.patch(existing.id, {
         lighthouse_performance: scores.performance,
         lighthouse_accessibility: scores.accessibility,
         lighthouse_best_practices: scores.bestPractices,
@@ -779,11 +781,11 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
       });
       report = existing;
     } else {
-      report = await createDraft(
-        base,
-        draftInputFor(target, scores, today, period),
-        deps.reportMirror?.created,
-      );
+      // #646 step 4: minted and written in Turso (`report_<ULID>`). The Airtable
+      // Reports row this replaces is skipped, not written — see `createReportDraft`.
+      report = await createReportDraft(draftInputFor(target, scores, today, period), {
+        create: deps.reportMirror.create,
+      });
     }
   } catch (err) {
     steps.push({ name: "draft", result: errorOf(err) });
@@ -817,7 +819,7 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
         "text/html",
       );
       // The console preview reads the body from Turso, not the attachment.
-      await deps.reportMirror?.body(report.id, html);
+      await deps.reportMirror.body(report.id, html);
     } catch (uploadErr) {
       console.warn(
         `⚠ Launch preview upload skipped for ${target.name}: ${
@@ -854,7 +856,7 @@ function draftInputFor(
   scores: LighthouseScores,
   today: Date,
   period: string,
-): Parameters<typeof createDraft>[1] {
+): DraftInput {
   const reportType = "Launch" as const;
   const reportId = `${target.name} — ${reportType} — ${today.toISOString().slice(0, 10)}`;
   return {

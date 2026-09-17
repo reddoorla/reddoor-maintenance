@@ -50,7 +50,11 @@ export async function runLaunchCommand(
   // (see runAnnounceCommand for why it is not defaulted inside the recipe).
   const { makeReportMirror } = await import("../../reports/report-mirror.js");
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
+  // #646 step 4: the fleet roster comes from Turso — an Airtable roster cannot
+  // see a `site_<ULID>` site, so launching one failed at "no site row matched".
+  const { readFleetRoster } = await import("../../fleet/roster.js");
   const result = await launch(target, {
+    roster: () => readFleetRoster(),
     reportMirror: await makeReportMirror(),
     siteMirror: await makeSiteMirror(),
   });

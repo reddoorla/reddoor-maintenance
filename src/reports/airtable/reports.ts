@@ -1,9 +1,9 @@
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
-import { isAirtableRecordId } from "../../fleet/site-id.js";
+import { isAirtableRecordId, skipsAirtableShadow } from "../../fleet/site-id.js";
+import { draftFields, ymd, type DraftInput } from "../draft-fields.js";
 import type { ReportType, LighthouseScores } from "../types.js";
 import { ALL_CHECKLIST_FIELDS } from "../checklist.js";
-import type { EvidenceRecord } from "../auto-tick.js";
 import {
   toReportType,
   parseAutoEvidence,
@@ -89,35 +89,10 @@ export type ReportEnrichment = {
   searchPosition?: number;
 };
 
-export type DraftInput = {
-  reportId: string;
-  siteId: string;
-  reportType: ReportType;
-  /** UTC `YYYY-MM` recurrence key. Omitted on legacy callers; written only when supplied. */
-  period?: string;
-  periodStart: Date;
-  periodEnd: Date;
-  completedOn: Date;
-  lighthouse: LighthouseScores;
-  lastTestedDate: Date | null;
-  /** GA "Users" for the period / previous period. Omitted when GA is not configured
-   *  for the site or the fetch failed — the operator fills the fields manually. */
-  gaUsersCurrent?: number;
-  gaUsersPrevious?: number;
-  /** Search-presence result. `searchFoundPage1` is written whenever the check ran (true or
-   *  false — false is the operator-only negative signal). `searchPosition` only when found. */
-  searchFoundPage1?: boolean;
-  searchPosition?: number;
-  subjectOverride?: string;
-  /** Checklist fields to tick at create time (the auto-tick "pass" set). */
-  checklistTicks?: string[];
-  /** Auto-tick evidence snapshot to persist (keyed by checklist field). */
-  autoEvidence?: Record<string, EvidenceRecord>;
-};
-
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
+// The draft's field set and its `DraftInput` moved to src/reports/draft-fields.ts
+// in #646 step 4: Turso creates reports now, and the creator must outlive this
+// directory. Re-exported so existing imports resolve unchanged.
+export { draftFields, ymd, type DraftInput } from "../draft-fields.js";
 
 /**
  * Escape a string for safe interpolation into an Airtable filterByFormula.
@@ -137,54 +112,33 @@ export type CreatedDraftMirror = (rec: {
   fields: Record<string, unknown>;
 }) => Promise<void>;
 
+/**
+ * Create a Reports row in Airtable, letting Airtable mint the report id.
+ *
+ * LEGACY since #646 step 4 (operator decision 2026-09-17): no production path
+ * calls this any more. Reports are created in Turso with a minted
+ * `report_<ULID>` id (`src/reports/create-report.ts`), because Airtable cannot be
+ * told what record id to use and every later write addresses the report by its
+ * id. Kept — not deleted — because deleting anything from this directory is step
+ * 6, which needs its own operator go.
+ */
 export async function createDraft(
   base: AirtableBase,
   input: DraftInput,
   mirror?: CreatedDraftMirror,
 ): Promise<ReportRow> {
-  // #646 step 3: NOT a shadow write, so it does not skip. The report row is still
-  // MINTED here — Airtable's record id is the report id — and a `site_<ULID>` site
+  // #646 step 3: NOT a shadow write, so it does not skip. This path MINTS the
+  // report id — Airtable's record id is the report id — and a `site_<ULID>` site
   // has no Websites record for the `Site` link to point at. Skipping would silently
   // produce no report; letting Airtable reject the link would surface as an opaque
-  // INVALID_RECORD_ID. Refuse by name until the report id decision lands on #646.
+  // INVALID_RECORD_ID. Refuse by name; the Turso creator is what such a site uses.
   if (!isAirtableRecordId(input.siteId)) {
     throw new Error(
       `createDraft: site ${input.siteId} was created in Turso and has no Airtable record — ` +
-        `reports for it are blocked on the pending report id decision (#646)`,
+        `create the report in Turso instead (createReportDraft, #646 step 4)`,
     );
   }
-  // Set Delivery status to "pending" at creation time, NOT at send time. This
-  // matters for H4: if stampSent wrote "pending" after the webhook had already
-  // written "delivered" (race), the operator would see a regressed status.
-  const fields: FieldSet = {
-    "Report ID": input.reportId,
-    Site: [input.siteId],
-    "Report type": input.reportType,
-    "Period start": ymd(input.periodStart),
-    "Period end": ymd(input.periodEnd),
-    "Completed on": ymd(input.completedOn),
-    "Lighthouse — Performance": input.lighthouse.performance,
-    "Lighthouse — Accessibility": input.lighthouse.accessibility,
-    "Lighthouse — Best Practices": input.lighthouse.bestPractices,
-    "Lighthouse — SEO": input.lighthouse.seo,
-    "Delivery status": "pending",
-  };
-  if (input.lastTestedDate) fields["Last tested date"] = ymd(input.lastTestedDate);
-  // GA fields are written only when supplied (GA configured + fetch succeeded). When
-  // omitted the row keeps them blank for manual entry — the pre-GA behavior.
-  if (input.gaUsersCurrent !== undefined) fields["GA users (period)"] = input.gaUsersCurrent;
-  if (input.gaUsersPrevious !== undefined) fields["GA users (prev period)"] = input.gaUsersPrevious;
-  if (input.searchFoundPage1 !== undefined) fields["Search found page 1"] = input.searchFoundPage1;
-  if (input.searchPosition !== undefined) fields["Search position"] = input.searchPosition;
-  if (input.period !== undefined) fields["Period"] = input.period;
-  if (input.subjectOverride !== undefined) fields["Subject override"] = input.subjectOverride;
-  // Auto-ticked checklist boxes + the evidence snapshot. The booleans are the same columns the
-  // operator/dashboard toggle; the JSON is what the health gate reads (isHealthGateClear/gatingHealth)
-  // and also drives the dashboard's green/amber badges.
-  for (const field of input.checklistTicks ?? []) fields[field] = true;
-  if (input.autoEvidence && Object.keys(input.autoEvidence).length > 0) {
-    fields["Checklist auto-evidence"] = JSON.stringify(input.autoEvidence);
-  }
+  const fields = draftFields(input) as FieldSet;
   const created = (await base(REPORTS_TABLE).create([{ fields }])) as Records<FieldSet>;
   const rec = created[0];
   if (!rec) throw new Error("Airtable create returned no records");
@@ -198,11 +152,25 @@ export async function createDraft(
   return mapRow(raw);
 }
 
+/**
+ * Every writer below is a SHADOW of a Turso row since the freeze, and since #646
+ * step 4 a report's id may be a minted `report_<ULID>` that Airtable has never
+ * heard of. Sending such an id to Airtable is a guaranteed 404 on the drafting,
+ * approve, send and webhook paths alike, so each writer asks the same question
+ * the site writers already ask — could Airtable hold this row at all? — and skips
+ * with one greppable `AIRTABLE_SHADOW skipped=non-rec-id writer=<name>` line
+ * when it could not. A `rec…` report is untouched: its shadow row is still
+ * written until step 6 deletes this layer.
+ *
+ * The test that covers this (tests/reports/airtable/shadow-skip-report-ids.test.ts)
+ * fails if an exported writer here is missing from it.
+ */
 export async function setDraftReady(
   base: AirtableBase,
   recordId: string,
   ready: boolean,
 ): Promise<void> {
+  if (skipsAirtableShadow("setDraftReady", recordId)) return;
   await base(REPORTS_TABLE).update([{ id: recordId, fields: { "Draft ready": ready } }]);
 }
 
@@ -222,6 +190,7 @@ export async function updateReportScores(
   completedOn?: Date,
   enrichment?: ReportEnrichment,
 ): Promise<void> {
+  if (skipsAirtableShadow("updateReportScores", recordId)) return;
   const fields: FieldSet = {
     "Lighthouse — Performance": scores.performance,
     "Lighthouse — Accessibility": scores.accessibility,
@@ -249,6 +218,7 @@ export async function updateReportCommentary(
   recordId: string,
   text: string,
 ): Promise<void> {
+  if (skipsAirtableShadow("updateReportCommentary", recordId)) return;
   await base(REPORTS_TABLE).update([{ id: recordId, fields: { Commentary: text } }]);
 }
 
@@ -310,6 +280,7 @@ export async function stampSent(
   sentAt: Date,
   messageId: string | null,
 ): Promise<void> {
+  if (skipsAirtableShadow("stampSent", recordId)) return;
   const fields: Record<string, string> = { "Sent at": sentAt.toISOString() };
   if (messageId !== null) fields["Resend message ID"] = messageId;
   await base(REPORTS_TABLE).update([
@@ -325,6 +296,7 @@ export async function setDeliveryStatus(
   recordId: string,
   status: DeliveryStatus,
 ): Promise<void> {
+  if (skipsAirtableShadow("setDeliveryStatus", recordId)) return;
   await base(REPORTS_TABLE).update([{ id: recordId, fields: { "Delivery status": status } }]);
 }
 
@@ -339,6 +311,7 @@ export async function approveReportRow(
   approvedAt: Date,
   approvedBy: string,
 ): Promise<void> {
+  if (skipsAirtableShadow("approveReportRow", recordId)) return;
   await base(REPORTS_TABLE).update([
     {
       id: recordId,
@@ -363,6 +336,7 @@ export async function overrideReportRow(
   overrideBy: string,
   reason: string,
 ): Promise<void> {
+  if (skipsAirtableShadow("overrideReportRow", recordId)) return;
   const at = overrideAt.toISOString();
   await base(REPORTS_TABLE).update([
     {
