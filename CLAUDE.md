@@ -74,6 +74,8 @@ work:
   long gap: `git log --oneline -3` and `git status` before committing, and
   re-confirm the PR head SHA before merging — the world may have changed
   underneath you.
+- **Land PRs with `node scripts/land-prs.mjs <pr> …`** — serial, head-SHA gated,
+  refuses release PRs; `--dry-run` shows the plan first.
 
 Individual site repos generally get **one** agent session at a time; the
 worktree rule is mandatory here in the central repo and best practice there.
@@ -116,6 +118,10 @@ the two match will address the wrong repository.
 **Every working session appends a dated entry to `docs/workJournal.md`** — what
 was done and **why**, newest at the bottom, never corrected in place. Write it
 as the last act of the session, not the first act of the next one.
+
+Keep the session's running notes for that entry in
+`<main checkout>/.session-logs/<YYYY-MM-DD>-<slug>.md` (gitignored), never in the
+session scratchpad, which is deleted with the session.
 
 The journal is the history of executing the build. Code says what the system
 does now; the journal says what it used to do, what it cost to change, and
