@@ -13,6 +13,8 @@ const REPO = "reddoorla/reddoor-maintenance";
 const A = "a".repeat(40);
 const B = "b".repeat(40);
 const C = "c".repeat(40);
+const D = "d".repeat(40);
+const E = "e".repeat(40);
 const MERGE = "f".repeat(40);
 
 const ok = (stdout = ""): RunResult => ({ code: 0, stdout, stderr: "" });
@@ -200,6 +202,94 @@ describe("land-prs: the head-SHA gate", () => {
     expect(mergeCall).not.toContain(A);
   });
 
+  it("UNKNOWN on the first view settles to BEHIND: update-branch runs BEFORE any checks, merge on the new sha", async () => {
+    // The first live run: #858 was viewed right after #857 merged, read UNKNOWN, skipped
+    // the BEHIND step, watched stale checks, and only met BEHIND at the gate.
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          [
+            view({ mergeStateStatus: "UNKNOWN" }),
+            view({ mergeStateStatus: "BEHIND" }),
+            view({ headRefOid: B, mergeStateStatus: "BLOCKED" }),
+            view({ headRefOid: B, mergeStateStatus: "CLEAN" }),
+          ],
+        ],
+        [/^gh pr update-branch 5 /, [ok()]],
+        [CHECKS(5), [ok()]],
+        [MERGE_CMD(5), [ok()]],
+        [VERIFY(5), [merged()]],
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.sleeps.slice(0, 2)).toEqual([10_000, 25_000]);
+    const order = r.calls.map((c) => c.split(" ").slice(0, 3).join(" "));
+    expect(order.indexOf("gh pr update-branch")).toBeGreaterThan(-1);
+    expect(order.indexOf("gh pr update-branch")).toBeLessThan(order.indexOf("gh pr checks"));
+    expect(r.calls.filter((c) => CHECKS(5).test(c))).toHaveLength(1);
+    expect(r.lines.some((l) => l.startsWith("LAND #5 open head=aaaaaaa merge=BEHIND"))).toBe(true);
+    expect(r.calls.find((c) => MERGE_CMD(5).test(c))).toContain(`--match-head-commit ${B}`);
+  });
+
+  it("BEHIND discovered at the post-checks gate: update-branch, re-check the new head, merge on it", async () => {
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          [
+            view({ mergeStateStatus: "CLEAN" }), // first view
+            view({ mergeStateStatus: "BEHIND" }), // gate: main moved during the checks
+            view({ headRefOid: B, mergeStateStatus: "BLOCKED" }), // post-update poll
+            view({ headRefOid: B, mergeStateStatus: "CLEAN" }), // gate 2
+          ],
+        ],
+        [/^gh pr update-branch 5 /, [ok()]],
+        [CHECKS(5), [ok()]],
+        [MERGE_CMD(5), [ok()]],
+        [VERIFY(5), [merged()]],
+      ],
+    );
+    expect(r.code).toBe(0);
+    const kinds = r.calls
+      .map((c) => c.split(" ").slice(0, 3).join(" "))
+      .filter((k) => /checks|update-branch|merge/.test(k));
+    expect(kinds).toEqual(["gh pr checks", "gh pr update-branch", "gh pr checks", "gh pr merge"]);
+    expect(r.lines).toContain("LAND #5 BEHIND at the gate on aaaaaaa; updating again");
+    const mergeCall = r.calls.find((c) => MERGE_CMD(5).test(c))!;
+    expect(mergeCall).toContain(`--match-head-commit ${B}`);
+    expect(mergeCall).not.toContain(A);
+  });
+
+  it("BEHIND at every gate is bounded by the round cap, and stops with a clear reason", async () => {
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          [
+            view({ headRefOid: A, mergeStateStatus: "CLEAN" }),
+            view({ headRefOid: A, mergeStateStatus: "BEHIND" }),
+            view({ headRefOid: B, mergeStateStatus: "BLOCKED" }),
+            view({ headRefOid: B, mergeStateStatus: "BEHIND" }),
+            view({ headRefOid: C, mergeStateStatus: "BLOCKED" }),
+            view({ headRefOid: C, mergeStateStatus: "BEHIND" }),
+          ],
+        ],
+        [/^gh pr update-branch 5 /, [ok()]],
+        [CHECKS(5), [ok()]],
+      ],
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=still BEHIND after 3 check rounds on ccccccc: main kept moving",
+    );
+    expect(r.calls.filter((c) => c.startsWith("gh pr update-branch"))).toHaveLength(2);
+    expect(r.calls.some((c) => MERGE_CMD(5).test(c))).toBe(false);
+  });
+
   it("failing checks stop the run with the failing names, and later PRs are never touched", async () => {
     const r = await land(
       [5, 6, 7],
@@ -298,7 +388,12 @@ describe("land-prs: --cleanup", () => {
     "",
   ].join("\n");
 
-  const routesThrough = (status: RunResult): Route[] => [
+  // The merged head is A. `tip` is the local branch's tip; `ancestor` is what
+  // `git merge-base --is-ancestor <tip> A` answers.
+  const routesThrough = (
+    status: RunResult,
+    { tip = A, ancestor = ok() }: { tip?: string; ancestor?: RunResult } = {},
+  ): Route[] => [
     [VIEW(5), [view()]],
     [CHECKS(5), [ok()]],
     [MERGE_CMD(5), [ok()]],
@@ -306,7 +401,9 @@ describe("land-prs: --cleanup", () => {
     [/^git worktree list --porcelain$/, [ok(porcelain)]],
     [/^git -C \/repo\/\.claude\/worktrees\/mine status --porcelain$/, [status]],
     [/^git worktree remove \/repo\/\.claude\/worktrees\/mine$/, [ok()]],
-    [/^git rev-parse --verify -q refs\/heads\/feat\/something$/, [ok(`${A}\n`)]],
+    [/^git rev-parse --verify -q refs\/heads\/feat\/something$/, [ok(`${tip}\n`)]],
+    [/^git fetch --no-tags --no-write-fetch-head origin refs\/pull\/5\/head$/, [ok()]],
+    [new RegExp(`^git merge-base --is-ancestor ${tip} ${A}$`), [ancestor]],
     [/^git branch -D feat\/something$/, [ok()]],
   ];
 
@@ -326,6 +423,33 @@ describe("land-prs: --cleanup", () => {
     // never forced, and the worktree on another branch is never looked at
     expect(r.calls.some((c) => c.includes("--force"))).toBe(false);
     expect(r.calls.some((c) => c.includes("worktrees/other"))).toBe(false);
+  });
+
+  it("deletes a branch whose tip is an ANCESTOR of the merged head (update-branch added a merge on top)", async () => {
+    // The first live run: #857's local tip a8fcfc2 was behind the merged head a5da697 only
+    // by GitHub's update-branch merge commit, and the old equality test kept the branch.
+    const r = await land([5], routesThrough(ok(""), { tip: D, ancestor: ok() }), { cleanup: true });
+    expect(r.code).toBe(0);
+    const i = (re: RegExp) => r.calls.findIndex((c) => re.test(c));
+    expect(i(/^git fetch .* refs\/pull\/5\/head$/)).toBeGreaterThan(-1);
+    expect(i(/^git fetch /)).toBeLessThan(i(/^git merge-base --is-ancestor /));
+    expect(r.calls).toContain(`git merge-base --is-ancestor ${D} ${A}`);
+    expect(r.calls).toContain("git branch -D feat/something");
+    expect(r.lines).toContain("LAND #5 cleanup deleted branch feat/something");
+  });
+
+  it("keeps a branch whose tip is NOT an ancestor of the merged head, and says why", async () => {
+    const r = await land(
+      [5],
+      routesThrough(ok(""), { tip: E, ancestor: { code: 1, stdout: "", stderr: "" } }),
+      { cleanup: true },
+    );
+    expect(r.code).toBe(0);
+    expect(r.calls).toContain("git worktree remove /repo/.claude/worktrees/mine");
+    expect(r.calls.some((c) => c.startsWith("git branch"))).toBe(false);
+    expect(r.lines).toContain(
+      "LAND #5 cleanup kept branch feat/something: local tip eeeeeee is not an ancestor of the merged head aaaaaaa (it has commits that did not land)",
+    );
   });
 
   it("leaves a dirty worktree alone and says why", async () => {

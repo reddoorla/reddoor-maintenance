@@ -12,22 +12,27 @@
 // them in parallel only multiplies the update-branch rounds.
 //
 // Per PR, in order:
-//   1. view. MERGED → skip and continue. CLOSED, draft, base ≠ main, or a release PR
-//      (title `chore(release)…` or head `changeset-release/*`, which AUTONOMY.md
-//      §"Merge authority" keeps human) → stop. DIRTY → stop (a conflict gets no CI).
+//   1. view. MERGED → skip and continue. UNKNOWN → re-view (≤ 3 × 10 s) before deciding:
+//      the first view of a PR taken right after the previous one merged is UNKNOWN while
+//      GitHub recomputes, and acting on it skipped the BEHIND step in the first live run.
+//      CLOSED, draft, base ≠ main, or a release PR (title `chore(release)…` or head
+//      `changeset-release/*`, which AUTONOMY.md §"Merge authority" keeps human) → stop.
+//      DIRTY → stop (a conflict gets no CI).
 //   2. BEHIND → `gh pr update-branch`, sleep 25 s, poll until headRefOid moves (≤ 3 min).
 //   3. `gh pr checks --watch --fail-fast` (≤ --checks-timeout-min). Non-zero → stop,
 //      naming the failing checks.
-//   4. re-view. The head moved during the wait → back to 3 (≤ 3 rounds). Otherwise the
-//      merge state must be CLEAN (UNKNOWN/BLOCKED get a short settle first, because
-//      GitHub recomputes it lazily after the last check completes).
+//   4. re-view. The head moved during the wait → back to 3. BEHIND (main moved during the
+//      wait) → back to 2. Both count against the same 3 rounds. Otherwise the merge state
+//      must be CLEAN (UNKNOWN/BLOCKED get a short settle first, because GitHub recomputes
+//      it lazily after the last check completes); any other state stops.
 //   5. `gh pr merge --squash --delete-branch --match-head-commit <sha>`, then verify
 //      MERGED. Run from a worktree, gh prints `failed to run git: fatal: 'main' is
 //      already used by worktree …` and exits non-zero AFTER the merge succeeded — its
 //      local branch switch fails, not the merge — so the view is the verdict, not the
 //      exit code.
 //   6. --cleanup: a local worktree on the PR's head branch with a clean `git status` is
-//      removed (never forced), and its branch deleted if its tip is the merged head.
+//      removed (never forced), and its branch deleted if its tip is an ancestor of the
+//      merged head (fetched first: update-branch puts a merge commit on top on GitHub).
 //
 // The first stop ends the run (`LAND #N stopped reason=…`, exit 1); later PRs are not
 // touched. --dry-run only views, and prints what it would do.
@@ -57,6 +62,7 @@ export const DEFAULT_TIMING = {
 
 const GH_TIMEOUT_MS = 60_000;
 const GIT_TIMEOUT_MS = 15_000;
+const GIT_FETCH_TIMEOUT_MS = 60_000;
 // States GitHub reports while it is still recomputing mergeability after checks finish.
 const SETTLING = new Set(["UNKNOWN", "BLOCKED"]);
 
@@ -268,6 +274,20 @@ async function waitForChecks(ctx, n, sha) {
   }
 }
 
+/** Re-view while the merge state is UNKNOWN, before the first decision on a PR. */
+async function settledFirstView(ctx, n) {
+  let pr = await viewPr(ctx, n);
+  for (
+    let i = 0;
+    i < ctx.t.settleRetries && pr.state === "OPEN" && pr.mergeStateStatus === "UNKNOWN";
+    i++
+  ) {
+    await ctx.sleep(ctx.t.settleIntervalMs);
+    pr = await viewPr(ctx, n);
+  }
+  return pr;
+}
+
 async function gateView(ctx, n, began) {
   let pr = await viewPr(ctx, n);
   for (
@@ -365,12 +385,36 @@ async function cleanupWorktree(ctx, n, branch, mergedSha) {
     }
     ctx.log(`LAND #${n} cleanup removed ${w.path}`);
     // A squash merge leaves the branch's commits unreachable from main, so `branch -d`
-    // always refuses. Force-delete only when the local tip IS the head GitHub merged —
-    // then every commit on it is in main — and keep it otherwise.
-    const tip = (await git(["rev-parse", "--verify", "-q", ref])).stdout.trim();
+    // always refuses. Force-delete only when the local tip is an ANCESTOR of the head
+    // GitHub merged — then every local commit is in what landed — and keep it otherwise.
+    // Equality is not enough: `update-branch` adds a merge commit on GitHub that the local
+    // branch never sees, so the first live run kept a fully-landed branch. That merged
+    // head is usually not in the local object store, so fetch it (the PR ref survives
+    // --delete-branch; the bare SHA is the fallback) without touching FETCH_HEAD.
+    const tipR = await git(["rev-parse", "--verify", "-q", ref]);
+    const tip = tipR.stdout.trim();
+    if (tipR.code !== 0 || !tip) {
+      ctx.log(`LAND #${n} cleanup kept branch ${branch}: cannot resolve its local tip`);
+      continue;
+    }
     if (tip !== mergedSha) {
+      const fetch = (what) =>
+        ctx.run("git", ["fetch", "--no-tags", "--no-write-fetch-head", "origin", what], {
+          cwd: ctx.cwd,
+          timeoutMs: GIT_FETCH_TIMEOUT_MS,
+        });
+      if ((await fetch(`refs/pull/${n}/head`)).code !== 0) await fetch(mergedSha);
+    }
+    const anc = await git(["merge-base", "--is-ancestor", tip, mergedSha]);
+    if (anc.code === 1) {
       ctx.log(
-        `LAND #${n} cleanup kept branch ${branch}: local tip ${short(tip)} is not the merged head ${short(mergedSha)}`,
+        `LAND #${n} cleanup kept branch ${branch}: local tip ${short(tip)} is not an ancestor of the merged head ${short(mergedSha)} (it has commits that did not land)`,
+      );
+      continue;
+    }
+    if (anc.code !== 0) {
+      ctx.log(
+        `LAND #${n} cleanup kept branch ${branch}: cannot compare local tip ${short(tip)} with the merged head ${short(mergedSha)}: ${firstLine(anc.stderr) || `exit ${anc.code}`}`,
       );
       continue;
     }
@@ -386,7 +430,7 @@ async function cleanupWorktree(ctx, n, branch, mergedSha) {
 // ── one PR ───────────────────────────────────────────────────────────────────────────
 
 async function landOne(ctx, n) {
-  let pr = await viewPr(ctx, n);
+  let pr = await settledFirstView(ctx, n);
   if (pr.state === "MERGED") {
     ctx.log(`LAND #${n} skipped reason=already merged`);
     return { status: "skipped" };
@@ -427,6 +471,19 @@ async function landOne(ctx, n) {
       ctx.log(
         `LAND #${n} head moved during checks ${short(began)} -> ${short(pr.headRefOid)}; re-gating`,
       );
+      continue;
+    }
+    // main moved while the checks ran (typically: the previous PR in this run, or another
+    // session, merged). The checks just watched are on a head that can no longer merge
+    // under strict protection, so update again and re-check — within the same round cap.
+    if (pr.mergeStateStatus === "BEHIND") {
+      if (round >= ctx.t.maxCheckRounds) {
+        throw new Stop(
+          `still BEHIND after ${round} check rounds on ${short(began)}: main kept moving`,
+        );
+      }
+      ctx.log(`LAND #${n} BEHIND at the gate on ${short(began)}; updating again`);
+      pr = await updateBranch(ctx, n, pr);
       continue;
     }
     if (pr.mergeStateStatus !== "CLEAN") {
