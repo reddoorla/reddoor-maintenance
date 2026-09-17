@@ -7,7 +7,7 @@ describe("reports/header-image geometry", () => {
   });
 
   it("has a 16:10 screen rect, matching the MacBook mockup", () => {
-    expect(SCREEN).toEqual({ x: 302, y: 1913, w: 1349, h: 844 });
+    expect(SCREEN).toEqual({ x: 309, y: 1887, w: 1347, h: 841 });
     expect(SCREEN.w / SCREEN.h).toBeCloseTo(1.6, 2);
   });
 

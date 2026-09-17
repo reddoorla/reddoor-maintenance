@@ -33,13 +33,23 @@
 // and all three agree with the plate at dy=0, so they cross-validate the
 // geometry rather than confirming it circularly. Generation B files CANNOT
 // pass and are not evidence of a broken plate — see the FAIL hint below.
+//
+// ⚠️ THE CENSUS ABOVE IS STALE, AND THE HINT BELOW WITH IT (2026-09-17). It was
+// taken against plate.png; #570 replaced that asset with a re-exported
+// plate-clean.png whose laptop sits 26px HIGHER and 7px RIGHT. That is within a
+// few px of the generation-B displacement the census records (28px higher, 3px
+// right), so the two generations have most likely swapped roles: gen B may now
+// be the valid reference set and gen A the one that cannot pass. This has NOT
+// been re-run — nobody has diffed a reference since the plate changed, and the
+// numbers above are quoted from the old asset. Re-run the census before
+// trusting either list, and rewrite this block with what it says.
 // ---------------------------------------------------------------------------
 //
 // Usage: node scripts/verify-header-fidelity.mjs <original.jpg> <url> [--out <path>]
 
 import { writeFile } from "node:fs/promises";
 import sharp from "sharp";
-import { generateHeaderImage } from "../dist/index.js";
+import { generateHeaderImage, SCREEN } from "../dist/index.js";
 
 const USAGE = "usage: verify-header-fidelity.mjs <original.jpg> <url> [--out <path>]";
 
@@ -63,11 +73,14 @@ function parseArgs(argv) {
 
 const { original, url, out } = parseArgs(process.argv.slice(2));
 
-// Mirrors src/reports/header-image/geometry.ts. The domain band is deliberately
-// wider and taller than the printed text: the hand-made originals used a
-// slightly different rasteriser, so the glyph edges never match byte-for-byte
-// and the band must clear their full ink extent.
-const SCREEN = { x: 302, y: 1913, w: 1349, h: 844 };
+// SCREEN is imported from the package, not copied. It used to be a literal here
+// under the comment "Mirrors src/reports/header-image/geometry.ts" — and a
+// mirrored constant is exactly how the screen rect went stale in the first place
+// (see geometry.ts). One definition, or it drifts again.
+//
+// The domain band is deliberately wider and taller than the printed text: the
+// hand-made originals used a slightly different rasteriser, so the glyph edges
+// never match byte-for-byte and the band must clear their full ink extent.
 const DOMAIN_BAND = { x0: 250, x1: 1300, y0: 2920, y1: 3080 };
 
 // Per-pixel tolerance (channel-sum) and the share of pixels allowed to exceed
