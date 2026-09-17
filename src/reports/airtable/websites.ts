@@ -2,6 +2,7 @@ import type { FieldSet } from "airtable";
 import type { AirtableBase } from "./client.js";
 import type { LighthouseScores, LighthouseScoreWriteback } from "../types.js";
 import { canonicalizeStatus, toAirtableStatus } from "./site-status.js";
+import { skipsAirtableShadow } from "../../fleet/site-id.js";
 import {
   siteSlug,
   trimToNull,
@@ -435,6 +436,17 @@ function formE2eFields(r: FormE2eResult): FieldSet {
   return fields as FieldSet;
 }
 
+// ————————————————————————— Websites writers (the Airtable shadow) —————————————————————————
+//
+// Every writer below addresses a Websites row by SITE id, and every one opens with
+// `skipsAirtableShadow` (#646 step 3). Sites created since the Turso-native
+// `ensure-site` carry `site_<ULID>` ids that Airtable has never held, so a write
+// for one is skipped on purpose — with an `AIRTABLE_SHADOW skipped=non-rec-id` line — instead of
+// 404ing. The FieldSet-returning writers still RETURN their payload when they
+// skip: callers feed it to the authoritative Turso write, which must not depend on
+// the shadow. tests/reports/airtable/shadow-skip-site-ids.test.ts fails for any
+// exported `update*` writer that is not covered.
+
 /**
  * Write the four Lighthouse scores + a refreshed-at timestamp onto a Websites row.
  * Called by `audit lighthouse --write-back` after a successful audit run, so
@@ -445,6 +457,7 @@ export async function updateScores(
   recordId: string,
   scores: LighthouseScores,
 ): Promise<void> {
+  if (skipsAirtableShadow("updateScores", recordId)) return;
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: scoreFields(scores) }]);
 }
 
@@ -473,7 +486,9 @@ export async function updateAnalyticsHealth(
   at: string | null,
 ): Promise<FieldSet> {
   const fields = analyticsHealthFields(at);
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  if (!skipsAirtableShadow("updateAnalyticsHealth", recordId)) {
+    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  }
   // Same contract as updateNextDueDates/updateAuditFields: the #539 Turso mirror
   // consumes the returned FieldSet, so the two writes cannot diverge.
   return fields;
@@ -485,6 +500,7 @@ export async function updateA11yCounts(
   recordId: string,
   counts: A11yCounts,
 ): Promise<void> {
+  if (skipsAirtableShadow("updateA11yCounts", recordId)) return;
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: a11yFields(counts) }]);
 }
 
@@ -494,6 +510,7 @@ export async function updateDepsCounts(
   recordId: string,
   counts: DepsCounts,
 ): Promise<void> {
+  if (skipsAirtableShadow("updateDepsCounts", recordId)) return;
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: depsFields(counts) }]);
 }
 
@@ -503,6 +520,7 @@ export async function updateSecurityCounts(
   recordId: string,
   counts: SecurityCounts,
 ): Promise<void> {
+  if (skipsAirtableShadow("updateSecurityCounts", recordId)) return;
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: securityFields(counts) }]);
 }
 
@@ -514,7 +532,9 @@ export async function updateAutoFixAttempts(
   attempts: number,
 ): Promise<FieldSet> {
   const fields: FieldSet = { "Security Auto-Fix Attempts": attempts };
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  if (!skipsAirtableShadow("updateAutoFixAttempts", recordId)) {
+    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  }
   // Returned for the #539 Turso mirror — see updateNextDueDates.
   return fields;
 }
@@ -536,7 +556,9 @@ export async function updateNextDueDates(
     "Next maintenance at": dates.maintenanceAt,
     "Next testing at": dates.testingAt,
   };
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
+  if (!skipsAirtableShadow("updateNextDueDates", recordId)) {
+    await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
+  }
   // Same contract as updateAuditFields/updateGitHubSignals: the Phase 3 Turso
   // mirror consumes the returned FieldSet, so the two writes cannot diverge.
   return fields as FieldSet;
@@ -557,7 +579,21 @@ export async function updateSiteField(
   column: string,
   value: AirtableCellValue,
 ): Promise<void> {
+  if (skipsAirtableShadow("updateSiteField", recordId)) return;
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: { [column]: value } }]);
+}
+
+/** The multi-column shadow for `ensure-site`'s fill-blanks / `--name` path on a
+ *  pre-existing `rec` site (#646 step 3): ONE update, so a resumed bootstrap that
+ *  fills `url` and retitles `Name` cannot leave the shadow half-written. Turso is
+ *  the store that decides what to write; this only repeats it. */
+export async function updateSiteFields(
+  base: AirtableBase,
+  recordId: string,
+  fields: Record<string, string>,
+): Promise<void> {
+  if (skipsAirtableShadow("updateSiteFields", recordId)) return;
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
 }
 
 /**
@@ -601,7 +637,9 @@ export async function updateAuditFields(
   if (audits.functionHealth) Object.assign(fields, functionHealthFields(audits.functionHealth));
   if (audits.smoke) Object.assign(fields, smokeFields(audits.smoke));
   if (audits.formE2e) Object.assign(fields, formE2eFields(audits.formE2e));
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  if (!skipsAirtableShadow("updateAuditFields", recordId)) {
+    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  }
   return fields;
 }
 
@@ -628,7 +666,9 @@ export async function updateGitHubSignals(
   if (signals.lastCommitAt !== null) {
     fields["Last Commit At"] = signals.lastCommitAt;
   }
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  if (!skipsAirtableShadow("updateGitHubSignals", recordId)) {
+    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  }
   return fields;
 }
 
@@ -702,7 +742,9 @@ export async function updatePrismicModels(
     "Prismic Models Checked At": models.checkedAt,
     "Prismic Models Drift": models.detail === null ? null : truncatePrismicDetail(models.detail),
   };
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
+  if (!skipsAirtableShadow("updatePrismicModels", recordId)) {
+    await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
+  }
   // Returned for the #539 Turso mirror — see updateNextDueDates.
   return fields as FieldSet;
 }
@@ -717,7 +759,9 @@ export async function updateLaunched(
   at: string,
 ): Promise<FieldSet> {
   const fields: FieldSet = { Status: toAirtableStatus("maintained"), "Launched at": at };
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  if (!skipsAirtableShadow("updateLaunched", recordId)) {
+    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  }
   // Returned for the #539 Turso mirror. BOTH columns travel together on purpose:
   // mirroring them as two UPDATEs would open a window where Turso says a site is
   // maintained but never launched.

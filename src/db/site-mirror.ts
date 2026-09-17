@@ -31,7 +31,10 @@ import { TURSO_IS_AUTHORITATIVE } from "./freeze.js";
  *  pass the EXACT FieldSet the Airtable writer returned, so the mirror can never
  *  carry a different payload than the write it shadows. */
 export type SiteMirror = {
-  /** A row Airtable just CREATED, as Airtable echoed it back (`ensure-site`).
+  /** A row Airtable just CREATED, as Airtable echoed it back. `ensure-site` used
+   *  this until #646 step 3; it now creates sites in Turso directly
+   *  (`src/fleet/ensure-site.ts`), and neither this nor `hasRow` has a caller left
+   *  outside tests — both go with the Airtable layer in step 6.
    *  Every other op is an UPDATE, which does nothing for a row that does not
    *  exist yet — so without this a bootstrapped site is invisible to Turso and
    *  every mirror the rest of the bootstrap fires reports `mirrored=missed`. */

@@ -63,6 +63,11 @@ const EXEMPT_MODULES: Record<string, string> = {
     "best-effort write-through wrapper — issues no SQL of its own, delegates to " +
     "fleet-state's mirrorHealthFields/mirrorSiteFields, which are gated below",
   "freeze.ts": "a single exported constant — no queries, no runtime behaviour of its own",
+  "site-create.ts":
+    "#646 step 3 transaction wrapper — issues no SQL of its own: it runs fleet-state's " +
+    "insertSiteRows inside one transaction and delegates to updateSiteIdentity/getSiteBySlug, " +
+    "all gated below. It cannot run HERE: a libSQL transaction on this harness's shared " +
+    ":memory: client hands the connection away and every later scenario would see an empty db",
   "usage.ts":
     "plan-quota headroom — reads the Turso PLATFORM HTTP API, never the database; " +
     "issues no SQL at all",
@@ -490,6 +495,38 @@ function scenarios(state: { createdId: string }): Scenario[] {
           { id: "recA", fields: { Name: "Acme Gallery" } },
           "2026-08-25T12:00:00.000Z",
         ),
+    },
+    {
+      // #646 step 3: the Turso-native creator's insert (run inside a transaction by
+      // src/db/site-create.ts — the SQL is identical, so it is planned here
+      // directly). Three plain INSERTs; `sites.slug` is checked by its UNIQUE
+      // index, which must stay an index probe, not a scan of the BLOB-bearing table.
+      name: "insertSiteRows (Turso-native ensure-site create)",
+      covers: ["insertSiteRows"],
+      run: (db) =>
+        fleetState.insertSiteRows(
+          db,
+          {
+            id: "site_01ARYZ6S41TSV4RRFFQ69G5FAV",
+            slug: "gate-new-site",
+            name: "gate-new-site",
+            status: "building",
+            url: null,
+            pointOfContact: null,
+            gitRepo: "reddoorla/gate-new-site",
+          },
+          "2026-09-17T00:00:00.000Z",
+        ),
+    },
+    {
+      // #646 step 3: ensure-site's fill-blanks / --name write. By PK, never by slug.
+      name: "updateSiteIdentity (ensure-site fill-blanks + rename)",
+      covers: ["updateSiteIdentity"],
+      run: (db) =>
+        fleetState.updateSiteIdentity(db, "site_01ARYZ6S41TSV4RRFFQ69G5FAV", {
+          name: "Gate New Site",
+          url: "https://gate.example.com",
+        }),
     },
     {
       // The multi-column form (#539 Phase 5). Same by-PK predicate, but it is
