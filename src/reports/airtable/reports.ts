@@ -1,5 +1,6 @@
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
+import { isAirtableRecordId } from "../../fleet/site-id.js";
 import type { ReportType, LighthouseScores } from "../types.js";
 import { ALL_CHECKLIST_FIELDS } from "../checklist.js";
 import type { EvidenceRecord } from "../auto-tick.js";
@@ -141,6 +142,17 @@ export async function createDraft(
   input: DraftInput,
   mirror?: CreatedDraftMirror,
 ): Promise<ReportRow> {
+  // #646 step 3: NOT a shadow write, so it does not skip. The report row is still
+  // MINTED here — Airtable's record id is the report id — and a `site_<ULID>` site
+  // has no Websites record for the `Site` link to point at. Skipping would silently
+  // produce no report; letting Airtable reject the link would surface as an opaque
+  // INVALID_RECORD_ID. Refuse by name until the report id decision lands on #646.
+  if (!isAirtableRecordId(input.siteId)) {
+    throw new Error(
+      `createDraft: site ${input.siteId} was created in Turso and has no Airtable record — ` +
+        `reports for it are blocked on the pending report id decision (#646)`,
+    );
+  }
   // Set Delivery status to "pending" at creation time, NOT at send time. This
   // matters for H4: if stampSent wrote "pending" after the webhook had already
   // written "delivered" (race), the operator would see a regressed status.

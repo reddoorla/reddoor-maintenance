@@ -609,7 +609,10 @@ cli
   );
 
 cli
-  .command("ensure-site <slug>", "Create/verify the Airtable Websites row for a new site.")
+  .command(
+    "ensure-site <slug>",
+    "Create/verify a site's fleet row in Turso (new sites get a site_<ULID> id).",
+  )
   .option("--name <display name>", "Human Name for the row (client-facing copy uses it verbatim).")
   .option("--url <url>", "Deployed URL (e.g. the Netlify site URL).")
   .option("--contact <email>", "point of contact — the client address reports resolve to.")
