@@ -1,5 +1,0 @@
----
-"@reddoorla/maintenance": minor
----
-
-The nightly send reads its queue, its roster and its header image from Turso (#539 Phase 6 step 4, #646). `listSendableReports` is now a `src/db/fleet-state.ts` reader — the same three-part predicate Airtable evaluated as a `filterByFormula` (`Draft ready` ∧ `Approved to send` ∧ `Sent at` blank), stated once in SQL and driven through all eight combinations by a new test. `sendApprovedReports` takes `sendable`, `roster` and `loadHeaderPlate` as required dependencies; `report --send-ready` wires them over one libSQL connection. The header plate comes from `sites.header_image*` (design D5's store, which the re-render path has read since #643) and falls back to that one site's Airtable attachment when Turso holds no bytes, so a site whose plate was never backfilled still sends exactly as before. Each send logs `REPORT_SEND report=… site=… header=turso|airtable`. A site with neither fails with the `header-image <slug> --write-back` command that fixes it. Airtable still receives the sent stamp and the Launch write-back, unchanged.
