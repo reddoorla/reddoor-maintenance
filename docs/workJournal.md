@@ -3590,3 +3590,141 @@ test that justifies the whole roster move was proven by mutation — dropping no
 ids from the Turso selector turned it red — but it compares FIXTURES. Nothing has yet
 compared the two stores' site sets on production data, so tonight's nightlies are the
 first real measurement.
+
+## 2026-09-17 (latest) — A green band from another client's site, across every header image in the fleet (#869)
+
+Tucker spotted it on a screencap of 29 Navy's freshly-generated report header: a
+green bar across the very top of the laptop screen, with a "CONTACT US" pill and
+a hamburger, sitting above 29 Navy's own black nav. His guess in the same
+sentence — "looks like it's from alamo anatomy" — was right, and it turned out to
+be true of **all 13 maintained sites' header images**, not just this one.
+
+It was not the live site. 29navy.com's top stack is `rgb(0,0,0)` all the way
+down, `greenBackgrounds: []`, no "Contact Us" text anywhere. The band lives in
+the plate asset.
+
+**Why the hex didn't match, and why that mattered.** The leaked strip's dominant
+colour is `#264D41` at 93.5%, and Alamo Anatomy's brand green is `#144E40`. That
+gap is what made the identification look shaky for a while. It resolved on
+measuring their live nav: `oklab(0.382758 -0.0632247 0.00740969 / 0.8)` — **0.8
+alpha** over the hero image, so the Figma export captured the composite, not the
+token. Pill `border-radius: 1.67772e+07px`, hamburger present. Same element.
+
+**The mechanism.** `SCREEN` in `src/reports/header-image/geometry.ts` is the hole
+inside the laptop bezel; `compose.ts` resizes each site's screenshot to it and
+pastes it over the plate. The plate carries whatever site was placed in the Figma
+mockup — `build-header-plate.mjs` says so in its own comment, and dismisses it:
+"The screen region needs no cleanup — compose.ts paints over it every run." That
+sentence is only true while `SCREEN` matches the asset.
+
+It didn't. Measured by walking outward from inside the screen to the bezel's
+first flat-black run:
+
+```
+plate-clean.png (shipped)   hole  x=309 y=1887 w=1347 h=841
+SCREEN (geometry.ts)              x=302 y=1913 w=1349 h=844
+```
+
+So the paste sat 26 rows too low and 5 columns too narrow, leaving rows
+**1887..1912** and columns **1651..1655** of the baked-in Alamo screenshot
+uncovered — and overpainting 7 columns of left bezel and 29 rows of bottom bezel
+at the same time.
+
+**The belief that was wrong, and it wasn't the geometry.** The obvious reading is
+that somebody measured carelessly. They didn't. `plate.png`, the asset the
+constant was written against in #476, has its hole at **x=302 y=1913 w=1349** —
+`dx=0 dy=0 dw=0` against the constant. The measurement was exact. What changed
+was the asset: **#570 re-exported the Figma frame as `plate-clean.png`** to take
+the baked headline out of the plate, the laptop moved 7px right and 26px up, and
+nothing re-measured `SCREEN`. The file's own instruction — "Re-measure only if
+the Figma template changes" — was correct, and was not followed in the very PR
+that changed it.
+
+The comment also carried a cross-check: "the photo-to-flat-black transition at
+the bottom of the plate lands at y=2756, exactly `SCREEN.y + SCREEN.h - 1`."
+That is **true, of `plate.png`**: y=2755 is photo, y=2756 is `rgb(2,2,2)`, y=2757
+is black. On `plate-clean.png` y=2756 sits 29 rows inside the bottom bezel's
+black run (2728..2775). A cross-check that keeps passing against a file you no
+longer ship is not a cross-check, and this one went on being quoted as
+reassurance for three weeks. **That is the durable lesson here: the guard was
+prose, and prose cannot fail.** It is now
+`tests/reports/header-image/plate-geometry.test.ts`, which derives the hole from
+the bundled bytes every run and goes red if `geometry.ts` disagrees.
+
+**A vacuous test, caught by mutating it.** The first version of the compose leak
+test swept `SCREEN` and asserted every pixel was the pasted fill. It passed. It
+also passes with the _stale_ constant — because the rect it sweeps is the rect it
+painted, so it asserts only that what we painted is painted, and under the stale
+value the leaked rows sit **above `SCREEN.y`, outside the loop entirely**. The
+mutation run is what exposed it: reverting the constant left the test green. It
+now sweeps the hole measured from the plate, never `SCREEN`, and reverting the
+constant produces **38956 leaked px, first at (311,1889) rgb(39,77,64)** — Alamo's
+`rgb(38,77,65)` within JPEG noise, and within 1% of the 39,205 px predicted from
+the geometry. Exactly the failure CLAUDE.md's "write the test that fails for the
+reason you think it fails" rule is about, arriving through a test written to
+honour that rule.
+
+**Two smaller instances of the same defect class, closed with it.**
+`verify-header-fidelity.mjs` kept its own copy of `SCREEN` under the comment
+"Mirrors src/reports/header-image/geometry.ts" — a mirrored constant, which is
+how this drifted in the first place — so `SCREEN`/`CANVAS` are now exported from
+the package entry and imported there. And `build-header-plate.mjs` wrote
+`src/reports/header-image/assets/plate.png`, a path nothing has loaded since #570
+renamed the asset: anyone who ran it saw "wrote …" and no change in output.
+
+**Left open deliberately, and flagged rather than guessed.** That script's
+reference census records generation-B headers as "28px higher, 3px right" and
+rules them invalid. The new plate's laptop sits 26px higher and 7px right — within
+a few px of that displacement — so the two generations have most likely swapped
+roles, and gen A (CalTex, DataDynamiq, ERPfunds) may now be the set that cannot
+pass. Nobody has diffed a reference since the plate changed. The census is marked
+stale in place rather than rewritten, because rewriting it from this inference
+would put another unverified paragraph exactly where the last one did the damage.
+
+**What was considered and not done.** Scrubbing the plate's screen region flat, so
+no baked content exists to leak at all, is the belt-and-braces fix. Declined: the
+fidelity script's provenance claim is that the plate is byte-identical to the
+Figma export outside the domain wipe, and scrubbing would falsify it. With the
+geometry now under test against the asset, a leak cannot recur silently, which is
+what the scrub was buying.
+
+**Regenerated, and verified on the stored bytes rather than the upload.** The
+send path re-drafts and regenerates a header before rendering (`draft.ts:262`),
+so the fleet would have self-healed one report at a time — but 29 Navy's draft
+was already queued, so its stored image was the defective one and would have gone
+to Matthew at Worthe with another client's nav on it. `header-image --all --force
+--write-back` did 15 sites; a separate single-site run did 29 Navy, for the reason
+below. Checking the bytes read back out of Turso, not the ones we uploaded:
+
+```
+29 Navy        alamo-green px in screen: 0      in the old leak band: 0
+Sonder                                   0                            0
+MSOT                                     0                            0
+Data Dynamiq                             9                            0
+Alamo Anatomy                         2414                         1321
+```
+
+Alamo Anatomy is the positive control and it is the reason to trust the other
+four: theirs is the one header where that green legitimately belongs, and it is
+the one header still full of it. A detector that returned 0 everywhere would be
+evidence of a broken detector. Data Dynamiq's 9 are scattered pixels of their own
+homepage within ±6 of the nav colour, none of them in the band.
+
+**The regeneration found a second, larger problem.** `--all` silently skipped 29
+Navy. Its **Turso** row reads `status: 'building'`, `url:
+'https://www.29navy.com/'` — while Airtable reads `maintained` and
+`https://29navy.com`. Both corrections were made to Airtable this morning through
+the REST API, which bypasses `SITE_MIRROR`, so neither ever reached Turso.
+
+That was a harmless inconsistency this morning and is not one now: **today's Phase
+6 commits moved the batch jobs to read the roster from Turso** (#860, `header-image`
+among them). `resolveTargets` drops any row whose status is not in
+`ACTIVE_STATUSES`, so 29 Navy is invisible to every Turso-backed fleet job —
+including the nightly sweeps this morning's enrolment was supposed to buy, which
+were confirmed through `fromAirtableBase` and are therefore no longer evidence of
+anything. The stale `url` is the `www.` spelling that 301s, which is the same
+value that made the matching harness's `checkRef()` refuse (29-navy #43).
+
+Left for the operator rather than patched here: correcting fleet state is the
+active Phase 6 session's territory, and a second raw write is how the first one
+got into this state.
