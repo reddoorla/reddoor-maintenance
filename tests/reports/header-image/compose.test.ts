@@ -3,6 +3,7 @@ import sharp from "sharp";
 import { composeHeaderImage, stampHeadline } from "../../../src/reports/header-image/compose.js";
 import { loadPlate, loadHeadline } from "../../../src/reports/header-image/assets/index.js";
 import { SCREEN, CANVAS, HEADLINE } from "../../../src/reports/header-image/geometry.js";
+import { measurePlateHole, readRaster } from "./plate-hole.js";
 
 /** A solid-colour stand-in for a homepage screenshot. */
 async function fakeShot(color: string, w = 1600, h = 1000): Promise<Uint8Array> {
@@ -162,6 +163,60 @@ describe("reports/header-image compose", () => {
         domain: 'a&b<c>"d".com',
       }),
     ).resolves.toBeInstanceOf(Uint8Array);
+  });
+
+  /**
+   * THE LEAK TEST. Everything else here samples a pixel; this one sweeps the
+   * whole screen hole, because the defect it exists for was invisible to every
+   * single-pixel check above.
+   *
+   * plate-clean.png has the Alamo Anatomy homepage baked into the laptop screen
+   * (the Figma export carries whatever site was placed in the mockup). compose
+   * paints over it — so if SCREEN is even slightly smaller or offset than the
+   * real hole, the uncovered pixels show ANOTHER CLIENT'S SITE in this client's
+   * report. That shipped: SCREEN went stale when #570 re-exported the plate, and
+   * 26 rows of Alamo's green nav with its "Contact Us" pill sat across the top of
+   * all 13 maintained sites' headers for three weeks. "Paints the screenshot into
+   * the screen rect" passed throughout — it reads the centre.
+   *
+   * The sweep is over the hole MEASURED FROM THE PLATE, never over SCREEN.
+   * Sweeping SCREEN would assert only that the rect we painted is painted, which
+   * is vacuously true for any SCREEN, right or wrong — and under the stale value
+   * the leaked rows sit ABOVE SCREEN.y, i.e. outside the loop entirely.
+   *
+   * Inset by 2px because the composite's hard edge against the black bezel gives
+   * JPEG ringing a pixel or two wide, which is encoder noise rather than a leak.
+   * A real leak is tens of rows and lands far inside the inset region.
+   */
+  it("leaves no plate pixel visible anywhere inside the screen hole", async () => {
+    const fill: [number, number, number] = [0xff, 0x00, 0x00];
+    const hole = await measurePlateHole();
+    const out = await composeHeaderImage({
+      plate: await loadPlate(),
+      screenshot: await fakeShot("#ff0000"),
+      domain: "acme.com",
+    });
+    const raster = await readRaster(out);
+
+    const INSET = 2;
+    const TOLERANCE = 24;
+    let leaked = 0;
+    let firstLeak: { x: number; y: number; rgb: [number, number, number] } | null = null;
+    for (let y = hole.y + INSET; y < hole.y + hole.h - INSET; y++) {
+      for (let x = hole.x + INSET; x < hole.x + hole.w - INSET; x++) {
+        const px = raster.at(x, y);
+        if (px.some((v, c) => Math.abs(v - (fill[c] ?? 0)) > TOLERANCE)) {
+          leaked++;
+          firstLeak ??= { x, y, rgb: px };
+        }
+      }
+    }
+    expect(
+      leaked,
+      firstLeak
+        ? `${leaked} px of the plate's screen hole are not the pasted screenshot — first at (${firstLeak.x},${firstLeak.y}) rgb(${firstLeak.rgb.join(",")}). The hole is ${hole.w}x${hole.h} at (${hole.x},${hole.y}); SCREEN is ${SCREEN.w}x${SCREEN.h} at (${SCREEN.x},${SCREEN.y}).`
+        : "",
+    ).toBe(0);
   });
 });
 

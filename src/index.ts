@@ -108,3 +108,12 @@ export { loadPlate, loadHeadline } from "./reports/header-image/assets/index.js"
 // the smoke-dist gate) can reach it from the package root.
 export { generateHeaderImage, domainFromUrl } from "./reports/header-image/index.js";
 export type { GenerateInput, GeneratedHeaderImage } from "./reports/header-image/index.js";
+
+// The screen rect is a property of the bundled plate asset, and it has gone
+// stale against that asset once already (#570 re-exported the plate; SCREEN was
+// not re-measured, and every header leaked the export's baked-in screenshot).
+// scripts/verify-header-fidelity.mjs has to exclude the screen from its diff, so
+// it needs these values — it used to carry its own copy under a comment saying
+// "Mirrors src/reports/header-image/geometry.ts", which is the same duplication
+// that caused the bug. Export them instead so there is exactly one definition.
+export { SCREEN, CANVAS } from "./reports/header-image/geometry.js";
