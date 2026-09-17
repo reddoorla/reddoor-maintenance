@@ -47,3 +47,6 @@ docs/meta-week/_corpus/
 # and while untracked it was the ONLY entry in `git status`, which trains the eye
 # to ignore a dirty tree.
 .worktrees/
+
+# Sessions' running journal notes (CLAUDE.md "The work journal"); the scratchpad dies with the session.
+.session-logs/
