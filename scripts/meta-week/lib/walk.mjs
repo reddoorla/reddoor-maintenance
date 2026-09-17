@@ -1,5 +1,5 @@
 // Streams every .jsonl under a Claude Code projects root and yields three kinds of
-// event: deduplicated API usage, compaction boundaries, and account-limit blocks.
+// event: deduplicated API usage, compaction boundaries, and limit blocks (account or model).
 //
 // Dedupe is by requestId, NOT uuid: one API response is written as several assistant
 // records (one per content block), each carrying a partial output_tokens snapshot.
@@ -11,7 +11,23 @@ import { basename, join, sep } from "node:path";
 import { createInterface } from "node:readline";
 
 const GITHUB_RE = /\/Documents\/GitHub\/([^/]+)/;
-const BLOCK_RE = /^You've hit your (session|weekly) limit/i;
+// Limit blocks are synthetic assistant records (model "<synthetic>"). Two shapes are
+// the account's own caps: "You've hit your session limit · resets 2pm (…)"
+// and "You've hit your weekly limit · resets Aug 30 at 2am (…)". A third caps ONE model
+// and leaves the others usable: "You've reached your Fable limit. Switch to another
+// model, or manage usage credits at …" (also "Fable 5"). It is kind "model", never
+// folded into weekly or session, because the account can keep working on another model.
+const ACCOUNT_BLOCK_RE = /^You've hit your (session|weekly) limit/i;
+const MODEL_BLOCK_RE = /^You've reached your (.+?) limit\. Switch to another model/i;
+
+/** Classify a limit-block text: { kind: "session"|"weekly" } or { kind: "model", model }. */
+export function blockKind(text) {
+  const account = ACCOUNT_BLOCK_RE.exec(text);
+  if (account) return { kind: account[1].toLowerCase() };
+  const model = MODEL_BLOCK_RE.exec(text);
+  if (model) return { kind: "model", model: model[1] };
+  return null;
+}
 
 export async function* jsonlFiles(root, keep) {
   const entries = await readdir(root, { withFileTypes: true });
@@ -268,14 +284,15 @@ export async function collectEvents(root, opts = {}) {
       }
       if (rec.type !== "assistant" || !rec.message) continue;
       const text = firstText(rec.message);
-      if (BLOCK_RE.test(text) && !(rec.uuid && seenMarkers.has(rec.uuid))) {
+      const block = blockKind(text);
+      if (block && !(rec.uuid && seenMarkers.has(rec.uuid))) {
         if (rec.uuid) seenMarkers.add(rec.uuid);
         blocks.push({
           ts: rec.timestamp,
           sessionId: rec.sessionId || "",
           repo: repoOf(rec, projectDir),
           lane: rec.isSidechain ? "subagent" : "main",
-          kind: /weekly/i.test(text) ? "weekly" : "session",
+          ...block,
           text,
         });
       }

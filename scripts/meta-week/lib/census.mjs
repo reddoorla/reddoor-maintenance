@@ -126,6 +126,9 @@ export function fanoutCandidates(all) {
       cost,
       evidence: {
         block: b.kind,
+        // kind "model" caps one model, not the account: name which, so the resume is not
+        // read as a wait for the five-hour session reset.
+        ...(b.model ? { model: b.model } : {}),
         blocks: r.blocks,
         prompt: c.text.slice(0, 120),
         lagMin: Math.round((ct - t) / MIN),

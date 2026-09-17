@@ -386,6 +386,105 @@ describe("token-meter: compactions and blocks", () => {
   });
 });
 
+/**
+ * The three limit-block shapes, as the client writes them (model "<synthetic>", zero
+ * usage, error "rate_limit"). The model record is the one recorded 2026-09-17T16:07:31Z,
+ * trimmed to the fields the walker reads; before the fix it was not a block at all.
+ */
+function limitRecord(ts: string, uuid: string, text: string): string {
+  return JSON.stringify({
+    type: "assistant",
+    uuid,
+    requestId: `req-${uuid}`,
+    timestamp: ts,
+    sessionId: "sess-limits",
+    isSidechain: false,
+    cwd: ALPHA,
+    error: "rate_limit",
+    isApiErrorMessage: true,
+    apiErrorStatus: 429,
+    message: {
+      model: "<synthetic>",
+      role: "assistant",
+      stop_reason: "stop_sequence",
+      type: "message",
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      content: [{ type: "text", text }],
+    },
+  });
+}
+
+describe("token-meter: limit-block kinds", () => {
+  let limitsRoot: string;
+  beforeAll(async () => {
+    const dir = await mkdtemp(join(tmpdir(), "token-meter-limits-"));
+    limitsRoot = join(dir, "projects");
+    const alpha = join(limitsRoot, "-Users-x-Documents-GitHub-alpha");
+    await mkdir(alpha, { recursive: true });
+    const lines = [
+      limitRecord(
+        "2026-08-27T21:00:17.075Z",
+        "lw",
+        "You've hit your weekly limit · resets Aug 30 at 2am (America/Los_Angeles)",
+      ),
+      limitRecord(
+        "2026-09-02T18:29:35.856Z",
+        "ls",
+        "You've hit your session limit · resets 2pm (America/Los_Angeles)",
+      ),
+      limitRecord(
+        "2026-09-10T09:00:00.000Z",
+        "lm5",
+        "You've reached your Fable 5 limit. Switch to another model, or manage usage credits at claude.ai/settings/usage?from=cc_cli_limit_message, to continue.",
+      ),
+      limitRecord(
+        "2026-09-17T16:07:31.326Z",
+        "lm",
+        "You've reached your Fable limit. Switch to another model, or manage usage credits at claude.ai/settings/usage?from=cc_cli_limit_message, to continue.",
+      ),
+      "",
+    ];
+    await writeFile(join(alpha, "sess-limits.jsonl"), lines.join("\n"));
+    // Replay: the model block must dedupe by uuid like the other two.
+    await writeFile(join(alpha, "sess-limits-resumed.jsonl"), lines.join("\n"));
+  });
+
+  it("keeps session and weekly, and classifies a model limit as its own kind with the model named", async () => {
+    const jsonPath = join(limitsRoot, "..", "out.json");
+    const { stdout } = await execFileAsync("node", [
+      METER,
+      "--root",
+      limitsRoot,
+      "--json",
+      jsonPath,
+      "--blocks",
+    ]);
+    const json = JSON.parse(await readFile(jsonPath, "utf-8")) as {
+      blocks: { ts: string; kind: string; model?: string }[];
+    };
+    expect(json.blocks.map((b) => [b.ts, b.kind, b.model])).toEqual([
+      ["2026-08-27T21:00:17.075Z", "weekly", undefined],
+      ["2026-09-02T18:29:35.856Z", "session", undefined],
+      ["2026-09-10T09:00:00.000Z", "model", "Fable 5"],
+      ["2026-09-17T16:07:31.326Z", "model", "Fable"],
+    ]);
+    const lines = stdout.split("\n");
+    expect(lines.find((l) => l.startsWith("BLOCKS\t"))).toBe(
+      'BLOCKS\t4\tbyKind={"weekly":1,"session":1,"model:Fable 5":1,"model:Fable":1}',
+    );
+    expect(lines).toContain(
+      "2026-09-17T16:07:31.326Z\tmodel:Fable\talpha\tmain\tspend5h out=0 cacheCreate=0 cacheRead=0",
+    );
+    expect(lines.some((l) => l.startsWith("2026-08-27T21:00:17.075Z\tweekly\t"))).toBe(true);
+    expect(lines.some((l) => l.startsWith("2026-09-02T18:29:35.856Z\tsession\t"))).toBe(true);
+  });
+});
+
 describe("token-meter: arguments", () => {
   it("exits 1 with a message on an unknown argument", async () => {
     await expect(meter(["--bogus"])).rejects.toMatchObject({ code: 1 });
