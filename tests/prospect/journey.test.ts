@@ -5,6 +5,7 @@ import {
   canonicalizeUrl,
   resolveNavigable,
 } from "../../src/prospect/journey.js";
+import { MAX_ANCHORS } from "../../src/prospect/extract.js";
 import type { FormShape, PageAnchor, PageCapture, PageExtract } from "../../src/prospect/types.js";
 
 function extract(over: Partial<PageExtract> = {}): PageExtract {
@@ -175,6 +176,55 @@ describe("buildJourney", () => {
     ]);
     expect(journey.deadEnds).toEqual(["https://example.com/orphan"]);
     expect(journey.worstClicksToContact).toBe(0);
+  });
+
+  it("does not call a page with a TRUNCATED anchor list a dead end", () => {
+    // A shop's /collections/all carries 640 product links before the footer.
+    // `anchors` is capped at MAX_ANCHORS, so the footer `/contact` and the
+    // shared nav fall past the cap and never reach us. Reading the capped list
+    // as the whole page told the client "a visitor who lands here has no way to
+    // contact you" — about a page with a contact link in its footer, disprovable
+    // by scrolling. `anchorCount` records the true total precisely so this
+    // cannot happen.
+    const products = Array.from({ length: MAX_ANCHORS }, (_, i) => link(`/products/${i}`));
+    const journey = buildJourney([
+      page("https://shop.example/", { anchors: [link("tel:+15550100"), link("/collections/all")] }),
+      page("https://shop.example/collections/all", {
+        anchors: products,
+        anchorCount: 640,
+      }),
+    ]);
+    expect(journey.deadEnds).toEqual([]);
+    expect(journey.pagesWithTruncatedAnchors).toEqual(["https://shop.example/collections/all"]);
+  });
+
+  it("still reports a genuine dead end whose anchor list was NOT truncated", () => {
+    // The positive control for the case above. `anchors.length === anchorCount`,
+    // so the list IS the page, and the absence of a route really is the site's.
+    const journey = buildJourney([
+      page("https://example.com/", { anchors: [link("tel:+15550100")], anchorCount: 1 }),
+      page("https://example.com/orphan", {
+        anchors: [link("https://elsewhere.example/")],
+        anchorCount: 1,
+      }),
+    ]);
+    expect(journey.deadEnds).toEqual(["https://example.com/orphan"]);
+  });
+
+  it("still counts a truncated page's links as real edges out of it", () => {
+    // The links we DID read are real links. Truncation withholds the negative
+    // finding, not the positive evidence — the page is still one click from
+    // contact through the link we saw.
+    const anchors = [
+      link("/contact"),
+      ...Array.from({ length: MAX_ANCHORS - 1 }, (_, i) => link(`/products/${i}`)),
+    ];
+    const journey = buildJourney([
+      page("https://shop.example/collections/all", { anchors, anchorCount: 640 }),
+      page("https://shop.example/contact", { anchors: [link("tel:+15550100")], anchorCount: 1 }),
+    ]);
+    const listing = journey.pages.find((p) => p.url.endsWith("/collections/all"));
+    expect(listing?.clicksToContact).toBe(1);
   });
 
   it("does not count a self-link or an external link as an internal edge", () => {

@@ -4,6 +4,7 @@ import {
   readAuthConfig,
   pathWithQuery,
   denialResponse,
+  passwordFallbackAllowed,
   type AuthRequestLike,
 } from "../../../src/dashboard/auth/require.js";
 import { mintSession, SESSION_COOKIE } from "../../../src/dashboard/auth/session.js";
@@ -176,6 +177,118 @@ describe("requireOperator — shared-password fallback", () => {
     expect(auth.ok).toBe(false);
     if (auth.ok) return;
     expect(auth.denial.status).toBe(302);
+  });
+});
+
+/**
+ * MED-18(b) of the 2026-09-02 review, its SECOND brief: `DASHBOARD_PASSWORD`
+ * granted full operator rights everywhere, with no environment gate —
+ * `process.env.CONTEXT` was read nowhere in `src/dashboard/`. Google sign-in
+ * has been live since 2026-08-25, so the fallback's stated purpose (deploy
+ * previews, and the first day of the rollout) has expired on production.
+ *
+ * The condition is deliberately narrow — production AND `googleReady` — so it
+ * cannot lock the operator out. The password is refused only where the full
+ * Google path is configured and available to use instead; if that config is
+ * ever broken or removed, the password works again on its own. All four
+ * combinations are asserted below, and the password still works in three.
+ */
+describe("requireOperator — the shared password is retired on production", () => {
+  const withPassword = (context?: string) =>
+    googleEnv({
+      DASHBOARD_PASSWORD: "shared",
+      ...(context === undefined ? {} : { CONTEXT: context }),
+    });
+
+  it("production + Google ready: refuses, and says why", () => {
+    const auth = requireOperator(req(basic("shared")), {
+      wants: "redirect",
+      env: withPassword("production"),
+      now: NOW,
+    });
+    expect(auth.ok).toBe(false);
+    if (auth.ok) return;
+    expect(auth.denial.status).toBe(403);
+    // Why it was refused, and what to use instead — the denial is the only
+    // place the operator finds out, and "403" alone reads as a bug.
+    expect(auth.denial.body).toMatch(/production/i);
+    expect(auth.denial.body).toMatch(/google/i);
+  });
+
+  it("production + Google NOT ready: the password still works (no lockout)", () => {
+    // The property that makes this safe to ship without being able to check
+    // whether DASHBOARD_PASSWORD is set in production: with no usable Google
+    // path there is nothing to fall back TO, so nothing is taken away.
+    const env = googleEnv({
+      DASHBOARD_PASSWORD: "shared",
+      CONTEXT: "production",
+      GOOGLE_OAUTH_CLIENT_SECRET: "",
+    });
+    expect(requireOperator(req(basic("shared")), { wants: "redirect", env, now: NOW })).toEqual({
+      ok: true,
+      email: null,
+    });
+  });
+
+  it("deploy preview + Google ready: the password still works", () => {
+    expect(
+      requireOperator(req(basic("shared")), {
+        wants: "redirect",
+        env: withPassword("deploy-preview"),
+        now: NOW,
+      }),
+    ).toEqual({ ok: true, email: null });
+  });
+
+  it("no CONTEXT at all + Google ready: the password still works", () => {
+    // Local runs, `netlify dev`, and anything that is not a Netlify build.
+    // Absence of the variable must never read as production.
+    expect(
+      requireOperator(req(basic("shared")), {
+        wants: "redirect",
+        env: withPassword(),
+        now: NOW,
+      }),
+    ).toEqual({ ok: true, email: null });
+  });
+
+  it("refuses as JSON on a json route, with a machine-readable error", () => {
+    const auth = requireOperator(req(basic("shared")), {
+      wants: "json",
+      env: withPassword("production"),
+      now: NOW,
+    });
+    expect(auth.ok).toBe(false);
+    if (auth.ok) return;
+    expect(auth.denial.status).toBe(403);
+    expect(JSON.parse(auth.denial.body).error).toBe("password-retired");
+  });
+
+  it("does not touch Google sign-in: a session still admits on production", () => {
+    // The gate is on the fallback alone. If this ever failed, the fix would
+    // have closed the door it was holding open.
+    const env = withPassword("production");
+    expect(
+      requireOperator(req(sessionCookie("tim@reddoorla.com")), {
+        wants: "redirect",
+        env,
+        now: NOW,
+      }),
+    ).toEqual({ ok: true, email: "tim@reddoorla.com" });
+  });
+
+  it("the predicate itself answers all four combinations", () => {
+    // Both directions of the instrument, without a request in the way.
+    const ready = readAuthConfig(withPassword());
+    const notReady = readAuthConfig(
+      googleEnv({ DASHBOARD_PASSWORD: "shared", GOOGLE_OAUTH_CLIENT_ID: "" }),
+    );
+    const prod = { CONTEXT: "production" } as NodeJS.ProcessEnv;
+    const preview = { CONTEXT: "deploy-preview" } as NodeJS.ProcessEnv;
+    expect(passwordFallbackAllowed(ready, prod)).toBe(false);
+    expect(passwordFallbackAllowed(ready, preview)).toBe(true);
+    expect(passwordFallbackAllowed(notReady, prod)).toBe(true);
+    expect(passwordFallbackAllowed(notReady, preview)).toBe(true);
   });
 });
 

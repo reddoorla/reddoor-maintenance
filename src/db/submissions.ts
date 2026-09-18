@@ -675,3 +675,36 @@ export async function countNotifyBouncedBySite(
     ]),
   );
 }
+
+/** The same counts for ONE site — the `/s/:slug` page's bounce chip (MED-11).
+ *
+ *  Identical predicates to `countNotifyBouncedBySite`, plus `site_id = ?` and no
+ *  GROUP BY, so `idx_submissions_site_submitted (site_id, submitted_at DESC)`
+ *  serves it as a SEARCH rather than a traversal of the whole table. The site
+ *  page used to call the fleet-wide version and `.get(site.id)` the answer out:
+ *  one site's chip cost a GROUP BY over every lead the fleet has ever received,
+ *  on the one table that grows without bound, on every page load.
+ *
+ *  A site with nothing to raise returns zeroes rather than dropping out of a
+ *  map — the single-site caller has no map to be absent from, and `{0, 0}` and
+ *  "no row" mean the same thing to the collector. */
+export async function countNotifyBouncedForSite(
+  db: Db,
+  siteId: string,
+  sinceDate: string,
+): Promise<NotifyBounceCounts> {
+  const row = await db
+    .selectFrom("submissions")
+    .select([
+      (eb) => eb.fn.countAll<number>().as("n"),
+      sql<number>`sum(case when lower(bounce_type) = 'permanent' then 1 else 0 end)`.as(
+        "permanent_n",
+      ),
+    ])
+    .where("site_id", "=", siteId)
+    .where("notify_status", "=", "bounced")
+    .where("submitted_at", ">=", sinceDate)
+    .where("bounce_ack_at", "is", null)
+    .executeTakeFirst();
+  return { total: Number(row?.n) || 0, permanent: Number(row?.permanent_n) || 0 };
+}

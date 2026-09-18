@@ -78,6 +78,48 @@ export async function listScreenOutsSince(
   return out;
 }
 
+/** The same totals for ONE site — the `/s/:slug` spam panel (MED-11).
+ *
+ *  Same two sources and the same window as `listScreenOutsSince`, each narrowed
+ *  by `site_id`: the buckets are served by `spam_screenouts`' own (site_id, date)
+ *  primary key, and the marked-spam count by `idx_submissions_site_submitted`.
+ *  Both plan as SEARCHes. The site page used to run the fleet-wide version and
+ *  `.get(site.id)` one entry out of it, which meant a per-request GROUP BY over
+ *  every bucket and every spam-marked lead in the fleet.
+ *
+ *  Returns zeroes rather than null for a site with nothing screened — `null` is
+ *  the CALLER's way of saying "the read failed", and a quiet site must not be
+ *  reported as an outage. */
+export async function screenOutTotalsForSite(
+  db: Db,
+  siteId: string,
+  sinceDate: string,
+): Promise<ScreenOutTotals> {
+  const bucket = await db
+    .selectFrom("spam_screenouts")
+    .select((eb) => [
+      eb.fn.sum<number>("honeypot").as("honeypot"),
+      eb.fn.sum<number>("too_fast").as("too_fast"),
+    ])
+    .where("site_id", "=", siteId)
+    .where("date", ">=", sinceDate)
+    .executeTakeFirst();
+
+  const marked = await db
+    .selectFrom("submissions")
+    .select((eb) => eb.fn.countAll<number>().as("marked_spam"))
+    .where("site_id", "=", siteId)
+    .where("status", "=", "spam")
+    .where("submitted_at", ">=", sinceDate)
+    .executeTakeFirst();
+
+  return {
+    honeypot: Number(bucket?.honeypot) || 0,
+    tooFast: Number(bucket?.too_fast) || 0,
+    markedSpam: Number(marked?.marked_spam) || 0,
+  };
+}
+
 /** The ISO date (YYYY-MM-DD) `days` before `now`, for the window queries.
  *  Verbatim from the Airtable module so the windows match exactly. */
 export function screenOutsSince(now: Date, days: number): string {

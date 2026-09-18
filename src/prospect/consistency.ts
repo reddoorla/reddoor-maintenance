@@ -1,3 +1,5 @@
+import { anchorsTruncated } from "./extract.js";
+import { canonicalizeUrl, resolveNavigable } from "./journey.js";
 import { usablePages } from "./pages.js";
 import type { PageCapture } from "./types.js";
 
@@ -71,13 +73,28 @@ export type ConsistencyResult = {
   /** The newest year found, or null when none was. */
   newestCopyrightYear: number | null;
   /** Pages carrying none of the site's shared navigation links. Empty when
-   *  there is no shared navigation to compare against — see `sharedNavLinks`. */
+   *  there is no shared navigation to compare against — see `sharedNavLinks`.
+   *  A page in `pagesWithTruncatedAnchors` can never appear here. */
   pagesOffTemplate: string[];
   /** How many links appear on EVERY page examined. This is the site's shared
    *  navigation, derived rather than assumed: no `<nav>` element is required,
    *  because plenty of sites do not use one. */
   sharedNavLinks: number;
   pagesExamined: number;
+  /**
+   * Pages whose anchor list hit `MAX_ANCHORS`, so we read only its first 300
+   * links (see `anchorsTruncated`).
+   *
+   * They take no part in the template comparison in EITHER direction, and that
+   * is the difference from the journey graph, where a truncated page's links
+   * stay in as edges. Shared navigation is derived by MAJORITY VOTE, and a link
+   * that fell past the cap is indistinguishable from a link the page does not
+   * have — so an incomplete page silently votes "absent" for every one of them
+   * and can push a genuine nav link below the threshold. It is not purely
+   * positive evidence here the way an edge is there, so it is excluded from the
+   * derivation as well as from the finding.
+   */
+  pagesWithTruncatedAnchors: string[];
 };
 
 /**
@@ -205,7 +222,7 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
   const emails = new Map<string, ContactVariant>();
   const years = new Set<number>();
   // Link sets per page, for the shared-navigation intersection below.
-  const linkSets: { url: string; hrefs: Set<string> }[] = [];
+  const linkSets: { url: string; hrefs: Set<string>; truncated: boolean }[] = [];
 
   for (const { page, extract } of usable.pages) {
     const hrefs = new Set<string>();
@@ -223,9 +240,22 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
         record(emails, address.toLowerCase(), address, page.url, true);
         continue;
       }
-      hrefs.add(href);
+      // Canonicalised, not compared as authored. A homepage rendered with
+      // absolute URLs while the templated inner pages emit relative ones used
+      // to produce two disjoint sets: the majority threshold picked one
+      // spelling and flagged every page using the other as off-template. Same
+      // outcome from `?utm_source=nav` on one template, or `/contact` against
+      // `/contact/`. `journey.ts` already solved this for the graph, and its
+      // functions are imported rather than re-derived so the two cannot drift
+      // apart — the same reason `basics.ts` imports `canonicalizeUrl` for its
+      // duplicate-title grouping. `resolveNavigable` also drops the hrefs that
+      // go nowhere (`#`, `javascript:`), which were never template evidence.
+      const abs = resolveNavigable(href, page.url);
+      if (!abs) continue;
+      const key = canonicalizeUrl(abs);
+      if (key) hrefs.add(key);
     }
-    linkSets.push({ url: page.url, hrefs });
+    linkSets.push({ url: page.url, hrefs, truncated: anchorsTruncated(extract) });
 
     // Phone numbers written in prose but not linked. Worth catching: a number
     // that appears only as text is both a consistency risk and a tap target
@@ -257,11 +287,19 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
   //
   // A majority threshold instead: links on at least 60% of pages are the
   // template, and a page carrying none of them is on a different one.
+  //
+  // Pages whose anchor list was CUT OFF at MAX_ANCHORS are excluded from the
+  // vote entirely. A link past the cap is indistinguishable from a link the
+  // page does not have, so an incomplete page votes "absent" for every one of
+  // them and can push a genuine nav link under the threshold. Unlike an edge in
+  // the journey graph, a majority vote is not purely additive, so the honest
+  // move is to leave the page out of the derivation as well as the finding.
+  const templateSets = linkSets.filter((p) => !p.truncated);
   const counts = new Map<string, number>();
-  for (const { hrefs } of linkSets) {
+  for (const { hrefs } of templateSets) {
     for (const href of hrefs) counts.set(href, (counts.get(href) ?? 0) + 1);
   }
-  const threshold = Math.ceil(linkSets.length * 0.6);
+  const threshold = Math.ceil(templateSets.length * 0.6);
   const sharedNav = new Set(
     [...counts.entries()].filter(([, n]) => n >= threshold).map(([href]) => href),
   );
@@ -269,7 +307,7 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
   // With fewer than three pages "most pages" is not evidence of a template —
   // two pages that happen to link to each other would produce one. And with no
   // shared links at all there is nothing to be off.
-  const canJudgeTemplate = linkSets.length >= 3 && sharedNav.size > 0;
+  const canJudgeTemplate = templateSets.length >= 3 && sharedNav.size > 0;
   const sortedYears = [...years].sort((a, b) => a - b);
 
   return {
@@ -278,9 +316,10 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
     copyrightYears: sortedYears,
     newestCopyrightYear: sortedYears.at(-1) ?? null,
     pagesOffTemplate: canJudgeTemplate
-      ? linkSets.filter((p) => ![...sharedNav].some((h) => p.hrefs.has(h))).map((p) => p.url)
+      ? templateSets.filter((p) => ![...sharedNav].some((h) => p.hrefs.has(h))).map((p) => p.url)
       : [],
     sharedNavLinks: sharedNav.size,
     pagesExamined: linkSets.length,
+    pagesWithTruncatedAnchors: linkSets.filter((p) => p.truncated).map((p) => p.url),
   };
 }
