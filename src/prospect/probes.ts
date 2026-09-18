@@ -514,7 +514,7 @@ export async function runVisibilityProbes(
     // a pure read of citations already recorded, so computing it here keeps the
     // ask loop to one job and lets the same function be re-run over a stored
     // report if we ever backfill.
-    answerSpace: analyzeAnswerSpace(answers, input.url),
+    answerSpace: analyzeAnswerSpace(answers, input.url, categoryAttempted),
   };
 }
 
