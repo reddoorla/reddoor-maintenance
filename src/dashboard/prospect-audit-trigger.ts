@@ -2,6 +2,13 @@ import { assertUrlSegment } from "../github/gh.js";
 import { OPERATOR_GOALS } from "../prospect/goals.js";
 import { makeGitHubRest } from "../github/gh-rest.js";
 import { isHttpUrl, isPrivateOrLoopbackHost, hostnameOf } from "../util/url.js";
+import {
+  PROSPECT_AUDIT_DAILY_CAP,
+  DAILY_CAP_LOOKBACK,
+  countAuditsInDailyWindow,
+  isOverDailyCap,
+  dailyCapMessage,
+} from "../prospect/daily-cap.js";
 import type { ProspectAuditListItem } from "../db/prospect-audits.js";
 
 /**
@@ -32,24 +39,17 @@ export const PROSPECT_AUDIT_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
  *  MAX_RECENT_PROSPECT_AUDITS (src/db/prospect-audits.ts). */
 export const DUPLICATE_CHECK_LOOKBACK = 25;
 
-/** Most audits that may be dispatched in any rolling 24 hours (#612 review).
- *
- *  The duplicate window stops the SAME url being re-run; nothing stopped
- *  DISTINCT urls. One authenticated session could dispatch ~30/minute against
- *  30 hostnames indefinitely, and one audit is structurally an Opus call plus
- *  up to 28 Sonnet calls with up to 112 billed web searches, a 20-page double
- *  crawl, a 3-pass Lighthouse and a PDF render, inside a billed Actions job.
- *
- *  25/day is far above real use (this is one operator clicking a button) and far
- *  below a number that could quietly cost hundreds. A cap that never binds in
- *  normal operation is the point: it is a runaway brake, not a quota. */
-export const PROSPECT_AUDIT_DAILY_CAP = 25;
-
-/** Lookback for the daily cap. Must exceed the cap so the count can actually
- *  reach it — a lookback at or below the cap would make the limit unreachable
- *  and the brake permanently disengaged, which is exactly the kind of guard
- *  that reads as working while doing nothing. */
-export const DAILY_CAP_LOOKBACK = PROSPECT_AUDIT_DAILY_CAP * 2;
+/** The daily cap, its lookback and its arithmetic now live in
+ *  `src/prospect/daily-cap.ts` — MED-15: this module enforced them and the CLI,
+ *  which every batch actually ran through, did not. Re-exported so this stays
+ *  the import site it has always been for the dashboard path. */
+export {
+  PROSPECT_AUDIT_DAILY_CAP,
+  DAILY_CAP_LOOKBACK,
+  countAuditsInDailyWindow,
+  isOverDailyCap,
+  dailyCapMessage,
+} from "../prospect/daily-cap.js";
 
 /** The workflow file dispatched when `PROSPECT_AUDIT_WORKFLOW_FILE` is unset. */
 export const DEFAULT_PROSPECT_AUDIT_WORKFLOW_FILE = "prospect-audit.yml";
@@ -231,9 +231,12 @@ export async function triggerProspectAudit(
   // Runaway brake. Checked AFTER the duplicate check on purpose: a repeated
   // click on one url should read as "duplicate", which is the truthful and more
   // useful answer, and should not consume the day's budget.
-  const dayAgo = now.getTime() - 24 * 60 * 60 * 1000;
-  const today = recent.filter((r) => Date.parse(r.created_at) >= dayAgo).length;
-  if (today >= PROSPECT_AUDIT_DAILY_CAP) {
+  //
+  // The count and the threshold are shared with the CLI (src/prospect/
+  // daily-cap.ts) rather than written twice — a second implementation is how
+  // the two paths drift.
+  const today = countAuditsInDailyWindow(recent, now);
+  if (isOverDailyCap(today)) {
     return { status: "daily-cap", count: today, cap: PROSPECT_AUDIT_DAILY_CAP };
   }
 
@@ -347,7 +350,9 @@ export function respondToProspectAuditTrigger(
         body: {
           ok: false,
           error: "daily-cap",
-          message: `${result.count} audits have run in the last 24 hours (cap ${result.cap}). This is a runaway brake — if the run is genuinely needed, raise PROSPECT_AUDIT_DAILY_CAP.`,
+          // Worded once, in daily-cap.ts, so this 429 and the CLI's refusal
+          // tell the operator the same thing.
+          message: dailyCapMessage(result.count, result.cap),
         },
       };
     case "dispatch-failed":
