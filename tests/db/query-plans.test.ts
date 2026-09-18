@@ -753,6 +753,15 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => deadletter.listUnreplayedDeadLetters(db),
     },
     {
+      // MED-10(c): the same query, returning the undecodable rows alongside the
+      // decodable ones instead of throwing on the first of them.
+      // `listUnreplayedDeadLetters` now delegates here, so this is the plan that
+      // actually runs for both.
+      name: "readUnreplayedDeadLetters (replay reads the queue)",
+      covers: ["readUnreplayedDeadLetters"],
+      run: (db) => deadletter.readUnreplayedDeadLetters(db),
+    },
+    {
       // #645: the dropped-lead alarm's input. It runs on a DASHBOARD request, so
       // its plan matters — and it must never carry lead payloads across.
       name: "countUnreplayedDeadLettersBySlug (deadletter attention alarm)",
