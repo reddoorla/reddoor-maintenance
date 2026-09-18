@@ -138,6 +138,33 @@ describe("checkConsistency", () => {
     expect(result.copyrightYears).toEqual([]);
   });
 
+  it("does not bind a year to the WORD copyright in ordinary prose", () => {
+    // The 30-character window is four or five words of ordinary English, so any
+    // legal, licensing or publishing page binds "copyright" to an unrelated year
+    // and reports the site as stale by years — "a claim about their business
+    // that they can disprove", as the regex's own docstring puts it. The gap has
+    // to look like a NAME, not merely like something without digits in it.
+    const result = checkConsistency([
+      page("https://x.example/", {
+        text: "Copyright law changed in 2019 and we updated our terms.",
+      }),
+    ]);
+    expect(result.copyrightYears).toEqual([]);
+  });
+
+  it("reads a footer whose company name ends in an abbreviation", () => {
+    // `SENTENCE_BREAK` was `[.!?]\s`, which trips on `Co. ` / `Inc. ` / `Ltd. `
+    // — at least as common in a footer as the bare form the widening was added
+    // to catch. So a genuinely stale year on those sites reported as NO
+    // COPYRIGHT LINE AT ALL, which is exactly what the widening existed to stop.
+    const result = checkConsistency([
+      page("https://x.example/", { text: "© Acme Design Co. 2019" }),
+      page("https://x.example/a", { text: "© Bayside Dental Inc. 2018" }),
+    ]);
+    expect(result.copyrightYears).toEqual([2018, 2019]);
+    expect(result.newestCopyrightYear).toBe(2019);
+  });
+
   it("ignores a four-digit number that is not a plausible year", () => {
     const result = checkConsistency([page("https://x.example/", { text: "© 1200 Acme" })]);
     expect(result.copyrightYears).toEqual([]);

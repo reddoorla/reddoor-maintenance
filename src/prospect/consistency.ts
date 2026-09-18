@@ -117,17 +117,48 @@ export const PHONE_IN_TEXT = /(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.
  * is the opening year of a range like 2006-2026, deliberately discarded,
  * because the question is always how recently the line was updated.
  *
- * The 30-character window is the whole safety margin. Unbounded, the word
- * "copyright" anywhere on a page would bind to the next four-digit number on
- * it — a founding date, a street address, a case-study figure — and report it
- * as the site's copyright year. A false stale-site finding is worse than a
- * missed one: it is a claim about their business that they can disprove.
+ * The gap is the whole safety margin. Unbounded, the word "copyright" anywhere
+ * on a page would bind to the next four-digit number on it — a founding date, a
+ * street address, a case-study figure — and report it as the site's copyright
+ * year. A false stale-site finding is worse than a missed one: it is a claim
+ * about their business that they can disprove.
+ *
+ * The margin used to be "anything without digits, under 30 characters", and 30
+ * characters is four or five words of ordinary English. Measured:
+ *
+ *     "Copyright law changed in 2019 and we updated our terms."  →  [2019]
+ *
+ * — so any legal, licensing or publishing page reported the site as stale by
+ * years. The gap now has to look like a NAME: whitespace and name punctuation
+ * around CAPITALISED words, and nothing else. "law changed in" is not a name;
+ * "Reddoor Creative" and "Acme Industries Ltd" are. The old length bound is
+ * kept as a repetition bound (at most six words) rather than a character count.
+ *
+ * `i` is deliberately NOT set. With it, `[A-Z]` matches lowercase and the name
+ * test means nothing, so the spellings of the marker itself are written out.
  */
-const COPYRIGHT_YEAR = /(?:©|&copy;|copyright)([^\d<>]{0,30}?)(?:(\d{4})\s*[-–—]\s*)?(\d{4})/gi;
+const NAME_GAP = "(?:[\\s.,&'’-]*[A-Z][A-Za-z.'’&-]{0,19}){0,6}[\\s.,&'’-]*";
+const COPYRIGHT_YEAR = new RegExp(
+  `(?:©|&[Cc]opy;|&COPY;|[Cc]opyright|COPYRIGHT)(${NAME_GAP})(?:(\\d{4})\\s*[-–—]\\s*)?(\\d{4})`,
+  "g",
+);
 
-/** A gap that crosses a sentence boundary is not a company name, and the year
- *  after it is some other number that happens to follow the word. */
-const SENTENCE_BREAK = /[.!?]\s/;
+/**
+ * A gap that crosses a sentence boundary is not a company name, and the year
+ * after it is some other number that happens to follow the word.
+ *
+ * This was `/[.!?]\s/`, which trips on `Co. ` / `Inc. ` / `Ltd. ` — at least as
+ * common in a footer as the bare form the widening above was added to catch. So
+ * `© Acme Design Co. 2019` reported as NO COPYRIGHT LINE AT ALL, which is the
+ * exact failure the widening existed to stop, reintroduced by its own guard.
+ *
+ * A full stop only ends a sentence when a CAPITAL follows it; before a year it
+ * is an abbreviation. The residual, named rather than hidden: `Co. Ltd 2019`
+ * still reads as a sentence break and is missed. That direction is the safe one
+ * — a missed copyright line costs a finding we would have liked, a false one
+ * costs the reader's trust in every other finding on the page.
+ */
+const SENTENCE_BREAK = /[.!?]\s+[A-Z]/;
 
 /** Digits only, with a leading US country code dropped so `+1 310 341 3571` and
  *  `(310) 341-3571` are one number rather than two. Numbers shorter than 10
