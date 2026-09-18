@@ -62,6 +62,7 @@ describe("openDb", () => {
       "0025_prospect_audits_chosen_terms",
       "0026_prospect_audits_chosen_questions",
       "0027_reports_resend_message_index",
+      "0028_deadletter_slug_unreplayed_index",
     ]);
     await db.destroy();
   });

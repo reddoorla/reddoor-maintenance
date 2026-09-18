@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { a11yAudit, describeViolations } from "../../src/audits/a11y.js";
+import {
+  a11yAudit,
+  classifyRouteResponse,
+  describeSkipped,
+  describeViolations,
+} from "../../src/audits/a11y.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 async function tmpSite(): Promise<string> {
@@ -13,6 +18,7 @@ type A11yArtifact = {
   totalViolations: number;
   byImpact: Partial<Record<"minor" | "moderate" | "serious" | "critical", number>>;
   violations?: Array<{ id: string; impact: string; route: string; help?: string }>;
+  skipped?: Array<{ route: string; path: string; status: number | null; reason: string }>;
 };
 
 /**
@@ -480,11 +486,12 @@ describe("audits/a11y — a route that 404s is a missing route, not a scan (#680
     // The navigation's response is captured, not discarded.
     expect(sink.spec).toMatch(/const response = await page\.goto\(path\)/);
     // A missing or non-200 response becomes its own violation id …
-    expect(sink.spec).toMatch(/!response \|\| response\.status\(\) !== 200/);
+    expect(sink.spec).toMatch(/const verdict = classifyRouteResponse\(/);
+    expect(sink.spec).toMatch(/if \(verdict === "missing"\)/);
     expect(sink.spec).toContain('id: "route-missing"');
     expect(sink.spec).toContain('impact: "serious"');
     // … whose help names the path and the status …
-    expect(sink.spec).toMatch(/returned \$\{response \? response\.status\(\) : "no response"\}/);
+    expect(sink.spec).toMatch(/returned \$\{status === null \? "no response" : status\}/);
     // … and axe is NOT run over whatever the error page was.
     const guardAt = sink.spec.indexOf('id: "route-missing"');
     const continueAt = sink.spec.indexOf("continue;", guardAt);
@@ -748,5 +755,268 @@ describe("audits/a11y — gateServer opt-in (#700)", () => {
     expect(result.status).toBe("pass");
     expect(config()).toContain("npm run vite:dev -- --port");
     expect(config()).not.toContain("npm run preview");
+  });
+});
+
+/**
+ * #863 — sentinel awareness. The route-status guard (#680) is right that a
+ * configured route returning non-200 is a config problem. What it did not know
+ * is that a 404 on `/` is the DESIGNED answer for a clone still carrying the
+ * starter's `your-prismic-repo-name`: there is no Prismic repository behind it
+ * until `/new-site` step 6, so `getByUID("page","home")` cannot resolve.
+ *
+ * Every new site passes through that window — step 3c points the gates at real
+ * routes, step 6 wires Prismic — and in it the first maintenance PR failed on
+ * `route-missing on / (/ returned 404)`, which is not a defect in the site.
+ *
+ * The danger in fixing it is fixing it too broadly. reddoor-starter sits on the
+ * sentinel PERMANENTLY, and it is the repo the `/dev/*` fixtures live in; a rule
+ * that tolerated any 404 on a placeholder site would stop checking the fixtures
+ * exactly where they are defined. So the two 404 flavours are tested together,
+ * on the same site, in both directions.
+ */
+describe("audits/a11y — a placeholder-repo 404 is the designed answer (#863)", () => {
+  const writePkg = (dir: string, reddoor: unknown) =>
+    writeFile(join(dir, "package.json"), JSON.stringify({ name: "site", reddoor }));
+
+  const writePrismic = (dir: string, repositoryName: string, file = "slicemachine.config.json") =>
+    writeFile(join(dir, file), JSON.stringify({ repositoryName, libraries: ["./src/lib/slices"] }));
+
+  function captureSpec(sink: { spec: string }, artifact: A11yArtifact): SpawnFn {
+    return async (_cmd, args, opts) => {
+      sink.spec = await readFile(args[args.length - 1] as string, "utf-8");
+      const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
+      await mkdir(out, { recursive: true });
+      await writeFile(join(out, "results.json"), JSON.stringify(artifact), "utf-8");
+      return { code: artifact.totalViolations > 0 ? 1 : 0, stdout: "", stderr: "" };
+    };
+  }
+
+  type SpecPage = { path: string; name: string; placeholder404Ok?: boolean };
+  const pagesOf = (spec: string): SpecPage[] => {
+    const matched = spec.match(/\nconst pages = (\[.*?\]);\n/)?.[1];
+    // Not a soft fallback: if the spec stops declaring `pages` the way this
+    // reads it, every assertion below would quietly measure an empty list.
+    if (!matched) throw new Error("generated spec has no `const pages = [...]` line");
+    return JSON.parse(matched) as SpecPage[];
+  };
+
+  async function specFor(repo: string | null, routes: string[]): Promise<string> {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: routes });
+    if (repo) await writePrismic(cwd, repo);
+    const sink = { spec: "" };
+    await a11yAudit({
+      site: { path: cwd },
+      spawn: captureSpec(sink, { totalViolations: 0, byImpact: {} }),
+    });
+    return sink.spec;
+  }
+
+  // The decision itself, as a table. This is the function the spec runs — see
+  // the identity test below — so this table is evidence about the shipped
+  // guard, not about a transcription of it.
+  it("classifies: 200 scans, a tolerated 404 skips, everything else is still missing", () => {
+    expect(classifyRouteResponse({ status: 200, placeholder404Ok: false })).toBe("scan");
+    expect(classifyRouteResponse({ status: 200, placeholder404Ok: true })).toBe("scan");
+    // The one new branch.
+    expect(classifyRouteResponse({ status: 404, placeholder404Ok: true })).toBe("skip");
+    // #680's behaviour, untouched.
+    expect(classifyRouteResponse({ status: 404, placeholder404Ok: false })).toBe("missing");
+    // "No content yet" is a 404. A placeholder site whose dev server throws, or
+    // whose navigation dies, is still broken — blanket non-200 tolerance would
+    // swallow both.
+    expect(classifyRouteResponse({ status: 500, placeholder404Ok: true })).toBe("missing");
+    expect(classifyRouteResponse({ status: 503, placeholder404Ok: true })).toBe("missing");
+    expect(classifyRouteResponse({ status: null, placeholder404Ok: true })).toBe("missing");
+  });
+
+  it("the generated spec runs that exact function, not a copy of it", async () => {
+    const spec = await specFor("your-prismic-repo-name", ["/"]);
+    expect(spec).toContain(classifyRouteResponse.toString());
+  });
+
+  it("marks the site's own routes tolerable and the /dev fixtures never", async () => {
+    const pages = pagesOf(await specFor("your-prismic-repo-name", ["/", "/about"]));
+    expect(pages.map((p) => [p.path, p.placeholder404Ok === true])).toEqual([
+      ["/dev/a11y-fixtures", false],
+      ["/dev/animate-in", false],
+      ["/", true],
+      ["/about", true],
+    ]);
+  });
+
+  it("marks nothing on a site wired to a real Prismic repository", async () => {
+    const pages = pagesOf(await specFor("caltex-industrial", ["/"]));
+    expect(pages.some((p) => p.placeholder404Ok === true)).toBe(false);
+  });
+
+  it("marks nothing when the site has no Prismic config at all", async () => {
+    const pages = pagesOf(await specFor(null, ["/"]));
+    expect(pages.some((p) => p.placeholder404Ok === true)).toBe(false);
+  });
+
+  // The trap this test exists for: `PLACEHOLDER_REPOSITORY_NAMES` in
+  // src/prismic/models/config.ts also holds `reddoor-wireframer`, and
+  // data-dynamiq really is served from it — the repository resolves and has
+  // published documents. Reusing that list here would hand a LIVE production
+  // site permanent, silent tolerance of a 404 on its homepage.
+  it("does not treat reddoor-wireframer as a placeholder — data-dynamiq renders from it", async () => {
+    const pages = pagesOf(await specFor("reddoor-wireframer", ["/"]));
+    expect(pages.some((p) => p.placeholder404Ok === true)).toBe(false);
+  });
+
+  // The whole loop, both flavours, on the SAME freshly bootstrapped site: the
+  // real pages array the audit generated, run through the real classifier.
+  it("on one placeholder site: / skips, and a fixture 404 on that same site does not", async () => {
+    const pages = pagesOf(await specFor("your-prismic-repo-name", ["/"]));
+    const run = (statusOf: (p: SpecPage) => number) =>
+      pages.map((p) =>
+        classifyRouteResponse({
+          status: statusOf(p),
+          placeholder404Ok: p.placeholder404Ok === true,
+        }),
+      );
+
+    // Known-good input — a site between /new-site step 3c and step 6. Fixtures
+    // serve (the #717 /dev guard is inert under `vite dev`); `/` has no content.
+    expect(run((p) => (p.path === "/" ? 404 : 200))).toEqual(["scan", "scan", "skip"]);
+
+    // The real defect on that same site: a fixture route stops answering.
+    expect(run((p) => (p.path === "/" || p.path.startsWith("/dev/") ? 404 : 200))).toEqual([
+      "missing",
+      "missing",
+      "skip",
+    ]);
+
+    // And the tolerance does not widen into "any non-200 on a placeholder
+    // site": a homepage that 500s is a crash, not an absence of content.
+    expect(run((p) => (p.path === "/" ? 500 : 200))).toEqual(["scan", "scan", "missing"]);
+  });
+
+  // PASS PROOF, end to end. A skip must not be able to read as a scan: the
+  // count becomes "2 of 3" and the note names the route and the reason.
+  it("passes on the placeholder 404 and says out loud that the route was not scanned", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/"] });
+    await writePrismic(cwd, "your-prismic-repo-name");
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        violations: [],
+        skipped: [{ route: "/", path: "/", status: 404, reason: "placeholder Prismic repo" }],
+      }),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).toBe(
+      "a11y: 0 violations across 2 of 3 routes " +
+        "(2 fixtures + 1 from package.json; 1 skipped: / — placeholder Prismic repo) " +
+        "(+1 hydration smoke)",
+    );
+  });
+
+  // FAIL PROOF, end to end, on the SAME configuration: the fixture 404 is not
+  // covered by the sentinel and still fails serious.
+  it("still fails on a fixture 404 on a placeholder site", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/"] });
+    await writePrismic(cwd, "your-prismic-repo-name");
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 1,
+          byImpact: { serious: 1 },
+          violations: [
+            {
+              id: "route-missing",
+              impact: "serious",
+              route: "a11y fixtures",
+              help: "/dev/a11y-fixtures returned 404",
+            },
+          ],
+          skipped: [{ route: "/", path: "/", status: 404, reason: "placeholder Prismic repo" }],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    // Both facts survive into the one line CI and the cockpit read.
+    expect(result.summary).toBe(
+      "a11y: 1 violations across 2 of 3 routes " +
+        "(2 fixtures + 1 from package.json; 1 skipped: / — placeholder Prismic repo) " +
+        "— route-missing on a11y fixtures (/dev/a11y-fixtures returned 404)",
+    );
+  });
+
+  // #680, unchanged where it matters most: a real site's broken homepage.
+  it("still fails on a 404 on a site wired to a real Prismic repository", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/"] });
+    await writePrismic(cwd, "caltex-industrial");
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 1,
+          byImpact: { serious: 1 },
+          violations: [
+            { id: "route-missing", impact: "serious", route: "/", help: "/ returned 404" },
+          ],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "a11y: 1 violations across 3 routes (2 fixtures + 1 from package.json) " +
+        "— route-missing on / (/ returned 404)",
+    );
+  });
+
+  it("a run that skipped nothing keeps its summary byte-for-byte", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/"] });
+    await writePrismic(cwd, "your-prismic-repo-name");
+    const result = await a11yAudit({
+      site: { path: cwd },
+      // The site is on the sentinel, but `/` answered 200 — nothing to skip.
+      spawn: playwrightSpawn({ totalViolations: 0, byImpact: {}, violations: [], skipped: [] }),
+    });
+    expect(result.summary).toBe(
+      "a11y: 0 violations across 3 routes (2 fixtures + 1 from package.json) (+1 hydration smoke)",
+    );
+  });
+});
+
+describe("audits/a11y — describeSkipped", () => {
+  const skip = (route: string, reason = "placeholder Prismic repo") => ({
+    route,
+    path: route,
+    status: 404,
+    reason,
+  });
+
+  it("is empty when nothing was skipped", () => {
+    expect(describeSkipped([])).toBe("");
+  });
+
+  it("names the route and the reason", () => {
+    expect(describeSkipped([skip("/")])).toBe("1 skipped: / — placeholder Prismic repo");
+  });
+
+  it("caps the named list and keeps the count honest", () => {
+    const many = ["/", "/a", "/b", "/c", "/d", "/e"].map((r) => skip(r));
+    expect(describeSkipped(many)).toBe(
+      "6 skipped: /, /a, /b, /c, +2 more — placeholder Prismic repo",
+    );
+  });
+
+  it("does not repeat one reason per route", () => {
+    expect(describeSkipped([skip("/"), skip("/about")])).toBe(
+      "2 skipped: /, /about — placeholder Prismic repo",
+    );
   });
 });

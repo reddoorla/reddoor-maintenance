@@ -177,6 +177,30 @@ export async function countUnreplayedDeadLettersBySlug(
   return new Map(rows.map((r) => [r.site_slug, Number(r.n)]));
 }
 
+/** The same count for ONE slug — the `/s/:slug` dead-letter chip (MED-11).
+ *
+ *  The fleet homepage genuinely needs the whole map (it renders every site), so
+ *  `countUnreplayedDeadLettersBySlug` stays. The site page did not: it built the
+ *  fleet-wide map and read one key out of it.
+ *
+ *  Needs `idx_deadletter_slug_unreplayed` (0028) to be a per-slug read rather
+ *  than a per-slug filter. Without it SQLite serves the predicate from
+ *  `idx_deadletter_unreplayed (replayed_at)` and visits every unreplayed row in
+ *  the fleet, then a rowid lookup into the payload-bearing table for each — the
+ *  exact cost the grouped version's docblock says it exists to avoid. The plan
+ *  still reads `SEARCH`, which is why the query-plan gate cannot see the
+ *  difference and the index has to be a deliberate choice. */
+export async function countUnreplayedDeadLettersForSlug(db: Db, slug: string): Promise<number> {
+  const row = await db
+    .selectFrom("submission_deadletter")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("site_slug", "=", slug)
+    .where("replayed_at", "is", null)
+    .where("abandoned_at", "is", null)
+    .executeTakeFirst();
+  return Number(row?.n) || 0;
+}
+
 /** Abandon dead letters as resolved-by-DECISION (#786).
  *
  *  The escape hatch #785 left open. `unknown-site` is deliberately non-terminal

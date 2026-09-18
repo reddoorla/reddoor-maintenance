@@ -146,13 +146,35 @@ describe("approve-report adapter — env + method gating", () => {
     expect(approveMock).not.toHaveBeenCalled();
   });
 
-  it("500s when Airtable env is missing", async () => {
+  // #646: the Airtable env gate is GONE — every input this endpoint gates on,
+  // and the approve it records, are Turso's. Airtable is only the
+  // rollback-window shadow, and a missing shadow is skipped rather than failed.
+  // The behavioural proof (the write lands, the skip is logged) is in
+  // tests/dashboard/approve-report-turso.test.ts, against a real libSQL db;
+  // this one only holds the adapter's gating shape.
+  it("does NOT 500 when Airtable env is missing — the approve proceeds", async () => {
     delete process.env.AIRTABLE_PAT;
+    delete process.env.AIRTABLE_BASE_ID;
+    approveMock.mockResolvedValue({ status: "approved", reportId: "recREP1" });
+    // @ts-expect-error — minimal Context
+    const res = await approveReportFn(post("recREP1", { authorization: AUTH }), {
+      params: { id: "recREP1" },
+    });
+    expect(res.status).toBe(200);
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+  });
+
+  it("still 500s when TURSO_DATABASE_URL is missing — that gate stays", async () => {
+    delete process.env.TURSO_DATABASE_URL;
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
     // @ts-expect-error — minimal Context
     const res = await approveReportFn(post("recREP1", { authorization: AUTH }), {
       params: { id: "recREP1" },
     });
     expect(res.status).toBe(500);
+    expect(await res.text()).toBe("Turso env missing");
+    expect(approveMock).not.toHaveBeenCalled();
+    err.mockRestore();
   });
 
   it("returns 409 (not 2xx) when approve is blocked, so the client's res.ok check reads Failed", async () => {

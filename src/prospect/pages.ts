@@ -54,6 +54,18 @@ export type UsablePageSet = {
    * when this is false rather than publish the finding.
    */
   anchorsMeasured: boolean;
+  /**
+   * Did every kept page carry an `imageSrcs` array?
+   *
+   * Same rule as `anchorsMeasured`, for the same reason. `PageExtract.imageSrcs`
+   * is optional and absent from every report stored before it existed, so a
+   * consumer reading `imageSrcs ?? []` turns one of those replays into "we
+   * checked every image on your site for mixed content and found none" — a
+   * measurement nobody took. An absent array means NOT MEASURED, never "no
+   * insecure images". Consumers must degrade to "not measured" when this is
+   * false rather than publish the all-clear.
+   */
+  imageSrcsMeasured: boolean;
 };
 
 /**
@@ -117,5 +129,6 @@ export function usablePages(pages: PageCapture[]): UsablePageSet {
     view,
     excluded: candidates.length - usable.length,
     anchorsMeasured: usable.length > 0 && usable.every((p) => p.extract.anchors !== undefined),
+    imageSrcsMeasured: usable.length > 0 && usable.every((p) => p.extract.imageSrcs !== undefined),
   };
 }

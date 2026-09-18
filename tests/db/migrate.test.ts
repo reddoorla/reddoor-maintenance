@@ -34,6 +34,7 @@ describe("runMigrations", () => {
       "0025_prospect_audits_chosen_terms",
       "0026_prospect_audits_chosen_questions",
       "0027_reports_resend_message_index",
+      "0028_deadletter_slug_unreplayed_index",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -79,6 +80,7 @@ describe("runMigrations", () => {
       "0025_prospect_audits_chosen_terms",
       "0026_prospect_audits_chosen_questions",
       "0027_reports_resend_message_index",
+      "0028_deadletter_slug_unreplayed_index",
     ]);
   });
 
@@ -128,6 +130,7 @@ describe("runMigrations", () => {
       "0025_prospect_audits_chosen_terms",
       "0026_prospect_audits_chosen_questions",
       "0027_reports_resend_message_index",
+      "0028_deadletter_slug_unreplayed_index",
     ]);
   });
 
@@ -180,6 +183,7 @@ describe("runMigrations", () => {
       "0025_prospect_audits_chosen_terms",
       "0026_prospect_audits_chosen_questions",
       "0027_reports_resend_message_index",
+      "0028_deadletter_slug_unreplayed_index",
     ]);
   });
 });
