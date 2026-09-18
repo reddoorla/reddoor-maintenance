@@ -21,6 +21,21 @@ function answer(partial: Partial<ProbeAnswer> & { citedDomains: string[] }): Pro
   };
 }
 
+/**
+ * `analyzeAnswerSpace` with the attempted-probe count defaulted to "nothing was
+ * lost", which is what every case below except the two about `queriesAsked`
+ * means. Those two pass an explicit count. The default lives HERE and not in
+ * the production signature on purpose: deriving the attempted count from the
+ * answers that came back is the defect the third parameter exists to close.
+ */
+function analyze(
+  answers: ProbeAnswer[],
+  prospectUrl: string,
+  categoryAttempted = answers.filter((a) => a.kind === "category").length,
+): AnswerSpace {
+  return analyzeAnswerSpace(answers, prospectUrl, categoryAttempted);
+}
+
 describe("normalizeDomain", () => {
   it("strips a leading www. so one source does not rank as two", () => {
     expect(normalizeDomain("www.Example.com")).toBe("example.com");
@@ -44,7 +59,7 @@ describe("ownHost", () => {
 
 describe("analyzeAnswerSpace", () => {
   it("counts citations with repeats but domains without", () => {
-    const space = analyzeAnswerSpace(
+    const space = analyze(
       [answer({ citedDomains: ["a.com", "a.com", "b.com"] })],
       "https://mine.com",
     );
@@ -57,7 +72,7 @@ describe("analyzeAnswerSpace", () => {
     // Branded queries hand the engine the name, so they describe nothing about
     // how the category is answered — including them would inflate every share
     // with citations the prospect's own name produced.
-    const space = analyzeAnswerSpace(
+    const space = analyze(
       [
         answer({ kind: "branded", citedDomains: ["brandonly.com"] }),
         answer({ kind: "competitor", citedDomains: ["headtohead.com"] }),
@@ -74,7 +89,7 @@ describe("analyzeAnswerSpace", () => {
     // An engine that declines to cite anything is a fact about the query, not
     // about the prospect. Folding it into the shares would dilute them with
     // silence; dropping it from queriesAsked would hide that we asked.
-    const space = analyzeAnswerSpace(
+    const space = analyze(
       [answer({ citedDomains: [] }), answer({ citedDomains: ["a.com"] })],
       "https://mine.com",
     );
@@ -85,7 +100,7 @@ describe("analyzeAnswerSpace", () => {
   it("finds how many domains cover half the citations", () => {
     // 4 + 3 + 2 + 1 = 10 citations. a.com alone is 4 (not half); a+b is 7,
     // which crosses 5. So two domains cover half.
-    const space = analyzeAnswerSpace(
+    const space = analyze(
       [
         answer({
           citedDomains: [
@@ -109,7 +124,7 @@ describe("analyzeAnswerSpace", () => {
   });
 
   it("ranks the prospect's own domain and ignores www when matching", () => {
-    const space = analyzeAnswerSpace(
+    const space = analyze(
       [answer({ citedDomains: ["big.com", "big.com", "www.mine.com"] })],
       "https://mine.com/services",
     );
@@ -122,7 +137,7 @@ describe("analyzeAnswerSpace", () => {
     // nothing stronger. Measured top-rival shares on the 12-site benchmark are
     // 4-16%, so this is NOT the owner of a category and the report must never
     // present it as one; see the field comment in answer-space.ts.
-    const space = analyzeAnswerSpace(
+    const space = analyze(
       [answer({ citedDomains: ["mine.com", "mine.com", "mine.com", "rival.com"] })],
       "https://mine.com",
     );
@@ -131,7 +146,7 @@ describe("analyzeAnswerSpace", () => {
   });
 
   it("reports no rival when the prospect is the only cited source", () => {
-    const space = analyzeAnswerSpace([answer({ citedDomains: ["mine.com"] })], "https://mine.com");
+    const space = analyze([answer({ citedDomains: ["mine.com"] })], "https://mine.com");
     expect(space.topRival).toBeNull();
   });
 
@@ -139,11 +154,11 @@ describe("analyzeAnswerSpace", () => {
     // Without the tiebreak these rank by Map insertion order, and the report
     // would name a different "top rival" for identical data depending on which
     // query happened to run first.
-    const forward = analyzeAnswerSpace(
+    const forward = analyze(
       [answer({ citedDomains: ["zebra.com", "apple.com"] })],
       "https://mine.com",
     );
-    const reversed = analyzeAnswerSpace(
+    const reversed = analyze(
       [answer({ citedDomains: ["apple.com", "zebra.com"] })],
       "https://mine.com",
     );
@@ -154,7 +169,7 @@ describe("analyzeAnswerSpace", () => {
   it("takes the lower median width on an even count", () => {
     // The report quotes this as "half the answers drew on N sources or fewer",
     // which an interpolated 2.5 cannot mean.
-    const space = analyzeAnswerSpace(
+    const space = analyze(
       [
         answer({ citedDomains: ["a.com", "b.com"] }),
         answer({ citedDomains: ["c.com", "d.com", "e.com"] }),
@@ -165,14 +180,40 @@ describe("analyzeAnswerSpace", () => {
   });
 
   it("survives an unparseable prospect url without losing the rest", () => {
-    const space = analyzeAnswerSpace([answer({ citedDomains: ["a.com"] })], "not a url");
+    const space = analyze([answer({ citedDomains: ["a.com"] })], "not a url");
     expect(space.ownDomainRank).toBeNull();
     expect(space.distinctDomains).toBe(1);
     expect(space.topRival?.domain).toBe("a.com");
   });
 
+  it("counts the category probes ATTEMPTED, not the ones that came back", () => {
+    // The same defect PR #631 fixed for `visibilityScore`: dividing by the
+    // survivors made a flakier run score higher. `queriesAsked` read
+    // `category.length`, i.e. only the probes that returned, so a run where
+    // three of five queries timed out reported that we asked two.
+    const space = analyze(
+      [answer({ citedDomains: ["a.com"] }), answer({ citedDomains: [] })],
+      "https://mine.com",
+      5,
+    );
+    expect(space.queriesAsked).toBe(5);
+    // Answers that cited nothing are still not folded into the shares.
+    expect(space.answersWithCitations).toBe(1);
+  });
+
+  it("reports queriesAsked unchanged when every probe came back", () => {
+    // The positive control: with nothing lost, attempted and returned agree,
+    // and the number the report would print is the same either way.
+    const space = analyze(
+      [answer({ citedDomains: ["a.com"] }), answer({ citedDomains: ["b.com"] })],
+      "https://mine.com",
+      2,
+    );
+    expect(space.queriesAsked).toBe(2);
+  });
+
   it("returns an empty, non-null-crashing shape when nothing was cited at all", () => {
-    const space: AnswerSpace = analyzeAnswerSpace([], "https://mine.com");
+    const space: AnswerSpace = analyze([], "https://mine.com");
     expect(space.citationsTotal).toBe(0);
     expect(space.distinctDomains).toBe(0);
     expect(space.domainsToHalf).toBeNull();

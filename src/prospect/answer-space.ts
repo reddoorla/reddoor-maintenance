@@ -40,6 +40,18 @@ export type AnswerSpace = {
    *  that declined to cite anything is a fact about the query, not about the
    *  prospect, and folding it into the shares would dilute them with silence. */
   answersWithCitations: number;
+  /**
+   * Category queries we ASKED — the attempted count, not the returned one.
+   *
+   * It used to be `answers.filter(kind === "category").length`, i.e. only the
+   * probes that came back, which is the identical defect #631 fixed for
+   * `visibilityScore` (see `types.ts` — "a flakier run scored HIGHER"): a run
+   * where three of five queries timed out reported that we asked two. So this
+   * counts every category probe dispatched, whether it answered, answered
+   * citing nothing, or never returned at all. `answersWithCitations` is the
+   * subset that produced citations; the gap between them is our missing data,
+   * and a consumer must read it as ours rather than as the prospect's.
+   */
   queriesAsked: number;
   /** Every citation across every category answer, repeats included. */
   citationsTotal: number;
@@ -112,7 +124,17 @@ export function ownHost(url: string): string | null {
   }
 }
 
-export function analyzeAnswerSpace(answers: ProbeAnswer[], prospectUrl: string): AnswerSpace {
+/**
+ * @param categoryAttempted How many category probes were DISPATCHED. Required
+ *   rather than derived from `answers`, because `answers` holds only the probes
+ *   that returned — deriving it is the bug this parameter exists to close, and
+ *   an optional parameter defaulting to that derivation would keep it.
+ */
+export function analyzeAnswerSpace(
+  answers: ProbeAnswer[],
+  prospectUrl: string,
+  categoryAttempted: number,
+): AnswerSpace {
   // Category answers only. Branded answers ("who is X") hand the engine the
   // name and are excluded from every visibility measure for that reason; a
   // competitor answer is a head-to-head we posed, not a question a buyer
@@ -173,7 +195,7 @@ export function analyzeAnswerSpace(answers: ProbeAnswer[], prospectUrl: string):
 
   return {
     answersWithCitations,
-    queriesAsked: category.length,
+    queriesAsked: categoryAttempted,
     citationsTotal,
     distinctDomains: topSources.length,
     topSources,

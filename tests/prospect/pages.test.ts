@@ -131,9 +131,23 @@ describe("usablePages", () => {
     expect(unmeasured.anchorsMeasured).toBe(false);
   });
 
+  it("reports whether image sources were measured on every page it kept", () => {
+    const measured = usablePages([page(), page({ url: "https://example.com/b" })]);
+    expect(measured.imageSrcsMeasured).toBe(true);
+
+    const withoutImageSrcs = { ...extract() };
+    delete (withoutImageSrcs as { imageSrcs?: unknown }).imageSrcs;
+    const unmeasured = usablePages([
+      page(),
+      page({ url: "https://example.com/b", raw: withoutImageSrcs, rendered: withoutImageSrcs }),
+    ]);
+    expect(unmeasured.imageSrcsMeasured).toBe(false);
+  });
+
   it("returns nothing usable rather than throwing when the crawl produced nothing", () => {
     const set = usablePages([]);
     expect(set.pages).toEqual([]);
     expect(set.anchorsMeasured).toBe(false);
+    expect(set.imageSrcsMeasured).toBe(false);
   });
 });
