@@ -88,8 +88,9 @@ export async function runDbCommand(
 
   // Re-run every lead that dead-lettered during a site-lookup outage (#539
   // Phase 0) through the normal ingest pipeline. Exit 1 while any row is STILL
-  // failing — the store hasn't recovered and the operator should not read the
-  // run as "all leads landed". Zero rows is a clean 0: nothing owed.
+  // owed — still failing, re-ingested but unmarked (MED-10b), or undecodable
+  // (MED-10c). The operator should not read the run as "all leads landed".
+  // Zero rows is a clean 0: nothing owed.
   if (action === "replay-deadletters") {
     const { readDbConfig, openDb } = await import("../../db/client.js");
     // #786. `--abandon` is the escape hatch for the queue #785 deliberately
@@ -198,14 +199,32 @@ export async function runDbCommand(
       stampFanout: (id, fanoutStatus) => stampFanout(db, id, fanoutStatus),
     });
 
+    // MED-10. Four buckets, three of them non-zero-is-not-nothing. `still_failing`
+    // is a STANDING condition (a slug awaiting `ensure-site`, or a dead one
+    // awaiting `--abandon`) and already has an alarm — the `deadletter` attention
+    // item. `unmarked` and `unreadable` are DEFECTS with no other surface at all:
+    // this output is the only place either is ever named.
     const lines = [
       ...result.replayed.map(
         (r) => `replayed ${r.id} → ${r.outcome}${r.submissionId ? ` (${r.submissionId})` : ""}`,
       ),
       ...result.stillFailing.map((r) => `still failing ${r.id}: ${r.error}`),
-      `DEADLETTER_REPLAY replayed=${result.replayed.length} still_failing=${result.stillFailing.length}`,
+      ...result.unmarked.map(
+        (r) =>
+          `UNMARKED ${r.id}: re-ingested as ${r.submissionId ?? "(no submission)"} → ${r.outcome}, ` +
+          `but the terminal mark could NOT be written (${r.error}). The row is still queued, so ` +
+          `replaying again before it is reconciled will mint a DUPLICATE of this lead.`,
+      ),
+      ...result.unreadable.map(
+        (r) =>
+          `UNREADABLE ${r.id} (site '${r.siteSlug}', received ${r.receivedAt}): ${r.error}. ` +
+          `The row is untouched — repair the stored JSON, or retire it with ` +
+          `\`db replay-deadletters --abandon ${r.id} --reason "…"\`.`,
+      ),
+      `DEADLETTER_REPLAY replayed=${result.replayed.length} still_failing=${result.stillFailing.length} unmarked=${result.unmarked.length} unreadable=${result.unreadable.length}`,
     ];
-    return { output: lines.join("\n"), code: result.stillFailing.length > 0 ? 1 : 0 };
+    const owed = result.stillFailing.length + result.unmarked.length + result.unreadable.length > 0;
+    return { output: lines.join("\n"), code: owed ? 1 : 0 };
   }
 
   // Phase 1.3/1.4 of #539. Both read the same two Airtable tables raw (id +

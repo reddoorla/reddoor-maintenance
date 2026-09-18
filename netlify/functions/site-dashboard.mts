@@ -1,9 +1,9 @@
 import type { Context, Config } from "@netlify/functions";
 import { getSiteBySlug, listReportsForSite } from "../../src/db/fleet-state.js";
-import { countUnreplayedDeadLettersBySlug } from "../../src/db/deadletter.js";
+import { countUnreplayedDeadLettersForSlug } from "../../src/db/deadletter.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listSubmissionsForSite, countNotifyBouncedBySite } from "../../src/db/submissions.js";
-import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
+import { listSubmissionsForSite, countNotifyBouncedForSite } from "../../src/db/submissions.js";
+import { screenOutTotalsForSite, screenOutsSince } from "../../src/db/screenouts.js";
 import {
   requireOperator,
   denialResponse,
@@ -112,10 +112,20 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       // submissions section simply absent — the rest of the page still renders
     }
 
+    // MED-11 (2026-09-02). Every read below is scoped to THIS site. All three
+    // used to call the fleet-wide variant and then throw away every row but one:
+    // a single `/s/:slug` load ran a GROUP BY over the whole `submissions` table
+    // (unbounded, one row per fleet lead), a second full traversal for the spam
+    // panel, and a third over the dead-letter queue. The per-site forms are
+    // served as index SEARCHes — see tests/db/query-plans.test.ts.
+    //
+    // The fleet-wide functions are not gone: the nightly digest and the fleet
+    // cockpit genuinely render every site and still use them. What changed is
+    // that the ONE-site page no longer pays the fleet's price.
     let spamTotals: import("../../src/db/screenouts.js").ScreenOutTotals | null = null;
     try {
       const since = screenOutsSince(new Date(), 30);
-      spamTotals = (await listScreenOutsSince(db, since)).get(site.id) ?? null;
+      spamTotals = await screenOutTotalsForSite(db, site.id, since);
     } catch {
       // panel simply absent — never blank the page
     }
@@ -123,19 +133,44 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // Cockpit alarm verdict for the header chip strip — same collectors + assignTier
     // as buildCockpitModel (see buildSiteAlarmContext). Both reads are defensive:
     // a Turso blip drops just the bounce chip; any collector throw drops the strip.
-    let notifyBounces: Awaited<ReturnType<typeof countNotifyBouncedBySite>> = new Map();
+    //
+    // The collectors take fleet-shaped maps, so each read is wrapped in a
+    // one-entry map here rather than changing their signatures — the site page
+    // and the cockpit keep running the identical collector code, which is the
+    // property `buildSiteAlarmContext` exists to preserve. An empty map on
+    // failure still means "no signal", exactly as before.
+    let notifyBounces: ReadonlyMap<
+      string,
+      import("../../src/db/submissions.js").NotifyBounceCounts
+    > = new Map();
     try {
-      notifyBounces = await countNotifyBouncedBySite(
+      const counts = await countNotifyBouncedForSite(
         db,
+        site.id,
         screenOutsSince(new Date(), NOTIFY_BOUNCE_WINDOW_DAYS),
       );
+      // A site with nothing to raise drops out of the map, matching what the
+      // fleet-wide GROUP BY handed the collectors before.
+      if (counts.total > 0) notifyBounces = new Map([[site.id, counts]]);
     } catch {
       // bounce chip simply absent
     }
     // #645. Dead-letter rows for THIS site's slug reach its own page the same way.
+    //
+    // `slug` is the URL's — the same value `getSiteBySlug` matched on, and the
+    // same value `form-ingest` writes into `submission_deadletter.site_slug`.
+    //
+    // This also narrows what the page shows, and the narrowing is the point: the
+    // fleet-wide map made EVERY dead-lettered slug in the fleet an alarm item on
+    // EVERY site's page, nearly all of them rendered by the collector's
+    // unresolvable-slug branch as "(unknown site: …)" because `sites` here is
+    // just this one site. A site's page now raises a dropped-lead alarm for its
+    // own leads. The fleet-wide view of the same queue is unchanged — that is
+    // what the cockpit on `/` is for.
     let deadLetters: ReadonlyMap<string, number> = new Map();
     try {
-      deadLetters = await countUnreplayedDeadLettersBySlug(db);
+      const n = await countUnreplayedDeadLettersForSlug(db, slug);
+      if (n > 0) deadLetters = new Map([[slug, n]]);
     } catch {
       // dead-letter chip simply absent
     }

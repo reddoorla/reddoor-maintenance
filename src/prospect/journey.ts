@@ -1,3 +1,4 @@
+import { anchorsTruncated } from "./extract.js";
 import { usablePages } from "./pages.js";
 import type { PageCapture, PageExtract } from "./types.js";
 
@@ -70,6 +71,18 @@ export type JourneyMap = {
    * page on the site being a dead end.
    */
   anchorsMeasured: boolean;
+  /**
+   * Pages whose anchor list hit `MAX_ANCHORS`, so we read only its first 300
+   * links (see `anchorsTruncated`).
+   *
+   * These pages are still in the graph and their links are still edges — a link
+   * we read is a real link, and the evidence is only ever additive in that
+   * direction. What they can never be is `deadEnds`: that finding is drawn from
+   * ABSENCE, and a list we cut off establishes nothing about what came after
+   * the cut. Reported rather than silently withheld, so "we could not judge
+   * this page" is a visible claim rather than an unexplained gap.
+   */
+  pagesWithTruncatedAnchors: string[];
 };
 
 /** Trailing slash and case folded on the host, so "/about" and "/about/" are one
@@ -207,17 +220,29 @@ export function buildJourney(pages: PageCapture[]): JourneyMap {
 
   const reachable = journeys.map((j) => j.clicksToContact).filter((d): d is number => d !== null);
 
+  // Pages whose link list was cut off at MAX_ANCHORS. Their edges above are
+  // real and stay in the graph; what they cannot do is carry a finding drawn
+  // from absence, because the links past the cap are links we never saw.
+  const truncated = new Set(
+    [...nodes.values()].filter((e) => anchorsTruncated(e.extract)).map((e) => e.page.url),
+  );
+
   return {
     affordances,
     pages: journeys,
     // Without recorded anchors there is no evidence either way, so there is no
     // finding — not "every page is a dead end", which is what reading the
-    // absent array as an empty one used to produce.
+    // absent array as an empty one used to produce. A TRUNCATED list is the
+    // same claim one page at a time: its footer `/contact` may simply be past
+    // the cap, so it is excluded here rather than accused.
     deadEnds: usable.anchorsMeasured
-      ? journeys.filter((j) => j.clicksToContact === null).map((j) => j.url)
+      ? journeys
+          .filter((j) => j.clicksToContact === null && !truncated.has(j.url))
+          .map((j) => j.url)
       : [],
     worstClicksToContact: reachable.length > 0 ? Math.max(...reachable) : null,
     pagesExamined: journeys.length,
     anchorsMeasured: usable.anchorsMeasured,
+    pagesWithTruncatedAnchors: [...truncated],
   };
 }

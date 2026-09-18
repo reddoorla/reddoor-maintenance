@@ -538,4 +538,19 @@ export const MIGRATIONS: Migration[] = [
     id: "0027_reports_resend_message_index",
     sql: `CREATE INDEX IF NOT EXISTS idx_reports_resend_message ON reports (resend_message_id);`,
   },
+  {
+    // MED-11 of the 2026-09-02 review: `/s/:slug` built the fleet-wide unreplayed
+    // dead-letter map on every load and read one key out of it. The per-slug
+    // replacement (`countUnreplayedDeadLettersForSlug`) needs an index that
+    // starts with `site_slug` — served by 0005's `idx_deadletter_unreplayed
+    // (replayed_at)` it would visit every unreplayed row in the fleet and then
+    // do a rowid lookup into the payload-bearing table for each, which is what
+    // the grouped query's docblock says it exists to avoid.
+    //
+    // COVERING for the count: all three columns are in the index, so the query
+    // never touches a row carrying a client's lead payload. Single statement.
+    id: "0028_deadletter_slug_unreplayed_index",
+    sql: `CREATE INDEX IF NOT EXISTS idx_deadletter_slug_unreplayed
+            ON submission_deadletter (site_slug, replayed_at, abandoned_at);`,
+  },
 ];
