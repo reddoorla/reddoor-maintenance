@@ -214,7 +214,63 @@ jobs:
           # only, and `report --digest` also gets run by hand from a laptop.
           OPERATOR_EMAIL: ${{ vars.OPERATOR_EMAIL }}
           DASHBOARD_BASE_URL: ${{ vars.DASHBOARD_BASE_URL }}
-        run: node dist/cli/bin.js report --digest
+        run: |
+          set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}"
+          node dist/cli/bin.js report --digest | tee "$out/digest.out"
+
+          # MED-13(a). `DIGEST_STATE_WRITE` exists because of #585 — "a dual-write
+          # that silently stopped running looked identical to a healthy one for
+          # weeks" — and until now NOTHING read it. Rotate the token for this step
+          # and the email still sends, the run stays green, and the cockpit renders
+          # last month's rollup with a stale date nobody reads as an error. Every
+          # other machine marker in this repo is gated in its workflow; this is that
+          # gate, in the same shape as fleet-db-backup's DUMP_VERIFY/FLEET_DB_USAGE.
+          line=$(grep -a '^DIGEST_STATE_WRITE ' "$out/digest.out" | tail -1 || true)
+          if [ -z "$line" ]; then
+            # ONE legitimate absence: a same-UTC-day re-run whose content changed
+            # hits Resend's idempotency conflict and returns BEFORE persisting,
+            # deliberately — the first send already wrote the snapshot, and writing
+            # this run's would diff against the wrong baseline. Narrow, and it fails
+            # CLOSED: if that message is ever reworded, the marker is demanded again.
+            if grep -qa 'Digest already sent today' "$out/digest.out"; then
+              echo "notice: same-day duplicate digest — it deliberately wrote no snapshot. Nothing to gate."
+              exit 0
+            fi
+            echo "::error::digest: no DIGEST_STATE_WRITE line. The snapshot dual-write did not run — tomorrow's digest badges every item NEW and the cockpit rollup goes stale, both silently. This is the #585 shape."
+            exit 1
+          fi
+
+          # TURSO IS THE ONE THIS GATE DEMANDS. It is the READ side: the digest
+          # reads its own prior-run snapshot from it, and that read is deliberately
+          # not defensive. A failed write here costs correct NEW badges tomorrow,
+          # and nothing else in the system will say so. A missing counter is an
+          # empty string here, so a reworded marker fails rather than passes.
+          turso=$(printf '%s\n' "$line" | sed -nE 's/.* turso=([0-9]+).*/\1/p')
+          if [ "$turso" != "1" ]; then
+            echo "::error::digest: turso=${turso:-<absent>} in: $line — the read-side snapshot write FAILED. Tomorrow's digest will badge every item NEW."
+            exit 1
+          fi
+
+          # AIRTABLE IS DELIBERATELY NOT ASSERTED — not even read. It is the
+          # reversibility half of the #609 dual-write and Phase 6 removes it; a gate
+          # that demanded it would turn a planned deletion into a false red, and one
+          # that merely tolerated `airtable=0` would still break when the counter
+          # disappears from the line. The value stays visible in the log above.
+
+          # ROLLUP: `0` means the write was attempted and THREW — red. `absent` is a
+          # third state the code names as legitimate ("No Turso configured is a
+          # THIRD state, not a failure ... reporting it as rollup=0 would train the
+          # eye to ignore the number"), so it warns rather than reds.
+          rollup=$(printf '%s\n' "$line" | sed -nE 's/.* rollup=([A-Za-z0-9]+).*/\1/p')
+          if [ "$rollup" = "0" ]; then
+            echo "::error::digest: rollup=0 in: $line — the cockpit roll-up write threw. The homepage's spam and bounce strips go stale."
+            exit 1
+          fi
+          if [ "$rollup" != "1" ]; then
+            echo "::warning::digest: rollup=${rollup:-<absent>} — the cockpit roll-up was not written this run."
+          fi
+          echo "PASS: $line"
 
       # Keepalive (inline, dependency-free): re-enabling an already-enabled
       # workflow is a no-op that still resets GitHub's 60-day auto-disable
