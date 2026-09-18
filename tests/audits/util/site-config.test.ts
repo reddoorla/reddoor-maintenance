@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readSiteConfig } from "../../../src/audits/util/site-config.js";
+import {
+  PLACEHOLDER_PRISMIC_REPO,
+  readSiteConfig,
+  readsPlaceholderPrismicRepo,
+} from "../../../src/audits/util/site-config.js";
 
 describe("readSiteConfig", () => {
   let dir: string;
@@ -163,5 +167,118 @@ describe("readSiteConfig — gateServer", () => {
   it("coexists with the other keys", async () => {
     await write({ a11yRoutes: ["/"], gateServer: "preview" });
     expect(await readSiteConfig(dir)).toEqual({ a11yRoutes: ["/"], gateServer: "preview" });
+  });
+});
+
+/**
+ * readsPlaceholderPrismicRepo (#863). The fact the site side already reads in
+ * four places, arriving in the audit: while a clone carries the starter's
+ * `your-prismic-repo-name`, no Prismic repository stands behind it, so its own
+ * content routes 404 by design.
+ *
+ * Every unclear answer must be `false`. A site buys 404 tolerance only on
+ * positive evidence that it is unconfigured — the failure this returns to is
+ * the one that reports too much (#680's red), never the one that reports
+ * nothing.
+ */
+describe("readsPlaceholderPrismicRepo", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "reddoor-prismic-sentinel-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const write = (name: string, body: unknown) =>
+    writeFile(join(dir, name), typeof body === "string" ? body : JSON.stringify(body));
+
+  it("is false when the site has no Prismic config at all", async () => {
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+  });
+
+  it("is true for the starter sentinel in slicemachine.config.json", async () => {
+    await write("slicemachine.config.json", { repositoryName: PLACEHOLDER_PRISMIC_REPO });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(true);
+  });
+
+  it("is true for the sentinel in the CLI's renamed prismic.config.json", async () => {
+    await write("prismic.config.json", { repositoryName: PLACEHOLDER_PRISMIC_REPO });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(true);
+  });
+
+  it("is false for a real Prismic repository", async () => {
+    await write("slicemachine.config.json", { repositoryName: "caltex-industrial" });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+  });
+
+  // The one that would be expensive to get wrong. `reddoor-wireframer` is on
+  // PLACEHOLDER_REPOSITORY_NAMES in src/prismic/models/config.ts because it
+  // RESOLVES — data-dynamiq is served from it, with published documents. That
+  // list means "mint no token"; this one means "a 404 here is expected", and
+  // conflating them would buy a live site silent tolerance of a dead homepage.
+  it("is false for reddoor-wireframer, which is a real repository data-dynamiq renders from", async () => {
+    await write("slicemachine.config.json", { repositoryName: "reddoor-wireframer" });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+  });
+
+  // The CLI migration renames slicemachine.config.json to prismic.config.json,
+  // so a half-migrated repo can hold a stale sentinel in the first file and its
+  // real repository in the second. A real name anywhere wins.
+  it("is false when a stale sentinel sits beside a real prismic.config.json", async () => {
+    await write("slicemachine.config.json", { repositoryName: PLACEHOLDER_PRISMIC_REPO });
+    await write("prismic.config.json", { repositoryName: "caltex-industrial" });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+  });
+
+  it("is true when every candidate file carries the sentinel", async () => {
+    await write("slicemachine.config.json", { repositoryName: PLACEHOLDER_PRISMIC_REPO });
+    await write("prismic.config.json", { repositoryName: PLACEHOLDER_PRISMIC_REPO });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(true);
+  });
+
+  it("trims, so a stray space in the config still reads as the sentinel", async () => {
+    await write("slicemachine.config.json", { repositoryName: `  ${PLACEHOLDER_PRISMIC_REPO}  ` });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(true);
+  });
+
+  it("is false on malformed JSON rather than throwing", async () => {
+    await write("slicemachine.config.json", "{ not valid json");
+    await expect(readsPlaceholderPrismicRepo(dir)).resolves.toBe(false);
+  });
+
+  it("is false on a config that is valid JSON but not an object", async () => {
+    await write("slicemachine.config.json", "null");
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+    await write("slicemachine.config.json", "[]");
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+  });
+
+  it("is false when repositoryName is missing, empty or not a string", async () => {
+    await write("slicemachine.config.json", { libraries: [] });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+    await write("slicemachine.config.json", { repositoryName: "" });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+    await write("slicemachine.config.json", { repositoryName: 42 });
+    expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+  });
+
+  // The audit reads the COMMITTED config, never VITE_PRISMIC_ENVIRONMENT. The
+  // site side honours that override, but tests/smoke/routes.ts throws when it
+  // names the sentinel under CI — "it would make this smoke run expect no home
+  // page and pass" — and an audit that honoured it would hand that same false
+  // green to any real site whose environment carried it.
+  it("ignores VITE_PRISMIC_ENVIRONMENT", async () => {
+    await write("slicemachine.config.json", { repositoryName: "caltex-industrial" });
+    const before = process.env.VITE_PRISMIC_ENVIRONMENT;
+    process.env.VITE_PRISMIC_ENVIRONMENT = PLACEHOLDER_PRISMIC_REPO;
+    try {
+      expect(await readsPlaceholderPrismicRepo(dir)).toBe(false);
+    } finally {
+      if (before === undefined) delete process.env.VITE_PRISMIC_ENVIRONMENT;
+      else process.env.VITE_PRISMIC_ENVIRONMENT = before;
+    }
   });
 });

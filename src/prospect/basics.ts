@@ -264,7 +264,10 @@ export type BasicsCheck = {
    * Images loaded over plain http on an https page. Browsers block or refuse to
    * upgrade these, so they are broken images for some visitors and a mixed-
    * content warning for the rest. `measured` is false when the site is not on
-   * https at all, in which case `insecureEntry` is the finding instead.
+   * https at all, in which case `insecureEntry` is the finding instead — and
+   * also when the crawl recorded no image sources to look at (an older stored
+   * report, replayed), where the honest reading is "not measured" rather than
+   * "none found".
    */
   mixedContent: { measured: boolean; imageUrls: string[]; imagesSeen: number };
   /** Alt text coverage across the pages examined. An image counted once per page
@@ -647,7 +650,12 @@ export async function checkBasics(crawl: CrawlResult, deps: BasicsDeps): Promise
       // Only meaningful on an https site, and only over the images the extract
       // records — stylesheets and scripts are not captured, so the report must
       // not claim to have checked them.
-      measured: isHttps && usable.pages.length > 0,
+      //
+      // `imageSrcsMeasured`, not `pages.length > 0`: the loop above reads
+      // `extract.imageSrcs ?? []`, and that field is absent on every report
+      // stored before it existed. Counting those as measured published "we
+      // checked and found none" from a measurement never taken.
+      measured: isHttps && usable.imageSrcsMeasured,
       imageUrls: [...insecureImages].slice(0, 12),
       imagesSeen,
     },

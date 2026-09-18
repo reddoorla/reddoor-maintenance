@@ -233,6 +233,54 @@ describe("checkBasics — derived from the crawl", () => {
     expect(result.mixedContent.imagesSeen).toBe(3);
   });
 
+  it("reports a clean https site as measured with no insecure images", async () => {
+    // The positive control for the pair below: image sources WERE recorded and
+    // every one of them is https, so "we looked and found none" is the honest
+    // reading. This case must keep passing, or the degradation below is just a
+    // check that can never say yes.
+    const result = await checkBasics(
+      crawl({
+        pages: [
+          page("https://example.com/", {
+            imageSrcs: ["https://example.com/a.jpg", "/c.jpg"],
+          }),
+        ],
+      }),
+      stubProbe(HEALTHY),
+    );
+
+    expect(result.mixedContent.measured).toBe(true);
+    expect(result.mixedContent.imageUrls).toEqual([]);
+    expect(result.mixedContent.imagesSeen).toBe(2);
+  });
+
+  it("does not claim to have measured mixed content when image sources were never recorded", async () => {
+    // `imageSrcs` is optional and absent on every report stored before it
+    // existed. Replaying one of those must not read as "we checked for mixed
+    // content and found none" — that is a measurement we never took.
+    const result = await checkBasics(
+      crawl({ pages: [page("https://example.com/")] }),
+      stubProbe(HEALTHY),
+    );
+
+    expect(result.mixedContent.measured).toBe(false);
+    expect(result.mixedContent.imagesSeen).toBe(0);
+  });
+
+  it("does not claim mixed content was measured when only some pages recorded image sources", async () => {
+    const result = await checkBasics(
+      crawl({
+        pages: [
+          page("https://example.com/", { imageSrcs: ["https://example.com/a.jpg"] }),
+          page("https://example.com/about"),
+        ],
+      }),
+      stubProbe(HEALTHY),
+    );
+
+    expect(result.mixedContent.measured).toBe(false);
+  });
+
   it("does not claim to have measured mixed content on an http site", async () => {
     const result = await checkBasics(
       crawl({
