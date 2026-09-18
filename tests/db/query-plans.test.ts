@@ -34,7 +34,10 @@ import * as prospectAudits from "../../src/db/prospect-audits.js";
 import type { Db } from "../../src/db/client.js";
 import type { SubmissionFilter } from "../../src/db/submissions.js";
 
-const SRC_DB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../src/db");
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const SRC_DB_DIR = path.join(ROOT, "src/db");
+/** The request path: every Netlify function, plus everything they import. */
+const NETLIFY_FUNCTIONS_DIR = path.join(ROOT, "netlify/functions");
 
 /** Modules whose exported query functions the gate exercises below. */
 const GATED_MODULES: Record<string, Record<string, unknown>> = {
@@ -87,21 +90,39 @@ const PURE_EXPORTS = new Set([
 
 /** Raw scans accepted with a written justification. Empty today — the 0008
  *  indexes cover every hot path — but the mechanism stays so a future entry is
- *  a reviewed, named decision instead of a silent regression. */
-const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }> = [
+ *  a reviewed, named decision instead of a silent regression.
+ *
+ *  `requestPath` is the one part of `why` a machine can check (MED-11 of the
+ *  2026-09-02 review). Two entries here said "BATCH ONLY … no longer runs on a
+ *  request path" while `site-dashboard.mts` was still calling both on every
+ *  `/s/:slug` load: the claim was true of the handler that was fixed and false
+ *  of the one that was not, and nothing compared it to the code. Declaring it as
+ *  a boolean lets `requestPath claims match the import graph` below do that
+ *  comparison — and makes a future handler that reintroduces the call fail the
+ *  gate instead of inheriting a stale sentence. */
+const ALLOWED_RAW_SCANS: Array<{
+  scenario: string;
+  table: string;
+  /** Whether a Netlify function can reach this scenario's query. Checked. */
+  requestPath: boolean;
+  why: string;
+}> = [
   {
     scenario: "listSites (fleet-wide read: cockpit, browse, submissions filter)",
     table: "sites",
+    requestPath: true,
     why: "reads all ~44 sites by design; bounded by fleet size, not data growth",
   },
   {
     scenario: "listAllReports (cockpit fleet read)",
     table: "reports",
+    requestPath: true,
     why: "the cockpit reads every report today (13 rows, ~44/month growth) — window it before Phase 4's report review adds volume",
   },
   {
     scenario: "listSendableReports (the send queue)",
     table: "reports",
+    requestPath: false,
     why: "same table and same bound as listAllReports above — the send reads the queue once a day over a table sized by the fleet's report cadence; a partial index on three low-cardinality columns would not change the plan",
   },
   // The two SubmissionFilter shapes that cannot be served by any B-tree index.
@@ -123,11 +144,13 @@ const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }>
   {
     scenario: "countSubmissionsFiltered: search",
     table: "submissions",
+    requestPath: true,
     why: "LIKE '%term%' across name/email/message/phone — unindexable in SQLite without FTS5; operator-only page, revisit at ~10k rows",
   },
   {
     scenario: "countSubmissionsFiltered: reason",
     table: "submissions",
+    requestPath: true,
     why: "comma-boundary LIKE on a concatenation expression — no index can serve it; operator-only page, revisit at ~10k rows",
   },
   // Unindexable-by-shape aggregates, made VISIBLE by tightening the detector (an
@@ -142,24 +165,115 @@ const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }>
   {
     scenario: "countSubmissionsFiltered: no filters",
     table: "submissions",
+    requestPath: true,
     why: "COUNT(*) with no WHERE and no LIMIT — an unfiltered total cannot be anything but a full read; request path (submissions page), 354 rows today",
   },
   {
     scenario: "countNotifyBouncedBySite",
     table: "submissions",
-    why: "BATCH ONLY since MED-16 — the nightly digest computes it into the cockpit roll-up; the fleet homepage reads that row by primary key and no longer aggregates per request",
+    requestPath: false,
+    why: "BATCH ONLY — the nightly digest computes it into the cockpit roll-up, and the fleet homepage reads that row by primary key. True of fleet-homepage.mts since MED-16 and of site-dashboard.mts only since MED-11, which replaced its call with countNotifyBouncedForSite (per-site, index-served)",
   },
   {
     scenario: "listScreenOutsSince (window on date + marked-spam count)",
     table: "spam_screenouts",
-    why: "BATCH ONLY since MED-16 — same roll-up. Bounded by sites × days regardless, but it no longer runs on a request path",
+    requestPath: false,
+    why: "BATCH ONLY — same roll-up, same two-handler history: site-dashboard.mts kept calling this per request until MED-11 moved it to screenOutTotalsForSite. Bounded by sites × days regardless",
   },
   {
     scenario: "countSubmissionsSinceBySite (digest telemetry)",
     table: "submissions",
+    requestPath: false,
     why: "batch only — the digest cron, once a day; a full read is the correct shape for a per-site tally",
   },
 ];
+
+// ————————————————————————————————————————————————————————————————————————————
+// Request-path reachability — the machine-checkable half of an allowlist `why`.
+// ————————————————————————————————————————————————————————————————————————————
+
+/** Resolve a RELATIVE import specifier to the source file on disk. The runtime
+ *  imports carry `.js` extensions (NodeNext); the files are `.ts` / `.mts`. */
+function resolveLocalImport(fromFile: string, spec: string): string | null {
+  if (!spec.startsWith(".")) return null;
+  const base = path.resolve(path.dirname(fromFile), spec);
+  const candidates = [
+    base.replace(/\.js$/, ".ts"),
+    base.replace(/\.js$/, ".mts"),
+    `${base}.ts`,
+    `${base}.mts`,
+    path.join(base, "index.ts"),
+  ];
+  return candidates.find((c) => fs.existsSync(c) && fs.statSync(c).isFile()) ?? null;
+}
+
+const IMPORT_CLAUSE = /(?:^|[\s;])(?:import|export)\s+([\s\S]*?)\s*from\s*["']([^"']+)["']/g;
+
+export type RequestPathGraph = {
+  /** Every module a Netlify function can reach through local imports. */
+  files: Set<string>;
+  /** Gated-db-module export name → the request-path files that import it. */
+  importers: Map<string, string[]>;
+  /** `import * as x from "…/src/db/<gated>.js"` sites — the one shape the
+   *  name-based reader above cannot see through. Must stay empty. */
+  namespaceImports: string[];
+};
+
+/**
+ * Walk the local import graph out from `netlify/functions/**` and record which
+ * request-path modules import which gated-db-module exports.
+ *
+ * Reads IMPORT BINDINGS, not call sites. A `grep` for `name(` matches the
+ * function's own declaration, its mentions inside doc comments (there are
+ * several — `fleet-cockpit.ts`, `digest-collectors.ts` and `migrations.ts` all
+ * name these functions in prose), and an unrelated Airtable-layer namesake
+ * (`src/reports/airtable/reports.ts` exports its own `listAllReports`). An
+ * import binding has none of those ambiguities: it names the module the symbol
+ * came from, so the answer is about THIS `src/db` function and nothing else.
+ */
+function requestPathGraph(): RequestPathGraph {
+  const gated = new Set(Object.keys(GATED_MODULES));
+  const files = new Set<string>();
+  const importers = new Map<string, string[]>();
+  const namespaceImports: string[] = [];
+  const queue = fs
+    .readdirSync(NETLIFY_FUNCTIONS_DIR)
+    .filter((f) => /\.(ts|mts)$/.test(f))
+    .map((f) => path.join(NETLIFY_FUNCTIONS_DIR, f));
+
+  while (queue.length > 0) {
+    const file = queue.pop()!;
+    if (files.has(file)) continue;
+    files.add(file);
+    const src = fs.readFileSync(file, "utf8");
+    IMPORT_CLAUSE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = IMPORT_CLAUSE.exec(src)) !== null) {
+      const [, clause = "", spec = ""] = m;
+      const target = resolveLocalImport(file, spec);
+      if (target === null) continue;
+      if (!files.has(target)) queue.push(target);
+      const isGatedDbModule =
+        path.dirname(target) === SRC_DB_DIR && gated.has(path.basename(target));
+      // A type-only import executes no query.
+      if (!isGatedDbModule || /^\s*type\s/.test(clause)) continue;
+      if (/\*\s+as\s/.test(clause)) {
+        namespaceImports.push(`${path.relative(ROOT, file)} -> ${spec}`);
+        continue;
+      }
+      for (const piece of /\{([\s\S]*)\}/.exec(clause)?.[1]?.split(",") ?? []) {
+        const name = piece
+          .trim()
+          .replace(/^type\s+/, "")
+          .split(/\s+as\s+/)[0]
+          ?.trim();
+        if (name === undefined || name === "") continue;
+        importers.set(name, [...(importers.get(name) ?? []), path.relative(ROOT, file)]);
+      }
+    }
+  }
+  return { files, importers, namespaceImports };
+}
 
 type Scenario = { name: string; covers: string[]; run: (db: Db) => Promise<unknown> };
 
@@ -348,6 +462,15 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => submissions.countNotifyBouncedBySite(db, SINCE_DATE),
     },
     {
+      // MED-11: the per-site form the /s/:slug bounce chip runs instead. It has
+      // NO allowlist entry, and must not need one — `idx_submissions_site_
+      // submitted` serves it as a SEARCH, which is the whole reason the request
+      // path is allowed to run it.
+      name: "countNotifyBouncedForSite (/s/:slug bounce chip)",
+      covers: ["countNotifyBouncedForSite"],
+      run: (db) => submissions.countNotifyBouncedForSite(db, "recA", SINCE_DATE),
+    },
+    {
       // #783. The operator's acknowledge write — by primary key, so it plans as
       // a single-row seek rather than a scan of the fleet's one unbounded table.
       name: "ackNotifyBounce (operator clears a diagnosed false alarm)",
@@ -363,6 +486,14 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "listScreenOutsSince (window on date + marked-spam count)",
       covers: ["listScreenOutsSince"],
       run: (db) => screenouts.listScreenOutsSince(db, SINCE_DATE),
+    },
+    {
+      // MED-11: the per-site form the /s/:slug spam panel runs instead. Two
+      // statements, both SEARCHes — the (site_id, date) primary key and
+      // `idx_submissions_site_submitted`. No allowlist entry, by design.
+      name: "screenOutTotalsForSite (/s/:slug spam panel)",
+      covers: ["screenOutTotalsForSite"],
+      run: (db) => screenouts.screenOutTotalsForSite(db, "recA", SINCE_DATE),
     },
     {
       name: "backfillScreenoutBucket",
@@ -629,6 +760,15 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => deadletter.countUnreplayedDeadLettersBySlug(db),
     },
     {
+      // MED-11: the per-slug form /s/:slug runs instead of building the whole
+      // map. The plan reads SEARCH either way — what 0028 changes is WHICH index
+      // serves it, and therefore how many rows are visited. Asserted precisely in
+      // deadletter-per-slug-plan.test.ts, which this gate cannot express.
+      name: "countUnreplayedDeadLettersForSlug (/s/:slug dropped-lead chip)",
+      covers: ["countUnreplayedDeadLettersForSlug"],
+      run: (db) => deadletter.countUnreplayedDeadLettersForSlug(db, "acme"),
+    },
+    {
       // #786: the operator's write-off. Reads the target ids under the same
       // predicate the alarm counts on, then updates them by id — an operator
       // gesture, not a request path, but it touches the queue the alarm reads.
@@ -869,6 +1009,58 @@ describe("EXPLAIN-query-plan gate", () => {
       args: ["x@example.com"],
     });
     expect(rawScanTables(details, tables)).toEqual(["submissions"]);
+  });
+
+  // ————— MED-11: the allowlist's stated reason, checked against the code —————
+  //
+  // `mirror-write-freeze.test.ts` has a "no exemption is stale" test; the check
+  // below is its equivalent here, and it is stricter in one way that matters:
+  // that one asks whether an exemption still names a real FILE, this one asks
+  // whether an exemption's stated REASON is still true. The 08-26 brief named
+  // the failure mode twice before it shipped anyway — an allowlist keyed on a
+  // scenario name whose justification nothing ever re-reads.
+
+  it("the request-path graph reaches the db layer at all (vacuity guard)", () => {
+    const { files, importers, namespaceImports } = requestPathGraph();
+    // Without this, every claim below passes by finding nothing.
+    expect(files.size).toBeGreaterThan(50);
+    expect(
+      importers.get("getSiteBySlug") ?? [],
+      "the per-slug site lookup is imported by the /s/:slug handler — if this is " +
+        "empty the import reader has stopped working, not the request path",
+    ).toContain("netlify/functions/site-dashboard.mts");
+    // The known-bad direction: a batch-only function must NOT appear.
+    expect(importers.get("countSubmissionsSinceBySite") ?? []).toEqual([]);
+    // `import * as db from "…/submissions.js"` would hide every call behind one
+    // binding. None exist today; if one lands, this gate must be taught to read
+    // it rather than silently start passing.
+    expect(
+      namespaceImports,
+      "a namespace import of a gated db module blinds the requestPath check",
+    ).toEqual([]);
+  });
+
+  it("every ALLOWED_RAW_SCANS requestPath claim matches the import graph", () => {
+    const { importers } = requestPathGraph();
+    const covers = new Map(scenarios({ createdId: "" }).map((s) => [s.name, s.covers]));
+    const wrong: string[] = [];
+    for (const entry of ALLOWED_RAW_SCANS) {
+      const fns = covers.get(entry.scenario);
+      expect(fns, `ALLOWED_RAW_SCANS names no such scenario: ${entry.scenario}`).toBeDefined();
+      const reached = (fns ?? []).flatMap((fn) => importers.get(fn) ?? []);
+      const actual = reached.length > 0;
+      if (actual !== entry.requestPath) {
+        wrong.push(
+          entry.requestPath
+            ? `${entry.scenario}: claims requestPath:true, but no Netlify function imports ${(fns ?? []).join("/")}`
+            : `${entry.scenario}: claims requestPath:false ("${entry.why.slice(0, 48)}…"), but ${[...new Set(reached)].join(", ")} imports it`,
+        );
+      }
+    }
+    expect(
+      wrong,
+      "an ALLOWED_RAW_SCANS entry's stated reason no longer describes the code",
+    ).toEqual([]);
   });
 
   it("live known-good probe: an indexed predicate is SEARCHed and not flagged", async () => {
