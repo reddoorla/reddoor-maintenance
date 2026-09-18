@@ -3728,3 +3728,75 @@ value that made the matching harness's `checkRef()` refuse (29-navy #43).
 Left for the operator rather than patched here: correcting fleet state is the
 active Phase 6 session's territory, and a second raw write is how the first one
 got into this state.
+
+## 2026-09-17 (last) — Repairing the store that decides, through the editor built for it (#869 follow-up)
+
+The header-image regeneration left a loose end worth more than the defect that
+surfaced it: 29 Navy's Turso row read `status: 'building'`, `url:
+'https://www.29navy.com/'`, while Airtable read `maintained` and
+`https://29navy.com`. Both Airtable values had been set that morning through the
+Airtable REST API, which bypasses `SITE_MIRROR`, so neither ever reached Turso.
+
+**Why it stopped being cosmetic the same day.** That divergence was harmless while
+Airtable was the roster. Phase 6 landed in the afternoon and moved the batch jobs
+and all five nightly sweeps onto Turso (#860, `c185259`), so the stale row became
+the one that decides. `header-image --all --force` skipped 29 Navy silently and it
+had to be run by name — and that skip is the _cheap_ symptom. The expensive one is
+that the site was invisible to every nightly sweep, while the morning's enrolment
+check, run through `fromAirtableBase`, said it was enrolled. **That check was not
+wrong when it was made; it stopped being evidence when the provider changed under
+it.**
+
+**The repair is not a sync, and the code says so out loud.** The reflex is
+`db sync` — and it refuses:
+
+```
+db sync refused: TURSO_IS_AUTHORITATIVE is on (the freeze, 2026-08-31).
+An import now OVERWRITES authoritative Turso rows with the frozen Airtable archive.
+```
+
+The direction of truth had already flipped. Airtable was the store being written
+by hand, and it is the shadow. So the correction goes the other way, through
+`setSiteDetail` (`src/dashboard/site-details.ts`) — the operator's site-details
+editor — wired exactly as `netlify/functions/site-details.mts` wires it:
+`updateSiteField(base, …)` for the Airtable shadow, then
+`mirrorWrite(() => mirrorSiteField(db, …))` for Turso, whose post-freeze semantics
+rethrow on a miss rather than swallowing it. The allowlist
+(`EDITABLE_SITE_FIELDS`) carries both `url` and `status`, with per-kind
+normalisation, so nothing arbitrary can be written.
+
+That editor exists for precisely this case, and its own comment says so — it was
+built after **vida-legacy-foundation**'s row was found pointing at a hostname
+that 404s, "so every audit that ran against it was measuring nothing". 29 Navy is
+the second instance of that class. Worth noting the class did not need
+re-deriving: it was already written down at the site of the fix.
+
+Before, after, and an untouched control:
+
+```
+before  29-navy  TURSO building  https://www.29navy.com/  | AIRTABLE maintained  https://29navy.com
+before  msot     TURSO maintained https://medicalsolutionsoftx.com/ | AIRTABLE maintained https://medicalsolutionsoftx.com/
+after   29-navy  TURSO maintained https://29navy.com      | AIRTABLE maintained  https://29navy.com
+after   msot     TURSO maintained https://medicalsolutionsoftx.com/ | AIRTABLE maintained https://medicalsolutionsoftx.com/
+```
+
+Verified through the providers the jobs actually resolve through, not by
+re-reading the cell that was just written:
+
+```
+--fleet turso inventory            29-navy PRESENT, deployedUrl=https://29navy.com
+resolveTargets --all --force       16 sites, 29 Navy included
+resolveTargets --all               0 sites  (every site now has a header image)
+```
+
+**A wrong answer from a correct measurement, again, and the same shape as the
+morning's.** The first run of that verification reported `29-navy present: NO`
+and sent me looking for a second filter in `selectFleetSites`. There isn't one:
+`Site` has no `slug` property — the slug is carried as `name` (`select.ts:52`) —
+so `sites.find(s => s.slug === "29-navy")` was undefined for every site on the
+list, and would have been undefined had the roster been perfect. The probe was
+broken, not the data. Twice in one session a measurement ran cleanly and answered
+a question I hadn't actually asked; the tell both times was a result that
+disagreed with a _different_ measurement of the same thing (`resolveTargets` said
+included, the inventory said absent). **Two instruments disagreeing is worth more
+than either agreeing with a hypothesis.**
