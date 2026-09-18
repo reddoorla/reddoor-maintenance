@@ -50,10 +50,38 @@ export async function createDeadLetter(db: Db, input: DeadLetterInput): Promise<
   return { id };
 }
 
+/** A queued row whose stored JSON could not be decoded. Carries no payload by
+ *  construction: the bytes that failed to parse are exactly the bytes nothing
+ *  should be guessing at, and they may hold a client's PII. */
+export type UnreadableDeadLetterRow = {
+  id: string;
+  siteSlug: string;
+  /** Which column failed, and the parser's own message. */
+  error: string;
+  receivedAt: string;
+};
+
+export type DeadLetterQueue = {
+  /** Rows that decoded — the ones replay can actually run. */
+  rows: DeadLetterRow[];
+  /** Rows that did not. Reported, never dropped: they stay queued, they still
+   *  count toward the cockpit alarm (which is computed in SQL and never touches
+   *  these columns), and #786's `--abandon` is the only way to retire one. */
+  unreadable: UnreadableDeadLetterRow[];
+};
+
 /** Rows not yet replayed, oldest first — replay preserves arrival order so the
- *  duplicate/velocity signals see submissions in the order they happened. */
-export async function listUnreplayedDeadLetters(db: Db): Promise<DeadLetterRow[]> {
-  const rows = await db
+ *  duplicate/velocity signals see submissions in the order they happened.
+ *
+ *  MED-10(c). Decoding is PER ROW. This used to `JSON.parse` inside a `.map`
+ *  over the whole result set, so a single undecodable payload threw before any
+ *  row was returned and wedged replay for every other lead in the queue — the
+ *  `import-reap` shape, where one bad record froze the sync permanently. A row
+ *  that cannot be decoded is now separated out and handed back for the caller
+ *  to surface; the rows around it replay normally.
+ */
+export async function readUnreplayedDeadLetters(db: Db): Promise<DeadLetterQueue> {
+  const raw = await db
     .selectFrom("submission_deadletter")
     .select(["id", "site_slug", "payload", "turnstile", "error", "received_at"])
     .where("replayed_at", "is", null)
@@ -62,14 +90,50 @@ export async function listUnreplayedDeadLetters(db: Db): Promise<DeadLetterRow[]
     .where("abandoned_at", "is", null)
     .orderBy("received_at", "asc")
     .execute();
-  return rows.map((r) => ({
-    id: r.id,
-    siteSlug: r.site_slug,
-    payload: JSON.parse(r.payload) as unknown,
-    turnstile: JSON.parse(r.turnstile) as TurnstileVerification,
-    error: r.error,
-    receivedAt: r.received_at,
-  }));
+
+  const queue: DeadLetterQueue = { rows: [], unreadable: [] };
+  for (const r of raw) {
+    let payload: unknown;
+    try {
+      payload = JSON.parse(r.payload) as unknown;
+    } catch (err) {
+      queue.unreadable.push({
+        id: r.id,
+        siteSlug: r.site_slug,
+        error: `payload is not decodable JSON: ${String(err)}`,
+        receivedAt: r.received_at,
+      });
+      continue;
+    }
+    let turnstile: TurnstileVerification;
+    try {
+      turnstile = JSON.parse(r.turnstile) as TurnstileVerification;
+    } catch (err) {
+      queue.unreadable.push({
+        id: r.id,
+        siteSlug: r.site_slug,
+        error: `turnstile is not decodable JSON: ${String(err)}`,
+        receivedAt: r.received_at,
+      });
+      continue;
+    }
+    queue.rows.push({
+      id: r.id,
+      siteSlug: r.site_slug,
+      payload,
+      turnstile,
+      error: r.error,
+      receivedAt: r.received_at,
+    });
+  }
+  return queue;
+}
+
+/** The decodable rows only. Kept for callers that have no way to act on an
+ *  undecodable row; anything that REPLAYS must use `readUnreplayedDeadLetters`
+ *  so the rows it skipped are reported rather than silently missing. */
+export async function listUnreplayedDeadLetters(db: Db): Promise<DeadLetterRow[]> {
+  return (await readUnreplayedDeadLetters(db)).rows;
 }
 
 /** Mark a row's replay TERMINAL — it will never be picked up again. Only call
