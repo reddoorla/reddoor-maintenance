@@ -94,6 +94,7 @@ function journey(over: Partial<JourneyMap> = {}): JourneyMap {
     worstClicksToContact: 1,
     pagesExamined: 4,
     anchorsMeasured: true,
+    pagesWithTruncatedAnchors: [],
     ...over,
   };
 }
@@ -226,6 +227,7 @@ describe("checkGoal — contact basics", () => {
           pagesOffTemplate: [],
           sharedNavLinks: 3,
           pagesExamined: 1,
+          pagesWithTruncatedAnchors: [],
         },
       }),
     );
@@ -246,6 +248,7 @@ describe("checkGoal — contact basics", () => {
           pagesOffTemplate: [],
           sharedNavLinks: 3,
           pagesExamined: 1,
+          pagesWithTruncatedAnchors: [],
         },
       }),
     );

@@ -7,6 +7,14 @@ import type { PipelineDeps, StageName } from "../../prospect/pipeline.js";
 import type { ProspectAuditResult } from "../../prospect/types.js";
 import type { SendAuditEmailResult } from "../../prospect/email.js";
 import type { SiteGoal } from "../../prospect/goals.js";
+import {
+  PROSPECT_AUDIT_DAILY_CAP,
+  DAILY_CAP_LOOKBACK,
+  countAuditsInDailyWindow,
+  isOverDailyCap,
+  dailyCapMessage,
+  type DatedAudit,
+} from "../../prospect/daily-cap.js";
 
 /** The operator-selectable goals, in the order the dispatch dropdown lists
  *  them. `unknown` is deliberately absent: it is a finding the audit can reach
@@ -63,6 +71,15 @@ export type ProspectAuditCliOptions = {
   questions?: string;
   /** Test seam: injected pipeline deps. Never set from the CLI. */
   deps?: PipelineDeps;
+  /**
+   * Test seam: newest-first recent audits for the daily cap. Never set from the
+   * CLI — the real implementation opens Turso below. Same injection shape
+   * `ProspectAuditTriggerDeps.listRecent` uses on the dashboard side, so both
+   * paths' cap tests drive the brake the same way and neither needs a database.
+   */
+  listRecent?: (limit: number) => Promise<DatedAudit[]>;
+  /** Test seam: injectable clock for the cap's 24h window. */
+  now?: () => Date;
 };
 
 type RecoveryWrite = { htmlPath: string; jsonPath: string };
@@ -169,6 +186,68 @@ function summarize(
   return lines.join("\n");
 }
 
+/** What the runaway brake concluded before any money was spent. */
+type DailyCapCheck =
+  | { kind: "under"; count: number }
+  | { kind: "over"; count: number }
+  /** The brake could not be applied at all — carries the sentence the operator
+   *  must see, because a guard that quietly abstains is worse than none. */
+  | { kind: "unchecked"; warning: string };
+
+const NO_DB_CAP_WARNING =
+  "No TURSO_DATABASE_URL, so prior audits cannot be counted — the 24h runaway brake " +
+  `(cap ${PROSPECT_AUDIT_DAILY_CAP}) is NOT protecting this run.`;
+
+/**
+ * MED-15 (2026-09-02): the daily cap was enforced only in the dashboard
+ * dispatch path, and every batch to date — including the 29-site corpus — ran
+ * through this CLI, which had none. #618 fixed exactly this shape for the
+ * private-host guard twenty lines above, and its comment describes the guard it
+ * did NOT fix: "one layer at the far end of the chain — so anyone running the
+ * CLI directly, or any future second caller, had none."
+ *
+ * Counted, not re-implemented: the window, the threshold and the wording all
+ * come from `src/prospect/daily-cap.ts`, which the dashboard path uses too.
+ *
+ * **When there is no database, this WARNS and lets the run proceed.** A run with
+ * no persistence cannot count prior audits, and refusing would break the
+ * documented `--out`-only local path — which is also, by construction, a
+ * one-off: an unpersisted run is invisible to every later count, so it is not
+ * the automated path the brake exists for. What it must never do is pass in
+ * silence, so the sentence goes to stderr AND into the run's warnings, where
+ * `--json` consumers see it too. Same answer if the count itself throws: a
+ * Turso blip must not block a legitimate audit, but must not look like a
+ * passed check either.
+ */
+async function checkDailyCap(
+  canPersist: boolean,
+  opts: ProspectAuditCliOptions,
+): Promise<DailyCapCheck> {
+  const now = (opts.now ?? (() => new Date()))();
+  const listRecent =
+    opts.listRecent ??
+    (canPersist
+      ? async (limit: number): Promise<DatedAudit[]> => {
+          const { openDb, readDbConfig } = await import("../../db/client.js");
+          const { listRecentProspectAudits } = await import("../../db/prospect-audits.js");
+          return listRecentProspectAudits(await openDb(readDbConfig()), limit);
+        }
+      : null);
+  if (listRecent === null) return { kind: "unchecked", warning: NO_DB_CAP_WARNING };
+
+  try {
+    const count = countAuditsInDailyWindow(await listRecent(DAILY_CAP_LOOKBACK), now);
+    return isOverDailyCap(count) ? { kind: "over", count } : { kind: "under", count };
+  } catch (err) {
+    return {
+      kind: "unchecked",
+      warning:
+        `Could not read recent audits, so the 24h runaway brake (cap ${PROSPECT_AUDIT_DAILY_CAP}) ` +
+        `is NOT protecting this run: ${errorMessage(err)}`,
+    };
+  }
+}
+
 /**
  * Run one prospect audit end to end. Progress goes to stderr so `--json` stdout
  * stays pipeable. Persistence needs Turso; without it `--out` is mandatory,
@@ -203,6 +282,19 @@ export async function runProspectAuditCommand(
     return fail(
       "No TURSO_DATABASE_URL, so the report cannot be saved or shared. Re-run with --out <file>, or set the Turso credentials.",
     );
+  }
+
+  // Collected from here on, so the brake's verdict can be recorded BEFORE the
+  // pipeline runs — a warning printed only in the summary arrives after the
+  // money is spent.
+  const warnings: string[] = [];
+
+  // MED-15. The last refusal before anything is spent (see checkDailyCap).
+  const cap = await checkDailyCap(canPersist, opts);
+  if (cap.kind === "over") return fail(dailyCapMessage(cap.count));
+  if (cap.kind === "unchecked") {
+    warnings.push(cap.warning);
+    console.error(`! ${cap.warning}`);
   }
 
   const { runProspectAudit } = await import("../../prospect/pipeline.js");
@@ -253,8 +345,6 @@ export async function runProspectAuditCommand(
 
   const { renderProspectReport } = await import("../../prospect/render.js");
   const html = renderProspectReport(result);
-
-  const warnings: string[] = [];
 
   let file: string | null = null;
   if (opts.out) {

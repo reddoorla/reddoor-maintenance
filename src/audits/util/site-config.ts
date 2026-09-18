@@ -83,3 +83,81 @@ export async function readSiteConfig(sitePath: string): Promise<SiteConfig> {
 
   return out;
 }
+
+/**
+ * The starter's unreplaced Prismic repository name. A clone still carrying it
+ * has no content model of its own: every Prismic-backed route resolves nothing
+ * and `getByUID("page","home")` throws, so the site's own `/` answers **404 by
+ * design** until `/new-site` step 6 swaps this for a real repository.
+ *
+ * Exactly the same string the site side already reads in four places —
+ * `src/lib/prismicio.ts` (`isPlaceholderRepo`), `svelte.config.js`, the home
+ * route's `entries()` prerender guard, and `tests/smoke/routes.ts`, whose
+ * committed smoke manifest flips `/`'s expected status on it. This is that fact
+ * arriving in the audit, not a new convention.
+ */
+export const PLACEHOLDER_PRISMIC_REPO = "your-prismic-repo-name";
+
+/** Slice Machine's filename, and the name the Prismic CLI's migration renames
+ *  it to, in the same preference order `src/prismic/models/config.ts` reads
+ *  them. Both are checked so a half-migrated repo is read correctly. */
+const PRISMIC_CONFIG_FILES = ["slicemachine.config.json", "prismic.config.json"] as const;
+
+/**
+ * True when this site is still pointed at the starter placeholder — i.e. when a
+ * 404 on one of its own content routes is the designed answer rather than a
+ * broken route.
+ *
+ * DELIBERATELY NARROWER than `PLACEHOLDER_REPOSITORY_NAMES` in
+ * `src/prismic/models/config.ts`, and this is the trap worth naming. That list
+ * also holds `reddoor-wireframer`, which is there precisely because IT
+ * RESOLVES: data-dynamiq names it, the repository really exists with published
+ * documents, and the site really renders from it. It earns a place on a list
+ * that means "mint no token for this" and must never reach a list that means
+ * "a 404 here is expected" — folding the two together would buy a LIVE
+ * production site permanent, silent tolerance of a broken homepage. Only the
+ * starter sentinel, which 404s at Prismic itself and so can never serve a page,
+ * belongs here.
+ *
+ * Reads the COMMITTED config only, never `VITE_PRISMIC_ENVIRONMENT`. The site
+ * side honours that override, but `tests/smoke/routes.ts` throws when it names
+ * the sentinel under CI — "it would make this smoke run expect no home page and
+ * pass" — and an audit that honoured it would hand that same false green to any
+ * real site whose environment happened to carry it.
+ *
+ * Never throws, and every unclear answer is `false`: a missing, unreadable or
+ * malformed Prismic config buys a site no 404 tolerance at all. The failure
+ * this returns to is the one that reports too much, not the one that reports
+ * nothing (#680).
+ */
+export async function readsPlaceholderPrismicRepo(sitePath: string): Promise<boolean> {
+  let sawPlaceholder = false;
+  for (const name of PRISMIC_CONFIG_FILES) {
+    let raw: string;
+    try {
+      raw = await readFile(join(sitePath, name), "utf-8");
+    } catch {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+    const repo = (parsed as { repositoryName?: unknown }).repositoryName;
+    if (typeof repo !== "string") continue;
+    const trimmed = repo.trim();
+    if (trimmed === PLACEHOLDER_PRISMIC_REPO) {
+      // Not an early return: the CLI migration renames slicemachine.config.json
+      // to prismic.config.json, so a half-migrated repo can hold a stale
+      // sentinel in the first file and its real repository in the second. A
+      // real name anywhere wins.
+      sawPlaceholder = true;
+      continue;
+    }
+    if (trimmed.length > 0) return false;
+  }
+  return sawPlaceholder;
+}

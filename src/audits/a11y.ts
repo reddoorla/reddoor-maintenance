@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { a11yRoutes, smokeRoutes, type A11yRoute } from "../configs/playwright-a11y.js";
-import { readSiteConfig } from "./util/site-config.js";
+import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
@@ -19,11 +19,74 @@ type AxeViolation = {
   nodes?: Array<{ html?: string; target?: string[] }>;
 };
 
+/** A route the spec navigated to, found non-200, and deliberately did NOT scan
+ *  — because that status is this site's designed answer, not a defect. Kept out
+ *  of `violations` (so it cannot fail the run) and named in the summary (so it
+ *  cannot pass as a scan). */
+export type SkippedRoute = {
+  route: string;
+  path: string;
+  status: number | null;
+  reason: string;
+};
+
 type NormalizedA11y = {
   totalViolations: number;
   byImpact: Partial<Record<Impact, number>>;
   violations: AxeViolation[];
+  skipped?: SkippedRoute[];
 };
+
+/** One route as the generated spec sees it. `placeholder404Ok` is set only on
+ *  the site's own Prismic-backed routes, and only while the site carries the
+ *  starter sentinel. */
+type SpecRoute = A11yRoute & { placeholder404Ok?: true };
+
+/** The only reason this audit currently accepts a non-200 for. It is written
+ *  into the artifact by the spec and reproduced verbatim in the summary, so the
+ *  line an operator reads says WHY the route was not scanned. */
+const PLACEHOLDER_SKIP_REASON = "placeholder Prismic repo";
+
+export type RouteVerdict = "scan" | "skip" | "missing";
+
+/**
+ * What to do with one navigation's response — the whole sentinel-awareness
+ * decision, in one pure function.
+ *
+ * It is exported, unit-tested, AND serialized into the generated spec by
+ * `Function.prototype.toString()` rather than written out twice. That is the
+ * point: the branch the tests exercise is byte-for-byte the branch that runs
+ * inside Playwright, so a passing test is evidence about the shipped guard and
+ * not about a copy of it. Keep it closure-free — it is stringified, so any
+ * module-scope identifier it referenced would be an undefined variable in the
+ * spec.
+ *
+ * The two 404s this has to keep apart:
+ *
+ *   - `/` on a site still carrying `your-prismic-repo-name` — the designed
+ *     answer, since no Prismic repository exists to serve a home page yet
+ *     (#863). `skip`, and say so out loud.
+ *   - `/dev/a11y-fixtures` returning 404 on that SAME site — a real defect. The
+ *     fixture routes are served by the dev server the axe scan runs against,
+ *     where the #717 `/dev` layout guard is inert, so they owe a 200 no matter
+ *     what the Prismic config says. `placeholder404Ok` is never set on them,
+ *     so this returns `missing` for them on a placeholder site exactly as on
+ *     any other. reddoor-starter sits on the sentinel permanently, so the repo
+ *     that DEFINES the fixtures is precisely the one a broader rule would stop
+ *     checking.
+ *
+ * Only 404 is tolerated, never a 500 or a dead navigation: "there is no content
+ * here yet" is a 404. A placeholder site whose dev server throws is still
+ * broken, and blanket non-200 tolerance would swallow that.
+ */
+export function classifyRouteResponse(input: {
+  status: number | null;
+  placeholder404Ok: boolean;
+}): RouteVerdict {
+  if (input.status === 200) return "scan";
+  if (input.placeholder404Ok && input.status === 404) return "skip";
+  return "missing";
+}
 
 const RESULTS_REL = ".reddoor-a11y/results.json";
 
@@ -148,11 +211,15 @@ async function allocateDistinctPort(taken: number): Promise<number> {
 // writes the structured result to <cwd>/.reddoor-a11y/results.json before
 // asserting. That way, the audit can read real axe details even when the
 // expect(...).toEqual([]) assertion fails.
-function buildSpec(axePages: A11yRoute[], smokeOrigin = ""): string {
+function buildSpec(axePages: SpecRoute[], smokeOrigin = ""): string {
   return `import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+
+// Injected, not transcribed — see classifyRouteResponse in src/audits/a11y.ts.
+const classifyRouteResponse = ${classifyRouteResponse.toString()};
+const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 
 const pages = ${JSON.stringify(axePages)};
 const smokePages = ${JSON.stringify(smokeRoutes)};
@@ -171,6 +238,10 @@ test.setTimeout(5 * 60_000);
 
 test("a11y + hydration across configured routes", async ({ page }) => {
   const violations = [];
+  // Routes navigated but deliberately not scanned. Separate from violations so
+  // they cannot fail the run, and written to the artifact so they cannot vanish
+  // from the summary either.
+  const skipped = [];
 
   // Capture uncaught client-side exceptions across every route we visit. A page
   // that builds + SSRs cleanly can still throw on hydrate and blank itself
@@ -186,9 +257,10 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     });
   });
 
-  for (const { path, name } of pages) {
+  for (const { path, name, placeholder404Ok } of pages) {
     currentRoute = name;
     const response = await page.goto(path);
+    const status = response ? response.status() : null;
     // A route that does not exist is a config problem, not a markup one. The
     // audit used to navigate, get a 404, run axe over whatever the error page
     // was and report the count -- for months that page was a bare fallback with
@@ -196,12 +268,24 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     // gave its 404 page a designed watermark the count went to 1 with no route
     // and no rule in the summary, and the "violation" was bisected as markup
     // (#680). Name it as a missing route and do not scan the error page.
-    if (!response || response.status() !== 200) {
+    //
+    // The one exception (#863): a site still on the starter's Prismic sentinel
+    // has no content to serve, so a 404 on ITS OWN routes is the designed
+    // answer. Those carry placeholder404Ok; the /dev fixtures never do.
+    const verdict = classifyRouteResponse({
+      status,
+      placeholder404Ok: placeholder404Ok === true,
+    });
+    if (verdict === "skip") {
+      skipped.push({ route: name, path, status, reason: SKIP_REASON });
+      continue;
+    }
+    if (verdict === "missing") {
       violations.push({
         id: "route-missing",
         impact: "serious",
         route: name,
-        help: \`\${path} returned \${response ? response.status() : "no response"}\`,
+        help: \`\${path} returned \${status === null ? "no response" : status}\`,
       });
       continue;
     }
@@ -250,7 +334,11 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     await mkdir(dirname(OUTPUT), { recursive: true });
     await writeFile(
       OUTPUT,
-      JSON.stringify({ totalViolations: violations.length, byImpact, violations }, null, 2),
+      JSON.stringify(
+        { totalViolations: violations.length, byImpact, violations, skipped },
+        null,
+        2,
+      ),
     );
   }
   expect(violations).toEqual([]);
@@ -287,6 +375,36 @@ export function describeViolations(violations: AxeViolation[]): string {
   return shown.join(", ") + (rest > 0 ? `, +${rest} more` : "");
 }
 
+/** How many skipped routes the summary names before folding the rest into
+ *  `+N more`. Smaller than the violation cap: a skip list is bounded by the
+ *  site's own `a11yRoutes`, and the artifact JSON keeps the full list. */
+const NAMED_SKIPS_MAX = 4;
+
+/**
+ * The skip clause of the summary: how many, which ones, and why. Empty when
+ * nothing was skipped, so a site that skipped nothing keeps its old line
+ * byte-for-byte.
+ *
+ * The reason is carried through from the artifact rather than assumed here.
+ * There is one reason today; the line still has to say it, because "1 skipped:
+ * /" invites the reader to supply their own explanation and the most available
+ * one ("probably fine") is the one that re-creates the false green.
+ */
+export function describeSkipped(skipped: SkippedRoute[]): string {
+  if (skipped.length === 0) return "";
+  const shown = skipped.slice(0, NAMED_SKIPS_MAX).map((s) => s.route);
+  const rest = skipped.length - shown.length;
+  const names = shown.join(", ") + (rest > 0 ? `, +${rest} more` : "");
+  const reasons = [
+    ...new Set(
+      skipped
+        .map((s) => s.reason)
+        .filter((r): r is string => typeof r === "string" && r.length > 0),
+    ),
+  ];
+  return `${skipped.length} skipped: ${names}${reasons.length > 0 ? ` — ${reasons.join(", ")}` : ""}`;
+}
+
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
   const spawn = ctx.spawn ?? defaultSpawn;
   const site = ctx.site;
@@ -315,9 +433,30 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // The route path doubles as its name — the spec tags each violation with
     // `route: name`, so it has to identify the page.
     const { a11yRoutes: siteRoutes, gateServer } = await readSiteConfig(site.path);
-    const axePages: A11yRoute[] = [
+    // #863: while a clone still carries the starter's Prismic sentinel, its own
+    // content routes 404 BY DESIGN — there is no repository behind them until
+    // `/new-site` step 6. Every new site passes through that state between step
+    // 3c (point the gates at real routes) and step 6 (wire Prismic), and the
+    // first maintenance PR in that window used to fail on `route-missing on /`,
+    // which is not a defect in the site. The alternative the template had to
+    // take — `a11yRoutes: []` — trades a false red for a false green, and an
+    // empty list is exactly the configuration that let a critical `image-alt`
+    // ship to five production pages with CI green. So: keep the route
+    // configured, expect its 404, and say in the summary that it was not
+    // scanned.
+    //
+    // Only the site's OWN routes are marked. The `/dev/*` fixtures are served
+    // by the dev server the axe scan runs against and owe a 200 regardless of
+    // Prismic — and reddoor-starter, which sits on the sentinel permanently, is
+    // the very repo those fixtures live in.
+    const placeholderRepo = await readsPlaceholderPrismicRepo(site.path);
+    const axePages: SpecRoute[] = [
       ...a11yRoutes,
-      ...(siteRoutes ?? []).map((path) => ({ path, name: path })),
+      ...(siteRoutes ?? []).map((path) => ({
+        path,
+        name: path,
+        ...(placeholderRepo ? { placeholder404Ok: true as const } : {}),
+      })),
     ];
 
     const port = await findFreePort();
@@ -412,10 +551,24 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // old summary byte-for-byte, and the confirmation appears exactly where it
     // was missing. Saying "10 routes" alone would still leave an operator
     // counting on their fingers to check their eight arrived.
-    const scanned =
+    const splitNote =
       siteRouteCount > 0
-        ? `${axePages.length} routes (${a11yRoutes.length} fixtures + ${siteRouteCount} from package.json)`
+        ? `${a11yRoutes.length} fixtures + ${siteRouteCount} from package.json`
+        : "";
+    // #863: a skipped route MUST NOT be able to read as a scanned one. The
+    // count therefore becomes "N of M routes" the moment anything is skipped,
+    // and the note names each skipped route and why. A silent skip would
+    // re-create the false green #680 removed — the whole reason this route-
+    // status guard exists — one layer up, and it would be harder to catch,
+    // because this time the run is green on purpose.
+    const skippedRoutes = Array.isArray(artifact.skipped) ? artifact.skipped : [];
+    const skipNote = describeSkipped(skippedRoutes);
+    const countPhrase =
+      skippedRoutes.length > 0
+        ? `${axePages.length - skippedRoutes.length} of ${axePages.length} routes`
         : `${axePages.length} routes`;
+    const notes = [splitNote, skipNote].filter((n) => n.length > 0).join("; ");
+    const scanned = notes.length > 0 ? `${countPhrase} (${notes})` : countPhrase;
     // The count was missing entirely from the fail path, so a failing run could
     // not tell you how much it had covered either.
     // Name the rule and the route on the fail path. The count alone sent an

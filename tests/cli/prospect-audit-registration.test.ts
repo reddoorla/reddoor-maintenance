@@ -10,9 +10,12 @@
 // flags ↔ FLAGS (this file) ↔ ProspectAuditCliOptions. The last link is a TYPE
 // check, not a string one — see `_everyOptionHasAFlag`.
 //
-// `deps` is the one key on ProspectAuditCliOptions with no flag: it is a test
-// seam (injected pipeline deps), documented as "Never set from the CLI", so it
-// is excluded the same way the prismic-models file excludes the global `cwd`.
+// `deps`, `listRecent` and `now` are the keys on ProspectAuditCliOptions with
+// no flag: all three are test seams (injected pipeline deps, and — since MED-15
+// — the daily cap's audit list and clock), each documented as "Never set from
+// the CLI", so they are excluded the same way the prismic-models file excludes
+// the global `cwd`. Deliberately NOT flags: a `--daily-cap`-shaped escape hatch
+// on the brake would be the brake's own off switch.
 //
 // The behavioural half spawns the CLI from SOURCE (tsx), not `dist/`, so it
 // answers the live question rather than the last build's. It proves cac
@@ -58,7 +61,7 @@ const FLAGS = {
 
 type Uncovered = Exclude<
   keyof ProspectAuditCliOptions,
-  "deps" | (typeof FLAGS)[keyof typeof FLAGS]
+  "deps" | "listRecent" | "now" | (typeof FLAGS)[keyof typeof FLAGS]
 >;
 const _everyOptionHasAFlag: [Uncovered] extends [never] ? true : Uncovered = true;
 
