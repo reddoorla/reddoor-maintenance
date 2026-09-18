@@ -287,3 +287,88 @@ describe("db restore (CLI)", () => {
     expect(r.output).toContain("refused=manifest-absent");
   });
 });
+
+/**
+ * MED-12 — the nightly backup read its manifest and its rows at different
+ * points in time.
+ *
+ * `tableCounts` at the top, then a separate `SELECT *` per table, with no
+ * transaction and separate HTTP round trips over a ~17 MB dump. `SqlExecutor`
+ * is deliberately minimal (`{ execute(sql) }`), so each call is its own round
+ * trip and no transaction can be held across them — the window is inherent to
+ * the contract and cannot be closed by locking.
+ *
+ * One form submission landing in that window produced
+ * `submissions: origin=354 restored=355`, `verify-dump` compares with strict
+ * equality, and the workflow exited 1 BEFORE the encrypt and upload steps — so
+ * no backup was uploaded that night. Fail-safe in direction, but a repeated
+ * false alarm on "Nightly Turso backup failing" is how a real red gets ignored.
+ */
+describe("db/dump — a torn snapshot (MED-12)", () => {
+  /** A `SqlExecutor` that performs `onTear` exactly once, immediately before
+   *  the first `SELECT * FROM sites` — i.e. inside the window between the
+   *  manifest read and the row reads. Counts the full dump passes it makes. */
+  function tearing(
+    client: ReturnType<typeof createClient>,
+    onTear: () => Promise<void>,
+    times = 1,
+  ): SqlExecutor & { manifestReads: () => number } {
+    let fired = 0;
+    let manifestReads = 0;
+    return {
+      manifestReads: () => manifestReads,
+      execute: async (q) => {
+        if (q.startsWith("SELECT COUNT(*) AS c FROM sites")) manifestReads++;
+        if (q.startsWith("SELECT * FROM sites") && fired < times) {
+          fired++;
+          await onTear();
+        }
+        const r = await client.execute(q);
+        return { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
+      },
+    };
+  }
+
+  const insertSite = (client: ReturnType<typeof createClient>, id: string) => async () => {
+    await client.execute({
+      sql: "INSERT INTO sites (id, slug, name) VALUES (?, ?, ?)",
+      args: [id, id, id],
+    });
+  };
+
+  it("never emits a dump whose manifest disagrees with its own INSERTs", async () => {
+    const client = await seeded();
+    const db = tearing(client, insertSite(client, "recTORN"));
+
+    const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z");
+
+    const manifest = parseDumpManifest(sql);
+    expect(manifest).not.toBeNull();
+    const inserts = sql.split("\n").filter((l) => l.startsWith("INSERT INTO sites ")).length;
+    expect(manifest!.tables.sites).toBe(inserts);
+    // And it noticed rather than got lucky: it re-read the counts and dumped again.
+    expect(db.manifestReads()).toBeGreaterThan(2);
+  });
+
+  it("fails LOUDLY, naming the table, when the database never settles", async () => {
+    const client = await seeded();
+    let n = 0;
+    const db = tearing(client, async () => insertSite(client, `recBUSY${n++}`)(), 99);
+
+    await expect(dumpDatabase(db, "2026-09-17T00:00:00.000Z")).rejects.toThrow(/sites/);
+    await expect(dumpDatabase(db, "2026-09-17T00:00:00.000Z")).rejects.toThrow(
+      /changed under every/i,
+    );
+  });
+
+  it("POSITIVE CONTROL: an untouched database still dumps clean on the first pass", async () => {
+    const client = await seeded();
+    const db = tearing(client, async () => {}, 0);
+
+    const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z");
+
+    const manifest = parseDumpManifest(sql)!;
+    const inserts = sql.split("\n").filter((l) => l.startsWith("INSERT INTO sites ")).length;
+    expect(manifest.tables.sites).toBe(inserts);
+  });
+});
