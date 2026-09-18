@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { checkConsistency, normalizePhone } from "../../src/prospect/consistency.js";
+import { MAX_ANCHORS } from "../../src/prospect/extract.js";
 import type { PageAnchor, PageCapture, PageExtract } from "../../src/prospect/types.js";
 
 function extract(over: Partial<PageExtract> = {}): PageExtract {
@@ -151,13 +152,54 @@ describe("checkConsistency", () => {
   it("finds the page built outside the site template", () => {
     const nav = [link("/"), link("/about"), link("/contact")];
     const result = checkConsistency([
-      page("https://x.example/", { anchors: nav }),
-      page("https://x.example/about", { anchors: nav }),
-      page("https://x.example/contact", { anchors: nav }),
-      page("https://x.example/lp/promo", { anchors: [link("https://elsewhere.example/")] }),
+      page("https://x.example/", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/about", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/contact", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/lp/promo", {
+        anchors: [link("https://elsewhere.example/")],
+        anchorCount: 1,
+      }),
     ]);
     expect(result.pagesOffTemplate).toEqual(["https://x.example/lp/promo"]);
     expect(result.sharedNavLinks).toBeGreaterThan(0);
+  });
+
+  it("does not call a page with a TRUNCATED anchor list off-template", () => {
+    // Same shop as in journey.test.ts: 640 product links push the shared nav
+    // past MAX_ANCHORS, so the capped list shares none of it. Read as complete,
+    // that produced "a visitor who lands there is in a different website with
+    // no way back" — about a page carrying the nav, disprovable by scrolling.
+    const nav = [link("/"), link("/about"), link("/contact")];
+    const products = Array.from({ length: MAX_ANCHORS }, (_, i) => link(`/products/${i}`));
+    const result = checkConsistency([
+      page("https://x.example/", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/about", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/contact", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/collections/all", { anchors: products, anchorCount: 640 }),
+    ]);
+    expect(result.pagesOffTemplate).toEqual([]);
+    expect(result.pagesWithTruncatedAnchors).toEqual(["https://x.example/collections/all"]);
+  });
+
+  it("compares navigation hrefs after canonicalising them, not as authored", () => {
+    // A homepage rendered with absolute URLs while the templated inner pages
+    // emit relative ones. Compared as authored the two sets are disjoint, the
+    // 60% majority picks one spelling, and every page using the other spelling
+    // is flagged off-template. `?utm_source=nav` and `/contact` vs `/contact/`
+    // do the same thing. journey.ts already solved this with canonicalizeUrl.
+    const absolute = [
+      link("https://x.example/"),
+      link("https://x.example/about/"),
+      link("https://x.example/contact?utm_source=nav"),
+    ];
+    const relative = [link("/"), link("/about"), link("/contact")];
+    const result = checkConsistency([
+      page("https://x.example/", { anchors: absolute, anchorCount: absolute.length }),
+      page("https://x.example/about", { anchors: relative, anchorCount: relative.length }),
+      page("https://x.example/contact", { anchors: relative, anchorCount: relative.length }),
+    ]);
+    expect(result.pagesOffTemplate).toEqual([]);
+    expect(result.sharedNavLinks).toBe(3);
   });
 
   it("does not accuse a page of being off-template when there are too few pages to tell", () => {
