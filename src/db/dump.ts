@@ -55,13 +55,77 @@ export function sqlLiteral(v: unknown): string {
   return `'${str.replaceAll("'", "''")}'`;
 }
 
+/** How many times a torn dump is re-taken before the run is failed. */
+export const DUMP_ATTEMPTS = 3;
+
+export type DumpOptions = {
+  /** Bounded retries on a torn snapshot. Default `DUMP_ATTEMPTS`. */
+  attempts?: number;
+  /** Called after each discarded attempt, with the tables whose counts moved.
+   *  The CLI routes this to stderr — stdout carries the dump itself. */
+  onTorn?: (attempt: number, moved: string[]) => void;
+};
+
 /**
  * Dump schema + data as executable SQL. Skips SQLite's internal tables
  * (`sqlite_*`); includes indexes. Wrapped in a transaction so a partial load
  * fails atomically instead of leaving a half-restored scratch that could be
  * mistaken for a good one.
+ *
+ * MED-12 — THE TORN SNAPSHOT, and why it is detected rather than prevented.
+ *
+ * `SqlExecutor` is a deliberately minimal `{ execute(sql) }`: every call is its
+ * own round trip, and there is no way to hold a transaction across them. So the
+ * manifest read and the row reads cannot be made one point in time, and the
+ * window between them is inherent to the contract. Over a ~17 MB dump that
+ * window is seconds, and at 04:30 UTC (21:30 PT) visitor traffic is the only
+ * writer — one form submission landing in it produced
+ * `submissions: origin=354 restored=355`, reddened the job BEFORE the encrypt
+ * and upload steps, and uploaded no backup that night.
+ *
+ * So: read the counts, serialise, re-read the counts. If anything moved, the
+ * snapshot was torn — discard it and take the whole dump again, a bounded
+ * number of times, then fail loudly naming the tables that would not settle.
+ * A dump is only ever emitted when the origin held still around it.
+ *
+ * THE RESIDUAL, stated rather than papered over: counts are the signal, so an
+ * insert and a delete in the same table inside the same window cancel out and
+ * the tear is invisible. `blobBytes` narrows that for `sites` (a content
+ * signal, not a count), and nothing in this fleet deletes a submission during a
+ * backup — but it is a real hole and a checksum per table is what would close
+ * it, at a cost this does not currently earn.
+ *
+ * What this must NOT become is a self-comparison: the manifest's whole reason
+ * for existing (see MANIFEST_PREFIX below) is that it is measured on the LIVE
+ * database and not parsed back out of the dump. Both reads here are live reads;
+ * nothing is compared against the serialised text.
  */
-export async function dumpDatabase(db: SqlExecutor, generatedAt: string): Promise<string> {
+export async function dumpDatabase(
+  db: SqlExecutor,
+  generatedAt: string,
+  opts: DumpOptions = {},
+): Promise<string> {
+  const attempts = Math.max(1, opts.attempts ?? DUMP_ATTEMPTS);
+  let moved: string[] = [];
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const taken = await dumpOnce(db, generatedAt);
+    if (taken.sql !== null) return taken.sql;
+    moved = taken.moved;
+    opts.onTorn?.(attempt, moved);
+  }
+  throw new Error(
+    `db dump: the database changed under every one of ${attempts} attempts — ` +
+      `${moved.join("; ")}. The dump was DISCARDED rather than written with a manifest ` +
+      `it disagrees with. Re-run when writes are quiet; a fleet that never goes quiet ` +
+      `needs a snapshot mechanism, not more retries.`,
+  );
+}
+
+/** One attempt. Returns the dump, or the tables whose counts moved under it. */
+async function dumpOnce(
+  db: SqlExecutor,
+  generatedAt: string,
+): Promise<{ sql: string; moved: [] } | { sql: null; moved: string[] }> {
   // Read the ORIGIN's own numbers BEFORE serialising anything. This is the
   // whole point: it is the only measurement that does not come from the dump,
   // so it is the only one that can notice the dump is short.
@@ -99,8 +163,28 @@ export async function dumpDatabase(db: SqlExecutor, generatedAt: string): Promis
     }
   }
 
+  // Re-read the same live numbers AFTER serialising. Equal on both sides means
+  // nothing this dump claims to hold moved while it was being read; unequal
+  // means the manifest and the INSERTs describe two different databases, which
+  // is the one thing the nightly `verify-dump` cannot tell apart from a genuine
+  // under-collection.
+  const after: DumpManifest["tables"] = await tableCounts(db);
+  const afterBlobBytes = await headerImageBytes(db);
+  const moved: string[] = [];
+  for (const [table, before] of Object.entries(manifest.tables)) {
+    const now = after[table];
+    if (now !== before) moved.push(`${table}: ${before} → ${now ?? "gone"}`);
+  }
+  for (const table of Object.keys(after)) {
+    if (!(table in manifest.tables)) moved.push(`${table}: absent → ${after[table]}`);
+  }
+  if (afterBlobBytes !== manifest.blobBytes) {
+    moved.push(`header_image bytes: ${manifest.blobBytes} → ${afterBlobBytes}`);
+  }
+  if (moved.length > 0) return { sql: null, moved };
+
   out.push("COMMIT;");
-  return out.join("\n") + "\n";
+  return { sql: out.join("\n") + "\n", moved: [] };
 }
 
 /** Marker for the origin manifest line, first line of every dump. */

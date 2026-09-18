@@ -381,6 +381,16 @@ export async function runDbCommand(
         },
       },
       new Date().toISOString(),
+      {
+        // MED-12: a torn snapshot is re-taken, not shipped. Report each discard
+        // on STDERR — stdout is the dump itself, and a diagnostic written there
+        // would land inside the SQL (the `pnpm exec` trap, one layer down).
+        onTorn: (attempt, moved) =>
+          console.error(
+            `[db dump] attempt ${attempt} discarded: the database changed while it was being ` +
+              `read (${moved.join("; ")}). Re-taking the dump.`,
+          ),
+      },
     );
     return { output: sql, code: 0 };
   }
