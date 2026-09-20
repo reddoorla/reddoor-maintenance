@@ -343,7 +343,7 @@ describe("no tracking-issue query anywhere in .github/workflows is unbounded", (
         sites.push(`${f}: ${m[0].replace(/\s+/g, " ").trim()}`);
       }
     }
-    expect(sites.length).toBe(24);
+    expect(sites.length).toBe(26);
     expect(sites.filter((s) => !s.includes("--limit "))).toEqual([]);
     expect(sites.filter((s) => !s.includes("--search "))).toEqual([]);
   });

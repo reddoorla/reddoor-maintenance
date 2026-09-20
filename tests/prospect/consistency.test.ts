@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { checkConsistency, normalizePhone } from "../../src/prospect/consistency.js";
+import { MAX_ANCHORS } from "../../src/prospect/extract.js";
 import type { PageAnchor, PageCapture, PageExtract } from "../../src/prospect/types.js";
 
 function extract(over: Partial<PageExtract> = {}): PageExtract {
@@ -138,6 +139,33 @@ describe("checkConsistency", () => {
     expect(result.copyrightYears).toEqual([]);
   });
 
+  it("does not bind a year to the WORD copyright in ordinary prose", () => {
+    // The 30-character window is four or five words of ordinary English, so any
+    // legal, licensing or publishing page binds "copyright" to an unrelated year
+    // and reports the site as stale by years — "a claim about their business
+    // that they can disprove", as the regex's own docstring puts it. The gap has
+    // to look like a NAME, not merely like something without digits in it.
+    const result = checkConsistency([
+      page("https://x.example/", {
+        text: "Copyright law changed in 2019 and we updated our terms.",
+      }),
+    ]);
+    expect(result.copyrightYears).toEqual([]);
+  });
+
+  it("reads a footer whose company name ends in an abbreviation", () => {
+    // `SENTENCE_BREAK` was `[.!?]\s`, which trips on `Co. ` / `Inc. ` / `Ltd. `
+    // — at least as common in a footer as the bare form the widening was added
+    // to catch. So a genuinely stale year on those sites reported as NO
+    // COPYRIGHT LINE AT ALL, which is exactly what the widening existed to stop.
+    const result = checkConsistency([
+      page("https://x.example/", { text: "© Acme Design Co. 2019" }),
+      page("https://x.example/a", { text: "© Bayside Dental Inc. 2018" }),
+    ]);
+    expect(result.copyrightYears).toEqual([2018, 2019]);
+    expect(result.newestCopyrightYear).toBe(2019);
+  });
+
   it("ignores a four-digit number that is not a plausible year", () => {
     const result = checkConsistency([page("https://x.example/", { text: "© 1200 Acme" })]);
     expect(result.copyrightYears).toEqual([]);
@@ -151,13 +179,54 @@ describe("checkConsistency", () => {
   it("finds the page built outside the site template", () => {
     const nav = [link("/"), link("/about"), link("/contact")];
     const result = checkConsistency([
-      page("https://x.example/", { anchors: nav }),
-      page("https://x.example/about", { anchors: nav }),
-      page("https://x.example/contact", { anchors: nav }),
-      page("https://x.example/lp/promo", { anchors: [link("https://elsewhere.example/")] }),
+      page("https://x.example/", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/about", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/contact", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/lp/promo", {
+        anchors: [link("https://elsewhere.example/")],
+        anchorCount: 1,
+      }),
     ]);
     expect(result.pagesOffTemplate).toEqual(["https://x.example/lp/promo"]);
     expect(result.sharedNavLinks).toBeGreaterThan(0);
+  });
+
+  it("does not call a page with a TRUNCATED anchor list off-template", () => {
+    // Same shop as in journey.test.ts: 640 product links push the shared nav
+    // past MAX_ANCHORS, so the capped list shares none of it. Read as complete,
+    // that produced "a visitor who lands there is in a different website with
+    // no way back" — about a page carrying the nav, disprovable by scrolling.
+    const nav = [link("/"), link("/about"), link("/contact")];
+    const products = Array.from({ length: MAX_ANCHORS }, (_, i) => link(`/products/${i}`));
+    const result = checkConsistency([
+      page("https://x.example/", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/about", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/contact", { anchors: nav, anchorCount: nav.length }),
+      page("https://x.example/collections/all", { anchors: products, anchorCount: 640 }),
+    ]);
+    expect(result.pagesOffTemplate).toEqual([]);
+    expect(result.pagesWithTruncatedAnchors).toEqual(["https://x.example/collections/all"]);
+  });
+
+  it("compares navigation hrefs after canonicalising them, not as authored", () => {
+    // A homepage rendered with absolute URLs while the templated inner pages
+    // emit relative ones. Compared as authored the two sets are disjoint, the
+    // 60% majority picks one spelling, and every page using the other spelling
+    // is flagged off-template. `?utm_source=nav` and `/contact` vs `/contact/`
+    // do the same thing. journey.ts already solved this with canonicalizeUrl.
+    const absolute = [
+      link("https://x.example/"),
+      link("https://x.example/about/"),
+      link("https://x.example/contact?utm_source=nav"),
+    ];
+    const relative = [link("/"), link("/about"), link("/contact")];
+    const result = checkConsistency([
+      page("https://x.example/", { anchors: absolute, anchorCount: absolute.length }),
+      page("https://x.example/about", { anchors: relative, anchorCount: relative.length }),
+      page("https://x.example/contact", { anchors: relative, anchorCount: relative.length }),
+    ]);
+    expect(result.pagesOffTemplate).toEqual([]);
+    expect(result.sharedNavLinks).toBe(3);
   });
 
   it("does not accuse a page of being off-template when there are too few pages to tell", () => {

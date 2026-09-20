@@ -138,6 +138,7 @@ function exemplaryChecks(): ChecksResult {
       pagesOffTemplate: [],
       sharedNavLinks: 6,
       pagesExamined: 1,
+      pagesWithTruncatedAnchors: [],
     },
     journey: {
       affordances: [
@@ -152,6 +153,7 @@ function exemplaryChecks(): ChecksResult {
       // rather than an absence. Without this the honest verdict is "not
       // measured", and the exemplary site could not go green at all.
       anchorsMeasured: true,
+      pagesWithTruncatedAnchors: [],
     },
   };
 }

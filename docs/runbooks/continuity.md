@@ -53,22 +53,23 @@ Nothing to re-argue.
 
 ## 1. What runs unattended, and what its failure looks like
 
-Ten scheduled workflows, all in `.github/workflows/`, all in this repo — it is the central
+Eleven scheduled workflows, all in `.github/workflows/`, all in this repo — it is the central
 scheduler for the whole fleet. Times are UTC. Every one of them also has a
 `workflow_dispatch`, so you can re-run any of them by hand from the Actions tab.
 
-| cron           | workflow              | what it does                                                                                                         | tracking issue it files on failure                                                                |
-| -------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `30 4 * * *`   | `fleet-db-backup`     | Dumps Turso, rehearses the restore, decrypts and re-verifies the `.gpg` it uploads, then checks plan-quota headroom  | "Nightly Turso backup failing"; the quota job files "Turso plan quota needs attention" separately |
-| `0 5 * * *`    | `fleet-prismic-drift` | Read-only: does each repo's content model still match the models registered in its Prismic repository                | "Nightly Prismic model drift sweep failing"                                                       |
-| `0 6 * * *`    | `fleet-security`      | Vuln counts + dependency drift per site → store; dispatches Renovate; org-wide protection-coverage audit             | "Nightly fleet security audit failing"; the coverage audit files "Fleet protection coverage gap"  |
-| `0 8 * * *`    | `fleet-lighthouse`    | Lighthouse + domain + browser + Netlify-deploy + function-health against each site's **deployed** URL (no checkout)  | "Nightly fleet audit failing"                                                                     |
-| `23 9 * * *`   | `daily-reports`       | Drafts due reports, sends already-**approved** ones, emails the operator digest                                      | "Daily reports run failing"                                                                       |
-| `0 10 * * *`   | `fleet-smoke`         | Clones each active site and runs that site's own `pnpm test:smoke`                                                   | "Nightly fleet smoke failing"                                                                     |
-| `15 10 * * *`  | `fleet-form-e2e`      | Playwright drives each deployed `/contact` form with the `testMode` marker (reaches no real inbox, DB or webhook)    | "Nightly fleet form-e2e failing"                                                                  |
-| `30 14 * * *`  | `release-health`      | npm `latest` vs `main`'s version, **and** the release workflow's own redness                                         | "npm registry is behind main" / "Release workflow is failing on main"                             |
-| `0 11 * * 1`   | `time-travel`         | Runs the whole test suite on a clock shifted forward, to catch tests that secretly depend on "today"                 | "Time-travel suite failing"                                                                       |
-| `0 */12 * * *` | `renovate`            | Dependency PR creation **and merge** — platform auto-merge is off fleet-wide, so Renovate merges from inside the run | none                                                                                              |
+| cron           | workflow                  | what it does                                                                                                         | tracking issue it files on failure                                                                |
+| -------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `30 4 * * *`   | `fleet-db-backup`         | Dumps Turso, rehearses the restore, decrypts and re-verifies the `.gpg` it uploads, then checks plan-quota headroom  | "Nightly Turso backup failing"; the quota job files "Turso plan quota needs attention" separately |
+| `0 5 * * *`    | `fleet-prismic-drift`     | Read-only: does each repo's content model still match the models registered in its Prismic repository                | "Nightly Prismic model drift sweep failing"                                                       |
+| `0 6 * * *`    | `fleet-security`          | Vuln counts + dependency drift per site → store; dispatches Renovate; org-wide protection-coverage audit             | "Nightly fleet security audit failing"; the coverage audit files "Fleet protection coverage gap"  |
+| `0 8 * * *`    | `fleet-lighthouse`        | Lighthouse + domain + browser + Netlify-deploy + function-health against each site's **deployed** URL (no checkout)  | "Nightly fleet audit failing"                                                                     |
+| `23 9 * * *`   | `daily-reports`           | Drafts due reports, sends already-**approved** ones, emails the operator digest                                      | "Daily reports run failing"                                                                       |
+| `0 10 * * *`   | `fleet-smoke`             | Clones each active site and runs that site's own `pnpm test:smoke`                                                   | "Nightly fleet smoke failing"                                                                     |
+| `15 10 * * *`  | `fleet-form-e2e`          | Playwright drives each deployed `/contact` form with the `testMode` marker (reaches no real inbox, DB or webhook)    | "Nightly fleet form-e2e failing"                                                                  |
+| `30 14 * * *`  | `release-health`          | npm `latest` vs `main`'s version, **and** the release workflow's own redness                                         | "npm registry is behind main" / "Release workflow is failing on main"                             |
+| `0 11 * * 1`   | `time-travel`             | Runs the whole test suite on a clock shifted forward, to catch tests that secretly depend on "today"                 | "Time-travel suite failing"                                                                       |
+| `47 */6 * * *` | `forms-deadletter-replay` | Replays the form dead-letter queue back through the normal ingest pipeline (section 3.1)                             | "Form dead-letter replay failing"                                                                 |
+| `0 */12 * * *` | `renovate`                | Dependency PR creation **and merge** — platform auto-merge is off fleet-wide, so Renovate merges from inside the run | none                                                                                              |
 
 Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`), and
 `report-rerender` (dispatch only).
@@ -165,7 +166,14 @@ and the digest. Two shapes:
   404). This is the serious one: it means submissions are arriving for a site the system no
   longer believes in.
 
-**How to replay.** From this repo, after `pnpm build`:
+**What drains it.** The `forms-deadletter-replay` workflow runs the command below every six
+hours (`.github/workflows/forms-deadletter-replay.yml`), so a transient outage recovers without
+anyone remembering to. It is single-flight — two concurrent replays would each re-ingest the
+same row and duplicate a lead. The job gates on the `DEADLETTER_REPLAY` marker and is **red**
+only for the two shapes nothing else reports (`unmarked`, `unreadable`, below); rows merely
+still queued are a warning, because the attention item above is already that alarm.
+
+**How to replay by hand.** From this repo, after `pnpm build`:
 
 ```sh
 node dist/cli/bin.js db replay-deadletters
@@ -177,12 +185,24 @@ freeze, so a missing Airtable PAT no longer refuses the whole replay). It prints
 row and then a summary:
 
 ```
-DEADLETTER_REPLAY replayed=<n> still_failing=<n>
+DEADLETTER_REPLAY replayed=<n> still_failing=<n> unmarked=<n> unreadable=<n>
 ```
 
-Exit code is 1 while anything is still failing. If Resend is unconfigured the replay still
+Exit code is 1 while anything is still **owed**, which is three different things:
+
+- `still_failing` — the site does not resolve yet. Run `ensure-site <slug>` and replay again,
+  or record a decision with `--abandon`. Nothing was written for these rows.
+- `unmarked` — the lead **was** re-ingested (the printed `UNMARKED` line names the submission
+  that now exists) but the terminal mark could not be written. The row is therefore still
+  queued, and **replaying again before it is reconciled mints a duplicate of that lead**. Mark
+  it by hand (or abandon it, the submission already exists) before the next scheduled run.
+- `unreadable` — the row's stored JSON will not decode, so it can never replay. Repair the
+  stored value or retire the row with `--abandon <dl_…> --reason "…"`. It is left untouched and
+  still counts toward the alarm above; nothing deletes it.
+
+If Resend is unconfigured the replay still
 runs and the recovered leads land un-emailed (`notify=failed`) rather than blocking — you can
-re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:93–208`). If the
+re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:94–227`). If the
 alarm named an unresolvable slug, run `ensure-site <slug>` **first**, then replay.
 
 ### 3.2 Turnstile stops minting tokens on a site
@@ -213,7 +233,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and since the Airtable freeze, Turso is the only store
 there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
-pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:468`,
+pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:487`,
 `.github/workflows/fleet-db-backup.yml:160`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
@@ -390,7 +410,7 @@ written in.
    ```
 
    `--url` never defaults — production is deliberately out of reach
-   (`src/cli/commands/db.ts:412`). Expect a line of this shape, and exit 0:
+   (`src/cli/commands/db.ts:431`). Expect a line of this shape, and exit 0:
 
    ```
    RESTORE loaded=true tables=11 rows=803 blob_bytes=7777769 mismatches=0
@@ -399,14 +419,14 @@ written in.
    The row and byte figures are whatever the dump carried (those are the 2026-08-31 values);
    what you are checking is `mismatches=0`. Row and byte counts are compared against the
    dump's origin manifest, so a restore that "succeeded" with fewer rows than the origin held
-   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:451–464`). Three
+   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:470–483`). Three
    refusals you may see instead, each naming itself: `RESTORE refused=auth-token-absent` (a
    remote url with no token), `RESTORE refused=manifest-absent` (not a dump this tool
    produced), and `RESTORE refused=target-not-empty`.
 
 5. **Repoint `TURSO_DATABASE_URL` at the new database.** This is the step the rehearsals never
    needed and the one most likely to be missed. `db restore` refuses a non-empty target
-   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:436–438`) — a restore is for an
+   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:455–457`) — a restore is for an
    EMPTY target, so a real recovery **always lands on a new database**, and nothing points at it
    until you say so. Set two names, `TURSO_DATABASE_URL` (the url from step 3) and
    `TURSO_AUTH_TOKEN` (the token from step 3 — the same value you passed as

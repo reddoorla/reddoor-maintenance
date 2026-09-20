@@ -456,6 +456,24 @@ describe("backstopAbsent — a single common word is a topic, not an answer", ()
     expect(out!.verdict).toBe("unverified");
   });
 
+  it("is not fooled by the CAPITALISED spelling of the same common word", () => {
+    // `searchTerms` is free text the model writes, and the gate used to accept
+    // any term starting with a capital. So `["Employees"]` walked straight
+    // through the fix above while `["employees"]` was stopped — the gate closed
+    // only the lowercase spelling of the bug. A lone capital is not evidence of
+    // a name: the claim itself writes the word in lower case.
+    const site =
+      "We turned policy into county-wide action by managing an organization of over 84,000 employees.";
+    const [out] = backstopAbsent(
+      [assertion("Acme has about 5 employees")],
+      site,
+      new Map([["Acme has about 5 employees", ["Employees"]]]),
+      true,
+    );
+    expect(out!.verdict).toBe("absent");
+    expect(out!.nearbyMention).toBeNull();
+  });
+
   it("still trusts a distinctive proper noun on its own", () => {
     // The case the backstop was built for: an engine names a practice after a
     // clinician the site never mentions, and the team page lists a similar
@@ -507,6 +525,32 @@ describe("quoteSupportsClaim — a related passage is not a supporting one", () 
     for (const [claim, quote] of pairs) {
       expect(quoteSupportsClaim(claim, quote), claim).toBe(true);
     }
+  });
+
+  it("does not count a sentence-initial capital as a proper noun", () => {
+    // Two measured false confirms. `The` opened both sentences, and
+    // `/^[A-Z]/` made it a "proper noun" — a free shared token handed to any
+    // pair, which is half of the two the bar asks for. The rest of each pair
+    // shares one word and nothing else: a city the quote merely mentions, and
+    // a year the quote uses for something else entirely.
+    expect(
+      quoteSupportsClaim("The company is based in Los Angeles.", "Los Angeles has a lot of noise."),
+    ).toBe(false);
+    expect(
+      quoteSupportsClaim(
+        "The business opened in 2018.",
+        "The 2018 rebrand was our largest project.",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts a passage that names the same thing the claim names", () => {
+    // The false MISS, and the worse of the two failures: `verifyQuotes` wrote
+    // "The passage we found is about the same subject but does not actually say
+    // this" about a passage that says exactly this. One name shared, spelled
+    // the same way and capitalised mid-sentence in both, is a statement — the
+    // 2-token bar was counting words where the evidence is a name.
+    expect(quoteSupportsClaim("They accept Medicaid.", "We are a Medicaid provider.")).toBe(true);
   });
 
   it("rejects a quote with nothing of the claim in it at all", () => {

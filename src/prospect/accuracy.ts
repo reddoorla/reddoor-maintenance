@@ -360,7 +360,19 @@ function normalize(s: string): string {
  * the section of exactly the findings it exists to produce. Short and common
  * words are dropped for that reason.
  */
-function distinctive(terms: string[]): string[] {
+function distinctive(terms: string[], claim: string): string[] {
+  // Where a lone term's capital has to earn its keep. `searchTerms` is free
+  // text the model writes, so the term's own capitalisation proves nothing —
+  // the claim it was written for is the only place a name can be seen BEHAVING
+  // like one, capitalised in the middle of a sentence. "Alderson" appears that
+  // way in "Formerly known as Alderson Dental"; "Employees" does not appear
+  // capitalised anywhere in "Acme has about 5 employees", because the model
+  // simply title-cased its own search term.
+  const namesInClaim = new Set(
+    scanWords(claim)
+      .filter((w) => w.capitalised && !w.opensSentence)
+      .map((w) => w.lower),
+  );
   return terms
     .map((t) => t.trim())
     .filter((t) => {
@@ -379,9 +391,15 @@ function distinctive(terms: string[]): string[] {
       // what the backstop was built for — an engine naming a practice after a
       // clinician whose name does appear on the team page — and it is the only
       // reason a lone word is ever enough.
+      //
+      // `/^[A-Z]/.test(t)` was the whole proper-noun test, and it reopened the
+      // very regression above one spelling along: `["Employees"]` passed where
+      // `["employees"]` was stopped. A lone capital at the start of a term the
+      // model typed is orthography, not evidence, so the name must be witnessed
+      // in the claim instead — see `namesInClaim`.
       const multiWord = /\s/.test(t);
       const hasNumber = /\d/.test(t);
-      const properNoun = /^[A-Z]/.test(t);
+      const properNoun = namesInClaim.has(t.toLowerCase());
       return multiWord || hasNumber || properNoun;
     });
 }
@@ -453,7 +471,7 @@ export function backstopAbsent(
     const flat = siteText.replace(/\s+/g, " ");
     let scattered: string | null = null;
 
-    for (const term of distinctive(searchTermsByClaim.get(a.claim) ?? [])) {
+    for (const term of distinctive(searchTermsByClaim.get(a.claim) ?? [], a.claim)) {
       const found = findTerm(haystack, term);
       if (found === null) continue;
 
@@ -570,21 +588,104 @@ export function quoteSupportsClaim(claim: string, quote: string): boolean {
   // found himself stuck in LA" shares exactly the two words that matter, and a
   // length threshold throws one of them away: "Tim" is three letters. A proper
   // noun is distinctive BECAUSE it is a name, whatever its length.
-  const words = (t: string): Set<string> => {
+  //
+  // But `/^[A-Z]/` is not a test for a name, it is a test for a capital letter,
+  // and English capitalises the first word of every sentence. Measured, on
+  // ordinary copy:
+  //
+  //   "The company is based in Los Angeles." / "Los Angeles has a lot of noise."
+  //   "The business opened in 2018."         / "The 2018 rebrand was our largest project."
+  //
+  // both PASSED, because `The` was scored a proper noun and handed a free
+  // shared token to every pair — one of the two the bar asks for. So a word is
+  // a proper noun here only when it is capitalised AND is not the word that
+  // opens its sentence; at the start of a sentence we cannot tell a name from
+  // ordinary orthography, and the word falls back to the length test like any
+  // other. (Sentence detection is `[.!?]` plus line breaks, so an abbreviation
+  // — "Dapper Dan Dr. Fair Oaks Ranch" — reads the following word as opening a
+  // sentence and demotes a real name to an ordinary word. That direction is
+  // safe: a demoted token can only make this stricter, and a strict answer here
+  // is `unverified`, never a false claim about the site.)
+  const tokens = (t: string): TokenSet => {
     const out = new Set<string>();
-    for (const w of t.split(/[^A-Za-z0-9]+/)) {
-      if (w === "") continue;
-      const lower = w.toLowerCase();
-      if (WEAK_WORDS.has(lower)) continue;
-      const properNoun = /^[A-Z]/.test(w) && w.length >= 3;
-      if (properNoun || lower.length >= 4) out.add(lower);
+    const names = new Set<string>();
+    const run: string[] = [];
+    const flushRun = (): void => {
+      // A contiguous capitalised run is ONE name, not N tokens. It is recorded
+      // whole so a name can be matched as a name; its words are also in `out`,
+      // because the two texts rarely draw the same boundary around it ("Fair
+      // Oaks Ranch, Texas" against "Fair Oaks Ranch, TX").
+      if (run.length > 0) names.add(run.join(" "));
+      run.length = 0;
+    };
+    for (const w of scanWords(t)) {
+      if (WEAK_WORDS.has(w.lower)) {
+        flushRun();
+        continue;
+      }
+      const properNoun = w.capitalised && !w.opensSentence && w.raw.length >= 2;
+      if (properNoun) run.push(w.lower);
+      else flushRun();
+      if (properNoun || w.lower.length >= 4) out.add(w.lower);
     }
-    return out;
+    flushRun();
+    return { words: out, names };
   };
-  const inQuote = words(quote);
+
+  const c = tokens(claim);
+  const q = tokens(quote);
   let shared = 0;
-  for (const w of words(claim)) if (inQuote.has(w)) shared += 1;
-  return shared >= 2;
+  for (const w of c.words) if (q.words.has(w)) shared += 1;
+  if (shared >= 2) return true;
+
+  // One shared NAME is also enough, and only a name is.
+  //
+  // The bar counts words, and the worse of the two failures here was a false
+  // MISS it produced: "They accept Medicaid." against "We are a Medicaid
+  // provider." shares one word, so `verifyQuotes` wrote "the passage is about
+  // the same subject but does not actually say this" — a false statement about
+  // a passage that says exactly this. One shared name is a statement where one
+  // shared common word is a subject.
+  //
+  // It has to be the SAME name, spelled the same way and capitalised
+  // mid-sentence in both texts, which is what keeps the Los Angeles pair out:
+  // the claim's name is "los angeles" and the quote's — where "Los" opens the
+  // sentence and proves nothing — is only "angeles". Not the same name, and one
+  // shared word is not two.
+  for (const n of c.names) if (q.names.has(n)) return true;
+  return false;
+}
+
+type TokenSet = { words: Set<string>; names: Set<string> };
+
+type ScannedWord = {
+  raw: string;
+  lower: string;
+  capitalised: boolean;
+  /** First word of the text, or the first after a `[.!?]` or a line break. Its
+   *  capital carries no information about whether it is a name. */
+  opensSentence: boolean;
+};
+
+/** Words in order, each told whether it opens its sentence. */
+function scanWords(text: string): ScannedWord[] {
+  const out: ScannedWord[] = [];
+  let opensSentence = true;
+  let index = 0;
+  for (const m of text.matchAll(/[A-Za-z0-9]+/g)) {
+    const raw = m[0];
+    const gap = text.slice(index, m.index);
+    if (out.length > 0 && /[.!?\n\r]/.test(gap)) opensSentence = true;
+    index = m.index + raw.length;
+    out.push({
+      raw,
+      lower: raw.toLowerCase(),
+      capitalised: /^[A-Z]/.test(raw),
+      opensSentence,
+    });
+    opensSentence = false;
+  }
+  return out;
 }
 
 function verifyQuotes(
@@ -611,7 +712,7 @@ function verifyQuotes(
     let verdict: typeof a.verdict = a.verdict;
     let siteQuote: string | null = a.siteQuote;
     if (a.verdict === "contradicted") {
-      for (const term of distinctive(searchTermsByClaim.get(a.claim) ?? [])) {
+      for (const term of distinctive(searchTermsByClaim.get(a.claim) ?? [], a.claim)) {
         if (findTerm(site, term) !== "exact") continue;
         // The quote must survive the same substring check as a model quote, so
         // no ellipses: they are not in the page and would fail it.

@@ -7,6 +7,34 @@ import type { FormField, FormShape, PageAnchor, PageExtract } from "./types.js";
  *  true total so a capped list is never mistaken for a complete one. */
 export const MAX_ANCHORS = 300;
 
+/**
+ * Did this page carry more `<a href>` than we kept?
+ *
+ * The cap exists so a truncated list is never mistaken for a complete one, and
+ * `anchorCount` records the true total for exactly this question — but a
+ * consumer has to ASK it. Two did not: `journey.ts` and `consistency.ts` both
+ * read `anchors ?? []` as the whole link set, so a shop's `/collections/all`
+ * with 640 product links before the footer pushed `/contact` and the shared nav
+ * past the cap and landed the page in `deadEnds` ("a visitor who lands here has
+ * no way to contact you") and in `pagesOffTemplate` ("a visitor who lands there
+ * is in a different website with no way back"). Both disprovable by scrolling.
+ *
+ * The rule this encodes is the module-wide one: a truncated list is evidence
+ * for what it CONTAINS and evidence for nothing it omits. It may support a
+ * positive finding and must never support one drawn from absence.
+ *
+ * False when either field is missing — a report stored before `anchorCount`
+ * existed cannot tell us it was truncated, and `anchorsMeasured` is the gate
+ * that already covers a missing `anchors`.
+ */
+export function anchorsTruncated(extract: PageExtract): boolean {
+  return (
+    extract.anchorCount !== undefined &&
+    extract.anchors !== undefined &&
+    extract.anchors.length < extract.anchorCount
+  );
+}
+
 /** Same discipline as `MAX_ANCHORS`, for `PageExtract.scriptSrcs`. A tag-manager
  *  page can inject a hundred of these; `scriptCount` reports the true total. */
 export const MAX_SCRIPTS = 120;

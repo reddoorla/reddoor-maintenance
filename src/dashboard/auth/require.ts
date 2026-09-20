@@ -74,6 +74,42 @@ export function readAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
   };
 }
 
+/**
+ * Whether the shared-password fallback is still accepted in this environment
+ * (MED-18(b), 2026-09-02 — the finding's SECOND brief).
+ *
+ * `DASHBOARD_PASSWORD` grants FULL operator rights and reports no identity:
+ * `OperatorAuth.email` is null for password entry, so every action it takes is
+ * recorded as nobody (see the type's own docblock). That was the right trade
+ * while it was the only way in. Google sign-in went live 2026-08-25, and
+ * `process.env.CONTEXT` was read nowhere in `src/dashboard/` — so the fallback
+ * kept the same power on production that it has on a deploy preview, months
+ * after its stated purpose expired.
+ *
+ * **The condition is narrow on purpose: production AND `googleReady`.** It is
+ * not possible for this to lock the operator out, because the password is only
+ * ever refused where the complete Google path is configured and available to
+ * use instead. If the Google configuration is later broken, emptied, or removed,
+ * `googleReady` goes false and the password works again on its own, with no
+ * deploy and no intervention. (The alternative — refuse on production, full
+ * stop — would have been a lockout risk nobody could rule out from here: whether
+ * `DASHBOARD_PASSWORD` is even set in production is one `netlify env:get` away,
+ * and reading production config is not something this change gets to do.)
+ *
+ * `CONTEXT` is Netlify's build/runtime context: `production`, `deploy-preview`,
+ * `branch-deploy`, `dev`. ABSENT is not production — local runs and anything
+ * that is not a Netlify deploy have no `CONTEXT` at all, and reading a missing
+ * value as the strictest one is how a guard locks out the machine it was
+ * written on.
+ */
+export function passwordFallbackAllowed(
+  config: AuthConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const isProduction = env.CONTEXT?.trim() === "production";
+  return !(isProduction && config.googleReady);
+}
+
 /** The path (plus query) an operator was trying to reach, for `returnTo`. */
 export function pathWithQuery(url: string): string {
   try {
@@ -129,6 +165,33 @@ function denied(wants: Wants): OperatorDenial {
   };
 }
 
+/** The refusal for a correct shared password on production (MED-18(b)).
+ *
+ *  Written in the same voice as `OperatorAuth.email`'s docblock, because it is
+ *  the same fact: password entry has no identity to report, and a caller that
+ *  records who acted must say so honestly. Names the exact condition, so an
+ *  operator who hits it knows it is a rule and not an outage — and knows the
+ *  door that IS open. 403 rather than a redirect to `/auth/login`: the browser
+ *  will keep volunteering its cached Basic credential to this origin, so a
+ *  redirect would loop, and the explanation is the whole point of the response. */
+function passwordRetired(wants: Wants): OperatorDenial {
+  const message =
+    "The shared password is not accepted on the production cockpit. It grants full " +
+    "operator rights with no identity to record — every action it takes is logged as " +
+    "nobody. Sign in with Google instead: /auth/login. (Refused only because this is " +
+    "the production context AND Google sign-in is fully configured here; the shared " +
+    "password still works on deploy previews.)";
+  if (wants === "json") {
+    return {
+      status: 403,
+      headers: {},
+      contentType: "application/json",
+      body: JSON.stringify({ ok: false, error: "password-retired", message }),
+    };
+  }
+  return { status: 403, headers: {}, contentType: "text/plain", body: message };
+}
+
 function unconfigured(wants: Wants): OperatorDenial {
   const message =
     "The cockpit is unconfigured — no sign-in method is available. Set the Google " +
@@ -159,7 +222,8 @@ export function requireOperator(
   req: AuthRequestLike,
   opts: { wants: Wants; env?: NodeJS.ProcessEnv; now?: Date },
 ): OperatorAuth {
-  const config = readAuthConfig(opts.env ?? process.env);
+  const env = opts.env ?? process.env;
+  const config = readAuthConfig(env);
   const now = opts.now ?? new Date();
 
   // 1. A signed session, re-checked against the current allowlist. This is the
@@ -180,8 +244,15 @@ export function requireOperator(
   }
 
   // 2. The shared-password fallback: deploy previews, and the first day of the
-  //    rollout. No identity to report.
+  //    rollout. No identity to report — and, since MED-18(b), not accepted at
+  //    all on production once Google sign-in is fully configured there. The
+  //    credential is verified FIRST so a wrong password stays a plain failed
+  //    attempt: only a caller who really holds the shared password is told why
+  //    it no longer works here.
   if (config.password && verifyBasicAuth(req.headers.get("authorization"), config.password)) {
+    if (!passwordFallbackAllowed(config, env)) {
+      return { ok: false, denial: passwordRetired(opts.wants) };
+    }
     return { ok: true, email: null };
   }
 

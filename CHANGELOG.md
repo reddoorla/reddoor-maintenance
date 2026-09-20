@@ -1,5 +1,54 @@
 # @reddoorla/maintenance
 
+## 0.98.0
+
+### Minor Changes
+
+- fe1de73: The a11y audit's route-status guard is sentinel-aware: a 404 on a site's own route while it still carries the starter's `your-prismic-repo-name` is the designed answer, not a missing route (#863).
+
+  The guard added in #680 is right that a configured route returning non-200 is a config problem — before it, a 404 was scanned as if it existed and reported green for months. What it did not know is that a clone between `/new-site` step 3c (point the gates at real routes) and step 6 (wire the Prismic repository) has no repository behind its content routes at all, so `getByUID("page","home")` cannot resolve and `/` 404s by design. Every new site passes through that window, and in it the first maintenance-bump PR failed on `route-missing on / (/ returned 404)` — a red with no defect behind it, which either sends someone debugging a non-bug or teaches them to route around the gate.
+
+  `readsPlaceholderPrismicRepo` (`src/audits/util/site-config.ts`) reads `slicemachine.config.json` — and `prismic.config.json`, the name the Prismic CLI migration renames it to — beside the `package.json` the audit already reads, and marks the site's own `reddoor.a11yRoutes` as tolerating a 404 while the sentinel is there. The decision itself is one exported pure function, `classifyRouteResponse`, serialized into the generated Playwright spec rather than transcribed into it, so the branch the tests exercise is the branch that runs.
+
+  Bounded deliberately, in three directions:
+
+  - **The `/dev/*` fixtures are never tolerated**, on any site. They are served by the dev server the axe scan runs against, where the #717 `/dev` layout guard is inert, so they owe a 200 whatever the Prismic config says — and reddoor-starter, which sits on the sentinel permanently, is the repo those fixtures are defined in. A rule that tolerated any 404 on a placeholder site would stop checking them exactly there.
+  - **Only 404**, never a 500 or a dead navigation. "No content yet" is a 404; a placeholder site whose dev server throws is still broken.
+  - **Only `your-prismic-repo-name`**, not `PLACEHOLDER_REPOSITORY_NAMES` from `src/prismic/models/config.ts`. That list also holds `reddoor-wireframer` — which is on it precisely because it RESOLVES, with published documents, and data-dynamiq really renders from it. That list means "mint no token"; this one means "a 404 here is expected", and merging them would buy a live production site silent tolerance of a dead homepage. The committed config is read, never `VITE_PRISMIC_ENVIRONMENT`, for the same reason `tests/smoke/routes.ts` throws when that variable names the sentinel under CI.
+
+  A skip is never silent. The summary count becomes `N of M routes` the moment anything is skipped, and the note names the route and the reason: `a11y: 0 violations across 2 of 3 routes (2 fixtures + 1 from package.json; 1 skipped: / — placeholder Prismic repo) (+1 hydration smoke)`. A run that skipped nothing keeps its line byte-for-byte. The artifact JSON gains a `skipped` array beside `violations`.
+
+  This gives a site the honest third answer — "this route is not scannable yet, and here is why" — so `/new-site` step 3c can keep asking for real routes at bootstrap. The template's workaround (`a11yRoutes: []`, reddoorla/reddoor-starter#148) traded a false red for a false green, and an empty list is exactly the configuration that let a critical `image-alt` violation ship to five production pages with CI green.
+
+### Patch Changes
+
+- 159d5de: The report approve/override endpoint no longer returns 500 when `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` are absent (#539 Phase 6, #646) — the same gate step 2 dropped from the Resend webhook and #868 dropped from report-commentary. Both writes (the plain approve and the logged send-anyway override) now go to Turso first and strictly (`mirrorWrite`); the Airtable stamp stays as the rollback-window shadow while both env vars are set, and can still fail the request. With the env absent or half-set the shadow is skipped and logged as `AIRTABLE_SHADOW skipped=env-absent` (or `env-partial`). The `TURSO_DATABASE_URL` gate, CSRF, `requireOperator`, the already-sent / not-draft-ready no-ops, the send-blocker gate and the override's audit trail are unchanged.
+- 9c26a85: The `DASHBOARD_PASSWORD` fallback is no longer accepted on the production
+  cockpit once Google sign-in is fully configured there. It grants full operator
+  rights and reports no identity, and its stated purpose — deploy previews, and
+  the first day of the rollout — expired when Google sign-in went live. Deploy
+  previews, local runs, and any deploy without a working Google configuration are
+  unaffected.
+- 0881051: Dead-letter replay no longer loses or duplicates a lead when one row goes wrong: rows are
+  decoded one at a time (a single undecodable payload used to wedge replay for every other lead)
+  and a terminal mark that fails to persist is reported as its own loud outcome instead of
+  aborting the run with the row already re-ingested. `db replay-deadletters` gained `unmarked=`
+  and `unreadable=` counters on its `DEADLETTER_REPLAY` line and exits 1 for either.
+- 49128c9: Prospect audits stop inventing dead ends and off-template pages: a page whose link list hit the 300-anchor cap can no longer carry a finding drawn from what is missing past the cap, and shared-navigation hrefs are now compared after canonicalisation, so an absolute-URL homepage nav and a relative inner-page nav are one set rather than two.
+- c23f942: The prospect-audit daily cap now brakes the CLI as well as the dashboard —
+  until now `PROSPECT_AUDIT_DAILY_CAP` was enforced only in the dashboard
+  dispatch path, while every batch run went through the CLI. Both paths share one
+  count and one refusal message; a run with no database to count against says so
+  loudly instead of passing in silence.
+- cf4f0eb: The prospect copyright-year detector stops being wrong in both directions: the gap between "copyright" and the year now has to look like a company name rather than any four or five words without digits, so a legal or licensing page no longer reports a site as stale by years, and a footer whose name ends in `Co.` / `Inc.` / `Ltd.` is no longer read as having no copyright line at all.
+- 1c3d5b9: Prospect audits no longer report two numbers they never measured: `mixedContent.measured` is now true only when the crawl actually recorded image sources (an older stored report replayed used to read as "we checked and found none"), and `AnswerSpace.queriesAsked` counts the category probes dispatched rather than only the ones that came back.
+- 146c5b9: The prospect accuracy check stops treating a sentence-initial capital as a proper noun: `The` no longer hands a free shared token to every claim/quote pair, a shared name is now matched as a name rather than as two words, and a capitalised search term is judged the same as its lowercase spelling unless the claim itself writes it as a name.
+- e96d13a: The `/s/:slug` dashboard reads its bounce, spam and dropped-lead figures with
+  per-site queries instead of building three fleet-wide aggregates per page load
+  and discarding every row but one site's. New index `0028` keeps the dead-letter
+  count off the payload-bearing rows.
+- 6edd2fa: The site-details editor endpoint no longer returns 500 when `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` are absent (#539 Phase 6, #646) — the same gate step 2 dropped from the Resend webhook and #868 dropped from report-commentary. The field write now goes to Turso first and strictly (`mirrorWrite`); the Airtable `Websites` write stays as the rollback-window shadow while both env vars are set, and can still fail the request. With the env absent or half-set the shadow is skipped and logged as `AIRTABLE_SHADOW skipped=env-absent record=<id> column=<column>` (or `env-partial`). `setSiteDetail`'s field allowlist, per-kind validation and secret-field semantics (empty = unchanged, `__clear__` = clear), plus auth and CSRF, are unchanged.
+
 ## 0.97.0
 
 ### Minor Changes
