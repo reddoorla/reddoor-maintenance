@@ -312,22 +312,58 @@ describe("db/dump — a torn snapshot (MED-12)", () => {
     client: ReturnType<typeof createClient>,
     onTear: () => Promise<void>,
     times = 1,
+    /** Fires once, immediately AFTER the first `SELECT * FROM sites` returns —
+     *  i.e. a write that misses this dump entirely. */
+    afterRead?: () => Promise<void>,
   ): SqlExecutor & { manifestReads: () => number } {
     let fired = 0;
+    let firedAfter = 0;
     let manifestReads = 0;
     return {
       manifestReads: () => manifestReads,
       execute: async (q) => {
         if (q.startsWith("SELECT COUNT(*) AS c FROM sites")) manifestReads++;
-        if (q.startsWith("SELECT * FROM sites") && fired < times) {
+        const isSiteRows = q.startsWith("SELECT * FROM sites");
+        if (isSiteRows && fired < times) {
           fired++;
           await onTear();
         }
         const r = await client.execute(q);
-        return { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
+        const out = { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
+        if (isSiteRows && afterRead && firedAfter < 1) {
+          firedAfter++;
+          await afterRead();
+        }
+        return out;
       },
     };
   }
+
+  /** A `SqlExecutor` whose `SELECT * FROM sites` comes back REWRITTEN on its
+   *  first `times` passes. This is the class of tear a second live count can
+   *  never see: nothing in the live database moves, so both live reads agree
+   *  with each other and the dump is still wrong. */
+  function shorting(
+    client: ReturnType<typeof createClient>,
+    rewrite: (rows: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
+    times = 1,
+  ): SqlExecutor {
+    let fired = 0;
+    return {
+      execute: async (q) => {
+        const r = await client.execute(q);
+        const rows = r.rows as Array<Record<string, unknown>>;
+        if (q.startsWith("SELECT * FROM sites") && fired < times) {
+          fired++;
+          return { columns: r.columns, rows: rewrite(rows) };
+        }
+        return { columns: r.columns, rows };
+      },
+    };
+  }
+
+  const siteInserts = (sql: string) =>
+    sql.split("\n").filter((l) => l.startsWith("INSERT INTO sites ")).length;
 
   const insertSite = (client: ReturnType<typeof createClient>, id: string) => async () => {
     await client.execute({
@@ -340,14 +376,20 @@ describe("db/dump — a torn snapshot (MED-12)", () => {
     const client = await seeded();
     const db = tearing(client, insertSite(client, "recTORN"));
 
-    const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z");
+    const torn: string[][] = [];
+    const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z", {
+      onTorn: (_attempt, moved) => torn.push(moved),
+    });
 
     const manifest = parseDumpManifest(sql);
     expect(manifest).not.toBeNull();
-    const inserts = sql.split("\n").filter((l) => l.startsWith("INSERT INTO sites ")).length;
-    expect(manifest!.tables.sites).toBe(inserts);
-    // And it noticed rather than got lucky: it re-read the counts and dumped again.
-    expect(db.manifestReads()).toBeGreaterThan(2);
+    expect(manifest!.tables.sites).toBe(siteInserts(sql));
+    // And it noticed rather than got lucky: the first pass was DISCARDED and
+    // the whole dump re-taken. (This used to read `manifestReads() > 2`, which
+    // counted the second live `tableCounts` round trip that no longer happens —
+    // same intent, expressed against the comparison that actually ships.)
+    expect(torn).toHaveLength(1);
+    expect(db.manifestReads()).toBe(2); // exactly one live manifest read per attempt
   });
 
   it("fails LOUDLY, naming the table, when the database never settles", async () => {
@@ -368,7 +410,116 @@ describe("db/dump — a torn snapshot (MED-12)", () => {
     const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z");
 
     const manifest = parseDumpManifest(sql)!;
-    const inserts = sql.split("\n").filter((l) => l.startsWith("INSERT INTO sites ")).length;
-    expect(manifest.tables.sites).toBe(inserts);
+    expect(manifest.tables.sites).toBe(siteInserts(sql));
+  });
+
+  /**
+   * MED-12 review — the second live count answers the WRONG QUESTION.
+   *
+   * "Did the live counts change while I was reading?" and "do the manifest and
+   * the dumped rows agree?" are different questions, and they come apart in
+   * both directions. The four tests below are the four corners: a dump that is
+   * perfectly consistent but looked torn, a dump that looked clean but is torn,
+   * a short read that moves nothing live at all, and the same for the blob
+   * bytes. Only the first was ever detectable by re-reading the counts, and it
+   * was detected WRONGLY — a good backup thrown away.
+   */
+
+  it("does NOT discard a dump for a write that lands AFTER the table was read", async () => {
+    const client = await seeded();
+    // Nothing fires before the read; one row arrives the instant after it. The
+    // dump does not contain that row and its manifest does not claim it — it is
+    // consistent, and belongs in the backup vault. Re-reading the live counts
+    // says "1 → 2" and throws it away; three such nights in a row and there is
+    // no backup at all, which is the outcome MED-12 exists to remove.
+    const db = tearing(client, async () => {}, 0, insertSite(client, "recLATE"));
+
+    const torn: string[][] = [];
+    const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z", {
+      onTorn: (_attempt, moved) => torn.push(moved),
+    });
+
+    expect(torn).toEqual([]); // succeeded on the FIRST attempt
+    expect(db.manifestReads()).toBe(1);
+    expect(parseDumpManifest(sql)!.tables.sites).toBe(siteInserts(sql));
+  });
+
+  it("DETECTS a row that arrived before the read and was deleted after it", async () => {
+    const client = await seeded();
+    // Insert, read, delete: the live count ends where it started, so the second
+    // count sees nothing move — and the dump carries one INSERT more than its
+    // manifest claims. `verify-dump` reds the nightly on a dump that shipped.
+    const db = tearing(client, insertSite(client, "recGHOST"), 1, async () => {
+      await client.execute("DELETE FROM sites WHERE id = 'recGHOST'");
+    });
+
+    const torn: string[][] = [];
+    const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z", {
+      onTorn: (_attempt, moved) => torn.push(moved),
+    });
+
+    expect(torn).toHaveLength(1);
+    expect(torn[0]!.join("; ")).toContain("sites");
+    expect(parseDumpManifest(sql)!.tables.sites).toBe(siteInserts(sql));
+  });
+
+  it("DETECTS a SELECT * that came back SHORT while nothing live moved at all", async () => {
+    const client = await seeded();
+    await client.execute("INSERT INTO sites (id, slug, name) VALUES ('recB', 'b', 'B')");
+    // Under-collection is what the manifest was built for (see MANIFEST_PREFIX):
+    // a read that returns fewer rows than exist. No live count moves, so a
+    // second live count is blind to it by construction.
+    const db = shorting(client, (rows) => rows.slice(0, 1));
+
+    const torn: string[][] = [];
+    const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z", {
+      onTorn: (_attempt, moved) => torn.push(moved),
+    });
+
+    expect(torn).toHaveLength(1);
+    expect(torn[0]!.join("; ")).toContain("sites");
+    const manifest = parseDumpManifest(sql)!;
+    expect(manifest.tables.sites).toBe(2);
+    expect(siteInserts(sql)).toBe(2);
+  });
+
+  it("DETECTS a header_image that came back NULL while the row count held", async () => {
+    const client = await seeded();
+    // The exact failure MANIFEST_PREFIX names: "row counts alone pass a dump in
+    // which every header_image came back NULL". The rows are all present and
+    // the live byte total never moves, so only measuring what was SERIALISED
+    // can see it.
+    const db = shorting(client, (rows) => rows.map((r) => ({ ...r, header_image: null })));
+
+    const torn: string[][] = [];
+    const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z", {
+      onTorn: (_attempt, moved) => torn.push(moved),
+    });
+
+    expect(torn).toHaveLength(1);
+    expect(torn[0]!.join("; ")).toContain("header_image bytes");
+    const manifest = parseDumpManifest(sql)!;
+    expect(manifest.blobBytes).toBe(await headerImageBytes(wrap(client)));
+    expect(manifest.blobBytes).toBe(4);
+    expect(sql).toContain("X'0001ff10'"); // the bytes really are in the shipped dump
+  });
+
+  it("names the table on the DIAGNOSTIC channel, and leaks none of it into the SQL", async () => {
+    const client = await seeded();
+    const db = tearing(client, insertSite(client, "recNOISE"));
+
+    const seen: Array<{ attempt: number; moved: string[] }> = [];
+    const sql = await dumpDatabase(db, "2026-09-17T00:00:00.000Z", {
+      onTorn: (attempt, moved) => seen.push({ attempt, moved }),
+    });
+
+    expect(seen.map((s) => s.attempt)).toEqual([1]);
+    expect(seen[0]!.moved.join("; ")).toContain("sites");
+    // stdout carries the dump; a diagnostic written there would land inside the
+    // SQL. Nothing the callback was handed appears in the returned text.
+    for (const line of seen[0]!.moved) expect(sql).not.toContain(line);
+    // Only ONE comment line, the manifest — a diagnostic that reached stdout
+    // would have to show up as another.
+    expect(sql.split("\n").filter((l) => l.startsWith("--"))).toHaveLength(1);
   });
 });

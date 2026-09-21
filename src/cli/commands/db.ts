@@ -399,7 +399,10 @@ export async function runDbCommand(
           return { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
         },
       },
-      new Date().toISOString(),
+      // A FUNCTION, not a string: re-evaluated per attempt, so a dump that
+      // succeeded on attempt 3 is stamped with attempt 3's time instead of
+      // carrying the timestamp of two dumps that were discarded.
+      () => new Date().toISOString(),
       {
         // MED-12: a torn snapshot is re-taken, not shipped. Report each discard
         // on STDERR — stdout is the dump itself, and a diagnostic written there
