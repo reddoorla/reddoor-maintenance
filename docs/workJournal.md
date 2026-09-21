@@ -4148,3 +4148,92 @@ looking again. The nightly says it plainly: `PROTECTION_AUDIT gaps=27 covered=0`
 first pass on known-good since #781 taught it the clause, and its four gaps are exactly
 the four repos with an open Google API key alert (gallerysonder 06-05, reddoor-starter
 07-24, beachfront 08-06, reddoor-starter-blux 09-01). Those four are still untriaged.
+
+## 2026-09-21 (later) — Fifteen grouped Renovate PRs landed behind a production check that could fail, and the allowance I spent twice (#898, #900)
+
+The operator merged the 0.98.1 release, ruled that I work through the Renovate PRs the
+morning's dispatching had opened, and put everything else on hold until the decisions
+from the previous entry are made. This entry also carries what happened after that entry
+merged, which it could not.
+
+**The allowance went twice, and the second time it broke a release run.** The App's
+shared API allowance came back at 17:42Z and was gone again by 18:29Z. The plausible
+spenders were my fifteen post-reset runs and the fleet's delayed scheduled runs, each
+presumably costlier with 65 new PRs open; I did not separate or measure them.
+`release.yml` mints its token from the same App, so the `release` run on the journal's
+own squash commit (`0965c801`) failed at "Create release PR or publish" with `API rate
+limit already exceeded for installation ID 150778710`. Nothing publishable was pending;
+I re-ran the failed job at 18:46Z after the reset and it passed. On a day with a merged
+version PR the same collision fails a publish, which is the argument on #898 for
+staggering the crons or giving the release workflow its own identity.
+
+**What the grouped PRs actually carried was small.** Forty days of freeze sounds like
+forty days of backlog, and it was not: the PR bodies show small steps, which fits
+lock-file maintenance having kept in-range updates flowing, though I did not measure
+that. Parsed from 23 PR bodies, the real content was `@reddoorla/maintenance` from as
+far back as `^0.80.0` to `^0.97.0` (a caret on 0.x pins the minor, so no site could move
+by itself), vite 8.2.2 to 8.3.0, Node 24.19.0 to 24.21.0 through `.nvmrc`, the reusable
+CI pin v1.4.x to v1.4.2, and patch bumps. Files touched: `package.json`, the lockfile,
+workflow files and `.nvmrc`, nothing else.
+
+**Four lenses before any merge, because a merge into a site's `main` is a production
+deploy.** An Opus reviewer read the package's consumer surface across the whole jump.
+The decisive fact: `src/forms/client.ts`, `meta.ts` and `types.ts`, which are the wire
+format a site sends to the central ingest, are byte-identical from v0.80.0 to v0.97.0.
+Site-side code did move, compatibly: `action.ts` and `endpoint.ts` widened
+`buildPayload` to allow a promise and now `await` it, and v0.97.0 dropped three recipe
+helpers from the root export that no site imports. `./forms` exports only six runtime
+values, four functions and two constants, so every spam, Turnstile and dead-letter
+change in those twenty-four releases (seventeen minor steps) runs in the central deploy
+and cannot be moved by bumping a site. No new environment variable is needed. The one
+CSP change (v0.85.2, `'unsafe-hashes'` plus the replay hash) reaches a site only through
+`createSvelteConfig({ csp })`. Four merged sites started below it. Two pass no `csp`
+(la-homelessness-youth, la-homelessness-initiative) and two never call
+`createSvelteConfig` (1836dig, composition-hospitality). The first reviewer examined
+three of the four; composition-hospitality was confirmed by the fact-check of this
+entry, and by its CSP reading the same before and after the merge. A green PR cannot
+turn red on the audit by merging, because CI already ran 0.97's audit against the bumped
+lockfile. The reviewer nearly reported every file as unchanged: zsh did not word-split
+`for t in $TAGS`, the loop ran once over the whole string, and it caught that only
+because a standalone `git rev-parse` of one tag succeeded. The other three lenses were
+mine: each deploy preview against its production page (same status, title, CSP shape and
+image count on every site), the file scope above, and the v1.4.0 to v1.4.2 diff of the
+shared workflow repo, whose only workflow change is two CI fixes; the rest is
+documentation.
+
+**The production check, and why it can fail.** Per merge: probe the live home page
+(status, title, CSP with nonces and hashes normalised, `<img>` and `<form>` counts, and
+the SvelteKit build token), GET the site's form endpoint and `/health`, land with
+`land-prs.mjs --repo`, poll until the build token changes, then compare. A GET on a form
+endpoint sends nothing and answers 405 while the route is alive; a forms module that
+failed to load in the new function should answer 500, which I did not induce. The token
+has to move or the check has not seen the new deploy, so it cannot pass on a stale page.
+The build-token half was proven on a pre-launch site before any client site.
+
+**Fifteen landed, in order of what a mistake would cost.** Templates (canvas-starter#29,
+reddoor-starter-blux#35); pre-launch sites (hedloc#49, the-tower-burbank#26,
+the-pointe-burbank#39, vida-legacy-foundation#82, composition-hospitality#35); one live
+canary, la-homelessness-youth#26, at 0.81 to 0.97 one of three live sites tied on the
+largest jump (composition-hospitality, pre-launch, came from 0.80); then
+la-homelessness-initiative#46, 1836dig#21, data-dynamiq#54, 29-navy#50,
+gallerysonder#102 and beachfront-dentistry#68; last reddoor-starter#155, which was
+`BEHIND` and re-ran CI after the branch update. Every site showed a new build live
+within 1 to 4.5 minutes with the home page and server routes unchanged. The landing
+script ran clean fifteen times. Left alone: `.github#36`, which holds no held package
+and which I expect Renovate to automerge, still open when this was written; the eight
+red on #900; and every major-version PR, since pnpm 12 and vitest 5 across the fleet are
+decisions, not chores.
+
+**Beliefs corrected.** `.github#28` added `not-pending` on the stated belief that
+Renovate "can only create, rebase, or merge a branch while it is inside that window".
+reddoor-md-pdf#12 was merged by Renovate at 18:05:11Z, five minutes outside the window,
+80 minutes after its `ci / ci` completed at 16:45:04Z: automerge is not bound by the
+schedule, and it waited for CI. With `internalChecksFilter: "strict"` already holding
+the one-day age gate, `not-pending` buys nothing the fleet needs. `prHourlyLimit` counts
+per UTC clock hour (`limits.ts`, `DateTime.utc().startOf('hour')`), not a rolling sixty
+minutes. The roster's `url` for the-pointe-burbank is a host that 404s; the live project
+is `the-pointe-burbank-rd`, one more instance of #889's class. And the four open
+secret-scanning alerts, in four repos, are three distinct browser-side Google Maps keys,
+appearing in one embed iframe and two sets of map-tile URLs captured from live pages,
+all already redacted at `HEAD`; what decides them is each key's referrer and API
+restriction in GCP, which only its owner can read.
