@@ -55,13 +55,124 @@ export function sqlLiteral(v: unknown): string {
   return `'${str.replaceAll("'", "''")}'`;
 }
 
+/** How many times a torn dump is re-taken before the run is failed.
+ *
+ *  The budget, measured 2026-09-20 across the last five nightly runs: the
+ *  "Dump + rehearse the restore" step takes 10–16 s against the workflow's
+ *  `timeout-minutes: 15`, so three full attempts sit roughly fiftyfold under
+ *  the cap and no workflow change is owed to this retry loop. The reason not to
+ *  raise the number is not time — it is that a database which will not settle
+ *  in three passes needs a snapshot mechanism, not more retries. */
+export const DUMP_ATTEMPTS = 3;
+
+export type DumpOptions = {
+  /** Bounded retries on a torn snapshot. Default `DUMP_ATTEMPTS`. */
+  attempts?: number;
+  /** Called after each discarded attempt, with the disagreements between the
+   *  origin manifest and what that attempt actually serialised. The CLI routes
+   *  this to stderr — stdout carries the dump itself. */
+  onTorn?: (attempt: number, moved: string[]) => void;
+};
+
+/** The one table+column `blobBytes` measures. Named once so the manifest side
+ *  (SQL `LENGTH()`, below) and the dump side (what was serialised) cannot drift
+ *  apart into measuring two different things. */
+const BLOB_TABLE = "sites";
+const BLOB_COLUMN = "header_image";
+
 /**
  * Dump schema + data as executable SQL. Skips SQLite's internal tables
  * (`sqlite_*`); includes indexes. Wrapped in a transaction so a partial load
  * fails atomically instead of leaving a half-restored scratch that could be
  * mistaken for a good one.
+ *
+ * MED-12 — THE TORN SNAPSHOT, and why it is detected rather than prevented.
+ *
+ * `SqlExecutor` is a deliberately minimal `{ execute(sql) }`: every call is its
+ * own round trip, and there is no way to hold a transaction across them —
+ * production is hosted Turso over HTTP, where every statement is its own
+ * implicit transaction and a held read transaction is not on offer. So the
+ * manifest read and the row reads cannot be made one point in time, and the
+ * window between them is inherent to the contract. Over a ~17 MB dump that
+ * window is seconds, and at 04:30 UTC (21:30 PT) visitor traffic is the only
+ * writer — one form submission landing in it produced
+ * `submissions: origin=354 restored=355`, reddened the job BEFORE the encrypt
+ * and upload steps, and uploaded no backup that night.
+ *
+ * So: read the live manifest, serialise, and compare that manifest against WHAT
+ * THIS DUMP ACTUALLY CONTAINS — the rows written per table, and the
+ * header-image bytes written. Disagreement means the dump is internally
+ * inconsistent: discard it, take the whole dump again a bounded number of
+ * times, then fail loudly naming the table. A dump is only ever emitted when
+ * its manifest describes the rows it carries.
+ *
+ * THE COMPARISON THAT DID NOT WORK, because the shape of the mistake is the
+ * useful part: the first cut re-read the live counts after serialising and
+ * compared them to the live counts before. That asks "did the database move?",
+ * not "do the manifest and the rows agree?", and the two come apart BOTH ways.
+ *
+ *   - A row inserted AFTER its table's `SELECT *` but before the second count
+ *     makes a perfectly consistent dump (manifest 354, 354 INSERTs) look torn.
+ *     A good backup is discarded; three such nights in a row and there is no
+ *     backup at all, which is the outcome MED-12 exists to remove.
+ *   - A row inserted BEFORE the read and deleted after it returns the live
+ *     count to where it started. Nothing looks torn, the dump ships carrying
+ *     355 INSERTs under a manifest claiming 354, and the nightly reds anyway.
+ *   - Neither live read can see an UNDER-COLLECTION — a `SELECT *` that returns
+ *     fewer rows than exist, or every `header_image` coming back NULL — which
+ *     is the failure the manifest was built for in the first place (see
+ *     MANIFEST_PREFIX below).
+ *
+ * THE RESIDUAL, stated rather than papered over: the comparison is per-table
+ * row counts plus one blob-byte total. An UPDATE moves neither, so a row edited
+ * between the manifest read and its table's `SELECT *` is serialised in its new
+ * form under a manifest taken before it; an insert and a delete inside the same
+ * table and the same window cancel out the same way. So a dump still is NOT a
+ * point-in-time snapshot of the whole database — what it now is, provably, is a
+ * dump whose manifest describes the rows it carries, which is the only property
+ * the nightly `verify-dump` actually checks. A checksum per table is what would
+ * close the rest, at a cost this does not currently earn.
+ *
+ * This is NOT the self-comparison MANIFEST_PREFIX warns against. The EXPECTED
+ * side is still measured on the LIVE database before a single row is
+ * serialised; only the ACTUAL side changed, from a second live read to the
+ * dump's own contents — which is exactly what the manifest exists to be checked
+ * against. Nothing is parsed back out of the emitted text.
  */
-export async function dumpDatabase(db: SqlExecutor, generatedAt: string): Promise<string> {
+export async function dumpDatabase(
+  db: SqlExecutor,
+  /** Stamped into the manifest. A function is re-evaluated per attempt, so a
+   *  dump that succeeds on attempt 3 carries attempt 3's time rather than the
+   *  time of a dump that was discarded; a plain string keeps a caller (and the
+   *  determinism test) able to pin it. */
+  generatedAt: string | (() => string),
+  opts: DumpOptions = {},
+): Promise<string> {
+  const attempts = Math.max(1, opts.attempts ?? DUMP_ATTEMPTS);
+  let moved: string[] = [];
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const taken = await dumpOnce(
+      db,
+      typeof generatedAt === "function" ? generatedAt() : generatedAt,
+    );
+    if (taken.sql !== null) return taken.sql;
+    moved = taken.moved;
+    opts.onTorn?.(attempt, moved);
+  }
+  throw new Error(
+    `db dump: the database changed under every one of ${attempts} attempts — ` +
+      `${moved.join("; ")}. The dump was DISCARDED rather than written with a manifest ` +
+      `it disagrees with. Re-run when writes are quiet; a fleet that never goes quiet ` +
+      `needs a snapshot mechanism, not more retries.`,
+  );
+}
+
+/** One attempt. Returns the dump, or the ways the manifest and the rows this
+ *  attempt actually serialised disagree. */
+async function dumpOnce(
+  db: SqlExecutor,
+  generatedAt: string,
+): Promise<{ sql: string; moved: [] } | { sql: null; moved: string[] }> {
   // Read the ORIGIN's own numbers BEFORE serialising anything. This is the
   // whole point: it is the only measurement that does not come from the dump,
   // so it is the only one that can notice the dump is short.
@@ -89,8 +200,19 @@ export async function dumpDatabase(db: SqlExecutor, generatedAt: string): Promis
     if (row.type === "table") tables.push(String(row.name));
   }
 
+  // What this dump ACTUALLY carries, accumulated as it is written — the side
+  // the manifest has to agree with, and the only side that can settle the
+  // question. Recorded before the empty-table `continue`, so a table that
+  // vanished between the manifest read and here reads as 0, not as absent.
+  const dumped: Record<string, number> = {};
+  let dumpedBlobBytes = 0;
+
   for (const table of tables) {
     const data = await db.execute(`SELECT * FROM ${quoteIdent(table)} ORDER BY rowid`);
+    dumped[table] = data.rows.length;
+    if (table === BLOB_TABLE) {
+      for (const row of data.rows) dumpedBlobBytes += storedLength(row[BLOB_COLUMN]);
+    }
     if (data.rows.length === 0) continue;
     const cols = data.columns.map(quoteIdent).join(", ");
     for (const row of data.rows) {
@@ -99,8 +221,48 @@ export async function dumpDatabase(db: SqlExecutor, generatedAt: string): Promis
     }
   }
 
+  // The manifest was measured on the LIVE database before any of the above ran.
+  // Equal on both sides means this dump holds exactly what its first line
+  // claims; unequal means the manifest and the INSERTs describe two different
+  // databases, which is the one thing the nightly `verify-dump` cannot tell
+  // apart from a genuine under-collection.
+  const moved: string[] = [];
+  for (const [table, claimed] of Object.entries(manifest.tables)) {
+    const written = dumped[table];
+    if (written !== claimed) {
+      moved.push(`${table}: manifest ${claimed}, dumped ${written ?? "not dumped at all"}`);
+    }
+  }
+  for (const table of Object.keys(dumped)) {
+    if (!(table in manifest.tables)) {
+      moved.push(`${table}: absent from the manifest, dumped ${dumped[table]}`);
+    }
+  }
+  if (dumpedBlobBytes !== manifest.blobBytes) {
+    moved.push(`header_image bytes: manifest ${manifest.blobBytes}, dumped ${dumpedBlobBytes}`);
+  }
+  if (moved.length > 0) return { sql: null, moved };
+
   out.push("COMMIT;");
-  return out.join("\n") + "\n";
+  return { sql: out.join("\n") + "\n", moved: [] };
+}
+
+/** SQLite's own `LENGTH()` rule applied to a value the driver handed back:
+ *  BYTES for a blob, CHARACTERS for text.
+ *
+ *  `headerImageBytes` measures the manifest side with `LENGTH()` in SQL, so the
+ *  dump side has to measure the same quantity or the two are not comparable and
+ *  every dump is "torn" forever. `sites.header_image` is declared BLOB and only
+ *  ever written bytes (`src/db/header-images.ts`), so in practice both sides
+ *  are byte counts of the same blobs; the text branch is here because SQLite is
+ *  dynamically typed and the cost of guessing wrong is discarding good backups
+ *  three times a night. */
+function storedLength(v: unknown): number {
+  if (v === null || v === undefined) return 0;
+  if (v instanceof Uint8Array) return v.byteLength;
+  if (v instanceof ArrayBuffer) return v.byteLength;
+  if (typeof v === "string") return [...v].length;
+  return String(v).length;
 }
 
 /** Marker for the origin manifest line, first line of every dump. */
@@ -128,7 +290,8 @@ export type DumpManifest = {
  *  check on every nightly run. */
 export async function headerImageBytes(db: SqlExecutor): Promise<number> {
   const r = await db.execute(
-    "SELECT COALESCE(SUM(LENGTH(header_image)), 0) AS n FROM sites WHERE header_image IS NOT NULL",
+    `SELECT COALESCE(SUM(LENGTH(${BLOB_COLUMN})), 0) AS n ` +
+      `FROM ${BLOB_TABLE} WHERE ${BLOB_COLUMN} IS NOT NULL`,
   );
   return Number(r.rows[0]?.n ?? 0);
 }
