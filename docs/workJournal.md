@@ -4124,6 +4124,17 @@ shallow where `ci.yml` and `release.yml` set `fetch-depth: 0`, and this was the 
 scheduled run to meet the guard. The diagnosis is on the issue; the one-line fix is not
 made here. Merging #883 also produced release PR #894, which is the operator's.
 
+**A Prettier check that could not fail, found on this very entry.** I checked this file
+before pushing by running the main checkout's Prettier against the worktree's absolute
+path, and it said "All matched files use Prettier code style!". CI then failed `pnpm
+lint` on a missing final newline. `.gitignore:19` is `.claude/*`, Prettier honours
+`.gitignore`, and every worktree lives under `.claude/worktrees/`, so from the main
+checkout the file is skipped silently and the skip reads as a pass. Proven with a
+deliberately malformed probe file: clean from the main checkout, `[warn]` from inside
+the worktree. Run it as `cd <worktree> && <main>/node_modules/.bin/prettier --check
+<relative path>`. The entry that records four instruments that could not fail was
+itself checked by a fifth.
+
 **Attribution.** My briefs dictated this session's co-author trailer to Opus workers;
 the #203 worker pointed out that its own session names a different model. The pushed
 commit was not rewritten. Later briefs let a worker use its own session's line.
