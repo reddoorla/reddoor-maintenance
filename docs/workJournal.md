@@ -3821,31 +3821,35 @@ under that green sat four things. `RENOVATE_OUTCOME drought=20 delivering=1
 unmeasured=6`. `PROTECTION_AUDIT gaps=27 covered=0 skipped=6`, every gap the same
 clause: the reddoor-renovate App cannot read secret-scanning alerts, so that audit has
 not passed once since #781 taught it to ask. 29 Navy annotated "cannot clone" on all
-four nightlies on 09-18, 09-19 and 09-20, and on none from 09-13 to 09-17. And the
-2026-09-02 ledger (#853) stood at 10 of 15 with four PRs open and unreviewed.
+four nightlies on 09-18, 09-19 and 09-20, and fleet-smoke carried none from 09-13 to
+09-17. And the 2026-09-02 ledger (#853) stood at 10 of 15 with four PRs open and
+unreviewed.
 
-**My 29 Navy finding was wrong on its mechanism, and I posted it before checking.**
-I reported that `git_repo` was null in Turso because the value had been hand-set in
+**My 29 Navy finding was wrong on its mechanism, and I posted it before checking.** I
+reported that `git_repo` was null in Turso because the value had been hand-set in
 Airtable and never mirrored, that the site-details editor could not repair it because
 `EDITABLE_SITE_FIELDS` has no `gitRepo`, and that no parity run existed anywhere; I put
 all three on #646 as a precondition for Phase 6's second go. Two were wrong and the
-third was half right. I never read the Airtable cell: I inferred it from the 09-17 (last) entry, which repaired
-`url` and `status` on the same row. #889, filed by the operator's other session at
-04:01Z, 79 minutes before I posted mine, reports the cell blank in both stores, and a
-look at the day's new issues would have shown it to me. The annotations begin on 09-18 because the site was enrolled on 09-17, not because the
+third was half right. I never read the Airtable cell: I inferred it from the 09-17
+(last) entry, which repaired `url` and `status` on the same row. #889, filed by the
+operator's other session at 04:01Z, 79 minutes before I posted mine, reports the cell
+blank in both stores, and a look at the day's new issues would have shown it to me. The
+annotations begin on 09-18 because the site was enrolled on 09-17, not because the
 roster moved to Turso that day; a site that was never swept cannot be skipped, and I
 explained when a signal started without asking when the thing being measured started
-existing. `gitRepo` has been in the editor's allowlist since #303 in June; I reported
-an absence from a search that returned nothing and never ran the same search for a
-field I knew was there. No parity run is scheduled, which is the half I had right, but
-one had been made by hand on 09-20: 25 mismatches, 21 of them spelling (#891), which is a better reason to gate the second go than mine was.
-The 09-17 (last) entry had verified its repair of that row through the inventory and
-`resolveTargets`, neither of which clones anything, so three more nights of skipped
-sweeps sat behind a verification that read clean. The other session had already
-repaired the row. Verified today through the job and not the cell: Turso has 14 `maintained` rows and none with a blank `git_repo`;
-fleet-smoke on 09-20 carries the "cannot clone" warning and the 09-21 run does not.
-Corrected on #646, in the closing comment on #853, and in memory. It is the 2026-08-12
-shape from CLAUDE.md exactly: a verdict from an instrument never shown to pass.
+existing. `gitRepo` has been in the editor's allowlist since #303 in June; I reported an
+absence from a search that returned nothing and never ran the same search for a field I
+knew was there. No parity run is scheduled, which is the half I had right, but one had
+been made by hand on 09-20: 25 mismatches, 21 of them spelling or empty-versus-zero
+(#891), which is a better reason to gate the second go than mine was. The 09-17 (last)
+entry had verified its repair of that row through the inventory and `resolveTargets`,
+neither of which clones anything, so three more nights of skipped sweeps sat behind a
+verification that read clean. The other session had already repaired the row. Verified
+today through the job and not the cell: Turso has 14 `maintained` rows and none with a
+blank `git_repo`; fleet-smoke on 09-20 carries the "cannot clone" warning and the 09-21
+run does not. Corrected on #646, in the closing comment on #853, and in memory. It is
+the 2026-08-12 shape from CLAUDE.md exactly: a verdict from an instrument never shown to
+pass.
 
 ### The freeze
 
@@ -3872,7 +3876,8 @@ For a minor/patch group past its `minimumReleaseAge` the stability status is gre
 first disjunct is true, and the hours are never consulted. **The freeze was permanent
 by construction.** Lock-file maintenance has `minimumReleaseAge` null, so no stability
 status, so the 25-hour path does apply and those PRs kept appearing (gallerysonder#88,
-08-31). That trickle of Renovate PRs is what hid a fleet-wide stop for 40 days: the
+08-31). That trickle, together with the vulnerability channel the 09-14 entry
+already named, is what hid a fleet-wide stop for 40 days: the
 last grouped PR anywhere was created 08-10, and by 09-20 the sites sat on
 `@reddoorla/maintenance` `^0.81.0` to `^0.96.0` against a published 0.98.0.
 
@@ -3918,14 +3923,14 @@ now turns automerge off for that one repository, to be deleted when #545 gives
 Renovate merges into `baseBranchPatterns`; that is #892, and it should land before the
 next `/new-site`, because today the invariant rests on one hand sweep.
 
-`.github#35` merged at 04:51:11Z (`67cbee17ff`). espada was dispatched 26 seconds
-later and opened espada#76 and #77 on that run, which is the option proven through the
-preset and not only through a repo's own file. #76 contains `@reddoorla/maintenance`,
-so it is held for a human, which is the 08-12 rule working. reddoor-starter#159
-removed the proof line (file blob back to `ca950f7bdb67`). `validate.yml` in `.github`
-now refuses `not-pending` or `status-success` without the option, proven through the
-step's own extracted script across seven configs: it fails on the preset as it stood
-on `main`, and passes on the new one, on `immediate`, and with `prCreation` absent.
+`.github#35` merged at 04:51:11Z (`67cbee17ff`). espada was dispatched 25 seconds later
+and opened espada#76 and #77 on that run, which is the option proven through the preset
+and not only through a repo's own file. #76 contains `@reddoorla/maintenance`, so it is
+held for a human, which is the 08-12 rule working. reddoor-starter#159 removed the proof
+line (file blob back to `ca950f7bdb67`). `validate.yml` in `.github` now refuses
+`not-pending` or `status-success` without the option, proven through the step's own
+extracted script across seven configs: it fails on the preset as it stood on `main`, and
+passes on the new one, on `immediate`, and with `prCreation` absent.
 
 **Then the schedule delivered nothing, and the prediction I made in this entry's first
 draft was wrong.** I wrote that a wave of PRs would arrive on the fleet's second Monday
@@ -3941,8 +3946,9 @@ run normally starts between 14:50 and 16:20Z, and on 09-21 Actions schedules ran
 of 27 repos had run, and at that lag most of the fleet lands after 18:00Z. Three: I
 dispatched `renovate.yml` on the other 25 repos by hand, and 14 of them pushed to the
 grouped branch again and opened no grouped PR. Their default branches had not moved
-since 09-16, so these were not rebases: `minimumReleaseAge` is one day, and anything
-in the group released on Sunday between the two run times becomes eligible in between.
+since 09-16, so these were not rebases. The likely cause, inferred and not measured:
+`minimumReleaseAge` is one day, and anything in the group released on Sunday between the
+two run times becomes eligible in between.
 Four of those repos pushed yet again twelve minutes later. Four: `prHourlyLimit` is
 unset, so two PRs an hour, and in eight repos both slots went to major-version PRs
 (pnpm 12, vitest 5) while the grouped update, the one that matters, sat under
@@ -3954,31 +3960,32 @@ exhausted it. The next runs logged `Rate limit exceeded - aborting` and exited g
 having done nothing, which I only found by reading a run log after two repos in the
 same state as espada opened nothing on a run that pushed nothing. A sweep of this
 fleet's Renovate has to be spaced, and "the run was green" is not evidence it ran.
-The scheduled second runs finally arrived between 17:14 and 17:38Z, thirteen of them,
-and every one aborted on the allowance I had spent; I owed those repos a run. It came
-back by 17:42Z, an hour after my first dispatch, and a final round of twelve got
-through with eighteen minutes of window left.
+Thirteen scheduled second runs finally arrived between 17:14 and 17:38Z, and every one
+of them aborted on the allowance I had spent; I owed those repos a run. Two later ones,
+at 17:47 and 17:53Z, ran normally. The allowance came
+back by 17:42Z, an hour after my first dispatch, and a final round of eleven got
+through with a quarter of an hour of window left.
 
-**The count at 17:58Z:** 65 Renovate PRs opened that day, 25 of them grouped, across
-25 of 27 repos, and none merged ahead of its CI, which is the property invariant (3)
-exists to protect. Twenty-three contain `@reddoorla/maintenance` and wait for a human;
+**The count at 17:58Z:** 65 Renovate PRs opened that day, 25 of them grouped, across 25
+of 27 repos, and none merged ahead of its CI, which is the property invariant (3) exists
+to protect. Twenty-three contain `@reddoorla/maintenance` and wait for a human;
 `.github#36` and `reddoor-md-pdf#12` are automerge-eligible and green. The two repos
 without a grouped PR show the last two ways to lose. roalson's `main` moved eight times
-that day under the operator's other session, so every run rebased and none was quiet:
-an actively built repo cannot open a PR under `not-pending` at all. The central repo
-has eleven major updates pending and spent both hourly slots on majors twice. Of the
+that day under the operator's other session, so every run rebased and none was quiet: an
+actively built repo cannot open a PR under `not-pending` at all. The central repo had
+about a dozen major updates pending and spent both hourly slots on majors twice. Of the
 25 grouped PRs, 14 were green, 3 still running, and 8 red on one cause: `a11y:
-route-missing on animate-in demo (/dev/animate-in returned 404)`. Those eight sites
-have only `src/routes/dev/a11y-fixtures`; four green controls have both routes. #807
-made a 404 route a violation on 09-15, inside the freeze, so no site met it until the
-backlog arrived in one PR (#900). All of the delivery problem is #898, with options: `prCreation: "immediate"`, which
-removes obstacles one and three outright and which `internalChecksFilter: "strict"`
-may already make safe; a `prPriority` on the grouped rule; more Monday runs; staggered
-crons. `RENOVATE_OUTCOME` cannot see any of this, because it measures days since a
-merge with a 21-day threshold, and a week in which nothing opened is invisible to it.
-**Honest accounting: `.github#35` made delivery possible. It did not make it happen,
-and on the evidence of its first Monday the schedule alone would have delivered
-close to nothing.**
+route-missing on animate-in demo (/dev/animate-in returned 404)`. None of those eight
+has `src/routes/dev/animate-in`; four green controls have both routes. #807 made a 404
+route a violation on 09-15, inside the freeze, so no site met it until the backlog
+arrived in one PR (#900). All of the delivery problem is #898, with options:
+`prCreation: "immediate"`, which removes obstacles one and three outright and which
+`internalChecksFilter: "strict"` may already make safe; a `prPriority` on the grouped
+rule; more Monday runs; staggered crons. `RENOVATE_OUTCOME` cannot see any of this,
+because it measures days since a merge with a 21-day threshold, and a week in which
+nothing opened is invisible to it. **Honest accounting: `.github#35` made delivery
+possible. It did not make it happen, and on the evidence of its first Monday the
+schedule alone would have delivered close to nothing.**
 
 Not taken, and the operator's to weigh: the reviewer's alternative of running CI on
 `push` to `renovate/**`, so Renovate branches carry real check runs and "Renovate waits
@@ -4018,31 +4025,31 @@ counts again after serialising and compared them to the counts before. That asks
 the database move?", not "do the manifest and the rows agree?", and the two come apart
 both ways. A row that lands after its table's `SELECT *` makes a consistent dump look
 torn, and a good backup is discarded. An insert before the read and a delete after it
-return the count to where it began, and a dump with 355 INSERTs under a manifest of
-354 ships. Neither read can see an under-collection, which is what the manifest was
-built for. The merged version accumulates what the serialise loop actually wrote, rows
-per table and header-image bytes, and compares the pre-read live manifest to that. The
-blob side is made comparable by construction: one constant names `sites.header_image`
-for both sides, and `storedLength` mirrors SQLite's `LENGTH()` rule. `generatedAt` now
-takes a function so a dump that succeeds on attempt 3 is stamped with attempt 3's
-time. Stated in the docstring and worth repeating: an `UPDATE` moves neither count, so
-this is still not a point-in-time snapshot, only a dump whose manifest describes the
-rows it carries, which is the property `verify-dump` checks. The retry budget was
-measured, not assumed: the "Dump + rehearse the restore" step took 15, 10, 12, 13 and
-16 seconds on the last five nights against `timeout-minutes: 15`. The merge with
-`main` conflicted only on four line citations in `docs/runbooks/continuity.md`,
-re-derived as each old line plus ten and content-matched. The worker's own
-commit then moved them three more lines, and the anchors test reddened only two of the
-four, because the other two had moved inside their old range. One thing was still
-missing when the worker reported, and it was the one that mattered: the new comparison
-had only ever passed against a fake executor. If `storedLength` disagreed with SQLite's
-`LENGTH()` through the real driver, every nightly would discard three dumps and upload
-nothing. So before merge I ran the nightly's own two commands with the branch build
-against production, read-only: `db dump` exit 0 in 10 seconds, 46,835,182 bytes, no
-attempt discarded, then `DUMP_VERIFY loaded=true tables=11 rows=992
-blob_bytes=10451782 mismatches=0`. Merged as `1a29e136e1` with the landing script, which
-ran clean. The PR body still described the first cut, so it now opens with a dated
-correction and keeps the original underneath.
+return the count to where it began, and a dump with 355 INSERTs under a manifest of 354
+ships. Neither read can see an under-collection, which is what the manifest was built
+for. The merged version accumulates what the serialise loop actually wrote, rows per
+table and header-image bytes, and compares the pre-read live manifest to that. The blob
+side is made comparable by construction: two constants under one comment name
+`sites.header_image` for both sides, and `storedLength` mirrors SQLite's `LENGTH()`
+rule. `generatedAt` now takes a function so a dump that succeeds on attempt 3 is stamped
+with attempt 3's time. Stated in the docstring and worth repeating: an `UPDATE` moves
+neither count, so this is still not a point-in-time snapshot, only a dump whose manifest
+describes the rows it carries, which is the property `verify-dump` checks. The retry
+budget was measured, not assumed: the "Dump + rehearse the restore" step took 15, 10,
+12, 13 and 16 seconds on the last five nights against `timeout-minutes: 15`. The merge
+with `main` conflicted only on four line citations in `docs/runbooks/continuity.md`,
+re-derived as each old line plus ten and content-matched. The worker's own commit then
+moved them three more lines, and the anchors test reddened only two of the four, because
+the other two had moved inside their old range. One thing was still missing when the
+worker reported, and it was the one that mattered: the new comparison had only ever
+passed against a fake executor. If `storedLength` disagreed with SQLite's `LENGTH()`
+through the real driver, every nightly would discard three dumps and upload nothing. So
+before merge I ran the nightly's own two commands with the branch build against
+production, read-only: `db dump` exit 0 in 10 seconds, 46,835,182 bytes, no attempt
+discarded, then `DUMP_VERIFY loaded=true tables=11 rows=992 blob_bytes=10451782
+mismatches=0`. Merged as `1a29e136e1` with the landing script, which ran clean. The PR
+body still described the first cut, so it now opens with a dated correction and keeps
+the original underneath.
 
 **reddoor-website#204 (MED-9) replaced a misleading row with a false sentence.** "The
 assistant cited no sources for that answer." is false whenever the assistant cited
@@ -4088,7 +4095,7 @@ four of the five reproduce byte-identically from the generator. Merged into
 `staging` at `ac71a5ad40`, test and fixture files only.
 
 **Where the fixes actually are.** The three website PRs merged into `staging`, which
-is 28 commits ahead of `main` with the oldest from 09-16 and the `/digital` funnel
+is 29 commits ahead of `main` with the oldest from 09-16 and the `/digital` funnel
 among them. None of MED-6, MED-8 or MED-9 reaches a prospect's report until `staging`
 is promoted, and promotion is the operator's (#623, #545). The ledger's "fixed" means
 "fixed on the branch that ships next", and the closing comment on #853 says so.
@@ -4121,11 +4128,11 @@ made here. Merging #883 also produced release PR #894, which is the operator's.
 the #203 worker pointed out that its own session names a different model. The pushed
 commit was not rewritten. Later briefs let a worker use its own session's line.
 
-**The App permission, and a stale check of mine.** On Sunday evening I checked
-`gh api orgs/reddoorla/installations`, found no `secret_scanning_alerts` and an
-`updated_at` of 09-17, and wrote that the operator's change was "not effective yet".
-It was accepted at 01:50Z, after I looked, and I carried the stale reading for fifteen
-hours without looking again. The nightly says it plainly: `PROTECTION_AUDIT gaps=27 covered=0` on
+**The App permission, and a stale check of mine.** On Sunday evening I checked `gh api
+orgs/reddoorla/installations`, found no `secret_scanning_alerts` and an `updated_at` of
+09-17, and wrote that the operator's change was "not effective yet". It was accepted at
+01:50Z, after I looked, and I carried the stale reading for fifteen hours without
+looking again. The nightly says it plainly: `PROTECTION_AUDIT gaps=27 covered=0` on
 09-19 and 09-20, `gaps=4 covered=23 skipped=6 total=33` on 09-21. That is the audit's
 first pass on known-good since #781 taught it the clause, and its four gaps are exactly
 the four repos with an open Google API key alert (gallerysonder 06-05, reddoor-starter
