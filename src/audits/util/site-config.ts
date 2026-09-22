@@ -34,6 +34,22 @@ export type SiteConfig = {
    * Requires a `preview` script in the site's package.json; the starter has one.
    */
   gateServer?: "dev" | "preview";
+  /**
+   * Built-in a11y fixture routes this site deliberately does not have (#900).
+   *
+   * The audit already declines to fail on a fixture its `src/routes` tree has
+   * no directory for — a route the site never had is not a missing route. What
+   * it cannot tell from the tree alone is whether the fixture was never there
+   * or was deleted last Tuesday, and only one of those is fine. So an
+   * undeclared absence is a `warn`: visible in the fleet sweep, not a failure.
+   * Listing the route here says "this one is on purpose" and returns the site
+   * to a clean pass.
+   *
+   * The declaration never grants tolerance on its own. A fixture listed here
+   * that IS in the tree is scanned exactly as before, so a stale entry cannot
+   * silence a real route.
+   */
+  absentFixtures?: string[];
 };
 
 /**
@@ -80,6 +96,17 @@ export async function readSiteConfig(sitePath: string): Promise<SiteConfig> {
   // default rather than be forwarded — `"prod"` would become `npm run prod`.
   const gate = (cfg as { gateServer?: unknown }).gateServer;
   if (gate === "dev" || gate === "preview") out.gateServer = gate;
+
+  // Same cleaning as a11yRoutes, same reason: an all-junk list leaves the key
+  // omitted so the caller's "nothing declared" branch has one shape.
+  const absent = (cfg as { absentFixtures?: unknown }).absentFixtures;
+  if (Array.isArray(absent)) {
+    const clean = absent
+      .filter((r): r is string => typeof r === "string")
+      .map((r) => r.trim())
+      .filter((r) => r.length > 0);
+    if (clean.length > 0) out.absentFixtures = clean;
+  }
 
   return out;
 }
