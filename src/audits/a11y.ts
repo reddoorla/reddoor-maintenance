@@ -35,11 +35,17 @@ export type SkippedRoute = {
   reason: string;
 };
 
+/** Which axe rules produced POSITIVE evidence on one route — i.e. ran and
+ *  reported a pass. `violations: []` cannot distinguish "all legible" from
+ *  "never looked"; this can (#888). */
+export type MeasuredRoute = { route: string; rules: string[] };
+
 type NormalizedA11y = {
   totalViolations: number;
   byImpact: Partial<Record<Impact, number>>;
   violations: AxeViolation[];
   skipped?: SkippedRoute[];
+  measured?: MeasuredRoute[];
 };
 
 /** One route as the generated spec sees it. `placeholder404Ok` is set only on
@@ -369,6 +375,8 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   // they cannot fail the run, and written to the artifact so they cannot vanish
   // from the summary either.
   const skipped = [];
+  // Which rules produced positive evidence on each route (#888).
+  const measured = [];
 
   // Capture uncaught client-side exceptions across every route we visit. A page
   // that builds + SSRs cleanly can still throw on hydrate and blank itself
@@ -455,6 +463,48 @@ test("a11y + hydration across configured routes", async ({ page }) => {
         nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
       });
     }
+    // #888. When a rule THROWS, axe does not fail it -- it files one node
+    // under "incomplete" carrying an "error-occurred" check and skips the rule
+    // for the WHOLE page. "violations" stays empty, so an audit gated on
+    // violations goes green having measured nothing. That is what hid a 1.73:1
+    // label on roalson-interests: axe could not parse "oklch(0.205 0 none)"
+    // (Tailwind 4.3 gives 13 palette entries a "none" hue), skipped
+    // color-contrast entirely, and the page reported 0 contrast nodes where it
+    // should have reported 61.
+    //
+    // A rule that could not run is a failure of the instrument, not a clean
+    // page, so it is reported as a violation carrying axe's own message.
+    for (const inc of results.incomplete ?? []) {
+      const errored = (inc.nodes ?? []).find((n) =>
+        [...(n.any ?? []), ...(n.all ?? []), ...(n.none ?? [])].some(
+          (c) => c && c.id === "error-occurred",
+        ),
+      );
+      if (!errored) continue;
+      const checks = [...(errored.any ?? []), ...(errored.all ?? []), ...(errored.none ?? [])];
+      const detail = checks.find((c) => c && c.id === "error-occurred");
+      const message =
+        detail && detail.data && typeof detail.data.message === "string"
+          ? detail.data.message
+          : "no message from axe";
+      violations.push({
+        id: "rule-errored",
+        impact: "serious",
+        route: name,
+        help: 'axe could not run "' + inc.id + '": ' + message,
+        helpUrl: inc.helpUrl,
+      });
+    }
+    // #888, the second half. A crashed rule is not the only way a rule can
+    // measure nothing, and an empty violations list cannot tell "all legible"
+    // from "never looked". The "passes" array carries positive evidence: a
+    // rule that ran and found nothing wrong appears there. Record which rules
+    // actually ran, so the audit can SAY whether contrast was measured rather
+    // than inferring it from an absence.
+    measured.push({
+      route: name,
+      rules: [...new Set((results.passes ?? []).map((r) => r.id))],
+    });
   }
 
   // Hydration smoke check: load real routes (the homepage) and fail on any
@@ -478,7 +528,7 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     await writeFile(
       OUTPUT,
       JSON.stringify(
-        { totalViolations: violations.length, byImpact, violations, skipped },
+        { totalViolations: violations.length, byImpact, violations, skipped, measured },
         null,
         2,
       ),
@@ -511,7 +561,13 @@ export function describeViolations(violations: AxeViolation[]): string {
   const entries = [...groups.values()];
   const shown = entries.slice(0, NAMED_VIOLATIONS_MAX).map((g) => {
     const count = g.n > 1 ? ` ×${g.n}` : "";
-    const detail = g.id === "route-missing" && g.help ? ` (${g.help})` : "";
+    // `route-missing` and `rule-errored` both carry their diagnostic in `help`
+    // rather than in a node, and for both of them that sentence IS the finding
+    // — "rule-errored on a11y fixtures" tells an operator nothing, while
+    // "Unable to parse color oklch(0.205 0 none)" tells them exactly what to
+    // change. Every other rule's help is generic advice the helpUrl repeats.
+    const carriesItsOwnDiagnostic = g.id === "route-missing" || g.id === "rule-errored";
+    const detail = carriesItsOwnDiagnostic && g.help ? ` (${g.help})` : "";
     return `${g.id}${count} on ${g.route}${detail}`;
   });
   const rest = entries.length - shown.length;
@@ -752,11 +808,28 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // said "0 violations across 2 routes" — a warning with nothing in it to
     // act on. A warn now requires that the run actually declined to scan.
     const absentSkips = skippedRoutes.filter((r) => r.reason === ABSENT_FIXTURE_SKIP_REASON);
+    // #888. A route that was SCANNED but produced no `color-contrast` entry in
+    // `passes` was not measured for contrast. An empty violations list cannot
+    // tell "all legible" from "never looked", and the second is what a crashed
+    // rule leaves behind. The crash itself is now a violation, so this is the
+    // backstop for a rule that measures nothing WITHOUT erroring.
+    //
+    // It is a `warn`, never a `fail`. A route can legitimately have no text to
+    // contrast, and turning that into a red would fail sites for a property
+    // they do not have — the mirror of the mistake #900 was about. An artifact
+    // with no `measured` array at all (an older spec) says nothing, so it
+    // downgrades nothing: "I could not tell" is not "it was not measured".
+    const measuredRoutes = Array.isArray(artifact.measured) ? artifact.measured : [];
+    const skippedNames = new Set(skippedRoutes.map((r) => r.route));
+    const unmeasuredContrast = measuredRoutes
+      .filter((m) => !skippedNames.has(m.route))
+      .filter((m) => !(m.rules ?? []).includes("color-contrast"))
+      .map((m) => m.route);
     const absenceDowngrade =
       undeclaredAbsent.length > 0 && absentSkips.some((r) => undeclaredAbsent.includes(r.path));
     const status: AuditResult["status"] = hasSerious
       ? "fail"
-      : hasAny || absenceDowngrade
+      : hasAny || absenceDowngrade || unmeasuredContrast.length > 0
         ? "warn"
         : "pass";
 
@@ -793,7 +866,17 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
       skippedRoutes.length > 0
         ? `${axePages.length - skippedRoutes.length} of ${axePages.length} routes`
         : `${axePages.length} routes`;
-    const notes = [splitNote, skipNote].filter((n) => n.length > 0).join("; ");
+    // Named, not just counted. "0 violations" with contrast unmeasured is the
+    // exact sentence #888 is about, so the line has to say which routes.
+    const unmeasuredNote =
+      unmeasuredContrast.length > 0
+        ? `color-contrast not measured on ${unmeasuredContrast.slice(0, NAMED_SKIPS_MAX).join(", ")}${
+            unmeasuredContrast.length > NAMED_SKIPS_MAX
+              ? `, +${unmeasuredContrast.length - NAMED_SKIPS_MAX} more`
+              : ""
+          }`
+        : "";
+    const notes = [splitNote, skipNote, unmeasuredNote].filter((n) => n.length > 0).join("; ");
     const scanned = notes.length > 0 ? `${countPhrase} (${notes})` : countPhrase;
     // The count was missing entirely from the fail path, so a failing run could
     // not tell you how much it had covered either.

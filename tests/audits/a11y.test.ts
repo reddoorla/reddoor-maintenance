@@ -19,6 +19,7 @@ type A11yArtifact = {
   byImpact: Partial<Record<"minor" | "moderate" | "serious" | "critical", number>>;
   violations?: Array<{ id: string; impact: string; route: string; help?: string }>;
   skipped?: Array<{ route: string; path: string; status: number | null; reason: string }>;
+  measured?: Array<{ route: string; rules: string[] }>;
 };
 
 /**
@@ -1387,5 +1388,163 @@ describe("audits/a11y — describeSkipped pairs routes with reasons once reasons
     expect(line).toContain(`/ (${PLACEHOLDER})`);
     // The whole point: the capped skip's reason survives.
     expect(line).toContain(ABSENT);
+  });
+});
+
+/**
+ * #888 — a crashed axe rule counted as a pass.
+ *
+ * Found on roalson-interests 2026-09-18: `--fail-on-violations` reported
+ * "0 violations across 2 routes" while a 1.73:1 label sat on the fixture page.
+ * axe 4.13.0 could not parse `oklch(0.205 0 none)` — Tailwind 4.3 gives 13
+ * palette entries a `none` hue — and when a rule throws, axe does not fail it.
+ * It files ONE node under `incomplete` carrying an `error-occurred` check and
+ * skips the rule for the whole page. `violations` stays empty, so an audit
+ * gated on violations goes green having measured nothing. The page reported 0
+ * contrast nodes where it should have reported 61, hiding two real failures.
+ *
+ * Two defences, because they fail differently. A rule that ERRORS is a
+ * violation — axe told us it could not run. A rule that measured nothing
+ * WITHOUT erroring is a `warn`, because a route can legitimately have no text
+ * to contrast and turning that into a red would fail sites for a property they
+ * do not have.
+ */
+describe("audits/a11y — a crashed rule is not a pass (#888)", () => {
+  const writePkg = (dir: string, reddoor: unknown) =>
+    writeFile(join(dir, "package.json"), JSON.stringify({ name: "site", reddoor }));
+
+  async function writeDevFixtures(dir: string, names: string[]): Promise<void> {
+    await mkdir(join(dir, "src", "routes"), { recursive: true });
+    for (const name of names) {
+      await mkdir(join(dir, "src", "routes", "dev", name), { recursive: true });
+    }
+  }
+
+  function fakeSpawn(artifact: A11yArtifact): SpawnFn {
+    return async (_cmd, _args, opts) => {
+      const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
+      await mkdir(out, { recursive: true });
+      await writeFile(join(out, "results.json"), JSON.stringify(artifact), "utf-8");
+      return { code: artifact.totalViolations > 0 ? 1 : 0, stdout: "", stderr: "" };
+    };
+  }
+
+  async function run(artifact: A11yArtifact) {
+    const cwd = await tmpSite();
+    await writePkg(cwd, {});
+    await writeDevFixtures(cwd, ["a11y-fixtures", "animate-in"]);
+    return a11yAudit({ site: { path: cwd }, spawn: fakeSpawn(artifact) });
+  }
+
+  const BOTH_MEASURED = [
+    { route: "a11y fixtures", rules: ["color-contrast", "region"] },
+    { route: "animate-in demo", rules: ["color-contrast"] },
+  ];
+
+  // PASS CONTROL. Both routes measured contrast and found nothing: a genuine
+  // clean run must still read `pass`, or every FAIL below is meaningless.
+  it("passes when both routes actually measured contrast and found nothing", async () => {
+    const r = await run({ totalViolations: 0, byImpact: {}, measured: BOTH_MEASURED });
+    expect(r.status).toBe("pass");
+    expect(r.summary).not.toContain("not measured");
+  });
+
+  // The roalson case: axe crashed, so violations is empty. Before #888 this
+  // was `pass` with "0 violations across 2 routes".
+  it("fails on a rule that errored, and names the rule and axe's message", async () => {
+    const r = await run({
+      totalViolations: 1,
+      byImpact: { serious: 1 },
+      violations: [
+        {
+          id: "rule-errored",
+          impact: "serious",
+          route: "a11y fixtures",
+          help: 'axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)"',
+        },
+      ],
+      measured: [
+        { route: "a11y fixtures", rules: ["region"] },
+        { route: "animate-in demo", rules: ["color-contrast"] },
+      ],
+    });
+    expect(r.status).toBe("fail");
+    expect(r.summary).toContain("rule-errored");
+    expect(r.summary).toContain("a11y fixtures");
+    // The whole point: axe's own message is the diagnostic. "rule-errored on
+    // a11y fixtures" tells an operator nothing they can act on.
+    expect(r.summary).toContain("color-contrast");
+    expect(r.summary).toContain("oklch(0.205 0 none)");
+  });
+
+  // The backstop: a rule that measured nothing WITHOUT erroring.
+  it("warns when a scanned route never measured contrast", async () => {
+    const r = await run({
+      totalViolations: 0,
+      byImpact: {},
+      measured: [
+        { route: "a11y fixtures", rules: ["region"] },
+        { route: "animate-in demo", rules: ["color-contrast"] },
+      ],
+    });
+    expect(r.status).toBe("warn");
+    expect(r.summary).toContain("color-contrast not measured on a11y fixtures");
+  });
+
+  // A skipped route was never scanned, so it cannot be "unmeasured" — that
+  // would double-report one absence as two different problems.
+  it("does not call a skipped route unmeasured", async () => {
+    const r = await run({
+      totalViolations: 0,
+      byImpact: {},
+      skipped: [
+        {
+          route: "animate-in demo",
+          path: "/dev/animate-in",
+          status: 404,
+          reason: "fixture not in this site's source",
+        },
+      ],
+      measured: [
+        { route: "a11y fixtures", rules: ["color-contrast"] },
+        { route: "animate-in demo", rules: [] },
+      ],
+    });
+    expect(r.summary).not.toContain("not measured");
+  });
+
+  // "I could not tell" is not "it was not measured". An older spec writes no
+  // `measured` array at all, and that must downgrade nothing.
+  it("downgrades nothing when the artifact carries no measured array", async () => {
+    const r = await run({ totalViolations: 0, byImpact: {} });
+    expect(r.status).toBe("pass");
+    expect(r.summary).not.toContain("not measured");
+  });
+
+  // The generated spec has to actually collect both signals, or everything
+  // above is testing a shape nothing produces.
+  it("the generated spec reads incomplete[] for error-occurred and passes[] for evidence", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, {});
+    await writeDevFixtures(cwd, ["a11y-fixtures", "animate-in"]);
+    let spec = "";
+    await a11yAudit({
+      site: { path: cwd },
+      spawn: async (_cmd, args, opts) => {
+        spec = await readFile(args[args.length - 1] as string, "utf-8");
+        const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
+        await mkdir(out, { recursive: true });
+        await writeFile(
+          join(out, "results.json"),
+          JSON.stringify({ totalViolations: 0, byImpact: {} }),
+        );
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    expect(spec).toContain("results.incomplete");
+    expect(spec).toContain("error-occurred");
+    expect(spec).toContain("results.passes");
+    expect(spec).toContain("rule-errored");
+    expect(spec).toContain("measured");
   });
 });
