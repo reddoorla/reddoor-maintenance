@@ -4238,7 +4238,7 @@ appearing in one embed iframe and two sets of map-tile URLs captured from live p
 all already redacted at `HEAD`; what decides them is each key's referrer and API
 restriction in GCP, which only its owner can read.
 
-## 2026-09-22 — The 09-02 ledger closed on two answers that were both about the wrong property, and the staging ruleset's name turned out to be load-bearing
+## 2026-09-22 — The 09-02 ledger closed on two answers that were both about the wrong property, and the staging ruleset's name turned out to be load-bearing (#853, #906, #907, #908)
 
 The last two rows of https://github.com/reddoorla/reddoor-maintenance/issues/853 were decisions, not defects, and the operator answered both today. Both answers were "leave it alone", and in both cases the reason is that the question named the wrong property.
 
