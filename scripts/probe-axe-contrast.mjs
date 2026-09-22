@@ -56,7 +56,7 @@ await a11yAudit({
   },
 });
 
-const lifted = spec.match(/const contrastIncomplete = [\s\S]*?\n      : \[\];\n/);
+const lifted = spec.match(/const contrastIncomplete = [\s\S]*?\n {6}: \[\];\n/);
 if (!lifted) {
   console.error("could not lift the detection out of the generated spec — has it been renamed?");
   process.exit(2);
