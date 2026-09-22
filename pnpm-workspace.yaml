@@ -31,7 +31,9 @@ overrides:
   # 2026-07-24: re-pinned 4.2.0 → 4.3.0. The original merge-key DoS fix in 4.2.0
   # was incomplete — chained merge keys still force quadratic CPU
   # (GHSA-52cp-r559-cp3m, high, CVSS 7.5). 4.3.0 is the complete fix.
-  js-yaml@>=4.0.0: ">=4.3.0 <5"
+  # 2026-09-22: re-pinned 4.3.0 → 4.3.2. GHSA widened again; the chained
+  # merge-key fix was still incomplete below 4.3.2.
+  js-yaml@>=4.0.0: ">=4.3.2 <5"
   # Dev/CI-only transitive CVEs, cleared 2026-07-14. All on the audit/build
   # toolchain (lighthouse/@lhci pulls ws@7 + js-yaml@3; libsql + puppeteer-core
   # pull ws@8), none on the published package's runtime surface:
@@ -43,7 +45,9 @@ overrides:
   #     properties (GHSA-f38q-mgvj-vph7)
   ws@<7.5.11: ">=7.5.11 <8"
   ws@>=8.0.0 <8.21.0: ">=8.21.0 <9"
-  js-yaml@<3.15.0: ">=3.15.0 <4"
+  # 2026-09-22: 3.15.0 → 3.15.2, same reason as the 4.x line above (the 3.x
+  # backport needed two further rounds: 3.15.1, then 3.15.2).
+  js-yaml@<3.15.0: ">=3.15.2 <4"
   protobufjs@<7.6.3: ">=7.6.3 <8"
   # brace-expansion 3.x–5.0.6: exponential-time expansion of consecutive
   # non-expanding {} groups → DoS (GHSA-3jxr-9vmj-r5cp, high). Cleared
@@ -79,6 +83,26 @@ overrides:
   # Cleared 2026-07-24. Runtime scope, but we only ever run postcss over our own
   # repo-committed CSS via the build toolchain, never untrusted input.
   postcss@<=8.5.17: ">=8.5.18 <9"
+  # 2026-09-22. Two of these ARE on the published package's runtime surface,
+  # which the rest of this block mostly is not — `eslint-plugin-svelte` and
+  # `prettier-plugin-svelte` are real `dependencies` (behind the ./configs
+  # exports), so their trees ship to every fleet site that installs us.
+  #   - nanoid <3.3.18: predictable output from a non-cryptographic fallback
+  #     path (high). Reaches us via postcss, itself via eslint-plugin-svelte.
+  #   - devalue <5.9.1: prototype pollution while parsing (medium). Via
+  #     @sveltejs/kit and svelte.
+  # The remaining open alert on this repo, extract-zip <=2.0.1 (symlink path
+  # traversal, GHSA-7pqw-9j4j-h8q3 / GHSA-jmr9-qjv8-65gv), has NO patched
+  # version in any line, so it is deliberately not pinned here. It is dev-only
+  # (@lhci/cli → lighthouse → puppeteer-core → @puppeteer/browsers) and only
+  # ever unpacks browser archives puppeteer downloads from Google's own CDN,
+  # never untrusted input — the same shape as the mjml entry in auditConfig
+  # below. It needs an accept-or-wait decision, not a pin.
+  nanoid@<3.3.18: ">=3.3.18 <4"
+  devalue@<5.9.2: ">=5.9.2 <6"
+  # ip-address <10.3.1: dev-only (@lhci/cli's socks chain). Three overlapping
+  # advisories on the 10.x line; 10.3.1 is above all of them.
+  ip-address@<10.3.1: ">=10.3.1 <11"
 
 # Carried over from the old package.json "pnpm.auditConfig" (pnpm 11 reads it here now).
 auditConfig:
