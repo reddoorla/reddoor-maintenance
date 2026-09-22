@@ -22,6 +22,8 @@ export interface Timing {
   maxCheckRounds: number;
   noChecksRetries: number;
   noChecksIntervalMs: number;
+  freshHeadMaxAgeMs: number;
+  noChecksFreshRetries: number;
   settleRetries: number;
   settleIntervalMs: number;
   mergeVerifyRetries: number;
@@ -34,8 +36,10 @@ export interface LandOptions {
   dryRun?: boolean;
   cleanup?: boolean;
   checksTimeoutMin?: number;
+  base?: string;
   run?: Runner;
   sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
   log?: (line: string) => void;
   cwd?: string;
   timing?: Partial<Timing>;
@@ -58,6 +62,7 @@ export function parseArgs(argv: string[]): {
   dryRun: boolean;
   cleanup: boolean;
   checksTimeoutMin: number;
+  base: string;
 };
 export const realRunner: Runner;
 export function realSleep(ms: number): Promise<void>;
@@ -70,4 +75,32 @@ export function parseWorktreeList(porcelain: string): Array<{
   detached: boolean;
   bare: boolean;
 }>;
+/** Why a `gh` call failed, in a form that is never the empty string. */
+export function ghFailureDetail(r: {
+  code: number;
+  stdout: string;
+  stderr: string;
+  timedOut?: boolean;
+}): string;
+
+/** How many "no checks reported" rounds to tolerate, from the head's age. */
+export function noChecksRetriesFor(
+  committedAtMs: number,
+  nowMs: number,
+  t: Pick<Timing, "noChecksRetries" | "noChecksFreshRetries" | "freshHeadMaxAgeMs">,
+): number;
+
+/** Empty string when the PR may be landed; otherwise why it may not. */
+export function refusal(
+  pr: {
+    state?: string;
+    isDraft?: boolean;
+    baseRefName?: string;
+    headRefName?: string;
+    title?: string;
+    mergeStateStatus?: string;
+  },
+  allowedBase?: string,
+): string;
+
 export function landPrs(opts: LandOptions): Promise<{ code: number; results: LandResult[] }>;
