@@ -17,7 +17,11 @@ tree no longer fails the audit on a 404. It is **skipped and the audit goes to
 `warn`**, because absence is inferred from the tree and a tree cannot tell "never
 had it" from "deleted last Tuesday" — and the second is a loud red today on the
 seventeen sites that do ship the fixture. `warn` does not change the exit code,
-so CI is unblocked, and the coverage loss is visible instead of silent. A site
+so CI is unblocked, and the audit's own verdict stops saying a half-scanned
+site is clean. Be precise about how far that visibility reaches: nothing
+persists an a11y _status_, only the violation count, so the warn shows in the
+run's table and nowhere durable. Closing that is
+reddoorla/reddoor-maintenance#910, not this change. A site
 that declares the absence in `package.json#reddoor.absentFixtures` gets a clean
 `pass` back. A declared fixture that IS in the tree is scanned exactly as
 before, so a stale entry can never silence a real route.
