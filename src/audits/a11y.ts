@@ -35,10 +35,12 @@ export type SkippedRoute = {
   reason: string;
 };
 
-/** Which axe rules produced POSITIVE evidence on one route — i.e. ran and
- *  reported a pass. `violations: []` cannot distinguish "all legible" from
- *  "never looked"; this can (#888). */
-export type MeasuredRoute = { route: string; rules: string[] };
+/** How many nodes each axe rule actually passed on one route (#888).
+ *
+ *  A COUNT, not a presence flag. The unit that matters is nodes — the incident
+ *  this exists for is "0 contrast nodes where there should have been 61" — and
+ *  a boolean is satisfied by one passing node while sixty go unmeasured. */
+export type MeasuredRoute = { route: string; ruleNodes: Record<string, number> };
 
 type NormalizedA11y = {
   totalViolations: number;
@@ -463,48 +465,72 @@ test("a11y + hydration across configured routes", async ({ page }) => {
         nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
       });
     }
-    // #888. When a rule THROWS, axe does not fail it -- it files one node
-    // under "incomplete" carrying an "error-occurred" check and skips the rule
-    // for the WHOLE page. "violations" stays empty, so an audit gated on
-    // violations goes green having measured nothing. That is what hid a 1.73:1
-    // label on roalson-interests: axe could not parse "oklch(0.205 0 none)"
-    // (Tailwind 4.3 gives 13 palette entries a "none" hue), skipped
-    // color-contrast entirely, and the page reported 0 contrast nodes where it
-    // should have reported 61.
+    // #888. The mechanism, MEASURED against axe-core 4.13.0 in Chromium
+    // rather than inferred: an unparseable colour does NOT throw the rule.
+    // Chrome resolves "oklch(0.205 0 none)" perfectly well, axe fails to parse
+    // it, and axe records that PER NODE as an "incomplete" entry whose check
+    // carries messageKey "colorParse". The rule keeps running everywhere else.
     //
-    // A rule that could not run is a failure of the instrument, not a clean
-    // page, so it is reported as a violation carrying axe's own message.
+    //   band on one element : passes=1 incomplete=1 keys=["colorParse"]
+    //   same colour on body : passes=0 incomplete=3 keys=["colorParse"]
+    //   healthy control     : passes=2 incomplete=0 keys=[]
+    //
+    // So the nodes behind that colour are never measured for contrast, while
+    // the rest of the page passes and the run reports zero violations. That is
+    // what hid two real failures: the page looked clean because the elements
+    // that were not legible were also the elements nobody looked at.
+    //
+    // "colorParse" is the RIGHT signal precisely because it means the browser
+    // understood the colour and axe did not — an instrument failure. The other
+    // messageKeys on this rule (bgImage, bgGradient, imgNode,
+    // elmPartiallyObscured) are properties of the PAGE, where "axe cannot be
+    // sure" is the honest answer and not a defect. Measured: a text-on-gradient
+    // page yields keys=["bgGradient"], and a page with no text at all makes the
+    // rule inapplicable. Neither is reported here.
+    const contrastIncomplete = (results.incomplete ?? []).find((r) => r.id === "color-contrast");
+    const unparseable = contrastIncomplete
+      ? (contrastIncomplete.nodes ?? []).filter((n) =>
+          [...(n.any ?? []), ...(n.all ?? []), ...(n.none ?? [])].some(
+            (c) => c && c.data && c.data.messageKey === "colorParse",
+          ),
+        )
+      : [];
+    if (unparseable.length > 0) {
+      violations.push({
+        id: "contrast-unmeasured",
+        impact: "serious",
+        route: name,
+        // One line, because this IS the summary line in CI. It has to carry the
+        // count (how blind was the run), the cause (axe, not the browser) and
+        // the remedy (an explicit hue) — an alarm without a remedy just gets
+        // muted.
+        help:
+          unparseable.length +
+          " element(s) on a colour axe cannot parse, so contrast was never measured there" +
+          " — give the oklch() token an explicit hue (identical at chroma 0)",
+        nodes: unparseable.map((n) => ({ html: n.html, target: n.target })),
+      });
+    }
+    // A rule that genuinely THREW is a different and much rarer shape, and axe
+    // documents a field for it. Keep it: it is correct, it just is not what
+    // #888 was.
     for (const inc of results.incomplete ?? []) {
-      const errored = (inc.nodes ?? []).find((n) =>
-        [...(n.any ?? []), ...(n.all ?? []), ...(n.none ?? [])].some(
-          (c) => c && c.id === "error-occurred",
-        ),
-      );
-      if (!errored) continue;
-      const checks = [...(errored.any ?? []), ...(errored.all ?? []), ...(errored.none ?? [])];
-      const detail = checks.find((c) => c && c.id === "error-occurred");
-      const message =
-        detail && detail.data && typeof detail.data.message === "string"
-          ? detail.data.message
-          : "no message from axe";
+      if (!inc.error) continue;
       violations.push({
         id: "rule-errored",
         impact: "serious",
         route: name,
-        help: 'axe could not run "' + inc.id + '": ' + message,
+        help: 'axe could not run "' + inc.id + '": ' + (inc.error.message || "no message from axe"),
         helpUrl: inc.helpUrl,
       });
     }
-    // #888, the second half. A crashed rule is not the only way a rule can
-    // measure nothing, and an empty violations list cannot tell "all legible"
-    // from "never looked". The "passes" array carries positive evidence: a
-    // rule that ran and found nothing wrong appears there. Record which rules
-    // actually ran, so the audit can SAY whether contrast was measured rather
-    // than inferring it from an absence.
-    measured.push({
-      route: name,
-      rules: [...new Set((results.passes ?? []).map((r) => r.id))],
-    });
+    // Coverage as a NUMBER, not a boolean. The unit that matters is nodes --
+    // "0 where it should have been 61" -- and a presence flag is satisfied by
+    // one passing node while sixty go unmeasured, which is the very failure
+    // above.
+    const counts = {};
+    for (const r of results.passes ?? []) counts[r.id] = (r.nodes ?? []).length;
+    measured.push({ route: name, ruleNodes: counts });
   }
 
   // Hydration smoke check: load real routes (the homepage) and fail on any
@@ -566,7 +592,8 @@ export function describeViolations(violations: AxeViolation[]): string {
     // — "rule-errored on a11y fixtures" tells an operator nothing, while
     // "Unable to parse color oklch(0.205 0 none)" tells them exactly what to
     // change. Every other rule's help is generic advice the helpUrl repeats.
-    const carriesItsOwnDiagnostic = g.id === "route-missing" || g.id === "rule-errored";
+    const carriesItsOwnDiagnostic =
+      g.id === "route-missing" || g.id === "rule-errored" || g.id === "contrast-unmeasured";
     const detail = carriesItsOwnDiagnostic && g.help ? ` (${g.help})` : "";
     return `${g.id}${count} on ${g.route}${detail}`;
   });
@@ -808,28 +835,11 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // said "0 violations across 2 routes" — a warning with nothing in it to
     // act on. A warn now requires that the run actually declined to scan.
     const absentSkips = skippedRoutes.filter((r) => r.reason === ABSENT_FIXTURE_SKIP_REASON);
-    // #888. A route that was SCANNED but produced no `color-contrast` entry in
-    // `passes` was not measured for contrast. An empty violations list cannot
-    // tell "all legible" from "never looked", and the second is what a crashed
-    // rule leaves behind. The crash itself is now a violation, so this is the
-    // backstop for a rule that measures nothing WITHOUT erroring.
-    //
-    // It is a `warn`, never a `fail`. A route can legitimately have no text to
-    // contrast, and turning that into a red would fail sites for a property
-    // they do not have — the mirror of the mistake #900 was about. An artifact
-    // with no `measured` array at all (an older spec) says nothing, so it
-    // downgrades nothing: "I could not tell" is not "it was not measured".
-    const measuredRoutes = Array.isArray(artifact.measured) ? artifact.measured : [];
-    const skippedNames = new Set(skippedRoutes.map((r) => r.route));
-    const unmeasuredContrast = measuredRoutes
-      .filter((m) => !skippedNames.has(m.route))
-      .filter((m) => !(m.rules ?? []).includes("color-contrast"))
-      .map((m) => m.route);
     const absenceDowngrade =
       undeclaredAbsent.length > 0 && absentSkips.some((r) => undeclaredAbsent.includes(r.path));
     const status: AuditResult["status"] = hasSerious
       ? "fail"
-      : hasAny || absenceDowngrade || unmeasuredContrast.length > 0
+      : hasAny || absenceDowngrade
         ? "warn"
         : "pass";
 
@@ -866,17 +876,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
       skippedRoutes.length > 0
         ? `${axePages.length - skippedRoutes.length} of ${axePages.length} routes`
         : `${axePages.length} routes`;
-    // Named, not just counted. "0 violations" with contrast unmeasured is the
-    // exact sentence #888 is about, so the line has to say which routes.
-    const unmeasuredNote =
-      unmeasuredContrast.length > 0
-        ? `color-contrast not measured on ${unmeasuredContrast.slice(0, NAMED_SKIPS_MAX).join(", ")}${
-            unmeasuredContrast.length > NAMED_SKIPS_MAX
-              ? `, +${unmeasuredContrast.length - NAMED_SKIPS_MAX} more`
-              : ""
-          }`
-        : "";
-    const notes = [splitNote, skipNote, unmeasuredNote].filter((n) => n.length > 0).join("; ");
+    const notes = [splitNote, skipNote].filter((n) => n.length > 0).join("; ");
     const scanned = notes.length > 0 ? `${countPhrase} (${notes})` : countPhrase;
     // The count was missing entirely from the fail path, so a failing run could
     // not tell you how much it had covered either.
