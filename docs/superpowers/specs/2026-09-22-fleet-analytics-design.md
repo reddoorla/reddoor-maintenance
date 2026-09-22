@@ -20,21 +20,40 @@ a single site's blip and emails the operator; `docs/runbooks/ga-search-role-acco
 says what to do about it. The site row already has the column
 (`src/db/schema.ts:105`, `ga4_property_id`).
 
-**The emit side is three one-offs and a lot of nothing.** Measured across nine
-checkouts on 2026-09-22:
+**The emit side is uneven, and the measurement below replaces a wrong first
+reading.** An initial nine-repo sample suggested "three one-offs and nothing
+else." Querying the fleet rows and then GA itself on 2026-09-22 showed
+otherwise: 11 site rows carry a `ga4_property_id`, 9 repos carry a tag, and the
+dominant pattern is not beachfront's component — it is the inline `app.html`
+snippet, in seven repos.
 
-| Repo | What emits |
-| --- | --- |
-| `medical-solutions-of-texas` | raw `gtag` snippet inline in `src/app.html`, `G-BZ0WQMEE8L` hard-coded |
-| `beachfront-dentistry` | `src/lib/components/Analytics.svelte` + a test; loader built in JS; inert off the production hostname |
-| `gallerysonder` | GTM (`gtm.js`) behind `CookieConsent.svelte` |
-| `reddoor-starter`, `la-homelessness-initiative`, `alamo-anatomy`, `29-navy`, `the-pointe-burbank`, `data-dynamiq`, `vida-legacy-foundation` | nothing |
+Every maintained and launching site, cross-tabulated. "Users" is `activeUsers`
+for 2026-08-23..2026-09-22, read from each property by hostname:
 
-So the fleet runs a reporting pipeline pointed at properties that mostly do not
-exist. A blank analytics section in a client's monthly report is not the
-pipeline failing; it is the pipeline working correctly against no data. That is
-also why the existing fleet alert has been quiet: with fewer than two configured
-sites, `assessAnalyticsAlert` cannot fire by construction.
+| State | Sites | What it means |
+| --- | --- | --- |
+| Property + tag + real traffic | `beachfront-dentistry` (1051), `erp-industrials` (998), `espada` (558), `vineyard-custom-homes` (519), `msot` (386), `caltex` (310), `reddoor` (92 real) | Working. 7 of 14 maintained. |
+| Property, **no tag**, 0 users | `alamo-anatomy`, `hedloc` (both launching), `la-homelessness-youth` (maintained) | Row configured, nothing feeding it. |
+| Property **and** tag, still 0 users | `sonder` | GTM behind a consent banner has collected nothing in 30 days. Its own defect (see below). |
+| Tag, **no property** | `revogen` | Collecting into a property no report reads — its monthly analytics section is blank while the data exists. |
+| Neither | `1836dig`, `29-navy`, `data-dynamiq`, `la-homelessness-initiative` | Nothing at either end. |
+
+So: **7 of 14 maintained sites are actually collecting**, and each of the other
+seven is broken in a different place — no tag, no property, a consent gate that
+never opens, or a mismatch between the two. The seven `building` sites,
+`vida-legacy-foundation` among them, have neither and will need both at launch.
+
+Two corrections this measurement forces on assumptions made earlier in the same
+session:
+
+- **The fleet alert is not dormant.** With 11 configured properties,
+  `assessAnalyticsAlert` can fire today. It has simply had nothing to fire
+  about.
+- **`reddoor`'s own property is 99% synthetic** — 13,312 of 13,417 users are
+  `localhost`, the smoke suite tripping the tag's interaction gate. The
+  hostname filter in `reports/ga/client.ts` already keeps that out of the
+  report, but the property itself is polluted, and any new property will be too
+  unless the tag stays inert off the production host (D3).
 
 ## Goal
 
@@ -66,12 +85,21 @@ divergent patterns, and the newest of them (beachfront's) is the only one with
 a test.
 
 **D2 — The loader is injected from JS and never written into `app.html`.**
-The starter's CSP grants script nonces *without* `'unsafe-inline'`, so msot's
-inline snippet is not portable: dropped silently on any site with the starter's
-CSP, with no console error that names the cause. An injected `<script>` element
-needs only the origins in `script-src`. `app.html` is also the file carrying the
-`%sveltekit.head%` substitution trap, which is a second reason nothing new goes
-there.
+The seven sites using the inline snippet today get away with it because they
+have **no CSP at all** — `espada`, `revogen` and `caltex-landing` have no `csp`
+block in `svelte.config.js`. Starter-class sites do (`mode: "auto"`, nonces and
+hashes, `'unsafe-inline'` present for styles only), and SvelteKit issues those
+nonces to the scripts *it* injects, not to a raw `<script>` typed into the
+template. So the fleet's most common pattern is expected to be blocked on
+exactly the sites this work targets.
+
+*Expected*, not verified — no site today has both a CSP and an inline snippet,
+so nothing in the fleet demonstrates it either way. **The implementation plan
+proves this with a diff before relying on it**: add the snippet to a
+starter-class site, build, and read the emitted HTML and the CSP header. If it
+turns out SvelteKit does cover template scripts, D2 loses its main argument and
+falls back to the weaker ones — one mechanism instead of two, and `app.html`
+being the file that carries the `%sveltekit.head%` substitution trap.
 
 **D3 — No consent banner; load on the production hostname only.**
 Beachfront's rule, promoted to the fleet: inert unless
@@ -103,9 +131,13 @@ and shown to PASS on a known-good input and FAIL on a known-bad one before any
 site is swept. This repo's first rule: until an instrument has passed once, the
 instrument is the suspect.
 
-**D7 — `gallerysonder` is out of scope.** GTM behind a consent banner is
-client-visible behavior. Replacing it is a decision with that client, not a
-line in a sweep.
+**D7 — `gallerysonder` is out of scope here, and is its own bug.** GTM behind a
+consent banner is client-visible behavior; replacing it is a decision with that
+client, not a line in a sweep. But its property returned **zero users in 30
+days** while the site is live and maintained, so something in that chain —
+consent never accepted, the banner's loader, or an empty GTM container — has
+been failing silently. That is a defect to file and diagnose separately, not to
+fold into this rollout.
 
 ## Architecture
 
@@ -216,11 +248,11 @@ blank section in a monthly report, which is months of silence.
   story was that the submission never left the page. That defense was written
   when GA was incidental on a couple of sites; the backfill makes it load-bearing
   on all of them.
-- **The analytics alert changes character.** `assessAnalyticsAlert` needs ≥2
-  configured sites and a failing majority. Today it effectively cannot fire.
-  After the sweep it can — which is the point, and also means a botched sweep
-  will look exactly like a `GA_SUBJECT` outage. Watch the first `report --due`
-  run after each batch.
+- **The analytics alert's denominator roughly doubles.** `assessAnalyticsAlert`
+  needs ≥2 configured sites and a failing majority; with 11 configured today it
+  can already fire, and the sweep takes it to ~20. A botched batch will look
+  exactly like a `GA_SUBJECT` outage, so watch the first `report --due` run
+  after each one.
 - **Perf budget**, mitigated by step 4 rather than assumed away.
 - **The ownership answer.** D4 means a client asking "do we own our analytics"
   hears no by default. VLF asked a version of that question on 2026-09-22, which
@@ -228,9 +260,17 @@ blank section in a monthly report, which is months of silence.
 
 ## Open questions
 
-- Which Google account holds the GA account, and is `GA_SUBJECT` already a user
-  on it with read access to properties created there? Everything downstream is
-  blank if not.
+- ~~Which Google account holds the GA account, and can `GA_SUBJECT` read
+  properties created there?~~ **Answered 2026-09-22.** Reddoor's own Google
+  account, as for most existing sites, and the delegation works: impersonating
+  `tucker@reddoorla.com`, the service account read all 11 configured properties
+  with no auth failure. New properties created in that account inherit the same
+  access.
+- Four maintained sites are broken at one end rather than un-started, and each
+  needs a decision the sweep does not make for it: `revogen` (collecting, no row
+  — a one-line fix, and its next monthly report stops being blank),
+  `la-homelessness-youth` (row, no tag), `sonder` (D7), and `reddoor`'s own
+  localhost-polluted property.
 - GA4 data retention defaults to 2 months; 14 is a per-property checkbox worth
   setting at creation, because it cannot be applied retroactively.
 - Does any signed maintenance agreement promise analytics ownership or data
