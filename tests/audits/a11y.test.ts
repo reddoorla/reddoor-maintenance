@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -1026,33 +1026,33 @@ describe("audits/a11y — describeSkipped", () => {
  *
  * The route-status guard (#680) is right that a configured route returning a
  * 404 is a config problem. It assumed every site defines both built-in
- * fixtures. Eight do not: seven of them ship no `animateIn` action at all, so
+ * fixtures. Eight do not: seven ship no `animateIn` action at all, so
  * `/dev/animate-in` exercises code that is not there, and the eighth
- * (reddoor-website) ships the action without the fixture. They were green only
- * because their pinned `@reddoorla/maintenance` predated #807; the first
- * Renovate bump past it turned every one of them red on a route that was never
- * theirs.
+ * (reddoor-website) ships the action without the fixture. All eight were green
+ * only while their pinned `@reddoorla/maintenance` predated #807.
  *
- * The fix has exactly the same danger as #863's: fixing it too broadly. Two
- * defaults keep it narrow.
- *
- *   - Only a 404 is tolerated, and only when the site's own source has no
- *     directory for that route. A fixture that EXISTS and 404s is still the
- *     defect #680 exists to catch.
- *   - Only the built-in fixtures are eligible. A route from
- *     `package.json#reddoor.a11yRoutes` is a real page, often Prismic-backed
- *     with no directory of its own, so a source check there would mass-skip the
- *     very routes that were opted in to stop a false green.
+ * Skipping that 404 is right. Skipping it SILENTLY is not, and that is the
+ * whole shape of this block. Absence is inferred from the tree being audited,
+ * and a tree cannot tell "never had it" from "deleted last Tuesday" — the
+ * second used to be a loud red on the seventeen sites that do ship the
+ * fixture, and this repo's own CLAUDE.md names a merge that deletes starter
+ * files as "clean, CONFLICT-FREE removals" with nothing to warn you. So an
+ * undeclared absence is a `warn`, and `package.json#reddoor.absentFixtures` is
+ * how a site says "on purpose" and earns its clean pass back.
  */
 describe("audits/a11y — a fixture the site does not define is not a missing route (#900)", () => {
   const writePkg = (dir: string, reddoor: unknown) =>
     writeFile(join(dir, "package.json"), JSON.stringify({ name: "site", reddoor }));
 
-  /** Give the temp site a real `src/routes` tree holding exactly `names`. */
-  async function writeDevFixtures(dir: string, names: string[]): Promise<void> {
+  /** Give the temp site a real `src/routes` tree holding exactly `names` under /dev. */
+  async function writeDevFixtures(
+    dir: string,
+    names: string[],
+    prefix: string[] = [],
+  ): Promise<void> {
     await mkdir(join(dir, "src", "routes"), { recursive: true });
     for (const name of names) {
-      const routeDir = join(dir, "src", "routes", "dev", name);
+      const routeDir = join(dir, "src", "routes", ...prefix, "dev", name);
       await mkdir(routeDir, { recursive: true });
       await writeFile(join(routeDir, "+page.svelte"), "<h1>fixture</h1>");
     }
@@ -1068,6 +1068,14 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     };
   }
 
+  const CLEAN: A11yArtifact = { totalViolations: 0, byImpact: {} };
+  const SKIPPED_ANIMATE = {
+    route: "animate-in demo",
+    path: "/dev/animate-in",
+    status: 404,
+    reason: "fixture not in this site's source",
+  };
+
   type SpecPage = {
     path: string;
     name: string;
@@ -1080,20 +1088,24 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     return JSON.parse(matched) as SpecPage[];
   };
 
-  async function pagesForSite(build: (dir: string) => Promise<void>): Promise<SpecPage[]> {
+  let siteDir = "";
+  async function auditSite(
+    build: (dir: string) => Promise<void>,
+    artifact: A11yArtifact = CLEAN,
+  ): Promise<{ pages: SpecPage[]; result: Awaited<ReturnType<typeof a11yAudit>> }> {
     const cwd = await tmpSite();
+    siteDir = cwd;
     await build(cwd);
     const sink = { spec: "" };
-    await a11yAudit({
-      site: { path: cwd },
-      spawn: captureSpec(sink, { totalViolations: 0, byImpact: {} }),
-    });
-    return pagesOf(sink.spec);
+    const result = await a11yAudit({ site: { path: cwd }, spawn: captureSpec(sink, artifact) });
+    // An empty `pages` means no spec was generated — the audit failed before
+    // Playwright. Tests must assert the full list rather than `.some()`, or a
+    // fast-fail satisfies them vacuously.
+    return { pages: sink.spec ? pagesOf(sink.spec) : [], result };
   }
 
   // The decision itself, as a table, on the function the spec actually runs.
   it("classifies: a 404 on an absent fixture skips, and every other 404 is still missing", () => {
-    // The one new branch.
     expect(
       classifyRouteResponse({ status: 404, placeholder404Ok: false, sourceAbsent: true }),
     ).toBe("skip");
@@ -1109,8 +1121,8 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     expect(
       classifyRouteResponse({ status: null, placeholder404Ok: false, sourceAbsent: true }),
     ).toBe("missing");
-    // An absent route that somehow serves is scanned — there is nothing to
-    // tolerate, and skipping a 200 would discard a real scan.
+    // An absent route that somehow serves is scanned — skipping a 200 would
+    // discard a real scan, and it is why a false "absent" costs nothing.
     expect(
       classifyRouteResponse({ status: 200, placeholder404Ok: false, sourceAbsent: true }),
     ).toBe("scan");
@@ -1118,11 +1130,10 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     expect(classifyRouteResponse({ status: 404, placeholder404Ok: false })).toBe("missing");
   });
 
-  // PASS CONTROL for the source check: the site that HAS both fixtures marks
-  // neither. Without this the marking could be unconditional and every test
-  // below would still pass.
+  // PASS CONTROL for the source check. Without it the marking could be
+  // unconditional and every test below would still pass.
   it("marks nothing on a site that defines both fixtures", async () => {
-    const pages = await pagesForSite(async (dir) => {
+    const { pages, result } = await auditSite(async (dir) => {
       await writePkg(dir, {});
       await writeDevFixtures(dir, ["a11y-fixtures", "animate-in"]);
     });
@@ -1130,11 +1141,11 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
       ["/dev/a11y-fixtures", false],
       ["/dev/animate-in", false],
     ]);
+    expect(result.status).toBe("pass");
   });
 
-  // FAIL CONTROL: the real fleet shape — a11y-fixtures present, animate-in not.
   it("marks only the fixture the site does not define", async () => {
-    const pages = await pagesForSite(async (dir) => {
+    const { pages } = await auditSite(async (dir) => {
       await writePkg(dir, {});
       await writeDevFixtures(dir, ["a11y-fixtures"]);
     });
@@ -1144,9 +1155,49 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     ]);
   });
 
-  // The widening that would undo #680's reason for existing.
+  // The heart of it: an inferred absence is never a silent pass.
+  it("warns — not passes — when the absence is only inferred from the tree", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
+    );
+    expect(result.status).toBe("warn");
+    expect(result.summary).toContain("1 of 2 routes");
+    expect(result.summary).toContain("animate-in demo");
+    expect(result.summary).toContain("fixture not in this site's source");
+  });
+
+  // ...and a site that has written the absence down gets its clean pass back.
+  it("passes when the site declares the fixture absent on purpose", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, { absentFixtures: ["/dev/animate-in"] });
+        await writeDevFixtures(dir, ["a11y-fixtures"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
+    );
+    expect(result.status).toBe("pass");
+    // Declared or not, the skip is still named. A pass must not become silent.
+    expect(result.summary).toContain("1 of 2 routes");
+    expect(result.summary).toContain("animate-in demo");
+  });
+
+  // A declaration is not tolerance. A declared fixture that IS in the tree is
+  // scanned exactly as before, so a stale entry cannot silence a real route.
+  it("a declaration does not excuse a fixture that is present", async () => {
+    const { pages, result } = await auditSite(async (dir) => {
+      await writePkg(dir, { absentFixtures: ["/dev/animate-in"] });
+      await writeDevFixtures(dir, ["a11y-fixtures", "animate-in"]);
+    });
+    expect(pages.some((p) => p.sourceAbsent === true)).toBe(false);
+    expect(result.status).toBe("pass");
+  });
+
   it("never marks a route the site opted in through package.json", async () => {
-    const pages = await pagesForSite(async (dir) => {
+    const { pages } = await auditSite(async (dir) => {
       await writePkg(dir, { a11yRoutes: ["/", "/about"] });
       await writeDevFixtures(dir, ["a11y-fixtures", "animate-in"]);
     });
@@ -1155,14 +1206,84 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     ).toEqual([false, false]);
   });
 
-  // The failure mode that matters most: if the source cannot be read at all we
-  // must NOT conclude "absent". One unreadable path would otherwise turn every
-  // fixture 404 in the fleet into a silent skip.
   it("marks nothing when the site has no src/routes tree to read", async () => {
-    const pages = await pagesForSite(async (dir) => {
+    const { pages } = await auditSite(async (dir) => {
       await writePkg(dir, {});
     });
     expect(pages.some((p) => p.sourceAbsent === true)).toBe(false);
+  });
+
+  // The error path that used to fail OPEN. `stat`/`readdir` throw EACCES,
+  // EMFILE, ELOOP and EIO as well as ENOENT, and every one of those means "I
+  // could not tell" — under the fd pressure of a concurrent fleet sweep this
+  // is how a real 404 would have become a skip.
+  it("does not conclude absent when a directory below src/routes is unreadable", async () => {
+    const { pages, result } = await auditSite(async (dir) => {
+      await writePkg(dir, {});
+      await writeDevFixtures(dir, ["a11y-fixtures", "animate-in"]);
+      await chmod(join(dir, "src", "routes", "dev"), 0o000);
+      // Restored below, after the audit has read it — an unreadable directory
+      // left in the temp tree is a rude thing to leave on a CI runner.
+    });
+    await chmod(join(siteDir, "src", "routes", "dev"), 0o755).catch(() => {});
+    // Asserted as a full list, not with `.some()`. A fail-open here marks the
+    // readiness fixture absent too, which fails the audit fast and leaves NO
+    // generated spec — and `[].some(...)` is false, so the loose form of this
+    // test passed under exactly the mutation it exists to catch.
+    expect(pages.map((p) => [p.path, p.sourceAbsent === true])).toEqual([
+      ["/dev/a11y-fixtures", false],
+      ["/dev/animate-in", false],
+    ]);
+    expect(result.status).toBe("pass");
+  });
+
+  // macOS folds case and Linux does not. SvelteKit URLs are case-sensitive, so
+  // a `Dev/` tree genuinely 404s on both — but a `stat` on a joined path would
+  // call it present locally and absent on the runner that gates the merge.
+  it("matches entry names exactly, so macOS and the Linux runner agree", async () => {
+    const { pages } = await auditSite(async (dir) => {
+      await writePkg(dir, {});
+      await writeDevFixtures(dir, ["a11y-fixtures"]);
+      const wrong = join(dir, "src", "routes", "dev", "Animate-In");
+      await mkdir(wrong, { recursive: true });
+      await writeFile(join(wrong, "+page.svelte"), "<h1>wrong case</h1>");
+    });
+    expect(pages.find((p) => p.path === "/dev/animate-in")?.sourceAbsent).toBe(true);
+  });
+
+  // A SvelteKit route group is invisible in the URL, so it must be invisible
+  // here. Nothing in the fleet wraps /dev in one today; it is handled because
+  // the failure it would otherwise cause is silent.
+  it("sees a fixture that lives inside a route group", async () => {
+    const { pages } = await auditSite(async (dir) => {
+      await writePkg(dir, {});
+      await writeDevFixtures(dir, ["a11y-fixtures"]);
+      await writeDevFixtures(dir, ["animate-in"], ["(marketing)"]);
+    });
+    expect(pages.some((p) => p.sourceAbsent === true)).toBe(false);
+  });
+
+  // The readiness probe cannot be skipped: Playwright treats >=404 as not
+  // ready, so a site missing THIS fixture never reaches the spec — it burns
+  // the whole webServer budget and dies naming neither route nor reason.
+  it("fails fast and names the route when the readiness fixture is absent", async () => {
+    const { result } = await auditSite(async (dir) => {
+      await writePkg(dir, {});
+      await writeDevFixtures(dir, ["animate-in"]);
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toContain("/dev/a11y-fixtures");
+    expect(result.summary).toContain("readiness probe");
+  });
+
+  // Declaring it does not buy a way around that.
+  it("a declaration cannot excuse the readiness fixture either", async () => {
+    const { result } = await auditSite(async (dir) => {
+      await writePkg(dir, { absentFixtures: ["/dev/a11y-fixtures"] });
+      await writeDevFixtures(dir, ["animate-in"]);
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toContain("/dev/a11y-fixtures");
   });
 
   it("the generated spec runs the same classifier, not a copy of it", async () => {
@@ -1170,39 +1291,46 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     await writePkg(cwd, {});
     await writeDevFixtures(cwd, ["a11y-fixtures"]);
     const sink = { spec: "" };
-    await a11yAudit({
-      site: { path: cwd },
-      spawn: captureSpec(sink, { totalViolations: 0, byImpact: {} }),
-    });
+    await a11yAudit({ site: { path: cwd }, spawn: captureSpec(sink, CLEAN) });
     expect(sink.spec).toContain(classifyRouteResponse.toString());
   });
+});
 
-  // PASS PROOF, end to end. A skipped fixture must not read as a scanned one:
-  // the count becomes "1 of 2" and the note names the route and the reason.
-  it("passes on the absent fixture and says out loud that it was not scanned", async () => {
-    const cwd = await tmpSite();
-    await writePkg(cwd, {});
-    await writeDevFixtures(cwd, ["a11y-fixtures"]);
-    const result = await a11yAudit({
-      site: { path: cwd },
-      spawn: captureSpec(
-        { spec: "" },
-        {
-          totalViolations: 0,
-          byImpact: {},
-          skipped: [
-            {
-              route: "animate-in demo",
-              path: "/dev/animate-in",
-              status: 404,
-              reason: "fixture not in this site's source",
-            },
-          ],
-        },
-      ),
-    });
-    expect(result.status).toBe("pass");
-    expect(result.summary).toContain("1 of 2 routes");
-    expect(result.summary).toContain("animate-in demo — fixture not in this site's source");
+/**
+ * #900 — with two reasons live, the summary has to pair each route with its
+ * own. They are not interchangeable: a placeholder-repo skip clears itself at
+ * `/new-site` step 6, an absent fixture is permanent, and a reader handed one
+ * flat list will attach the first reason to every route.
+ */
+describe("audits/a11y — describeSkipped pairs routes with reasons once reasons differ", () => {
+  const skip = (route: string, reason: string) => ({ route, path: route, status: 404, reason });
+  const PLACEHOLDER = "placeholder Prismic repo";
+  const ABSENT = "fixture not in this site's source";
+
+  // The compact form survives exactly where it cannot mislead.
+  it("keeps the compact form while every skip shares one reason", () => {
+    expect(describeSkipped([skip("/", PLACEHOLDER), skip("/about", PLACEHOLDER)])).toBe(
+      `2 skipped: /, /about — ${PLACEHOLDER}`,
+    );
+  });
+
+  it("pairs each route with its own reason once they differ", () => {
+    expect(describeSkipped([skip("/", PLACEHOLDER), skip("animate-in demo", ABSENT)])).toBe(
+      `2 skipped: / (${PLACEHOLDER}), animate-in demo (${ABSENT})`,
+    );
+  });
+
+  it("keeps the count honest when the paired list is capped", () => {
+    const many = [
+      skip("/", PLACEHOLDER),
+      skip("/a", PLACEHOLDER),
+      skip("/b", PLACEHOLDER),
+      skip("/c", PLACEHOLDER),
+      skip("animate-in demo", ABSENT),
+    ];
+    const line = describeSkipped(many);
+    expect(line.startsWith("5 skipped: ")).toBe(true);
+    expect(line).toContain("+1 more");
+    expect(line).toContain(`/ (${PLACEHOLDER})`);
   });
 });
