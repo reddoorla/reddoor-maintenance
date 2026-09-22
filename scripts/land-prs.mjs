@@ -54,6 +54,17 @@ export const DEFAULT_TIMING = {
   maxCheckRounds: 3,
   noChecksRetries: 3,
   noChecksIntervalMs: 20_000,
+  // A head pushed moments ago has not had time to register a check run. On
+  // .github#35 the commit landed at 04:47:14Z and Actions did not register
+  // `validate` until 04:50:48Z — a 3.5 minute lag against a 3 × 20s budget, so
+  // the script concluded there were no checks and stopped. Stopping is the
+  // safe answer and the wrong one: the checks were coming.
+  //
+  // The longer budget is spent ONLY on a head that is actually recent. An old
+  // head with no checks really has none, and waiting five minutes to say so
+  // helps nobody.
+  freshHeadMaxAgeMs: 10 * 60_000,
+  noChecksFreshRetries: 15,
   settleRetries: 3,
   settleIntervalMs: 10_000,
   mergeVerifyRetries: 3,
@@ -67,7 +78,7 @@ const GIT_FETCH_TIMEOUT_MS = 60_000;
 const SETTLING = new Set(["UNKNOWN", "BLOCKED"]);
 
 const USAGE =
-  "usage: node scripts/land-prs.mjs <pr> [<pr> …] [--repo owner/repo] [--dry-run] [--cleanup] [--checks-timeout-min N]";
+  "usage: node scripts/land-prs.mjs <pr> [<pr> …] [--repo owner/repo] [--base branch] [--dry-run] [--cleanup] [--checks-timeout-min N]";
 
 class Stop extends Error {
   constructor(reason) {
@@ -79,7 +90,14 @@ class Stop extends Error {
 // ── arguments ────────────────────────────────────────────────────────────────────────
 
 export function parseArgs(argv) {
-  const o = { prs: [], repo: undefined, dryRun: false, cleanup: false, checksTimeoutMin: 20 };
+  const o = {
+    prs: [],
+    repo: undefined,
+    dryRun: false,
+    cleanup: false,
+    checksTimeoutMin: 20,
+    base: "main",
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--dry-run") o.dryRun = true;
@@ -88,6 +106,10 @@ export function parseArgs(argv) {
       const v = argv[++i];
       if (!v || !/^[\w.-]+\/[\w.-]+$/.test(v)) throw new Error(`--repo needs owner/repo`);
       o.repo = v;
+    } else if (a === "--base") {
+      const v = argv[++i];
+      if (!v || !/^[\w][\w./-]*$/.test(v)) throw new Error(`--base needs a branch name`);
+      o.base = v;
     } else if (a === "--checks-timeout-min") {
       const v = Number(argv[++i]);
       if (!Number.isFinite(v) || v <= 0) throw new Error(`--checks-timeout-min needs a number > 0`);
@@ -192,9 +214,22 @@ function gh(ctx, args, timeoutMs = GH_TIMEOUT_MS) {
   return ctx.run("gh", [...args, "--repo", ctx.repo], { cwd: ctx.cwd, timeoutMs });
 }
 
+/** Why a `gh` call failed, in a form that is never empty.
+ *
+ *  A run on reddoor-starter#154 stopped with `gh pr view failed:` and nothing
+ *  after the colon: the machine had slept about an hour mid-run, gh died with
+ *  no output at all, and `firstLine("")` is `""`. A stop reason with no reason
+ *  in it costs exactly the time it takes to reproduce a transient. */
+export function ghFailureDetail(r) {
+  const said = firstLine(r.stderr || r.stdout);
+  if (said) return said;
+  if (r.timedOut) return "timed out with no output";
+  return `exit ${r.code} with no output`;
+}
+
 async function viewPr(ctx, n, fields = VIEW_FIELDS) {
   const r = await gh(ctx, ["pr", "view", String(n), "--json", fields]);
-  if (r.code !== 0) throw new Stop(`gh pr view failed: ${firstLine(r.stderr || r.stdout)}`);
+  if (r.code !== 0) throw new Stop(`gh pr view failed: ${ghFailureDetail(r)}`);
   try {
     return JSON.parse(r.stdout);
   } catch {
@@ -202,14 +237,27 @@ async function viewPr(ctx, n, fields = VIEW_FIELDS) {
   }
 }
 
-function refusal(pr) {
+export function refusal(pr, allowedBase = "main") {
   if (pr.state !== "OPEN") return `state=${pr.state}`;
   if (pr.isDraft) return "draft";
-  if (pr.baseRefName !== "main") return `base is ${pr.baseRefName}, not main`;
+  // Promotion is the operator's under #623 and is refused whatever --base
+  // says. Checked BEFORE the base comparison so `--base main` cannot reach it.
+  if (pr.baseRefName === "main" && pr.headRefName === "staging") {
+    return "promotion staging → main is the operator's (#623)";
+  }
+  if (pr.baseRefName !== allowedBase) {
+    return allowedBase === "main"
+      ? `base is ${pr.baseRefName}, not main (pass --base ${pr.baseRefName} to allow it)`
+      : `base is ${pr.baseRefName}, not ${allowedBase}`;
+  }
   if (isReleasePr(pr)) {
     return `release PR (title "${pr.title}", head ${pr.headRefName}) — always human, AUTONOMY.md §Merge authority`;
   }
-  if (pr.mergeStateStatus === "DIRTY") return "mergeStateStatus=DIRTY (conflicts with main)";
+  // Name the actual base. With --base in play this used to say "conflicts with
+  // main" about a PR that has nothing to do with main.
+  if (pr.mergeStateStatus === "DIRTY") {
+    return `mergeStateStatus=DIRTY (conflicts with ${pr.baseRefName})`;
+  }
   return "";
 }
 
@@ -247,9 +295,44 @@ async function failingChecks(ctx, n) {
   }
 }
 
+/** How many "no checks reported" rounds to tolerate, from the head commit's age.
+ *
+ *  A head pushed in the last few minutes gets the long budget; anything older,
+ *  or a head whose age cannot be read at all, gets the short one. "I could not
+ *  tell" resolves to the SHORT budget deliberately: the long one only ever
+ *  delays a stop, and a stop is the safe outcome, so there is nothing to buy
+ *  by guessing generously. */
+export function noChecksRetriesFor(committedAtMs, nowMs, t) {
+  if (!Number.isFinite(committedAtMs)) return t.noChecksRetries;
+  const age = nowMs - committedAtMs;
+  if (age < 0 || age > t.freshHeadMaxAgeMs) return t.noChecksRetries;
+  return t.noChecksFreshRetries;
+}
+
+async function noChecksBudget(ctx, n) {
+  const r = await gh(ctx, ["pr", "view", String(n), "--json", "commits"]);
+  if (r.code !== 0) return ctx.t.noChecksRetries;
+  let committedAt;
+  try {
+    const commits = JSON.parse(r.stdout).commits ?? [];
+    const last = commits[commits.length - 1];
+    committedAt = Date.parse(last?.committedDate ?? "");
+  } catch {
+    committedAt = NaN;
+  }
+  const budget = noChecksRetriesFor(committedAt, ctx.now(), ctx.t);
+  if (budget > ctx.t.noChecksRetries) {
+    ctx.log(`LAND #${n} head is fresh — waiting up to ${budget} rounds for a first check`);
+  }
+  return budget;
+}
+
 async function waitForChecks(ctx, n, sha) {
   const deadline = Date.now() + ctx.checksTimeoutMin * 60_000;
   ctx.log(`LAND #${n} checks watching ${short(sha)} (timeout ${ctx.checksTimeoutMin} min)`);
+  // Resolved lazily, and only if "no checks reported" actually happens — it
+  // costs one extra `gh` call and most runs never reach that branch.
+  let budget = null;
   for (let attempt = 0; ; attempt++) {
     const remaining = Math.max(1_000, deadline - Date.now());
     const r = await gh(ctx, ["pr", "checks", String(n), "--watch", "--fail-fast"], remaining);
@@ -261,11 +344,13 @@ async function waitForChecks(ctx, n, sha) {
     }
     // Right after a push the new head can have no check runs registered yet.
     if (/no checks reported/i.test(r.stdout + r.stderr)) {
-      if (attempt < ctx.t.noChecksRetries) {
+      if (budget === null) budget = await noChecksBudget(ctx, n);
+      if (attempt < budget) {
         await ctx.sleep(ctx.t.noChecksIntervalMs);
         continue;
       }
-      throw new Stop(`no checks reported on ${short(sha)}`);
+      const waited = Math.round((budget * ctx.t.noChecksIntervalMs) / 1000);
+      throw new Stop(`no checks reported on ${short(sha)} after ${waited}s`);
     }
     const names = await failingChecks(ctx, n);
     const what =
@@ -435,7 +520,7 @@ async function landOne(ctx, n) {
     ctx.log(`LAND #${n} skipped reason=already merged`);
     return { status: "skipped" };
   }
-  const refused = refusal(pr);
+  const refused = refusal(pr, ctx.base);
   if (refused) throw new Stop(refused);
   ctx.log(
     `LAND #${n} open head=${short(pr.headRefOid)} merge=${pr.mergeStateStatus} "${pr.title}"`,
@@ -511,8 +596,10 @@ export async function landPrs({
   dryRun = false,
   cleanup = false,
   checksTimeoutMin = 20,
+  base = "main",
   run = realRunner,
   sleep = realSleep,
+  now = () => Date.now(),
   log = (line) => console.log(line),
   cwd = process.cwd(),
   timing = {},
@@ -522,8 +609,10 @@ export async function landPrs({
     dryRun,
     cleanup,
     checksTimeoutMin,
+    base,
     run,
     sleep,
+    now,
     log,
     cwd,
     t: { ...DEFAULT_TIMING, ...timing },
