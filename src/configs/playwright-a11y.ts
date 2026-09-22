@@ -5,8 +5,19 @@ import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/te
 
 export type A11yRoute = { path: string; name: string };
 
+/**
+ * The route the dev webServer's readiness probe polls, and the reason it is a
+ * named export rather than a literal: Playwright treats any status at or above
+ * 404 as "not ready", so a site that does not serve THIS fixture never reaches
+ * the spec at all — it burns the whole webServer budget and dies with a
+ * timeout naming neither the route nor the reason. The central audit fails
+ * fast on it (see `DEV_PROBE_ROUTE` handling in src/audits/a11y.ts), and that
+ * check and this probe have to be the same string or the guard misses.
+ */
+export const DEV_PROBE_ROUTE = "/dev/a11y-fixtures";
+
 export const a11yRoutes: A11yRoute[] = [
-  { path: "/dev/a11y-fixtures", name: "a11y fixtures" },
+  { path: DEV_PROBE_ROUTE, name: "a11y fixtures" },
   { path: "/dev/animate-in", name: "animate-in demo" },
 ];
 
@@ -190,7 +201,7 @@ const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
     command: previewing
       ? `npm run build && npm run preview -- --port ${port} --strictPort`
       : `npm run vite:dev -- --port ${port} --strictPort`,
-    url: previewing ? `http://localhost:${port}/` : `http://localhost:${port}/dev/a11y-fixtures`,
+    url: previewing ? `http://localhost:${port}/` : `http://localhost:${port}${DEV_PROBE_ROUTE}`,
     // NEVER reuse (#524). This used to be `!process.env.CI`, so local runs
     // reused whatever answered the probe URL. The probe only asks "does this
     // respond?" — never "is this serving the code I am about to test?" — so a

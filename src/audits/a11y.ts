@@ -2,7 +2,12 @@ import { readFile, writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
-import { a11yRoutes, smokeRoutes, type A11yRoute } from "../configs/playwright-a11y.js";
+import {
+  a11yRoutes,
+  smokeRoutes,
+  DEV_PROBE_ROUTE,
+  type A11yRoute,
+} from "../configs/playwright-a11y.js";
 import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
@@ -200,22 +205,16 @@ async function resolvesInTree(
   return false;
 }
 
-/**
- * The route the dev webServer's readiness probe polls. It is `/dev/a11y-fixtures`
- * and not `/` because it has to prove the FIXTURES are being served, not merely
- * that vite answered.
- *
- * It is named here because that makes it load-bearing in a way the #900
- * absent-fixture tolerance has to respect: Playwright treats any status at or
- * above 404 as "not ready", so a site missing THIS fixture never reaches the
- * spec at all. It burns the full webServer budget and dies with a timeout that
- * names neither the route nor the reason. The tolerance below therefore cannot
- * apply to it, and `a11yAudit` fails fast and says so rather than letting the
- * run discover it 120 seconds later.
- */
-const DEV_PROBE_ROUTE = "/dev/a11y-fixtures";
+/** One route path in the shape the fixture list uses: a single leading slash,
+ *  no trailing one. Applied to operator-typed `absentFixtures` entries so a
+ *  near-miss declares what it meant instead of silently declaring nothing. */
+function normalizeRoutePath(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
 
-const RESULTS_REL = ".reddoor-a11y/results.json";
+const RESULTS_DIR = ".reddoor-a11y";
+const RESULTS_REL = `${RESULTS_DIR}/results.json`;
 
 async function readJsonMaybe<T>(path: string): Promise<T | null> {
   try {
@@ -558,7 +557,15 @@ export function describeSkipped(skipped: SkippedRoute[]): string {
   ];
   if (reasons.length > 1) {
     const paired = shown.map((s) => (s.reason ? `${s.route} (${s.reason})` : s.route)).join(", ");
-    return `${skipped.length} skipped: ${paired}${more}`;
+    // A reason carried only by a skip PAST the cap must still reach the line.
+    // The compact branch computes its reasons over ALL skips, so pairing over
+    // `shown` alone silently dropped one — losing information against the very
+    // branch this replaced, and the dropped one is as often as not the
+    // permanent reason rather than the self-clearing one.
+    const shownReasons = new Set(shown.map((s) => s.reason));
+    const unshown = reasons.filter((r) => !shownReasons.has(r));
+    const trailer = unshown.length > 0 ? ` — also ${unshown.join(", ")}` : "";
+    return `${skipped.length} skipped: ${paired}${more}${trailer}`;
   }
   const names = shown.map((s) => s.route).join(", ") + more;
   return `${skipped.length} skipped: ${names}${reasons.length > 0 ? ` — ${reasons.join(", ")}` : ""}`;
@@ -621,21 +628,29 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // route and why, here, instead of surfacing a 120s webServer timeout that
     // names neither.
     if (absentFixtures.has(DEV_PROBE_ROUTE)) {
+      // Same invariant as every other exit: a stale results.json must never
+      // be read as this run's answer.
+      await rm(join(site.path, RESULTS_DIR), { recursive: true, force: true });
       return {
         audit: "a11y",
-        site: siteLabel(site),
+        site: label,
         status: "fail",
         summary:
           `a11y: ${DEV_PROBE_ROUTE} is not in this site's src/routes tree. ` +
           "The dev server's readiness probe polls it, so the run cannot start. " +
-          "Restore the fixture route.",
+          "Restore the fixture route — `reddoor.absentFixtures` cannot excuse this one.",
       };
     }
     // An absence the site has written down is intentional and reads as a clean
     // pass. An absence only the filesystem knows about is a `warn`: the tree
     // cannot tell "never had it" from "deleted last Tuesday", and one of those
     // used to be a loud red.
-    const declared = new Set(declaredAbsent ?? []);
+    // Normalised before comparing, because the failure of a near-miss is
+    // silent: `"dev/animate-in"` or `"/dev/animate-in/"` would leave the site
+    // on a permanent warn with no hint that the declaration it wrote was
+    // inert. A declaration is operator-typed prose, so it gets the same
+    // forgiveness `a11yRoutes` entries already get for whitespace.
+    const declared = new Set((declaredAbsent ?? []).map(normalizeRoutePath));
     const undeclaredAbsent = [...absentFixtures].filter((p) => !declared.has(p));
     const axePages: SpecRoute[] = [
       ...a11yRoutes.map((fixture) => ({
@@ -670,7 +685,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
 
     const resultsPath = join(site.path, RESULTS_REL);
     // Clear stale artifacts so a failed spawn never reports old data.
-    await rm(join(site.path, ".reddoor-a11y"), { recursive: true, force: true });
+    await rm(join(site.path, RESULTS_DIR), { recursive: true, force: true });
 
     let raw;
     try {
@@ -728,7 +743,17 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // difference visible without failing a site for something it cannot fix,
     // and `package.json#reddoor.absentFixtures` is how a site says "on
     // purpose" and gets its clean pass back.
-    const absenceDowngrade = undeclaredAbsent.length > 0;
+    const skippedRoutes = Array.isArray(artifact.skipped) ? artifact.skipped : [];
+    // Gated on the ARTIFACT, not on the filesystem alone. The two are computed
+    // from different sources and can disagree: a route that serves a fixture
+    // path without a matching directory (a rest route, dev middleware, a
+    // `kit.files.routes` override) is scanned normally and records no skip,
+    // and downgrading on the filesystem alone produced a `warn` whose summary
+    // said "0 violations across 2 routes" — a warning with nothing in it to
+    // act on. A warn now requires that the run actually declined to scan.
+    const absentSkips = skippedRoutes.filter((r) => r.reason === ABSENT_FIXTURE_SKIP_REASON);
+    const absenceDowngrade =
+      undeclaredAbsent.length > 0 && absentSkips.some((r) => undeclaredAbsent.includes(r.path));
     const status: AuditResult["status"] = hasSerious
       ? "fail"
       : hasAny || absenceDowngrade
@@ -763,7 +788,6 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // re-create the false green #680 removed — the whole reason this route-
     // status guard exists — one layer up, and it would be harder to catch,
     // because this time the run is green on purpose.
-    const skippedRoutes = Array.isArray(artifact.skipped) ? artifact.skipped : [];
     const skipNote = describeSkipped(skippedRoutes);
     const countPhrase =
       skippedRoutes.length > 0

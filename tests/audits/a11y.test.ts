@@ -1286,6 +1286,54 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     expect(result.summary).toContain("/dev/a11y-fixtures");
   });
 
+  // The status and the skip note are computed from two different sources —
+  // the filesystem and the run's own artifact — and they can disagree. A path
+  // with no directory that still SERVES (a rest route, dev middleware, a
+  // `kit.files.routes` override) is scanned normally and records no skip.
+  // Downgrading on the filesystem alone produced a `warn` reading "0
+  // violations across 2 routes": a warning with nothing in it to act on.
+  it("does not warn when the tree says absent but the run scanned the route anyway", async () => {
+    const { result } = await auditSite(async (dir) => {
+      await writePkg(dir, {});
+      await writeDevFixtures(dir, ["a11y-fixtures"]);
+    }, CLEAN);
+    expect(result.status).toBe("pass");
+  });
+
+  // A near-miss declaration used to be silently inert: the site wrote one
+  // down, nothing changed, and nothing said why.
+  it("accepts a declaration with a missing or trailing slash", async () => {
+    for (const declaration of ["/dev/animate-in", "dev/animate-in", "/dev/animate-in/"]) {
+      const { result } = await auditSite(
+        async (dir) => {
+          await writePkg(dir, { absentFixtures: [declaration] });
+          await writeDevFixtures(dir, ["a11y-fixtures"]);
+        },
+        { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
+      );
+      expect(result.status, `declaration ${JSON.stringify(declaration)}`).toBe("pass");
+    }
+  });
+
+  // The readiness fast-fail returns early, and every other exit clears the
+  // artifact first. A stale results.json must never read as this run's answer.
+  it("clears a stale artifact before failing fast on the readiness fixture", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, {});
+    await writeDevFixtures(cwd, ["animate-in"]);
+    await mkdir(join(cwd, ".reddoor-a11y"), { recursive: true });
+    await writeFile(
+      join(cwd, ".reddoor-a11y", "results.json"),
+      JSON.stringify({ totalViolations: 99, byImpact: {} }),
+    );
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: captureSpec({ spec: "" }, CLEAN),
+    });
+    expect(result.status).toBe("fail");
+    await expect(readFile(join(cwd, ".reddoor-a11y", "results.json"), "utf-8")).rejects.toThrow();
+  });
+
   it("the generated spec runs the same classifier, not a copy of it", async () => {
     const cwd = await tmpSite();
     await writePkg(cwd, {});
@@ -1320,7 +1368,12 @@ describe("audits/a11y — describeSkipped pairs routes with reasons once reasons
     );
   });
 
-  it("keeps the count honest when the paired list is capped", () => {
+  // The regression this test used to lock in: it asserted the count and the
+  // first reason, and said nothing about the second — so a reason carried only
+  // by a skip past the cap could vanish and the suite stayed green. The
+  // compact branch computes reasons over ALL skips; the paired branch must not
+  // do less.
+  it("keeps every reason when the paired list is capped", () => {
     const many = [
       skip("/", PLACEHOLDER),
       skip("/a", PLACEHOLDER),
@@ -1332,5 +1385,7 @@ describe("audits/a11y — describeSkipped pairs routes with reasons once reasons
     expect(line.startsWith("5 skipped: ")).toBe(true);
     expect(line).toContain("+1 more");
     expect(line).toContain(`/ (${PLACEHOLDER})`);
+    // The whole point: the capped skip's reason survives.
+    expect(line).toContain(ABSENT);
   });
 });

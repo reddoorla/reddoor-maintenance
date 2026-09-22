@@ -39,7 +39,13 @@ SvelteKit route groups are traversed, so a fixture under `(marketing)/dev/` is
 seen. Nothing in the fleet uses one today; it is handled because the failure it
 would otherwise cause is silent.
 
+`package.json#reddoor.absentFixtures` entries are normalised before they are
+compared, so `dev/animate-in` and `/dev/animate-in/` declare what they meant
+rather than silently declaring nothing, and the readiness failure names the key
+so an operator has a stated remedy.
+
 `describeSkipped` now pairs each route with its own reason once more than one
-reason is in play. A placeholder-repo skip clears itself at `/new-site` step 6
+reason is in play, and a reason carried only by a skip past the display cap is
+still named after the `+N more`. A placeholder-repo skip clears itself at `/new-site` step 6
 and an absent fixture is permanent, and the previous flat list invited a reader
 to attach the first reason to every route.

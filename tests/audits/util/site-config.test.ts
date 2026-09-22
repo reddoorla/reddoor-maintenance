@@ -181,6 +181,63 @@ describe("readSiteConfig — gateServer", () => {
  * the one that reports too much (#680's red), never the one that reports
  * nothing.
  */
+/**
+ * absentFixtures (#900): built-in a11y fixture routes a site deliberately does
+ * not have. The parser matters more than it looks — a near-miss entry makes no
+ * noise, it just leaves the site on a permanent warn, so the cleaning has to
+ * behave exactly like `a11yRoutes` above rather than approximately like it.
+ */
+describe("readSiteConfig — absentFixtures", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "reddoor-site-config-absent-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const write = (reddoor: unknown) =>
+    writeFile(join(dir, "package.json"), JSON.stringify({ name: "site", reddoor }));
+
+  it("reads a list of routes", async () => {
+    await write({ absentFixtures: ["/dev/animate-in"] });
+    expect(await readSiteConfig(dir)).toEqual({ absentFixtures: ["/dev/animate-in"] });
+  });
+
+  it("omits the key when it is not an array", async () => {
+    await write({ absentFixtures: "/dev/animate-in" });
+    expect(await readSiteConfig(dir)).toEqual({});
+  });
+
+  it("drops junk entries but keeps the usable ones", async () => {
+    await write({ absentFixtures: ["/dev/animate-in", null, 7, "", "   "] });
+    expect(await readSiteConfig(dir)).toEqual({ absentFixtures: ["/dev/animate-in"] });
+  });
+
+  // An all-junk list must leave the key OMITTED, so the caller's "nothing
+  // declared" branch has one shape rather than two.
+  it("omits the key when every entry is junk", async () => {
+    await write({ absentFixtures: [null, 7, "  "] });
+    expect(await readSiteConfig(dir)).toEqual({});
+  });
+
+  it("trims surrounding whitespace", async () => {
+    await write({ absentFixtures: ["  /dev/animate-in  "] });
+    expect(await readSiteConfig(dir)).toEqual({ absentFixtures: ["/dev/animate-in"] });
+  });
+
+  it("coexists with the other keys", async () => {
+    await write({ a11yRoutes: ["/"], gateServer: "preview", absentFixtures: ["/dev/animate-in"] });
+    expect(await readSiteConfig(dir)).toEqual({
+      a11yRoutes: ["/"],
+      gateServer: "preview",
+      absentFixtures: ["/dev/animate-in"],
+    });
+  });
+});
+
 describe("readsPlaceholderPrismicRepo", () => {
   let dir: string;
 
