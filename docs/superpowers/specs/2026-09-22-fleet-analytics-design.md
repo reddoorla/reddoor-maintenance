@@ -1,10 +1,11 @@
 # Fleet analytics — one tag, one property per site, and a check that proves both
 
-Status: approved in discussion 2026-09-22 (backfill the whole fleet, not just
-new sites; Reddoor owns the GA4 properties; no consent banner). Written before
-any code. Pilot: **beachfront-dentistry**, which already carries the closest
-thing to the pattern and has a live production host to measure against.
-`vida-legacy-foundation` turns it on at launch.
+Status: designed and **parked** 2026-09-22. Approved in discussion (backfill the
+whole fleet, not just new sites; Reddoor owns the GA4 properties; no consent
+banner), then deferred by the operator the same day: the work starts at VLF's
+launch, when that site needs a tag anyway. No implementation plan yet.
+Pilot when it resumes: **beachfront-dentistry**, which already carries the
+closest thing to the pattern and has a live production host to measure against.
 
 ## The finding that reframes the work
 
@@ -34,7 +35,7 @@ for 2026-08-23..2026-09-22, read from each property by hostname:
 | --- | --- | --- |
 | Property + tag + real traffic | `beachfront-dentistry` (1051), `erp-industrials` (998), `espada` (558), `vineyard-custom-homes` (519), `msot` (386), `caltex` (310), `reddoor` (92 real) | Working. 7 of 14 maintained. |
 | Property, **no tag**, 0 users | `alamo-anatomy`, `hedloc` (both launching), `la-homelessness-youth` (maintained) | Row configured, nothing feeding it. |
-| Property **and** tag, still 0 users | `sonder` | GTM behind a consent banner has collected nothing in 30 days. Its own defect (see below). |
+| Property **and** tag, still 0 users | `sonder` | Not a defect — sonder runs its own analytics setup; the property on our row is the empty one (D7). |
 | Tag, **no property** | `revogen` | Collecting into a property no report reads — its monthly analytics section is blank while the data exists. |
 | Neither | `1836dig`, `29-navy`, `data-dynamiq`, `la-homelessness-initiative` | Nothing at either end. |
 
@@ -131,13 +132,13 @@ and shown to PASS on a known-good input and FAIL on a known-bad one before any
 site is swept. This repo's first rule: until an instrument has passed once, the
 instrument is the suspect.
 
-**D7 — `gallerysonder` is out of scope here, and is its own bug.** GTM behind a
-consent banner is client-visible behavior; replacing it is a decision with that
-client, not a line in a sweep. But its property returned **zero users in 30
-days** while the site is live and maintained, so something in that chain —
-consent never accepted, the banner's loader, or an empty GTM container — has
-been failing silently. That is a defect to file and diagnose separately, not to
-fold into this rollout.
+**D7 — `gallerysonder` is out of scope.** GTM behind a consent banner is
+client-visible behavior; replacing it is a decision with that client, not a line
+in a sweep. Its property reads zero users over 30 days, which looked like a
+defect and is not: **sonder runs its own analytics setup** (operator, 2026-09-22).
+The property in our row is the empty one. Leave the site alone; the row is the
+only thing worth revisiting, and only if we want its report to read from
+whatever they actually use.
 
 ## Architecture
 
