@@ -1,5 +1,13 @@
 # Morning brief — 2026-09-02
 
+> **Status, 2026-09-21.** Every finding in this brief is accounted for in
+> [#853](https://github.com/reddoorla/reddoor-maintenance/issues/853), now closed:
+> thirteen fixed and merged, two moved to the issue that owns them, and two answered
+> by the operator with their residuals filed as
+> [#906](https://github.com/reddoorla/reddoor-maintenance/issues/906) and
+> [#907](https://github.com/reddoorla/reddoor-maintenance/issues/907). Nothing here is
+> still carried forward.
+
 ## One-line verdict
 
 The 08-26 backlog cleared almost completely — nine of ten HIGH/CRITICAL findings genuinely fixed, verified by reading the code rather than the commit subjects. But **last night's report ships four wrong claims to prospects**, three of them in code I wrote and one of them a re-introduction of an overclaim this repo had already removed with a live counterexample on file; the fix-list guard I described in a commit message as running "either way" does not run on the default path at all; and a dead Airtable precondition in form ingest will 500 every lead across all 44 sites the moment the PAT is rotated — which Phase 6 plans to do.
