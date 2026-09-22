@@ -312,7 +312,7 @@ export function noChecksRetriesFor(committedAtMs, nowMs, t) {
 async function noChecksBudget(ctx, n) {
   const r = await gh(ctx, ["pr", "view", String(n), "--json", "commits"]);
   if (r.code !== 0) return ctx.t.noChecksRetries;
-  let committedAt = NaN;
+  let committedAt;
   try {
     const commits = JSON.parse(r.stdout).commits ?? [];
     const last = commits[commits.length - 1];
