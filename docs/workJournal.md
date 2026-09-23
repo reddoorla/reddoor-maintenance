@@ -4284,7 +4284,7 @@ The first review also found the inner `catch` was fail-open. `stat` throws `EACC
 
 **hedloc's svelte-select major was a type narrowing, not a dropped feature.** v6 narrows `items` to `SelectItem[] | null`, so its types no longer admit the `string[]` the wrapper passes, but `convertStringItemsToObjects` is alive at `Select.svelte:271-279` and still maps each string to `{ index, value, label }`. Fixed at the wrapper boundary rather than in the data, because normalising in our own code would mean reproducing that conversion including `index`, which the library's own hover and active-item tracking reads. reddoorla/hedloc#50, merged as `966a5a99`; the Renovate PR was closed as superseded. Worth knowing for later: `ContactForm`, `StyledSingleSelect` and `StyledMultiSelect` are imported by nothing on that site, and `StyledMultiSelect` imports `$lib/assests/icons/…` — `assests`, a directory that does not exist. It survives only because nothing imports it.
 
-## 2026-09-23 — Fleet analytics: one tag, an audit that pairs it, and a false green the review caught (#918, #919, #920)
+## 2026-09-23 — Fleet analytics: one tag, an audit that pairs it, and the same guard in the wrong place three times (#918, #919, #920)
 
 The ask was "do we have a universal analytics solution, or has it been a la
 carte" — and then, on the answer, "let's build it".
@@ -4478,6 +4478,60 @@ comment, `node --check` passed it, the policy was untouched, and the recipe
 reported "analytics hosts enabled". It now fails closed on any slash it cannot
 classify, which costs nothing — 25 real configs, 10 edits, 0 refusals.
 
+### Round three: the same defect a third time, through a third door
+
+Round three was not clean either, and two of its six findings are round two's
+defect re-entering: a confident `fail` sentence asserting something the code
+never checked, and a status contradicting its own summary.
+
+**A PARTIAL declaration skipped the foreign-analytics scan.** `readTagConfig`
+returned `foreignAnalytics: false` whenever the hook yielded one of its two
+fields — an assertion nothing tested — and with the measurement ID null that
+lands on the branch whose summary flatly claims "nothing in its checkout
+references one". That is beachfront's real shape: its ID comes from an imported
+identifier rather than a string literal, which is the ordinary way to write it.
+The guard added in round two specifically to stop the audit accusing a working
+site was bypassed by the path beachfront actually takes.
+
+**Prose counted as code.** The hook regex took the first match with no comment
+stripping, so a commented-out old call above the new one — the most likely
+artefact of this very rollout — was read as the declaration and turned into a
+red build naming a host nobody configured. `gtagLoaderIds` strips HTML comments
+on exactly this reasoning, and the reader written a day later did not.
+
+**A `denied` property read was discarded** because the property section sat
+after the emission section, so a double-loader warn returned first and threw
+away a read the audit had already paid for. A fail masked as a warn is the
+direction that hides a finding.
+
+**`INVALID_ARGUMENT` meant `denied`**, but GA4 answers it for any malformed
+request — "Field hostName is not a valid dimension" is our own filter, and it
+reddened a client's row for our bug.
+
+**And the idempotence guard was still non-idempotent for one character.** A
+browser reflects `script.src` through the WHATWG URL parser, whose special-query
+set escapes `'` — the single character `encodeURIComponent` leaves raw. So
+`G-tick'q` was written one way and read back another, the string comparison
+failed, and every re-run appended another loader. The double-counting the guard
+exists to prevent, surviving inside the guard, two rounds after it was first
+fixed.
+
+The recipe had its own: it would have **doubled beachfront**. Its only noop
+condition was "the hook already exists", and nothing consulted the detector the
+audit ships twenty lines away. `initAnalytics` stands down only for its own ID,
+and a site-local loader that runs later never sees ours — beachfront's component
+appends in `onMount` with no guard, and SvelteKit's ClientInit runs before the
+app starts. Migrating it with its existing ID, the natural thing to type, gives
+one property two loaders. And `cspNote` told operators "nothing blocks the
+loader" for any site with no `csp:` in `svelte.config.js`, which is false for
+reddoor-website and gallerysonder — both set an enforcing policy in
+`netlify.toml`.
+
+The pattern across three rounds is one thing said three ways: **every one of
+these was a guard in the right idea and the wrong place.** Not one was an
+architectural mistake. What they have in common is that each was written against
+an imagined input and passed its fixtures.
+
 ### Honest accounting
 
 The mutation battery restored with `git checkout --` and silently reverted the
@@ -4502,9 +4556,14 @@ read and the unanchored 403.
 
 ### What is proven, and what is not
 
-The audit was proven twice against live sites: with the probe on, pass on both
+The audit was proven three times against live sites: with the probe on, pass on both
 known-good shapes and fail on both known-bad directions; with the probe off, the
-three genuinely broken sites fail and no working site is accused. The CSP
+three genuinely broken sites fail and none of the four working ones is accused —
+and after round three, the foreign-mechanism detector discriminates correctly on
+all ten. The recipe's round trip was executed for the first time in round three:
+beachfront is refused by name, 1836dig applies in one commit carrying both files
+with a clean tree, a re-run noops, and the audit reads back what the recipe
+wrote and passes. The CSP
 planner was proven against every real `svelte.config.js` on this machine: 10
 plan an edit, each parsing under `node --check` and re-planning as idempotent,
 15 have no `csp` option, none refused.
