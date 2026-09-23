@@ -60,6 +60,8 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   onboard: "Install @reddoorla/maintenance + audit deps on a site (preferred first step).",
   "a11y-fixtures-page":
     "Write src/routes/dev/a11y-fixtures/+page.svelte (stub for lhci + axe targets).",
+  "analytics-tag":
+    "Start GA4 on the production host: write src/hooks.client.ts and enable the analytics CSP hosts.",
   "health-endpoint":
     "Write src/routes/health/+server.ts (function-health probe for the report gate).",
   "smoke-suite": "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",
@@ -376,6 +378,28 @@ cli
       runOrExit(
         async () =>
           (await import("./commands/svelte-codemods.js")).runSvelteCodemodsCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "analytics-tag <site>",
+    "Start GA4 on the production host: write src/hooks.client.ts and enable the analytics CSP hosts.",
+  )
+  .option("--measurement-id <id>", "The site's GA4 web-stream ID (G-XXXXXXXXXX). Required.")
+  .option(
+    "--production-host <host>",
+    "Hostname the tag is gated on (default: the host of the site's deployed URL)",
+  )
+  .action(
+    async (
+      site,
+      opts: { measurementId?: string; productionHost?: string; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/analytics-tag.js")).runAnalyticsTagCommand(site, opts),
         opts,
       ),
   );

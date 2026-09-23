@@ -23,6 +23,7 @@ const EVERY_RECIPE_NAME: Record<RecipeName, true> = {
   "convert-to-pnpm": true,
   onboard: true,
   "a11y-fixtures-page": true,
+  "analytics-tag": true,
   "health-endpoint": true,
   "smoke-suite": true,
   "self-updating": true,

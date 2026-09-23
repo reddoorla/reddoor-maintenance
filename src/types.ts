@@ -43,6 +43,7 @@ export type RecipeName =
   | "convert-to-pnpm"
   | "onboard"
   | "a11y-fixtures-page"
+  | "analytics-tag"
   | "health-endpoint"
   | "smoke-suite"
   | "self-updating"
