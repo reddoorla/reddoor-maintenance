@@ -384,6 +384,28 @@ cli
 
 cli
   .command(
+    "analytics-tag <site>",
+    "Start GA4 on the production host: write src/hooks.client.ts and enable the analytics CSP hosts.",
+  )
+  .option("--measurement-id <id>", "The site's GA4 web-stream ID (G-XXXXXXXXXX). Required.")
+  .option(
+    "--production-host <host>",
+    "Hostname the tag is gated on (default: the host of the site's deployed URL)",
+  )
+  .action(
+    async (
+      site,
+      opts: { measurementId?: string; productionHost?: string; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/analytics-tag.js")).runAnalyticsTagCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
     "health-endpoint [site]",
     "Write src/routes/health/+server.ts (function-health probe for the report gate).",
   )
