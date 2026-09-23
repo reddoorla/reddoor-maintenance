@@ -758,3 +758,92 @@ describe("classifyPropertyError does not blame the site for our own bad request"
     );
   });
 });
+
+describe("round four: guards that had moved and reopened the same hole", () => {
+  it("a refused property outranks the pairing, not just the emission section", () => {
+    // The three sweep targets are exactly this shape: a property on the row and
+    // no declared tag. With the denied return sitting after the pairing, the
+    // audit said "run analytics-tag" while the Data API had already answered
+    // NOT_FOUND for the property that tag would install into.
+    const v = classifyAnalytics(
+      facts({
+        propertyId: "500039567",
+        evidence: { probe: null, htmlIds: [] },
+        property: { ok: false, kind: "denied", error: "5 NOT_FOUND: Property not found" },
+      }),
+    );
+    expect(v.status).toBe("fail");
+    expect(v.summary).toContain("refused property");
+    expect(v.summary).toContain("before anything is installed");
+  });
+
+  it("discloses a failed property read on every path", () => {
+    // A verdict that returns without mentioning a read it made and lost claims
+    // a completeness it does not have.
+    const v = classifyAnalytics(
+      facts({
+        propertyId: "111111111",
+        evidence: { probe: { requestedIds: [] }, htmlIds: [] },
+        property: { ok: false, kind: "unavailable", error: "503" },
+      }),
+    );
+    expect(v.unchecked.join(" ")).toContain("the read failed");
+  });
+
+  it("never claims 'nothing references one' about a checkout measured as foreign", () => {
+    // foreign=true with an authoritative empty probe is a blocked or dead
+    // legacy snippet, and the old wording contradicted a fact this same verdict
+    // had measured.
+    const v = classifyAnalytics(
+      facts({
+        config: { measurementId: null, productionHost: null, foreignAnalytics: true },
+        propertyId: "111111111",
+        evidence: { probe: { requestedIds: [] }, htmlIds: null },
+      }),
+    );
+    expect(v.summary).not.toContain("nothing in its checkout references one");
+    expect(v.summary).toContain("Remove it");
+  });
+
+  it("does not prescribe analytics-tag for a hook it could not read", () => {
+    // The scan SKIPS hooks.client.ts, so an unparseable hook used to read as
+    // "nothing references one" — and the prescribed command no-ops on a file
+    // that already exists. A permanent red with no reachable fix.
+    const v = classifyAnalytics(
+      facts({
+        config: { measurementId: null, productionHost: null, hookUnreadable: true },
+        propertyId: "111111111",
+        evidence: { probe: null, htmlIds: [] },
+      }),
+    );
+    expect(v.summary).toContain("no measurement ID could be read out of it");
+    expect(v.summary).not.toContain("Fix: run `reddoor-maint analytics-tag`");
+  });
+
+  it("tells you to remove the old loader first, which is what the recipe requires", () => {
+    // The audit's only remediation used to be a command the recipe now refuses
+    // for exactly these sites.
+    const v = classifyAnalytics(
+      facts({
+        config: { measurementId: null, productionHost: null, foreignAnalytics: true },
+        propertyId: "481951114",
+        evidence: { probe: null, htmlIds: ["G-BZ0WQMEE8L"] },
+      }),
+    );
+    expect(v.summary).toContain("REMOVE");
+    expect(v.summary).toContain("refuses while one is present");
+  });
+
+  it("reads a declaration sitting next to a URL containing //", () => {
+    // A regex-only comment stripper blanked the rest of the line.
+    expect(
+      classifyAnalytics(
+        facts({
+          config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+          propertyId: "111111111",
+          evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: null },
+        }),
+      ).status,
+    ).toBe("pass");
+  });
+});

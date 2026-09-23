@@ -174,7 +174,19 @@ function loaderIdOf(src: string): string | null {
 /** The gtag.js loader URL for a measurement ID. Exported for the audit, which
  *  asserts the live site requests exactly this. */
 export function gtagLoaderUrl(measurementId: string): string {
-  return `${LOADER_ORIGIN}/gtag/js?id=${encodeURIComponent(measurementId)}`;
+  // `encodeURIComponent` THROWS a URIError on a lone surrogate, and this is
+  // reached after the gtag shim is installed and two commands are queued — so a
+  // malformed ID took the page down during client boot, out of a public API a
+  // site calls directly. Same failure class this module already documents
+  // fixing for `querySelector`. An ID that cannot be encoded simply cannot
+  // name a loader, and `initAnalytics` treats that as "no ID".
+  let encoded: string;
+  try {
+    encoded = encodeURIComponent(measurementId);
+  } catch {
+    return "";
+  }
+  return `${LOADER_ORIGIN}/gtag/js?id=${encoded}`;
 }
 
 /**
@@ -233,9 +245,12 @@ export function initAnalytics(opts: InitAnalyticsOptions): AnalyticsOutcome {
   gtag("js", new Date());
   gtag("config", id);
 
+  const loader = gtagLoaderUrl(id);
+  if (loader === "") return "no-id";
+
   const script = doc.createElement("script");
   script.async = true;
-  script.src = gtagLoaderUrl(id);
+  script.src = loader;
   script.setAttribute("data-reddoor-analytics", id);
   doc.head.appendChild(script);
 

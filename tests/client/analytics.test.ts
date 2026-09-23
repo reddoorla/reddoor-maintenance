@@ -256,8 +256,11 @@ describe("initAnalytics survives an ID it was never meant to get", () => {
   // API a site calls directly — and the recipe's own template calls it from
   // hooks.client.ts's `init`, i.e. during client boot. A throw there takes the
   // page down for an analytics misconfiguration.
-  it("does not throw on an ID that would break a CSS selector", () => {
-    for (const measurementId of ['G-X"]', "G-A[B]", "G-A\\B"]) {
+  it("does not throw on an ID that would break a CSS selector, or the encoder", () => {
+    // A lone surrogate makes encodeURIComponent throw, and that is reached
+    // AFTER the gtag shim is installed and two commands are queued — so it took
+    // the page down during client boot from a public API.
+    for (const measurementId of ['G-X"]', "G-A[B]", "G-A\\B", "G-\uD800", "G-a\uDFFFb"]) {
       const { env } = fakeDom({ hostname: PROD });
       expect(() => initAnalytics({ measurementId, productionHost: PROD, env })).not.toThrow();
     }
