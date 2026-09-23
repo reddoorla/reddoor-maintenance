@@ -4532,6 +4532,63 @@ these was a guard in the right idea and the wrong place.** Not one was an
 architectural mistake. What they have in common is that each was written against
 an imagined input and passed its fixtures.
 
+### Round four: a build-breaker, and a proof that measured the wrong property
+
+Round four found the worst defect of the four, in the half I had been most
+confident about.
+
+`analytics: true` is an option of `createSvelteConfig`, which strips it before
+building `kit.csp`. SvelteKit types its OWN `kit.csp` as
+`{mode, directives, reportOnly}` and REJECTS unknown keys, so writing it into a
+native block does not fail to work — it fails the build. `planCspEdit` matched
+any `csp:` and had no idea whose option it was. Measured across all 28 fleet
+configs it fired on **13 native blocks where the option is invalid and zero of
+the 12 factory callers where it would have worked**. Perfectly inverted. Both
+starter templates were in the 13, so it would have propagated to every future
+site. The recipe then committed the file and reported "CSP: analytics hosts
+enabled", and its refusal note appended "add `analytics: true` by hand" — the
+exact edit that breaks a native block, printed under an otherwise-correct
+refusal.
+
+**The proof I had run was measuring the wrong property.** It checked
+`node --check`, which only asks whether the result is syntactically JavaScript.
+It passed 28 times while the edit was wrong every time. And every positive
+fixture in the test file used `createSvelteConfig({ csp: … })`, a shape that
+exists on ZERO fleet configs, while `kit: { csp: … }` — what 13 real configs
+have — appeared only in refusal tests. The instrument had only ever passed on an
+input that does not exist on disk.
+
+The proof now runs SvelteKit's own `validate_config`, with two controls first:
+it must reject a block carrying `analytics` and accept the same block without
+it, so a validator that always threw could not read as a pass.
+
+Four more verdict defects, all the same moved-guard shape. The `denied`-first
+return added in round three sat AFTER the pairing branches, so it covered
+everything except the shape the three sweep targets are actually in — and those
+sites were told "run analytics-tag" while the Data API had already answered
+NOT_FOUND for the property that tag would install into. A failed read was
+disclosed on some paths and not others. `foreignAnalytics: true` with an
+authoritative empty probe still said "nothing in its checkout references one".
+And the scan skips `hooks.client.ts` by construction, so an unreadable hook read
+as "nothing references one" about the one file that certainly does, and got
+prescribed a command that no-ops.
+
+The cross-cutting one: the audit and the recipe share `findForeignAnalytics` and
+drew OPPOSITE conclusions from it. The audit read a foreign loader as "migrate
+it with the recipe"; the recipe read the same file as "refuse". Eight real sites
+were being handed an instruction that could not be executed. One detector, two
+decisions, nobody checking they agreed.
+
+### What four dirty rounds actually taught
+
+Every single finding across all four rounds was a guard in the right idea and
+the wrong place. Not one was an architectural mistake, and not one was caught by
+a unit test — every test file was green at the moment each defect was found.
+What caught them, four times running, was executing against real checkouts:
+beachfront's imported-identifier declaration, the 13 native `kit.csp` blocks,
+the eight sites given unexecutable advice, the three sweep targets' verdicts.
+Fixtures encode what you already believe. The fleet does not.
+
 ### Honest accounting
 
 The mutation battery restored with `git checkout --` and silently reverted the
