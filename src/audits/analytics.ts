@@ -50,6 +50,17 @@ export type TagConfig = {
    * the audit knows to stop short of certainty and ask for the probe.
    */
   foreignAnalytics?: boolean;
+  /**
+   * `src/hooks.client.ts` exists but nothing legible could be read out of it —
+   * a dev/prod ternary, an imported identifier, two disagreeing calls.
+   *
+   * It is its own state because the scan deliberately SKIPS that file (it is
+   * the thing being parsed), so without this the audit reported "nothing in its
+   * checkout references one" about the one file that certainly does, and then
+   * prescribed `analytics-tag`, which no-ops on "already exists". A permanent
+   * red with no reachable fix.
+   */
+  hookUnreadable?: boolean;
   /** `site-config.json` → `analytics.measurementId`. null = analytics is OFF
    *  for this site, which is the starter's shipped state and not an error. */
   measurementId: string | null;
@@ -238,6 +249,26 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
   if (emission.emitting === null) unchecked.push(`whether the tag fires (${emission.source})`);
   if (facts.property === null) {
     unchecked.push("the GA4 property (no credentials, or no site URL to filter it by)");
+  } else if (!facts.property.ok) {
+    // Disclosed on EVERY path. The read failed, so whatever else this verdict
+    // says, it did not learn anything from the property — and an earlier branch
+    // returning without mentioning it claims a completeness it does not have.
+    unchecked.push(`the GA4 property (the read failed: ${facts.property.error})`);
+  }
+
+  // A property the API says is GONE, or that the shared subject can no longer
+  // read, outranks EVERYTHING below — including the pairing. Sitting after the
+  // pairing meant the three sweep targets (property on the row, no declared
+  // tag) were told "run analytics-tag" while the Data API had already answered
+  // NOT_FOUND for the property they would be installing into.
+  if (facts.property !== null && !facts.property.ok && facts.property.kind === "denied") {
+    return {
+      status: "fail",
+      summary:
+        `analytics: the GA4 Data API refused property ${facts.propertyId} — ${facts.property.error}. ` +
+        "Fix the row's property ID before anything is installed against it.",
+      unchecked: unchecked.filter((u) => !u.startsWith("the GA4 property")),
+    };
   }
 
   // Could the checkout be inspected at all? Distinct from "it declares nothing",
@@ -308,11 +339,28 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
         foreign && emission.emitting !== false
           ? `analytics: the fleet row carries GA4 property ${facts.propertyId} and the checkout ` +
             "references a tag manager, but not through initAnalytics — so whether the two describe " +
-            "the same property cannot be told from here. Re-run with " +
-            "REDDOOR_ANALYTICS_PROBE=1, or migrate it with `reddoor-maint analytics-tag`."
-          : `analytics: the fleet row carries GA4 property ${facts.propertyId} but the site declares ` +
-            "no tag and nothing in its checkout references one, so that property can only ever " +
-            "answer zero. Fix: run `reddoor-maint analytics-tag`.",
+            "the same property cannot be told from here. Re-run with REDDOOR_ANALYTICS_PROBE=1, " +
+            "or REMOVE that loader and then run `reddoor-maint analytics-tag` (it refuses while " +
+            "one is present)."
+          : foreign
+            ? // The probe authoritatively saw nothing load, yet the checkout DOES
+              // reference a tag manager — a blocked or dead legacy snippet. Saying
+              // "nothing in its checkout references one" here contradicts a fact
+              // this same verdict measured.
+              `analytics: the fleet row carries GA4 property ${facts.propertyId}, and ` +
+              `${emission.source} show no gtag loader even though the checkout references a tag ` +
+              "manager. A blocked or dead legacy snippet. Remove it, then run " +
+              "`reddoor-maint analytics-tag`."
+            : facts.config.hookUnreadable === true
+              ? `analytics: the fleet row carries GA4 property ${facts.propertyId} and ` +
+                "src/hooks.client.ts exists, but no measurement ID could be read out of it. Fix " +
+                "the hook by hand — the recipe no-ops on a file that already exists."
+              : `analytics: the fleet row carries GA4 property ${facts.propertyId} but the site ` +
+                "declares no tag and nothing in its checkout references one, so that property can " +
+                "only ever answer zero. Fix: run `reddoor-maint analytics-tag`.",
+      // Gated on the emission too: when the probe authoritatively saw nothing
+      // load, which property the site's own loader WOULD have used is moot, and
+      // listing it as unchecked invites someone to go and find out.
       unchecked:
         foreign && emission.emitting !== false
           ? [...unchecked, "which property the site's own loader uses"]
@@ -351,8 +399,9 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
       summary:
         `analytics: the site loads ${[...new Set(emission.ids)].join(", ")} through a mechanism ` +
         `this audit did not install, and the row carries property ${facts.propertyId}. Whether ` +
-        "those are the same property cannot be told from here. Migrate it with " +
-        "`reddoor-maint analytics-tag` and the pairing becomes checkable.",
+        "those are the same property cannot be told from here. To migrate: REMOVE the site's own " +
+        "loader first, then run `reddoor-maint analytics-tag` — it refuses while one is present, " +
+        "because two loaders for one property double every session.",
       unchecked: [...unchecked, "whether the emitted tag and the row's property match"],
     };
   }
@@ -383,19 +432,6 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
         unchecked,
       };
     }
-  }
-
-  // A property the API says is GONE, or that the shared subject can no longer
-  // read, is a standing fault and outranks anything about emission. It used to
-  // sit AFTER the emission section, so a double-loader warn returned first and
-  // discarded a read the audit had already paid for — a documented `fail`
-  // downgraded to a `warn`, which is the direction that hides a finding.
-  if (facts.property !== null && !facts.property.ok && facts.property.kind === "denied") {
-    return {
-      status: "fail",
-      summary: `analytics: the GA4 Data API refused property ${facts.propertyId} — ${facts.property.error}`,
-      unchecked,
-    };
   }
 
   // --------------------------------------------------------------- EMISSION
@@ -569,9 +605,48 @@ const HOOK_FIELD = (name: string): RegExp =>
  *  most likely artefact of THIS rollout, and taking the first match turned it
  *  into a red build naming a host nobody configured. */
 function stripJsComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length))
-    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  // String-aware, because a regex-only stripper blanks the rest of the line
+  // after any `//` inside a string — and `new URL("https://x.com").hostname`
+  // next to a declaration is ordinary code. Confirmed: the naive version read
+  // both fields as null there and prescribed a command that then no-ops.
+  const out = src.split("");
+  const blank = (from: number, to: number) => {
+    for (let k = from; k < to && k < out.length; k++) if (out[k] !== "\n") out[k] = " ";
+  };
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      while (j < src.length) {
+        if (src[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (src[j] === c) break;
+        j++;
+      }
+      i = Math.min(j + 1, src.length);
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      const nl = src.indexOf("\n", i);
+      const end = nl === -1 ? src.length : nl;
+      blank(i, end);
+      i = end;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      const close = src.indexOf("*/", i + 2);
+      const end = close === -1 ? src.length : close + 2;
+      blank(i, end);
+      i = end;
+      continue;
+    }
+    i++;
+  }
+  return out.join("");
 }
 
 /**
@@ -689,8 +764,15 @@ export async function readTagConfig(sitePath: string): Promise<TagConfig | null>
         measurementId: null,
         productionHost: host,
         foreignAnalytics: await hasForeignAnalytics(sitePath, join(sitePath, HOOK_RELATIVE)),
+        hookUnreadable: true,
       };
     }
+    return {
+      measurementId: null,
+      productionHost: null,
+      foreignAnalytics: await hasForeignAnalytics(sitePath, join(sitePath, HOOK_RELATIVE)),
+      hookUnreadable: true,
+    };
   }
 
   const raw = await readIfPresent(join(sitePath, SITE_CONFIG_RELATIVE));
