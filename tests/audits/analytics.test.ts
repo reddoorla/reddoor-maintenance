@@ -42,12 +42,15 @@ describe("gtagLoaderIds", () => {
     expect(gtagLoaderIds(html)).toEqual([]);
   });
 
-  it("reports every distinct loader once, which is how double-tagging surfaces", () => {
+  it("reports EVERY occurrence, not a deduplicated set", () => {
+    // Two loaders for the SAME property is what doubles a session. A Set made
+    // that case indistinguishable from one healthy load, so the warning that
+    // names it could only ever have fired for two different properties.
     const html = `
       <script src="https://www.googletagmanager.com/gtag/js?id=G-AAAAAAAAAA"></script>
       <script src="https://www.googletagmanager.com/gtag/js?id=G-AAAAAAAAAA"></script>
       <script src="https://www.googletagmanager.com/gtag/js?l=dataLayer&id=G-BBBBBBBBBB"></script>`;
-    expect(gtagLoaderIds(html).sort()).toEqual(["G-AAAAAAAAAA", "G-BBBBBBBBBB"]);
+    expect(gtagLoaderIds(html)).toEqual(["G-AAAAAAAAAA", "G-AAAAAAAAAA", "G-BBBBBBBBBB"]);
   });
 });
 
@@ -84,7 +87,7 @@ describe("classifyAnalytics — the fleet states measured on 2026-09-22", () => 
       facts({ evidence: { probe: { requestedIds: ["G-Y0VSL1KFNT"] }, htmlIds: ["G-Y0VSL1KFNT"] } }),
     );
     expect(v.status).toBe("fail");
-    expect(v.summary).toContain("no GA4 property ID");
+    expect(v.summary).toContain("no GA4 property");
   });
 
   it("la-homelessness-youth: a property with no tag fails", () => {
@@ -145,7 +148,19 @@ describe("classifyAnalytics — the failures that are invisible from one end", (
     expect(v.summary).toContain("Traffic is going to a property nobody reads");
   });
 
-  it("warns on two loaders, which double every session", () => {
+  it("warns when ONE property is loaded twice — the case that actually doubles", () => {
+    const v = classifyAnalytics(
+      facts({
+        ...both,
+        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA", "G-AAAAAAAAAA"] }, htmlIds: [] },
+        property: { ok: true, users: 10 },
+      }),
+    );
+    expect(v.status).toBe("warn");
+    expect(v.summary).toContain("double every session");
+  });
+
+  it("warns separately when two DIFFERENT properties are loaded", () => {
     const v = classifyAnalytics(
       facts({
         ...both,
@@ -154,7 +169,7 @@ describe("classifyAnalytics — the failures that are invisible from one end", (
       }),
     );
     expect(v.status).toBe("warn");
-    expect(v.summary).toContain("double every session");
+    expect(v.summary).toContain("different properties");
   });
 
   it("warns on a property that answers zero — the shape of a tag that stopped", () => {
@@ -228,41 +243,77 @@ describe("classifyAnalytics never reports a check it did not run", () => {
 });
 
 describe("readTagConfig", () => {
-  async function siteWith(contents: string | null): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), "rd-analytics-"));
-    if (contents !== null) {
-      await mkdir(join(dir, "src", "lib"), { recursive: true });
-      await writeFile(join(dir, "src", "lib", "site-config.json"), contents);
+  async function siteWith(files: Record<string, string>): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "rd-cfg-"));
+    await mkdir(join(dir, "src", "lib"), { recursive: true });
+    for (const [rel, body] of Object.entries(files)) {
+      await mkdir(join(dir, rel.split("/").slice(0, -1).join("/")), { recursive: true });
+      await writeFile(join(dir, rel), body);
     }
     return dir;
   }
 
-  it("reads the analytics block", async () => {
-    const dir = await siteWith(
-      JSON.stringify({ analytics: { measurementId: "G-AAAAAAAAAA", productionHost: "www.x.com" } }),
-    );
+  it("reads the hook the recipe writes", async () => {
+    // The audit and the recipe MUST agree on where the ID lives. They did not,
+    // and the audit consequently found no declaration on any fleet site.
+    const dir = await siteWith({
+      "src/hooks.client.ts": `initAnalytics({
+  measurementId: "G-AAAAAAAAAA",
+  productionHost: "www.example.com",
+});`,
+    });
     expect(await readTagConfig(dir)).toEqual({
       measurementId: "G-AAAAAAAAAA",
-      productionHost: "www.x.com",
+      productionHost: "www.example.com",
+      foreignAnalytics: false,
     });
   });
 
-  it("distinguishes 'could not look' from 'looked, it is off'", async () => {
-    // A missing or corrupt file is null, which makes the audit say it could not
-    // check. A valid file with no analytics block is a real, readable "off".
-    expect(await readTagConfig(await siteWith(null))).toBeNull();
-    expect(await readTagConfig(await siteWith("{ not json"))).toBeNull();
-    expect(await readTagConfig(await siteWith(JSON.stringify({ nav: { items: [] } })))).toEqual({
+  it("falls back to site-config.json for a site that uses that convention", async () => {
+    const dir = await siteWith({
+      "src/lib/site-config.json": JSON.stringify({
+        analytics: { measurementId: "G-BBBBBBBBBB", productionHost: "www.y.com" },
+      }),
+    });
+    expect(await readTagConfig(dir)).toEqual({
+      measurementId: "G-BBBBBBBBBB",
+      productionHost: "www.y.com",
+      foreignAnalytics: false,
+    });
+  });
+
+  it("notices a hand-rolled loader, so 'declares nothing' is not read as 'emits nothing'", async () => {
+    // Before the sweep, beachfront injects its loader from its OWN component
+    // and msot from an inline app.html snippet. Neither is visible to the hook
+    // reader, and beachfront's is invisible to a plain GET as well — so without
+    // this the audit would confidently accuse a site emitting 1,051 users a
+    // month of having a property with nothing feeding it.
+    const dir = await siteWith({
+      "src/lib/components/Analytics.svelte": `script.src = "https://www.googletagmanager.com/gtag/js?id=" + ID;`,
+    });
+    const cfg = await readTagConfig(dir);
+    expect(cfg?.measurementId).toBeNull();
+    expect(cfg?.foreignAnalytics).toBe(true);
+  });
+
+  it("distinguishes 'could not look' from 'looked, it declares nothing'", async () => {
+    // No src/ at all is a bad path or a failed clone — the audit must say it
+    // could not look. A readable checkout with no analytics anywhere is a real
+    // measurement, and it is the left half of the pairing.
+    const missing = await mkdtemp(join(tmpdir(), "rd-empty-"));
+    expect(await readTagConfig(missing)).toBeNull();
+
+    const readable = await siteWith({ "src/app.html": "<html></html>" });
+    expect(await readTagConfig(readable)).toEqual({
       measurementId: null,
       productionHost: null,
+      foreignAnalytics: false,
     });
   });
 
-  it("treats a blank or non-string value as unset", async () => {
-    const dir = await siteWith(
-      JSON.stringify({ analytics: { measurementId: "   ", productionHost: 42 } }),
-    );
-    expect(await readTagConfig(dir)).toEqual({ measurementId: null, productionHost: null });
+  it("says it could not look when site-config.json is corrupt", async () => {
+    const dir = await siteWith({ "src/lib/site-config.json": "{ not json" });
+    expect(await readTagConfig(dir)).toBeNull();
   });
 });
 
@@ -293,8 +344,15 @@ describe("gtagLoaderIds does not mistake a mention for a tag", () => {
 
 describe("classifyPropertyError", () => {
   it("calls a standing access fault denied", () => {
-    for (const m of ["PERMISSION_DENIED", "NOT_FOUND", "403 Forbidden", "invalid_grant"]) {
-      expect(classifyPropertyError(m)).toBe("denied");
+    for (const m of [
+      "PERMISSION_DENIED",
+      "7 PERMISSION_DENIED: The caller does not have permission",
+      "The caller does not have permission",
+      "5 NOT_FOUND: Property not found",
+      "invalid_grant",
+      "Request failed with status code 403",
+    ]) {
+      expect(classifyPropertyError(new Error(m))).toBe("denied");
     }
   });
 
@@ -306,45 +364,86 @@ describe("classifyPropertyError", () => {
       "503 Service Unavailable",
       "socket hang up",
     ]) {
-      expect(classifyPropertyError(m)).toBe("unavailable");
+      expect(classifyPropertyError(new Error(m))).toBe("unavailable");
+    }
+  });
+
+  it("is not fooled by digits that merely CONTAIN 403 or 404", () => {
+    // A hand-rolled /…|403|404|…/ matched every one of these, which turned a
+    // quota blip into a hard fail — the regression the denied/unavailable split
+    // existed to prevent. Any 9-digit GA4 property ID containing 403 did it too.
+    for (const m of [
+      "8 RESOURCE_EXHAUSTED: Exhausted property tokens. Requested 403, available 0.",
+      "8 RESOURCE_EXHAUSTED: quota exceeded, tokens remaining 1403",
+      "4 DEADLINE_EXCEEDED: Deadline exceeded after 60.403s",
+      "13 INTERNAL: Internal error encountered. request_id=a403f1",
+      "GA read failed for properties/403210987 after 3 attempts",
+    ]) {
+      expect(classifyPropertyError(new Error(m))).toBe("unavailable");
     }
   });
 });
 
-describe("classifyAnalytics never passes on an unobserved site", () => {
+describe("the pairing is CERTAIN and must not be softened by a missing observation", () => {
   const configured = {
     config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
     propertyId: "111111111",
   };
 
-  it("skips — does not pass — when neither half could be checked", () => {
-    // THE failure mode this audit could have had. After the sweep every loader
-    // is JS-injected, so an HTML scan returns [] for every healthy site; add no
-    // browser and no GA credentials and this is the NORMAL path. Returning
-    // `pass` from it would green the whole fleet on the strength of two config
-    // values agreeing with each other. `status` is what the cockpit and the
-    // fleet write-back aggregate on, so a disclosure in `unchecked` is not
-    // enough.
-    for (const evidence of [
-      { probe: null, htmlIds: null },
-      { probe: null, htmlIds: [] },
-    ]) {
-      const v = classifyAnalytics(facts({ ...configured, evidence, property: null }));
-      expect(v.status).toBe("skip");
-      expect(v.summary).toContain("nothing about");
-    }
+  it("fails a property with no declared tag WITHOUT a browser and WITHOUT credentials", () => {
+    // Both operands are read off disk: the checkout declares nothing, the row
+    // carries a property. No observation makes that more or less true. Routing
+    // it through the softening helper meant the four sites this audit exists to
+    // find produced an exit-0, un-written-back `warn` on every default run —
+    // and `warn` reaches no dashboard, no write-back and no exit code.
+    const v = classifyAnalytics(
+      facts({ propertyId: "500039567", evidence: { probe: null, htmlIds: [] }, property: null }),
+    );
+    expect(v.status).toBe("fail");
+    expect(v.summary).toContain("can only ever answer zero");
   });
 
-  it("passes only once something was actually seen", () => {
+  it("fails a declared tag with no property WITHOUT a browser", () => {
     const v = classifyAnalytics(
       facts({
-        ...configured,
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
-        property: null,
+        config: { measurementId: "G-Y0VSL1KFNT", productionHost: "www.example.com" },
+        propertyId: null,
+        evidence: { probe: null, htmlIds: null },
       }),
     );
+    expect(v.status).toBe("fail");
+    expect(v.summary).toContain("no GA4 property ID");
+  });
+
+  it("softens only while a legacy snippet could still be hiding in the markup", () => {
+    // `htmlIds: null` means the page was never fetched, so an inline snippet
+    // has not been ruled out and "declares no tag" is not yet "emits no tag".
+    const v = classifyAnalytics(
+      facts({ propertyId: "500039567", evidence: { probe: null, htmlIds: null } }),
+    );
+    expect(v.status).toBe("warn");
+  });
+
+  it("passes a correctly-onboarded site, and says what it did not watch", () => {
+    // The instrument has to pass on a known-good input before any FAIL it
+    // produces is evidence. A site whose checkout declares a tag, whose row
+    // carries the property, and whose gate matches the live host is the
+    // known-good input — and the default run has no browser and no credentials.
+    const v = classifyAnalytics(facts({ ...configured, evidence: { probe: null, htmlIds: [] } }));
     expect(v.status).toBe("pass");
-    expect(v.summary).toContain("not read");
+    expect(v.summary).toContain("was not observed");
+    expect(v.unchecked.join(" ")).toContain("whether the tag fires");
+  });
+
+  it("does not let an HTML-only hit claim the tag loads", () => {
+    // A <link rel=preload> for the gtag loader is a standard performance
+    // pattern that fires no tag, and the HTML scan cannot tell it from a live
+    // one. The pass must not say the loader was seen to load.
+    const v = classifyAnalytics(
+      facts({ ...configured, evidence: { probe: null, htmlIds: ["G-AAAAAAAAAA"] } }),
+    );
+    expect(v.summary).not.toContain("network requests");
+    expect(v.summary).toContain("name its loader");
   });
 
   it("softens a fail to a warn when only the HTML said so", () => {
@@ -420,13 +519,76 @@ describe("analyticsAudit wiring", () => {
     expect(seen).toEqual([["example.com", "www.example.com"]]);
   });
 
-  it("does not pass a site it could not observe at all", async () => {
-    const dir = await siteDir({
-      analytics: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+  it("reads the hook the analytics-tag recipe writes, not just site-config.json", async () => {
+    // These two PRs disagreed about this and it was the whole ballgame: the
+    // recipe writes the measurement ID into src/hooks.client.ts, the audit read
+    // src/lib/site-config.json, only 4 of 28 checkouts have that file and none
+    // has an analytics block — so the audit found no declaration anywhere and
+    // answered "nothing was checked" for the entire fleet, identically whether
+    // or not the row carried a property.
+    const dir = await mkdtemp(join(tmpdir(), "rd-hook-"));
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(
+      join(dir, "src", "hooks.client.ts"),
+      `import { initAnalytics } from "@reddoorla/maintenance/client";
+export const init = () => {
+  initAnalytics({
+    measurementId: "G-AAAAAAAAAA",
+    productionHost: "www.example.com",
+  });
+};`,
+    );
+    const res = await run(dir, "https://www.example.com/", {
+      propertyId: "111111111",
+      fetchHtml: async () => "<html></html>",
     });
-    const res = await run(dir, "https://www.example.com/", { propertyId: "111111111" });
-    expect(res.status).toBe("skip");
-    expect(res.summary).toContain("Not checked");
+    expect(res.status).toBe("pass");
+    expect(res.summary).toContain("G-AAAAAAAAAA");
+  });
+
+  it("fails the same checkout once the property is taken off the row", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rd-hook2-"));
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(
+      join(dir, "src", "hooks.client.ts"),
+      `initAnalytics({ measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" });`,
+    );
+    const res = await run(dir, "https://www.example.com/", {
+      propertyId: null,
+      fetchHtml: async () => "<html></html>",
+    });
+    expect(res.status).toBe("fail");
+  });
+
+  it("does not read the property at all when there are no hostnames to filter by", async () => {
+    // An empty list means UNFILTERED to fetchPeriodUsers, which answers with
+    // every environment's traffic — 13,417 against 105 on reddoor's own
+    // property. Passing a site on that is worse than not reading it.
+    let called = 0;
+    const dir = await siteDir(null);
+    await run(dir, undefined, {
+      propertyId: "111111111",
+      readUsers: async () => {
+        called++;
+        return { ok: true, users: 13417 };
+      },
+    });
+    expect(called).toBe(0);
+  });
+
+  it("trims the property id it sends, not merely the one it validates", async () => {
+    // A trailing newline is what a `gh api --jq` round-trip leaves behind, and
+    // it would ride into properties/${id} and 404.
+    const seen: string[] = [];
+    const dir = await siteDir(null);
+    await run(dir, "https://www.example.com/", {
+      propertyId: " 111111111\n",
+      readUsers: async (id) => {
+        seen.push(id);
+        return { ok: true, users: 5 };
+      },
+    });
+    expect(seen).toEqual(["111111111"]);
   });
 
   it("refuses a measurement ID pasted into the property column", async () => {
@@ -451,8 +613,8 @@ describe("analyticsAudit wiring", () => {
         throw new Error("browser would not launch");
       },
     });
-    expect(res.status).toBe("skip");
     expect(res.summary).toContain("whether the tag fires");
+    expect(res.status).not.toBe("fail");
   });
 
   it("launches nothing and claims nothing for a site with no deployed URL", async () => {
