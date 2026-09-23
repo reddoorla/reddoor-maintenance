@@ -86,6 +86,36 @@ export function planCspEdit(source: string): CspEditPlan {
   // Located against the masked copy so prose cannot be mistaken for code, then
   // sliced out of the ORIGINAL, which the mask is length-preserving for.
   const masked = maskNonCode(source);
+
+  // FAIL CLOSED on anything the masker cannot classify.
+  //
+  // The masker has no notion of regex literals, and it does not need one — but
+  // it must not pretend. A quote inside a regex (`const A = /'/;`) opens a
+  // phantom string and INVERTS quote parity for the rest of the file, after
+  // which the edit can land inside a comment while `cspNote` reports success:
+  // a wrong edit that parses, on a live site's policy, announced as done. That
+  // is the one outcome this module exists to prevent, so an unclassifiable
+  // slash is a refusal rather than a guess.
+  //
+  // Comments are blanked INCLUDING their `//` and `/*`, so any `/` left in the
+  // mask is in code position: division, or a regex literal. None of the 22
+  // fleet configs has one, so refusing costs nothing today and cannot be
+  // silently wrong tomorrow.
+  const stray = masked.indexOf("/");
+  if (stray !== -1) {
+    const line = source.slice(0, stray).split("\n").length;
+    return {
+      kind: "refuse",
+      reason:
+        `line ${line} has a \`/\` this recipe cannot classify as a comment (a regex literal or ` +
+        "division). Quote parity after one is not something it will guess at",
+    };
+  }
+  // A masker that ran off the end of a string or comment produced a mask that
+  // cannot be trusted either.
+  if (masked.length !== source.length) {
+    return { kind: "refuse", reason: "the masker did not produce a length-preserving copy" };
+  }
   const matches = [...masked.matchAll(CSP_KEY)];
   if (matches.length === 0) return { kind: "none" };
   if (matches.length > 1) {

@@ -173,8 +173,15 @@ function cloneDirectives(directives: CspDirectives): CspDirectives {
 function withAnalytics(directives: CspDirectives): CspDirectives {
   const out = cloneDirectives(directives);
   for (const [name, hosts] of Object.entries(ANALYTICS_CSP)) {
-    const existing = out[name] ?? [];
-    out[name] = [...existing, ...hosts.filter((h) => !existing.includes(h))];
+    // `svelte.config.js` is untyped, so a site may legally write
+    // `"script-src": "self"`. Spreading a STRING shreds it into characters —
+    // ["s","e","l","f",…] — and only when analytics is on, which is a corruption
+    // this fold would have introduced rather than found. Leave a non-array
+    // alone; the audit will notice the missing host.
+    const existing = out[name];
+    if (existing !== undefined && !Array.isArray(existing)) continue;
+    const list = existing ?? [];
+    out[name] = [...list, ...hosts.filter((h) => !list.includes(h))];
   }
   return out;
 }

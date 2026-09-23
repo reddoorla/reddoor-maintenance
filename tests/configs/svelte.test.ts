@@ -308,6 +308,18 @@ describe("configs/svelte — the analytics CSP fold", () => {
     ).toHaveLength(1);
   });
 
+  it("leaves a directive the site wrote as a string alone, rather than shredding it", () => {
+    // svelte.config.js is untyped, so `"script-src": "self"` is legal. Spreading
+    // a string turns it into ["s","e","l","f",…] — a corruption this fold would
+    // have introduced, and only when analytics is on.
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: { analytics: true, directives: { "script-src": "self" as unknown as string[] } },
+      }),
+    );
+    expect(d["script-src"]).toBe("self");
+  });
+
   it("never leaks `analytics` into the emitted policy object", () => {
     // It is a reddoor option, not a CSP field. A stray key here ships into
     // kit.csp and SvelteKit's own validation is the only thing between it and

@@ -107,8 +107,18 @@ export async function analyticsTag(site: Site, opts: AnalyticsTagOptions): Promi
         written.push(SVELTE_CONFIG_RELATIVE);
       }
 
-      const bin = await resolveTargetPrettier(cwd);
-      await formatWithPrettier(defaultSpawn, cwd, written, bin ? { bin } : {});
+      // Formatting must not be able to strand the write. `withRecipe`'s failure
+      // path is `git checkout -f`, which does NOT remove an untracked new file,
+      // so a prettier throw used to leave src/hooks.client.ts on disk with
+      // nothing in git — and the next run hit the "already exists" noop and
+      // reported the site as done. Swallowing here keeps the commit reachable;
+      // a formatting miss is a lint nit, and CI catches it.
+      try {
+        const bin = await resolveTargetPrettier(cwd);
+        await formatWithPrettier(defaultSpawn, cwd, written, bin ? { bin } : {});
+      } catch {
+        // fall through to the commit
+      }
 
       await commit(`feat: start GA4 on the production host (${planned.productionHost})`);
 

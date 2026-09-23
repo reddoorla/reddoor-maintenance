@@ -71,6 +71,32 @@ export default createSvelteConfig({ csp: true });`;
     if (out.kind === "refuse") expect(out.reason).toContain("ambiguous");
   });
 
+  it("refuses a regex literal rather than guessing at quote parity", () => {
+    // A quote inside a regex opens a phantom string and inverts parity for the
+    // rest of the file. The confirmed outcome was an edit that landed INSIDE a
+    // comment, parsed cleanly, left the real CSP untouched, and was reported as
+    // "analytics hosts enabled" — a wrong edit announced as success, which is
+    // the one thing this module exists to prevent.
+    const inverting = `const A = /'/;
+export default { kit: { csp: { directives: {} } } };
+// note ' about csp: { } here`;
+    const out = planCspEdit(inverting);
+    expect(out.kind).toBe("refuse");
+
+    // And the commoner variant, which used to fail to a FALSE "none" — worse,
+    // because the recipe then reports "this site has no csp option".
+    const falseNone = `const APOS = /'/g;
+export default { kit: { csp: { directives: { "script-src": ["self"] } } } };`;
+    expect(planCspEdit(falseNone).kind).toBe("refuse");
+  });
+
+  it("refuses division too, rather than trying to tell it from a regex", () => {
+    const out = planCspEdit(`const half = total / 2;
+export default { kit: { csp: true } };`);
+    expect(out.kind).toBe("refuse");
+    if (out.kind === "refuse") expect(out.reason).toContain("cannot classify");
+  });
+
   it("refuses an analytics key already set to something else", () => {
     const out = planCspEdit("export default createSvelteConfig({ csp: { analytics: flag } });");
     expect(out.kind).toBe("refuse");
