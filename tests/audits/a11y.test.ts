@@ -19,6 +19,7 @@ type A11yArtifact = {
   byImpact: Partial<Record<"minor" | "moderate" | "serious" | "critical", number>>;
   violations?: Array<{ id: string; impact: string; route: string; help?: string }>;
   skipped?: Array<{ route: string; path: string; status: number | null; reason: string }>;
+  measured?: Array<{ route: string; ruleNodes: Record<string, number> }>;
 };
 
 /**
@@ -1387,5 +1388,142 @@ describe("audits/a11y — describeSkipped pairs routes with reasons once reasons
     expect(line).toContain(`/ (${PLACEHOLDER})`);
     // The whole point: the capped skip's reason survives.
     expect(line).toContain(ABSENT);
+  });
+});
+
+/**
+ * #888 — contrast that was never measured, reported as clean.
+ *
+ * The issue and this test block's first draft both had the MECHANISM wrong,
+ * and it cost a whole PR. The claim was that axe "throws, files an
+ * error-occurred check, and skips the rule for the whole page". Measured
+ * against axe-core 4.13.0 in Chromium, none of that happens:
+ *
+ *   computed background-color : oklch(0.205 0 none)   (Chrome resolves it fine)
+ *   band on one element       : passes=1 incomplete=1 keys=["colorParse"]
+ *   same colour on body       : passes=0 incomplete=3 keys=["colorParse"]
+ *   healthy control           : passes=2 incomplete=0 keys=[]
+ *   error-occurred anywhere   : none
+ *
+ * The parse failure is PER NODE. The rule keeps running, the rest of the page
+ * passes, and the run reports zero violations — so the page looks clean
+ * because the elements that were not legible are also the elements nobody
+ * looked at. A guard built on `error-occurred` could never have fired.
+ *
+ * `colorParse` is the right signal because it means the browser understood the
+ * colour and axe did not: an instrument failure. The rule's OTHER messageKeys
+ * (bgImage, bgGradient, imgNode, elmPartiallyObscured) are properties of the
+ * page, where "axe cannot be sure" is the honest answer, and a page with no
+ * text makes the rule inapplicable. Neither is a defect, and an earlier cut
+ * that keyed on "color-contrast missing from passes" flagged both.
+ */
+describe("audits/a11y — contrast that was never measured (#888)", () => {
+  const writePkg = (dir: string, reddoor: unknown) =>
+    writeFile(join(dir, "package.json"), JSON.stringify({ name: "site", reddoor }));
+
+  async function writeDevFixtures(dir: string, names: string[]): Promise<void> {
+    await mkdir(join(dir, "src", "routes"), { recursive: true });
+    for (const name of names)
+      await mkdir(join(dir, "src", "routes", "dev", name), { recursive: true });
+  }
+
+  function fakeSpawn(artifact: A11yArtifact, sink?: { spec: string }): SpawnFn {
+    return async (_cmd, args, opts) => {
+      if (sink) sink.spec = await readFile(args[args.length - 1] as string, "utf-8");
+      const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
+      await mkdir(out, { recursive: true });
+      await writeFile(join(out, "results.json"), JSON.stringify(artifact), "utf-8");
+      return { code: artifact.totalViolations > 0 ? 1 : 0, stdout: "", stderr: "" };
+    };
+  }
+
+  async function run(artifact: A11yArtifact, sink?: { spec: string }) {
+    const cwd = await tmpSite();
+    await writePkg(cwd, {});
+    await writeDevFixtures(cwd, ["a11y-fixtures", "animate-in"]);
+    return a11yAudit({ site: { path: cwd }, spawn: fakeSpawn(artifact, sink) });
+  }
+
+  // PASS CONTROL: a genuinely clean run must still read `pass`, or every FAIL
+  // below is meaningless.
+  it("passes a run that measured contrast and found nothing", async () => {
+    const r = await run({
+      totalViolations: 0,
+      byImpact: {},
+      measured: [
+        { route: "a11y fixtures", ruleNodes: { "color-contrast": 61, region: 3 } },
+        { route: "animate-in demo", ruleNodes: { "color-contrast": 12 } },
+      ],
+    });
+    expect(r.status).toBe("pass");
+  });
+
+  // The real defect: a violation the exit code can see, naming how many
+  // elements went unmeasured and how to fix it.
+  it("fails on unparseable-colour nodes and says how many and what to do", async () => {
+    const r = await run({
+      totalViolations: 1,
+      byImpact: { serious: 1 },
+      violations: [
+        {
+          id: "contrast-unmeasured",
+          impact: "serious",
+          route: "a11y fixtures",
+          help: "7 element(s) on a colour axe cannot parse, so contrast was never measured there — give the oklch() token an explicit hue (identical at chroma 0)",
+        },
+      ],
+      measured: [{ route: "a11y fixtures", ruleNodes: { "color-contrast": 54 } }],
+    });
+    expect(r.status).toBe("fail");
+    expect(r.summary).toContain("contrast-unmeasured");
+    expect(r.summary).toContain("7 element(s)");
+    // The remedy has to travel with the finding, or it is just an alarm.
+    expect(r.summary).toContain("explicit hue");
+  });
+
+  // Still correct, still kept, just not what #888 was.
+  it("fails on a rule that genuinely threw, naming the rule and axe's message", async () => {
+    const r = await run({
+      totalViolations: 1,
+      byImpact: { serious: 1 },
+      violations: [
+        {
+          id: "rule-errored",
+          impact: "serious",
+          route: "a11y fixtures",
+          help: 'axe could not run "color-contrast": boom',
+        },
+      ],
+    });
+    expect(r.status).toBe("fail");
+    expect(r.summary).toContain("rule-errored");
+    expect(r.summary).toContain("boom");
+  });
+
+  // The regression the previous cut shipped: a page whose text sits on a
+  // gradient yields color-contrast with ZERO passes, and a page with no text
+  // makes the rule inapplicable. Both are healthy. Neither may be reported.
+  it("says nothing about a page whose contrast is merely uncertain", async () => {
+    for (const measured of [
+      [{ route: "a11y fixtures", ruleNodes: { region: 2 } }],
+      [{ route: "a11y fixtures", ruleNodes: {} }],
+    ]) {
+      const r = await run({ totalViolations: 0, byImpact: {}, measured });
+      expect(r.status).toBe("pass");
+      expect(r.summary).not.toContain("unmeasured");
+    }
+  });
+
+  // The spec must collect the signal the tests above assume, or they describe
+  // a shape nothing produces — which is exactly how the previous cut passed.
+  it("the generated spec keys on colorParse and on axe's documented error field", async () => {
+    const sink = { spec: "" };
+    await run({ totalViolations: 0, byImpact: {} }, sink);
+    expect(sink.spec).toContain("colorParse");
+    expect(sink.spec).toContain("contrast-unmeasured");
+    expect(sink.spec).toContain("inc.error");
+    expect(sink.spec).toContain("ruleNodes");
+    // And must NOT have gone back to the shape that cannot occur.
+    expect(sink.spec).not.toContain("error-occurred");
   });
 });

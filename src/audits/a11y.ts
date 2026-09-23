@@ -35,11 +35,19 @@ export type SkippedRoute = {
   reason: string;
 };
 
+/** How many nodes each axe rule actually passed on one route (#888).
+ *
+ *  A COUNT, not a presence flag. The unit that matters is nodes — the incident
+ *  this exists for is "0 contrast nodes where there should have been 61" — and
+ *  a boolean is satisfied by one passing node while sixty go unmeasured. */
+export type MeasuredRoute = { route: string; ruleNodes: Record<string, number> };
+
 type NormalizedA11y = {
   totalViolations: number;
   byImpact: Partial<Record<Impact, number>>;
   violations: AxeViolation[];
   skipped?: SkippedRoute[];
+  measured?: MeasuredRoute[];
 };
 
 /** One route as the generated spec sees it. `placeholder404Ok` is set only on
@@ -369,6 +377,8 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   // they cannot fail the run, and written to the artifact so they cannot vanish
   // from the summary either.
   const skipped = [];
+  // Which rules produced positive evidence on each route (#888).
+  const measured = [];
 
   // Capture uncaught client-side exceptions across every route we visit. A page
   // that builds + SSRs cleanly can still throw on hydrate and blank itself
@@ -455,6 +465,72 @@ test("a11y + hydration across configured routes", async ({ page }) => {
         nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
       });
     }
+    // #888. The mechanism, MEASURED against axe-core 4.13.0 in Chromium
+    // rather than inferred: an unparseable colour does NOT throw the rule.
+    // Chrome resolves "oklch(0.205 0 none)" perfectly well, axe fails to parse
+    // it, and axe records that PER NODE as an "incomplete" entry whose check
+    // carries messageKey "colorParse". The rule keeps running everywhere else.
+    //
+    //   band on one element : passes=1 incomplete=1 keys=["colorParse"]
+    //   same colour on body : passes=0 incomplete=3 keys=["colorParse"]
+    //   healthy control     : passes=2 incomplete=0 keys=[]
+    //
+    // So the nodes behind that colour are never measured for contrast, while
+    // the rest of the page passes and the run reports zero violations. That is
+    // what hid two real failures: the page looked clean because the elements
+    // that were not legible were also the elements nobody looked at.
+    //
+    // "colorParse" is the RIGHT signal precisely because it means the browser
+    // understood the colour and axe did not — an instrument failure. The other
+    // messageKeys on this rule (bgImage, bgGradient, imgNode,
+    // elmPartiallyObscured) are properties of the PAGE, where "axe cannot be
+    // sure" is the honest answer and not a defect. Measured: a text-on-gradient
+    // page yields keys=["bgGradient"], and a page with no text at all makes the
+    // rule inapplicable. Neither is reported here.
+    const contrastIncomplete = (results.incomplete ?? []).find((r) => r.id === "color-contrast");
+    const unparseable = contrastIncomplete
+      ? (contrastIncomplete.nodes ?? []).filter((n) =>
+          [...(n.any ?? []), ...(n.all ?? []), ...(n.none ?? [])].some(
+            (c) => c && c.data && c.data.messageKey === "colorParse",
+          ),
+        )
+      : [];
+    if (unparseable.length > 0) {
+      violations.push({
+        id: "contrast-unmeasured",
+        impact: "serious",
+        route: name,
+        // One line, because this IS the summary line in CI. It has to carry the
+        // count (how blind was the run), the cause (axe, not the browser) and
+        // the remedy (an explicit hue) — an alarm without a remedy just gets
+        // muted.
+        help:
+          unparseable.length +
+          " element(s) on a colour axe cannot parse, so contrast was never measured there" +
+          " — give the oklch() token an explicit hue (identical at chroma 0)",
+        nodes: unparseable.map((n) => ({ html: n.html, target: n.target })),
+      });
+    }
+    // A rule that genuinely THREW is a different and much rarer shape, and axe
+    // documents a field for it. Keep it: it is correct, it just is not what
+    // #888 was.
+    for (const inc of results.incomplete ?? []) {
+      if (!inc.error) continue;
+      violations.push({
+        id: "rule-errored",
+        impact: "serious",
+        route: name,
+        help: 'axe could not run "' + inc.id + '": ' + (inc.error.message || "no message from axe"),
+        helpUrl: inc.helpUrl,
+      });
+    }
+    // Coverage as a NUMBER, not a boolean. The unit that matters is nodes --
+    // "0 where it should have been 61" -- and a presence flag is satisfied by
+    // one passing node while sixty go unmeasured, which is the very failure
+    // above.
+    const counts = {};
+    for (const r of results.passes ?? []) counts[r.id] = (r.nodes ?? []).length;
+    measured.push({ route: name, ruleNodes: counts });
   }
 
   // Hydration smoke check: load real routes (the homepage) and fail on any
@@ -478,7 +554,7 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     await writeFile(
       OUTPUT,
       JSON.stringify(
-        { totalViolations: violations.length, byImpact, violations, skipped },
+        { totalViolations: violations.length, byImpact, violations, skipped, measured },
         null,
         2,
       ),
@@ -511,7 +587,14 @@ export function describeViolations(violations: AxeViolation[]): string {
   const entries = [...groups.values()];
   const shown = entries.slice(0, NAMED_VIOLATIONS_MAX).map((g) => {
     const count = g.n > 1 ? ` ×${g.n}` : "";
-    const detail = g.id === "route-missing" && g.help ? ` (${g.help})` : "";
+    // `route-missing` and `rule-errored` both carry their diagnostic in `help`
+    // rather than in a node, and for both of them that sentence IS the finding
+    // — "rule-errored on a11y fixtures" tells an operator nothing, while
+    // "Unable to parse color oklch(0.205 0 none)" tells them exactly what to
+    // change. Every other rule's help is generic advice the helpUrl repeats.
+    const carriesItsOwnDiagnostic =
+      g.id === "route-missing" || g.id === "rule-errored" || g.id === "contrast-unmeasured";
+    const detail = carriesItsOwnDiagnostic && g.help ? ` (${g.help})` : "";
     return `${g.id}${count} on ${g.route}${detail}`;
   });
   const rest = entries.length - shown.length;
