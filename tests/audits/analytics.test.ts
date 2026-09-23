@@ -632,3 +632,129 @@ export const init = () => {
     expect(res.status).not.toBe("pass");
   });
 });
+
+describe("readTagConfig does not take prose, or a guess, for a declaration", () => {
+  async function hookSite(hook: string, extra?: Record<string, string>): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "rd-hook3-"));
+    await mkdir(join(dir, "src", "lib", "components"), { recursive: true });
+    await writeFile(join(dir, "src", "hooks.client.ts"), hook);
+    for (const [rel, body] of Object.entries(extra ?? {})) {
+      await writeFile(join(dir, rel), body);
+    }
+    return dir;
+  }
+
+  it("ignores a commented-out call sitting above the real one", async () => {
+    // The single most likely artefact of THIS rollout. Taking the first match
+    // turned it into a red build naming a host nobody configured.
+    const dir =
+      await hookSite(`// initAnalytics({ measurementId: "G-OLDOLDOLD", productionHost: "old.example.com" });
+/* Example:
+   initAnalytics({ measurementId: "G-DOCSDOCSX", productionHost: "docs.example" });
+*/
+initAnalytics({ measurementId: "G-REALREALX", productionHost: "www.example.com" });`);
+    expect(await readTagConfig(dir)).toMatchObject({
+      measurementId: "G-REALREALX",
+      productionHost: "www.example.com",
+    });
+  });
+
+  it("declares nothing legible when two live calls disagree", async () => {
+    // A dev/prod pair. Guessing between them reported a site as gated on its
+    // staging host, which then read as "inert in production".
+    const dir = await hookSite(`if (dev) {
+  initAnalytics({ measurementId: "G-STAGINGXX", productionHost: "staging.example.com" });
+} else {
+  initAnalytics({ measurementId: "G-PRODPRODX", productionHost: "www.example.com" });
+}`);
+    const cfg = await readTagConfig(dir);
+    expect(cfg?.measurementId).toBeNull();
+    expect(cfg?.productionHost).toBeNull();
+  });
+
+  it("still scans for a hand-rolled loader when only the host is legible", async () => {
+    // beachfront's real shape: the ID comes from an imported identifier, not a
+    // string literal. The partial-declaration path used to return
+    // `foreignAnalytics: false` WITHOUT scanning — an assertion nothing tested —
+    // and the verdict then flatly claimed "nothing in its checkout references
+    // one" about a site emitting 1,051 users a month.
+    const dir = await hookSite(
+      `import { PUBLIC_GA_ID } from "$env/static/public";
+export const init = () => initAnalytics({ measurementId: PUBLIC_GA_ID, productionHost: "live.example.com" });`,
+      {
+        "src/lib/components/Analytics.svelte":
+          'script.src = "https://www.googletagmanager.com/gtag/js?id=" + ID;',
+      },
+    );
+    const cfg = await readTagConfig(dir);
+    expect(cfg?.measurementId).toBeNull();
+    expect(cfg?.foreignAnalytics).toBe(true);
+  });
+});
+
+describe("classifyAnalytics: a verdict must not argue with itself", () => {
+  it("does not tell you to re-run the probe that already answered", async () => {
+    // The probe authoritatively established there is no loader. Saying
+    // "whether the two describe the same property cannot be told from here,
+    // re-run with REDDOOR_ANALYTICS_PROBE=1" sends the operator back to the
+    // instrument that just answered.
+    const v = classifyAnalytics(
+      facts({
+        config: { measurementId: null, productionHost: null, foreignAnalytics: true },
+        propertyId: "123456789",
+        evidence: { probe: { requestedIds: [] }, htmlIds: null },
+      }),
+    );
+    expect(v.status).toBe("fail");
+    expect(v.summary).not.toContain("Re-run with");
+    expect(v.unchecked.join(" ")).not.toContain("the site's own loader");
+  });
+
+  it("reports a refused property ahead of any emission warning", () => {
+    // `denied` is documented as a standing fault and therefore a fail. Three
+    // emission branches returned `warn` first and threw the read away — the
+    // audit paid for the GA call, was told the property is gone, and said warn.
+    const v = classifyAnalytics(
+      facts({
+        config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+        propertyId: "111111111",
+        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA", "G-AAAAAAAAAA"] }, htmlIds: null },
+        property: { ok: false, kind: "denied", error: "PERMISSION_DENIED" },
+      }),
+    );
+    expect(v.status).toBe("fail");
+    expect(v.summary).toContain("refused property");
+  });
+
+  it("does not call a preload plus a script tag two loads", () => {
+    // Both match the loader URL in the markup, and neither is a second LOAD.
+    // Only the probe counts actual requests.
+    const v = classifyAnalytics(
+      facts({
+        config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+        propertyId: "111111111",
+        evidence: { probe: null, htmlIds: ["G-AAAAAAAAAA", "G-AAAAAAAAAA"] },
+      }),
+    );
+    expect(v.summary).not.toContain("double every session");
+  });
+});
+
+describe("classifyPropertyError does not blame the site for our own bad request", () => {
+  it("treats a malformed request as upstream, not as a missing property", () => {
+    // GA4 answers INVALID_ARGUMENT for any malformed request. Both of these are
+    // OUR bug — the hostname dimension and the date range are ours to get right.
+    for (const m of [
+      "3 INVALID_ARGUMENT: Field hostName is not a valid dimension.",
+      "3 INVALID_ARGUMENT: date_ranges[0].start_date is invalid.",
+    ]) {
+      expect(classifyPropertyError(new Error(m))).toBe("unavailable");
+    }
+  });
+
+  it("still blames the row when the invalid argument IS the property", () => {
+    expect(classifyPropertyError(new Error("3 INVALID_ARGUMENT: property must be numeric"))).toBe(
+      "denied",
+    );
+  });
+});

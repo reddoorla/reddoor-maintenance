@@ -139,12 +139,36 @@ const LOADER_SELECTOR = 'script[src*="googletagmanager.com/gtag/js"]';
  * prevent, reintroduced by the way it was spelled.
  */
 function loaderPresentFor(doc: DocumentLike, measurementId: string): boolean {
-  const wanted = gtagLoaderUrl(measurementId);
   const found = doc.querySelectorAll(LOADER_SELECTOR);
   for (let i = 0; i < found.length; i++) {
-    if (found[i]?.src === wanted) return true;
+    const src = found[i]?.src;
+    if (src !== undefined && loaderIdOf(src) === measurementId) return true;
   }
   return false;
+}
+
+/**
+ * The `id` a gtag loader URL names, or null.
+ *
+ * Parsed rather than string-compared against `gtagLoaderUrl(id)`. A browser
+ * reflects `script.src` through the WHATWG URL parser, whose special-query
+ * percent-encode set escapes `'` — the one character `encodeURIComponent`
+ * leaves raw. So `G-tick'q` was written as `…?id=G-tick'q` and read back as
+ * `…?id=G-tick%27q`, the equality failed, and every re-run of the layout effect
+ * appended another loader for the same property: the double-counting this guard
+ * exists to prevent, surviving inside the guard. Parsing makes the comparison
+ * immune to any such normalisation, now and later.
+ *
+ * Falls back to a manual scan when `URL` is unavailable, so this never throws
+ * in a runtime that lacks it.
+ */
+function loaderIdOf(src: string): string | null {
+  try {
+    return new URL(src, "https://x.invalid").searchParams.get("id");
+  } catch {
+    const m = /[?&]id=([^&]*)/.exec(src);
+    return m?.[1] !== undefined ? decodeURIComponent(m[1]) : null;
+  }
 }
 
 /** The gtag.js loader URL for a measurement ID. Exported for the audit, which
