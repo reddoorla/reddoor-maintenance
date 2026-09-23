@@ -4283,3 +4283,351 @@ The first review also found the inner `catch` was fail-open. `stat` throws `EACC
 **And a second instance of a defect whose first instance is written into the code that fixed it.** `the-pointe-burbank`'s roster `url` is `the-pointe-burbank.netlify.app`, which 404s; the real project is `the-pointe-burbank-rd`, and its sibling `the-tower-burbank` is recorded correctly with the suffix. `src/dashboard/site-details.ts` explains that the `url` field was made editable precisely because `vida-legacy-foundation` "still pointed at a hostname that 404s, so every audit that ran against it was measuring nothing". That change made a wrong URL correctable and nothing made one noticeable; both instances were found by someone happening to look. Filed as https://github.com/reddoorla/reddoor-maintenance/issues/912.
 
 **hedloc's svelte-select major was a type narrowing, not a dropped feature.** v6 narrows `items` to `SelectItem[] | null`, so its types no longer admit the `string[]` the wrapper passes, but `convertStringItemsToObjects` is alive at `Select.svelte:271-279` and still maps each string to `{ index, value, label }`. Fixed at the wrapper boundary rather than in the data, because normalising in our own code would mean reproducing that conversion including `index`, which the library's own hover and active-item tracking reads. reddoorla/hedloc#50, merged as `966a5a99`; the Renovate PR was closed as superseded. Worth knowing for later: `ContactForm`, `StyledSingleSelect` and `StyledMultiSelect` are imported by nothing on that site, and `StyledMultiSelect` imports `$lib/assests/icons/…` — `assests`, a directory that does not exist. It survives only because nothing imports it.
+
+## 2026-09-23 — Fleet analytics: one tag, an audit that pairs it, and the same guard in the wrong place three times (#918, #919, #920)
+
+The ask was "do we have a universal analytics solution, or has it been a la
+carte" — and then, on the answer, "let's build it".
+
+It was a la carte. The starter ships no analytics at all: no `gtag`, nothing in
+`app.html`, no module in `src/lib`, and no analytics step in `launch.ts`,
+`onboard.ts` or `ensure-site.ts`. `docs/NEW-SITE.md` mentions analytics once, as
+a CSP caveat. Every site that has it got it by hand, and nine repos had done it
+four different ways: a raw inline snippet in `app.html` on seven sites (firing
+on `localhost` and every deploy preview), a hand-rolled deferred loader on two,
+a Svelte component with a hostname gate on one (the only one with a test), and a
+GTM container behind a consent banner on one.
+
+The read side was already complete and generic. `src/reports/ga/client.ts` pulls
+GA4 through one service account, `analytics-health.ts` watches for a fleet-wide
+subject outage, and the site row has carried `ga4_property_id` all along. So the
+two halves had drifted with nothing to catch it: **11 of 46 site rows carry a
+property, 9 repos carry a tag, and they are not the same nine.** Measured that
+day, three ways per site (remote `app.html`, remote `src/lib`, live HTML):
+
+- `revogen` — tag live, no property on the row. Collecting into something no
+  report reads; its monthly analytics section renders blank while the data sits
+  in GA.
+- `alamo-anatomy`, `hedloc`, `la-homelessness-youth` — property on the row, no
+  tag anywhere. Those properties can only ever answer zero.
+- `1836dig`, `29-navy`, `data-dynamiq`, `la-homelessness-initiative` — neither.
+
+Both failure directions are silent. A blank section and a zero both look like a
+quiet month, and the only thing that has ever surfaced one is someone going to
+look.
+
+### What shipped
+
+`initAnalytics` on `@reddoorla/maintenance/client` (https://github.com/reddoorla/reddoor-maintenance/issues/918), framework-free
+because a Svelte component exported from the package would couple ~20 repos to
+one Svelte version for nine lines of DOM work. The hostname gate is the
+load-bearing part: reddoor's own property holds **13,312 `localhost` users
+against 105 real ones** for the 30 days to 2026-09-14, the smoke suite tripping
+the tag's interaction gate once per fresh browser context, and GA4 cannot delete
+that after the fact.
+
+The apex/www rule moved into one module both halves import, because a tag
+emitting on a host the Data API filters out produces a site that reads as "no
+traffic" rather than as a bug — which is exactly the shape of the three sites
+above.
+
+`reddoor-maint audit analytics` pairs the two ends. `analytics-tag` (https://github.com/reddoorla/reddoor-maintenance/issues/920)
+writes the site side.
+
+### Three beliefs corrected on contact
+
+**D2's CSP reasoning was right and had never been measured.** The spec said so
+explicitly and demanded a diff. Built `reddoor-starter` with probes at three
+positions and read both route types, with SvelteKit's own nonce and hash as
+positive controls in the same build. SvelteKit nonces and hashes only the
+scripts it injects. Two things the spec did not carry: the prerendered-route
+escape hatch depends on the snippet sitting ABOVE `%sveltekit.head%` (tidy the
+template and it dies silently), and the loader and the config are separate
+problems — an external `<script src>` needs only the host in `script-src` and
+then runs on both route types, while only the inline config snippet is
+unreachable. So `app.html` loader plus inline config is a half-working install
+whose broken half is invisible on exactly the prerendered pages anyone checks
+first. Also: `reddoor-website` has no `csp` block at all, so four repos lack
+one, not three.
+
+**The spec said the call goes in the root layout and the config in
+`site-config.json`.** Neither survived contact. No fleet site has
+`src/hooks.client.ts`, while the root layouts run 2.7KB to 9.7KB of
+hand-maintained per-site markup with no common anchor; and two of five sampled
+sites have no `site-config.json` at all. So the recipe writes a file nobody has
+rather than editing twenty divergent ones, and the values live in the hook that
+uses them. It uses SvelteKit's `init` export, verified by reading
+`write_client_manifest.js` in the installed 2.70.3 — line 150 namespace-imports
+the module so a top-level side effect would also run, and line 173 wires
+`init: client_hooks.init`, which is the defined moment rather than whenever the
+module graph evaluates.
+
+**Beachfront is why the audit is built the way it is.** Its tag is appended
+from JS in an effect, so a plain GET of its HTML finds no `<script src>` at all
+while the browser probe sees `G-51J638HZPL`. That is the shape EVERY site takes
+after the sweep. The first version of the audit let an empty HTML scan mean "not
+emitting" — which would have failed beachfront that day and the whole fleet
+afterwards, while looking like it was working.
+
+### The review found a false green, and it was on the default path
+
+The audit was not safe to merge, and an adversarial round said so with a
+reproduction. `classifyAnalytics` ended in an unconditional `pass` whenever both
+config values were present, reached whenever the property had not been read.
+Not exotic — after the sweep every loader is JS-injected, so a plain GET finds
+nothing on a healthy site; add no browser and no GA credentials and that was the
+NORMAL path. The entire fleet would have reported green because two config
+values agreed with each other. Re-measured with the probe off, beachfront went
+`pass` → `skip`.
+
+Five more from the same round, each confirmed by running it:
+
+- The audit read the property UNFILTERED while `reports/draft.ts` reads it
+  FILTERED. A different number than the report renders — 13,417 against 105 on
+  reddoor's property — and the zero-users warning could never fire while
+  localhost traffic held the count up.
+- A quota blip, a 5xx or a DNS failure was a hard `fail`. One Airtable quota
+  once reddened six workflows here.
+- `Site.preLaunch` could NEVER be true: `inventory/select.ts` filters pre-launch
+  rows out before a `Site` exists. Five classifier branches and two GREEN tests
+  pinned behaviour production cannot produce. Deleted rather than replaced with
+  a speculative source.
+- `gtagLoaderIds` matched commented-out snippets, JSON blobs, `data-` attributes
+  and a look-alike host, and an HTML-only positive drove a hard `fail` with a
+  confident wrong story.
+- `analyticsAudit` and every real dep had zero coverage. The wiring tests added
+  in the fix catch three of the above on their own.
+
+Plus: idempotence was ID-blind, so a GTM container injecting `/gtag/js` or a
+legacy snippet with the wrong ID would have silenced the real tag while
+reporting `already-loaded`; and `window.dataLayer` was captured rather than read
+live, so anything replacing the array would orphan the queue.
+
+Operationally, the probe launched a browser per site and `audit --fleet`
+defaults to every audit at unbounded concurrency — ~27 Chromium instances from a
+bare invocation. The 2026-08-24 overload was six agents and one Chrome. The
+probe is now off unless `REDDOOR_ANALYTICS_PROBE` is set.
+
+### Round two: the fixes composed into a worse audit than the one they repaired
+
+The round-one fixes were right individually and wrong together, and the root
+cause was mine. https://github.com/reddoorla/reddoor-maintenance/issues/920's recipe writes the measurement ID into
+`src/hooks.client.ts`; https://github.com/reddoorla/reddoor-maintenance/issues/918's audit read `src/lib/site-config.json`. I made that
+relocation decision IN the recipe — after finding that two of five sampled sites
+have no `site-config.json` at all — and never went back to the reader. Only 4 of
+28 checkouts have that file and none carries an analytics block, so the audit
+found no declaration anywhere and answered `skip: "Not checked: everything"`,
+identically whether or not the row carried a property. The pairing was never
+evaluated. In its default configuration the instrument could not pass on a
+known-good input, which is this repo's first rule failing from the inside.
+
+Two more composition failures:
+
+**`observed()` softened branches where `fail` is certain.** "The row carries a
+property and the checkout declares no tag" is read off disk; no observation
+makes it more or less true. Routing it through the softening helper meant the
+four sites the audit exists to find produced an exit-0, un-written-back `warn`
+on every default run — and `warn` reaches no exit code, no write-back and no
+dashboard.
+
+**It softened only in the failing direction**, so the HTML scan was distrusted
+when it accused and trusted when it exonerated. A `<link rel="preload">` for the
+gtag loader — a standard performance pattern that fires no tag — read as
+"confirms it loads".
+
+And an empty hostname list means UNFILTERED to `fetchPeriodUsers`, not "no
+filter wanted", so a site with no deployed URL passed on 13,417 localhost users
+while saying "whether the tag fires: not checked" in the same sentence.
+
+### The fix to that had its own false accusation, caught by running it for real
+
+Making the pairing certain broke the sites that already work. Before the sweep
+beachfront injects its loader from its OWN component: the hook is absent AND a
+plain GET shows nothing, so "the property can only answer zero" would have been
+a confident lie about a site emitting 1,051 users a month. There is a third
+mechanism, and neither the checkout reader nor the HTML scan sees it.
+
+`readTagConfig` now reports `foreignAnalytics` from a bounded scan of `src/`,
+and the audit stops short of certainty and asks for the probe when it finds one.
+That defect only surfaced because the proof ran against nine real checkouts
+instead of fixtures — the fixtures all passed.
+
+The default path now, with no browser and no credentials: alamo-anatomy, hedloc
+and la-homelessness-youth FAIL; beachfront, msot and espada warn with a precise
+reason; 29-navy and data-dynamiq warn as un-started. No false accusations.
+
+### Two instruments that were wrong in both directions
+
+`DENIED_RE`, written to stop a quota blip reddening a site, used unanchored
+digit runs. `403` matched "Requested 403, available 0", "Deadline exceeded after
+60.403s", and any 9-digit GA4 property ID containing 403 — turning every
+transient error on such a property into a hard fail, which is the exact
+regression it existed to prevent. Meanwhile "The caller does not have
+permission", the literal message Google returns for a real 403, classified as
+transient. `src/reports/ga/failover.ts` had the correct anchored classifier
+twenty lines away and it was not reused. It is now.
+
+The double-loader warning could never fire for the case its own summary names:
+both evidence paths deduplicated by ID, so two loaders for ONE property always
+counted as one. It could only ever have fired for two DIFFERENT properties.
+
+And in the recipe, `maskNonCode` has no notion of regex literals, so
+`const A = /'/;` inverts quote parity for the rest of the file. The confirmed
+outcome was not a refusal but a WRONG EDIT: `analytics: true` landed inside a
+comment, `node --check` passed it, the policy was untouched, and the recipe
+reported "analytics hosts enabled". It now fails closed on any slash it cannot
+classify, which costs nothing — 25 real configs, 10 edits, 0 refusals.
+
+### Round three: the same defect a third time, through a third door
+
+Round three was not clean either, and two of its six findings are round two's
+defect re-entering: a confident `fail` sentence asserting something the code
+never checked, and a status contradicting its own summary.
+
+**A PARTIAL declaration skipped the foreign-analytics scan.** `readTagConfig`
+returned `foreignAnalytics: false` whenever the hook yielded one of its two
+fields — an assertion nothing tested — and with the measurement ID null that
+lands on the branch whose summary flatly claims "nothing in its checkout
+references one". That is beachfront's real shape: its ID comes from an imported
+identifier rather than a string literal, which is the ordinary way to write it.
+The guard added in round two specifically to stop the audit accusing a working
+site was bypassed by the path beachfront actually takes.
+
+**Prose counted as code.** The hook regex took the first match with no comment
+stripping, so a commented-out old call above the new one — the most likely
+artefact of this very rollout — was read as the declaration and turned into a
+red build naming a host nobody configured. `gtagLoaderIds` strips HTML comments
+on exactly this reasoning, and the reader written a day later did not.
+
+**A `denied` property read was discarded** because the property section sat
+after the emission section, so a double-loader warn returned first and threw
+away a read the audit had already paid for. A fail masked as a warn is the
+direction that hides a finding.
+
+**`INVALID_ARGUMENT` meant `denied`**, but GA4 answers it for any malformed
+request — "Field hostName is not a valid dimension" is our own filter, and it
+reddened a client's row for our bug.
+
+**And the idempotence guard was still non-idempotent for one character.** A
+browser reflects `script.src` through the WHATWG URL parser, whose special-query
+set escapes `'` — the single character `encodeURIComponent` leaves raw. So
+`G-tick'q` was written one way and read back another, the string comparison
+failed, and every re-run appended another loader. The double-counting the guard
+exists to prevent, surviving inside the guard, two rounds after it was first
+fixed.
+
+The recipe had its own: it would have **doubled beachfront**. Its only noop
+condition was "the hook already exists", and nothing consulted the detector the
+audit ships twenty lines away. `initAnalytics` stands down only for its own ID,
+and a site-local loader that runs later never sees ours — beachfront's component
+appends in `onMount` with no guard, and SvelteKit's ClientInit runs before the
+app starts. Migrating it with its existing ID, the natural thing to type, gives
+one property two loaders. And `cspNote` told operators "nothing blocks the
+loader" for any site with no `csp:` in `svelte.config.js`, which is false for
+reddoor-website and gallerysonder — both set an enforcing policy in
+`netlify.toml`.
+
+The pattern across three rounds is one thing said three ways: **every one of
+these was a guard in the right idea and the wrong place.** Not one was an
+architectural mistake. What they have in common is that each was written against
+an imagined input and passed its fixtures.
+
+### Round four: a build-breaker, and a proof that measured the wrong property
+
+Round four found the worst defect of the four, in the half I had been most
+confident about.
+
+`analytics: true` is an option of `createSvelteConfig`, which strips it before
+building `kit.csp`. SvelteKit types its OWN `kit.csp` as
+`{mode, directives, reportOnly}` and REJECTS unknown keys, so writing it into a
+native block does not fail to work — it fails the build. `planCspEdit` matched
+any `csp:` and had no idea whose option it was. Measured across all 28 fleet
+configs it fired on **13 native blocks where the option is invalid and zero of
+the 12 factory callers where it would have worked**. Perfectly inverted. Both
+starter templates were in the 13, so it would have propagated to every future
+site. The recipe then committed the file and reported "CSP: analytics hosts
+enabled", and its refusal note appended "add `analytics: true` by hand" — the
+exact edit that breaks a native block, printed under an otherwise-correct
+refusal.
+
+**The proof I had run was measuring the wrong property.** It checked
+`node --check`, which only asks whether the result is syntactically JavaScript.
+It passed 28 times while the edit was wrong every time. And every positive
+fixture in the test file used `createSvelteConfig({ csp: … })`, a shape that
+exists on ZERO fleet configs, while `kit: { csp: … }` — what 13 real configs
+have — appeared only in refusal tests. The instrument had only ever passed on an
+input that does not exist on disk.
+
+The proof now runs SvelteKit's own `validate_config`, with two controls first:
+it must reject a block carrying `analytics` and accept the same block without
+it, so a validator that always threw could not read as a pass.
+
+Four more verdict defects, all the same moved-guard shape. The `denied`-first
+return added in round three sat AFTER the pairing branches, so it covered
+everything except the shape the three sweep targets are actually in — and those
+sites were told "run analytics-tag" while the Data API had already answered
+NOT_FOUND for the property that tag would install into. A failed read was
+disclosed on some paths and not others. `foreignAnalytics: true` with an
+authoritative empty probe still said "nothing in its checkout references one".
+And the scan skips `hooks.client.ts` by construction, so an unreadable hook read
+as "nothing references one" about the one file that certainly does, and got
+prescribed a command that no-ops.
+
+The cross-cutting one: the audit and the recipe share `findForeignAnalytics` and
+drew OPPOSITE conclusions from it. The audit read a foreign loader as "migrate
+it with the recipe"; the recipe read the same file as "refuse". Eight real sites
+were being handed an instruction that could not be executed. One detector, two
+decisions, nobody checking they agreed.
+
+### What four dirty rounds actually taught
+
+Every single finding across all four rounds was a guard in the right idea and
+the wrong place. Not one was an architectural mistake, and not one was caught by
+a unit test — every test file was green at the moment each defect was found.
+What caught them, four times running, was executing against real checkouts:
+beachfront's imported-identifier declaration, the 13 native `kit.csp` blocks,
+the eight sites given unexecutable advice, the three sweep targets' verdicts.
+Fixtures encode what you already believe. The fleet does not.
+
+### Honest accounting
+
+The mutation battery restored with `git checkout --` and silently reverted the
+uncommitted fixes, because `git checkout` restores from the INDEX and the files
+had only been staged at an earlier state. The restore verification caught it and
+the work was reapplied from the conversation, but nothing except that check
+stood between this and a file that had quietly lost an hour of edits. Mutating
+uncommitted work needs an in-process backup; the memory that recommends the safe
+pattern has been corrected.
+
+Tests caught defects in fixes twice. `planCspEdit` counted a `csp:` mentioned in
+prose as a second occurrence and refused its own edit as ambiguous — one
+sentence away from happening on the starter, whose csp block carries ~50 lines
+of comment. And the fixture-based proof of the certain-pairing fix passed while
+the real-checkout proof failed, which is the whole argument for proving an
+instrument against the fleet rather than against what you imagine the fleet
+looks like.
+
+Across both rounds, 13 mutations were applied to the round-two code and all 13
+turn a test red, including the false green, the softened pairing, the unfiltered
+read and the unanchored 403.
+
+### What is proven, and what is not
+
+The audit was proven three times against live sites: with the probe on, pass on both
+known-good shapes and fail on both known-bad directions; with the probe off, the
+three genuinely broken sites fail and none of the four working ones is accused —
+and after round three, the foreign-mechanism detector discriminates correctly on
+all ten. The recipe's round trip was executed for the first time in round three:
+beachfront is refused by name, 1836dig applies in one commit carrying both files
+with a clean tree, a re-run noops, and the audit reads back what the recipe
+wrote and passes. The CSP
+planner was proven against every real `svelte.config.js` on this machine: 10
+plan an edit, each parsing under `node --check` and re-planning as idempotent,
+15 have no `csp` option, none refused.
+
+Not proven: no site has been swept, and the audit's verdict still reaches
+nothing durable — `write-audits-to-airtable.ts` has no handler for `analytics`,
+so the result is visible in the run's own table and nowhere else. That is the
+same shape as the a11y warn in https://github.com/reddoorla/reddoor-maintenance/issues/910 and is recorded on https://github.com/reddoorla/reddoor-maintenance/issues/921. The pilot on
+beachfront, the Lighthouse delta measured on it, and the fleet sweep all wait on
+the package being published, which is the operator's call.
