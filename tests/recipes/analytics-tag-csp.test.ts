@@ -7,12 +7,41 @@ import {
 } from "../../src/recipes/analytics-tag/template.js";
 
 describe("planCspEdit", () => {
+  it("refuses SvelteKit's OWN kit.csp, which is what 13 of 28 fleet configs have", () => {
+    // THE defect round four found, and the reason every positive fixture here
+    // used to be a lie: `analytics` is a createSvelteConfig option. SvelteKit
+    // types kit.csp as {mode, directives, reportOnly} and REJECTS unknown keys,
+    // so writing it into a native block does not fail to work — it fails the
+    // build. Measured: the old matcher fired on 13 native blocks where the
+    // option is invalid and zero of the 12 factory callers where it would have
+    // worked. Both starter templates were in the 13.
+    const native = `export default {
+  kit: {
+    adapter: adapter(),
+    csp: { mode: "auto", directives: { "script-src": ["self"] } },
+  },
+};`;
+    const out = planCspEdit(native);
+    expect(out.kind).toBe("refuse");
+    if (out.kind === "refuse") {
+      expect(out.reason).toContain("SvelteKit's own");
+      expect(out.reason).toContain("script-src");
+    }
+  });
+
   it("turns the shorthand into the object form", () => {
     const out = planCspEdit("export default createSvelteConfig({ csp: true });");
     expect(out.kind).toBe("edit");
     if (out.kind === "edit") {
       expect(out.next).toBe("export default createSvelteConfig({ csp: { analytics: true } });");
     }
+  });
+
+  it("refuses a csp nested in kit even when the file also calls the factory", () => {
+    const mixed = `export default createSvelteConfig({
+  kit: { csp: { mode: "auto" } },
+});`;
+    expect(planCspEdit(mixed).kind).toBe("refuse");
   });
 
   it("inserts into an existing object without touching its directives", () => {

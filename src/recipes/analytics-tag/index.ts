@@ -193,9 +193,10 @@ function cspNote(plan: CspEditPlan): string {
         "googletagmanager.com must be in its script-src or the tag is refused on every request."
       );
     case "refuse":
-      return (
-        `CSP NOT CHANGED — ${plan.reason}. The tag will be REFUSED by the policy until ` +
-        "`analytics: true` is added to the `csp` option by hand."
-      );
+      // The reason carries the right instruction for the shape that was found.
+      // The old note appended "add `analytics: true` by hand", which is exactly
+      // the edit that breaks a native kit.csp — the wrong fix, printed under a
+      // correct refusal.
+      return `CSP NOT CHANGED — ${plan.reason}. Until that is done the browser refuses the loader on every request.`;
   }
 }

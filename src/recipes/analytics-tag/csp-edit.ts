@@ -82,6 +82,53 @@ export function maskNonCode(source: string): string {
   return out.join("");
 }
 
+/**
+ * Is this `csp:` an option of `createSvelteConfig`, or SvelteKit's own
+ * `kit.csp`?
+ *
+ * It matters absolutely. `analytics` is a REDDOOR option that
+ * `createSvelteConfig` strips before it builds `kit.csp`. SvelteKit's own
+ * config schema types `kit.csp` as `{mode, directives, reportOnly}` with
+ * unknown keys REJECTED, and throws `Unexpected option config.kit.csp.analytics`
+ * at validation — so writing it into a native block does not merely fail to
+ * work, it breaks the build.
+ *
+ * The first version of this module did not distinguish the two and the mapping
+ * turned out to be perfectly inverted: measured across all 28 fleet configs, it
+ * fired on 13 native blocks where the option is invalid and on zero of the 12
+ * `createSvelteConfig` callers where it would have worked. Both starter
+ * templates were in that 13. The proof that "passed" was `node --check`, which
+ * only ever asked whether the result was syntactically a JavaScript file.
+ */
+function usesConfigFactory(source: string, masked: string, cspIndex: number): boolean {
+  if (!/\bcreateSvelteConfig\s*\(/.test(masked)) return false;
+  // A `csp:` nested inside a `kit: { … }` is SvelteKit's own, even in a file
+  // that also calls the factory.
+  const before = masked.slice(0, cspIndex);
+  let depth = 0;
+  for (let i = before.length - 1; i >= 0; i--) {
+    const c = before[i];
+    if (c === "}") depth++;
+    else if (c === "{") {
+      if (depth === 0) {
+        // The key that opened this block.
+        const key = /([A-Za-z_$][\w$]*)\s*:\s*$/.exec(before.slice(Math.max(0, i - 40), i));
+        if (key?.[1] === "kit") return false;
+        continue;
+      }
+      depth--;
+    }
+  }
+  return true;
+}
+
+/** The hosts, spelled for a human to paste into a native `kit.csp`. */
+const MANUAL_HOSTS = [
+  '"script-src": add "https://www.googletagmanager.com"',
+  '"connect-src": add "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.analytics.google.com"',
+  '"img-src": add "https://www.google-analytics.com"',
+].join("; ");
+
 export function planCspEdit(source: string): CspEditPlan {
   // Located against the masked copy so prose cannot be mistaken for code, then
   // sliced out of the ORIGINAL, which the mask is length-preserving for.
@@ -111,11 +158,6 @@ export function planCspEdit(source: string): CspEditPlan {
         "division). Quote parity after one is not something it will guess at",
     };
   }
-  // A masker that ran off the end of a string or comment produced a mask that
-  // cannot be trusted either.
-  if (masked.length !== source.length) {
-    return { kind: "refuse", reason: "the masker did not produce a length-preserving copy" };
-  }
   const matches = [...masked.matchAll(CSP_KEY)];
   if (matches.length === 0) return { kind: "none" };
   if (matches.length > 1) {
@@ -129,6 +171,16 @@ export function planCspEdit(source: string): CspEditPlan {
   const valueStart = (m.index ?? 0) + m[0].length;
   const rest = source.slice(valueStart);
   const maskedRest = masked.slice(valueStart);
+
+  if (!usesConfigFactory(source, masked, m.index ?? 0)) {
+    return {
+      kind: "refuse",
+      reason:
+        "this `csp` is SvelteKit's own `kit.csp`, not a `createSvelteConfig` option. " +
+        "`analytics` is not a key SvelteKit accepts there — it rejects unknown csp keys and the " +
+        `build would fail. Add the hosts to the directives by hand: ${MANUAL_HOSTS}`,
+    };
+  }
 
   if (/^true\b/.test(rest)) {
     return {
