@@ -31,7 +31,7 @@ type ScriptLike = {
 type DocumentLike = {
   createElement(tagName: string): ScriptLike;
   head: { appendChild(node: ScriptLike): void };
-  querySelector(selectors: string): unknown;
+  querySelectorAll(selectors: string): ArrayLike<{ src?: string }>;
 };
 
 type LocationLike = { hostname: string };
@@ -124,8 +124,27 @@ const LOADER_ORIGIN = "https://www.googletagmanager.com";
  * then count correctly, and `reddoor-maint audit analytics` warns about the
  * second loader, so the situation is visible instead of silent.
  */
-function loaderSelectorFor(measurementId: string): string {
-  return `script[src*="googletagmanager.com/gtag/js?id=${measurementId}"]`;
+const LOADER_SELECTOR = 'script[src*="googletagmanager.com/gtag/js"]';
+
+/**
+ * Is a loader for exactly this measurement ID already in the document?
+ *
+ * The ID is compared in JS against each `src`, and never interpolated into the
+ * selector. Interpolating it was wrong twice over: an ID containing `"` or `]`
+ * makes `querySelector` THROW a SyntaxError — uncaught, during client boot, out
+ * of a public API a site calls directly — and for any ID needing
+ * percent-encoding the raw selector could never match the encoded `src` this
+ * same module writes, so every re-run of the layout effect appended another
+ * loader. That is the double-counting the ID-aware check was introduced to
+ * prevent, reintroduced by the way it was spelled.
+ */
+function loaderPresentFor(doc: DocumentLike, measurementId: string): boolean {
+  const wanted = gtagLoaderUrl(measurementId);
+  const found = doc.querySelectorAll(LOADER_SELECTOR);
+  for (let i = 0; i < found.length; i++) {
+    if (found[i]?.src === wanted) return true;
+  }
+  return false;
 }
 
 /** The gtag.js loader URL for a measurement ID. Exported for the audit, which
@@ -160,7 +179,7 @@ export function initAnalytics(opts: InitAnalyticsOptions): AnalyticsOutcome {
   if (!isSiteHost(hostname, opts.productionHost)) return "off-host";
   if (opts.gate && !opts.gate({ hostname })) return "gated";
 
-  if (doc.querySelector(loaderSelectorFor(id))) return "already-loaded";
+  if (loaderPresentFor(doc, id)) return "already-loaded";
 
   // Aliased so the closure below has a non-optional reference to the WINDOW.
   // `.dataLayer` is still read off it at call time, which is the point.

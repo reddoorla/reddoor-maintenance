@@ -43,11 +43,17 @@ function fakeDom(opts: { hostname: string; existingLoader?: string }) {
           appended.push(node as FakeScript);
         },
       },
-      querySelector(selectors: string) {
-        const m = /^script\[src\*="(.+)"\]$/.exec(selectors);
-        if (!m) throw new Error(`fake document implements only script[src*=…], got: ${selectors}`);
+      querySelectorAll(selectors: string) {
+        // A real browser THROWS SyntaxError on a malformed attribute selector,
+        // and the module used to build one by interpolating the measurement ID.
+        // The fake reproduces that so the test can tell a contained failure
+        // from a page-breaking one.
+        const m = /^script\[src\*="([^"]*)"\]$/.exec(selectors);
+        if (!m) {
+          throw new SyntaxError(`'${selectors}' is not a valid selector`);
+        }
         const needle = m[1] as string;
-        return [...preexisting, ...appended].find((s) => s.src.includes(needle)) ?? null;
+        return [...preexisting, ...appended].filter((s) => s.src.includes(needle));
       },
     },
     window: win,
@@ -242,5 +248,30 @@ describe("gtagLoaderUrl", () => {
     expect(gtagLoaderUrl("G-ABC&foo=bar")).toBe(
       "https://www.googletagmanager.com/gtag/js?id=G-ABC%26foo%3Dbar",
     );
+  });
+});
+
+describe("initAnalytics survives an ID it was never meant to get", () => {
+  // `MEASUREMENT_ID_RE` guards the recipe's path, but initAnalytics is public
+  // API a site calls directly — and the recipe's own template calls it from
+  // hooks.client.ts's `init`, i.e. during client boot. A throw there takes the
+  // page down for an analytics misconfiguration.
+  it("does not throw on an ID that would break a CSS selector", () => {
+    for (const measurementId of ['G-X"]', "G-A[B]", "G-A\\B"]) {
+      const { env } = fakeDom({ hostname: PROD });
+      expect(() => initAnalytics({ measurementId, productionHost: PROD, env })).not.toThrow();
+    }
+  });
+
+  it("stays idempotent for an ID that needs percent-encoding", () => {
+    // The loader `src` is encoded; a raw-ID selector could never match it, so
+    // every re-run appended another loader — the exact double-counting the
+    // ID-aware check exists to prevent.
+    for (const measurementId of ["G-A B", "G-Ä1234567", "G-A%20B"]) {
+      const { env, appended } = fakeDom({ hostname: PROD });
+      expect(initAnalytics({ measurementId, productionHost: PROD, env })).toBe("loaded");
+      expect(initAnalytics({ measurementId, productionHost: PROD, env })).toBe("already-loaded");
+      expect(appended).toHaveLength(1);
+    }
   });
 });
