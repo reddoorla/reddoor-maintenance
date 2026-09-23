@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { landPrs, parseArgs, parseWorktreeList, type RunResult } from "../../scripts/land-prs.mjs";
+import {
+  landPrs,
+  parseArgs,
+  parseWorktreeList,
+  ghFailureDetail,
+  noChecksRetriesFor,
+  refusal,
+  type RunResult,
+} from "../../scripts/land-prs.mjs";
 
 /**
  * scripts/land-prs.mjs driven through a FAKE gh/git runner: every command the script
@@ -90,9 +98,114 @@ describe("land-prs: arguments", () => {
       dryRun: true,
       cleanup: false,
       checksTimeoutMin: 5,
+      base: "main",
     });
     expect(() => parseArgs(["--dry-run"])).toThrow(/no PR numbers/);
     expect(() => parseArgs(["5", "--force"])).toThrow(/unknown argument/);
+  });
+
+  it("takes an explicit --base and rejects a malformed one", () => {
+    expect(parseArgs(["1", "--base", "staging"]).base).toBe("staging");
+    expect(() => parseArgs(["1", "--base"])).toThrow(/--base needs a branch name/);
+    expect(() => parseArgs(["1", "--base", "--dry-run"])).toThrow(/--base needs a branch name/);
+  });
+});
+
+/**
+ * #899. Three gaps found on the script's second real day, each of which cost
+ * time rather than correctness — every stop was safe, and the wrong ones were
+ * wrong about WHY.
+ */
+describe("land-prs: #899", () => {
+  // 1. reddoor-starter#154 stopped with `gh pr view failed:` and nothing after
+  // the colon. The machine had slept mid-run and gh died with no output, and
+  // `firstLine("")` is `""` — a stop reason with no reason in it.
+  it("a gh failure with no output still says why", () => {
+    expect(ghFailureDetail({ code: 1, stdout: "", stderr: "boom" })).toBe("boom");
+    expect(ghFailureDetail({ code: 1, stdout: "from stdout", stderr: "" })).toBe("from stdout");
+    expect(ghFailureDetail({ code: 1, stdout: "", stderr: "", timedOut: true })).toBe(
+      "timed out with no output",
+    );
+    expect(ghFailureDetail({ code: 7, stdout: "", stderr: "" })).toBe("exit 7 with no output");
+    // The bug itself: never empty, whatever the shape.
+    for (const r of [
+      { code: 1, stdout: "", stderr: "" },
+      { code: 0, stdout: "", stderr: "", timedOut: true },
+    ]) {
+      expect(ghFailureDetail(r).length).toBeGreaterThan(0);
+    }
+  });
+
+  // 2. .github#35: the head landed at 04:47:14Z and Actions did not register
+  // `validate` until 04:50:48Z — 3.5 minutes against a 3 x 20s budget.
+  it("gives a fresh head a longer wait for its first check, and an old one the short budget", () => {
+    const t = { noChecksRetries: 3, noChecksFreshRetries: 15, freshHeadMaxAgeMs: 10 * 60_000 };
+    const now = Date.parse("2026-09-22T05:00:00Z");
+    // The exact case: pushed 3.5 min before the check appeared.
+    expect(noChecksRetriesFor(Date.parse("2026-09-22T04:58:00Z"), now, t)).toBe(15);
+    // An old head with no checks really has none.
+    expect(noChecksRetriesFor(Date.parse("2026-09-22T04:30:00Z"), now, t)).toBe(3);
+    // Exactly at the boundary is not fresh.
+    expect(noChecksRetriesFor(now - t.freshHeadMaxAgeMs - 1, now, t)).toBe(3);
+    // "I could not tell" takes the SHORT budget: the long one only delays a
+    // stop, and a stop is the safe outcome, so there is nothing to buy by
+    // guessing generously.
+    expect(noChecksRetriesFor(NaN, now, t)).toBe(3);
+    // A clock that says the commit is from the future is not evidence either.
+    expect(noChecksRetriesFor(now + 60_000, now, t)).toBe(3);
+  });
+
+  // 3. It refused every base but main, so each merge into reddoor-website
+  // `staging` went by hand — the unscripted path the script exists to remove.
+  it("refuses a non-main base by default and names the flag that allows it", () => {
+    const pr = {
+      state: "OPEN",
+      isDraft: false,
+      baseRefName: "staging",
+      headRefName: "fix/thing",
+      title: "fix: thing",
+      mergeStateStatus: "CLEAN",
+    };
+    expect(refusal(pr)).toMatch(/base is staging, not main/);
+    expect(refusal(pr)).toMatch(/--base staging/);
+    expect(refusal(pr, "staging")).toBe("");
+  });
+
+  // Promotion stays the operator's (#623) whatever --base says.
+  it("refuses promotion from staging to main even when --base main is explicit", () => {
+    const promo = {
+      state: "OPEN",
+      isDraft: false,
+      baseRefName: "main",
+      headRefName: "staging",
+      title: "promote staging",
+      mergeStateStatus: "CLEAN",
+    };
+    expect(refusal(promo)).toMatch(/promotion staging → main is the operator's/);
+    expect(refusal(promo, "main")).toMatch(/promotion staging → main is the operator's/);
+  });
+
+  // An allowed base does not weaken any other refusal.
+  it("keeps every other refusal under an explicit --base", () => {
+    const base = { baseRefName: "staging", headRefName: "h", mergeStateStatus: "CLEAN" };
+    expect(refusal({ ...base, state: "MERGED", isDraft: false, title: "x" }, "staging")).toBe(
+      "state=MERGED",
+    );
+    expect(refusal({ ...base, state: "OPEN", isDraft: true, title: "x" }, "staging")).toBe("draft");
+    expect(
+      refusal(
+        { ...base, state: "OPEN", isDraft: false, title: "chore(release): version packages" },
+        "staging",
+      ),
+    ).toMatch(/release PR/);
+    expect(
+      refusal(
+        { ...base, state: "OPEN", isDraft: false, title: "x", mergeStateStatus: "DIRTY" },
+        "staging",
+      ),
+      // It used to say "conflicts with main" about a PR with nothing to do
+      // with main.
+    ).toMatch(/DIRTY \(conflicts with staging\)/);
   });
 });
 

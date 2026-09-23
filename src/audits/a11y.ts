@@ -1,8 +1,13 @@
-import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
-import { a11yRoutes, smokeRoutes, type A11yRoute } from "../configs/playwright-a11y.js";
+import {
+  a11yRoutes,
+  smokeRoutes,
+  DEV_PROBE_ROUTE,
+  type A11yRoute,
+} from "../configs/playwright-a11y.js";
 import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
@@ -39,13 +44,22 @@ type NormalizedA11y = {
 
 /** One route as the generated spec sees it. `placeholder404Ok` is set only on
  *  the site's own Prismic-backed routes, and only while the site carries the
- *  starter sentinel. */
-type SpecRoute = A11yRoute & { placeholder404Ok?: true };
+ *  starter sentinel. `sourceAbsent` is set only on a built-in fixture that this
+ *  site's `src/routes` tree has no directory for (#900). */
+type SpecRoute = A11yRoute & { placeholder404Ok?: true; sourceAbsent?: true };
 
 /** The only reason this audit currently accepts a non-200 for. It is written
  *  into the artifact by the spec and reproduced verbatim in the summary, so the
  *  line an operator reads says WHY the route was not scanned. */
 const PLACEHOLDER_SKIP_REASON = "placeholder Prismic repo";
+
+/** The second reason (#900): a built-in fixture route that this site's own
+ *  source tree does not define. Seven fleet sites ship no `animateIn` action,
+ *  so `/dev/animate-in` exercises code that is not there; they read as green
+ *  only until their pinned package crossed #807. Written into the artifact by
+ *  the spec and reproduced verbatim in the summary, exactly as the reason
+ *  above, so an operator reading a skip always learns WHY. */
+const ABSENT_FIXTURE_SKIP_REASON = "fixture not in this site's source";
 
 export type RouteVerdict = "scan" | "skip" | "missing";
 
@@ -75,20 +89,132 @@ export type RouteVerdict = "scan" | "skip" | "missing";
  *     that DEFINES the fixtures is precisely the one a broader rule would stop
  *     checking.
  *
+ * The third 404, added by #900:
+ *
+ *   - `/dev/animate-in` on a site whose `src/routes` tree has no directory for
+ *     it. The fixture exercises the starter's `animateIn` action, and seven
+ *     fleet sites ship neither. Nothing is broken there and nothing can be
+ *     fixed there; the route was never theirs. `sourceAbsent` marks it, and
+ *     ONLY the two built-in fixtures are ever eligible — a route opted in
+ *     through `package.json#reddoor.a11yRoutes` is a real page, usually
+ *     Prismic-backed with no directory of its own, so a source check on those
+ *     would mass-skip the exact routes that opt-in exists to keep honest.
+ *
  * Only 404 is tolerated, never a 500 or a dead navigation: "there is no content
  * here yet" is a 404. A placeholder site whose dev server throws is still
- * broken, and blanket non-200 tolerance would swallow that.
+ * broken, and blanket non-200 tolerance would swallow that. The same holds for
+ * an absent fixture: a route with no source that answers 500 means the dev
+ * server is broken, which is not the same claim as "this site does not have
+ * that route".
  */
 export function classifyRouteResponse(input: {
   status: number | null;
   placeholder404Ok: boolean;
+  sourceAbsent?: boolean;
 }): RouteVerdict {
   if (input.status === 200) return "scan";
-  if (input.placeholder404Ok && input.status === 404) return "skip";
+  if (input.status === 404 && (input.placeholder404Ok || input.sourceAbsent === true)) {
+    return "skip";
+  }
   return "missing";
 }
 
-const RESULTS_REL = ".reddoor-a11y/results.json";
+/**
+ * Which of the built-in fixture routes this site's own source has no directory
+ * for (#900).
+ *
+ * Three rules, and each one exists because getting it wrong produces a false
+ * green rather than a false red:
+ *
+ *   - **Only ENOENT and ENOTDIR mean absent.** `stat` also throws EACCES,
+ *     EMFILE, ELOOP and EIO, and every one of those means "I could not tell".
+ *     An earlier cut caught them all and called them absent, which under the
+ *     fd pressure of a concurrent fleet sweep would have turned a real 404 into
+ *     a skip — the same shape as the starvation-degrades-a-check incident this
+ *     repo already has on file. Anything that is not a plain "no such entry"
+ *     leaves the fixture checkable.
+ *   - **`src/routes` itself is the outer guard.** Missing or unreadable, and
+ *     this returns an EMPTY set, so no fixture is ever excused.
+ *   - **Entry names are matched EXACTLY**, by reading each directory rather
+ *     than by `stat`ing a joined path. macOS folds case and Linux does not, so
+ *     a `Dev/Animate-In` tree would read as present locally and absent on the
+ *     runner — and since SvelteKit URLs are case-sensitive, the local answer is
+ *     the wrong one AND the CI answer is the one that gates the merge. Reading
+ *     the parent removes the divergence.
+ *
+ * SvelteKit route groups are resolved too: `(marketing)/dev/animate-in` serves
+ * `/dev/animate-in`, so a group directory is transparent here exactly as it is
+ * in the URL. Nothing in the fleet uses one under `/dev` today; it is handled
+ * because the failure it would otherwise cause is silent.
+ *
+ * Being wrong in the other direction costs nothing: a route this calls absent
+ * but which answers 200 is scanned anyway, because `classifyRouteResponse`
+ * tolerates absence only for a 404.
+ */
+async function absentFixtureRoutes(sitePath: string, fixtures: A11yRoute[]): Promise<Set<string>> {
+  const routesDir = join(sitePath, "src", "routes");
+  let top: string[];
+  try {
+    top = await readdir(routesDir);
+  } catch {
+    return new Set();
+  }
+  const absent = new Set<string>();
+  for (const fixture of fixtures) {
+    const segments = fixture.path.split("/").filter((seg) => seg.length > 0);
+    if (!(await resolvesInTree(routesDir, top, segments))) absent.add(fixture.path);
+  }
+  return absent;
+}
+
+/** One directory listing, or null when the directory cannot be listed. A null is
+ *  "I could not tell" and every caller treats it as "do not conclude absent". */
+async function listDir(dir: string): Promise<string[] | null> {
+  try {
+    return await readdir(dir);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    // A plain "not there" is an answer. Anything else is not.
+    return code === "ENOENT" || code === "ENOTDIR" ? [] : null;
+  }
+}
+
+/** Does `segments` name a real directory under `dir`, matching entry names
+ *  exactly and stepping through SvelteKit route groups transparently? */
+async function resolvesInTree(
+  dir: string,
+  entries: string[],
+  segments: string[],
+): Promise<boolean> {
+  if (segments.length === 0) return true;
+  const [head, ...rest] = segments;
+  if (entries.includes(head as string)) {
+    const next = join(dir, head as string);
+    const listing = await listDir(next);
+    // Unreadable below here: do not conclude absent.
+    if (listing === null) return true;
+    if (await resolvesInTree(next, listing, rest)) return true;
+  }
+  for (const entry of entries) {
+    if (!(entry.startsWith("(") && entry.endsWith(")"))) continue;
+    const next = join(dir, entry);
+    const listing = await listDir(next);
+    if (listing === null) return true;
+    if (await resolvesInTree(next, listing, segments)) return true;
+  }
+  return false;
+}
+
+/** One route path in the shape the fixture list uses: a single leading slash,
+ *  no trailing one. Applied to operator-typed `absentFixtures` entries so a
+ *  near-miss declares what it meant instead of silently declaring nothing. */
+function normalizeRoutePath(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+const RESULTS_DIR = ".reddoor-a11y";
+const RESULTS_REL = `${RESULTS_DIR}/results.json`;
 
 async function readJsonMaybe<T>(path: string): Promise<T | null> {
   try {
@@ -151,7 +277,7 @@ function webServerBlock(opts: {
 function buildPlaywrightConfig(port: number, sitePath: string, previewPort?: number): string {
   const dev = webServerBlock({
     command: `npm run vite:dev -- --port ${port} --strictPort`,
-    url: `http://localhost:${port}/dev/a11y-fixtures`,
+    url: `http://localhost:${port}${DEV_PROBE_ROUTE}`,
     sitePath,
     timeoutMs: DEV_SERVER_TIMEOUT_MS,
   });
@@ -220,6 +346,7 @@ import { dirname } from "node:path";
 // Injected, not transcribed — see classifyRouteResponse in src/audits/a11y.ts.
 const classifyRouteResponse = ${classifyRouteResponse.toString()};
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
+const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
 
 const pages = ${JSON.stringify(axePages)};
 const smokePages = ${JSON.stringify(smokeRoutes)};
@@ -257,7 +384,7 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     });
   });
 
-  for (const { path, name, placeholder404Ok } of pages) {
+  for (const { path, name, placeholder404Ok, sourceAbsent } of pages) {
     currentRoute = name;
     const response = await page.goto(path);
     const status = response ? response.status() : null;
@@ -272,12 +399,28 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     // The one exception (#863): a site still on the starter's Prismic sentinel
     // has no content to serve, so a 404 on ITS OWN routes is the designed
     // answer. Those carry placeholder404Ok; the /dev fixtures never do.
+    //
+    // The /dev fixtures have their own, narrower tolerance instead (#900):
+    // sourceAbsent, set only when this site's src/routes tree has no directory
+    // for that fixture. A fixture that IS in the tree and 404s stays a
+    // violation, which is the case #680 was written for.
     const verdict = classifyRouteResponse({
       status,
       placeholder404Ok: placeholder404Ok === true,
+      sourceAbsent: sourceAbsent === true,
     });
     if (verdict === "skip") {
-      skipped.push({ route: name, path, status, reason: SKIP_REASON });
+      // Two reasons reach this branch and an operator has to be able to tell
+      // them apart: "no Prismic repo behind it yet" is temporary and ends at
+      // /new-site step 6, while "this site does not have that fixture" is
+      // permanent. Reporting both as one reason would make the summary say
+      // less than the artifact knows, which is #680's original complaint.
+      skipped.push({
+        route: name,
+        path,
+        status,
+        reason: sourceAbsent === true ? ABSENT_FIXTURE_SKIP_REASON : SKIP_REASON,
+      });
       continue;
     }
     if (verdict === "missing") {
@@ -385,16 +528,26 @@ const NAMED_SKIPS_MAX = 4;
  * nothing was skipped, so a site that skipped nothing keeps its old line
  * byte-for-byte.
  *
- * The reason is carried through from the artifact rather than assumed here.
- * There is one reason today; the line still has to say it, because "1 skipped:
- * /" invites the reader to supply their own explanation and the most available
- * one ("probably fine") is the one that re-creates the false green.
+ * The reason is carried through from the artifact rather than assumed here,
+ * because "1 skipped: /" invites the reader to supply their own explanation and
+ * the most available one ("probably fine") is the one that re-creates the false
+ * green.
+ *
+ * There are two reasons since #900, and that changes the shape. While every
+ * skip shares one reason the compact form is right: names, one em dash, the
+ * reason. With MORE than one reason in play the same line stops pairing them,
+ * and the two are not interchangeable — a placeholder-repo skip clears itself
+ * at `/new-site` step 6, while an absent fixture is permanent. A reader given
+ * "/, animate-in demo — placeholder Prismic repo, fixture not in this site's
+ * source" will attach the first reason to both. So a mixed run names each
+ * route with its own reason, and the compact form survives only where it
+ * cannot mislead.
  */
 export function describeSkipped(skipped: SkippedRoute[]): string {
   if (skipped.length === 0) return "";
-  const shown = skipped.slice(0, NAMED_SKIPS_MAX).map((s) => s.route);
+  const shown = skipped.slice(0, NAMED_SKIPS_MAX);
   const rest = skipped.length - shown.length;
-  const names = shown.join(", ") + (rest > 0 ? `, +${rest} more` : "");
+  const more = rest > 0 ? `, +${rest} more` : "";
   const reasons = [
     ...new Set(
       skipped
@@ -402,6 +555,19 @@ export function describeSkipped(skipped: SkippedRoute[]): string {
         .filter((r): r is string => typeof r === "string" && r.length > 0),
     ),
   ];
+  if (reasons.length > 1) {
+    const paired = shown.map((s) => (s.reason ? `${s.route} (${s.reason})` : s.route)).join(", ");
+    // A reason carried only by a skip PAST the cap must still reach the line.
+    // The compact branch computes its reasons over ALL skips, so pairing over
+    // `shown` alone silently dropped one — losing information against the very
+    // branch this replaced, and the dropped one is as often as not the
+    // permanent reason rather than the self-clearing one.
+    const shownReasons = new Set(shown.map((s) => s.reason));
+    const unshown = reasons.filter((r) => !shownReasons.has(r));
+    const trailer = unshown.length > 0 ? ` — also ${unshown.join(", ")}` : "";
+    return `${skipped.length} skipped: ${paired}${more}${trailer}`;
+  }
+  const names = shown.map((s) => s.route).join(", ") + more;
   return `${skipped.length} skipped: ${names}${reasons.length > 0 ? ` — ${reasons.join(", ")}` : ""}`;
 }
 
@@ -432,7 +598,11 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // --fail-on-violations and most of the fleet has pre-existing debt.
     // The route path doubles as its name — the spec tags each violation with
     // `route: name`, so it has to identify the page.
-    const { a11yRoutes: siteRoutes, gateServer } = await readSiteConfig(site.path);
+    const {
+      a11yRoutes: siteRoutes,
+      gateServer,
+      absentFixtures: declaredAbsent,
+    } = await readSiteConfig(site.path);
     // #863: while a clone still carries the starter's Prismic sentinel, its own
     // content routes 404 BY DESIGN — there is no repository behind them until
     // `/new-site` step 6. Every new site passes through that state between step
@@ -450,8 +620,43 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // Prismic — and reddoor-starter, which sits on the sentinel permanently, is
     // the very repo those fixtures live in.
     const placeholderRepo = await readsPlaceholderPrismicRepo(site.path);
+    // #900. Only the built-in fixtures are checked against the source tree —
+    // see absentFixtureRoutes and classifyRouteResponse for why widening this
+    // to the site's own routes would be the false green opt-in exists to stop.
+    const absentFixtures = await absentFixtureRoutes(site.path, a11yRoutes);
+    // The readiness probe cannot be skipped — see DEV_PROBE_ROUTE. Say which
+    // route and why, here, instead of surfacing a 120s webServer timeout that
+    // names neither.
+    if (absentFixtures.has(DEV_PROBE_ROUTE)) {
+      // Same invariant as every other exit: a stale results.json must never
+      // be read as this run's answer.
+      await rm(join(site.path, RESULTS_DIR), { recursive: true, force: true });
+      return {
+        audit: "a11y",
+        site: label,
+        status: "fail",
+        summary:
+          `a11y: ${DEV_PROBE_ROUTE} is not in this site's src/routes tree. ` +
+          "The dev server's readiness probe polls it, so the run cannot start. " +
+          "Restore the fixture route — `reddoor.absentFixtures` cannot excuse this one.",
+      };
+    }
+    // An absence the site has written down is intentional and reads as a clean
+    // pass. An absence only the filesystem knows about is a `warn`: the tree
+    // cannot tell "never had it" from "deleted last Tuesday", and one of those
+    // used to be a loud red.
+    // Normalised before comparing, because the failure of a near-miss is
+    // silent: `"dev/animate-in"` or `"/dev/animate-in/"` would leave the site
+    // on a permanent warn with no hint that the declaration it wrote was
+    // inert. A declaration is operator-typed prose, so it gets the same
+    // forgiveness `a11yRoutes` entries already get for whitespace.
+    const declared = new Set((declaredAbsent ?? []).map(normalizeRoutePath));
+    const undeclaredAbsent = [...absentFixtures].filter((p) => !declared.has(p));
     const axePages: SpecRoute[] = [
-      ...a11yRoutes,
+      ...a11yRoutes.map((fixture) => ({
+        ...fixture,
+        ...(absentFixtures.has(fixture.path) ? { sourceAbsent: true as const } : {}),
+      })),
       ...(siteRoutes ?? []).map((path) => ({
         path,
         name: path,
@@ -480,7 +685,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
 
     const resultsPath = join(site.path, RESULTS_REL);
     // Clear stale artifacts so a failed spawn never reports old data.
-    await rm(join(site.path, ".reddoor-a11y"), { recursive: true, force: true });
+    await rm(join(site.path, RESULTS_DIR), { recursive: true, force: true });
 
     let raw;
     try {
@@ -531,7 +736,29 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
       (artifact.byImpact.serious ?? 0) > 0 || (artifact.byImpact.critical ?? 0) > 0;
     const hasAny = artifact.totalViolations > 0;
 
-    const status: AuditResult["status"] = hasSerious ? "fail" : hasAny ? "warn" : "pass";
+    // #900. An UNDECLARED absent fixture cannot leave the audit on `pass`. The
+    // skip itself is right — a route the site never had is not a missing route
+    // — but inferring it from the tree cannot distinguish "never had it" from
+    // "lost it", and losing it used to be a loud red. `warn` keeps the
+    // difference visible without failing a site for something it cannot fix,
+    // and `package.json#reddoor.absentFixtures` is how a site says "on
+    // purpose" and gets its clean pass back.
+    const skippedRoutes = Array.isArray(artifact.skipped) ? artifact.skipped : [];
+    // Gated on the ARTIFACT, not on the filesystem alone. The two are computed
+    // from different sources and can disagree: a route that serves a fixture
+    // path without a matching directory (a rest route, dev middleware, a
+    // `kit.files.routes` override) is scanned normally and records no skip,
+    // and downgrading on the filesystem alone produced a `warn` whose summary
+    // said "0 violations across 2 routes" — a warning with nothing in it to
+    // act on. A warn now requires that the run actually declined to scan.
+    const absentSkips = skippedRoutes.filter((r) => r.reason === ABSENT_FIXTURE_SKIP_REASON);
+    const absenceDowngrade =
+      undeclaredAbsent.length > 0 && absentSkips.some((r) => undeclaredAbsent.includes(r.path));
+    const status: AuditResult["status"] = hasSerious
+      ? "fail"
+      : hasAny || absenceDowngrade
+        ? "warn"
+        : "pass";
 
     // Count the list that actually RAN (`axePages`), never the fixture defaults.
     //
@@ -561,7 +788,6 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // re-create the false green #680 removed — the whole reason this route-
     // status guard exists — one layer up, and it would be harder to catch,
     // because this time the run is green on purpose.
-    const skippedRoutes = Array.isArray(artifact.skipped) ? artifact.skipped : [];
     const skipNote = describeSkipped(skippedRoutes);
     const countPhrase =
       skippedRoutes.length > 0
