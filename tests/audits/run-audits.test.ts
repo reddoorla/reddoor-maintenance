@@ -43,6 +43,7 @@ describe("runAudits", () => {
     const names = results.map((r) => r.audit).sort();
     expect(names).toEqual([
       "a11y",
+      "analytics",
       "browser",
       "deps",
       "domain",

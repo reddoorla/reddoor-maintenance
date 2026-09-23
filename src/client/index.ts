@@ -8,3 +8,6 @@
  */
 export { whenPageReady, prefersReducedMotion } from "./page-ready.js";
 export type { PageReadyOptions, PageReadyEnv, PageReadyReason } from "./page-ready.js";
+export { initAnalytics, gtagLoaderUrl } from "./analytics.js";
+export type { InitAnalyticsOptions, AnalyticsEnv, AnalyticsOutcome } from "./analytics.js";
+export { siteHostnames, isSiteHost } from "./site-host.js";

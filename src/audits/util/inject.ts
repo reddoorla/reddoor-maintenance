@@ -7,6 +7,7 @@ import type { FormRunner } from "../form-e2e.js";
 import type { NetlifyDeployDeps } from "../netlify-deploy.js";
 import type { FunctionHealthDeps } from "../function-health.js";
 import type { DependabotDeps } from "../security.js";
+import type { AnalyticsDeps } from "../analytics.js";
 
 export type AuditContext = {
   site: Site;
@@ -32,4 +33,8 @@ export type AuditContext = {
   /** GitHub Dependabot fetch injection for the security audit (tests). Defaults to a real client
    *  from GITHUB_TOKEN; absent token or no site.gitRepo → the pnpm/npm audit fallback. */
   dependabotDeps?: DependabotDeps;
+  /** Fleet-row property ID, live-tag probe and GA read for the analytics audit. Every field is
+   *  optional and an absent one means that half cannot run HERE — the verdict names what it could
+   *  not check rather than passing on it. */
+  analyticsDeps?: AnalyticsDeps;
 };

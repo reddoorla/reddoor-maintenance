@@ -12,6 +12,12 @@ export type Site = {
    *  absent → that audit skips. NOT derived from the URL — it's an explicit
    *  identity column on the Websites row. */
   netlifyId?: string;
+  /** GA4 NUMERIC property ID from the Websites row — what the Data API reads, and
+   *  not the `G-…` measurement ID that ships in the page. The analytics audit pairs
+   *  it against the tag the live site actually loads; absent → it has only one end
+   *  of the pair and says so rather than guessing. Like `netlifyId`, an explicit
+   *  operator-set column, never derived. */
+  ga4PropertyId?: string;
   meta?: Record<string, unknown>;
 };
 
@@ -26,7 +32,8 @@ export type AuditName =
   | "netlify-deploy"
   | "function-health"
   | "smoke"
-  | "form-e2e";
+  | "form-e2e"
+  | "analytics";
 
 export type RecipeName =
   | "sync-configs"
