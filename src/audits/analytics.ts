@@ -600,29 +600,37 @@ const FOREIGN_ANALYTICS = /googletagmanager\.com|\bgtag\s*\(|dataLayer/;
 /** Does anything under `src/` reference a tag manager? Bounded walk, and a
  *  read error is "no" rather than a throw — this is corroboration, not a gate. */
 export async function hasForeignAnalytics(sitePath: string, skip: string): Promise<boolean> {
+  return (await findForeignAnalytics(sitePath, skip)) !== null;
+}
+
+/** The first file under `src/` that references a tag manager, or null. The
+ *  path matters to the `analytics-tag` recipe, which has to tell an operator
+ *  WHICH file to remove before it can install alongside safely. */
+export async function findForeignAnalytics(sitePath: string, skip: string): Promise<string | null> {
   let budget = SCAN_FILE_CAP;
-  const walk = async (dir: string): Promise<boolean> => {
+  const walk = async (dir: string): Promise<string | null> => {
     let entries: Array<{ name: string; isDirectory(): boolean }>;
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
-      return false;
+      return null;
     }
     for (const e of entries) {
-      if (budget <= 0) return false;
+      if (budget <= 0) return null;
       const full = join(dir, e.name);
       if (e.isDirectory()) {
         if (e.name === "node_modules" || e.name.startsWith(".")) continue;
-        if (await walk(full)) return true;
+        const hit = await walk(full);
+        if (hit !== null) return hit;
         continue;
       }
       if (full === skip) continue;
       if (!SCAN_EXTS.some((x) => e.name.endsWith(x))) continue;
       budget--;
       const text = await readIfPresent(full);
-      if (text !== null && FOREIGN_ANALYTICS.test(text)) return true;
+      if (text !== null && FOREIGN_ANALYTICS.test(text)) return full;
     }
-    return false;
+    return null;
   };
   return walk(join(sitePath, "src"));
 }
