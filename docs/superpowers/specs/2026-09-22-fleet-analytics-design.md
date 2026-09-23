@@ -1,9 +1,9 @@
 # Fleet analytics — one tag, one property per site, and a check that proves both
 
-Status: designed and **parked** 2026-09-22. Approved in discussion (backfill the
+Status: **in build** since 2026-09-22. Approved in discussion (backfill the
 whole fleet, not just new sites; Reddoor owns the GA4 properties; no consent
-banner), then deferred by the operator the same day: the work starts at VLF's
-launch, when that site needs a tag anyway. No implementation plan yet.
+banner), parked the same day, then unparked by the operator later that day.
+Step 1 of the rollout landed as #918.
 Pilot when it resumes: **beachfront-dentistry**, which already carries the
 closest thing to the pattern and has a live production host to measure against.
 
@@ -31,13 +31,13 @@ snippet, in seven repos.
 Every maintained and launching site, cross-tabulated. "Users" is `activeUsers`
 for 2026-08-23..2026-09-22, read from each property by hostname:
 
-| State | Sites | What it means |
-| --- | --- | --- |
-| Property + tag + real traffic | `beachfront-dentistry` (1051), `erp-industrials` (998), `espada` (558), `vineyard-custom-homes` (519), `msot` (386), `caltex` (310), `reddoor` (92 real) | Working. 7 of 14 maintained. |
-| Property, **no tag**, 0 users | `alamo-anatomy`, `hedloc` (both launching), `la-homelessness-youth` (maintained) | Row configured, nothing feeding it. |
-| Property **and** tag, still 0 users | `sonder` | Not a defect — sonder runs its own analytics setup; the property on our row is the empty one (D7). |
-| Tag, **no property** | `revogen` | Collecting into a property no report reads — its monthly analytics section is blank while the data exists. |
-| Neither | `1836dig`, `29-navy`, `data-dynamiq`, `la-homelessness-initiative` | Nothing at either end. |
+| State                               | Sites                                                                                                                                                    | What it means                                                                                              |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Property + tag + real traffic       | `beachfront-dentistry` (1051), `erp-industrials` (998), `espada` (558), `vineyard-custom-homes` (519), `msot` (386), `caltex` (310), `reddoor` (92 real) | Working. 7 of 14 maintained.                                                                               |
+| Property, **no tag**, 0 users       | `alamo-anatomy`, `hedloc` (both launching), `la-homelessness-youth` (maintained)                                                                         | Row configured, nothing feeding it.                                                                        |
+| Property **and** tag, still 0 users | `sonder`                                                                                                                                                 | Not a defect — sonder runs its own analytics setup; the property on our row is the empty one (D7).         |
+| Tag, **no property**                | `revogen`                                                                                                                                                | Collecting into a property no report reads — its monthly analytics section is blank while the data exists. |
+| Neither                             | `1836dig`, `29-navy`, `data-dynamiq`, `la-homelessness-initiative`                                                                                       | Nothing at either end.                                                                                     |
 
 So: **7 of 14 maintained sites are actually collecting**, and each of the other
 seven is broken in a different place — no tag, no property, a consent gate that
@@ -71,7 +71,7 @@ stops being true.
 - No migration of `gallerysonder` (D7).
 - No backfill of history. A property created today starts today.
 - **Search Console is a separate axis.** Report enrichment reads either a GA4
-  property *or* a `searchQuery`, and the two are configured independently. This
+  property _or_ a `searchQuery`, and the two are configured independently. This
   spec covers the GA4 half only; verifying each domain in Search Console and
   filling `searchQuery` is its own pass, on its own schedule.
 
@@ -85,22 +85,27 @@ for nine lines of DOM work. A per-repo copy is exactly what produced three
 divergent patterns, and the newest of them (beachfront's) is the only one with
 a test.
 
+**As shipped (#918), the subpath is `@reddoorla/maintenance/client`, not
+`/analytics`.** That entry is already documented as framework-free,
+dependency-free browser-side code and is already covered by `smoke-dist`'s
+`subpathEntries` and central-dep blocker. A new subpath needs matching entries
+in `exports`, `tsup.config.ts` and `smoke-dist`, and escapes the gate silently
+if one is missed. D1's argument — a package export rather than a component or a
+copy — is unaffected by which subpath carries it.
+
 **D2 — The loader is injected from JS and never written into `app.html`.**
 The seven sites using the inline snippet today get away with it because they
 have **no CSP at all** — `espada`, `revogen` and `caltex-landing` have no `csp`
 block in `svelte.config.js`. Starter-class sites do (`mode: "auto"`, nonces and
 hashes, `'unsafe-inline'` present for styles only), and SvelteKit issues those
-nonces to the scripts *it* injects, not to a raw `<script>` typed into the
+nonces to the scripts _it_ injects, not to a raw `<script>` typed into the
 template. So the fleet's most common pattern is expected to be blocked on
 exactly the sites this work targets.
 
-*Expected*, not verified — no site today has both a CSP and an inline snippet,
-so nothing in the fleet demonstrates it either way. **The implementation plan
-proves this with a diff before relying on it**: add the snippet to a
-starter-class site, build, and read the emitted HTML and the CSP header. If it
-turns out SvelteKit does cover template scripts, D2 loses its main argument and
-falls back to the weaker ones — one mechanism instead of two, and `app.html`
-being the file that carries the `%sveltekit.head%` substitution trap.
+~~_Expected_, not verified.~~ **Measured 2026-09-22 on `reddoor-starter`**; see
+"D2, measured" below. The claim holds, with two sharpenings, and one factual
+correction to the paragraph above: `reddoor-website` has **no** `csp` block
+either, so four repos lack one, not three.
 
 **D3 — No consent banner; load on the production hostname only.**
 Beachfront's rule, promoted to the fleet: inert unless
@@ -114,7 +119,7 @@ second mechanism.
 property and one web data stream per site. Cheapest to operate and it needs
 nothing from the client to start collecting. The cost is stated plainly: a
 departing client's history does not travel with them, so "do we own our
-analytics" is answered *no* by default, and a client-owned property is a
+analytics" is answered _no_ by default, and a client-owned property is a
 per-client exception. This reverses a line drafted in a VLF client email earlier
 the same day, which promised a property under a VLF account; that draft was
 corrected before sending.
@@ -139,6 +144,53 @@ defect and is not: **sonder runs its own analytics setup** (operator, 2026-09-22
 The property in our row is the empty one. Leave the site alone; the row is the
 only thing worth revisiting, and only if we want its report to read from
 whatever they actually use.
+
+## D2, measured
+
+Built `reddoor-starter` with probe scripts at three positions (above
+`%sveltekit.head%`, below it, and in `<body>`), each position carrying both an
+inline `<script>` and an external `<script src>`, and read the emitted HTML and
+policy for a prerendered route and a server-rendered route out of the same
+build. SSR responses came from the real adapter-netlify production server, the
+code path the deployed function runs. No browser.
+
+**SvelteKit nonces and hashes only the scripts it injects.** A raw inline
+`<script>` in `app.html` gets no nonce and no hash in the policy, on either
+route type.
+
+|                                               | prerendered                                    | server-rendered |
+| --------------------------------------------- | ---------------------------------------------- | --------------- |
+| inline `<script>` above `%sveltekit.head%`    | RUNS — the `<meta>` policy is emitted after it | BLOCKED         |
+| inline `<script>` below it, or in `<body>`    | BLOCKED                                        | BLOCKED         |
+| external `<script src>`, host not allowlisted | RUNS if above the token                        | BLOCKED         |
+| external `<script src>`, host allowlisted     | RUNS                                           | RUNS            |
+
+Instrument proof, in the same builds: SvelteKit's own injected script carries
+`nonce="CsBi71PgFeE3cOs+8iC8+w=="` and that exact nonce appears in the SSR
+header; its hash appears in the prerender `<meta>` policy. The same matcher
+that found both reported absent for every probe, so a covered script and an
+uncovered one each register correctly. Adding
+`https://*.googletagmanager.com` to `script-src` and rebuilding put the host in
+both policies while the probe tags still carried no nonce — host allowlisting
+and nonce issuance are independent.
+
+Two sharpenings this forces on the decision:
+
+1. **The prerender escape hatch is placement-sensitive.** The inline snippet
+   survives only above `%sveltekit.head%`. Someone tidying the template moves
+   it and it dies silently. `src/app.html` in the starter already asserts this
+   mechanism in a comment about the scroll-reveal guard; that comment turns out
+   to be exactly right and was never measured. It now is.
+2. **The loader and the config are different problems.** The external loader
+   needs only the host in `script-src` and then runs on both route types with
+   no nonce. Only the inline `dataLayer`/`config` snippet is unreachable, and
+   on server-rendered routes it is unreachable regardless of placement. So
+   `app.html` loader plus inline config is a half-working install whose broken
+   half is invisible on the prerendered pages anyone checks first.
+
+**Consequence for the rollout.** Step 3's CSP edit is REQUIRED, not a nicety:
+the emitted policy carries no `'strict-dynamic'`, so the host allowlist governs
+the loader `initAnalytics` injects just as it governs a template one.
 
 ## Architecture
 
@@ -171,7 +223,7 @@ exactly one loader after two calls; `config` called with the ID it was given.
    `img-src` += `https://www.google-analytics.com` for the beacon fallback.
 4. Prettier, via the recipe's existing `_prettier.ts` helper.
 
-A site's own test suite asserts the *inert* case only — under Vitest and
+A site's own test suite asserts the _inert_ case only — under Vitest and
 Playwright the hostname is never the production host, so asserting the tag
 loads there would be asserting a lie. The live case belongs to the audit.
 
