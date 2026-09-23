@@ -67,6 +67,11 @@ export function selectFleetSites(websites: readonly WebsiteRow[], workdir: strin
       // netlify-deploy audit can query the API with no checkout. Absent → that
       // audit skips for this site. Not derived from the URL.
       if (w.netlifyId) site.netlifyId = w.netlifyId;
+      // The GA4 property the monthly report reads. The analytics audit needs
+      // BOTH ends — this and the tag the live site loads — because each one
+      // alone looks fine while the pair is broken.
+      if (w.ga4PropertyId) site.ga4PropertyId = w.ga4PropertyId;
+      if (isPreLaunch(w.status)) site.preLaunch = true;
       return [site];
     });
 }

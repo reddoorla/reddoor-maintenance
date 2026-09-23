@@ -46,6 +46,8 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   smoke: "Run the site's own `pnpm test:smoke` suite in its checkout (clone-based).",
   "form-e2e":
     "Submit the real production contact form in test-mode against the deployed URL (checkout-free).",
+  analytics:
+    "Pair the site's GA4 tag against the property ID on its fleet row, and check the live site actually loads it.",
 };
 
 const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
