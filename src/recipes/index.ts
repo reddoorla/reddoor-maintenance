@@ -6,6 +6,7 @@ import { svelteCodemods } from "./svelte-codemods.js";
 import { convertToPnpm, type ConvertToPnpmOptions } from "./convert-to-pnpm.js";
 import { onboard, type OnboardOptions, type OnboardAudit } from "./onboard.js";
 import { a11yFixturesPage } from "./a11y-fixtures-page/index.js";
+import { analyticsTag, type AnalyticsTagOptions } from "./analytics-tag/index.js";
 import {
   init,
   DEFAULT_INIT_STEPS,
@@ -29,10 +30,12 @@ export {
   convertToPnpm,
   onboard,
   a11yFixturesPage,
+  analyticsTag,
   init,
   DEFAULT_INIT_STEPS,
 };
 export type {
+  AnalyticsTagOptions,
   SyncConfigsOptions,
   BumpDepsOptions,
   UpgradeSvelte4to5Options,
@@ -53,6 +56,7 @@ export const ALL_RECIPE_NAMES: RecipeName[] = [
   "convert-to-pnpm",
   "onboard",
   "a11y-fixtures-page",
+  "analytics-tag",
   "health-endpoint",
   "smoke-suite",
   "self-updating",

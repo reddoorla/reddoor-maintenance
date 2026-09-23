@@ -60,6 +60,8 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   onboard: "Install @reddoorla/maintenance + audit deps on a site (preferred first step).",
   "a11y-fixtures-page":
     "Write src/routes/dev/a11y-fixtures/+page.svelte (stub for lhci + axe targets).",
+  "analytics-tag":
+    "Start GA4 on the production host: write src/hooks.client.ts and enable the analytics CSP hosts.",
   "health-endpoint":
     "Write src/routes/health/+server.ts (function-health probe for the report gate).",
   "smoke-suite": "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",

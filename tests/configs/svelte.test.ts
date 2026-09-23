@@ -244,3 +244,83 @@ describe("configs/svelte", () => {
     expect((config as Record<string, unknown>).placeholder).toBeUndefined();
   });
 });
+
+describe("configs/svelte — the analytics CSP fold", () => {
+  const directivesOf = (cfg: ReturnType<typeof createSvelteConfig>) =>
+    ((cfg.kit as Record<string, unknown>).csp as { directives: Record<string, string[]> })
+      .directives;
+
+  it("adds nothing unless asked — a site with no tag does not allow a script host it never loads", () => {
+    const d = directivesOf(createSvelteConfig({ csp: true }));
+    expect(d["script-src"]).not.toContain("https://www.googletagmanager.com");
+    expect(d["connect-src"]).not.toContain("https://www.google-analytics.com");
+  });
+
+  it("adds every host the tag needs when asked", () => {
+    const d = directivesOf(createSvelteConfig({ csp: { analytics: true } }));
+    expect(d["script-src"]).toContain("https://www.googletagmanager.com");
+    expect(d["connect-src"]).toEqual(
+      expect.arrayContaining([
+        "https://www.google-analytics.com",
+        "https://*.google-analytics.com",
+        "https://*.analytics.google.com",
+      ]),
+    );
+    // The beacon fallback: gtag GETs an image when sendBeacon is unavailable,
+    // which connect-src does not cover.
+    expect(d["img-src"]).toContain("https://www.google-analytics.com");
+  });
+
+  it("survives a site that overrides script-src wholesale", () => {
+    // This is the case that matters. Overriding replaces the baseline entry, so
+    // folding the analytics hosts in BEFORE the merge would drop them on
+    // precisely the sites most likely to be running a tag.
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: { analytics: true, directives: { "script-src": ["self", "https://example.test"] } },
+      }),
+    );
+    expect(d["script-src"]).toEqual([
+      "self",
+      "https://example.test",
+      "https://www.googletagmanager.com",
+    ]);
+  });
+
+  it("creates a directive the site dropped entirely", () => {
+    const d = directivesOf(
+      createSvelteConfig({ csp: { analytics: true, directives: { "img-src": [] } } }),
+    );
+    expect(d["img-src"]).toEqual(["https://www.google-analytics.com"]);
+  });
+
+  it("does not list a host twice when the site already has it by hand", () => {
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: {
+          analytics: true,
+          directives: { "script-src": ["self", "https://www.googletagmanager.com"] },
+        },
+      }),
+    );
+    expect(
+      (d["script-src"] ?? []).filter((h) => h === "https://www.googletagmanager.com"),
+    ).toHaveLength(1);
+  });
+
+  it("never leaks `analytics` into the emitted policy object", () => {
+    // It is a reddoor option, not a CSP field. A stray key here ships into
+    // kit.csp and SvelteKit's own validation is the only thing between it and
+    // a broken build.
+    const csp = (createSvelteConfig({ csp: { analytics: true } }).kit as Record<string, unknown>)
+      .csp as Record<string, unknown>;
+    expect("analytics" in csp).toBe(false);
+  });
+
+  it("shares no array with the baseline, so one site cannot poison another", () => {
+    const a = directivesOf(createSvelteConfig({ csp: { analytics: true } }));
+    (a["script-src"] as string[]).push("https://evil.test");
+    const b = directivesOf(createSvelteConfig({ csp: true }));
+    expect(b["script-src"]).not.toContain("https://evil.test");
+  });
+});
