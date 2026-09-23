@@ -8,6 +8,7 @@ import { defaultSpawn } from "../../audits/util/spawn.js";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
 import { HOOKS_CLIENT_RELATIVE, MEASUREMENT_ID_RE, hooksClientTemplate } from "./template.js";
 import { planCspEdit, type CspEditPlan } from "./csp-edit.js";
+import { findForeignAnalytics } from "../../audits/analytics.js";
 
 const SVELTE_CONFIG_RELATIVE = "svelte.config.js";
 
@@ -77,6 +78,28 @@ export async function analyticsTag(site: Site, opts: AnalyticsTagOptions): Promi
 
       if (await fileExists(join(site.path, HOOKS_CLIENT_RELATIVE))) {
         return { kind: "noop", notes: `${HOOKS_CLIENT_RELATIVE} already exists` };
+      }
+
+      // REFUSE rather than install alongside a loader the site already has.
+      //
+      // `initAnalytics` stands down only for its OWN measurement ID, and a
+      // site-local loader that runs later never sees ours to stand down for.
+      // beachfront is exactly that shape: its component appends in `onMount`
+      // with no guard of any kind, and SvelteKit's ClientInit runs before the
+      // app starts — so migrating it with its existing ID would give one
+      // property two loaders and double every session. That is not separable
+      // afterwards, and reusing the site's current ID is the natural thing to
+      // type when migrating.
+      const foreign = await findForeignAnalytics(site.path, join(site.path, HOOKS_CLIENT_RELATIVE));
+      if (foreign !== null) {
+        const rel = foreign.startsWith(site.path) ? foreign.slice(site.path.length + 1) : foreign;
+        return {
+          kind: "failed",
+          notes:
+            `${rel} already references a tag manager. Installing alongside it would give one ` +
+            "property two loaders and double every session, which GA4 cannot separate " +
+            "afterwards. Remove that loader in the same PR, then re-run.",
+        };
       }
 
       let cspSource: string | null;
@@ -158,7 +181,17 @@ function cspNote(plan: CspEditPlan): string {
     case "already":
       return "CSP: already had `analytics: true`.";
     case "none":
-      return "CSP: this site has no `csp` option, so nothing blocks the loader.";
+      // Says what was CHECKED, not what is true. reddoor-website and
+      // gallerysonder set an enforcing Content-Security-Policy in
+      // `netlify.toml` and have no `csp:` in svelte.config.js at all — so the
+      // old wording asserted "nothing blocks the loader" about a site where a
+      // header could refuse it on every request, which is the one thing this
+      // half exists to report.
+      return (
+        "CSP: no `csp` option in svelte.config.js. A policy set elsewhere " +
+        "(netlify.toml headers, an edge function) was NOT checked — if this site has one, " +
+        "googletagmanager.com must be in its script-src or the tag is refused on every request."
+      );
     case "refuse":
       return (
         `CSP NOT CHANGED — ${plan.reason}. The tag will be REFUSED by the policy until ` +

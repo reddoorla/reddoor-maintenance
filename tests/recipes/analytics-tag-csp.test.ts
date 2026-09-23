@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFile } from "node:fs/promises";
 import { planCspEdit } from "../../src/recipes/analytics-tag/csp-edit.js";
 import {
   hooksClientTemplate,
@@ -155,5 +156,35 @@ describe("MEASUREMENT_ID_RE", () => {
     expect(MEASUREMENT_ID_RE.test("UA-12345-1")).toBe(false);
     expect(MEASUREMENT_ID_RE.test("G-TOOSHORT")).toBe(false);
     expect(MEASUREMENT_ID_RE.test("g-51j638hzpl")).toBe(false);
+  });
+});
+
+describe("cspNote tells you what it checked, not what is true", () => {
+  it("does not claim nothing blocks the loader when it only read svelte.config.js", async () => {
+    // reddoor-website and gallerysonder set an enforcing Content-Security-Policy
+    // in netlify.toml and have no `csp:` in svelte.config.js at all. The old
+    // wording asserted "nothing blocks the loader" about sites where a header
+    // can refuse it on every request — the one thing this half exists to report.
+    const { analyticsTag } = await import("../../src/recipes/analytics-tag/index.js");
+    expect(typeof analyticsTag).toBe("function");
+    const src = await readFile(
+      new URL("../../src/recipes/analytics-tag/index.ts", import.meta.url),
+      "utf8",
+    );
+    expect(src).not.toContain("so nothing blocks the loader");
+    expect(src).toContain("was NOT checked");
+  });
+
+  it("refuses to install alongside a loader the site already has", async () => {
+    // initAnalytics stands down only for its OWN id, and a site-local loader
+    // that runs later never sees ours. beachfront's component appends in
+    // onMount with no guard, so migrating it with its existing id would give
+    // one property two loaders and double every session.
+    const src = await readFile(
+      new URL("../../src/recipes/analytics-tag/index.ts", import.meta.url),
+      "utf8",
+    );
+    expect(src).toContain("findForeignAnalytics");
+    expect(src).toContain("double every session");
   });
 });
