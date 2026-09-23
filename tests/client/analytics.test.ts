@@ -267,7 +267,11 @@ describe("initAnalytics survives an ID it was never meant to get", () => {
     // The loader `src` is encoded; a raw-ID selector could never match it, so
     // every re-run appended another loader — the exact double-counting the
     // ID-aware check exists to prevent.
-    for (const measurementId of ["G-A B", "G-Ä1234567", "G-A%20B"]) {
+    // `'` is the one character encodeURIComponent leaves raw that the URL
+    // parser's special-query set escapes, so a string comparison against the
+    // written src failed and every re-run appended another loader — the
+    // double-counting this guard exists to prevent, surviving inside it.
+    for (const measurementId of ["G-A B", "G-Ä1234567", "G-A%20B", "G-tick'q", "G-amp&x"]) {
       const { env, appended } = fakeDom({ hostname: PROD });
       expect(initAnalytics({ measurementId, productionHost: PROD, env })).toBe("loaded");
       expect(initAnalytics({ measurementId, productionHost: PROD, env })).toBe("already-loaded");

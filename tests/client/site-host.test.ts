@@ -30,6 +30,14 @@ describe("siteHostnames", () => {
       expect(siteHostnames(bad)).toEqual([]);
     }
   });
+
+  it("keeps a dotless apex, which `measuredHostnames` always returned", () => {
+    // Widening the empty-apex guard to "no dot" silently narrowed
+    // `measuredHostnames`, and `reports/draft.ts` reads the property UNFILTERED
+    // on an empty list — so such a site's monthly report would have flipped to
+    // counting every environment, which is 13,417 against 105 on reddoor's own.
+    expect(siteHostnames("www.intranet")).toEqual(["intranet", "www.intranet"]);
+  });
 });
 
 describe("isSiteHost", () => {

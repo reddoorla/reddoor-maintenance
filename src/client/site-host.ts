@@ -38,7 +38,12 @@ export function siteHostnames(hostname: string): string[] {
   const host = hostname.trim().toLowerCase();
   if (!host.includes(".")) return [];
   const apex = host.startsWith("www.") ? host.slice(4) : host;
-  if (!apex.includes(".")) return [];
+  // Only an EMPTY apex, not a dotless one. `www.intranet` still yields
+  // ["intranet", "www.intranet"] as it always did: widening this to "no dot"
+  // silently changed `measuredHostnames`, and `reports/draft.ts` reads the
+  // property UNFILTERED on an empty list, so a narrowing here would have flipped
+  // such a site's monthly report to counting every environment.
+  if (apex.length === 0) return [];
   return [apex, `www.${apex}`];
 }
 

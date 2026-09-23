@@ -103,7 +103,15 @@ export type PropertyRead =
  *  the property id on the row does not exist, which is a standing fault
  *  `failover.ts` has no reason to care about (it is not worth another subject)
  *  but this audit very much does. */
-const MISSING_PROPERTY = /\bNOT_FOUND\b|\bINVALID_ARGUMENT\b/;
+const MISSING_PROPERTY = /\bNOT_FOUND\b/;
+
+/** GA4 answers `INVALID_ARGUMENT` for ANY malformed request — a bad dimension
+ *  name, a bad date range, an unsupported metric — so treating the code alone
+ *  as a standing fault reddens a client's row for OUR bug. It is a real signal
+ *  only when the argument it names is the property (a UA property id on the
+ *  row returns exactly that). Measured: "Field hostName is not a valid
+ *  dimension" and "date_ranges[0].start_date is invalid" are ours, not theirs. */
+const BAD_PROPERTY_ARGUMENT = /\bINVALID_ARGUMENT\b[\s\S]{0,80}\bpropert/i;
 
 /** Phrases `failover.ts` does not carry because they do not tell it to try
  *  another subject, but which are standing faults for one property.
@@ -117,7 +125,9 @@ export function classifyPropertyError(e: unknown): "denied" | "unavailable" {
   // auth-shaped test alone calls every rate limit a lost grant.
   if (isQuotaShapedError(e)) return "unavailable";
   const msg = e instanceof Error ? e.message : String(e);
-  if (MISSING_PROPERTY.test(msg) || DENIED_PHRASE.test(msg)) return "denied";
+  if (MISSING_PROPERTY.test(msg) || BAD_PROPERTY_ARGUMENT.test(msg) || DENIED_PHRASE.test(msg)) {
+    return "denied";
+  }
   return isAuthShapedError(e) ? "denied" : "unavailable";
 }
 
@@ -290,15 +300,23 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
     // site might carry a legacy snippet nothing here has looked for yet.
     return {
       status: emission.authoritative || checkedEveryMechanism ? "fail" : "warn",
-      summary: foreign
-        ? `analytics: the fleet row carries GA4 property ${facts.propertyId} and the checkout ` +
-          "references a tag manager, but not through initAnalytics — so whether the two describe " +
-          "the same property cannot be told from here. Re-run with " +
-          "REDDOOR_ANALYTICS_PROBE=1, or migrate it with `reddoor-maint analytics-tag`."
-        : `analytics: the fleet row carries GA4 property ${facts.propertyId} but the site declares ` +
-          "no tag and nothing in its checkout references one, so that property can only ever " +
-          "answer zero. Fix: run `reddoor-maint analytics-tag`.",
-      unchecked: foreign ? [...unchecked, "which property the site's own loader uses"] : unchecked,
+      // `foreign` describes the CHECKOUT. When the probe has authoritatively
+      // established that nothing loads, the checkout's leftovers are beside the
+      // point, and telling the operator to "re-run with the probe" sends them
+      // to the instrument that already answered.
+      summary:
+        foreign && emission.emitting !== false
+          ? `analytics: the fleet row carries GA4 property ${facts.propertyId} and the checkout ` +
+            "references a tag manager, but not through initAnalytics — so whether the two describe " +
+            "the same property cannot be told from here. Re-run with " +
+            "REDDOOR_ANALYTICS_PROBE=1, or migrate it with `reddoor-maint analytics-tag`."
+          : `analytics: the fleet row carries GA4 property ${facts.propertyId} but the site declares ` +
+            "no tag and nothing in its checkout references one, so that property can only ever " +
+            "answer zero. Fix: run `reddoor-maint analytics-tag`.",
+      unchecked:
+        foreign && emission.emitting !== false
+          ? [...unchecked, "which property the site's own loader uses"]
+          : unchecked,
     };
   }
 
@@ -367,6 +385,19 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
     }
   }
 
+  // A property the API says is GONE, or that the shared subject can no longer
+  // read, is a standing fault and outranks anything about emission. It used to
+  // sit AFTER the emission section, so a double-loader warn returned first and
+  // discarded a read the audit had already paid for — a documented `fail`
+  // downgraded to a `warn`, which is the direction that hides a finding.
+  if (facts.property !== null && !facts.property.ok && facts.property.kind === "denied") {
+    return {
+      status: "fail",
+      summary: `analytics: the GA4 Data API refused property ${facts.propertyId} — ${facts.property.error}`,
+      unchecked,
+    };
+  }
+
   // --------------------------------------------------------------- EMISSION
   // Everything below rests on an observation, so everything below is softened
   // when the observation was not authoritative.
@@ -390,7 +421,7 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
         unchecked,
       };
     }
-    if (emission.ids.length > distinct.length) {
+    if (emission.ids.length > distinct.length && emission.authoritative) {
       return {
         status: "warn",
         summary:
@@ -530,7 +561,35 @@ const SITE_CONFIG_RELATIVE = "src/lib/site-config.json";
 
 /** `measurementId: "G-…"` / `productionHost: "…"` inside an initAnalytics call. */
 const HOOK_FIELD = (name: string): RegExp =>
-  new RegExp(`\\b${name}\\s*:\\s*["'\`]([^"'\`]+)["'\`]`);
+  new RegExp(`\\b${name}\\s*:\\s*["'\`]([^"'\`]+)["'\`]`, "g");
+
+/** Blank `//` and block comments, preserving length so nothing else shifts.
+ *  `gtagLoaderIds` strips HTML comments on exactly this reasoning and this
+ *  reader did not: a commented-out old call sitting above the new one is the
+ *  most likely artefact of THIS rollout, and taking the first match turned it
+ *  into a red build naming a host nobody configured. */
+function stripJsComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+}
+
+/**
+ * The one value `name` is set to in `src`, or null.
+ *
+ * Null when it appears twice with DIFFERENT values — a dev/prod pair, a
+ * commented-out predecessor the stripper missed, a type declaration. Guessing
+ * between them is how the first version reported a site as gated on a staging
+ * host. Null here means "declares nothing legible", which routes to the same
+ * place an absent declaration does rather than to a confident accusation.
+ */
+function soleHookField(src: string, name: string): string | null {
+  const found = new Set<string>();
+  for (const m of src.matchAll(HOOK_FIELD(name))) {
+    if (m[1] !== undefined) found.add(m[1]);
+  }
+  return found.size === 1 ? [...found][0]! : null;
+}
 
 /** Extensions worth scanning for a hand-rolled loader, and a hard cap so a
  *  monorepo-sized checkout cannot turn one audit into a tree walk. */
@@ -540,30 +599,38 @@ const FOREIGN_ANALYTICS = /googletagmanager\.com|\bgtag\s*\(|dataLayer/;
 
 /** Does anything under `src/` reference a tag manager? Bounded walk, and a
  *  read error is "no" rather than a throw — this is corroboration, not a gate. */
-async function hasForeignAnalytics(sitePath: string, skip: string): Promise<boolean> {
+export async function hasForeignAnalytics(sitePath: string, skip: string): Promise<boolean> {
+  return (await findForeignAnalytics(sitePath, skip)) !== null;
+}
+
+/** The first file under `src/` that references a tag manager, or null. The
+ *  path matters to the `analytics-tag` recipe, which has to tell an operator
+ *  WHICH file to remove before it can install alongside safely. */
+export async function findForeignAnalytics(sitePath: string, skip: string): Promise<string | null> {
   let budget = SCAN_FILE_CAP;
-  const walk = async (dir: string): Promise<boolean> => {
+  const walk = async (dir: string): Promise<string | null> => {
     let entries: Array<{ name: string; isDirectory(): boolean }>;
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
-      return false;
+      return null;
     }
     for (const e of entries) {
-      if (budget <= 0) return false;
+      if (budget <= 0) return null;
       const full = join(dir, e.name);
       if (e.isDirectory()) {
         if (e.name === "node_modules" || e.name.startsWith(".")) continue;
-        if (await walk(full)) return true;
+        const hit = await walk(full);
+        if (hit !== null) return hit;
         continue;
       }
       if (full === skip) continue;
       if (!SCAN_EXTS.some((x) => e.name.endsWith(x))) continue;
       budget--;
       const text = await readIfPresent(full);
-      if (text !== null && FOREIGN_ANALYTICS.test(text)) return true;
+      if (text !== null && FOREIGN_ANALYTICS.test(text)) return full;
     }
-    return false;
+    return null;
   };
   return walk(join(sitePath, "src"));
 }
@@ -600,12 +667,29 @@ export async function readTagConfig(sitePath: string): Promise<TagConfig | null>
     return null;
   }
 
-  const hook = await readIfPresent(join(sitePath, HOOK_RELATIVE));
-  if (hook !== null) {
-    const id = HOOK_FIELD("measurementId").exec(hook)?.[1] ?? null;
-    const host = HOOK_FIELD("productionHost").exec(hook)?.[1] ?? null;
-    if (id !== null || host !== null) {
+  const hookRaw = await readIfPresent(join(sitePath, HOOK_RELATIVE));
+  if (hookRaw !== null) {
+    const hook = stripJsComments(hookRaw);
+    const id = soleHookField(hook, "measurementId");
+    const host = soleHookField(hook, "productionHost");
+    if (id !== null) {
+      // A declared ID is the whole answer; nothing else in the tree can change
+      // the pairing verdict.
       return { measurementId: id, productionHost: host, foreignAnalytics: false };
+    }
+    if (host !== null) {
+      // FINDING (round 3): a PARTIAL declaration used to return
+      // `foreignAnalytics: false` without ever scanning — an assertion nothing
+      // tested — and with `measurementId` null that lands on the hard branch
+      // whose summary flatly claims "nothing in its checkout references one".
+      // beachfront's real shape is exactly this: the ID comes from an imported
+      // identifier, not a string literal. So the scan runs on every path that
+      // reports no declared ID.
+      return {
+        measurementId: null,
+        productionHost: host,
+        foreignAnalytics: await hasForeignAnalytics(sitePath, join(sitePath, HOOK_RELATIVE)),
+      };
     }
   }
 
