@@ -107,15 +107,26 @@ export type AnalyticsOutcome =
 const LOADER_ORIGIN = "https://www.googletagmanager.com";
 
 /**
- * Matches OUR loader and any legacy inline snippet's loader, so a site part-way
- * through the sweep cannot end up with two tags feeding one property and
- * double-counting every session.
+ * Matches a loader for THIS measurement ID, and only this one.
  *
- * Deliberately `/gtag/js` and not a bare host match: GTM loads `/gtm.js`, and
- * gallerysonder's GTM container is out of scope and must not be silenced by a
- * selector that was aimed at something else.
+ * ID-aware deliberately. Double-counting is one property loaded twice, not two
+ * different properties each loaded once, so the guard has to be about the ID.
+ * An ID-blind guard stands down whenever ANY gtag loader is present, which
+ * fails in two ways that both read as success:
+ *
+ * - A GTM container with a GA4 config tag injects `/gtag/js` at runtime, so on
+ *   a GTM site an ID-blind guard would silently never configure our own ID.
+ * - A legacy inline snippet carrying the WRONG ID would likewise suppress the
+ *   right one, and `initAnalytics` would report "already-loaded", which reads
+ *   as done.
+ *
+ * Installing alongside a foreign loader is the safe direction: both properties
+ * then count correctly, and `reddoor-maint audit analytics` warns about the
+ * second loader, so the situation is visible instead of silent.
  */
-const LOADER_SELECTOR = 'script[src*="googletagmanager.com/gtag/js"]';
+function loaderSelectorFor(measurementId: string): string {
+  return `script[src*="googletagmanager.com/gtag/js?id=${measurementId}"]`;
+}
 
 /** The gtag.js loader URL for a measurement ID. Exported for the audit, which
  *  asserts the live site requests exactly this. */
@@ -149,20 +160,29 @@ export function initAnalytics(opts: InitAnalyticsOptions): AnalyticsOutcome {
   if (!isSiteHost(hostname, opts.productionHost)) return "off-host";
   if (opts.gate && !opts.gate({ hostname })) return "gated";
 
-  if (doc.querySelector(LOADER_SELECTOR)) return "already-loaded";
+  if (doc.querySelector(loaderSelectorFor(id))) return "already-loaded";
 
-  const layer = win.dataLayer ?? [];
-  win.dataLayer = layer;
+  // Aliased so the closure below has a non-optional reference to the WINDOW.
+  // `.dataLayer` is still read off it at call time, which is the point.
+  const w: WindowLike = win;
+  w.dataLayer = w.dataLayer ?? [];
 
-  // gtag.js reads the LIVE `arguments` object: it tells commands from data by
-  // their type, and a spread array is pushed as data instead — the command is
-  // swallowed and the tag silently records nothing. The rest parameter exists
-  // only to satisfy the signature; the body must not use it.
+  // Two things here are load-bearing and both look like style.
+  //
+  // `w.dataLayer` is read at CALL time, not captured. The canonical snippet
+  // references the live global for a reason: gtag.js and any tag manager may
+  // REPLACE the array rather than mutate it, and a captured reference would
+  // leave our commands queued on an orphan nobody drains.
+  //
+  // `arguments` is the live arguments object. gtag.js tells commands from data
+  // by their type, so a spread array is pushed as data instead: the command is
+  // swallowed and the tag records nothing while looking healthy. The rest
+  // parameter exists only to satisfy the signature; the body must not use it.
   function gtag(..._args: unknown[]): void {
     // eslint-disable-next-line prefer-rest-params
-    layer.push(arguments);
+    (w.dataLayer as unknown[]).push(arguments);
   }
-  win.gtag = gtag;
+  w.gtag = gtag;
 
   // Commands first, loader second. The queue is drained when gtag.js arrives,
   // so this order means a slow or blocked loader delays the pageview rather

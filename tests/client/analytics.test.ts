@@ -185,15 +185,44 @@ describe("initAnalytics is idempotent", () => {
     expect(appended).toHaveLength(1);
   });
 
-  it("stands down for a legacy inline snippet's loader, so nothing double-counts", () => {
-    // Mid-sweep a site can briefly carry both. Two loaders on one property
-    // double every session, which is worse than either alone.
-    const { env, appended } = fakeDom({
+  it("stands down only for its OWN id, never for a foreign loader", () => {
+    // Double-counting is one property loaded twice, not two properties loaded
+    // once. An id-blind guard stands down whenever any gtag loader is present,
+    // which fails two ways that both read as success: a GTM container injects
+    // /gtag/js at runtime and would silence us entirely, and a legacy snippet
+    // with the WRONG id would suppress the right one while reporting
+    // "already-loaded". Installing alongside is the safe direction — both
+    // properties then count correctly, and the audit warns about the second
+    // loader so it is visible rather than silent.
+    const foreign = fakeDom({
       hostname: PROD,
       existingLoader: "https://www.googletagmanager.com/gtag/js?id=G-OLDOLDOLD",
     });
-    expect(initAnalytics({ measurementId: ID, productionHost: PROD, env })).toBe("already-loaded");
-    expect(appended).toHaveLength(0);
+    expect(initAnalytics({ measurementId: ID, productionHost: PROD, env: foreign.env })).toBe(
+      "loaded",
+    );
+    expect(foreign.appended).toHaveLength(1);
+
+    const same = fakeDom({
+      hostname: PROD,
+      existingLoader: `https://www.googletagmanager.com/gtag/js?id=${ID}`,
+    });
+    expect(initAnalytics({ measurementId: ID, productionHost: PROD, env: same.env })).toBe(
+      "already-loaded",
+    );
+    expect(same.appended).toHaveLength(0);
+  });
+
+  it("reads window.dataLayer live, so a replaced array does not orphan the queue", () => {
+    // gtag.js and any tag manager may REPLACE the array rather than mutate it.
+    // A captured reference would leave our commands queued on something nobody
+    // drains, and the tag would look installed while reporting nothing.
+    const { env, win } = fakeDom({ hostname: PROD });
+    initAnalytics({ measurementId: ID, productionHost: PROD, env });
+    const replacement: unknown[] = [];
+    win.dataLayer = replacement;
+    win.gtag!("event", "after_replacement");
+    expect(replacement).toHaveLength(1);
   });
 
   it("is NOT fooled by a GTM container, which is a different product", () => {

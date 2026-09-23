@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
 import { siteLabel } from "../util/site.js";
-import { isSiteHost } from "../client/site-host.js";
+import { isSiteHost, siteHostnames } from "../client/site-host.js";
 import { hostnameOf, isHttpUrl } from "../util/url.js";
 
 /**
@@ -54,8 +54,27 @@ export type TagProbe = {
   requestedIds: string[];
 };
 
-/** What the GA4 Data API answered for the window. */
-export type PropertyRead = { ok: true; users: number } | { ok: false; error: string };
+/**
+ * What the GA4 Data API answered for the window.
+ *
+ * The two failure kinds are NOT the same verdict. `denied` is a standing
+ * configuration fault: the property is gone, or the shared subject lost access.
+ * `unavailable` is a quota blip, a 5xx or a DNS hiccup, and must not red a
+ * site's row — one Airtable quota once reddened six workflows here, and an
+ * audit that cries wolf about upstream weather stops being read. Anything
+ * unrecognised is `unavailable`, so the benefit of the doubt runs toward not
+ * accusing the site.
+ */
+export type PropertyRead =
+  { ok: true; users: number } | { ok: false; kind: "denied" | "unavailable"; error: string };
+
+/** Errors meaning the property, or our access to it, is genuinely wrong rather
+ *  than that Google was briefly unreachable. */
+const DENIED_RE = /PERMISSION_DENIED|NOT_FOUND|UNAUTHENTICATED|403|404|invalid_grant/i;
+
+export function classifyPropertyError(message: string): "denied" | "unavailable" {
+  return DENIED_RE.test(message) ? "denied" : "unavailable";
+}
 
 /**
  * How we learned whether the site emits, and how good that evidence is.
@@ -87,6 +106,13 @@ export type Emission = {
   ids: string[];
   /** Where the answer came from, for the summary. */
   source: string;
+  /**
+   * True only for the browser probe. An HTML positive is real evidence that
+   * something NAMES a loader, but it cannot tell a live tag from a string in a
+   * JSON blob, a `data-` attribute, or a branch that never runs. Conclusions
+   * drawn from HTML alone are therefore reported one notch softer.
+   */
+  authoritative: boolean;
 };
 
 /**
@@ -103,15 +129,17 @@ export function determineEmission(ev: EmissionEvidence): Emission {
       emitting: ev.probe.requestedIds.length > 0,
       ids: ev.probe.requestedIds,
       source: "the live page's network requests",
+      authoritative: true,
     };
   }
   if (ev.htmlIds !== null && ev.htmlIds.length > 0) {
-    return { emitting: true, ids: ev.htmlIds, source: "the served HTML" };
+    return { emitting: true, ids: ev.htmlIds, source: "the served HTML", authoritative: false };
   }
   return {
     emitting: null,
     ids: [],
     source: "no browser, and a JS-injected loader is invisible to a plain GET",
+    authoritative: false,
   };
 }
 
@@ -127,10 +155,6 @@ export type AnalyticsFacts = {
   evidence: EmissionEvidence;
   /** null = no GA credentials in this environment, so the property was not read. */
   property: PropertyRead | null;
-  /** Pre-launch sites are not audited as production: the tag is inert by
-   *  design until the production host resolves to the new site, so an absent
-   *  tag is expected rather than broken. */
-  preLaunch: boolean;
   /** Days the property read covered, for the summary. */
   windowDays: number;
 };
@@ -161,11 +185,27 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
     unchecked.push("the GA4 property (no credentials in this environment)");
   }
 
+  /**
+   * Only the browser probe earns a hard `fail`.
+   *
+   * Everything drawn from the HTML scan, or from no observation at all, is
+   * reported one notch softer: neither can tell a live tag from a loader URL
+   * sitting in a JSON blob, a `data-` attribute, or a branch that never runs.
+   * The finding still surfaces; it just does not claim to have been seen. A red
+   * build that turns out to mean "no browser on this runner" teaches people to
+   * ignore the audit, which costs more than the finding is worth.
+   *
+   * Config-only faults below do NOT go through this. A missing production host
+   * is read straight off the checkout and is certain either way.
+   */
+  const observed = (s: AuditResult["status"]): AuditResult["status"] =>
+    emission.authoritative || s !== "fail" ? s : "warn";
+
   if (facts.config === null && emission.emitting === null) {
     return {
       status: "skip",
       summary:
-        "analytics: could not read the site's site-config.json and could not observe the live page, so nothing was checked.",
+        "analytics: could not read the site's declared tag and could not observe the live page, so nothing was checked.",
       unchecked: ["everything"],
     };
   }
@@ -173,19 +213,9 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
   const declared = facts.config?.measurementId ?? null;
   const hasProperty = typeof facts.propertyId === "string" && facts.propertyId.length > 0;
   const rowUnavailable = facts.propertyId === undefined;
-  /** Softened to `warn` when emission is a guess rather than an observation. */
-  const hard = (s: AuditResult["status"]): AuditResult["status"] =>
-    emission.emitting === null && s === "fail" ? "warn" : s;
 
   // ---- Nothing configured, nothing emitting ------------------------------
   if (declared === null && !hasProperty && emission.emitting !== true) {
-    if (facts.preLaunch) {
-      return {
-        status: "skip",
-        summary: "analytics: not launched yet — the tag and the property are set at go-live.",
-        unchecked,
-      };
-    }
     if (rowUnavailable) {
       return {
         status: "skip",
@@ -197,7 +227,7 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
     return {
       status: "warn",
       summary:
-        "analytics: this maintained site emits no tag and has no GA4 property. Nothing about it is measured, " +
+        "analytics: this site emits no tag and has no GA4 property. Nothing about it is measured, " +
         "and its monthly report has no analytics section to render.",
       unchecked,
     };
@@ -214,7 +244,7 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
       };
     }
     return {
-      status: emission.emitting === true ? "fail" : "warn",
+      status: emission.emitting === true ? observed("fail") : "warn",
       summary:
         `analytics: the site carries ${what} but its fleet row has no GA4 property ID, so it is collecting ` +
         "into a property no report reads. The monthly analytics section renders blank while the data exists. " +
@@ -225,31 +255,23 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
 
   // ---- A property with nothing feeding it --------------------------------
   if (hasProperty && emission.emitting !== true && declared === null) {
-    const shared =
-      `analytics: the fleet row carries GA4 property ${facts.propertyId} but the site emits no tag, ` +
-      "so that property can only ever answer zero.";
-    if (facts.preLaunch) {
-      return {
-        status: "warn",
-        summary: `${shared} Expected before launch — the measurement ID goes in with the launch PR.`,
-        unchecked,
-      };
-    }
     return {
-      status: hard("fail"),
-      summary: `${shared} Fix: add analytics.measurementId to site-config.json and call initAnalytics.`,
+      status: observed("fail"),
+      summary:
+        `analytics: the fleet row carries GA4 property ${facts.propertyId} but the site emits no tag, ` +
+        "so that property can only ever answer zero. Fix: add the measurement ID and call initAnalytics.",
       unchecked,
     };
   }
 
-  // ---- Both ends present. Is the gate reachable? -------------------------
+  // ---- Both ends present. Is the gate even reachable? --------------------
   if (declared !== null) {
     const configuredHost = facts.config?.productionHost ?? null;
     if (configuredHost === null) {
       return {
         status: "fail",
         summary:
-          `analytics: the site declares ${declared} but no analytics.productionHost, so initAnalytics ` +
+          `analytics: the site declares ${declared} but no production hostname, so initAnalytics ` +
           "keeps the tag off everywhere. Fix: set the production hostname.",
         unchecked,
       };
@@ -270,18 +292,17 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
 
   // ---- Emission, observed ------------------------------------------------
   if (emission.emitting === false) {
-    const shared = `analytics: ${declared ?? facts.propertyId} is configured, but ${emission.source} show no gtag loader.`;
-    return facts.preLaunch
-      ? { status: "warn", summary: `${shared} Expected before launch.`, unchecked }
-      : {
-          status: "fail",
-          summary: `${shared} The tag is not firing, so property ${facts.propertyId} is recording nothing.`,
-          unchecked,
-        };
+    return {
+      status: observed("fail"),
+      summary:
+        `analytics: ${declared ?? facts.propertyId} is configured, but ${emission.source} show no gtag loader. ` +
+        `The tag is not firing, so property ${facts.propertyId} is recording nothing.`,
+      unchecked,
+    };
   }
   if (emission.emitting === true && declared !== null && !emission.ids.includes(declared)) {
     return {
-      status: "fail",
+      status: observed("fail"),
       summary:
         `analytics: the live site loads ${emission.ids.join(", ")} but the checkout declares ${declared}. ` +
         "Traffic is going to a property nobody reads, and the configured one reads zero.",
@@ -293,7 +314,7 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
       status: "warn",
       summary:
         `analytics: the live site loads ${emission.ids.length} gtag loaders (${emission.ids.join(", ")}). ` +
-        "Two loaders on one property double every session. A legacy inline snippet is the usual cause.",
+        "Two loaders for one property double every session. A legacy inline snippet is the usual cause.",
       unchecked,
     };
   }
@@ -302,18 +323,25 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
   const label = declared ?? emission.ids[0] ?? "the tag";
   if (facts.property !== null) {
     if (!facts.property.ok) {
+      const standing = facts.property.kind === "denied";
       return {
-        status: "fail",
-        summary: `analytics: the GA4 Data API could not read property ${facts.propertyId} — ${facts.property.error}`,
-        unchecked,
+        status: standing ? "fail" : "warn",
+        summary: standing
+          ? `analytics: the GA4 Data API refused property ${facts.propertyId} — ${facts.property.error}`
+          : `analytics: the GA4 Data API was unreachable for property ${facts.propertyId} — ${facts.property.error}. ` +
+            "Upstream weather, not a defect in this site; the property went unmeasured.",
+        unchecked: standing
+          ? unchecked
+          : [...unchecked, "the GA4 property (the API was unreachable)"],
       };
     }
-    if (facts.property.users === 0 && !facts.preLaunch) {
+    if (facts.property.users === 0) {
       return {
         status: "warn",
         summary:
           `analytics: ${label} is configured and property ${facts.propertyId} answers, but it recorded ` +
-          `0 users in ${facts.windowDays} days. That is the shape of a tag that quietly stopped firing.`,
+          `0 users on this site's own hostnames in ${facts.windowDays} days. ` +
+          "That is the shape of a tag that quietly stopped firing.",
         unchecked,
       };
     }
@@ -326,12 +354,25 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
     };
   }
 
+  // ---- Configured, but nothing was actually measured ----------------------
+  // A `pass` here would be this audit's own worst failure mode. After the sweep
+  // every loader is JS-injected, so with no browser and no credentials THIS is
+  // the normal branch, and passing from it would green the entire fleet on the
+  // strength of two config values agreeing with each other.
+  if (emission.emitting === true) {
+    return {
+      status: "pass",
+      summary:
+        `analytics: ${label} is configured at both ends and ${emission.source} confirm it loads, ` +
+        `property ${facts.propertyId}. The property itself was not read.`,
+      unchecked,
+    };
+  }
   return {
-    status: "pass",
+    status: "skip",
     summary:
-      `analytics: ${label} is configured at both ends` +
-      (emission.emitting === true ? `, and ${emission.source} confirm it loads` : "") +
-      `, property ${facts.propertyId}.`,
+      `analytics: ${label} is configured at both ends (property ${facts.propertyId}), but nothing about ` +
+      "this site was observed — neither that the tag fires nor that the property answers.",
     unchecked,
   };
 }
@@ -345,10 +386,18 @@ export type AnalyticsDeps = {
   probeTag?: ((url: string) => Promise<TagProbe>) | undefined;
   /** Plain GET of the production URL, for the positive-only HTML scan. */
   fetchHtml?: ((url: string) => Promise<string>) | undefined;
-  /** Read activeUsers for the window. */
-  readUsers?: ((propertyId: string, days: number) => Promise<PropertyRead>) | undefined;
-  /** Pre-launch lifecycle, from the fleet row. Defaults to false. */
-  preLaunch?: boolean | undefined;
+  /**
+   * Read activeUsers for the window, filtered to `hostnames`.
+   *
+   * The filter is not optional. `src/reports/draft.ts` reads the same property
+   * through `measuredHostnames(siteRow.url)`, and an unfiltered read here would
+   * answer a DIFFERENT number than the report renders — on Reddoor's own
+   * property, 13,417 against 105. The zero-users warning exists to catch a tag
+   * that stopped firing, and it could never fire while localhost and preview
+   * traffic held the unfiltered count above zero.
+   */
+  readUsers?:
+    ((propertyId: string, days: number, hostnames: string[]) => Promise<PropertyRead>) | undefined;
   windowDays?: number | undefined;
 };
 
@@ -369,10 +418,19 @@ const DEFAULT_WINDOW_DAYS = 7;
  * `/gtag/js` specifically, so a GTM container (`/gtm.js`) is not miscounted as
  * a GA4 tag — they are different products and gallerysonder runs the other one.
  */
-export function gtagLoaderIds(html: string): string[] {
+export function gtagLoaderIds(text: string): string[] {
+  // A commented-out snippet is not a tag. Leaving one behind is a plausible
+  // mid-sweep state for this very rollout, and counting it as emission produced
+  // a confident, wrong accusation: "the live site loads G-OLD but the checkout
+  // declares G-NEW".
+  const scannable = text.replace(/<!--[\s\S]*?-->/g, " ");
   const ids = new Set<string>();
-  const re = /googletagmanager\.com\/gtag\/js\?[^"'\s>]*\bid=([A-Za-z0-9_-]+)/g;
-  for (const m of html.matchAll(re)) {
+  // Anchored at the scheme and the host START, so a path segment that merely
+  // CONTAINS the host — https://evil.test/googletagmanager.com/gtag/js?id=… —
+  // is not read as Google serving the tag.
+  const re =
+    /https?:\/\/(?:www\.)?googletagmanager\.com\/gtag\/js\?[^"'\s>]*\bid=([A-Za-z0-9_-]+)/gi;
+  for (const m of scannable.matchAll(re)) {
     const id = m[1];
     if (id) ids.add(id);
   }
@@ -471,7 +529,7 @@ export async function defaultFetchHtml(url: string): Promise<string> {
  * unchecked half rather than treating as a failing property.
  */
 export async function defaultReadUsers(): Promise<
-  ((propertyId: string, days: number) => Promise<PropertyRead>) | undefined
+  ((propertyId: string, days: number, hostnames: string[]) => Promise<PropertyRead>) | undefined
 > {
   const [{ readGaConfig }, { fetchPeriodUsers }] = await Promise.all([
     import("../reports/ga/config.js"),
@@ -479,18 +537,19 @@ export async function defaultReadUsers(): Promise<
   ]);
   const cfg = readGaConfig();
   if (!cfg) return undefined;
-  return async (propertyId: string, days: number): Promise<PropertyRead> => {
+  return async (propertyId: string, days: number, hostnames: string[]): Promise<PropertyRead> => {
     const end = new Date();
     const start = new Date(end.getTime() - days * 86_400_000);
     try {
       const { current } = await fetchPeriodUsers(
-        { propertyId, subjects: cfg.subjects, keyPath: cfg.keyPath, hostnames: [] },
+        { propertyId, subjects: cfg.subjects, keyPath: cfg.keyPath, hostnames },
         start,
         end,
       );
       return { ok: true, users: current };
     } catch (e) {
-      return { ok: false, error: (e as Error).message };
+      const msg = (e as Error).message;
+      return { ok: false, kind: classifyPropertyError(msg), error: msg };
     }
   };
 }
@@ -500,23 +559,47 @@ export async function defaultReadUsers(): Promise<
  * that will not launch, or absent GA credentials, must leave the audit saying
  * "not checked" — never failing a site for the runner's shortcomings.
  */
+/** Opt-in for the browser probe. See {@link defaultAnalyticsDeps}. */
+export const PROBE_ENV = "REDDOOR_ANALYTICS_PROBE";
+
 export async function defaultAnalyticsDeps(site: {
   ga4PropertyId?: string | undefined;
-  preLaunch?: boolean | undefined;
 }): Promise<AnalyticsDeps> {
+  // OFF by default, deliberately. This audit is in ALL_AUDIT_NAMES,
+  // `reddoor-maint audit --fleet` defaults to every audit, and its default
+  // concurrency is unbounded — so a probe on by default would launch one
+  // Chromium per site, ~27 at once, from a bare `audit --fleet`. Six concurrent
+  // agents plus one local Chrome already took this machine down on 2026-08-24.
+  // The probe is this audit's strong mode and it is asked for deliberately,
+  // with --concurrency set; without it the audit still runs and reports what it
+  // could not check.
   let probeTag: ((url: string) => Promise<TagProbe>) | undefined;
-  try {
-    probeTag = await defaultTagProbe();
-  } catch {
-    probeTag = undefined;
+  if (process.env[PROBE_ENV]) {
+    try {
+      probeTag = await defaultTagProbe();
+    } catch {
+      probeTag = undefined;
+    }
   }
   return {
     propertyId: site.ga4PropertyId ?? null,
-    preLaunch: site.preLaunch ?? false,
     probeTag,
     fetchHtml: defaultFetchHtml,
     readUsers: await defaultReadUsers(),
   };
+}
+
+/**
+ * The hostnames the monthly report counts for this site — deliberately the same
+ * computation `measuredHostnames` in reports/ga/client.ts performs, through the
+ * same shared rule, so the audit measures what the report renders.
+ *
+ * Not imported from there: that module statically imports google-auth-library
+ * and @google-analytics/data, and pulling them into the CLI entry is exactly
+ * what scripts/smoke-dist.mjs's central-dep blocker exists to catch.
+ */
+function reportedHostnames(siteUrl: string | null): string[] {
+  return siteUrl !== null && isHttpUrl(siteUrl) ? siteHostnames(hostnameOf(siteUrl)) : [];
 }
 
 export async function analyticsAudit(ctx: AuditContext): Promise<AuditResult> {
@@ -549,23 +632,43 @@ export async function analyticsAudit(ctx: AuditContext): Promise<AuditResult> {
   }
 
   let property: PropertyRead | null = null;
-  const propertyId = deps.propertyId;
+  // The Data API takes the NUMERIC property id. A `G-…` measurement id pasted
+  // into that column is an easy mistake and would otherwise read as a
+  // configured property that merely went unmeasured.
+  const rawProperty = deps.propertyId;
+  const propertyId =
+    typeof rawProperty === "string" && !/^\d+$/.test(rawProperty.trim()) ? null : rawProperty;
+  const malformedProperty =
+    propertyId === null && typeof rawProperty === "string" && rawProperty.length > 0;
   if (deps.readUsers && typeof propertyId === "string" && propertyId.length > 0) {
     try {
-      property = await deps.readUsers(propertyId, windowDays);
+      property = await deps.readUsers(propertyId, windowDays, reportedHostnames(siteUrl));
     } catch (e) {
-      property = { ok: false, error: (e as Error).message };
+      const msg = (e as Error).message;
+      property = { ok: false, kind: classifyPropertyError(msg), error: msg };
     }
   }
 
   const evidence: EmissionEvidence = { probe, htmlIds };
+  if (malformedProperty) {
+    return {
+      audit: "analytics",
+      site: siteLabel(site),
+      status: "fail",
+      summary:
+        `analytics: the fleet row's GA4 property ID is ${JSON.stringify(rawProperty)}, which is not a ` +
+        "numeric property ID. That is the `G-…` measurement ID, which the Data API cannot read. " +
+        "The two are different values and only one of them belongs on the row.",
+      details: { propertyId: rawProperty },
+    };
+  }
+
   const verdict = classifyAnalytics({
     config,
     propertyId,
     siteUrl,
     evidence,
     property,
-    preLaunch: deps.preLaunch ?? false,
     windowDays,
   });
 

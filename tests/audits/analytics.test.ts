@@ -3,10 +3,13 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  analyticsAudit,
   classifyAnalytics,
+  classifyPropertyError,
   determineEmission,
   gtagLoaderIds,
   readTagConfig,
+  type AnalyticsDeps,
   type AnalyticsFacts,
 } from "../../src/audits/analytics.js";
 
@@ -16,7 +19,6 @@ const BASE: AnalyticsFacts = {
   siteUrl: "https://www.example.com/",
   evidence: { probe: null, htmlIds: null },
   property: null,
-  preLaunch: false,
   windowDays: 7,
 };
 
@@ -91,18 +93,6 @@ describe("classifyAnalytics — the fleet states measured on 2026-09-22", () => 
     );
     expect(v.status).toBe("fail");
     expect(v.summary).toContain("can only ever answer zero");
-  });
-
-  it("vida-legacy-foundation: the same shape before launch is expected, not broken", () => {
-    const v = classifyAnalytics(
-      facts({
-        propertyId: "500039567",
-        preLaunch: true,
-        evidence: { probe: { requestedIds: [] }, htmlIds: [] },
-      }),
-    );
-    expect(v.status).toBe("warn");
-    expect(v.summary).toContain("Expected before launch");
   });
 
   it("beachfront: both ends, emitting, property answering — pass", () => {
@@ -184,7 +174,7 @@ describe("classifyAnalytics — the failures that are invisible from one end", (
       facts({
         ...both,
         evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
-        property: { ok: false, error: "PERMISSION_DENIED" },
+        property: { ok: false, kind: "denied", error: "PERMISSION_DENIED" },
       }),
     );
     expect(v.status).toBe("fail");
@@ -273,5 +263,210 @@ describe("readTagConfig", () => {
       JSON.stringify({ analytics: { measurementId: "   ", productionHost: 42 } }),
     );
     expect(await readTagConfig(dir)).toEqual({ measurementId: null, productionHost: null });
+  });
+});
+
+describe("gtagLoaderIds does not mistake a mention for a tag", () => {
+  // Every one of these was confirmed to match the first version of this regex,
+  // and a false positive here is not harmless: it makes determineEmission
+  // report `emitting: true`, which drove a confident, wrong accusation —
+  // "the live site loads G-OLD but the checkout declares G-NEW".
+  it("ignores a commented-out snippet, which is a normal mid-sweep state", () => {
+    const html = `<!-- <script src="https://www.googletagmanager.com/gtag/js?id=G-OLDOLDOLD"></script> -->`;
+    expect(gtagLoaderIds(html)).toEqual([]);
+  });
+
+  it("ignores a look-alike host, so a path segment cannot impersonate Google", () => {
+    const html = `<script src="https://evil.test/googletagmanager.com/gtag/js?id=G-SPOOFSPOOF"></script>`;
+    expect(gtagLoaderIds(html)).toEqual([]);
+  });
+
+  it("requires the id parameter itself, not a parameter ending in id", () => {
+    const base = "https://www.googletagmanager.com/gtag/js?";
+    expect(gtagLoaderIds(`<script src="${base}cid=G-NOTITSID12"></script>`)).toEqual([]);
+    expect(gtagLoaderIds(`<script src="${base}gtm_id=G-NOTITSID12"></script>`)).toEqual([]);
+    expect(gtagLoaderIds(`<script src="${base}l=dataLayer&id=G-REALREAL1"></script>`)).toEqual([
+      "G-REALREAL1",
+    ]);
+  });
+});
+
+describe("classifyPropertyError", () => {
+  it("calls a standing access fault denied", () => {
+    for (const m of ["PERMISSION_DENIED", "NOT_FOUND", "403 Forbidden", "invalid_grant"]) {
+      expect(classifyPropertyError(m)).toBe("denied");
+    }
+  });
+
+  it("calls upstream weather unavailable, so a quota blip cannot red a site", () => {
+    // One Airtable quota once reddened six workflows here.
+    for (const m of [
+      "Quota exceeded for quota metric 'Tokens'",
+      "getaddrinfo ENOTFOUND analyticsdata.googleapis.com",
+      "503 Service Unavailable",
+      "socket hang up",
+    ]) {
+      expect(classifyPropertyError(m)).toBe("unavailable");
+    }
+  });
+});
+
+describe("classifyAnalytics never passes on an unobserved site", () => {
+  const configured = {
+    config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+    propertyId: "111111111",
+  };
+
+  it("skips — does not pass — when neither half could be checked", () => {
+    // THE failure mode this audit could have had. After the sweep every loader
+    // is JS-injected, so an HTML scan returns [] for every healthy site; add no
+    // browser and no GA credentials and this is the NORMAL path. Returning
+    // `pass` from it would green the whole fleet on the strength of two config
+    // values agreeing with each other. `status` is what the cockpit and the
+    // fleet write-back aggregate on, so a disclosure in `unchecked` is not
+    // enough.
+    for (const evidence of [
+      { probe: null, htmlIds: null },
+      { probe: null, htmlIds: [] },
+    ]) {
+      const v = classifyAnalytics(facts({ ...configured, evidence, property: null }));
+      expect(v.status).toBe("skip");
+      expect(v.summary).toContain("nothing about");
+    }
+  });
+
+  it("passes only once something was actually seen", () => {
+    const v = classifyAnalytics(
+      facts({
+        ...configured,
+        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
+        property: null,
+      }),
+    );
+    expect(v.status).toBe("pass");
+    expect(v.summary).toContain("not read");
+  });
+
+  it("softens a fail to a warn when only the HTML said so", () => {
+    // An HTML positive cannot tell a live tag from a loader URL in a JSON blob
+    // or a branch that never runs, so nothing derived from it alone is a fail.
+    const html = classifyAnalytics(
+      facts({
+        config: { measurementId: "G-RIGHTRIGH", productionHost: "www.example.com" },
+        propertyId: "111111111",
+        evidence: { probe: null, htmlIds: ["G-WRONGWRON"] },
+      }),
+    );
+    expect(html.status).toBe("warn");
+
+    // The same shape, seen by the browser, is a fail.
+    const probed = classifyAnalytics(
+      facts({
+        config: { measurementId: "G-RIGHTRIGH", productionHost: "www.example.com" },
+        propertyId: "111111111",
+        evidence: { probe: { requestedIds: ["G-WRONGWRON"] }, htmlIds: null },
+      }),
+    );
+    expect(probed.status).toBe("fail");
+  });
+
+  it("warns rather than fails when the Data API was merely unreachable", () => {
+    const v = classifyAnalytics(
+      facts({
+        ...configured,
+        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
+        property: { ok: false, kind: "unavailable", error: "503" },
+      }),
+    );
+    expect(v.status).toBe("warn");
+    expect(v.unchecked.join(" ")).toContain("unreachable");
+  });
+});
+
+describe("analyticsAudit wiring", () => {
+  async function siteDir(config: unknown | null): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "rd-audit-"));
+    if (config !== null) {
+      await mkdir(join(dir, "src", "lib"), { recursive: true });
+      await writeFile(join(dir, "src", "lib", "site-config.json"), JSON.stringify(config));
+    }
+    return dir;
+  }
+
+  const run = (path: string, deployedUrl: string | undefined, analyticsDeps: AnalyticsDeps) =>
+    analyticsAudit({
+      site: deployedUrl === undefined ? { path } : { path, deployedUrl },
+      analyticsDeps,
+    });
+
+  it("reads the GA property on the site's OWN hostnames, as the report does", async () => {
+    // The report reads through measuredHostnames(siteRow.url). An unfiltered
+    // read here answers a different number than the report renders — 13,417
+    // against 105 on Reddoor's own property — and the zero-users warning could
+    // never fire while localhost traffic held the count up.
+    const seen: string[][] = [];
+    const dir = await siteDir({
+      analytics: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+    });
+    await run(dir, "https://www.example.com/", {
+      propertyId: "111111111",
+      fetchHtml: async () => "<html></html>",
+      probeTag: async () => ({ requestedIds: ["G-AAAAAAAAAA"] }),
+      readUsers: async (_id, _days, hostnames) => {
+        seen.push(hostnames);
+        return { ok: true, users: 7 };
+      },
+    });
+    expect(seen).toEqual([["example.com", "www.example.com"]]);
+  });
+
+  it("does not pass a site it could not observe at all", async () => {
+    const dir = await siteDir({
+      analytics: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+    });
+    const res = await run(dir, "https://www.example.com/", { propertyId: "111111111" });
+    expect(res.status).toBe("skip");
+    expect(res.summary).toContain("Not checked");
+  });
+
+  it("refuses a measurement ID pasted into the property column", async () => {
+    // The Data API takes the numeric property id. Pasting the `G-…` one there
+    // would otherwise read as a configured property that went unmeasured.
+    const dir = await siteDir(null);
+    const res = await run(dir, "https://www.example.com/", { propertyId: "G-AAAAAAAAAA" });
+    expect(res.status).toBe("fail");
+    expect(res.summary).toContain("not a numeric");
+  });
+
+  it("treats a probe that threw as unchecked, never as a missing tag", async () => {
+    // A browser failure reported as a site defect is how an audit loses its
+    // credibility.
+    const dir = await siteDir({
+      analytics: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+    });
+    const res = await run(dir, "https://www.example.com/", {
+      propertyId: "111111111",
+      fetchHtml: async () => "<html></html>",
+      probeTag: async () => {
+        throw new Error("browser would not launch");
+      },
+    });
+    expect(res.status).toBe("skip");
+    expect(res.summary).toContain("whether the tag fires");
+  });
+
+  it("launches nothing and claims nothing for a site with no deployed URL", async () => {
+    let probed = 0;
+    const dir = await siteDir(null);
+    const res = await run(dir, undefined, {
+      propertyId: "111111111",
+      probeTag: async () => {
+        probed++;
+        return { requestedIds: [] };
+      },
+      fetchHtml: async () => "<html></html>",
+    });
+    expect(probed).toBe(0);
+    expect(res.status).not.toBe("pass");
   });
 });

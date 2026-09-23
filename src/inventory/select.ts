@@ -71,7 +71,6 @@ export function selectFleetSites(websites: readonly WebsiteRow[], workdir: strin
       // BOTH ends — this and the tag the live site loads — because each one
       // alone looks fine while the pair is broken.
       if (w.ga4PropertyId) site.ga4PropertyId = w.ga4PropertyId;
-      if (isPreLaunch(w.status)) site.preLaunch = true;
       return [site];
     });
 }

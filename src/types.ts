@@ -18,10 +18,6 @@ export type Site = {
    *  of the pair and says so rather than guessing. Like `netlifyId`, an explicit
    *  operator-set column, never derived. */
   ga4PropertyId?: string;
-  /** True for a `building`/`launching` row. A pre-launch site's production host does
-   *  not resolve to it yet, so an inert tag is correct rather than broken, and the
-   *  analytics audit downgrades accordingly. */
-  preLaunch?: boolean;
   meta?: Record<string, unknown>;
 };
 
