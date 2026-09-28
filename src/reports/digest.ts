@@ -375,7 +375,7 @@ async function persistDigestState(
   writeRollup?: () => Promise<"written" | "absent">,
 ): Promise<void> {
   let turso = 0;
-  let airtable = 0;
+  let airtable: "1" | "0" | "off" = "0";
   let rollup: "1" | "0" | "absent" = "0";
   try {
     await (writeState ?? writeDigestStateToDb)(next);
@@ -384,8 +384,7 @@ async function persistDigestState(
     console.warn(`⚠ digest state write failed (turso): ${(e as Error).message}`);
   }
   try {
-    await writeAirtableDigestState(base, next);
-    airtable = 1;
+    airtable = (await writeAirtableDigestState(base, next)) ? "1" : "off";
   } catch (e) {
     console.warn(`⚠ digest state write failed (airtable): ${(e as Error).message}`);
   }

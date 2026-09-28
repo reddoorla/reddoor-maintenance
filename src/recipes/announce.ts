@@ -1,6 +1,10 @@
 import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
-import { siteSlug, updateAnalyticsHealth } from "../reports/airtable/websites.js";
+import {
+  analyticsHealthFields,
+  siteSlug,
+  updateAnalyticsHealth,
+} from "../reports/airtable/websites.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { readGaConfig } from "../reports/ga/config.js";
 import { updateReportScores, type ReportEnrichment } from "../reports/airtable/reports.js";
@@ -134,16 +138,20 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
       // it on a clean enrichment so the signal self-heals. Best-effort: the column is
       // operator-added, so until it exists the write throws — which must not break the draft.
       if (readGaConfig() !== null && Boolean(w.ga4PropertyId || w.searchQuery)) {
+        const at = gaResult.softFailed || searchResult.softFailed ? now.toISOString() : null;
         try {
-          const fields = await updateAnalyticsHealth(
-            base,
-            w.id,
-            gaResult.softFailed || searchResult.softFailed ? now.toISOString() : null,
-          );
-          // Mirror the EXACT FieldSet Airtable got — see draft.ts.
-          await deps.siteMirror?.health(w.id, fields);
+          await deps.siteMirror?.health(w.id, analyticsHealthFields(at));
         } catch (e) {
-          console.warn(`⚠ analytics-health write skipped for ${w.name}: ${(e as Error).message}`);
+          console.warn(
+            `⚠ analytics-health Turso mirror failed for ${w.name}: ${(e as Error).message}`,
+          );
+        }
+        try {
+          await updateAnalyticsHealth(base, w.id, at);
+        } catch (e) {
+          console.warn(
+            `⚠ analytics-health Airtable shadow write skipped for ${w.name}: ${(e as Error).message}`,
+          );
         }
       }
 
@@ -155,8 +163,7 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
       let statusKind: "drafted" | "reused";
       const existing = await findReportForPeriod(writer, w.id, "Announcement", period);
       if (existing) {
-        await updateReportScores(base, existing.id, scores, now, enrichment);
-        // Mirror the SAME refresh: the reuse path exists so the eventually-sent
+        // The SAME refresh: the reuse path exists so the eventually-sent
         // email is not stale, and the console reads those numbers too.
         await writer.patch(existing.id, {
           lighthouse_performance: scores.performance,
@@ -177,6 +184,7 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
             ? { search_position: enrichment.searchPosition }
             : {}),
         });
+        await updateReportScores(base, existing.id, scores, now, enrichment);
         report = existing;
         statusKind = "reused";
       } else {
@@ -212,6 +220,9 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
 
       // A preview-upload hiccup must NOT fail the site — log and continue.
       try {
+        // Store the same body in Turso — the console's preview route reads it
+        // there, not from the Airtable attachment (whose URL expires).
+        await writer.body(report.id, html);
         await uploadAttachment(
           report.id,
           "Rendered HTML",
@@ -219,9 +230,6 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
           `${slug}-${now.toISOString().slice(0, 10)}.html`,
           "text/html",
         );
-        // Store the same body in Turso — the console's preview route reads it
-        // there, not from the Airtable attachment (whose URL expires).
-        await writer.body(report.id, html);
       } catch (uploadErr) {
         console.warn(
           `⚠ Announcement preview upload skipped for ${w.name}: ${

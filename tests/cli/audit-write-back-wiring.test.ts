@@ -1,9 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { runFleetWriteBack } from "../../src/cli/commands/audit.js";
 import { makeFakeBase, type FakeAirtableBase } from "../reports/_helpers/fake-airtable-base.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import type { AuditResult } from "../../src/types.js";
 import type { FleetEvent } from "../../src/db/fleet-events.js";
+
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
 
 /** The seam under test is the audit CLI's fleet write-back step, extracted
  *  from runAuditCommand precisely so its Phase 3 mirror WIRING is pinned:

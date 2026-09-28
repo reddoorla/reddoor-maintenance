@@ -49,6 +49,11 @@ vi.mock("../../../src/audits/fleet-events-writer.js", () => ({
 
 import { openBase } from "../../../src/reports/airtable/client.js";
 
+vi.mock("../../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 const SITE = "recTURSOSITE";
 const REPORT = "recTURSOREPORT";
 const PLATE = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);

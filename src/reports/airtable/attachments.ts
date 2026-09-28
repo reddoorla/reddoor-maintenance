@@ -1,4 +1,5 @@
 import { skipsAirtableShadow } from "../../fleet/site-id.js";
+import { REQUEST_TIMEOUT_MS } from "./client.js";
 
 /** Cheap HTML sniff: an Airtable signed-URL "200" that is really a login/error page
  *  starts with `<!doctype html`, `<html`, or `<head` after an optional UTF-8 BOM /
@@ -19,7 +20,7 @@ function looksLikeHtml(bytes: Uint8Array): boolean {
 export async function fetchAttachmentBytes(
   url: string,
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!res.ok) {
     throw new Error(
       `Failed to fetch Airtable attachment ${res.status} ${res.statusText} (url=${url})`,
@@ -103,6 +104,7 @@ export async function uploadAttachment(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(`Airtable upload failed: ${res.status} ${res.statusText} ${await res.text()}`);
@@ -151,6 +153,7 @@ export async function uploadAttachment(
       method: "PATCH",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ fields: { [fieldName]: [{ id: newest }] } }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!patch.ok) {
       console.warn(

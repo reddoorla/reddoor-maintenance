@@ -2,6 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import type { AirtableBase } from "../../../src/reports/airtable/client.js";
 import { approveReportRow, getReportById } from "../../../src/reports/airtable/reports.js";
 
+vi.mock("../../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 /** A fake AirtableBase that records the update payload for one table. */
 function fakeBase() {
   const update = vi.fn().mockResolvedValue([]);

@@ -7,7 +7,7 @@ import { selfUpdating } from "./self-updating/index.js";
 import { HARNESS_JSON_RELATIVE, UNGUARDED_TWIN_TELL } from "./match-harness/template.js";
 import { runAudits } from "../audits/index.js";
 import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-airtable.js";
-import { writeAuditsToAirtable } from "../audits/write-audits-to-airtable.js";
+import { writeBackOneSite } from "../audits/write-audits-to-airtable.js";
 import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import { siteSlug } from "../reports/airtable/websites.js";
@@ -734,18 +734,16 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   });
 
   try {
-    const auditWrite = await writeAuditsToAirtable({
+    // #539 Phase 5: mirror the first-audit write-back. Launch is the ONE path
+    // that writes a brand-new site's health, so without this its row reads empty
+    // in the console.
+    await writeBackOneSite({
       base,
       websites,
       slug: siteSlug(target.name),
       results,
+      mirrorHealth: async (siteId, fields) => deps.siteMirror?.health(siteId, fields),
     });
-    // #539 Phase 5: mirror the first-audit write-back. Launch is the ONE path
-    // that writes a brand-new site's health, so without this its row reads empty
-    // in the console until the next hourly sync.
-    if (auditWrite.siteId && auditWrite.fields) {
-      await deps.siteMirror?.health(auditWrite.siteId, auditWrite.fields);
-    }
   } catch (err) {
     steps.push({ name: "audit", result: errorOf(err) });
     return stop();
@@ -770,8 +768,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
       // them — so refresh the row's Lighthouse cells (+ Completed on) to match,
       // otherwise the sent email (which reads the row) ships stale scores. The
       // create path already writes fresh scores via createDraft.
-      await updateReportScores(base, existing.id, scores, today);
-      // Mirror the same refresh — see the announce reuse path for why.
+      // The same refresh — see the announce reuse path for why.
       await deps.reportMirror.patch(existing.id, {
         lighthouse_performance: scores.performance,
         lighthouse_accessibility: scores.accessibility,
@@ -779,6 +776,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
         lighthouse_seo: scores.seo,
         completed_on: today.toISOString().slice(0, 10),
       });
+      await updateReportScores(base, existing.id, scores, today);
       report = existing;
     } else {
       // #646 step 4: minted and written in Turso (`report_<ULID>`). The Airtable
@@ -811,6 +809,8 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     });
     // A preview-upload hiccup must NOT fail the launch — log and continue.
     try {
+      // The console preview reads the body from Turso, not the attachment.
+      await deps.reportMirror.body(report.id, html);
       await uploadAttachment(
         report.id,
         "Rendered HTML",
@@ -818,8 +818,6 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
         `${slug}-${today.toISOString().slice(0, 10)}.html`,
         "text/html",
       );
-      // The console preview reads the body from Turso, not the attachment.
-      await deps.reportMirror.body(report.id, html);
     } catch (uploadErr) {
       console.warn(
         `⚠ Launch preview upload skipped for ${target.name}: ${

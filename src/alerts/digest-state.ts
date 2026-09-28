@@ -2,6 +2,7 @@
 import type { FieldSet } from "airtable";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import type { AttentionItem } from "./attention.js";
+import { airtableShadowOff } from "../fleet/site-id.js";
 
 /**
  * The persisted prior-run snapshot: stable item `key` → its last metric + the
@@ -103,7 +104,8 @@ export async function writeDigestState(
   base: AirtableBase,
   snap: DigestSnapshot,
   updatedAt: string = new Date().toISOString(),
-): Promise<void> {
+): Promise<boolean> {
+  if (airtableShadowOff("writeDigestState")) return false;
   const rows: { id: string }[] = [];
   await base(DIGEST_STATE_TABLE)
     .select({ maxRecords: 1, pageSize: 1 })
@@ -121,4 +123,5 @@ export async function writeDigestState(
   } else {
     await base(DIGEST_STATE_TABLE).create([{ fields }]);
   }
+  return true;
 }

@@ -23,6 +23,11 @@ import { fetchPeriodUsers } from "../../src/reports/ga/client.js";
 vi.mock("../../src/reports/search/client.js", () => ({ fetchSearchPresence: vi.fn() }));
 import { fetchSearchPresence } from "../../src/reports/search/client.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 // uploadAttachment in src/reports/airtable/attachments.ts uses fetch directly
 // to talk to content.airtable.com. Stub global fetch in beforeEach so we don't
 // hit the network.

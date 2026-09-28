@@ -1,3 +1,5 @@
+import { AIRTABLE_SHADOW_WRITES } from "../../db/freeze.js";
+
 export type DbCommandOptions = {
   /** Override the libSQL url (tests use ":memory:"); otherwise read from env. */
   url?: string;
@@ -51,9 +53,19 @@ export function freezeGuardsDbWrite(
   action: string,
   force: boolean,
   authoritative: boolean,
+  shadowWrites: boolean = AIRTABLE_SHADOW_WRITES,
 ): { output: string; code: number } | null {
   if (!authoritative) return null;
   if (action !== "import-airtable" && action !== "sync") return null;
+  if (!shadowWrites) {
+    return {
+      output:
+        `db ${action} refused: AIRTABLE_SHADOW_WRITES is off (2026-09-28), so the Airtable ` +
+        `archive stopped receiving writes. An import would roll authoritative Turso rows ` +
+        `back to it and reap every row Airtable never held. There is no rollback window to converge.`,
+      code: 1,
+    };
+  }
   if (force) return null;
   return {
     output:

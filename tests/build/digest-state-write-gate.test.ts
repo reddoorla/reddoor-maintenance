@@ -88,6 +88,18 @@ describe("daily-reports digest gate — PASSES on a known-good line (prove the i
     expect(r.code).toBe(0);
   });
 
+  it("is green on the shipped shadow-off line, airtable=off", async () => {
+    const r = await runStep(
+      [
+        "Digest sent to tucker@reddoorla.com (msg_0193f1)",
+        "DIGEST_STATE_WRITE turso=1 airtable=off rollup=1",
+      ].join("\n"),
+    );
+    expect(r.code).toBe(0);
+    expect(r.log).toContain("PASS: DIGEST_STATE_WRITE turso=1 airtable=off rollup=1");
+    expect(r.log).not.toContain("::warning::");
+  });
+
   it("is green with NO airtable counter at all — the post-Phase-6 line", async () => {
     const r = await runStep("DIGEST_STATE_WRITE turso=1 rollup=1");
     expect(r.code).toBe(0);

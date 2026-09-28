@@ -7,6 +7,11 @@ import {
   skipsAirtableShadow,
 } from "../../src/fleet/site-id.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });

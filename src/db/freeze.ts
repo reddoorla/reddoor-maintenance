@@ -41,15 +41,13 @@
 
 /** `true` since the freeze (flipped 2026-08-31, the same PR that retired the
  *  hourly `fleet-db-sync` import — the two must move together, and did): Turso
- *  is the store that must succeed. The Airtable write is kept as the shadow for
- *  the one-week rollback window — still written, and DELIBERATELY still allowed
- *  to fail its caller: a shadow you might roll back to is one you keep
- *  trustworthy, so an Airtable outage still reds writes until Phase 6 deletes
- *  the shadow and the Airtable client layer with it.
+ *  is the store that must succeed.
  *
  *  Go/no-go recorded on #612: `FLEET_PARITY sites=44 health=44 schedule=44
  *  reports=17 mismatches=0` immediately before the flip. */
 export const TURSO_IS_AUTHORITATIVE = true;
+
+export const AIRTABLE_SHADOW_WRITES = false;
 
 /**
  * Run one Turso mirror write with the error semantics the current world calls

@@ -1,9 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { reportTier, queueDraft } from "../../src/reports/queue.js";
 import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
 import { makeFakeReportWriter } from "./_helpers/fake-report-writer.js";
 import { mapRow } from "../../src/reports/airtable/reports.js";
 import type { ReportType } from "../../src/reports/types.js";
+
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
 
 /** A Reports row, pending-approval (Draft ready) by default. */
 function rep(

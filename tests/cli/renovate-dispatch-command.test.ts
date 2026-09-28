@@ -1,7 +1,12 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { runRenovateDispatchCommand } from "../../src/cli/commands/renovate-dispatch.js";
 import { makeFakeBase, type FakeAirtableBase } from "../reports/_helpers/fake-airtable-base.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
+
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
 
 /** #646 step 4: the roster comes from Turso. Injected from the fake base here —
  *  the counter write it drives is the Airtable shadow write these tests pin. */

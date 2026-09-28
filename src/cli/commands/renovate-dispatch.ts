@@ -1,6 +1,6 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import type { SiteMirror } from "../../db/site-mirror.js";
-import { updateAutoFixAttempts } from "../../reports/airtable/websites.js";
+import { autoFixAttemptsFields, updateAutoFixAttempts } from "../../reports/airtable/websites.js";
 import type { FleetRoster } from "../../fleet/roster.js";
 import { makeGitHub } from "../../github/gh.js";
 import {
@@ -96,8 +96,8 @@ export async function runRenovateDispatchCommand(opts: {
   // 0-vuln sites reset.
   const attemptUpdates = computeAutoFixAttemptUpdates(websites, result);
   const attemptTally = await applyAutoFixAttemptUpdates(attemptUpdates, async (id, attempts) => {
-    const fields = await updateAutoFixAttempts(base, id, attempts);
-    await opts.siteMirror?.health(id, fields);
+    await opts.siteMirror?.health(id, autoFixAttemptsFields(attempts));
+    await updateAutoFixAttempts(base, id, attempts);
   });
 
   lines.push(formatRenovateDispatchSummary(result));

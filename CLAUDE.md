@@ -257,11 +257,21 @@ in anyone's voice.
 
 Design: `docs/superpowers/specs/2026-08-31-starter-track-split-design.md`.
 
-## In flight: the Airtable → Turso migration
+## In flight: the Airtable → Turso migration (#539, Phase 6 on #646)
 
-Scheduled for the weekend of 2026-08-22. Pinned as issue #539. Design and plan
-are on branch `docs/airtable-to-turso-spec` under `docs/superpowers/`.
+Turso has been the only authoritative store since 2026-08-31
+(`TURSO_IS_AUTHORITATIVE` in `src/db/freeze.ts`). Since 2026-09-28 Airtable
+receives **no writes at all**: `AIRTABLE_SHADOW_WRITES = false` in the same
+file stops every shadow writer, and each skip logs
+`AIRTABLE_SHADOW skipped=shadow-off`. The base is a frozen, read-only archive.
 
-Do not start it early or opportunistically. The Airtable quota was raised on
-2026-08-17, so nothing about it is urgent, and the operator explicitly deferred
-it to conserve tokens.
+- **The workspace is on Airtable's Free plan (1,000 API calls a month).** The
+  2026-08-17 "quota raise" did not move it off Free: the block recurred on
+  2026-09-27 and hung four nightlies. Any new Airtable call spends that budget,
+  including agent tooling. Airtable calls now fail fast on a 429
+  (`AIRTABLE_QUOTA_EXHAUSTED`) instead of hanging.
+- **Deleting the Airtable layer (#646 steps 6–8) still needs its own go from the
+  operator.** Its precondition is a sites-table parity diff, which is blocked on
+  #891. Removing `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` is not a kill switch: most
+  CLI entry points still call `openBase(readAirtableConfig())` eagerly and exit 2
+  without them.

@@ -163,12 +163,12 @@ export async function formsNotifyTarget(
   // the current Airtable vocabulary is correct. `--set off` writes the operator's
   // own string — see restoreCell.
   const cell = deps.set === "on" ? toAirtableStatus(VERIFY_STATUS) : restoreCell(restoreRaw!);
-  // The Airtable shadow first, still allowed to fail loudly while it is kept
-  // trustworthy; it skips a site id Airtable cannot hold (#646 step 3).
-  await updateSiteField(base, row.id, STATUS_COLUMN, cell);
   // The write that DECIDES: `/api/forms/:slug` reads this cell from Turso, and
   // the console reads it there too.
   await deps.siteMirror.site(row.id, { [STATUS_COLUMN]: cell });
+  // The Airtable shadow, still allowed to fail loudly while it is kept
+  // trustworthy; it skips a site id Airtable cannot hold (#646 step 3).
+  await updateSiteField(base, row.id, STATUS_COLUMN, cell);
 
   // Read it back — from Turso, the store just confirmed to be the one that
   // matters. The write returning is NOT evidence the field changed.

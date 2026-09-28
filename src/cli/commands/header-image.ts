@@ -90,15 +90,9 @@ export async function generateForTargets(
         ...(opts.consentSelector === undefined ? {} : { consentSelector: opts.consentSelector }),
       });
       if (opts.writeBack) {
-        // replaceIn: the field must hold exactly the current header — see
-        // uploadAttachment, where appending left readers on a stale [0].
-        await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
-          replaceIn: "Websites",
-        });
         let stored = "";
+        let storeFailure: string | null = null;
         if (opts.storeDb) {
-          // Dual-write. A Turso failure must not void the Airtable upload —
-          // but it must be VISIBLE, never a silent divergence.
           try {
             await opts.storeDb(row.id, {
               bytes: gen.bytes,
@@ -108,12 +102,22 @@ export async function generateForTargets(
             });
             stored = " + turso";
           } catch (err) {
-            stored = ` (⚠ turso store FAILED: ${err instanceof Error ? err.message : String(err)})`;
+            storeFailure = err instanceof Error ? err.message : String(err);
           }
         }
-        lines.push(
-          `✔ ${row.name} — uploaded ${gen.filename} (${(gen.bytes.byteLength / 1024 / 1024).toFixed(2)} MB)${stored}`,
-        );
+        // replaceIn: the field must hold exactly the current header — see
+        // uploadAttachment, where appending left readers on a stale [0].
+        await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
+          replaceIn: "Websites",
+        });
+        if (storeFailure !== null) {
+          failed++;
+          lines.push(`✖ ${row.name} — turso store FAILED: ${storeFailure}`);
+        } else {
+          lines.push(
+            `✔ ${row.name} — uploaded ${gen.filename} (${(gen.bytes.byteLength / 1024 / 1024).toFixed(2)} MB)${stored}`,
+          );
+        }
       } else {
         const path = resolve(outDir, gen.filename);
         await writeFile(path, gen.bytes);

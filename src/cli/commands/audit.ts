@@ -356,7 +356,7 @@ export async function runAuditCommand(
       if (!opts.json) output += `\n\n${wb.summary}`;
     } else {
       const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
-      const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
+      const { writeBackOneSite } = await import("../../audits/write-audits-to-airtable.js");
       const slug =
         typeof opts.writeBack === "string" && opts.writeBack.length > 0
           ? opts.writeBack
@@ -375,16 +375,17 @@ export async function runAuditCommand(
               const { readFleetRoster } = await import("../../fleet/roster.js");
               const websites = await readFleetRoster();
               task.output = "writing scores…";
-              writeSummary = await writeAuditsToAirtable({ base, websites, slug, results });
-              // #539 Phase 5: the FLEET path has mirrored since Phase 3, this
-              // single-site one never did — same write, same columns, reaching
-              // Turso only via the hourly sync. The summary already carries the
-              // exact FieldSet Airtable got, so no signature change is needed.
-              if (writeSummary.siteId && writeSummary.fields) {
-                const { makeSiteMirror } = await import("../../db/site-mirror.js");
-                await (await makeSiteMirror()).health(writeSummary.siteId, writeSummary.fields);
-              }
-              task.title = `Wrote to Websites[${writeSummary.siteName}] (${writeSummary.writes.length} audit type${writeSummary.writes.length === 1 ? "" : "s"})`;
+              const { makeSiteMirror } = await import("../../db/site-mirror.js");
+              const siteMirror = await makeSiteMirror();
+              const summary = await writeBackOneSite({
+                base,
+                websites,
+                slug,
+                results,
+                mirrorHealth: (siteId, fields) => siteMirror.health(siteId, fields),
+              });
+              writeSummary = summary;
+              task.title = `Wrote to Websites[${summary.siteName}] (${summary.writes.length} audit type${summary.writes.length === 1 ? "" : "s"})`;
             },
           },
         ],
@@ -470,7 +471,7 @@ export async function runFleetWriteBack(args: {
   // WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.
   const sweep = which.includes("security") ? "security" : "lighthouse";
   const now = new Date();
-  const auditEvents = fleetWrite.written.flatMap((w) => w.events ?? []);
+  const auditEvents = fleetWrite.events ?? fleetWrite.written.flatMap((w) => w.events ?? []);
   await (deps.recordEvents ?? recordFleetEventsBestEffort)(
     [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
     now,

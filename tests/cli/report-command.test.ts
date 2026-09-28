@@ -34,6 +34,11 @@ import { makeFakeReportWriter } from "../reports/_helpers/fake-report-writer.js"
 import { mapRow as mapReportRow } from "../../src/reports/airtable/reports.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 /** The fleet, as the batch reads it from Turso (#646 step 4). Set per case. */
 let rosterRows: WebsiteRow[] = [];
 

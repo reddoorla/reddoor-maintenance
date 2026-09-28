@@ -58,29 +58,47 @@ export async function queueDraft(
   report: { id: string; siteId: string; reportType: ReportType },
   mirror: ReportMirror,
 ): Promise<QueueOutcome> {
-  const setReady = async (id: string, ready: boolean): Promise<void> => {
-    await setDraftReady(base, id, ready);
-    await mirror.patch(id, { draft_ready: ready ? 1 : 0 });
-  };
-  const newTier = reportTier(report.reportType);
+  const plan = await queueDraftInTurso(report, mirror);
+  await shadowQueueDraft(base, plan);
+  return plan.outcome;
+}
+
+export type QueuePlan = { outcome: QueueOutcome; flags: Array<[id: string, ready: boolean]> };
+
+export async function queueDraftInTurso(
+  report: { id: string; siteId: string; reportType: ReportType },
+  mirror: ReportMirror,
+): Promise<QueuePlan> {
   const others = (await mirror.forSite(report.siteId))
     .filter(isPendingApproval)
     .filter((r) => r.id !== report.id);
+  const plan = planQueue(report, others);
+  for (const [id, ready] of plan.flags) await mirror.patch(id, { draft_ready: ready ? 1 : 0 });
+  return plan;
+}
 
+function planQueue(
+  report: { id: string; reportType: ReportType },
+  others: Array<{ id: string; reportType: ReportType }>,
+): QueuePlan {
+  const newTier = reportTier(report.reportType);
   const blocker = others.find((r) => reportTier(r.reportType) >= newTier);
   if (blocker) {
     // A queued report already covers this one. Make sure the new draft is NOT queued (the reuse
     // path may hand us a row that was Draft-ready from a prior run) and stand down.
-    await setReady(report.id, false);
-    return { queued: false, blockedBy: blocker.reportType, supersededIds: [] };
+    return {
+      outcome: { queued: false, blockedBy: blocker.reportType, supersededIds: [] },
+      flags: [[report.id, false]],
+    };
   }
 
   // The new report is strictly the highest-tier pending — supersede the rest (un-queue), keep it.
-  const supersededIds: string[] = [];
-  for (const r of others) {
-    await setReady(r.id, false);
-    supersededIds.push(r.id);
-  }
-  await setReady(report.id, true);
-  return { queued: true, supersededIds };
+  return {
+    outcome: { queued: true, supersededIds: others.map((r) => r.id) },
+    flags: [...others.map((r): [string, boolean] => [r.id, false]), [report.id, true]],
+  };
+}
+
+export async function shadowQueueDraft(base: AirtableBase, plan: QueuePlan): Promise<void> {
+  for (const [id, ready] of plan.flags) await setDraftReady(base, id, ready);
 }

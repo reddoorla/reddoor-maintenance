@@ -9,7 +9,7 @@ import type { ReportRow } from "./airtable/reports.js";
 import { createReportDraft } from "./create-report.js";
 import type { ReportMirror } from "./report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
-import { queueDraft } from "./queue.js";
+import { queueDraftInTurso, shadowQueueDraft, type QueueOutcome } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
 import { uploadAttachment } from "./airtable/attachments.js";
 import type { AirtableBase } from "./airtable/client.js";
@@ -338,10 +338,12 @@ export async function draftReportForSite(
   // (scores, period, dates) were already written at create time; the only pieces a
   // crash drops are the attachment + the ready flag.
   if (options.completeRowId) {
-    await uploadDraftHtml(options.completeRowId, slug, periodEnd, html, store!);
-    const outcome = await queueDraft(
+    const outcome = await uploadAndQueueDraft(
       base,
       { id: options.completeRowId, siteId: siteRow.id, reportType },
+      slug,
+      periodEnd,
+      html,
       store!,
     );
     return {
@@ -394,10 +396,12 @@ export async function draftReportForSite(
     { create: store!.create },
   );
 
-  await uploadDraftHtml(created.id, slug, periodEnd, html, store!);
-  const outcome = await queueDraft(
+  const outcome = await uploadAndQueueDraft(
     base,
     { id: created.id, siteId: siteRow.id, reportType },
+    slug,
+    periodEnd,
+    html,
     store!,
   );
 
@@ -413,27 +417,30 @@ export async function draftReportForSite(
   };
 }
 
-/** Attach the rendered HTML to a Reports row. Queueing (Draft ready + the single-queue
- *  reconciliation) is handled separately by queueDraft so both the create path and the
- *  "complete a half-made row" path share the identical, re-runnable upload step.
+/** Attach the rendered HTML to a Reports row, then queue it (Draft ready + the
+ *  single-queue reconciliation), so both the create path and the "complete a
+ *  half-made row" path share the identical, re-runnable step.
  *
  *  #539 Phase 5: the body is ALSO stored in Turso, because that is where the
  *  console's preview route reads it. Storing the row without the body leaves a
- *  visible draft whose preview answers "No rendered body stored" until the next
- *  hourly sync re-downloads this very attachment. */
-async function uploadDraftHtml(
-  rowId: string,
+ *  visible draft whose preview answers "No rendered body stored". */
+async function uploadAndQueueDraft(
+  base: AirtableBase,
+  report: { id: string; siteId: string; reportType: ReportType },
   slug: string,
   periodEnd: Date,
   html: string,
   store: ReportMirror,
-): Promise<void> {
+): Promise<QueueOutcome> {
   const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
+  await store.body(report.id, html);
+  const queue = await queueDraftInTurso(report, store);
   // Airtable's copy of the body is a shadow: `uploadAttachment` skips a report id
   // Airtable cannot hold (#646 step 3's writer rule), so a minted report's body
   // lives only in Turso — which is where the console's preview route reads it.
-  await uploadAttachment(rowId, "Rendered HTML", html, htmlFilename, "text/html");
-  await store.body(rowId, html);
+  await uploadAttachment(report.id, "Rendered HTML", html, htmlFilename, "text/html");
+  await shadowQueueDraft(base, queue);
+  return queue.outcome;
 }
 
 /** Result of an enrichment fetch: the value (null if unavailable) plus whether

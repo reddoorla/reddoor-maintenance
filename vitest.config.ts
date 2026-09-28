@@ -21,8 +21,12 @@ export default defineConfig({
     // Gating on truthiness instead would let `REDDOOR_TIME_TRAVEL_DAYS=""` skip the shim and
     // report a green run on the real clock — the hollow green this whole guard exists to
     // prevent, arriving through the guard itself.
-    setupFiles:
-      process.env.REDDOOR_TIME_TRAVEL_DAYS !== undefined ? ["./vitest.time-travel-setup.ts"] : [],
+    setupFiles: [
+      "./vitest.no-credentials-setup.ts",
+      ...(process.env.REDDOOR_TIME_TRAVEL_DAYS !== undefined
+        ? ["./vitest.time-travel-setup.ts"]
+        : []),
+    ],
     coverage: {
       // Run via `pnpm test:coverage` (the CI gate); plain `pnpm test` stays fast.
       provider: "v8",

@@ -193,6 +193,11 @@ const io = () => {
 };
 import { recordFleetEventsBestEffort } from "../../../src/audits/fleet-events-writer.js";
 
+vi.mock("../../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 describe("sendApprovedReports", () => {
   it("returns 0 and 'No reports ready' when nothing is sendable", async () => {
     vi.mocked(openBase).mockReturnValue(makeFakeBase({ Reports: [], Websites: [siteRow()] }));

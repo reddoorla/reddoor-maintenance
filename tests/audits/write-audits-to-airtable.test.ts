@@ -1,9 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { writeAuditsToAirtable } from "../../src/audits/write-audits-to-airtable.js";
 import type { AuditResult } from "../../src/types.js";
 import type { AirtableBase } from "../../src/reports/airtable/client.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
 
 type UpdateCall = { table: string; id: string; fields: Record<string, unknown> };
 

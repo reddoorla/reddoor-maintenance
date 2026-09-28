@@ -123,7 +123,7 @@ describe("cli/header-image dual-write (#539 D5)", () => {
     expect(res.output).toContain("+ turso");
   });
 
-  it("a Turso store failure is VISIBLE but does not void the Airtable upload", async () => {
+  it("a Turso store failure reds the run: Turso is the store the send reads", async () => {
     const res = await generateForTargets(
       [row({ name: "Acme" })],
       {
@@ -134,7 +134,9 @@ describe("cli/header-image dual-write (#539 D5)", () => {
       },
       gen,
     );
-    expect(res.code).toBe(0); // the Airtable upload succeeded
-    expect(res.output).toContain("turso store FAILED: turso down");
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("✖ Acme — turso store FAILED: turso down");
+    expect(res.output).not.toContain("✔ Acme");
+    expect(res.output).toContain("0/1 generated.");
   });
 });

@@ -21,6 +21,11 @@ import { runRenovateDispatchCommand } from "../../src/cli/commands/renovate-disp
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import type { AuditResult } from "../../src/types.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 const NOW = "2026-09-17T00:00:00.000Z";
 const NATIVE = mintSiteId(Date.parse(NOW));
 
@@ -134,7 +139,7 @@ describe("the audit fleet write-back, driven by the Turso roster", () => {
     // The shadow write is skipped by id shape (step 3), and says so.
     expect(base.__calls.filter((c) => c.kind === "update")).toEqual([]);
     expect(log.mock.calls.flat().join("\n")).toContain(
-      `AIRTABLE_SHADOW skipped=non-rec-id writer=updateAuditFields id=${NATIVE}`,
+      `AIRTABLE_SHADOW skipped=non-rec-id writer=updateAuditFieldSet id=${NATIVE}`,
     );
   });
 
