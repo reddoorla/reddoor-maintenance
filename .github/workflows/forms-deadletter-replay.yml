@@ -46,10 +46,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
-      # No Airtable credentials, deliberately. Replay resolves sites through
-      # `makeLazySiteLookup`, which under the freeze reads Turso and never
-      # constructs the Airtable base at all — so this workflow adds no dependency
-      # on a layer Phase 6 is about to remove. RESEND_API_KEY is optional by the
+      # Replay resolves sites through Turso's `getSiteBySlug`, the same lookup
+      # the live ingest handler uses. RESEND_API_KEY is optional by the
       # same code path the live handler uses: without it recovered leads land
       # un-emailed (notify=failed) rather than blocking the recovery.
       - name: Replay the dead-letter queue

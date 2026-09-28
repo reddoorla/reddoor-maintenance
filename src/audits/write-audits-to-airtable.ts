@@ -1,6 +1,4 @@
-import type { FieldSet } from "airtable";
 import type { AuditResult } from "../types.js";
-import type { AirtableBase } from "../reports/airtable/client.js";
 import type { HealthMirror } from "./health-mirror.js";
 import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 import {
@@ -8,7 +6,7 @@ import {
   type WebsiteRow,
   auditFields,
   siteSlug,
-  updateAuditFieldSet,
+  type FieldSet,
 } from "../reports/airtable/websites.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
 import { hasA11yCounts, a11yCountsFromResult } from "./a11y-airtable.js";
@@ -225,14 +223,7 @@ export function planAuditWrite(args: {
   };
 }
 
-export async function shadowAuditWrite(base: AirtableBase, plan: AuditWritePlan): Promise<void> {
-  const { siteId, fields } = plan.summary;
-  if (siteId === undefined || fields === undefined || Object.keys(fields).length === 0) return;
-  await updateAuditFieldSet(base, siteId, fields);
-}
-
 export async function writeBackOneSite(args: {
-  base: AirtableBase;
   websites: WebsiteRow[];
   slug: string;
   results: AuditResult[];
@@ -241,19 +232,6 @@ export async function writeBackOneSite(args: {
   const plan = planAuditWrite(args);
   const { siteId, fields } = plan.summary;
   if (siteId && fields) await args.mirrorHealth(siteId, fields);
-  await shadowAuditWrite(args.base, plan);
-  if (plan.lighthouseMiss) throw plan.lighthouseMiss;
-  return plan.summary;
-}
-
-export async function writeAuditsToAirtable(args: {
-  base: AirtableBase;
-  websites: WebsiteRow[];
-  slug: string;
-  results: AuditResult[];
-}): Promise<WriteSummary> {
-  const plan = planAuditWrite(args);
-  await shadowAuditWrite(args.base, plan);
   if (plan.lighthouseMiss) throw plan.lighthouseMiss;
   return plan.summary;
 }
@@ -302,6 +280,13 @@ export function fleetWriteFailed(
   strict: boolean = TURSO_IS_AUTHORITATIVE,
 ): boolean {
   if (result.failed.length > 0) return true;
+  return tursoWriteFailed(result, strict);
+}
+
+export function tursoWriteFailed(
+  result: FleetWriteResult,
+  strict: boolean = TURSO_IS_AUTHORITATIVE,
+): boolean {
   if (!strict) return false;
   if (result.mirrored === undefined) return true; // no mirror was wired at all
   return (result.mirrorFailed ?? 0) > 0 || (result.mirrorMissed ?? 0) > 0;
@@ -311,7 +296,7 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
   const wrote = result.written.length;
   const failed = result.failed.length;
   const total = wrote + failed;
-  let out = `→ wrote ${wrote} site(s) to Airtable`;
+  let out = `→ wrote ${wrote} site(s)`;
   if (failed > 0) {
     out += `\n⚠ ${failed} site(s) not written: ${result.failed
       .map((f) => `${f.slug} (${f.error})`)
@@ -332,14 +317,13 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
  *  inventory stamped as Site.name). A per-site failure (no scores, no matching
  *  row) is collected — not thrown — so one bad site never aborts the batch. */
 export async function writeFleetAuditsToAirtable(args: {
-  base: AirtableBase;
   websites: WebsiteRow[];
   results: AuditResult[];
   /** Optional Turso write-through (#539 Phase 3 dual-write). A mirror failure
    *  is counted, never thrown. */
   mirror?: HealthMirror;
 }): Promise<FleetWriteResult> {
-  const { base, websites, results, mirror } = args;
+  const { websites, results, mirror } = args;
 
   const bySlug = new Map<string, AuditResult[]>();
   for (const r of results) {
@@ -354,11 +338,6 @@ export async function writeFleetAuditsToAirtable(args: {
   let mirrored = 0;
   let mirrorFailed = 0;
   let mirrorMissed = 0;
-  // Serial on purpose: even at one (now atomic) update call per site, Airtable's
-  // ~5 req/sec limit means a Promise.all fan-out across the fleet would burst and
-  // trip 429s (silently filed as failures). Below a few dozen sites, serial trades
-  // wall-clock for safety. (morning-brief 2026-06-09 MEDIUM-3.) Add a bounded pool
-  // when the fleet grows.
   for (const [slug, siteResults] of bySlug) {
     let plan: AuditWritePlan;
     try {
@@ -379,14 +358,12 @@ export async function writeFleetAuditsToAirtable(args: {
         console.error(`[health-mirror] ${slug}: ${(e as Error).message}`);
       }
     }
-    try {
-      await shadowAuditWrite(base, plan);
-      if (plan.lighthouseMiss) throw plan.lighthouseMiss;
-      written.push(summary);
-      if (!mirror) events.push(...(summary.events ?? []));
-    } catch (e) {
-      failed.push({ slug, error: (e as Error).message });
+    if (plan.lighthouseMiss) {
+      failed.push({ slug, error: plan.lighthouseMiss.message });
+      continue;
     }
+    written.push(summary);
+    if (!mirror) events.push(...(summary.events ?? []));
   }
   return { written, failed, events, ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}) };
 }

@@ -1,19 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   writeFleetAuditsToAirtable,
-  writeAuditsToAirtable,
   planAuditWrite,
   writeBackOneSite,
 } from "../../src/audits/write-audits-to-airtable.js";
-import { listWebsites } from "../../src/reports/airtable/websites.js";
-import type { AirtableBase } from "../../src/reports/airtable/client.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import type { AuditResult } from "../../src/types.js";
-
-vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
-  AIRTABLE_SHADOW_WRITES: true,
-}));
 
 const ROWS = [
   { id: "recA", fields: { Name: "Acme Co", Status: "maintained" } },
@@ -40,75 +32,36 @@ const a11y = (site: string): AuditResult =>
 const SCORES = { performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 };
 
 async function roster() {
-  return listWebsites(makeFakeBase({ Websites: ROWS }) as never);
+  return websiteRowsFrom(ROWS);
 }
 
-function orderedBase(log: string[], fail: boolean): AirtableBase {
-  return ((table: string) => ({
-    update: async (records: Array<{ id: string }>) => {
-      log.push(`airtable:${table}:${records[0]!.id}`);
-      if (fail) {
-        throw Object.assign(new Error("Airtable monthly API call quota exhausted"), {
-          code: "AIRTABLE_QUOTA_EXHAUSTED",
-        });
-      }
-      return records;
-    },
-  })) as unknown as AirtableBase;
-}
-
-function recordingMirror(log: string[]) {
+function recordingMirror() {
   const seen: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
   const mirror = async (siteId: string, fields: Record<string, unknown>) => {
-    log.push(`turso:${siteId}`);
     seen.push({ siteId, fields });
     return true;
   };
   return { mirror, seen };
 }
 
-describe("fleet audit write-back writes Turso before the Airtable shadow", () => {
-  it("mirrors each site before its Airtable update (both succeed: known-good control)", async () => {
-    const log: string[] = [];
-    const { mirror } = recordingMirror(log);
+describe("fleet audit write-back writes Turso", () => {
+  it("mirrors each site in roster order (known-good control)", async () => {
+    const { mirror, seen } = recordingMirror();
     const out = await writeFleetAuditsToAirtable({
-      base: orderedBase(log, false),
       websites: await roster(),
       results: [lighthouse("acme-co", SCORES), lighthouse("beta-corp", SCORES)],
       mirror,
     });
     expect(out.failed).toEqual([]);
     expect(out.mirrored).toBe(2);
-    expect(log).toEqual([
-      "turso:recA",
-      "airtable:Websites:recA",
-      "turso:recB",
-      "airtable:Websites:recB",
-    ]);
-  });
-
-  it("still lands every site in Turso when every Airtable write fails", async () => {
-    const log: string[] = [];
-    const { mirror, seen } = recordingMirror(log);
-    const out = await writeFleetAuditsToAirtable({
-      base: orderedBase(log, true),
-      websites: await roster(),
-      results: [lighthouse("acme-co", SCORES), lighthouse("beta-corp", SCORES)],
-      mirror,
-    });
-    expect(out.mirrored).toBe(2);
     expect(seen.map((s) => s.siteId)).toEqual(["recA", "recB"]);
     expect(seen[0]!.fields).toMatchObject({ pScore: 90 });
-    expect(out.written).toEqual([]);
-    expect(out.failed.map((f) => f.slug)).toEqual(["acme-co", "beta-corp"]);
-    expect(out.failed[0]!.error).toMatch(/quota exhausted/);
+    expect(out.written.map((w) => w.siteName)).toEqual(["Acme Co", "Beta Corp"]);
   });
 
   it("mirrors a Lighthouse-miss site's other audits, then files it as failed", async () => {
-    const log: string[] = [];
-    const { mirror, seen } = recordingMirror(log);
+    const { mirror, seen } = recordingMirror();
     const out = await writeFleetAuditsToAirtable({
-      base: orderedBase(log, false),
       websites: await roster(),
       results: [lighthouse("beta-corp", {}), a11y("beta-corp")],
       mirror,
@@ -122,40 +75,12 @@ describe("fleet audit write-back writes Turso before the Airtable shadow", () =>
   });
 });
 
-describe("the shadow carries the Turso payload byte for byte", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("even when the clock moves between the two writes", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-28T12:00:00.000Z"));
-    const base = makeFakeBase({ Websites: ROWS });
-    const mirrored: Array<Record<string, unknown>> = [];
-    await writeFleetAuditsToAirtable({
-      base,
-      websites: await roster(),
-      results: [lighthouse("acme-co", SCORES)],
-      mirror: async (_siteId, fields) => {
-        mirrored.push(fields);
-        vi.setSystemTime(new Date("2026-09-28T12:00:05.000Z"));
-        return true;
-      },
-    });
-    const update = base.__calls.find((c) => c.kind === "update");
-    expect(update && update.kind === "update" ? update.records[0]!.fields : null).toEqual(
-      mirrored[0],
-    );
-    expect(mirrored[0]).toMatchObject({ "Last lighthouse audit at": "2026-09-28T12:00:00.000Z" });
-  });
-});
-
 describe("planAuditWrite", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("builds the same FieldSet the shadow writes, without touching Airtable", async () => {
+  it("builds the FieldSet the single-site write-back mirrors", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-28T12:00:00.000Z"));
     const websites = await roster();
@@ -165,18 +90,18 @@ describe("planAuditWrite", () => {
       results: [lighthouse("acme-co", SCORES)],
     });
     expect(plan.lighthouseMiss).toBeNull();
-    const base = makeFakeBase({ Websites: ROWS });
-    const summary = await writeAuditsToAirtable({
-      base,
+    const mirrored: Array<Record<string, unknown>> = [];
+    const summary = await writeBackOneSite({
       websites,
       slug: "acme-co",
       results: [lighthouse("acme-co", SCORES)],
+      mirrorHealth: async (_siteId, fields) => {
+        mirrored.push(fields);
+      },
     });
     expect(summary.fields).toEqual(plan.summary.fields);
-    const update = base.__calls.find((c) => c.kind === "update");
-    expect(update && update.kind === "update" ? update.records[0]!.fields : null).toEqual(
-      plan.summary.fields,
-    );
+    expect(mirrored).toEqual([plan.summary.fields]);
+    expect(mirrored[0]).toMatchObject({ "Last lighthouse audit at": "2026-09-28T12:00:00.000Z" });
   });
 
   it("carries a Lighthouse miss instead of throwing it", async () => {
@@ -190,36 +115,39 @@ describe("planAuditWrite", () => {
   });
 });
 
-describe("the single-site write-back writes Turso before the Airtable shadow", () => {
-  async function run(fail: boolean) {
-    const log: string[] = [];
-    const seen: Array<Record<string, unknown>> = [];
+describe("the single-site write-back writes Turso", () => {
+  async function run(results: AuditResult[], slug: string) {
+    const seen: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
     const outcome = await writeBackOneSite({
-      base: orderedBase(log, fail),
       websites: await roster(),
-      slug: "acme-co",
-      results: [lighthouse("acme-co", SCORES)],
+      slug,
+      results,
       mirrorHealth: async (siteId, fields) => {
-        log.push(`turso:${siteId}`);
-        seen.push(fields);
+        seen.push({ siteId, fields });
       },
     }).then(
       (summary) => ({ summary, error: null as Error | null }),
       (error: Error) => ({ summary: null, error }),
     );
-    return { log, seen, ...outcome };
+    return { seen, ...outcome };
   }
 
-  it("orders Turso first (known-good control)", async () => {
-    const { log, summary } = await run(false);
-    expect(log).toEqual(["turso:recA", "airtable:Websites:recA"]);
+  it("mirrors the site's scores and returns its summary (known-good control)", async () => {
+    const { seen, summary, error } = await run([lighthouse("acme-co", SCORES)], "acme-co");
+    expect(error).toBeNull();
+    expect(seen).toEqual([{ siteId: "recA", fields: expect.objectContaining({ pScore: 90 }) }]);
     expect(summary?.siteName).toBe("Acme Co");
   });
 
-  it("keeps the Turso write when the shadow throws, and still throws", async () => {
-    const { log, seen, error } = await run(true);
-    expect(log).toEqual(["turso:recA", "airtable:Websites:recA"]);
-    expect(seen[0]).toMatchObject({ pScore: 90 });
-    expect(error?.message).toMatch(/quota exhausted/);
+  it("mirrors a Lighthouse miss's other audits, then still throws", async () => {
+    const { seen, error } = await run(
+      [lighthouse("beta-corp", {}), a11y("beta-corp")],
+      "beta-corp",
+    );
+    expect(seen).toEqual([
+      { siteId: "recB", fields: expect.objectContaining({ "A11y Violations": 2 }) },
+    ]);
+    expect(seen[0]!.fields).not.toHaveProperty("pScore");
+    expect(error?.message).toMatch(/produced no scores/i);
   });
 });

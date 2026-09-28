@@ -37,7 +37,10 @@ function dbCommandBlock(): string {
 const FLAGS = {
   "--file": "file",
   "--url": "url",
-  "--force": "force",
+  "--org": "org",
+  "--abandon": "abandon",
+  "--reason": "reason",
+  "--by": "by",
 } satisfies Record<string, keyof DbCommandOptions>;
 
 describe("db command — CLI registration", () => {
@@ -53,7 +56,7 @@ describe("db command — CLI registration", () => {
 
     const block = dbCommandBlock();
     // `[ <"]`: a value-taking flag continues with ` <placeholder>`; a boolean
-    // flag (--force) ends the string right after its name.
+    // flag ends the string right after its name.
     const missing = [...read].filter(
       (key) => !new RegExp(`\\.option\\(\\s*\\n?\\s*"--${key}[ <"]`).test(block),
     );
@@ -119,17 +122,13 @@ describe("db command — CLI registration", () => {
 
 /**
  * #645 item 3, asserted against the SOURCE for the same reason the flag test
- * above is: `replay-deadletters` cannot be unit-run — it opens a real db, a real
- * Resend client and (before this change) a real Airtable base at the top of the
- * branch. The bug was entirely in that wiring, so the wiring is what is checked.
+ * above is: `replay-deadletters` cannot be unit-run — it opens a real db and a
+ * real Resend client at the top of the branch. The bug was entirely in that
+ * wiring, so the wiring is what is checked.
  *
- * Two properties, both of which were false before:
- *  - the replay resolves sites through the shared lookup, not through Airtable's
- *    `getWebsiteBySlug` directly, so recovery and the live ingest path agree
- *    about what the fleet is;
- *  - the Airtable base is passed as a THUNK, never constructed eagerly —
- *    `readAirtableConfig()` throws on a missing PAT, and it was being called
- *    before a single queued lead could be replayed.
+ * The replay resolves sites exactly as the live ingest handler does — Turso's
+ * `getSiteBySlug(db, slug)` — so recovery and the live path agree about what the
+ * fleet is.
  */
 describe("db replay-deadletters — the site lookup wiring (#645)", () => {
   /** Just the replay branch, so another action's wiring cannot satisfy this. */
@@ -137,31 +136,30 @@ describe("db replay-deadletters — the site lookup wiring (#645)", () => {
     const start = dbSource.indexOf('if (action === "replay-deadletters")');
     expect(start, "the replay-deadletters branch has moved or been renamed").toBeGreaterThan(-1);
     const rest = dbSource.slice(start);
-    const end = rest.indexOf('\n  if (action === "import-airtable"');
-    return end === -1 ? rest : rest.slice(0, end);
+    const end = rest.indexOf('\n  if (action === "dump"');
+    expect(end, "the action after replay-deadletters has moved or been renamed").toBeGreaterThan(
+      -1,
+    );
+    return rest.slice(0, end);
   }
 
-  it("resolves through the shared makeLazySiteLookup over Turso", () => {
+  const lookupShape = /const lookupSite = \(slug: string\) => getSiteBySlug\(db, slug\);/;
+
+  it("resolves through Turso's getSiteBySlug(db, slug)", () => {
     const branch = replayBranch();
-    expect(branch).toContain("makeLazySiteLookup");
-    expect(branch).toContain("getSiteBySlug(db,");
-    // The ingest dep is the shared lookup, not a bare Airtable call.
+    expect(branch).toMatch(lookupShape);
     expect(branch).toMatch(/getWebsiteBySlug:\s*lookupSite/);
   });
 
-  it("never constructs the Airtable base eagerly", () => {
+  it("never reaches for Airtable", () => {
     const branch = replayBranch();
-    // A thunk (`() => openBase(...)`) is fine; a bare statement-level
-    // `const base = openBase(readAirtableConfig())` is the bug.
-    expect(branch).not.toMatch(/^\s*const\s+base\s*=\s*openBase\(/m);
-    expect(branch).toMatch(/openAirtable:\s*\(\)\s*=>\s*openBase\(/);
+    expect(branch).not.toMatch(/airtable|openBase|makeLazySiteLookup/i);
   });
 
   it("the live handler builds its lookup the SAME way", () => {
-    // Drift between these two is the defect #645 names; one shared factory and
-    // one shared shape is the fix.
     const handler = readFileSync(join(repoRoot, "netlify/functions/form-ingest.mts"), "utf-8");
-    expect(handler).toContain("makeLazySiteLookup");
-    expect(handler).toMatch(/openAirtable:\s*\(\)\s*=>\s*openBase\(/);
+    expect(handler).toMatch(lookupShape);
+    expect(handler).toMatch(/getWebsiteBySlug:\s*lookupSite/);
+    expect(handler).not.toMatch(/openBase|openAirtable|makeLazySiteLookup/);
   });
 });

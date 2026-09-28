@@ -29,8 +29,6 @@
  * needs a strict order finer than the millisecond.
  */
 
-import { AIRTABLE_SHADOW_WRITES } from "../db/freeze.js";
-
 /** Crockford base32, the ULID alphabet (no I, L, O, U). */
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const MAX_TIME = 2 ** 48 - 1;
@@ -76,55 +74,7 @@ export function mintSiteId(now: number = Date.now()): string {
   return `site_${encodeUlid(now, random)}`;
 }
 
-/** A `rec…` id — the only shape Airtable can address. Deliberately a PREFIX test,
- *  the decision's own wording ("skip non-`rec` ids"): real Airtable ids are
- *  `rec` + 14 alphanumerics, but the suite's fixtures use readable ones like
- *  `rec_site_acme`, and in production the only other shape that exists is
- *  `site_<ULID>`, which this rejects either way. */
-export function isAirtableRecordId(id: string): boolean {
-  return id.length > 3 && id.startsWith("rec");
-}
-
 /** A site id minted by {@link mintSiteId}. */
 export function isMintedSiteId(id: string): boolean {
   return /^site_[0-9A-HJKMNP-TV-Z]{26}$/.test(id);
-}
-
-/**
- * The one decision every Airtable SHADOW writer makes before touching Airtable:
- * is this a record Airtable could possibly hold? A `site_` id never is — the site
- * was created in Turso and Airtable has never heard of it — so the write is
- * skipped ON PURPOSE rather than sent to 404.
- *
- * Returns `true` when the caller must skip, after logging exactly one stable,
- * greppable line:
- *
- *     AIRTABLE_SHADOW skipped=non-rec-id writer=<name> id=<id>
- *
- * Logged rather than silent because a skip is a decision someone may need to
- * audit: "why does Airtable not have this site's scores" should be one grep away.
- * Lives outside `src/reports/airtable/` so the Turso-native creator can use it
- * without importing the layer Phase 6 deletes.
- */
-export function skipsAirtableShadow(
-  writer: string,
-  id: string,
-  enabled: boolean = AIRTABLE_SHADOW_WRITES,
-): boolean {
-  if (airtableShadowOff(writer, id, enabled)) return true;
-  if (isAirtableRecordId(id)) return false;
-  console.log(`AIRTABLE_SHADOW skipped=non-rec-id writer=${writer} id=${id}`);
-  return true;
-}
-
-export function airtableShadowOff(
-  writer: string,
-  id?: string,
-  enabled: boolean = AIRTABLE_SHADOW_WRITES,
-): boolean {
-  if (enabled) return false;
-  console.log(
-    `AIRTABLE_SHADOW skipped=shadow-off writer=${writer}${id === undefined ? "" : ` id=${id}`}`,
-  );
-  return true;
 }

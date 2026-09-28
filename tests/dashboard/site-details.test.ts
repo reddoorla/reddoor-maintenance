@@ -43,7 +43,7 @@ describe("setSiteDetail", () => {
   describe("the site's own url", () => {
     // A site's url is the target every deployed audit drives — function-health,
     // lighthouse, browser, form-e2e all read it as `deployedUrl`
-    // (src/inventory/airtable.ts). It was writable ONLY at creation
+    // (src/inventory/select.ts). It was writable ONLY at creation
     // (`ensure-site`), and post-#643 Airtable hand-editing is retired, so a site
     // that moved — a rename, a staging host, a custom domain at launch — could
     // not be corrected anywhere. Found on vida-legacy-foundation, whose row

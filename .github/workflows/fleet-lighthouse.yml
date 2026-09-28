@@ -46,8 +46,6 @@ jobs:
         # sampled routes, ~10 sequential sites) is the heaviest leg, hence the wider budget.
         timeout-minutes: 75
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           # netlify-deploy probes each site's latest production deploy via the Netlify
@@ -138,8 +136,6 @@ jobs:
         if: always()
         continue-on-error: true
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

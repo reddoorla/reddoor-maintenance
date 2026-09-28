@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { collectPrismicDriftAlerts } from "../../src/alerts/digest-collectors.js";
-import { fromAirtableBase } from "../../src/inventory/airtable.js";
+import { selectFleetSites } from "../../src/inventory/select.js";
 import type { Status, WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { CANONICAL_STATUSES } from "../../src/reports/airtable/site-status.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 
 /**
  * THE TWO SCOPE PREDICATES MUST AGREE — this file is the pin, and it exists
@@ -16,10 +15,7 @@ import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
  * an ABSENCE rather than from a verdict some run established.
  *
  * `selectFleetSites` (src/inventory/select.ts) decides which rows that sweep
- * actually visits, through either store's provider — `fromTursoDb` since #646
- * step 4, and `fromAirtableBase`, driven below. The two providers are pinned to
- * select identically for the same rows by tests/inventory/selection-parity.test.ts,
- * so pinning one here pins both. It is fleet-wide behaviour shared by nine commands, so the
+ * actually visits, through `fromTursoDb`, and is driven below. It is fleet-wide behaviour shared by nine commands, so the
  * alerts layer deliberately does NOT import it: the inventory builds `Site`
  * objects and needs a workdir, while the alert needs a pure predicate over a row.
  *
@@ -28,7 +24,7 @@ import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
  *   - alarm WIDER than sweep → a site nobody sweeps is reported every morning as
  *     "the check has not run recently", forever. Attention items sit above the
  *     accepted-watch mute, so it is un-ackable and unfixable except by
- *     hand-clearing an Airtable cell. This is the exact defect the predicate was
+ *     hand-clearing a cell. This is the exact defect the predicate was
  *     added to prevent.
  *   - sweep WIDER than alarm → a site IS swept and its verdict can go stale in
  *     silence, which is "I could not read X" rendered as "X is fine".
@@ -78,22 +74,10 @@ function alarmExpectsASweep(row: WebsiteRow): boolean {
   );
 }
 
-/** Does the sweep's own inventory actually visit this row? A REAL provider — the
- *  Airtable one, whose selection `--fleet turso`'s provider is proven identical to
- *  (tests/inventory/selection-parity.test.ts). */
-async function sweepVisits(row: WebsiteRow): Promise<boolean> {
-  const base = makeFakeBase({
-    Websites: [
-      {
-        id: row.id,
-        // Built FROM the row so one shape drives both sides. Status is omitted
-        // rather than sent as null, because that is how a blank cell arrives.
-        fields: { Name: row.name, url: row.url, ...(row.status ? { Status: row.status } : {}) },
-      },
-    ],
-  });
-  const sites = await fromAirtableBase(base, { workdir: WORKDIR })();
-  return sites.length > 0;
+/** Does the sweep's own inventory actually visit this row? The REAL selection
+ *  rule `fromTursoDb` applies to every row it reads. */
+function sweepVisits(row: WebsiteRow): boolean {
+  return selectFleetSites([row], WORKDIR).length > 0;
 }
 
 beforeEach(() => {
@@ -107,7 +91,7 @@ afterEach(() => {
 });
 
 describe("the Prismic staleness gate and the sweep inventory cover the same sites", () => {
-  it("agrees on every status × url × name shape", async () => {
+  it("agrees on every status × url × name shape", () => {
     const disagreements: string[] = [];
     for (const status of STATUSES) {
       for (const url of URLS) {
@@ -124,7 +108,7 @@ describe("the Prismic staleness gate and the sweep inventory cover the same site
             prismicModelsCheckedAt: new Date(NOW.getTime() - 400 * 86_400_000).toISOString(),
           });
           const alarmed = alarmExpectsASweep(row);
-          const swept = await sweepVisits(row);
+          const swept = sweepVisits(row);
           if (alarmed !== swept) {
             disagreements.push(
               `status=${JSON.stringify(status)} url=${JSON.stringify(url)} name=${JSON.stringify(name)}` +
@@ -143,16 +127,16 @@ describe("the Prismic staleness gate and the sweep inventory cover the same site
   // Guards the matrix itself. An assertion that a list is EMPTY is satisfied just
   // as well by a list nothing was ever added to — so prove the loop reaches both
   // answers, or the test above could pass with the predicates deleted.
-  it("the matrix actually exercises both answers", async () => {
+  it("the matrix actually exercises both answers", () => {
     const rows = STATUSES.flatMap((status) =>
       URLS.flatMap((url) => NAMES.map((name) => makeWebsiteRow({ id: "rec1", name, url, status }))),
     );
-    const visited = await Promise.all(rows.map(sweepVisits));
+    const visited = rows.map(sweepVisits);
     expect(visited).toContain(true);
     expect(visited).toContain(false);
   });
 
-  it("covers a live, named, reachable site — the case the alarm exists for", async () => {
+  it("covers a live, named, reachable site — the case the alarm exists for", () => {
     const row = makeWebsiteRow({
       id: "rec1",
       name: "Espada",
@@ -162,6 +146,6 @@ describe("the Prismic staleness gate and the sweep inventory cover the same site
       prismicModelsCheckedAt: new Date(NOW.getTime() - 400 * 86_400_000).toISOString(),
     });
     expect(alarmExpectsASweep(row)).toBe(true);
-    expect(await sweepVisits(row)).toBe(true);
+    expect(sweepVisits(row)).toBe(true);
   });
 });

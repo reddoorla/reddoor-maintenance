@@ -1,12 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { writeAuditsToAirtable } from "../../src/audits/write-audits-to-airtable.js";
+import { writeBackOneSite } from "../../src/audits/write-audits-to-airtable.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { AuditResult } from "../../src/types.js";
 
-// A fake Airtable base: the only call writeAuditsToAirtable makes is base(table).update(...).
-function fakeBase() {
-  return (() => ({ update: async () => [] })) as never;
-}
+const mirrorHealth = async () => true;
 
 function siteRow(over: Partial<WebsiteRow>): WebsiteRow {
   return {
@@ -27,10 +24,10 @@ const securityClean: AuditResult = {
   details: { counts: { critical: 0, high: 0, moderate: 0, low: 0 } },
 } as AuditResult;
 
-describe("writeAuditsToAirtable attaches detected events", () => {
+describe("writeBackOneSite attaches detected events", () => {
   it("emits vuln_cleared when prior critical+high cleared to 0", async () => {
-    const summary = await writeAuditsToAirtable({
-      base: fakeBase(),
+    const summary = await writeBackOneSite({
+      mirrorHealth,
       websites: [siteRow({})],
       slug: "caltex",
       results: [securityClean],
@@ -39,8 +36,8 @@ describe("writeAuditsToAirtable attaches detected events", () => {
   });
 
   it("emits no events when nothing transitioned", async () => {
-    const summary = await writeAuditsToAirtable({
-      base: fakeBase(),
+    const summary = await writeBackOneSite({
+      mirrorHealth,
       websites: [siteRow({ securityVulnsCritical: 0, securityVulnsHigh: 0 })],
       slug: "caltex",
       results: [securityClean],

@@ -14,8 +14,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
-import { mirrorSiteFields } from "../../src/db/fleet-state.js";
+import type { RawRecord } from "../../src/db/import-airtable.js";
+import { mirrorSiteFields, mirrorSiteInsert } from "../../src/db/fleet-state.js";
 
 const NOW = new Date("2026-08-25T12:00:00.000Z");
 const SITE: RawRecord = {
@@ -23,16 +23,9 @@ const SITE: RawRecord = {
   fields: { Name: "Acme Gallery", Status: "launching", "Launched at": null },
 };
 
-const io = (records: RawRecord[]): ImportIo => ({
-  listWebsiteRecords: async () => records,
-  listReportRecords: async () => [],
-  fetchAttachment: async () => null,
-  now: () => NOW,
-});
-
 async function dbWithSite() {
   const db = await openDb({ url: ":memory:" });
-  await importFleetState(db, io([SITE]));
+  await mirrorSiteInsert(db, SITE, NOW.toISOString());
   return db;
 }
 
@@ -59,10 +52,8 @@ describe("mirrorSiteFields", () => {
     });
   });
 
-  it("delegates coercion to the importer, so parity stays raw-to-raw", async () => {
-    // The whole risk of a mirror is coercing differently from the importer:
-    // parity compares raw-to-raw, so storing "true" where the importer stores 1
-    // reds every hourly run until the next import papers over it.
+  it("delegates coercion to the importer", async () => {
+    // The whole risk of a mirror is coercing differently from the importer.
     const db = await dbWithSite();
 
     await mirrorSiteFields(db, "recSITE", {

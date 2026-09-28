@@ -507,7 +507,10 @@ cli
   .command("header-image [site]", "Generate a site's report header image from its live homepage.")
   .option("--all", "Every live site with no Header image yet (backfill)")
   .option("--force", "With --all, regenerate sites that already have one")
-  .option("--write-back", "Upload to the Websites row instead of writing a local file")
+  .option(
+    "--write-back",
+    "Store it as the site's header plate in Turso instead of writing a local file",
+  )
   .option("--out-dir <path>", "Directory for local output (default: reports/)")
   .option("--settle-ms <ms>", "Override the post-load settle delay for slow/animated homepages")
   .option(
@@ -780,7 +783,7 @@ cli
 cli
   .command(
     "db <action>",
-    "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity | sync | backfill-header-images | backfill-digest-state | dump | verify-dump | restore | usage).",
+    "Operate the libSQL store (migrate | replay-deadletters | dump | verify-dump | restore | usage).",
   )
   .option("--file <path>", "verify-dump / restore: the dump file to load")
   .option(
@@ -792,12 +795,6 @@ cli
     "restore: the TARGET database to load into. Required, never defaulted — a restore " +
       "that could fall back to the ambient TURSO_DATABASE_URL is one keystroke from " +
       "overwriting production.",
-  )
-  .option(
-    "--force",
-    "import-airtable / sync: run despite the freeze (#643) — a deliberate rollback-window " +
-      "converge from the frozen Airtable shadow. Without it both refuse while Turso is " +
-      "authoritative, because an import overwrites authoritative rows.",
   )
   .option(
     "--abandon <slug-or-id>",
@@ -819,7 +816,6 @@ cli
         file?: string;
         url?: string;
         org?: string;
-        force?: boolean;
         cwd?: string;
         verbose?: boolean;
       },

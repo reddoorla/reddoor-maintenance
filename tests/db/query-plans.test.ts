@@ -57,11 +57,10 @@ const EXEMPT_MODULES: Record<string, string> = {
   "migrate.ts": "migration runner — DDL, not a query path",
   "migrations.ts": "DDL scripts",
   "schema.ts": "types only",
-  "import-airtable.ts": "one-shot bulk importer — full-table upserts by design, not request-path",
-  "parity.ts": "parity harness — full-table comparison is the whole point",
+  "import-airtable.ts": "column maps + pure record mappers — no queries of its own",
   "dump.ts": "backup dump — full-table reads by design",
-  "sync.ts": "orchestrates importer + parity (both exempt) — no queries of its own",
-  "header-images.ts": "one-shot backfill + CLI dual-write — bulk by-PK writes, not request-path",
+  "header-images.ts":
+    "header plate store + per-site read for the CLI, drafting and send — by-PK, not request-path",
   "site-mirror.ts":
     "best-effort write-through wrapper — issues no SQL of its own, delegates to " +
     "fleet-state's mirrorHealthFields/mirrorSiteFields, which are gated below",

@@ -1,19 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   writeFleetAuditsToAirtable,
   formatFleetWriteSummary,
   type FleetWriteResult,
 } from "../../src/audits/write-audits-to-airtable.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import type { AuditResult } from "../../src/types.js";
-
-vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
-  AIRTABLE_SHADOW_WRITES: true,
-}));
 
 function lhResult(siteSlug: string, scores: Record<string, number>): AuditResult {
   return {
@@ -30,9 +25,18 @@ const websites = [
   { id: "recB", fields: { Name: "Beta Corp", Status: "maintenance" } },
 ];
 
+function recordingMirror() {
+  const calls: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
+  const mirror = async (siteId: string, fields: Record<string, unknown>) => {
+    calls.push({ siteId, fields });
+    return true;
+  };
+  return { mirror, calls };
+}
+
 describe("writeFleetAuditsToAirtable", () => {
   it("writes each site's lighthouse scores to its own row, grouped by result.site slug", async () => {
-    const base = makeFakeBase({ Websites: websites });
+    const { mirror, calls } = recordingMirror();
     const results = [
       lhResult("acme-co", {
         performance: 0.9,
@@ -43,36 +47,36 @@ describe("writeFleetAuditsToAirtable", () => {
       lhResult("beta-corp", { performance: 0.5, accessibility: 0.9, "best-practices": 1, seo: 1 }),
     ];
     const out = await writeFleetAuditsToAirtable({
-      base,
-      websites: await loadWebsites(base),
+      websites: websiteRowsFrom(websites),
       results,
+      mirror,
     });
     expect(out.failed).toEqual([]);
     expect(out.written.map((w) => w.siteName).sort()).toEqual(["Acme Co", "Beta Corp"]);
-    // Two update calls, one per row.
-    const updates = base.__calls.filter((c) => c.kind === "update");
-    expect(updates.map((u) => u.records[0]!.id).sort()).toEqual(["recA", "recB"]);
+    expect(calls.map((c) => c.siteId).sort()).toEqual(["recA", "recB"]);
+    expect(calls.find((c) => c.siteId === "recB")!.fields).toMatchObject({ pScore: 50 });
   });
 
   it("collects a per-site failure (no matching row) without aborting the batch", async () => {
-    const base = makeFakeBase({ Websites: websites });
+    const { mirror, calls } = recordingMirror();
     const results = [
       lhResult("acme-co", { performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
       lhResult("ghost-site", { performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
     ];
     const out = await writeFleetAuditsToAirtable({
-      base,
-      websites: await loadWebsites(base),
+      websites: websiteRowsFrom(websites),
       results,
+      mirror,
     });
     expect(out.written.map((w) => w.siteName)).toEqual(["Acme Co"]);
+    expect(calls.map((c) => c.siteId)).toEqual(["recA"]);
     expect(out.failed).toHaveLength(1);
     expect(out.failed[0]!.slug).toBe("ghost-site");
     expect(out.failed[0]!.error).toMatch(/No Websites row matched/);
   });
 
   it("files a no-real-scores site under failed but STILL writes its a11y/deps/security (MEDIUM-E)", async () => {
-    const base = makeFakeBase({ Websites: websites });
+    const { mirror, calls } = recordingMirror();
     const results: AuditResult[] = [
       lhResult("acme-co", { performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
       lhResult("beta-corp", {}), // lighthouse ran but produced no real scores
@@ -105,21 +109,19 @@ describe("writeFleetAuditsToAirtable", () => {
       } as unknown as AuditResult,
     ];
     const out = await writeFleetAuditsToAirtable({
-      base,
-      websites: await loadWebsites(base),
+      websites: websiteRowsFrom(websites),
       results,
+      mirror,
     });
     expect(out.written.map((w) => w.siteName)).toEqual(["Acme Co"]);
     expect(out.failed).toHaveLength(1);
     expect(out.failed[0]!.slug).toBe("beta-corp");
     expect(out.failed[0]!.error).toMatch(/produced no scores/i);
+    expect(out.mirrored).toBe(2);
     // beta-corp's non-LH audits WERE written to its row (recB) despite the miss.
-    const betaFields: Record<string, unknown> = {};
-    for (const c of base.__calls) {
-      if (c.kind === "update" && c.records[0]?.id === "recB") {
-        Object.assign(betaFields, c.records[0].fields);
-      }
-    }
+    const betaCalls = calls.filter((c) => c.siteId === "recB");
+    expect(betaCalls).toHaveLength(1);
+    const betaFields = betaCalls[0]!.fields;
     expect(betaFields).toMatchObject({
       "A11y Violations": 2,
       "Deps Drifted": 1,
@@ -128,12 +130,6 @@ describe("writeFleetAuditsToAirtable", () => {
     expect("pScore" in betaFields).toBe(false); // no lighthouse scores (the miss)
   });
 });
-
-// loadWebsites: reads the seeded Websites table off the fake base via listWebsites.
-async function loadWebsites(base: ReturnType<typeof makeFakeBase>) {
-  const { listWebsites } = await import("../../src/reports/airtable/websites.js");
-  return listWebsites(base as never);
-}
 
 function fleetResult(wrote: number, failed: FleetWriteResult["failed"]): FleetWriteResult {
   return {
@@ -145,7 +141,7 @@ function fleetResult(wrote: number, failed: FleetWriteResult["failed"]): FleetWr
 describe("formatFleetWriteSummary", () => {
   it("emits a machine-readable summary line with wrote/failed/total counts when all sites write", () => {
     const out = formatFleetWriteSummary(fleetResult(2, []));
-    expect(out).toContain("→ wrote 2 site(s) to Airtable");
+    expect(out.split("\n")[0]).toBe("→ wrote 2 site(s)");
     // The CI gate keys off this exact line, not the human-readable prose above.
     expect(out).toContain("FLEET_WRITE_SUMMARY wrote=2 failed=0 total=2");
     expect(out).not.toContain("not written");
@@ -155,7 +151,7 @@ describe("formatFleetWriteSummary", () => {
     const out = formatFleetWriteSummary(
       fleetResult(9, [{ slug: "erp-industrials", error: "no scores" }]),
     );
-    expect(out).toContain("→ wrote 9 site(s) to Airtable");
+    expect(out.split("\n")[0]).toBe("→ wrote 9 site(s)");
     expect(out).toContain("⚠ 1 site(s) not written: erp-industrials (no scores)");
     expect(out).toContain("FLEET_WRITE_SUMMARY wrote=9 failed=1 total=10");
   });
@@ -168,7 +164,7 @@ describe("formatFleetWriteSummary", () => {
         { slug: "c", error: "z" },
       ]),
     );
-    expect(out).toContain("→ wrote 0 site(s) to Airtable");
+    expect(out.split("\n")[0]).toBe("→ wrote 0 site(s)");
     expect(out).toContain("FLEET_WRITE_SUMMARY wrote=0 failed=3 total=3");
   });
 
@@ -193,38 +189,31 @@ describe("formatFleetWriteSummary", () => {
   });
 });
 
-describe("the Turso mirror (#539 Phase 3 dual-write)", () => {
+describe("the Turso mirror", () => {
   const twoSiteResults = () => [
     lhResult("acme-co", { performance: 0.9, accessibility: 1, "best-practices": 0.78, seo: 0.92 }),
     lhResult("beta-corp", { performance: 0.5, accessibility: 0.9, "best-practices": 1, seo: 1 }),
   ];
 
-  it("mirrors each written site's EXACT Airtable FieldSet", async () => {
-    const base = makeFakeBase({ Websites: websites });
-    const calls: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
+  it("mirrors each written site's EXACT planned FieldSet", async () => {
+    const { mirror, calls } = recordingMirror();
     const out = await writeFleetAuditsToAirtable({
-      base,
-      websites: await loadWebsites(base),
+      websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
-      mirror: async (siteId, fields) => {
-        calls.push({ siteId, fields });
-        return true;
-      },
+      mirror,
     });
     expect(out.mirrored).toBe(2);
     expect(out.mirrorFailed).toBe(0);
-    const updates = base.__calls.filter((c) => c.kind === "update");
+    expect(calls).toHaveLength(2);
     for (const call of calls) {
-      const update = updates.find((u) => u.records[0]!.id === call.siteId);
-      expect(call.fields, `mirror payload for ${call.siteId}`).toEqual(update!.records[0]!.fields);
+      const summary = out.written.find((w) => w.siteId === call.siteId);
+      expect(call.fields, `mirror payload for ${call.siteId}`).toEqual(summary!.fields);
     }
   });
 
-  it("counts a mirror failure without failing the Airtable write or the batch", async () => {
-    const base = makeFakeBase({ Websites: websites });
+  it("counts a mirror failure without failing the site or the batch", async () => {
     const out = await writeFleetAuditsToAirtable({
-      base,
-      websites: await loadWebsites(base),
+      websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
       mirror: async (siteId) => {
         if (siteId === "recB") throw new Error("turso down");
@@ -238,10 +227,8 @@ describe("the Turso mirror (#539 Phase 3 dual-write)", () => {
   });
 
   it("without a mirror: no counts on the result, no mirror keys on the summary line", async () => {
-    const base = makeFakeBase({ Websites: websites });
     const out = await writeFleetAuditsToAirtable({
-      base,
-      websites: await loadWebsites(base),
+      websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
     });
     expect(out.mirrored).toBeUndefined();
@@ -261,13 +248,10 @@ describe("the Turso mirror (#539 Phase 3 dual-write)", () => {
   });
 
   it("counts a mirror whose UPDATE matched no row as mirror_missed — not mirrored, not mirror_failed", async () => {
-    const base = makeFakeBase({ Websites: websites });
     const out = await writeFleetAuditsToAirtable({
-      base,
-      websites: await loadWebsites(base),
+      websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
-      // recB was created in Airtable after the last hourly import: its
-      // site_health row doesn't exist, so the real mirror resolves false.
+      // recB has no site_health row, so the real mirror resolves false.
       mirror: async (siteId) => siteId !== "recB",
     });
     expect(out.written).toHaveLength(2);
@@ -281,12 +265,10 @@ describe("the Turso mirror (#539 Phase 3 dual-write)", () => {
   });
 
   it("does NOT call the mirror for a written site whose FieldSet is empty (empty-payload guard)", async () => {
-    const base = makeFakeBase({ Websites: websites });
     const calls: string[] = [];
     const out = await writeFleetAuditsToAirtable({
-      base,
-      websites: await loadWebsites(base),
-      // lint persists nothing to Airtable: the site lands in `written` with an
+      websites: websiteRowsFrom(websites),
+      // lint persists nothing: the site lands in `written` with an
       // EMPTY FieldSet. Mirroring {} would count a mirror that wrote nothing.
       results: [
         { audit: "lint", site: "acme-co", status: "pass", summary: "", details: {} } as AuditResult,

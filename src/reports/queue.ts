@@ -1,6 +1,5 @@
 import type { ReportType } from "./types.js";
-import type { AirtableBase } from "./airtable/client.js";
-import { isPendingApproval, setDraftReady } from "./airtable/reports.js";
+import { isPendingApproval } from "./report-row.js";
 import type { ReportMirror } from "./report-mirror.js";
 
 /**
@@ -39,7 +38,7 @@ export type QueueOutcome = {
  * - Otherwise the new report is strictly the highest → un-queue every (strictly lower) pending
  *   report for the site (superseded, not deleted — the row is kept) and queue the new one.
  *
- * Returns what happened so the caller can surface it. PURE side effects are all `setDraftReady`.
+ * Returns what happened so the caller can surface it.
  *
  * #539 Phase 5: each flag is mirrored into Turso. The SUPERSEDED rows matter as
  * much as the new one — un-queueing them is the whole point of this function, so
@@ -50,32 +49,21 @@ export type QueueOutcome = {
  * which is why `mirror` is no longer optional. The Airtable read this replaces
  * could not see a report drafted for a `site_<ULID>` site — and an empty answer
  * does not fail, it silently queues a second report for a site that already had
- * one. The Airtable `setDraftReady` stays as the shadow; it skips a report id
- * Airtable cannot hold.
+ * one.
  */
 export async function queueDraft(
-  base: AirtableBase,
   report: { id: string; siteId: string; reportType: ReportType },
   mirror: ReportMirror,
 ): Promise<QueueOutcome> {
-  const plan = await queueDraftInTurso(report, mirror);
-  await shadowQueueDraft(base, plan);
-  return plan.outcome;
-}
-
-export type QueuePlan = { outcome: QueueOutcome; flags: Array<[id: string, ready: boolean]> };
-
-export async function queueDraftInTurso(
-  report: { id: string; siteId: string; reportType: ReportType },
-  mirror: ReportMirror,
-): Promise<QueuePlan> {
   const others = (await mirror.forSite(report.siteId))
     .filter(isPendingApproval)
     .filter((r) => r.id !== report.id);
   const plan = planQueue(report, others);
   for (const [id, ready] of plan.flags) await mirror.patch(id, { draft_ready: ready ? 1 : 0 });
-  return plan;
+  return plan.outcome;
 }
+
+type QueuePlan = { outcome: QueueOutcome; flags: Array<[id: string, ready: boolean]> };
 
 function planQueue(
   report: { id: string; reportType: ReportType },
@@ -97,8 +85,4 @@ function planQueue(
     outcome: { queued: true, supersededIds: others.map((r) => r.id) },
     flags: [...others.map((r): [string, boolean] => [r.id, false]), [report.id, true]],
   };
-}
-
-export async function shadowQueueDraft(base: AirtableBase, plan: QueuePlan): Promise<void> {
-  for (const [id, ready] of plan.flags) await setDraftReady(base, id, ready);
 }

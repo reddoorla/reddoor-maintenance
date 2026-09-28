@@ -1,12 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import type { Context } from "@netlify/functions";
 
-// Airtable is mocked so importing the handler's module graph never reaches a
-// live base — the same defensive convention as the other adapter tests here.
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ({}) as unknown),
-}));
-
 // The handler opens its own connection per invocation. For ":memory:" that is a
 // brand-new empty database each time — two @libsql/client(":memory:") clients
 // share nothing — so a test that seeds a row and then invokes the handler needs

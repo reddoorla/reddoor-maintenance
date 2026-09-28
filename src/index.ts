@@ -58,13 +58,7 @@ export type {
   InitStepResult,
 } from "./recipes/index.js";
 
-export {
-  localPath,
-  fromJsonFile,
-  fromAirtableBase,
-  type LocalPathOptions,
-  type AirtableInventoryOptions,
-} from "./inventory/index.js";
+export { localPath, fromJsonFile, type LocalPathOptions } from "./inventory/index.js";
 
 // RefreshHeaderDeps comes along because DraftOptions references it — without it a
 // consumer can hold a DraftOptions but cannot name the type of its refreshHeader.

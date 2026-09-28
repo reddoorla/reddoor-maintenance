@@ -237,7 +237,7 @@ function sendTimingLine(now: Date): string {
 function recipientsLine(site: WebsiteRow): string {
   const to = parseAddresses(site.reportRecipientsTo) ?? parseAddresses(site.pointOfContact) ?? [];
   if (to.length === 0) {
-    return `<span class="recipients recipients-missing">recipients: none resolve — set point of contact in Airtable</span>`;
+    return `<span class="recipients recipients-missing">recipients: none resolve — set the point of contact in the site's details</span>`;
   }
   const cc = withGlobalCc(parseAddresses(site.reportRecipientsCc), to);
   const ccPart = cc.length > 0 ? ` · CC ${cc.map(escapeHtml).join(", ")}` : "";

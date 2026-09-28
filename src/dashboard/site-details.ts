@@ -75,7 +75,7 @@ export type EditableField = {
  */
 export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   // The site's own address, and the target EVERY deployed audit drives: the
-  // inventory exposes it as `Site.deployedUrl` (src/inventory/airtable.ts), so
+  // inventory exposes it as `Site.deployedUrl` (src/inventory/select.ts), so
   // function-health, lighthouse, browser, domain and form-e2e all resolve
   // against it. It was writable only at creation (`ensure-site`), and the #643
   // freeze retired Airtable hand-editing — which left a site that MOVED with no

@@ -43,18 +43,8 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   ],
   listAllReports: async () => [],
 }));
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  readAirtableConfig: () => ({ pat: "pat", baseId: "base" }),
-  openBase: () => ({}),
-}));
 vi.mock("../../src/reports/airtable/websites.js", () => ({
-  // Still the Airtable SHADOW's next-due write-back; the roster itself comes
-  // from the mocked Turso read above.
-  updateNextDueDates: async () => ({}),
   siteSlug: (n: string) => n,
-}));
-vi.mock("../../src/reports/airtable/reports.js", () => ({
-  listAllReports: async () => [],
 }));
 vi.mock("../../src/reports/due.js", () => ({
   findDueReports: () => [

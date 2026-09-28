@@ -48,8 +48,6 @@ jobs:
 
       - name: Re-render the report body
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           REPORT_ID: ${{ inputs.report_id }}

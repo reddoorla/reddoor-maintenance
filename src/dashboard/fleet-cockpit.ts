@@ -496,7 +496,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   for (const u of model.unrecognizedStatus ?? []) {
     const a = get(u.name);
     a.reasons.push(
-      `Status "${u.status}" is not a recognized value — fix it in Airtable (site is invisible to fleet ops)`,
+      `Status "${u.status}" is not a recognized value — fix it in the site's details (site is invisible to fleet ops)`,
     );
     a.watch = true;
   }
@@ -765,7 +765,7 @@ export function buildCockpitModel(
   });
 
   const pending: PendingEntry[] = [];
-  // Mirror listPendingApproval's predicate. Resolve against ALL websites (a pending
+  // Mirror isPendingApproval's predicate. Resolve against ALL websites (a pending
   // approval is never dropped just because the site is hidden from the fleet view).
   const allById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
   for (const r of reports) {

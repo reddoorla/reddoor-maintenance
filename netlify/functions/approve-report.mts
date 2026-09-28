@@ -1,6 +1,4 @@
 import type { Context, Config } from "@netlify/functions";
-import { openBase } from "../../src/reports/airtable/client.js";
-import { approveReportRow, overrideReportRow } from "../../src/reports/airtable/reports.js";
 import { approveReport, requireOperator, denialResponse } from "../../src/dashboard/index.js";
 
 import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
@@ -74,30 +72,16 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return plainText("Cross-site request rejected", 403);
   }
 
-  // Auth BEFORE any Airtable read, same realm as site-dashboard.mts so the
+  // Auth BEFORE any store read, same realm as site-dashboard.mts so the
   // browser reuses creds when the inline fetch fires from /s/:slug.
   // Fired by fetch() from the dashboard page, so JSON — a 302 to Google inside
   // fetch() gives the script Google's HTML instead of something it can act on.
   const auth = requireOperator(req, { wants: "json" });
   if (!auth.ok) return denialResponse(auth.denial);
 
-  // No Airtable env gate (#646) — the same drop #855 made in `resend-webhook`
-  // and #868 in `report-commentary`. Every input this endpoint gates on (the
-  // report row, the Websites row behind the send blockers) is read from Turso,
-  // and since the #643 freeze Turso is also the store the approve must land in:
-  // the daily send batch reads `approved_to_send` from there. Airtable is only
-  // the rollback-window shadow, handled below — and for a minted
-  // `report_<ULID>` id `approveReportRow` / `overrideReportRow` skip that shadow
-  // themselves (`skipsAirtableShadow`). A gate here would 500 every approve on
-  // the day the env vars are pulled, for a store this request no longer depends
-  // on.
-  //
-  // The gate that stays is the TURSO one immediately below: this endpoint
-  // authorizes a send, and without the authoritative store it cannot read the
-  // state the blockers are evaluated against, let alone record the decision.
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-
+  // The one env gate is Turso's: this endpoint authorizes a send, and without
+  // the authoritative store it cannot read the state the blockers are evaluated
+  // against, let alone record the decision.
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[approve-report] TURSO_DATABASE_URL missing");
     return plainText("Turso env missing", 500);
@@ -119,9 +103,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     // Phase 2 (#539): the report + site READS come from Turso (hard dependency
-    // — the gate must see current state), and since the freeze the approve /
-    // override WRITES land there FIRST and strictly; the Airtable write that
-    // follows is the rollback-window shadow.
+    // — the gate must see current state), and the approve / override WRITES
+    // land there strictly.
     const db2 = await openDb(readDbConfig());
     // The authoritative write. Everything — opening the db included — is inside
     // mirrorWrite, which decides what a failure MEANS: post-freeze it rethrows
@@ -133,30 +116,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         const db = await openDb(readDbConfig());
         return mirrorReportPatch(db, rid, patch);
       });
-    /** The Airtable SHADOW's handle, or `null` when the shadow is skipped.
-     *
-     *  Written while Airtable is configured, and still allowed to fail the
-     *  request — the rollback-window contract in `src/db/freeze.ts`
-     *  (`TURSO_IS_AUTHORITATIVE`): a shadow you might roll back to is one you
-     *  keep trustworthy. Turso has already landed by the time it runs, so an
-     *  Airtable outage costs only the shadow; approveReport is idempotent, so
-     *  the operator's retry re-reads an already-approved row (a 200 `noop`) and
-     *  the shadow catches up on the next one that needs it.
-     *
-     *  With the Airtable env ABSENT the shadow is skipped, not failed: that is
-     *  the deliberate unplug Phase 6 ends in, the authoritative write has
-     *  landed, and a 500 would only refuse an approve that every gate above
-     *  already cleared, over a config problem no retry can fix. It is logged on
-     *  a greppable line so an accidental unplug during the rollback window is
-     *  visible (a rollback would then need that approval re-applied to Airtable;
-     *  Turso holds it). A half-configured env (one var of two) is treated the
-     *  same way, under its own reason. */
-    const shadowBase = (rid: string): ReturnType<typeof openBase> | null => {
-      if (apiKey && baseId) return openBase({ apiKey, baseId });
-      const reason = apiKey || baseId ? "env-partial" : "env-absent";
-      console.warn(`[approve-report] AIRTABLE_SHADOW skipped=${reason} record=${rid}`);
-      return null;
-    };
     const deps = {
       // Phase 2 (#539): reads from Turso (the authoritative write keeps it
       // current within this very request).
@@ -167,8 +126,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
           approved_at: at.toISOString(),
           approved_by: by,
         });
-        const base = shadowBase(rid);
-        if (base) await approveReportRow(base, rid, at, by);
       },
       // The override takes the SAME ordering and the same failure semantics as
       // the plain approve, deliberately: both are one stamp on one Reports row,
@@ -176,8 +133,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       // time they run, and both are read back out of Turso by the same send
       // batch. Splitting them would give one button two failure stories.
       overrideReport: async (rid: string, at: Date, by: string, reason: string) => {
-        // overrideReportRow ALSO flips Approved to send with the same stamp —
-        // the authoritative write must match it field-for-field.
+        // An override ALSO flips Approved to send with the same stamp.
         await mirror(rid, {
           send_override: 1,
           override_reason: reason,
@@ -187,8 +143,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
           approved_at: at.toISOString(),
           approved_by: by,
         });
-        const base = shadowBase(rid);
-        if (base) await overrideReportRow(base, rid, at, by, reason);
       },
       now: () => new Date(),
       sendBlockers: async (report: Parameters<typeof approveBlockers>[1]) => {
@@ -219,7 +173,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     }
     return Response.json(result, { status: 200 });
   } catch (err) {
-    // An Airtable 429/500 mid-approve must not surface as an unhandled 500 with
+    // A store failure mid-approve must not surface as an unhandled 500 with
     // an indeterminate body — return a clean retry-able error. approveReport
     // itself is idempotent (a second approve of an already-approved row is a
     // no-op), so a retry after a transient failure is safe.

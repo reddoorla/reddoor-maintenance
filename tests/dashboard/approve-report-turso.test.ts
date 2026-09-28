@@ -4,40 +4,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * #539 Phase 6 (#646): an approve is a TURSO write with an Airtable shadow, so
- * it must keep working once `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` are pulled —
- * the same gate dropped from `resend-webhook`
- * (https://github.com/reddoorla/reddoor-maintenance/pull/855) and from
- * `report-commentary` (https://github.com/reddoorla/reddoor-maintenance/pull/868).
+ * #539 Phase 6 (#646): an approve is a TURSO write, and it works with no
+ * `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` set — the same gate dropped from
+ * `resend-webhook` (https://github.com/reddoorla/reddoor-maintenance/pull/855)
+ * and from `report-commentary`
+ * (https://github.com/reddoorla/reddoor-maintenance/pull/868).
  *
- * Nothing on the Turso side is mocked: the handler opens a real libSQL database
- * — a throwaway `file:` database in a temp dir (not `:memory:`, because every
- * openDb on `:memory:` is a brand-new empty database and the handler opens its
- * own). TURSO_DATABASE_URL is overwritten and TURSO_AUTH_TOKEN deleted for every
- * test, so an operator shell with real Turso credentials exported can never
- * point this suite at production.
- *
- * Only the Airtable I/O is mocked, so the shadow write can be observed and made
- * to fail, and so no test can reach a real base.
+ * Nothing is mocked: the handler opens a real libSQL database — a throwaway
+ * `file:` database in a temp dir (not `:memory:`, because every openDb on
+ * `:memory:` is a brand-new empty database and the handler opens its own).
+ * TURSO_DATABASE_URL is overwritten and TURSO_AUTH_TOKEN deleted for every test,
+ * so an operator shell with real Turso credentials exported can never point this
+ * suite at production.
  *
  * The authorization gates this endpoint carries — CSRF, Basic auth, the
  * already-sent guard, the draft-ready gate and the send-blocker gate — are
- * asserted here too: dropping the env gate must not move any of them.
+ * asserted here too.
  */
 
-// Partial mock: only the two Airtable writers are replaced. The module's pure
-// exports stay real, because the Turso reader (src/db/fleet-state.ts) imports
-// its row coercers through this module.
-vi.mock("../../src/reports/airtable/reports.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/reports/airtable/reports.js")>()),
-  approveReportRow: vi.fn(),
-  overrideReportRow: vi.fn(),
-}));
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ((t: string) => t) as unknown),
-}));
-import { approveReportRow, overrideReportRow } from "../../src/reports/airtable/reports.js";
-import { openBase } from "../../src/reports/airtable/client.js";
 import approveReportHandler from "../../netlify/functions/approve-report.mjs";
 import { openDb, type Db } from "../../src/db/client.js";
 import { gatingFields } from "../../src/reports/checklist.js";
@@ -54,10 +38,6 @@ const CLEAN_EVIDENCE = JSON.stringify(
     ]),
   ),
 );
-
-const shadowApprove = vi.mocked(approveReportRow);
-const shadowOverride = vi.mocked(overrideReportRow);
-const openBaseMock = vi.mocked(openBase);
 
 // "op:s3cret" base64 — username ignored, password is the gate.
 const AUTH = "Basic " + Buffer.from("op:s3cret").toString("base64");
@@ -147,11 +127,6 @@ beforeEach(async () => {
   const url = `file:${join(DIR, `db-${++dbSeq}.sqlite`)}`;
   process.env.TURSO_DATABASE_URL = url;
   db = await openDb({ url });
-  shadowApprove.mockReset();
-  shadowApprove.mockResolvedValue(undefined);
-  shadowOverride.mockReset();
-  shadowOverride.mockResolvedValue(undefined);
-  openBaseMock.mockClear();
 });
 
 afterEach(async () => {
@@ -163,9 +138,8 @@ afterAll(() => {
   rmSync(DIR, { recursive: true, force: true });
 });
 
-describe("approve-report with NO Airtable env (the post-unplug world)", () => {
+describe("approve-report with NO Airtable env", () => {
   it("approves — 200, not 'Airtable env missing', and the flag lands in Turso", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await seedSite("recSiteA");
     await seedReport("recREP1", "recSiteA");
     const res = await post("recREP1");
@@ -176,17 +150,9 @@ describe("approve-report with NO Airtable env (the post-unplug world)", () => {
     expect(row?.approved_to_send).toBe(1);
     expect(row?.approved_by).toBe("dashboard");
     expect(typeof row?.approved_at).toBe("string");
-    expect(shadowApprove).not.toHaveBeenCalled();
-    // No Airtable client is even constructed without credentials.
-    expect(openBaseMock).not.toHaveBeenCalled();
-    expect(warn.mock.calls.flat().join("\n")).toContain(
-      "AIRTABLE_SHADOW skipped=env-absent record=recREP1",
-    );
-    warn.mockRestore();
   });
 
   it("the logged override still stamps its full audit trail in Turso", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await seedSite("recSiteB");
     await seedReport("recREP2", "recSiteB");
     const res = await post("recREP2", { override: true, reason: "client asked for it today" });
@@ -201,51 +167,28 @@ describe("approve-report with NO Airtable env (the post-unplug world)", () => {
     expect(row?.override_reason).toBe("client asked for it today");
     expect(row?.override_by).toBe("dashboard");
     expect(typeof row?.override_at).toBe("string");
-    // overrideReportRow flips Approved to send with the SAME stamp — the mirror
-    // must match it field-for-field, shadow or no shadow.
+    // An override flips Approved to send with the SAME stamp.
     expect(row?.approved_to_send).toBe(1);
     expect(row?.approved_at).toBe(row?.override_at);
     expect(row?.approved_by).toBe("dashboard");
-    expect(shadowOverride).not.toHaveBeenCalled();
-    expect(warn.mock.calls.flat().join("\n")).toContain(
-      "AIRTABLE_SHADOW skipped=env-absent record=recREP2",
-    );
-    warn.mockRestore();
   });
 
-  it("a HALF-configured Airtable env skips the shadow too, and still approves", async () => {
-    process.env.AIRTABLE_PAT = "pat_only";
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await seedSite("recSiteC");
-    await seedReport("recREP3", "recSiteC");
-    const res = await post("recREP3");
-    expect(res.status).toBe(200);
-    expect((await reportRow("recREP3"))?.approved_to_send).toBe(1);
-    expect(shadowApprove).not.toHaveBeenCalled();
-    expect(openBaseMock).not.toHaveBeenCalled();
-    expect(warn.mock.calls.flat().join("\n")).toContain("AIRTABLE_SHADOW skipped=env-partial");
-    warn.mockRestore();
-  });
-
-  it("a minted report_<ULID> id is served too (its shadow would skip anyway)", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("a minted report_<ULID> id is served too", async () => {
     await seedSite("site_01K5F0RZ2N9Q7M3V8T4H6XW1AB");
     await seedReport("report_01K5F0RZ2N9Q7M3V8T4H6XW1AB", "site_01K5F0RZ2N9Q7M3V8T4H6XW1AB");
     const res = await post("report_01K5F0RZ2N9Q7M3V8T4H6XW1AB");
     expect(res.status).toBe(200);
     expect((await reportRow("report_01K5F0RZ2N9Q7M3V8T4H6XW1AB"))?.approved_to_send).toBe(1);
-    warn.mockRestore();
   });
 });
 
-describe("approve-report: the authorization gates are untouched by the env drop", () => {
+describe("approve-report: the authorization gates", () => {
   it("an unauthenticated POST is refused before anything is written", async () => {
     await seedSite("recSiteD");
     await seedReport("recREP4", "recSiteD");
     const res = await post("recREP4", { headers: {} });
     expect(res.status).toBe(401);
     expect((await reportRow("recREP4"))?.approved_to_send).toBe(0);
-    expect(shadowApprove).not.toHaveBeenCalled();
   });
 
   it("a cross-site POST is refused with 403 before auth", async () => {
@@ -305,7 +248,6 @@ describe("approve-report: the authorization gates are untouched by the env drop"
     expect(body.blockers.join("\n")).toContain("recipients-missing");
     expect(body.blockers.join("\n")).toContain("header-image-missing");
     expect((await reportRow("recREP8"))?.approved_to_send).toBe(0);
-    expect(shadowApprove).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 
@@ -347,72 +289,6 @@ describe("approve-report: the authorization gates are untouched by the env drop"
     const res = await post("recREP1");
     expect(res.status).toBe(500);
     expect(await res.text()).toBe("Turso env missing");
-    err.mockRestore();
-  });
-});
-
-describe("approve-report WITH Airtable env (the rollback-window world)", () => {
-  beforeEach(() => {
-    process.env.AIRTABLE_PAT = "pat_test";
-    process.env.AIRTABLE_BASE_ID = "appTestBase";
-  });
-
-  // The positive control: this is the behaviour that already ships, so it must
-  // pass on origin/main as well as on this branch. If the harness itself were
-  // broken (auth, routing, the temp db, the blocker seeds) this test would fail
-  // too, and no FAIL above could be trusted.
-  it("still writes the Airtable shadow, and the approval lands in Turso", async () => {
-    await seedSite("recSiteK");
-    await seedReport("recREP11", "recSiteK");
-    const res = await post("recREP11");
-    expect(res.status).toBe(200);
-    expect((await reportRow("recREP11"))?.approved_to_send).toBe(1);
-    expect(shadowApprove).toHaveBeenCalledWith(
-      expect.anything(),
-      "recREP11",
-      expect.any(Date),
-      "dashboard",
-    );
-  });
-
-  it("still writes the override shadow", async () => {
-    await seedSite("recSiteL");
-    await seedReport("recREP12", "recSiteL");
-    const res = await post("recREP12", { override: true, reason: "deadline" });
-    expect(res.status).toBe(200);
-    expect(shadowOverride).toHaveBeenCalledWith(
-      expect.anything(),
-      "recREP12",
-      expect.any(Date),
-      "dashboard",
-      "deadline",
-    );
-  });
-
-  it("a failing shadow still reds the request, AFTER the approval landed in Turso", async () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    await seedSite("recSiteM");
-    await seedReport("recREP13", "recSiteM");
-    shadowApprove.mockRejectedValueOnce(new Error("Airtable 503"));
-    const res = await post("recREP13");
-    expect(res.status).toBe(502);
-    // The authoritative store is written FIRST, so the outage costs only the
-    // shadow — the operator's approve is not lost with it.
-    expect((await reportRow("recREP13"))?.approved_to_send).toBe(1);
-    err.mockRestore();
-  });
-
-  it("a failing OVERRIDE shadow reds the request, after the audit trail landed", async () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    await seedSite("recSiteN");
-    await seedReport("recREP14", "recSiteN");
-    shadowOverride.mockRejectedValueOnce(new Error("Airtable 503"));
-    const res = await post("recREP14", { override: true, reason: "deadline" });
-    expect(res.status).toBe(502);
-    const row = await reportRow("recREP14");
-    expect(row?.send_override).toBe(1);
-    expect(row?.override_reason).toBe("deadline");
-    expect(row?.approved_to_send).toBe(1);
     err.mockRestore();
   });
 });

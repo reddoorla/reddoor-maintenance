@@ -1,11 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
-import type { AirtableBase } from "../reports/airtable/client.js";
-import { listWebsites, siteSlug } from "../reports/airtable/websites.js";
+import { siteSlug } from "../reports/airtable/websites.js";
 import { ELIGIBLE_STATUSES } from "../reports/due.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { fetchAttachmentBytes } from "../reports/airtable/attachments.js";
 import { prepareHeaderImage } from "../reports/maintenance-email/header-image.js";
 import { applyReportTypeHeadline } from "../reports/header-image/index.js";
 import { buildReportDataForSite, scoresFromRow } from "../reports/report-data.js";
@@ -19,8 +16,11 @@ const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 const REPLY_TO = "info@reddoorla.com";
 
 export type SelftestEmailDeps = {
-  /** Airtable handle (read-only here). Defaults to the live base from credentials. */
-  base?: AirtableBase;
+  /** The fleet roster. Defaults to Turso (`readFleetRoster`). */
+  roster?: () => Promise<WebsiteRow[]>;
+  /** A site's clean header plate, or null when none is stored. Defaults to
+   *  Turso's `loadHeaderImage`, the same plate the real send reads. */
+  loadHeaderPlate?: (siteId: string) => Promise<Uint8Array | null>;
   /** Resend client. Defaults to the real client. */
   resend?: ResendClient;
   /** Single-site slug. Mutually exclusive with `all`. */
@@ -59,18 +59,18 @@ function resolveRecipients(to: string | undefined): string[] {
 
 /**
  * Send (or dry-render) a single report email per target site to the operator/`--to`, with NO
- * Airtable side effects (no draft, queue, or stamp). Mirrors the production render+send via the
+ * store side effects (no draft, queue, or stamp). Mirrors the production render+send via the
  * shared `renderReportEmail` seam, so the preview matches a real send. One bad site never aborts
  * `--all` (per-site try/catch). Sites missing stored scores or a header image are skipped.
  */
 export async function selftestEmail(deps: SelftestEmailDeps): Promise<SelftestEmailResult> {
-  const base = deps.base ?? openBase(readAirtableConfig());
   const resend = deps.resend ?? defaultResendClient();
   const type: ReportType = deps.type ?? "Announcement";
   const now = deps.now ?? new Date();
   const recipients = resolveRecipients(deps.to);
 
-  const websites = await listWebsites(base);
+  const websites = await (deps.roster ?? readRoster)();
+  const loadHeaderPlate = deps.loadHeaderPlate ?? loadHeaderPlateFromDb;
   let targets: WebsiteRow[];
   if (deps.all) {
     // The report-eligible set (maintained + hosted-only), not a hard-coded "maintained" —
@@ -93,16 +93,16 @@ export async function selftestEmail(deps: SelftestEmailDeps): Promise<SelftestEm
         results.push({ site: w.name, status: "skipped", reason: "missing Lighthouse scores" });
         continue;
       }
-      if (!w.headerImage) {
+      const plate = await loadHeaderPlate(w.id);
+      if (!plate) {
         results.push({ site: w.name, status: "skipped", reason: "no Header image" });
         continue;
       }
-      const original = await fetchAttachmentBytes(w.headerImage.url);
       // Mirror orchestrate.ts exactly: the stored header is the CLEAN plate, so the
       // report type's headline has to be stamped on before downscaling. Omitting this
       // step made every selftest preview ship a header with an EMPTY headline band —
       // the one thing a preview exists to catch, silently wrong in the preview itself.
-      const withHeadline = await applyReportTypeHeadline(original.bytes, type);
+      const withHeadline = await applyReportTypeHeadline(plate, type);
       const header = await prepareHeaderImage(withHeadline);
       const slug = siteSlug(w.name);
       const reportData = await buildReportDataForSite(w, type, now, { scores, header });
@@ -138,4 +138,17 @@ export async function selftestEmail(deps: SelftestEmailDeps): Promise<SelftestEm
   }
 
   return { results };
+}
+
+async function readRoster(): Promise<WebsiteRow[]> {
+  const { readFleetRoster } = await import("../fleet/roster.js");
+  return readFleetRoster();
+}
+
+async function loadHeaderPlateFromDb(siteId: string): Promise<Uint8Array | null> {
+  const [{ openDb, readDbConfig }, { loadHeaderImage }] = await Promise.all([
+    import("../db/client.js"),
+    import("../db/header-images.js"),
+  ]);
+  return (await loadHeaderImage(await openDb(readDbConfig()), siteId))?.bytes ?? null;
 }

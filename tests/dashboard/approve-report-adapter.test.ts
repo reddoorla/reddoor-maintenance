@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ((t: string) => t) as unknown),
-}));
 vi.mock("../../src/dashboard/approve.js", async (orig) => {
   const real = (await orig()) as Record<string, unknown>;
   return { ...real, approveReport: vi.fn() };

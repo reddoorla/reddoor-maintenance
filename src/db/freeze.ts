@@ -47,8 +47,6 @@
  *  reports=17 mismatches=0` immediately before the flip. */
 export const TURSO_IS_AUTHORITATIVE = true;
 
-export const AIRTABLE_SHADOW_WRITES = false;
-
 /**
  * Run one Turso mirror write with the error semantics the current world calls
  * for: swallowed while Airtable is authoritative, fatal once Turso is.

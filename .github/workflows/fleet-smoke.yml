@@ -59,8 +59,6 @@ jobs:
         # missing-line branch of the gate reds the run anyway, which is correct.
         timeout-minutes: 120
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |

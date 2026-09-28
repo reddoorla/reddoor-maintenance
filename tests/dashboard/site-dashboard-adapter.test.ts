@@ -1,12 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { Context } from "@netlify/functions";
 
-// Airtable client mocked: the gates below return before any base read. Proves
+// The gates below return before any store read. Proves
 // the .mts module's deep src/ imports resolve and the no-slug/env/auth branches
 // behave; the render path is covered by the render unit tests.
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ((t: string) => t) as unknown),
-}));
 
 import siteDashboard from "../../netlify/functions/site-dashboard.mjs";
 

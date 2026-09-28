@@ -111,11 +111,11 @@ empty, nothing needs you.
 **Almost everything — and the reason is a feature, not an accident: no client-facing report can
 go out without a human approval.** Two independent gates:
 
-- `netlify/functions/approve-report.mts:81` — `requireOperator(req, { wants: "json" })`. Every
-  approval runs through one Basic-auth credential, checked before any Airtable read, behind a
+- `netlify/functions/approve-report.mts:79` — `requireOperator(req, { wants: "json" })`. Every
+  approval runs through one Basic-auth credential, checked before any store read, behind a
   CSRF check. No credential, no approval.
-- `src/reports/send/orchestrate.ts:211–232` — `sendOne` **throws** rather than send when the health
-  gate is not clear, _even if "Approved to send" was set directly in Airtable_. The row is
+- `src/reports/send/orchestrate.ts:177–196` — `sendOne` **throws** rather than send when the health
+  gate is not clear, _even if "Approved to send" was set directly in the database_. The row is
   skipped, `Sent at` stays null, and the at-least-once retry is preserved.
 
 So the worst case for the report pipeline over a week is that drafts pile up unsent. Nothing
@@ -233,7 +233,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and since the Airtable freeze, Turso is the only store
 there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
-pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:502`,
+pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
 `.github/workflows/fleet-db-backup.yml:160`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
@@ -410,7 +410,7 @@ written in.
    ```
 
    `--url` never defaults — production is deliberately out of reach
-   (`src/cli/commands/db.ts:446`). Expect a line of this shape, and exit 0:
+   (`src/cli/commands/db.ts:235`). Expect a line of this shape, and exit 0:
 
    ```
    RESTORE loaded=true tables=11 rows=803 blob_bytes=7777769 mismatches=0
@@ -419,14 +419,14 @@ written in.
    The row and byte figures are whatever the dump carried (those are the 2026-08-31 values);
    what you are checking is `mismatches=0`. Row and byte counts are compared against the
    dump's origin manifest, so a restore that "succeeded" with fewer rows than the origin held
-   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:485–498`). Three
+   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:274–287`). Three
    refusals you may see instead, each naming itself: `RESTORE refused=auth-token-absent` (a
    remote url with no token), `RESTORE refused=manifest-absent` (not a dump this tool
    produced), and `RESTORE refused=target-not-empty`.
 
 5. **Repoint `TURSO_DATABASE_URL` at the new database.** This is the step the rehearsals never
    needed and the one most likely to be missed. `db restore` refuses a non-empty target
-   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:458–460`) — a restore is for an
+   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:259–261`) — a restore is for an
    EMPTY target, so a real recovery **always lands on a new database**, and nothing points at it
    until you say so. Set two names, `TURSO_DATABASE_URL` (the url from step 3) and
    `TURSO_AUTH_TOKEN` (the token from step 3 — the same value you passed as

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { draftReportForSite, fetchSearch } from "../../src/reports/draft.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
-import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
 import { makeFakeReportWriter, type FakeReportWriter } from "./_helpers/fake-report-writer.js";
 import { mapRow } from "../../src/reports/airtable/reports.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
@@ -23,23 +22,7 @@ import { fetchPeriodUsers } from "../../src/reports/ga/client.js";
 vi.mock("../../src/reports/search/client.js", () => ({ fetchSearchPresence: vi.fn() }));
 import { fetchSearchPresence } from "../../src/reports/search/client.js";
 
-vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
-  AIRTABLE_SHADOW_WRITES: true,
-}));
-
-// uploadAttachment in src/reports/airtable/attachments.ts uses fetch directly
-// to talk to content.airtable.com. Stub global fetch in beforeEach so we don't
-// hit the network.
 beforeEach(() => {
-  global.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    statusText: "OK",
-    text: async () => "",
-  }) as unknown as typeof global.fetch;
-  process.env.AIRTABLE_PAT = "pat_test";
-  process.env.AIRTABLE_BASE_ID = "app_test";
   // Default GA OFF so the bulk of tests exercise the pre-GA behavior.
   delete process.env.GA_SUBJECT;
   delete process.env.GA_SA_KEY_PATH;
@@ -61,7 +44,7 @@ function siteFixture(over: Partial<WebsiteRow> = {}): WebsiteRow {
   });
 }
 
-/** Every case below passes a fake base, which opens the draft-time header refresh —
+/** Every non-preview case below opens the draft-time header refresh —
  *  a real chromium launch and DNS lookup per case (the refresh swallows its own
  *  errors, so it would fail invisibly and just cost seconds). Opt out so this stays
  *  a unit suite. Production leaves `refreshHeader` unset and gets the real refresh;
@@ -80,25 +63,21 @@ beforeEach(() => {
 
 describe("draftReportForSite", () => {
   it("throws with a clear error pointing at audit lighthouse when any score is null", async () => {
-    const base = makeFakeBase({ Reports: [] });
     const site = siteFixture({ pScore: null });
-    await expect(draftReportForSite(base, site, "Maintenance", NO_HEADER)).rejects.toThrow(
+    await expect(draftReportForSite(site, "Maintenance", NO_HEADER)).rejects.toThrow(
       /missing one or more Lighthouse scores/,
     );
-    await expect(draftReportForSite(base, site, "Maintenance", NO_HEADER)).rejects.toThrow(
+    await expect(draftReportForSite(site, "Maintenance", NO_HEADER)).rejects.toThrow(
       /audit lighthouse/,
     );
   });
 
   it("creates a Reports row with the snapshotted scores", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
+    await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
 
-    // #646 step 4: the row is written to TURSO, not Airtable. Same field
-    // vocabulary either way — `draftFields` builds one payload, which the
-    // importer's `mapReportRecord` turns into the `reports` row.
+    // #646 step 4: the row is written to TURSO. `draftFields` builds one payload,
+    // which the importer's `mapReportRecord` turns into the `reports` row.
     expect(writer.inserts).toHaveLength(1);
-    expect(base.__calls.filter((c) => c.kind === "create")).toHaveLength(0);
     const fields = writer.inserts[0]!.fields;
     expect(fields["Lighthouse — Performance"]).toBe(87);
     expect(fields["Lighthouse — Accessibility"]).toBe(91);
@@ -109,24 +88,17 @@ describe("draftReportForSite", () => {
   });
 
   it("sets Delivery status=pending at creation (not in stampSent — H4 fix)", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
+    await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
     const fields = writer.inserts[0]!.fields;
     expect(fields["Delivery status"]).toBe("pending");
   });
 
   it("flips Draft ready=true after creating the row", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
-    // The queue flag is written to Turso. Its Airtable shadow skips: the report
-    // id is a minted `report_<ULID>` that Airtable has never held (#646 step 4),
-    // which is also why the HTML attachment upload makes no call here.
+    await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
     expect(writer.patches).toEqual([{ id: writer.inserts[0]!.id, patch: { draft_ready: 1 } }]);
-    expect(base.__calls.filter((c) => c.kind === "update")).toHaveLength(0);
   });
 
   it("uses the live Lighthouse-audit timestamp (not testingDay) as lastTestedDate for Maintenance", async () => {
-    const base = makeFakeBase({ Reports: [] });
     // lastLighthouseAuditAt is a full ISO timestamp (stamped by the audit run); the stored
     // "Last tested date" is its UTC calendar day. testingDay is set to a DIFFERENT, stale value
     // to prove the email no longer reads the scheduling anchor.
@@ -134,38 +106,35 @@ describe("draftReportForSite", () => {
       lastLighthouseAuditAt: "2026-03-15T09:30:00.000Z",
       testingDay: "2020-01-01",
     });
-    await draftReportForSite(base, site, "Maintenance", NO_HEADER);
+    await draftReportForSite(site, "Maintenance", NO_HEADER);
     const fields = writer.inserts[0]!.fields;
     expect(fields["Last tested date"]).toBe("2026-03-15");
   });
 
   it("does not set lastTestedDate on Testing reports (Maintenance-only)", async () => {
-    const base = makeFakeBase({ Reports: [] });
     const site = siteFixture({
       lastLighthouseAuditAt: "2026-03-15T09:30:00.000Z",
       testingFreq: "Quarterly",
     });
-    await draftReportForSite(base, site, "Testing", NO_HEADER);
+    await draftReportForSite(site, "Testing", NO_HEADER);
     const fields = writer.inserts[0]!.fields;
     expect(fields["Last tested date"]).toBeUndefined();
   });
 
   it("leaves lastTestedDate unset when the site has never been audited", async () => {
-    const base = makeFakeBase({ Reports: [] });
     const site = siteFixture({ lastLighthouseAuditAt: null });
-    await draftReportForSite(base, site, "Maintenance", NO_HEADER);
+    await draftReportForSite(site, "Maintenance", NO_HEADER);
     const fields = writer.inserts[0]!.fields;
     expect(fields["Last tested date"]).toBeUndefined();
   });
 
   it("formats Report ID as `{name} — {type} — {YYYY-MM-DD}`", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
+    await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
     const reportId = writer.inserts[0]!.fields["Report ID"];
     expect(reportId).toMatch(/^Acme Co — Maintenance — \d{4}-\d{2}-\d{2}$/);
   });
 
-  it("writes a local preview file when previewOnly=true and never calls Airtable", async () => {
+  it("writes a local preview file when previewOnly=true", async () => {
     // A unique per-run dir under os.tmpdir() — a hardcoded /tmp path isn't
     // parallel-safe and is unwritable in sandboxed runners.
     const { mkdtemp, rm } = await import("node:fs/promises");
@@ -174,7 +143,7 @@ describe("draftReportForSite", () => {
     const dir = await mkdtemp(join(tmpdir(), "draft-test-"));
     const previewPath = join(dir, "draft-test-preview.html");
     try {
-      const result = await draftReportForSite(null, siteFixture(), "Maintenance", {
+      const result = await draftReportForSite(siteFixture(), "Maintenance", {
         previewOnly: true,
         previewPath,
       });
@@ -209,7 +178,6 @@ describe("draftReportForSite", () => {
       vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
       await withTempPreview(async (previewPath) => {
         const result = await draftReportForSite(
-          null,
           siteFixture({ ga4PropertyId: "471880366" }),
           "Maintenance",
           { previewOnly: true, previewPath },
@@ -229,7 +197,6 @@ describe("draftReportForSite", () => {
       });
       await withTempPreview(async (previewPath) => {
         const result = await draftReportForSite(
-          null,
           siteFixture({ ga4PropertyId: "471880366" }),
           "Maintenance",
           { previewOnly: true, enrich: true, previewPath },
@@ -251,7 +218,6 @@ describe("draftReportForSite", () => {
     // Seeded in TURSO, which is where the derivation reads its prior reports
     // since #646 step 4 — the Airtable read it replaces could not see one at all
     // for a site created after step 3.
-    const base = makeFakeBase({ Reports: [] });
     writer.rows.push(
       mapRow({
         id: "rec_old",
@@ -265,14 +231,13 @@ describe("draftReportForSite", () => {
         },
       }),
     );
-    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
+    await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
     const fields = writer.inserts[0]!.fields;
     expect(fields["Period start"]).toBe("2026-04-27");
   });
 
   it("falls back to 30-days-ago for periodStart when no prior reports exist", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
+    await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
     const fields = writer.inserts[0]!.fields;
     const periodStart = fields["Period start"] as string;
     const periodEnd = fields["Period end"] as string;
@@ -287,8 +252,7 @@ describe("draftReportForSite", () => {
     // month. If the cron lags into the month after the dueDate month, a run-month
     // stamp would never match the guard's search key and every later run would
     // draft a duplicate. So the caller passes the key down explicitly.
-    const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance", {
+    await draftReportForSite(siteFixture(), "Maintenance", {
       period: "2026-05",
       ...NO_HEADER,
     });
@@ -297,8 +261,7 @@ describe("draftReportForSite", () => {
   });
 
   it("falls back to the periodEnd's YYYY-MM when no period is passed (manual one-off draft)", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
+    await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
     const fields = writer.inserts[0]!.fields;
     // Period field must be derived from periodEnd's YYYY-MM (not just match the shape).
     // This pins the fallback's *source*, not merely its format.
@@ -306,9 +269,8 @@ describe("draftReportForSite", () => {
   });
 
   describe("complete an existing (half-made) row — Fix #1", () => {
-    it("re-attaches HTML + flips Draft ready on the EXISTING row, with NO second createDraft", async () => {
-      const base = makeFakeBase({ Reports: [] });
-      const result = await draftReportForSite(base, siteFixture(), "Maintenance", {
+    it("re-stores HTML + flips Draft ready on the EXISTING row, with NO second create", async () => {
+      const result = await draftReportForSite(siteFixture(), "Maintenance", {
         ...NO_HEADER,
         period: "2026-05",
         completeRowId: "rec_halfmade",
@@ -320,17 +282,10 @@ describe("draftReportForSite", () => {
 
       // No create on the complete path — that would duplicate the period.
       expect(writer.inserts).toHaveLength(0);
-      expect(base.__calls.filter((c) => c.kind === "create")).toHaveLength(0);
-      // setDraftReady runs against the EXISTING row id (the missing ready flag).
-      const updates = base.__calls.filter((c) => c.kind === "update");
-      expect(updates).toHaveLength(1);
-      expect(updates[0]!.records[0]!.id).toBe("rec_halfmade");
-      expect(updates[0]!.records[0]!.fields).toMatchObject({ "Draft ready": true });
-      // The HTML attachment is re-uploaded (the missing attachment) — goes via fetch.
-      expect(global.fetch).toHaveBeenCalledTimes(1);
-      const fetchUrl = vi.mocked(global.fetch).mock.calls[0]![0] as string;
-      expect(fetchUrl).toContain("/rec_halfmade/");
-      expect(fetchUrl).toContain("uploadAttachment");
+      // The ready flag lands on the EXISTING row id (the missing ready flag).
+      expect(writer.patches).toEqual([{ id: "rec_halfmade", patch: { draft_ready: 1 } }]);
+      // The HTML body is re-stored on the existing row (the missing body).
+      expect(writer.bodies).toEqual([{ id: "rec_halfmade", html: result.html }]);
       // reportRow comes back as the existing row so callers keep the same shape.
       expect(result.reportRow?.id).toBe("rec_halfmade");
     });
@@ -353,10 +308,8 @@ describe("draftReportForSite", () => {
     it("writes GA users into the row when configured and the site has a property ID", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
       vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
-      const base = makeFakeBase({ Reports: [] });
 
       await draftReportForSite(
-        base,
         siteFixture({ ga4PropertyId: "471880366" }),
         "Maintenance",
         NO_HEADER,
@@ -372,10 +325,8 @@ describe("draftReportForSite", () => {
     it("soft-fails: a GA error leaves the fields unwritten but still creates the draft", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
       vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("7 PERMISSION_DENIED"));
-      const base = makeFakeBase({ Reports: [] });
 
       const result = await draftReportForSite(
-        base,
         siteFixture({ ga4PropertyId: "471880366" }),
         "Maintenance",
         NO_HEADER,
@@ -389,14 +340,8 @@ describe("draftReportForSite", () => {
 
     it("skips GA (never calls the API) when the site has no property ID", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      const base = makeFakeBase({ Reports: [] });
 
-      await draftReportForSite(
-        base,
-        siteFixture({ ga4PropertyId: null }),
-        "Maintenance",
-        NO_HEADER,
-      );
+      await draftReportForSite(siteFixture({ ga4PropertyId: null }), "Maintenance", NO_HEADER);
 
       expect(fetchPeriodUsers).not.toHaveBeenCalled();
       const fields = writer.inserts[0]!.fields;
@@ -404,9 +349,7 @@ describe("draftReportForSite", () => {
     });
 
     it("skips GA when GA_SUBJECT is unset even if the site has a property ID", async () => {
-      const base = makeFakeBase({ Reports: [] });
       await draftReportForSite(
-        base,
         siteFixture({ ga4PropertyId: "471880366" }),
         "Maintenance",
         NO_HEADER,
@@ -417,9 +360,7 @@ describe("draftReportForSite", () => {
     it("flags a 'ga' soft-failure when GA is configured but the API errors", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
       vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("7 PERMISSION_DENIED"));
-      const base = makeFakeBase({ Reports: [] });
       const result = await draftReportForSite(
-        base,
         siteFixture({ ga4PropertyId: "471880366" }),
         "Maintenance",
         NO_HEADER,
@@ -431,9 +372,7 @@ describe("draftReportForSite", () => {
       // GA_SUBJECT unset in beforeEach → readGaConfig null → skip. A skip must not
       // count as a soft-failure, or every un-instrumented site would trip the
       // fleet-scale outage warning.
-      const base = makeFakeBase({ Reports: [] });
       const result = await draftReportForSite(
-        base,
         siteFixture({ ga4PropertyId: "471880366" }),
         "Maintenance",
         NO_HEADER,
@@ -451,10 +390,8 @@ describe("draftReportForSite", () => {
         position: 3,
         propertyFound: true,
       });
-      const base = makeFakeBase({ Reports: [] });
 
       const result = await draftReportForSite(
-        base,
         siteFixture({ searchQuery: "erp funds", searchConsoleProperty: null }),
         "Maintenance",
         NO_HEADER,
@@ -469,9 +406,7 @@ describe("draftReportForSite", () => {
     it("flags a 'search' soft-failure when the Search API errors", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
       vi.mocked(fetchSearchPresence).mockRejectedValue(new Error("backend error"));
-      const base = makeFakeBase({ Reports: [] });
       const result = await draftReportForSite(
-        base,
         siteFixture({ searchQuery: "erp funds" }),
         "Maintenance",
         NO_HEADER,
@@ -488,9 +423,7 @@ describe("draftReportForSite", () => {
         position: null,
         propertyFound: true,
       });
-      const base = makeFakeBase({ Reports: [] });
       const result = await draftReportForSite(
-        base,
         siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
         "Maintenance",
         NO_HEADER,
@@ -505,9 +438,7 @@ describe("draftReportForSite", () => {
         position: null,
         propertyFound: true,
       });
-      const base = makeFakeBase({ Reports: [] });
       const result = await draftReportForSite(
-        base,
         siteFixture({ searchQuery: "erp funds" }),
         "Maintenance",
         NO_HEADER,
@@ -715,13 +646,7 @@ describe("draftReportForSite", () => {
         position: 2,
         propertyFound: true,
       });
-      const base = makeFakeBase({ Reports: [] });
-      await draftReportForSite(
-        base,
-        siteFixture({ searchQuery: "acme co" }),
-        "Maintenance",
-        NO_HEADER,
-      );
+      await draftReportForSite(siteFixture({ searchQuery: "acme co" }), "Maintenance", NO_HEADER);
       const fields = writer.inserts[0]!.fields;
       expect(fields["Maint: Google Indexed"]).toBe(true);
       const ev = JSON.parse(fields["Checklist auto-evidence"] as string);
@@ -735,13 +660,7 @@ describe("draftReportForSite", () => {
         position: 22,
         propertyFound: true,
       });
-      const base = makeFakeBase({ Reports: [] });
-      await draftReportForSite(
-        base,
-        siteFixture({ searchQuery: "acme co" }),
-        "Maintenance",
-        NO_HEADER,
-      );
+      await draftReportForSite(siteFixture({ searchQuery: "acme co" }), "Maintenance", NO_HEADER);
       const fields = writer.inserts[0]!.fields;
       expect(fields["Maint: Google Indexed"]).toBeUndefined();
     });
@@ -758,33 +677,25 @@ describe("draftReportForSite", () => {
  */
 describe("draftReportForSite → the Turso report writer", () => {
   it("mints a `report_<ULID>` id and writes the row to Turso", async () => {
-    const base = makeFakeBase({ Reports: [] });
-
-    const result = await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
+    const result = await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
 
     expect(writer.inserts).toHaveLength(1);
     expect(writer.inserts[0]!.id).toMatch(/^report_[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(writer.inserts[0]!.id).toBe(result.reportRow!.id);
     expect(writer.inserts[0]!.fields["Report type"]).toBe("Maintenance");
-    // Nothing was created in Airtable: the id it would have minted is the very
-    // thing Turso now owns.
-    expect(base.__calls.filter((c) => c.kind === "create")).toHaveLength(0);
   });
 
   it("refuses to draft without a writer — there is nowhere else the row could go", async () => {
-    const base = makeFakeBase({ Reports: [] });
     await expect(
-      draftReportForSite(base, siteFixture(), "Maintenance", { refreshHeader: false }),
+      draftReportForSite(siteFixture(), "Maintenance", { refreshHeader: false }),
     ).rejects.toThrow(/reportMirror is required/);
   });
 
   it("stores the rendered body in Turso, where the console preview reads it", async () => {
     // The row alone is not enough: /api/reports/:id/preview serves
-    // `reports.rendered_html`, and for a minted report id the Airtable
-    // attachment is never written at all (the shadow skips it).
-    const base = makeFakeBase({ Reports: [] });
+    // `reports.rendered_html`.
 
-    const result = await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
+    const result = await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
 
     expect(writer.bodies).toHaveLength(1);
     expect(writer.bodies[0]!.id).toBe(result.reportRow!.id);
@@ -792,11 +703,27 @@ describe("draftReportForSite → the Turso report writer", () => {
   });
 
   it("writes the queue flag, so a fresh draft reads as queued in Turso", async () => {
-    const base = makeFakeBase({ Reports: [] });
-
-    const result = await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
+    const result = await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
 
     expect(writer.patches).toEqual([{ id: result.reportRow!.id, patch: { draft_ready: 1 } }]);
+  });
+
+  it("stores the body before it queues the draft, so a queued draft always has one", async () => {
+    const order: string[] = [];
+    const { body, patch } = writer;
+    writer.body = async (id, html) => {
+      order.push(`body:${id}`);
+      await body(id, html);
+    };
+    writer.patch = async (id, p) => {
+      order.push(`patch:${id}:${String(p.draft_ready)}`);
+      await patch(id, p);
+    };
+
+    const result = await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
+
+    const id = result.reportRow!.id;
+    expect(order).toEqual([`body:${id}`, `patch:${id}:1`]);
   });
 
   it("mirrors the analytics-health stamp onto the SITE row (#539 Phase 5)", async () => {
@@ -805,10 +732,9 @@ describe("draftReportForSite → the Turso report writer", () => {
     // analytics-failure signal reads.
     process.env.GA_SUBJECT = "tucker@reddoorla.com";
     vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("GA down"));
-    const base = makeFakeBase({ Reports: [] });
     const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
 
-    await draftReportForSite(base, siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
+    await draftReportForSite(siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
       ...NO_HEADER,
       siteMirror: {
         created: async () => {},
@@ -820,67 +746,10 @@ describe("draftReportForSite → the Turso report writer", () => {
       },
     });
 
-    expect(mirrored).toHaveLength(1);
-    expect(mirrored[0]!.id).toBe("rec_site_acme");
-    expect(mirrored[0]!.fields["Analytics soft-fail at"]).toEqual(expect.any(String));
-  });
-
-  it("#782: Airtable rejecting the field (UNKNOWN_FIELD_NAME) still writes the Turso stamp — exactly once", async () => {
-    // The Airtable column is operator-added and absent from the base, so every
-    // real Maintenance draft threw `Unknown field name: "Analytics soft-fail at"`
-    // — and because the Turso mirror sat AFTER that call inside the same try,
-    // `site_health.analytics_soft_fail_at` was never written either. The digest
-    // collector reading it could never fire: green on a question it cannot
-    // fail. Turso is authoritative, so it is written FIRST; Airtable is the
-    // best-effort shadow.
-    process.env.GA_SUBJECT = "tucker@reddoorla.com";
-    vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("GA down"));
-    const inner = makeFakeBase({ Reports: [] });
-    const base = ((table: string) => {
-      const t = inner(table);
-      if (table !== "Websites") return t;
-      return {
-        ...t,
-        update: async () => {
-          const e = new Error('Unknown field name: "Analytics soft-fail at"') as Error & {
-            error?: string;
-          };
-          e.error = "UNKNOWN_FIELD_NAME";
-          throw e;
-        },
-      };
-    }) as unknown as typeof inner;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
-
-    const result = await draftReportForSite(
-      base,
-      siteFixture({ ga4PropertyId: "G-123" }),
-      "Maintenance",
-      {
-        ...NO_HEADER,
-        siteMirror: {
-          created: async () => {},
-          hasRow: async () => true,
-          health: async (id, fields) => {
-            mirrored.push({ id, fields });
-          },
-          site: async () => {},
-        },
-      },
-    );
-
-    expect(mirrored).toHaveLength(1);
-    expect(mirrored[0]!.id).toBe("rec_site_acme");
-    expect(mirrored[0]!.fields).toEqual({ "Analytics soft-fail at": expect.any(String) });
-    expect(
-      new Date(mirrored[0]!.fields["Analytics soft-fail at"] as string).getTime(),
-    ).not.toBeNaN();
-    // The draft itself still completes — the shadow's field gap must not cost it.
-    expect(result.queued).toBe(true);
-    // …and the swallowed shadow failure names the store that failed.
-    expect(warn.mock.calls.flat().join("\n")).toMatch(/Airtable.*Unknown field name/);
-    warn.mockRestore();
+    expect(mirrored).toEqual([
+      { id: "rec_site_acme", fields: { "Analytics soft-fail at": expect.any(String) } },
+    ]);
+    expect(Date.parse(mirrored[0]!.fields["Analytics soft-fail at"] as string)).not.toBeNaN();
   });
 
   it("#782: a clean enrichment clears the Turso stamp (null) — the signal self-heals", async () => {
@@ -895,10 +764,9 @@ describe("draftReportForSite → the Turso report writer", () => {
       position: 2,
       propertyFound: true,
     });
-    const base = makeFakeBase({ Reports: [] });
     const mirrored: Array<Record<string, unknown>> = [];
 
-    await draftReportForSite(base, siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
+    await draftReportForSite(siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
       ...NO_HEADER,
       siteMirror: {
         created: async () => {},
@@ -914,9 +782,8 @@ describe("draftReportForSite → the Turso report writer", () => {
   });
 
   it("drafts exactly as before when no mirror is supplied", async () => {
-    const base = makeFakeBase({ Reports: [] });
     await expect(
-      draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER),
+      draftReportForSite(siteFixture(), "Maintenance", NO_HEADER),
     ).resolves.toMatchObject({ queued: true });
   });
 });

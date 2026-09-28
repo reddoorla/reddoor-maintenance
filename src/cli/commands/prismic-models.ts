@@ -144,22 +144,14 @@ export const defaultDeps = (): PrismicModelsDeps => ({
   sendModel: (repo, token, entry, action) => sendModelImpl(repo, token, entry, action),
   env: process.env,
   spawn: makeSpawn(),
-  // Imported HERE rather than at the top of the file: the Airtable client is a
+  // Imported HERE rather than at the top of the file: the db client is a
   // devDependency of this package, and a consuming fleet site running the in-repo
-  // check in its own CI has no `airtable` installed. A static import would make
-  // every one of those runs fail on module load.
+  // check in its own CI does not install it. A static import would make every
+  // one of those runs fail on module load.
   openVerdictSink: async () => {
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { prismicModelsFields, updatePrismicModels } =
-      await import("../../reports/airtable/websites.js");
+    const { prismicModelsFields } = await import("../../reports/airtable/websites.js");
     const { readFleetRoster } = await import("../../fleet/roster.js");
-    // `openBase` throttles every HTTP call this base makes at its single funnel
-    // (≤4.5 req/s), so the serial writes below cannot burst past Airtable's rate
-    // limit no matter how large the fleet gets.
-    const base = openBase(readAirtableConfig());
-    // #646 step 4: the verdict sink's roster is Turso's — the sweep may hand it a
-    // site that has no Airtable record. `updatePrismicModels` skips a non-`rec`
-    // id itself, so the verdict lands in Turso and the shadow is skipped, logged.
+    // #646 step 4: the verdict sink's roster is Turso's.
     const websites = await readFleetRoster();
     // #539 Phase 5: the verdict lands on three site_health columns. Mirroring
     // here — inside the sink, which IS this command's composition root — keeps
@@ -170,7 +162,6 @@ export const defaultDeps = (): PrismicModelsDeps => ({
       websites: websites.map((w) => ({ id: w.id, name: w.name })),
       update: async (recordId, models) => {
         await mirror.health(recordId, prismicModelsFields(models));
-        await updatePrismicModels(base, recordId, models);
       },
     };
   },

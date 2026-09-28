@@ -11,49 +11,11 @@
  * itself is gone rather than "probably fine".
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { createDraft } from "../../src/reports/airtable/reports.js";
 import { makeReportMirror } from "../../src/reports/report-mirror.js";
-import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
 import { openDb } from "../../src/db/client.js";
-
-const INPUT = {
-  reportId: "Acme — Maintenance — 2026-08-31",
-  siteId: "rec_site_acme",
-  reportType: "Maintenance" as const,
-  periodStart: new Date("2026-08-01T00:00:00Z"),
-  periodEnd: new Date("2026-08-31T00:00:00Z"),
-  completedOn: new Date("2026-08-31T00:00:00Z"),
-  lighthouse: { performance: 87, accessibility: 91, bestPractices: 100, seo: 95 },
-  lastTestedDate: null,
-};
 
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-describe("createDraft hands the created record to an injected mirror", () => {
-  it("passes the id and the fields Airtable echoed back, not the caller's input", async () => {
-    // The mirror must see what Airtable STORED. Mapping the caller's DraftInput
-    // instead would diverge the moment Airtable normalises a value, and parity
-    // compares against the stored record.
-    const base = makeFakeBase({ Reports: [] });
-    const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
-
-    const row = await createDraft(base, { ...INPUT, period: "2026-08" }, async (rec) => {
-      seen.push(rec);
-    });
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0]!.id).toBe(row.id);
-    expect(seen[0]!.fields["Report ID"]).toBe(INPUT.reportId);
-    expect(seen[0]!.fields["Period"]).toBe("2026-08");
-    expect(seen[0]!.fields["Delivery status"]).toBe("pending");
-  });
-
-  it("still creates the row when no mirror is injected (the pre-Phase-5 callers)", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await expect(createDraft(base, INPUT)).resolves.toMatchObject({ reportType: "Maintenance" });
-  });
 });
 
 describe("makeReportMirror (best-effort, always observable)", () => {
@@ -78,8 +40,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
 
   it("body: stores the rendered HTML the console preview serves", async () => {
     // Without this the preview route 404s ("No rendered body stored") on every
-    // freshly drafted report until the next hourly sync re-downloads the
-    // Airtable attachment — the row exists, the page it links to does not.
+    // freshly drafted report — the row exists, the page it links to does not.
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 

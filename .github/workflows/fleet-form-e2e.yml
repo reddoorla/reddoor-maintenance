@@ -56,8 +56,6 @@ jobs:
         timeout-minutes: 30
         env:
           REDDOOR_FORM_E2E_LIVE: "1"
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |

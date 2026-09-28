@@ -74,9 +74,9 @@ export type ReportRow = {
 
 /**
  * The "Ready for your yes" gate: Draft ready ∧ ¬Approved to send ∧ Sent at BLANK.
- * The single source of truth for "pending the operator's approval" — `listPendingApproval`,
- * `runDigest`'s ready-list, the per-site dashboard, and the fleet cockpit all key off this
- * one predicate so the surfaces can't drift.
+ * The single source of truth for "pending the operator's approval" — `runDigest`'s
+ * ready-list, the draft queue, the per-site dashboard, and the fleet cockpit all key off
+ * this one predicate so the surfaces can't drift.
  */
 export function isPendingApproval(r: ReportRow): boolean {
   return r.draftReady && !r.approvedToSend && r.sentAt === null;

@@ -1,8 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import type { Context } from "@netlify/functions";
 
-vi.mock("../../src/reports/airtable/client.js", () => ({ openBase: vi.fn(() => ({}) as unknown) }));
-
 let sharedDb: Awaited<ReturnType<typeof import("../../src/db/client.js").openDb>> | null = null;
 vi.mock("../../src/db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/db/client.js")>();

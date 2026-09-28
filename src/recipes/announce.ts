@@ -1,19 +1,12 @@
-import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
-import type { AirtableBase } from "../reports/airtable/client.js";
-import {
-  analyticsHealthFields,
-  siteSlug,
-  updateAnalyticsHealth,
-} from "../reports/airtable/websites.js";
+import { analyticsHealthFields, siteSlug } from "../reports/airtable/websites.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { readGaConfig } from "../reports/ga/config.js";
-import { updateReportScores, type ReportEnrichment } from "../reports/airtable/reports.js";
+import type { ReportEnrichment } from "../reports/airtable/reports.js";
 import { createReportDraft, findReportForPeriod } from "../reports/create-report.js";
 import type { DraftInput } from "../reports/draft-fields.js";
 import type { ReportMirror } from "../reports/report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft } from "../reports/queue.js";
-import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
 import { fetchGaUsers, fetchSearch, refreshHeaderImage } from "../reports/draft.js";
@@ -42,8 +35,6 @@ export type AnnounceResult = { results: AnnounceSiteResult[] };
 const GA_WINDOW_DAYS = 30;
 
 export type AnnounceDeps = {
-  /** Airtable handle. Defaults to opening the live base from credentials. */
-  base?: AirtableBase;
   /** When set, restrict to the single site whose slug matches. Default: all maintenance sites. */
   site?: string;
   /** Single timestamp driving the period key, render, draft, and preview filename. */
@@ -56,12 +47,9 @@ export type AnnounceDeps = {
    * Maintenance/Testing draft happened to heal it.
    */
   refreshHeader?: RefreshHeaderDeps | false;
-  /** Every site in the fleet, read from TURSO (#646 step 4) — the Airtable
-   *  roster this replaces could not see a `site_<ULID>` site, so a site created
-   *  since step 3 was never announced. Required, not defaulted: every unit test
-   *  calls `announce` with a fake base, and a default would open a real libSQL
-   *  handle from inside the suite. The CLI composition root wires
-   *  `readFleetRoster`. */
+  /** Every site in the fleet, read from TURSO (#646 step 4). Required, not
+   *  defaulted: a default would open a real libSQL handle from inside the
+   *  suite. The CLI composition root wires `readFleetRoster`. */
   roster: () => Promise<WebsiteRow[]>;
   /** #539 Phase 5, and since #646 step 4 the store that MINTS and holds the
    *  report row: the created row (or a reused row's refreshed scores), the
@@ -75,7 +63,7 @@ export type AnnounceDeps = {
 
 /**
  * Draft the monthly-report ANNOUNCEMENT email for every `maintenance` site (or one,
- * via `deps.site`). Airtable-driven and fleet-wide: unlike `launch`, it runs no audits
+ * via `deps.site`). Roster-driven and fleet-wide: unlike `launch`, it runs no audits
  * and takes no `Site`/inventory object — it reads the Lighthouse scores already stored
  * on each Websites row. DRAFTS ONLY; the M3 approve loop sends.
  *
@@ -83,7 +71,6 @@ export type AnnounceDeps = {
  * records an `error` result and continues.
  */
 export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
-  const base = deps.base ?? openBase(readAirtableConfig());
   const now = deps.now ?? new Date();
   const writer = deps.reportMirror;
 
@@ -146,13 +133,6 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
             `⚠ analytics-health Turso mirror failed for ${w.name}: ${(e as Error).message}`,
           );
         }
-        try {
-          await updateAnalyticsHealth(base, w.id, at);
-        } catch (e) {
-          console.warn(
-            `⚠ analytics-health Airtable shadow write skipped for ${w.name}: ${(e as Error).message}`,
-          );
-        }
       }
 
       // Dedupe: reuse an existing Announcement row for this (site, period) rather than
@@ -184,13 +164,10 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
             ? { search_position: enrichment.searchPosition }
             : {}),
         });
-        await updateReportScores(base, existing.id, scores, now, enrichment);
         report = existing;
         statusKind = "reused";
       } else {
-        // #646 step 4: minted and written in Turso (`report_<ULID>`). The
-        // Airtable Reports row this replaces is skipped, not written — see
-        // `createReportDraft`.
+        // #646 step 4: minted and written in Turso (`report_<ULID>`).
         report = await createReportDraft(draftInputFor(w, scores, now, period, enrichment), {
           create: writer.create,
         });
@@ -220,16 +197,8 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
 
       // A preview-upload hiccup must NOT fail the site — log and continue.
       try {
-        // Store the same body in Turso — the console's preview route reads it
-        // there, not from the Airtable attachment (whose URL expires).
+        // Store the body in Turso — the console's preview route reads it there.
         await writer.body(report.id, html);
-        await uploadAttachment(
-          report.id,
-          "Rendered HTML",
-          html,
-          `${slug}-${now.toISOString().slice(0, 10)}.html`,
-          "text/html",
-        );
       } catch (uploadErr) {
         console.warn(
           `⚠ Announcement preview upload skipped for ${w.name}: ${
@@ -243,7 +212,6 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
       // supersedes any lower-tier (Maintenance/Testing) drafts queued for this site, and
       // stands down if an equal-or-higher report is already queued (single-queue rule).
       const queue = await queueDraft(
-        base,
         { id: report.id, siteId: w.id, reportType: "Announcement" },
         writer,
       );

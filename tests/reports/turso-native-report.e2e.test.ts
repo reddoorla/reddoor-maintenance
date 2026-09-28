@@ -10,10 +10,8 @@
  * Driven against a REAL migrated libSQL database in a temp `file:` — never
  * `:memory:` (a libSQL transaction hands its connection away and the next
  * statement sees an empty database; `ensure-site`'s create is a transaction) and
- * never a `TURSO_*` url from the environment. The Airtable side is a fake base
- * that records every call, plus a `fetch` that THROWS: if any Airtable write
- * were attempted rather than skipped, this test fails loudly instead of quietly
- * reaching the network.
+ * never a `TURSO_*` url from the environment. `fetch` THROWS: if any network
+ * call were attempted, this test fails loudly instead of quietly reaching out.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -37,29 +35,21 @@ import {
 import { makeReportMirror } from "../../src/reports/report-mirror.js";
 import { draftReportForSite } from "../../src/reports/draft.js";
 import { sendApprovedReports } from "../../src/reports/send/orchestrate.js";
-import { makeFakeBase, type FakeAirtableBase } from "./_helpers/fake-airtable-base.js";
 
 let dir: string;
 let db: Db;
-let base: FakeAirtableBase;
 
 const FRESH = new Date().toISOString();
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "turso-report-e2e-"));
   db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
-  base = makeFakeBase({ Websites: [], Reports: [] });
-  // Any Airtable HTTP call fails the test rather than reaching the network: the
-  // attachment upload and the content API go through fetch, not the SDK fake.
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => {
-      throw new Error("no network in this test — an Airtable call was attempted");
+      throw new Error("no network in this test — a network call was attempted");
     }),
   );
-  // `openBase` inside the send needs these present; no call is expected to use them.
-  vi.stubEnv("AIRTABLE_PAT", "pat_e2e");
-  vi.stubEnv("AIRTABLE_BASE_ID", "app_e2e");
   // Enrichment off: GA/Search are not what this proves, and they talk to Google.
   vi.stubEnv("GA_SUBJECT", "");
 });
@@ -98,7 +88,7 @@ async function seedPassingHealth(siteId: string): Promise<void> {
 
 describe("a Turso-only site receives a report end to end (#646 step 4)", () => {
   it("drafts, queues, approves and sends — with no Airtable record anywhere", async () => {
-    // 1. The site: created in Turso, no Airtable client wired at all.
+    // 1. The site: created in Turso.
     const created = await ensureSite(
       { slug: "e2e-co", displayName: "E2E Co", url: "https://e2e.example.com" },
       { store: makeSiteStore(db) },
@@ -117,7 +107,7 @@ describe("a Turso-only site receives a report end to end (#646 step 4)", () => {
     const siteRow = await getSiteBySlug(db, "e2e-co");
     expect(siteRow).not.toBeNull();
     const writer = await makeReportMirror(async () => db, true);
-    const draft = await draftReportForSite(base, siteRow!, "Maintenance", {
+    const draft = await draftReportForSite(siteRow!, "Maintenance", {
       refreshHeader: false,
       reportMirror: writer,
     });
@@ -180,8 +170,7 @@ describe("a Turso-only site receives a report end to end (#646 step 4)", () => {
     expect(after?.resendMessageId).toBe("msg_e2e");
     expect(await listSendableReports(db)).toEqual([]);
 
-    // 6. Airtable was never written to, and never even reached for.
-    expect(base.__calls).toEqual([]);
+    // 6. The network was never reached for.
     expect(vi.mocked(globalThis.fetch)).not.toHaveBeenCalled();
   });
 });

@@ -15,10 +15,8 @@ import { stepEnv, workflowPath } from "./_helpers/workflow-source.js";
  * `NEXT_DUE_WRITE wrote=1 skipped=43 failed=0` with no mirror counters at all,
  * because the draft step carried Airtable and GA credentials but no Turso ones.
  *
- * The hourly `fleet-db-sync` re-imports site_schedule from Airtable, so nothing
- * visibly broke — which is the whole problem. At the Phase 5 freeze the
- * dual-write becomes the only writer, and a dead one would be discovered by
- * the dates silently ceasing to update.
+ * The mirror is now the only writer, so a dead one would be discovered by the
+ * dates silently ceasing to update.
  */
 
 const DRAFT_STEP = "Draft due reports";
@@ -38,13 +36,12 @@ describe("daily-reports workflow", () => {
     );
   });
 
-  it("still gives the draft step the Airtable and GA credentials it already needed", () => {
+  it("gives the draft step its GA credentials and no Airtable ones", () => {
     // The positive control: proves stepEnv is reading the real block, so the
     // assertion above cannot be passing against an empty or mis-parsed map.
     const env = stepEnv(workflow, DRAFT_STEP);
-    expect(Object.keys(env)).toEqual(
-      expect.arrayContaining(["AIRTABLE_PAT", "AIRTABLE_BASE_ID", "GA_SA_KEY_JSON"]),
-    );
+    expect(Object.keys(env)).toEqual(expect.arrayContaining(["GA_SUBJECT", "GA_SA_KEY_JSON"]));
+    expect(Object.keys(env).filter((k) => k.startsWith("AIRTABLE_"))).toEqual([]);
   });
 
   /**
@@ -63,10 +60,9 @@ describe("daily-reports workflow", () => {
     );
   });
 
-  it("still gives the digest step Airtable and Resend (positive control)", () => {
+  it("gives the digest step Resend (positive control) and no Airtable credentials", () => {
     const env = stepEnv(workflow, DIGEST_STEP);
-    expect(Object.keys(env)).toEqual(
-      expect.arrayContaining(["AIRTABLE_PAT", "AIRTABLE_BASE_ID", "RESEND_API_KEY"]),
-    );
+    expect(Object.keys(env)).toEqual(expect.arrayContaining(["RESEND_API_KEY", "OPERATOR_EMAIL"]));
+    expect(Object.keys(env).filter((k) => k.startsWith("AIRTABLE_"))).toEqual([]);
   });
 });

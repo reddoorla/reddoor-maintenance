@@ -1,5 +1,3 @@
-import { AIRTABLE_SHADOW_WRITES } from "../../db/freeze.js";
-
 export type DbCommandOptions = {
   /** Override the libSQL url (tests use ":memory:"); otherwise read from env. */
   url?: string;
@@ -7,9 +5,6 @@ export type DbCommandOptions = {
   file?: string;
   /** usage: org slug override; defaults to TURSO_ORG, else discovered. */
   org?: string;
-  /** import-airtable / sync: run despite the freeze — a deliberate
-   *  rollback-window converge from the frozen Airtable shadow. */
-  force?: boolean;
   /** replay-deadletters: abandon this slug's queued leads (or one `dl_…` row id)
    *  as resolved-by-decision instead of replaying them (#786). */
   abandon?: string;
@@ -39,44 +34,7 @@ export type DbCommandDeps = {
   restoreAuthToken?: string;
 };
 
-/** #643 (the freeze): the scheduled import retired with the flip, but the
- *  MANUAL import survives as the rollback-window converge tool — and run out of
- *  habit it would overwrite authoritative Turso rows with the frozen Airtable
- *  archive, including any post-flip write whose best-effort shadow was
- *  swallowed. So the writing actions refuse under the freeze unless the
- *  operator says `--force`. `parity` stays unguarded: it only compares, and
- *  "did the shadow drift?" is exactly the rollback-window question.
- *
- *  Pure and exported so the test injects BOTH switch states; `runDbCommand`
- *  passes the shipped constant. Returns the refusal, or null to proceed. */
-export function freezeGuardsDbWrite(
-  action: string,
-  force: boolean,
-  authoritative: boolean,
-  shadowWrites: boolean = AIRTABLE_SHADOW_WRITES,
-): { output: string; code: number } | null {
-  if (!authoritative) return null;
-  if (action !== "import-airtable" && action !== "sync") return null;
-  if (!shadowWrites) {
-    return {
-      output:
-        `db ${action} refused: AIRTABLE_SHADOW_WRITES is off (2026-09-28), so the Airtable ` +
-        `archive stopped receiving writes. An import would roll authoritative Turso rows ` +
-        `back to it and reap every row Airtable never held. There is no rollback window to converge.`,
-      code: 1,
-    };
-  }
-  if (force) return null;
-  return {
-    output:
-      `db ${action} refused: TURSO_IS_AUTHORITATIVE is on (the freeze, 2026-08-31). ` +
-      `An import now OVERWRITES authoritative Turso rows with the frozen Airtable ` +
-      `archive. Pass --force only for a deliberate rollback-window converge.`,
-    code: 1,
-  };
-}
-
-/** `db <action>` — migrate | replay-deadletters | import-airtable | parity | sync | dump | verify-dump. The db layer is imported
+/** `db <action>` — migrate | replay-deadletters | dump | verify-dump | restore | usage. The db layer is imported
  *  dynamically so a non-db CLI invocation (and `--help`) never loads
  *  @libsql/client. Config is resolved inside each branch so an unknown action
  *  returns without needing any Turso env. */
@@ -134,23 +92,10 @@ export async function runDbCommand(
       return { output: lines.join("\n"), code: 0 };
     }
     const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { getWebsiteBySlug } = await import("../../reports/airtable/websites.js");
     const { getSiteBySlug } = await import("../../db/fleet-state.js");
-    const { makeLazySiteLookup } = await import("../../forms/site-lookup.js");
-    // #645. Recovery now resolves sites through the SAME lookup the live ingest
-    // path uses. It used to call the Airtable `getWebsiteBySlug` directly, so
-    // post-#643 the two disagreed about what the fleet is: a site created since
-    // the freeze was invisible to the replay, and a row only Airtable still held
-    // would have attached a recovered lead to a site the system no longer
-    // believes in. `openBase` is passed UNCALLED — under the freeze no Airtable
-    // credential is read at all, where before a missing PAT refused the whole
-    // replay (`readAirtableConfig()` throws) with real leads sitting in the queue.
-    const lookupSite = makeLazySiteLookup({
-      fromDb: (s) => getSiteBySlug(db, s),
-      openAirtable: () => openBase(readAirtableConfig()),
-      fromAirtable: (base, s) => getWebsiteBySlug(base, s),
-    });
+    // #645. Recovery resolves sites exactly as the live ingest path does: Turso's
+    // `getSiteBySlug`, so live and recovery cannot disagree about what the fleet is.
+    const lookupSite = (slug: string) => getSiteBySlug(db, slug);
     const {
       createSubmission,
       stampNotified,
@@ -237,162 +182,6 @@ export async function runDbCommand(
     ];
     const owed = result.stillFailing.length + result.unmarked.length + result.unreadable.length > 0;
     return { output: lines.join("\n"), code: owed ? 1 : 0 };
-  }
-
-  // Phase 1.3/1.4 of #539. Both read the same two Airtable tables raw (id +
-  // fields, no mapRow coercion — the importer's mapping is the authority) and
-  // share that mapping, so parity is definitionally checked against what the
-  // importer writes.
-  if (action === "import-airtable" || action === "parity" || action === "sync") {
-    const { TURSO_IS_AUTHORITATIVE } = await import("../../db/freeze.js");
-    const refused = freezeGuardsDbWrite(action, opts.force === true, TURSO_IS_AUTHORITATIVE);
-    if (refused) return refused;
-    const { readDbConfig, openDb } = await import("../../db/client.js");
-    const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const base = openBase(readAirtableConfig());
-    const listRaw = async (table: string) =>
-      (await base(table).select().all()).map((r) => ({
-        id: r.id,
-        fields: r.fields as Record<string, unknown>,
-      }));
-    const io = {
-      listWebsiteRecords: () => listRaw("Websites"),
-      listReportRecords: () => listRaw("Reports"),
-      now: () => new Date(),
-    };
-
-    if (action === "import-airtable") {
-      const { importFleetState, formatReapSummary } = await import("../../db/import-airtable.js");
-      const summary = await importFleetState(db, {
-        ...io,
-        // Attachment bodies ride expiring signed URLs; a failed fetch imports the
-        // row with rendered_html null and is NAMED in the summary, never silent.
-        fetchAttachment: async (url) => {
-          try {
-            const res = await fetch(url);
-            return res.ok ? await res.text() : null;
-          } catch {
-            return null;
-          }
-        },
-      });
-      const lines = [
-        `imported ${summary.sites} site(s) → sites/site_health/site_schedule`,
-        `imported ${summary.reports} report(s)`,
-      ];
-      if (summary.renderedHtmlMisses.length > 0) {
-        lines.push(
-          `⚠ ${summary.renderedHtmlMisses.length} report(s) imported WITHOUT Rendered HTML ` +
-            `(fetch failed / URL expired): ${summary.renderedHtmlMisses.join(", ")}`,
-        );
-      }
-      // The import deletes rows Airtable no longer has, so this one-shot path
-      // reports the reap exactly as `db sync` does — same formatter, no second
-      // copy to fall out of step.
-      lines.push(...formatReapSummary(summary.reaped));
-      return { output: lines.join("\n"), code: 0 };
-    }
-
-    // Phase 2 backbone (#539): one hourly pass = import (attachment fetches
-    // only where the stored row lacks a body) + parity + one retry to absorb
-    // the import-read/parity-read race. Exit 1 on persistent mismatch.
-    if (action === "sync") {
-      const { syncFleetState, formatSyncResult } = await import("../../db/sync.js");
-      const result = await syncFleetState(db, {
-        ...io,
-        fetchAttachment: async (url) => {
-          try {
-            const res = await fetch(url);
-            return res.ok ? await res.text() : null;
-          } catch {
-            return null;
-          }
-        },
-      });
-      return {
-        output: formatSyncResult(result),
-        code: result.parity.mismatches.length > 0 ? 1 : 0,
-      };
-    }
-
-    const { checkFleetParity, formatParityResult } = await import("../../db/parity.js");
-    const result = await checkFleetParity(db, io);
-    return { output: formatParityResult(result), code: result.mismatches.length > 0 ? 1 : 0 };
-  }
-
-  // One-shot completion of design D5 (#539 Phase 2): copy every site's CURRENT
-  // Airtable "Header image" attachment into sites.header_image*. Idempotent —
-  // an already-populated BLOB is never overwritten (a re-run must not clobber
-  // a freshly generated image with a stale Airtable copy). Exit 1 when any
-  // fetch failed, so a partial backfill is never read as complete.
-  if (action === "backfill-header-images") {
-    const { readDbConfig, openDb } = await import("../../db/client.js");
-    const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const base = openBase(readAirtableConfig());
-    const { backfillHeaderImages, formatBackfillResult } =
-      await import("../../db/header-images.js");
-    const result = await backfillHeaderImages(db, {
-      listWebsiteRecords: async () =>
-        (await base("Websites").select().all()).map((r) => ({
-          id: r.id,
-          fields: r.fields as Record<string, unknown>,
-        })),
-      fetchBytes: async (url) => {
-        try {
-          const res = await fetch(url);
-          return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
-        } catch {
-          return null;
-        }
-      },
-    });
-    return { output: formatBackfillResult(result), code: result.failed.length > 0 ? 1 : 0 };
-  }
-
-  // #609: one-shot copy of the single Airtable "Digest State" row into Turso,
-  // so the first digest run after the read repoint sees yesterday's snapshot
-  // instead of an empty one. An empty read is not a crash — it badges EVERY
-  // item NEW, which lands in the operator's inbox reading as "the whole fleet
-  // degraded overnight". REFUSES to overwrite a snapshot Turso already holds:
-  // a re-run must never replace a fresher snapshot with a stale Airtable copy.
-  if (action === "backfill-digest-state") {
-    const { readDbConfig, openDb } = await import("../../db/client.js");
-    const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
-    const { readDigestState: readTurso, writeDigestState: writeTurso } =
-      await import("../../db/digest-state.js");
-    const existing = await readTurso(db);
-    if (Object.keys(existing).length > 0) {
-      return {
-        output: `DIGEST_BACKFILL skipped=1 reason=turso-already-populated keys=${Object.keys(existing).length}`,
-        code: 0,
-      };
-    }
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const base = openBase(readAirtableConfig());
-    const { readDigestState: readAirtable, DIGEST_STATE_TABLE } =
-      await import("../../alerts/digest-state.js");
-    // `source` separates "Airtable has no row" from "Airtable has a row holding
-    // an empty snapshot" — the reader collapses BOTH to {}, so copied=0 alone
-    // cannot tell a quiet fleet from a failed read. Learned by running this: the
-    // first real run printed copied=0 and only a hand probe showed the row was
-    // there and genuinely empty.
-    const rows = await base(DIGEST_STATE_TABLE).select({ maxRecords: 1, pageSize: 1 }).all();
-    const snap = await readAirtable(base);
-    const keys = Object.keys(snap).length;
-    await writeTurso(db, snap);
-    // Read it BACK. A returning write is not evidence the row landed — the same
-    // rule forms-notify-target learned on 2026-08-03. `stored` counts the ROW,
-    // not its keys, so an empty-but-present snapshot verifies as written.
-    const stored = (await db.selectFrom("digest_state").selectAll().execute()).length;
-    const after = Object.keys(await readTurso(db)).length;
-    return {
-      output:
-        `DIGEST_BACKFILL source=${rows.length > 0 ? "row" : "absent"} ` +
-        `copied=${keys} verified=${after} rows=${stored}`,
-      code: after === keys && stored === 1 ? 0 : 1,
-    };
   }
 
   // Phase 1.5 of #539: platform-auth-free SQL dump to stdout-adjacent output.
@@ -615,7 +404,7 @@ export async function runDbCommand(
   }
 
   return {
-    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, sync, backfill-header-images, backfill-digest-state, dump, verify-dump, restore.`,
+    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, dump, verify-dump, restore.`,
     code: 1,
   };
 }

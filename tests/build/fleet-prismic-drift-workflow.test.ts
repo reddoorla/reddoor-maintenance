@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 /**
  * THE NIGHTLY THAT MAKES THE PRISMIC DRIFT ALARM REAL.
  *
- * Everything downstream of it — the Airtable verdict columns, the cockpit tier,
+ * Everything downstream of it — the stored verdicts, the cockpit tier,
  * the digest's three attention items — describes what THIS workflow found. If it
  * can run and report nothing while going green, every one of those reads a stale
  * green tick as a fresh one, which is this project's governing failure ("I could
@@ -91,7 +91,7 @@ describe("fleet-prismic-drift — the gate cannot go green having established no
   });
 
   // Drift is NOT an outage — a site whose models diverge is a finding on its
-  // Airtable row, and reddening the nightly for it would make the alarm
+  // own row, and reddening the nightly for it would make the alarm
   // meaningless the first time anybody edits a model.
   it("stays green when sites DRIFT but every verdict was recorded", async () => {
     const r = await runGate({
@@ -149,9 +149,8 @@ describe("fleet-prismic-drift — the gate cannot go green having established no
   });
 
   // THE fleet-smoke shape, in mirror image. Every verdict was computed and NONE
-  // of them reached Airtable — an expired PAT, a renamed column, a base id typo.
-  // The CLI exits 0 (per-row write failures deliberately do not red it, because
-  // the verdict columns are operator-added and the feature ships dark), so the
+  // of them reached the store.
+  // The CLI exits 0 (per-row write failures deliberately do not red it), so the
   // exit code alone would report a clean night while the cockpit kept yesterday's
   // green ticks forever.
   it("fails when the sweep ran but wrote ZERO verdicts", async () => {
@@ -187,7 +186,7 @@ describe("fleet-prismic-drift — the gate cannot go green having established no
     expect(r.out).toContain("::error::");
   });
 
-  // A single unwritable row is a flake (a site renamed in Airtable this morning);
+  // A single unwritable row is a flake;
   // it must stay visible without reddening a nightly that otherwise worked.
   it("warns but stays green on a single unwritten verdict", async () => {
     const r = await runGate({ stdout: `${summary(14, 1)}\n`, exit: 0 });
@@ -349,9 +348,9 @@ describe("fleet-prismic-drift — the per-repository token env block", () => {
     expect(Object.keys(env)).not.toContain("PRISMIC_WRITE_TOKEN");
   });
 
-  it("passes the Airtable credentials the write-back needs", () => {
-    expect(Object.keys(env)).toContain("AIRTABLE_PAT");
-    expect(Object.keys(env)).toContain("AIRTABLE_BASE_ID");
+  it("passes no Airtable credentials: the write-back lands in Turso only", () => {
+    expect(Object.keys(env)).toContain("TURSO_DATABASE_URL");
+    expect(Object.keys(env).filter((k) => k.startsWith("AIRTABLE_"))).toEqual([]);
   });
 });
 
@@ -378,7 +377,7 @@ describe("fleet-prismic-drift — scheduling and supply chain", () => {
   });
 
   // A second run overlapping the first would have two processes writing verdicts
-  // into one Airtable base and sharing one clone workdir.
+  // into one store and sharing one clone workdir.
   it("never overlaps itself, and a queued run is not cancelled", () => {
     expect(
       /^concurrency:\n\s+group: fleet-prismic-drift\n\s+cancel-in-progress: false$/m.test(wf),
@@ -445,10 +444,11 @@ describe("fleet-prismic-drift — a red night is durably visible", () => {
     );
   });
 
-  it("still gives the sweep step its Airtable credentials (positive control)", () => {
+  it("gives the sweep step its Prismic tokens (positive control) and no Airtable credentials", () => {
     // Proves stepEnv is reading the real block, so the assertion above cannot
     // be passing against an empty or mis-parsed map.
     const env = stepEnv(wf, SWEEP_STEP);
-    expect(Object.keys(env)).toEqual(expect.arrayContaining(["AIRTABLE_PAT", "AIRTABLE_BASE_ID"]));
+    expect(Object.keys(env).some((k) => k.startsWith("PRISMIC_TOKEN_"))).toBe(true);
+    expect(Object.keys(env).filter((k) => k.startsWith("AIRTABLE_"))).toEqual([]);
   });
 });

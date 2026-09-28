@@ -1,6 +1,5 @@
-import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import type { SiteMirror } from "../../db/site-mirror.js";
-import { autoFixAttemptsFields, updateAutoFixAttempts } from "../../reports/airtable/websites.js";
+import { autoFixAttemptsFields } from "../../reports/airtable/websites.js";
 import type { FleetRoster } from "../../fleet/roster.js";
 import { makeGitHub } from "../../github/gh.js";
 import {
@@ -15,12 +14,12 @@ import {
 } from "../../github/renovate-dispatch.js";
 
 /**
- * `renovate-dispatch --fleet`: read the Websites table, pick the active,
+ * `renovate-dispatch --fleet`: read the fleet roster, pick the active,
  * repo-backed sites the latest security sweep flagged with critical/high vulns,
  * and fire each one's `renovate.yml` `workflow_dispatch` so Renovate's OSV
  * vulnerability alerts open the remediation PR now (instead of waiting for the
  * weekly schedule). Designed to run as a best-effort follow-up step on
- * `fleet-security.yml` AFTER the sweep has written fresh counts to Airtable.
+ * `fleet-security.yml` AFTER the sweep has written fresh counts.
  *
  * Always exits 0: a missing token is a clean skip; a partial dispatch failure
  * (a repo without `renovate.yml`, or a token lacking `actions:write`) is reported
@@ -28,14 +27,10 @@ import {
  */
 export async function runRenovateDispatchCommand(opts: {
   fleet?: boolean | undefined;
-  /** Inject a pre-opened Airtable base (tests). Defaults to env config. Still
-   *  needed: the auto-fix counter write is an Airtable SHADOW write. */
-  base?: AirtableBase;
   /** #646 step 4: the fleet roster targets are selected from. Default: Turso
-   *  (`readFleetRoster`) — an Airtable roster cannot see a `site_<ULID>` site,
-   *  so its vulnerabilities would never dispatch Renovate. */
+   *  (`readFleetRoster`). */
   roster?: FleetRoster;
-  /** #539 Phase 5: Turso write-through for the auto-fix counter. Injected from
+  /** #539 Phase 5: the auto-fix counter's Turso write. Injected from
    *  bin.ts rather than defaulted here — this function is called directly by
    *  tests, and a default would open a real libSQL handle inside the suite. */
   siteMirror?: SiteMirror;
@@ -51,7 +46,6 @@ export async function runRenovateDispatchCommand(opts: {
     };
   }
 
-  const base = opts.base ?? openBase(readAirtableConfig());
   const websites = await (
     opts.roster ??
     (async () => {
@@ -97,7 +91,6 @@ export async function runRenovateDispatchCommand(opts: {
   const attemptUpdates = computeAutoFixAttemptUpdates(websites, result);
   const attemptTally = await applyAutoFixAttemptUpdates(attemptUpdates, async (id, attempts) => {
     await opts.siteMirror?.health(id, autoFixAttemptsFields(attempts));
-    await updateAutoFixAttempts(base, id, attempts);
   });
 
   lines.push(formatRenovateDispatchSummary(result));

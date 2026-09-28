@@ -1,16 +1,9 @@
-import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
-import type { AirtableBase } from "../reports/airtable/client.js";
 import type { SiteMirror } from "../db/site-mirror.js";
-import {
-  siteSlug,
-  updateSiteField,
-  type Status,
-  type WebsiteRow,
-} from "../reports/airtable/websites.js";
+import { siteSlug, type Status, type WebsiteRow } from "../reports/airtable/websites.js";
 import { canonicalizeStatus, toAirtableStatus } from "../reports/airtable/site-status.js";
 import { describeNotifyTarget, type NotifyTarget } from "../forms/notify.js";
 
-/** The Airtable column the pre-launch guard actually lives in. */
+/** The (Airtable-named) column the pre-launch guard lives in. */
 export const STATUS_COLUMN = "Status";
 
 /** The two ends of the verify flip. Deliberately the ONLY transition this
@@ -21,16 +14,13 @@ export const LIVE_STATUS: Status = "maintained";
 export const VERIFY_STATUS: Status = "launching";
 
 export type FormsNotifyTargetDeps = {
-  base?: AirtableBase;
   /** Every site in the fleet, read from TURSO (#646 step 4). Required, not
    *  defaulted: the unit suite drives this with a fake fleet, and a default would
    *  open a real libSQL handle from inside it. The CLI wires `readFleetRoster`.
    *
    *  It is called TWICE on a flip — once to find the site, once to read the cell
    *  back — and both reads matter: Turso is what `/api/forms/:slug` consults to
-   *  decide who a submission emails (`getSiteBySlug`, #643), so confirming the
-   *  Airtable cell would confirm the wrong store, and an Airtable roster cannot
-   *  see a `site_<ULID>` site at all. */
+   *  decide who a submission emails (`getSiteBySlug`, #643). */
   roster: () => Promise<WebsiteRow[]>;
   /** Site slug or the stored site NAME (both accepted). */
   site: string;
@@ -39,9 +29,8 @@ export type FormsNotifyTargetDeps = {
   /** Status to restore with `--set off`. Required, never inferred. */
   restore?: string;
   /** The Status write itself (#646 step 4): Turso is the store the form ingest
-   *  reads, so this is the write the read-back below confirms — the Airtable
-   *  `updateSiteField` beside it is the shadow, and it skips a `site_` id.
-   *  Required, and injected at the CLI root for the same reason `roster` is. */
+   *  reads, so this is the write the read-back below confirms. Required, and
+   *  injected at the CLI root for the same reason `roster` is. */
   siteMirror: SiteMirror;
 };
 
@@ -95,7 +84,7 @@ function findSite(rows: WebsiteRow[], site: string): WebsiteRow | undefined {
  * Answer "who would a form submission on this site email?" — and optionally
  * flip the pre-launch guard, confirming the flip by reading it back.
  *
- * The guard is a single Airtable `Status` cell. Nothing between "I intended to
+ * The guard is a single `Status` cell. Nothing between "I intended to
  * flip it" and "the client received a test lead" reported the current state, so
  * on 2026-08-03 a flip that never landed sent a real client a test submission.
  * The fix is not a better intention, it is feedback: this reads the row back
@@ -104,13 +93,12 @@ function findSite(rows: WebsiteRow[], site: string): WebsiteRow | undefined {
 export async function formsNotifyTarget(
   deps: FormsNotifyTargetDeps,
 ): Promise<FormsNotifyTargetResult> {
-  const base = deps.base ?? openBase(readAirtableConfig());
   const rows = await deps.roster();
   const row = findSite(rows, deps.site);
   if (!row) {
     // The Websites NAME is not the repo slug ("Sonder", not "gallerysonder"),
     // and that mismatch has cost time before — so name the near misses rather
-    // than making the operator go read Airtable to find the spelling.
+    // than making the operator go look up the spelling.
     const needle = siteSlug(deps.site);
     const near = rows
       .map((r) => r.name)
@@ -160,15 +148,12 @@ export async function formsNotifyTarget(
   }
 
   // `--set on` writes a status this MODULE owns (VERIFY_STATUS), so mapping it to
-  // the current Airtable vocabulary is correct. `--set off` writes the operator's
+  // the current status vocabulary is correct. `--set off` writes the operator's
   // own string — see restoreCell.
   const cell = deps.set === "on" ? toAirtableStatus(VERIFY_STATUS) : restoreCell(restoreRaw!);
   // The write that DECIDES: `/api/forms/:slug` reads this cell from Turso, and
   // the console reads it there too.
   await deps.siteMirror.site(row.id, { [STATUS_COLUMN]: cell });
-  // The Airtable shadow, still allowed to fail loudly while it is kept
-  // trustworthy; it skips a site id Airtable cannot hold (#646 step 3).
-  await updateSiteField(base, row.id, STATUS_COLUMN, cell);
 
   // Read it back — from Turso, the store just confirmed to be the one that
   // matters. The write returning is NOT evidence the field changed.
