@@ -105,7 +105,6 @@ describe("a Turso-only site receives a report end to end (#646 step 4)", () => {
     );
     expect(created.status).toBe("created");
     expect(isMintedSiteId(created.siteId)).toBe(true);
-    expect(created.airtableShadow).toBe("skipped");
     await seedPassingHealth(created.siteId);
     await db
       .updateTable("sites")

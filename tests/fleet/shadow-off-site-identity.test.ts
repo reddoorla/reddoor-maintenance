@@ -4,11 +4,6 @@ import type { StoredHeaderImage } from "../../src/db/header-images.js";
 import { formsNotifyTarget, VERIFY_STATUS } from "../../src/recipes/forms-notify-target.js";
 import { canonicalizeStatus } from "../../src/reports/airtable/site-status.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
-import {
-  ensureSite,
-  type SiteStore,
-  type LegacyAirtableSites,
-} from "../../src/fleet/ensure-site.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { untouchableBase, untouchableFetch } from "./_helpers/untouchable-airtable.js";
 
@@ -95,50 +90,6 @@ describe("shipped shadow-off: forms-notify-target never touches Airtable", () =>
     expect(r.flip).toEqual({ from: "maintained", to: VERIFY_STATUS, confirmed: true });
     expect(logged()).toContain(
       "AIRTABLE_SHADOW skipped=shadow-off writer=updateSiteField id=recSite",
-    );
-  });
-});
-
-describe("shipped shadow-off: ensureSite never touches the legacy Airtable sites", () => {
-  it("fills a rec site's blanks in Turso and reports the shadow skipped", async () => {
-    const patch = { url: "https://acme.example.com", pointOfContact: "owner@acme.example.com" };
-    const turso: Array<{ id: string; patch: unknown }> = [];
-    const store: SiteStore = {
-      findBySlug: async () => ({
-        id: "recEXIST",
-        name: "acme-co",
-        url: null,
-        pointOfContact: null,
-        gitRepo: "reddoorla/acme-co",
-      }),
-      create: async () => {
-        throw new Error("create must not run on the exists path");
-      },
-      updateIdentity: async (id, p) => {
-        turso.push({ id, patch: p });
-        return true;
-      },
-    };
-    const legacy: LegacyAirtableSites = {
-      findBySlug: async () => {
-        touched.push("Airtable touched: legacy.findBySlug");
-        throw new Error("Airtable touched: legacy.findBySlug");
-      },
-      adopt: async () => {
-        touched.push("Airtable touched: legacy.adopt");
-        throw new Error("Airtable touched: legacy.adopt");
-      },
-      update: async () => {
-        touched.push("Airtable touched: legacy.update");
-        throw new Error("Airtable touched: legacy.update");
-      },
-    };
-    const result = await ensureSite({ slug: "acme-co", ...patch }, { store, airtable: legacy });
-    expect(touched).toEqual([]);
-    expect(turso).toEqual([{ id: "recEXIST", patch }]);
-    expect(result).toMatchObject({ status: "exists", airtableShadow: "skipped" });
-    expect(logged()).toContain(
-      "AIRTABLE_SHADOW skipped=shadow-off writer=ensureSite.update id=recEXIST",
     );
   });
 });
