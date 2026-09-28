@@ -231,6 +231,21 @@ export async function shadowAuditWrite(base: AirtableBase, plan: AuditWritePlan)
   await updateAuditFieldSet(base, siteId, fields);
 }
 
+export async function writeBackOneSite(args: {
+  base: AirtableBase;
+  websites: WebsiteRow[];
+  slug: string;
+  results: AuditResult[];
+  mirrorHealth: (siteId: string, fields: FieldSet) => Promise<unknown>;
+}): Promise<WriteSummary> {
+  const plan = planAuditWrite(args);
+  const { siteId, fields } = plan.summary;
+  if (siteId && fields) await args.mirrorHealth(siteId, fields);
+  await shadowAuditWrite(args.base, plan);
+  if (plan.lighthouseMiss) throw plan.lighthouseMiss;
+  return plan.summary;
+}
+
 export async function writeAuditsToAirtable(args: {
   base: AirtableBase;
   websites: WebsiteRow[];
@@ -258,6 +273,7 @@ export type FleetWriteResult = {
    *  an honest Phase 5 cutover signal instead of overcounting by the no-row
    *  sites. */
   mirrorMissed?: number;
+  events?: FleetEvent[];
 };
 
 /** Render the fleet write-back outcome for the CLI/CI. Beyond the human-readable
@@ -334,6 +350,7 @@ export async function writeFleetAuditsToAirtable(args: {
 
   const written: WriteSummary[] = [];
   const failed: FleetWriteResult["failed"] = [];
+  const events: FleetEvent[] = [];
   let mirrored = 0;
   let mirrorFailed = 0;
   let mirrorMissed = 0;
@@ -353,8 +370,10 @@ export async function writeFleetAuditsToAirtable(args: {
     const { summary } = plan;
     if (mirror && summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
       try {
-        if (await mirror(summary.siteId, summary.fields)) mirrored++;
-        else mirrorMissed++;
+        if (await mirror(summary.siteId, summary.fields)) {
+          mirrored++;
+          events.push(...(summary.events ?? []));
+        } else mirrorMissed++;
       } catch (e) {
         mirrorFailed++;
         console.error(`[health-mirror] ${slug}: ${(e as Error).message}`);
@@ -364,9 +383,10 @@ export async function writeFleetAuditsToAirtable(args: {
       await shadowAuditWrite(base, plan);
       if (plan.lighthouseMiss) throw plan.lighthouseMiss;
       written.push(summary);
+      if (!mirror) events.push(...(summary.events ?? []));
     } catch (e) {
       failed.push({ slug, error: (e as Error).message });
     }
   }
-  return { written, failed, ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}) };
+  return { written, failed, events, ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}) };
 }

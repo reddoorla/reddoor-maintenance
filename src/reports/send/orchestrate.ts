@@ -95,8 +95,7 @@ export async function sendApprovedReports(
       // Mirror the stamp into Turso. Caught here rather than thrown so one
       // report's lost mirror still lets the batch continue AND still runs this
       // report's Launch flip below — but it reds the run (`anyFailed`), because
-      // post-freeze nothing converges the miss; `db sync --force` is the manual
-      // converge during the rollback window.
+      // post-freeze nothing converges the miss.
       try {
         await options.reportSentMirror?.(report.id, sent.sentAt, sent.messageId);
       } catch (e) {

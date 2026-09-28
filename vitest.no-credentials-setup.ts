@@ -1,5 +1,6 @@
-import { CREDENTIAL_ENV } from "./vitest.credential-env.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { stripCredentials } from "./vitest.credential-env.js";
 
-for (const name of Object.keys(process.env)) {
-  if (CREDENTIAL_ENV.test(name)) delete process.env[name];
-}
+stripCredentials(process.env, mkdtempSync(join(tmpdir(), "reddoor-no-credentials-")));

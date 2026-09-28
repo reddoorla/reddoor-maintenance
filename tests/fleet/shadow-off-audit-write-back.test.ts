@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { runFleetWriteBack } from "../../src/cli/commands/audit.js";
+import { writeBackOneSite } from "../../src/audits/write-audits-to-airtable.js";
 import type { FleetEvent } from "../../src/db/fleet-events.js";
 import type { AuditResult } from "../../src/types.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
@@ -115,5 +116,26 @@ describe("shipped shadow-off: the nightly fleet audit write-back never touches A
     );
     expect(res.summary).toMatch(/beta-corp \(Lighthouse audit produced no scores/);
     expect(res.anyFailed).toBe(true);
+  });
+});
+
+describe("the single-site write-back, with the shipped switch", () => {
+  it("lands the site's fields in Turso and never touches Airtable", async () => {
+    const mirrored: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
+    const summary = await writeBackOneSite({
+      base: untouchableBase(touched),
+      websites: ROSTER,
+      slug: "acme-co",
+      results: [lighthouse("acme-co", SCORES)],
+      mirrorHealth: async (siteId, fields) => {
+        mirrored.push({ siteId, fields });
+      },
+    });
+    expect(touched).toEqual([]);
+    expect(mirrored).toEqual([{ siteId: "recA", fields: summary.fields }]);
+    expect(mirrored[0]!.fields).toMatchObject({ pScore: 90 });
+    expect(logged()).toContain(
+      "AIRTABLE_SHADOW skipped=shadow-off writer=updateAuditFieldSet id=recA",
+    );
   });
 });

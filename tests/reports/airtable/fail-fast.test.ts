@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  applyThrottle,
-  RATE_LIMIT_RETRY_DELAYS_MS,
-} from "../../../src/reports/airtable/throttle.js";
+import { applyThrottle } from "../../../src/reports/airtable/throttle.js";
 import { openBase, REQUEST_TIMEOUT_MS } from "../../../src/reports/airtable/client.js";
 import {
   fetchAttachmentBytes,
@@ -100,14 +97,14 @@ describe("applyThrottle: a 429 fails fast instead of hanging", () => {
     expect(out.err).toBeNull();
     expect(out.resp).toBe(resp);
     expect(hits).toHaveLength(3);
-    expect(waits).toEqual(RATE_LIMIT_RETRY_DELAYS_MS.slice(0, 2));
+    expect(waits).toEqual([2_000, 10_000]);
   });
 
   it("gives up on a persistent transient 429 after the last retry", async () => {
     const { hits, waits, call } = scriptedBase([{ err: tooMany(), body: RATE_BODY }]);
     const { err } = await call();
-    expect(hits).toHaveLength(RATE_LIMIT_RETRY_DELAYS_MS.length + 1);
-    expect(waits).toEqual([...RATE_LIMIT_RETRY_DELAYS_MS]);
+    expect(hits).toHaveLength(4);
+    expect(waits).toEqual([2_000, 10_000, 30_000]);
     expect(err).toBeInstanceOf(Error);
     expect(err).toMatchObject({ code: "AIRTABLE_RATE_LIMITED", statusCode: 429 });
   });
@@ -115,7 +112,7 @@ describe("applyThrottle: a 429 fails fast instead of hanging", () => {
   it("treats a 429 with no parseable body as transient", async () => {
     const { hits, call } = scriptedBase([{ err: tooMany() }]);
     const { err } = await call();
-    expect(hits).toHaveLength(RATE_LIMIT_RETRY_DELAYS_MS.length + 1);
+    expect(hits).toHaveLength(4);
     expect(err).toMatchObject({ code: "AIRTABLE_RATE_LIMITED" });
   });
 
@@ -152,6 +149,7 @@ describe("the raw Airtable fetches carry a timeout", () => {
   const realFetch = global.fetch;
   const saved = { pat: process.env.AIRTABLE_PAT, base: process.env.AIRTABLE_BASE_ID };
   afterEach(() => {
+    vi.restoreAllMocks();
     global.fetch = realFetch;
     process.env.AIRTABLE_PAT = saved.pat;
     process.env.AIRTABLE_BASE_ID = saved.base;
@@ -177,21 +175,25 @@ describe("the raw Airtable fetches carry a timeout", () => {
   }
 
   it("fetchAttachmentBytes", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
     const inits = recordingFetch();
     await fetchAttachmentBytes("https://example.com/header.png");
     expect(inits).toHaveLength(1);
-    expect(inits[0]?.signal).toBeInstanceOf(AbortSignal);
+    expect(timeout).toHaveBeenCalledWith(30_000);
+    expect(inits[0]?.signal).toBe(timeout.mock.results[0]?.value);
   });
 
   it("uploadAttachment's upload and its prune", async () => {
     process.env.AIRTABLE_PAT = "pat_test";
     process.env.AIRTABLE_BASE_ID = "app_test";
+    const timeout = vi.spyOn(AbortSignal, "timeout");
     const inits = recordingFetch();
     await uploadAttachment("recEXIST", "Header image", "x", "h.png", "image/png", {
       replaceIn: "Websites",
     });
     expect(inits.map((i) => i?.method)).toEqual(["POST", "PATCH"]);
-    for (const init of inits) expect(init?.signal).toBeInstanceOf(AbortSignal);
+    expect(timeout.mock.calls).toEqual([[30_000], [30_000]]);
+    expect(inits.map((i) => i?.signal)).toEqual(timeout.mock.results.map((r) => r.value));
   });
 });
 

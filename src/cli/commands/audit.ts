@@ -356,8 +356,7 @@ export async function runAuditCommand(
       if (!opts.json) output += `\n\n${wb.summary}`;
     } else {
       const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
-      const { planAuditWrite, shadowAuditWrite } =
-        await import("../../audits/write-audits-to-airtable.js");
+      const { writeBackOneSite } = await import("../../audits/write-audits-to-airtable.js");
       const slug =
         typeof opts.writeBack === "string" && opts.writeBack.length > 0
           ? opts.writeBack
@@ -376,14 +375,15 @@ export async function runAuditCommand(
               const { readFleetRoster } = await import("../../fleet/roster.js");
               const websites = await readFleetRoster();
               task.output = "writing scores…";
-              const plan = planAuditWrite({ websites, slug, results });
-              const summary = plan.summary;
-              if (summary.siteId && summary.fields) {
-                const { makeSiteMirror } = await import("../../db/site-mirror.js");
-                await (await makeSiteMirror()).health(summary.siteId, summary.fields);
-              }
-              await shadowAuditWrite(base, plan);
-              if (plan.lighthouseMiss) throw plan.lighthouseMiss;
+              const { makeSiteMirror } = await import("../../db/site-mirror.js");
+              const siteMirror = await makeSiteMirror();
+              const summary = await writeBackOneSite({
+                base,
+                websites,
+                slug,
+                results,
+                mirrorHealth: (siteId, fields) => siteMirror.health(siteId, fields),
+              });
               writeSummary = summary;
               task.title = `Wrote to Websites[${summary.siteName}] (${summary.writes.length} audit type${summary.writes.length === 1 ? "" : "s"})`;
             },
@@ -471,7 +471,7 @@ export async function runFleetWriteBack(args: {
   // WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.
   const sweep = which.includes("security") ? "security" : "lighthouse";
   const now = new Date();
-  const auditEvents = fleetWrite.written.flatMap((w) => w.events ?? []);
+  const auditEvents = fleetWrite.events ?? fleetWrite.written.flatMap((w) => w.events ?? []);
   await (deps.recordEvents ?? recordFleetEventsBestEffort)(
     [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
     now,

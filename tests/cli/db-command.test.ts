@@ -56,16 +56,27 @@ describe("runDbCommand", () => {
 describe("freezeGuardsDbWrite — both sides of the switch", () => {
   it("refuses import-airtable and sync under the freeze, and names the way out", () => {
     for (const action of ["import-airtable", "sync"]) {
-      const r = freezeGuardsDbWrite(action, false, true);
+      const r = freezeGuardsDbWrite(action, false, true, true);
       expect(r?.code).toBe(1);
       expect(r?.output).toMatch(/refused/);
       expect(r?.output).toMatch(/--force/);
     }
   });
 
-  it("lets --force through — the deliberate rollback-window converge", () => {
-    expect(freezeGuardsDbWrite("sync", true, true)).toBeNull();
-    expect(freezeGuardsDbWrite("import-airtable", true, true)).toBeNull();
+  it("lets --force through while the shadow is on — the deliberate rollback-window converge", () => {
+    expect(freezeGuardsDbWrite("sync", true, true, true)).toBeNull();
+    expect(freezeGuardsDbWrite("import-airtable", true, true, true)).toBeNull();
+  });
+
+  it("refuses even --force once the shadow is off: the archive has nothing to converge", () => {
+    for (const action of ["import-airtable", "sync"]) {
+      const r = freezeGuardsDbWrite(action, true, true, false);
+      expect(r?.code).toBe(1);
+      expect(r?.output).toMatch(/AIRTABLE_SHADOW_WRITES/);
+      expect(r?.output).not.toMatch(/Pass --force/);
+    }
+    expect(freezeGuardsDbWrite("sync", true, true)?.code).toBe(1);
+    expect(freezeGuardsDbWrite("parity", true, true, false)).toBeNull();
   });
 
   it("never guards parity (compare-only) or the unrelated actions", () => {
@@ -87,6 +98,9 @@ describe("freezeGuardsDbWrite — both sides of the switch", () => {
     // first. This is the suite's one assertion that reads the shipped switch.
     const r = await runDbCommand("sync", {});
     expect(r.code).toBe(1);
-    expect(r.output).toMatch(/TURSO_IS_AUTHORITATIVE/);
+    expect(r.output).toMatch(/AIRTABLE_SHADOW_WRITES is off/);
+    const forced = await runDbCommand("sync", { force: true });
+    expect(forced.code).toBe(1);
+    expect(forced.output).toMatch(/AIRTABLE_SHADOW_WRITES is off/);
   });
 });

@@ -7,7 +7,7 @@ import { selfUpdating } from "./self-updating/index.js";
 import { HARNESS_JSON_RELATIVE, UNGUARDED_TWIN_TELL } from "./match-harness/template.js";
 import { runAudits } from "../audits/index.js";
 import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-airtable.js";
-import { planAuditWrite, shadowAuditWrite } from "../audits/write-audits-to-airtable.js";
+import { writeBackOneSite } from "../audits/write-audits-to-airtable.js";
 import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import { siteSlug } from "../reports/airtable/websites.js";
@@ -734,15 +734,16 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   });
 
   try {
-    const auditWrite = planAuditWrite({ websites, slug: siteSlug(target.name), results });
     // #539 Phase 5: mirror the first-audit write-back. Launch is the ONE path
     // that writes a brand-new site's health, so without this its row reads empty
     // in the console.
-    if (auditWrite.summary.siteId && auditWrite.summary.fields) {
-      await deps.siteMirror?.health(auditWrite.summary.siteId, auditWrite.summary.fields);
-    }
-    await shadowAuditWrite(base, auditWrite);
-    if (auditWrite.lighthouseMiss) throw auditWrite.lighthouseMiss;
+    await writeBackOneSite({
+      base,
+      websites,
+      slug: siteSlug(target.name),
+      results,
+      mirrorHealth: async (siteId, fields) => deps.siteMirror?.health(siteId, fields),
+    });
   } catch (err) {
     steps.push({ name: "audit", result: errorOf(err) });
     return stop();

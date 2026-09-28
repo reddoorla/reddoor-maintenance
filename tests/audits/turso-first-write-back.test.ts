@@ -3,6 +3,7 @@ import {
   writeFleetAuditsToAirtable,
   writeAuditsToAirtable,
   planAuditWrite,
+  writeBackOneSite,
 } from "../../src/audits/write-audits-to-airtable.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import type { AirtableBase } from "../../src/reports/airtable/client.js";
@@ -186,5 +187,39 @@ describe("planAuditWrite", () => {
     });
     expect(plan.lighthouseMiss?.message).toMatch(/produced no scores/i);
     expect(plan.summary.fields).toMatchObject({ "A11y Violations": 2 });
+  });
+});
+
+describe("the single-site write-back writes Turso before the Airtable shadow", () => {
+  async function run(fail: boolean) {
+    const log: string[] = [];
+    const seen: Array<Record<string, unknown>> = [];
+    const outcome = await writeBackOneSite({
+      base: orderedBase(log, fail),
+      websites: await roster(),
+      slug: "acme-co",
+      results: [lighthouse("acme-co", SCORES)],
+      mirrorHealth: async (siteId, fields) => {
+        log.push(`turso:${siteId}`);
+        seen.push(fields);
+      },
+    }).then(
+      (summary) => ({ summary, error: null as Error | null }),
+      (error: Error) => ({ summary: null, error }),
+    );
+    return { log, seen, ...outcome };
+  }
+
+  it("orders Turso first (known-good control)", async () => {
+    const { log, summary } = await run(false);
+    expect(log).toEqual(["turso:recA", "airtable:Websites:recA"]);
+    expect(summary?.siteName).toBe("Acme Co");
+  });
+
+  it("keeps the Turso write when the shadow throws, and still throws", async () => {
+    const { log, seen, error } = await run(true);
+    expect(log).toEqual(["turso:recA", "airtable:Websites:recA"]);
+    expect(seen[0]).toMatchObject({ pScore: 90 });
+    expect(error?.message).toMatch(/quota exhausted/);
   });
 });
