@@ -5,6 +5,7 @@
 `ensure-site` no longer consults Airtable
 
 `ensureSite` drops its legacy Airtable dependency:
+
 - The #645 heal lookup is gone. It looked up a slug in Airtable when Turso had none.
 - So is its adopt step.
 - So is the shadow copy of a `rec` site's filled fields.
