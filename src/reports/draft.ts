@@ -19,18 +19,20 @@ import { fetchSearchPresence } from "./search/client.js";
 import type { SearchPresence } from "./search/client.js";
 import { generateHeaderImage } from "./header-image/index.js";
 import type { GeneratedHeaderImage } from "./header-image/index.js";
+import type { StoredHeaderImage } from "../db/header-images.js";
 
 export type RefreshHeaderDeps = {
   generate?: (input: { url: string; slug?: string }) => Promise<GeneratedHeaderImage>;
-  upload?: (
-    recordId: string,
-    field: string,
-    bytes: Uint8Array,
-    filename: string,
-    contentType: string,
-    opts?: { replaceIn?: string },
-  ) => Promise<void>;
+  store?: (siteId: string, image: StoredHeaderImage) => Promise<void>;
 };
+
+async function storeHeaderPlateInTurso(siteId: string, image: StoredHeaderImage): Promise<void> {
+  const [{ openDb, readDbConfig }, { storeHeaderImage }] = await Promise.all([
+    import("../db/client.js"),
+    import("../db/header-images.js"),
+  ]);
+  await storeHeaderImage(await openDb(readDbConfig()), siteId, image);
+}
 
 /**
  * Regenerate a site's Header image from its live homepage so the report ships a
@@ -38,7 +40,7 @@ export type RefreshHeaderDeps = {
  * hand. Sonder alone runs 16 reports a year, so a static header goes visibly
  * stale.
  *
- * BEST-EFFORT BY DESIGN — returns false and never throws. A capture or upload
+ * BEST-EFFORT BY DESIGN — returns false and never throws. A capture or store
  * failure must not fail the draft: the stored image is still perfectly usable,
  * and the operator reviews the rendered preview before approving the send.
  */
@@ -48,11 +50,14 @@ export async function refreshHeaderImage(
 ): Promise<boolean> {
   if (!site.url) return false;
   const generate = deps.generate ?? generateHeaderImage;
-  const upload = deps.upload ?? uploadAttachment;
+  const store = deps.store ?? storeHeaderPlateInTurso;
   try {
     const gen = await generate({ url: site.url, slug: siteSlug(site.name) });
-    await upload(site.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
-      replaceIn: "Websites",
+    await store(site.id, {
+      bytes: gen.bytes,
+      filename: gen.filename,
+      contentType: gen.contentType,
+      generatedAt: new Date().toISOString(),
     });
     return true;
   } catch (err) {
@@ -251,10 +256,10 @@ export async function draftReportForSite(
 
   // Header-image refresh (real path only). Regenerated BEFORE the render so the
   // preview the operator approves carries the same screenshot the client will
-  // receive — the send reads this attachment off the Websites row. Gated on
+  // receive — the send reads this plate from Turso. Gated on
   // `base !== null` exactly like the GA/Search enrichment above: the no-IO render
   // path (base === null, used for pure rendering and tests) must not launch a
-  // browser or write to production Airtable. `refreshHeader: false` is the second
+  // browser or write to production. `refreshHeader: false` is the second
   // gate, for suites that DO pass a fake base and would otherwise pay a real
   // chromium launch per case. Production leaves it unset and gets the real
   // refresh. Best-effort — see refreshHeaderImage.
