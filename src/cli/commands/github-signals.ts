@@ -1,5 +1,9 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
-import { siteSlug, updateGitHubSignals } from "../../reports/airtable/websites.js";
+import {
+  gitHubSignalsFields,
+  siteSlug,
+  updateGitHubSignals,
+} from "../../reports/airtable/websites.js";
 import type { FleetRoster } from "../../fleet/roster.js";
 import type { Site } from "../../types.js";
 import { collectGitHubSignals } from "../../audits/github-signals.js";
@@ -99,7 +103,7 @@ export async function runGitHubSignalsCommand(
   );
 
   const sweptAt = new Date().toISOString();
-  // Phase 3 dual-write (#539): mirror each row's written FieldSet into
+  // Phase 3 dual-write (#539): mirror each row's FieldSet into
   // site_health. Null when libSQL creds are absent — the Airtable sweep
   // proceeds exactly as before. (Dynamic import so the no-mirror path never
   // loads the db client.)
@@ -127,19 +131,19 @@ export async function runGitHubSignalsCommand(
       continue;
     }
     try {
-      const ghFields = await updateGitHubSignals(base, target.id, {
+      const signals = {
         renovateFailingCis: row.renovateFailingCis,
         ciState: row.ciState,
         lastCommitAt: row.lastCommitAt,
         sweptAt,
-      });
+      };
       if (mirror) {
-        // Count, never throw: a Turso blip must not move an Airtable-written
-        // row into `failed` (that would red the sweep via githubSignalsExitCode
-        // on a fleet-wide mirror outage). A 0-row match (site not yet imported)
-        // is a miss, not a mirror — see FleetWriteResult.mirrorMissed.
+        // Count, never throw: a Turso blip must not move a row into `failed`
+        // (that would red the sweep via githubSignalsExitCode on a fleet-wide
+        // mirror outage). A 0-row match (site not yet imported) is a miss, not
+        // a mirror — see FleetWriteResult.mirrorMissed.
         try {
-          if (await mirror(target.id, ghFields)) {
+          if (await mirror(target.id, gitHubSignalsFields(signals))) {
             result.mirrored = (result.mirrored ?? 0) + 1;
           } else {
             result.mirrorMissed = (result.mirrorMissed ?? 0) + 1;
@@ -149,10 +153,6 @@ export async function runGitHubSignalsCommand(
           console.error(`[health-mirror] ${target.name}: ${(e as Error).message}`);
         }
       }
-      result.written.push({
-        siteName: target.name,
-        writes: [{ audit: "github-signals", counts: row }],
-      });
       // Fleet-activity events for this repo: merged Renovate PRs since the last sweep
       // (watermark = the row's prior GitHub Signals At, else a 24h fallback) + a
       // CI-recovered transition. A PR-fetch hiccup drops only this repo's PR events.
@@ -164,6 +164,11 @@ export async function runGitHubSignalsCommand(
         // PR list unavailable this run — skip pr_automerged for this repo, keep ci_recovered
       }
       events.push(...detectSignalEvents(target, row, merged, sweptAt));
+      await updateGitHubSignals(base, target.id, signals);
+      result.written.push({
+        siteName: target.name,
+        writes: [{ audit: "github-signals", counts: row }],
+      });
     } catch (e) {
       result.failed.push({ slug: siteSlug(row.site), error: (e as Error).message });
     }

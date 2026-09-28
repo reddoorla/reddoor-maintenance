@@ -90,11 +90,6 @@ export async function generateForTargets(
         ...(opts.consentSelector === undefined ? {} : { consentSelector: opts.consentSelector }),
       });
       if (opts.writeBack) {
-        // replaceIn: the field must hold exactly the current header — see
-        // uploadAttachment, where appending left readers on a stale [0].
-        await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
-          replaceIn: "Websites",
-        });
         let stored = "";
         if (opts.storeDb) {
           // Dual-write. A Turso failure must not void the Airtable upload —
@@ -111,6 +106,11 @@ export async function generateForTargets(
             stored = ` (⚠ turso store FAILED: ${err instanceof Error ? err.message : String(err)})`;
           }
         }
+        // replaceIn: the field must hold exactly the current header — see
+        // uploadAttachment, where appending left readers on a stale [0].
+        await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
+          replaceIn: "Websites",
+        });
         lines.push(
           `✔ ${row.name} — uploaded ${gen.filename} (${(gen.bytes.byteLength / 1024 / 1024).toFixed(2)} MB)${stored}`,
         );

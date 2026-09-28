@@ -356,7 +356,8 @@ export async function runAuditCommand(
       if (!opts.json) output += `\n\n${wb.summary}`;
     } else {
       const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
-      const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
+      const { planAuditWrite, shadowAuditWrite } =
+        await import("../../audits/write-audits-to-airtable.js");
       const slug =
         typeof opts.writeBack === "string" && opts.writeBack.length > 0
           ? opts.writeBack
@@ -375,16 +376,16 @@ export async function runAuditCommand(
               const { readFleetRoster } = await import("../../fleet/roster.js");
               const websites = await readFleetRoster();
               task.output = "writing scores…";
-              writeSummary = await writeAuditsToAirtable({ base, websites, slug, results });
-              // #539 Phase 5: the FLEET path has mirrored since Phase 3, this
-              // single-site one never did — same write, same columns, reaching
-              // Turso only via the hourly sync. The summary already carries the
-              // exact FieldSet Airtable got, so no signature change is needed.
-              if (writeSummary.siteId && writeSummary.fields) {
+              const plan = planAuditWrite({ websites, slug, results });
+              const summary = plan.summary;
+              if (summary.siteId && summary.fields) {
                 const { makeSiteMirror } = await import("../../db/site-mirror.js");
-                await (await makeSiteMirror()).health(writeSummary.siteId, writeSummary.fields);
+                await (await makeSiteMirror()).health(summary.siteId, summary.fields);
               }
-              task.title = `Wrote to Websites[${writeSummary.siteName}] (${writeSummary.writes.length} audit type${writeSummary.writes.length === 1 ? "" : "s"})`;
+              await shadowAuditWrite(base, plan);
+              if (plan.lighthouseMiss) throw plan.lighthouseMiss;
+              writeSummary = summary;
+              task.title = `Wrote to Websites[${summary.siteName}] (${summary.writes.length} audit type${summary.writes.length === 1 ? "" : "s"})`;
             },
           },
         ],

@@ -35,7 +35,7 @@
  *
  * Both id shapes coexist permanently. A `rec` site found in Turso keeps its id,
  * and its fill-blanks / rename is still shadowed to Airtable (Airtable stays the
- * shadow until step 6), Airtable first so a re-run converges both stores.
+ * shadow until step 6).
  *
  * The #645 heal survives in one form: when Turso has no row for the slug but
  * Airtable does, the Airtable record is ADOPTED under its own `rec` id instead of
@@ -205,14 +205,14 @@ export async function ensureSite(
   const updatedFields = Object.keys(patch) as Array<keyof SiteIdentityPatch>;
   let airtableShadow: EnsureSiteResult["airtableShadow"] = "none";
   if (updatedFields.length > 0) {
+    if (!(await store.updateIdentity(existing.id, patch))) {
+      throw new Error(`ensure-site: site ${existing.id} vanished from Turso mid-run`);
+    }
     if (skipsAirtableShadow("ensureSite.update", existing.id)) {
       airtableShadow = "skipped";
     } else if (airtable && isAirtableRecordId(existing.id)) {
       await airtable.update(existing.id, patch);
       airtableShadow = "written";
-    }
-    if (!(await store.updateIdentity(existing.id, patch))) {
-      throw new Error(`ensure-site: site ${existing.id} vanished from Turso mid-run`);
     }
   }
   return {

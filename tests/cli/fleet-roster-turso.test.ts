@@ -134,7 +134,7 @@ describe("the audit fleet write-back, driven by the Turso roster", () => {
     // The shadow write is skipped by id shape (step 3), and says so.
     expect(base.__calls.filter((c) => c.kind === "update")).toEqual([]);
     expect(log.mock.calls.flat().join("\n")).toContain(
-      `AIRTABLE_SHADOW skipped=non-rec-id writer=updateAuditFields id=${NATIVE}`,
+      `AIRTABLE_SHADOW skipped=non-rec-id writer=updateAuditFieldSet id=${NATIVE}`,
     );
   });
 

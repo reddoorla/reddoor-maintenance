@@ -3,20 +3,13 @@ import type { AuditResult } from "../types.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import type { HealthMirror } from "./health-mirror.js";
 import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
-import { type WebsiteRow, siteSlug, updateAuditFields } from "../reports/airtable/websites.js";
-import type {
-  A11yCounts,
-  DepsCounts,
-  SecurityCounts,
-  SecurityAdvisory,
-  DomainResult,
-  BrowserAuditFields,
-  NetlifyDeployResult,
-  FunctionHealthResult,
-  SmokeResult,
-  FormE2eResult,
+import {
+  type AuditFieldInputs,
+  type WebsiteRow,
+  auditFields,
+  siteSlug,
+  updateAuditFieldSet,
 } from "../reports/airtable/websites.js";
-import type { LighthouseScoreWriteback } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
 import { hasA11yCounts, a11yCountsFromResult } from "./a11y-airtable.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-airtable.js";
@@ -84,13 +77,17 @@ type WriteSummary = {
  *  Precedence note: the Websites-row lookup (exitCode 2) is checked BEFORE the
  *  no-scores gate (exitCode 1), so the rare no-row + no-scores combo surfaces
  *  as exitCode 2. */
-export async function writeAuditsToAirtable(args: {
-  base: AirtableBase;
+export type AuditWritePlan = {
+  summary: WriteSummary;
+  lighthouseMiss: Error | null;
+};
+
+export function planAuditWrite(args: {
   websites: WebsiteRow[];
   slug: string;
   results: AuditResult[];
-}): Promise<WriteSummary> {
-  const { base, websites, slug, results } = args;
+}): AuditWritePlan {
+  const { websites, slug, results } = args;
 
   // Lighthouse is OPTIONAL. The checkout-free `--only lighthouse,domain,browser` nightly includes
   // it, but a standalone `--only security` (checkout-ful) sweep legitimately has none. We write
@@ -103,19 +100,7 @@ export async function writeAuditsToAirtable(args: {
   }
 
   const writes: WriteSummary["writes"] = [];
-  const audits: {
-    scores?: LighthouseScoreWriteback;
-    a11y?: A11yCounts;
-    deps?: DepsCounts;
-    security?: SecurityCounts;
-    securityAdvisories?: SecurityAdvisory[];
-    domain?: DomainResult;
-    browser?: BrowserAuditFields;
-    netlifyDeploy?: NetlifyDeployResult;
-    functionHealth?: FunctionHealthResult;
-    smoke?: SmokeResult;
-    formE2e?: FormE2eResult;
-  } = {};
+  const audits: AuditFieldInputs = {};
 
   // Collect every audit that produced real values into ONE merged input, then do a
   // SINGLE atomic Airtable update (was: up to four sequential updates on the same
@@ -202,10 +187,7 @@ export async function writeAuditsToAirtable(args: {
   // One atomic write of everything that ran. Skip the call only if there is nothing
   // to write at all (no real scores AND no other audit produced values) — an empty
   // update is a wasted request.
-  let fields: FieldSet = {};
-  if (Object.keys(audits).length > 0) {
-    fields = await updateAuditFields(base, target.id, audits);
-  }
+  const fields: FieldSet = Object.keys(audits).length > 0 ? auditFields(audits) : {};
 
   // Detect fleet-activity transitions from the prior row (`target`, loaded before this
   // write) vs the fresh audits. Computed here where both are in hand; recorded by the
@@ -222,11 +204,12 @@ export async function writeAuditsToAirtable(args: {
   // Lighthouse-miss flag: only when lighthouse WAS requested (in results) but produced no scores —
   // an infra failure worth reding the run, AFTER persisting the other audits. A sweep that never
   // ran lighthouse (e.g. `--only security`) skips this entirely.
+  let lighthouseMiss: Error | null = null;
   if (lhResult && !lhHasScores) {
     // Enumerate what WAS persisted so the failure (surfaced to the single-site
     // CLI operator via console.error) reads as a partial write, not a total one.
     const persisted = writes.map((w) => w.audit);
-    throw Object.assign(
+    lighthouseMiss = Object.assign(
       new Error(
         `Lighthouse audit produced no scores; ${
           persisted.length ? `wrote ${persisted.join("/")} but refused Lighthouse` : "wrote nothing"
@@ -236,7 +219,28 @@ export async function writeAuditsToAirtable(args: {
     );
   }
 
-  return { siteName: target.name, writes, events, siteId: target.id, fields };
+  return {
+    summary: { siteName: target.name, writes, events, siteId: target.id, fields },
+    lighthouseMiss,
+  };
+}
+
+export async function shadowAuditWrite(base: AirtableBase, plan: AuditWritePlan): Promise<void> {
+  const { siteId, fields } = plan.summary;
+  if (siteId === undefined || fields === undefined || Object.keys(fields).length === 0) return;
+  await updateAuditFieldSet(base, siteId, fields);
+}
+
+export async function writeAuditsToAirtable(args: {
+  base: AirtableBase;
+  websites: WebsiteRow[];
+  slug: string;
+  results: AuditResult[];
+}): Promise<WriteSummary> {
+  const plan = planAuditWrite(args);
+  await shadowAuditWrite(args.base, plan);
+  if (plan.lighthouseMiss) throw plan.lighthouseMiss;
+  return plan.summary;
 }
 
 export type FleetWriteResult = {
@@ -315,12 +319,8 @@ export async function writeFleetAuditsToAirtable(args: {
   base: AirtableBase;
   websites: WebsiteRow[];
   results: AuditResult[];
-  /** Optional Turso write-through (#539 Phase 3 dual-write). Each site's
-   *  just-written FieldSet mirrors into site_health right after its Airtable
-   *  write; a mirror failure is counted, never thrown — Airtable stays
-   *  authoritative and the hourly sync converges what the mirror missed.
-   *  (The lighthouse-miss partial write lands in `failed` and is deliberately
-   *  NOT mirrored — same convergence path.) */
+  /** Optional Turso write-through (#539 Phase 3 dual-write). A mirror failure
+   *  is counted, never thrown. */
   mirror?: HealthMirror;
 }): Promise<FleetWriteResult> {
   const { base, websites, results, mirror } = args;
@@ -343,18 +343,27 @@ export async function writeFleetAuditsToAirtable(args: {
   // wall-clock for safety. (morning-brief 2026-06-09 MEDIUM-3.) Add a bounded pool
   // when the fleet grows.
   for (const [slug, siteResults] of bySlug) {
+    let plan: AuditWritePlan;
     try {
-      const summary = await writeAuditsToAirtable({ base, websites, slug, results: siteResults });
-      written.push(summary);
-      if (mirror && summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
-        try {
-          if (await mirror(summary.siteId, summary.fields)) mirrored++;
-          else mirrorMissed++;
-        } catch (e) {
-          mirrorFailed++;
-          console.error(`[health-mirror] ${slug}: ${(e as Error).message}`);
-        }
+      plan = planAuditWrite({ websites, slug, results: siteResults });
+    } catch (e) {
+      failed.push({ slug, error: (e as Error).message });
+      continue;
+    }
+    const { summary } = plan;
+    if (mirror && summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
+      try {
+        if (await mirror(summary.siteId, summary.fields)) mirrored++;
+        else mirrorMissed++;
+      } catch (e) {
+        mirrorFailed++;
+        console.error(`[health-mirror] ${slug}: ${(e as Error).message}`);
       }
+    }
+    try {
+      await shadowAuditWrite(base, plan);
+      if (plan.lighthouseMiss) throw plan.lighthouseMiss;
+      written.push(summary);
     } catch (e) {
       failed.push({ slug, error: (e as Error).message });
     }

@@ -99,6 +99,11 @@ const WRITERS: Writer[] = [
     returnsFields: true,
   },
   {
+    name: "updateAuditFieldSet",
+    call: (b, id) => websites.updateAuditFieldSet(b, id, { "A11y Violations": 3 }),
+    wrote: updatedBase,
+  },
+  {
     name: "updateGitHubSignals",
     call: (b, id) =>
       websites.updateGitHubSignals(b, id, {

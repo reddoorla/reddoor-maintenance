@@ -150,7 +150,8 @@ export const defaultDeps = (): PrismicModelsDeps => ({
   // every one of those runs fail on module load.
   openVerdictSink: async () => {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { updatePrismicModels } = await import("../../reports/airtable/websites.js");
+    const { prismicModelsFields, updatePrismicModels } =
+      await import("../../reports/airtable/websites.js");
     const { readFleetRoster } = await import("../../fleet/roster.js");
     // `openBase` throttles every HTTP call this base makes at its single funnel
     // (≤4.5 req/s), so the serial writes below cannot burst past Airtable's rate
@@ -168,8 +169,8 @@ export const defaultDeps = (): PrismicModelsDeps => ({
     return {
       websites: websites.map((w) => ({ id: w.id, name: w.name })),
       update: async (recordId, models) => {
-        const fields = await updatePrismicModels(base, recordId, models);
-        await mirror.health(recordId, fields);
+        await mirror.health(recordId, prismicModelsFields(models));
+        await updatePrismicModels(base, recordId, models);
       },
     };
   },

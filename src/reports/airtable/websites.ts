@@ -524,6 +524,10 @@ export async function updateSecurityCounts(
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: securityFields(counts) }]);
 }
 
+export function autoFixAttemptsFields(attempts: number): FieldSet {
+  return { "Security Auto-Fix Attempts": attempts };
+}
+
 /** Persist a site's auto-fix attempt counter. Its own one-field writer so the
  *  nightly Renovate dispatch can update it without touching the audit's counts. */
 export async function updateAutoFixAttempts(
@@ -531,7 +535,7 @@ export async function updateAutoFixAttempts(
   recordId: string,
   attempts: number,
 ): Promise<FieldSet> {
-  const fields: FieldSet = { "Security Auto-Fix Attempts": attempts };
+  const fields = autoFixAttemptsFields(attempts);
   if (!skipsAirtableShadow("updateAutoFixAttempts", recordId)) {
     await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   }
@@ -552,15 +556,23 @@ export async function updateNextDueDates(
   recordId: string,
   dates: { maintenanceAt: string | null; testingAt: string | null },
 ): Promise<FieldSet> {
+  const fields = nextDueDatesFields(dates);
+  if (!skipsAirtableShadow("updateNextDueDates", recordId)) {
+    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  }
+  // Same contract as updateAuditFields/updateGitHubSignals: the Phase 3 Turso
+  // mirror consumes the returned FieldSet, so the two writes cannot diverge.
+  return fields;
+}
+
+export function nextDueDatesFields(dates: {
+  maintenanceAt: string | null;
+  testingAt: string | null;
+}): FieldSet {
   const fields: Record<string, string | null> = {
     "Next maintenance at": dates.maintenanceAt,
     "Next testing at": dates.testingAt,
   };
-  if (!skipsAirtableShadow("updateNextDueDates", recordId)) {
-    await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
-  }
-  // Same contract as updateAuditFields/updateGitHubSignals: the Phase 3 Turso
-  // mirror consumes the returned FieldSet, so the two writes cannot diverge.
   return fields as FieldSet;
 }
 
@@ -605,23 +617,21 @@ export async function updateSiteFields(
  * undefined) to leave those columns untouched. Returns the merged FieldSet so the
  * caller can enumerate what was written.
  */
-export async function updateAuditFields(
-  base: AirtableBase,
-  recordId: string,
-  audits: {
-    scores?: LighthouseScoreWriteback;
-    a11y?: A11yCounts;
-    deps?: DepsCounts;
-    security?: SecurityCounts;
-    securityAdvisories?: SecurityAdvisory[];
-    domain?: DomainResult;
-    browser?: BrowserAuditFields;
-    netlifyDeploy?: NetlifyDeployResult;
-    functionHealth?: FunctionHealthResult;
-    smoke?: SmokeResult;
-    formE2e?: FormE2eResult;
-  },
-): Promise<FieldSet> {
+export type AuditFieldInputs = {
+  scores?: LighthouseScoreWriteback;
+  a11y?: A11yCounts;
+  deps?: DepsCounts;
+  security?: SecurityCounts;
+  securityAdvisories?: SecurityAdvisory[];
+  domain?: DomainResult;
+  browser?: BrowserAuditFields;
+  netlifyDeploy?: NetlifyDeployResult;
+  functionHealth?: FunctionHealthResult;
+  smoke?: SmokeResult;
+  formE2e?: FormE2eResult;
+};
+
+export function auditFields(audits: AuditFieldInputs): FieldSet {
   const fields: FieldSet = {};
   if (audits.scores) Object.assign(fields, scoreFields(audits.scores));
   if (audits.a11y) Object.assign(fields, a11yFields(audits.a11y));
@@ -637,10 +647,35 @@ export async function updateAuditFields(
   if (audits.functionHealth) Object.assign(fields, functionHealthFields(audits.functionHealth));
   if (audits.smoke) Object.assign(fields, smokeFields(audits.smoke));
   if (audits.formE2e) Object.assign(fields, formE2eFields(audits.formE2e));
-  if (!skipsAirtableShadow("updateAuditFields", recordId)) {
-    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
-  }
   return fields;
+}
+
+export async function updateAuditFields(
+  base: AirtableBase,
+  recordId: string,
+  audits: AuditFieldInputs,
+): Promise<FieldSet> {
+  const fields = auditFields(audits);
+  await shadowAuditFieldSet(base, "updateAuditFields", recordId, fields);
+  return fields;
+}
+
+export async function updateAuditFieldSet(
+  base: AirtableBase,
+  recordId: string,
+  fields: FieldSet,
+): Promise<void> {
+  await shadowAuditFieldSet(base, "updateAuditFieldSet", recordId, fields);
+}
+
+async function shadowAuditFieldSet(
+  base: AirtableBase,
+  writer: string,
+  recordId: string,
+  fields: FieldSet,
+): Promise<void> {
+  if (skipsAirtableShadow(writer, recordId)) return;
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
 }
 
 /** Persist the GitHub-signals sweep onto a Websites row (slice 2a). A null
@@ -648,16 +683,14 @@ export async function updateAuditFields(
  *  previously-good timestamp (mirrors updateDepsCounts' outdated handling).
  *  Returns the FieldSet it wrote — the Phase 3 Turso mirror consumes the same
  *  payload, so the two writes cannot diverge (updateAuditFields' contract). */
-export async function updateGitHubSignals(
-  base: AirtableBase,
-  recordId: string,
-  signals: {
-    renovateFailingCis: number;
-    ciState: string;
-    lastCommitAt: string | null;
-    sweptAt: string;
-  },
-): Promise<FieldSet> {
+export type GitHubSignalsWriteback = {
+  renovateFailingCis: number;
+  ciState: string;
+  lastCommitAt: string | null;
+  sweptAt: string;
+};
+
+export function gitHubSignalsFields(signals: GitHubSignalsWriteback): FieldSet {
   const fields: FieldSet = {
     "Renovate Failing CIs": signals.renovateFailingCis,
     "Default Branch CI": signals.ciState,
@@ -666,6 +699,15 @@ export async function updateGitHubSignals(
   if (signals.lastCommitAt !== null) {
     fields["Last Commit At"] = signals.lastCommitAt;
   }
+  return fields;
+}
+
+export async function updateGitHubSignals(
+  base: AirtableBase,
+  recordId: string,
+  signals: GitHubSignalsWriteback,
+): Promise<FieldSet> {
+  const fields = gitHubSignalsFields(signals);
   if (!skipsAirtableShadow("updateGitHubSignals", recordId)) {
     await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   }
@@ -737,15 +779,20 @@ export async function updatePrismicModels(
   recordId: string,
   models: PrismicModelsWriteback,
 ): Promise<FieldSet> {
+  const fields = prismicModelsFields(models);
+  if (!skipsAirtableShadow("updatePrismicModels", recordId)) {
+    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  }
+  // Returned for the #539 Turso mirror — see updateNextDueDates.
+  return fields;
+}
+
+export function prismicModelsFields(models: PrismicModelsWriteback): FieldSet {
   const fields: Record<string, string | null> = {
     "Prismic Models": models.verdict,
     "Prismic Models Checked At": models.checkedAt,
     "Prismic Models Drift": models.detail === null ? null : truncatePrismicDetail(models.detail),
   };
-  if (!skipsAirtableShadow("updatePrismicModels", recordId)) {
-    await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
-  }
-  // Returned for the #539 Turso mirror — see updateNextDueDates.
   return fields as FieldSet;
 }
 
@@ -758,7 +805,7 @@ export async function updateLaunched(
   recordId: string,
   at: string,
 ): Promise<FieldSet> {
-  const fields: FieldSet = { Status: toAirtableStatus("maintained"), "Launched at": at };
+  const fields = launchedFields(at);
   if (!skipsAirtableShadow("updateLaunched", recordId)) {
     await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   }
@@ -766,4 +813,8 @@ export async function updateLaunched(
   // mirroring them as two UPDATEs would open a window where Turso says a site is
   // maintained but never launched.
   return fields;
+}
+
+export function launchedFields(at: string): FieldSet {
+  return { Status: toAirtableStatus("maintained"), "Launched at": at };
 }

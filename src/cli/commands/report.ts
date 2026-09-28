@@ -1,6 +1,11 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import type { Db } from "../../db/client.js";
-import { siteSlug, updateNextDueDates, type WebsiteRow } from "../../reports/airtable/websites.js";
+import {
+  nextDueDatesFields,
+  siteSlug,
+  updateNextDueDates,
+  type WebsiteRow,
+} from "../../reports/airtable/websites.js";
 import type { ReportRow } from "../../reports/airtable/reports.js";
 import { findDueReports, nextDueDate, reportPeriodKey } from "../../reports/due.js";
 import { draftReportForSite } from "../../reports/draft.js";
@@ -295,9 +300,8 @@ async function alertOnFleetAnalyticsFailure(health: AnalyticsRunHealth): Promise
  * never-maintained site re-wrote null over null forever). This also scopes the
  * write to maintained sites by construction: no schedule → computed null →
  * equal to the stored null → skipped. Each real write dual-writes through
- * `scheduleMirror` into site_schedule (null mirror = Turso creds absent; the
- * hourly sync converges either way). The NEXT_DUE_WRITE line is observability,
- * not a CI gate — nothing greps it yet.
+ * `scheduleMirror` into site_schedule (null mirror = Turso creds absent). The
+ * NEXT_DUE_WRITE line is observability, not a CI gate — nothing greps it yet.
  */
 export async function writeNextDueDates(
   base: AirtableBase,
@@ -323,12 +327,11 @@ export async function writeNextDueDates(
         skipped++;
         continue;
       }
-      const fields = await updateNextDueDates(base, site.id, { maintenanceAt, testingAt });
-      wrote++;
+      const dates = { maintenanceAt, testingAt };
       if (scheduleMirror) {
         try {
-          // false = the UPDATE matched no site_schedule row (site created in
-          // Airtable since the last hourly import) — missed, not mirrored.
+          const fields = nextDueDatesFields(dates);
+          // false = the UPDATE matched no site_schedule row — missed, not mirrored.
           if (await scheduleMirror(site.id, fields, today.toISOString())) mirrored++;
           else mirrorMissed++;
         } catch (e) {
@@ -336,6 +339,8 @@ export async function writeNextDueDates(
           console.warn(`⚠ [schedule-mirror] ${site.name}: ${(e as Error).message}`);
         }
       }
+      await updateNextDueDates(base, site.id, dates);
+      wrote++;
     } catch (e) {
       failed++;
       console.warn(`⚠ next-due write skipped for ${site.name}: ${(e as Error).message}`);
