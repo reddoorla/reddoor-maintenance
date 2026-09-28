@@ -113,6 +113,42 @@ Also note the script maps by REMOTE, not by directory name: the checkout
 `welcome-to-the-flower-court` is `tucksravin/invitations`. A sweep that assumes
 the two match will address the wrong repository.
 
+## Cloud sessions (Claude Code on the web)
+
+A cloud container is not the laptop. Measured from inside one on 2026-09-28:
+
+- **Setup is `.claude/hooks/cloud-session-setup.sh`**, which runs on startup
+  only when `CLAUDE_CODE_REMOTE=true`. It unshallows the clone (the harness
+  clones `--depth 50` with no tags, which `check-match-harness-snapshots.mjs`
+  refuses), puts `.nvmrc`'s Node on `PATH` (the image ships 22), runs
+  `pnpm install`, writes the GA key from `GA_SA_KEY_B64`, installs the pinned
+  Playwright browsers and `gh`, and adds the egress proxy's CA to Chromium's
+  NSS store. It is silent when all of that worked; anything it could not do
+  arrives as a `cloud-session-setup:` message. It installs into the main
+  checkout, so a worktree needs its own `pnpm install --frozen-lockfile`.
+- **Credentials are the environment's variables**, not `credentials.env` or
+  `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
+- **GitHub goes through a proxy that replaces the `Authorization` header.**
+  `GH_TOKEN` is inert (a bogus token gets the same 200), and only repos attached
+  to the session answer on the API, so attach a fleet repo with `add_repo`
+  before touching it. **GraphQL is refused outright**: `gh pr view|checks|list`,
+  `gh repo view|list` and therefore `scripts/land-prs.mjs` stop with a 403;
+  `gh api repos/…` (REST) works. `gh auth status` says "The token in GH_TOKEN is
+  invalid" — that is the GraphQL refusal, not the token.
+- **Landing a PR from the cloud is `land-prs.mjs`'s gate applied by hand**: one
+  PR at a time, never a release PR, CI green on the head you read, and the merge
+  pinned to that head (`expectedHeadSha` on the GitHub MCP merge).
+- **`scripts/fleet-repos.sh` has nothing to enumerate**: the other checkouts
+  are not here. For a sweep, list the org through the API and clone each repo
+  after attaching it.
+- **The container runs as root**, so a test that proves a refusal by removing a
+  permission cannot fail there. `tests/prismic/models/write.test.ts` skips its
+  one such case under root; CI, which is not root, still runs it.
+- **Nothing on the laptop but this repo arrives**: not the user-level
+  `~/.claude` memory or plugins, not the other checkouts. `.session-logs/` dies
+  with the container, so the journal entry has to be committed and pushed
+  before the session ends.
+
 ## The work journal
 
 **Every working session appends a dated entry to `docs/workJournal.md`** — what
