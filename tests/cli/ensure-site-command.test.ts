@@ -1,8 +1,7 @@
 /**
  * The `ensure-site` composition root (#646 step 3). Driven end to end against a
  * temp `file:` libSQL database injected through `deps.openDb` — so no test here
- * can open a real handle even with `TURSO_*` exported — and with Airtable either
- * absent (`airtable: null`) or a recording double.
+ * can open a real handle even with `TURSO_*` exported.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -10,14 +9,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, type Db } from "../../src/db/client.js";
 import { runEnsureSiteCommand } from "../../src/cli/commands/ensure-site.js";
-import type { LegacyAirtableSites } from "../../src/fleet/ensure-site.js";
+
+const openBase = vi.hoisted(() =>
+  vi.fn(() => {
+    throw new Error("ensure-site must never open Airtable");
+  }),
+);
+vi.mock("../../src/reports/airtable/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/reports/airtable/client.js")>()),
+  openBase,
+}));
 
 let dir: string;
 let db: Db;
-const deps = (airtable: LegacyAirtableSites | null = null) => ({
-  openDb: async () => db,
-  airtable: async () => airtable,
-});
+const deps = () => ({ openDb: async () => db });
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "ensure-site-cmd-"));
@@ -64,10 +69,15 @@ describe("runEnsureSiteCommand", () => {
     });
   });
 
-  it("says a created site is invisible to the Airtable-enumerated batch jobs until step 4", async () => {
+  it("creates a new slug without consulting Airtable, even with Airtable credentials set", async () => {
+    vi.stubEnv("AIRTABLE_PAT", "patFAKE");
+    vi.stubEnv("AIRTABLE_BASE_ID", "appFAKE");
     const res = await runEnsureSiteCommand("roalson", { name: "Roalson" }, deps());
-    expect(res.output).toContain("no Airtable record was created");
-    expect(res.output).toContain("#646 step 4");
+    vi.unstubAllEnvs();
+    expect(res.code).toBe(0);
+    expect(res.output).toMatch(/^\[roalson\] created \(site_/);
+    expect(res.output).not.toMatch(/Airtable/);
+    expect(openBase).not.toHaveBeenCalled();
   });
 
   it("reports exists + which blanks were filled", async () => {
@@ -121,24 +131,9 @@ describe("runEnsureSiteCommand", () => {
         openDb: async () => {
           throw new Error("boom");
         },
-        airtable: async () => null,
       },
     );
     expect(res.code).toBe(1);
     expect(res.output).toContain("boom");
-  });
-
-  it("#645: announces a heal loudly when an Airtable-only site is adopted", async () => {
-    const legacy: LegacyAirtableSites = {
-      findBySlug: async () => ({ id: "recEXIST", fields: { Name: "Acme Co" } }),
-      adopt: async (rec) => {
-        const { mirrorSiteInsert } = await import("../../src/db/fleet-state.js");
-        await mirrorSiteInsert(db, rec, "2026-09-17T00:00:00.000Z");
-      },
-      update: async () => {},
-    };
-    const res = await runEnsureSiteCommand("acme-co", {}, deps(legacy));
-    expect(res.output).toContain("exists (recEXIST)");
-    expect(res.output).toContain("HEALED");
   });
 });
