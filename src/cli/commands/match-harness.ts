@@ -50,7 +50,7 @@ export async function runMatchHarnessCommand(
     return {
       output:
         `the inventory resolved NO SITES, so the matching harness was installed nowhere.` +
-        ` This is not an installed fleet — check the inventory (an Airtable view filter, an` +
+        ` This is not an installed fleet — check the inventory (an empty fleet roster, an` +
         ` empty JSON file, a dynamic inventory returning []). Do NOT read this exit as a` +
         ` rollout.`,
       code: 1,

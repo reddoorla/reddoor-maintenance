@@ -1,6 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { createDraft, parseAutoEvidence } from "../../src/reports/airtable/reports.js";
-import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
+import { mapRow, parseAutoEvidence } from "../../src/reports/airtable/reports.js";
+import { createReportDraft } from "../../src/reports/create-report.js";
+import type { DraftInput } from "../../src/reports/draft-fields.js";
+
+async function draft(input: DraftInput) {
+  const inserts: Array<Record<string, unknown>> = [];
+  const row = await createReportDraft(input, {
+    create: async (rec) => {
+      inserts.push(rec.fields);
+      return mapRow(rec);
+    },
+    mintId: () => "report_NEW",
+  });
+  return { fields: inserts[0]!, row };
+}
 
 describe("parseAutoEvidence", () => {
   it("parses a valid evidence JSON object", () => {
@@ -49,10 +62,9 @@ describe("parseAutoEvidence", () => {
   });
 });
 
-describe("createDraft writes checklist booleans + auto-evidence", () => {
+describe("createReportDraft writes checklist booleans + auto-evidence", () => {
   it("ticks supplied checklist fields and writes the evidence JSON", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await createDraft(base, {
+    const { fields } = await draft({
       reportId: "Acme Co — Maintenance — 2026-06-18",
       siteId: "rec_site",
       reportType: "Maintenance",
@@ -70,9 +82,6 @@ describe("createDraft writes checklist booleans + auto-evidence", () => {
         },
       },
     });
-    const create = base.__calls.find((c) => c.kind === "create")!;
-    if (create.kind !== "create") throw new Error("expected create");
-    const fields = create.records[0]!.fields;
     expect(fields["Maint: Google Indexed"]).toBe(true);
     expect(typeof fields["Checklist auto-evidence"]).toBe("string");
     const ev = JSON.parse(fields["Checklist auto-evidence"] as string);
@@ -80,8 +89,7 @@ describe("createDraft writes checklist booleans + auto-evidence", () => {
   });
 
   it("omits the evidence field and ticks nothing when no auto-checks supplied", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await createDraft(base, {
+    const { fields } = await draft({
       reportId: "Acme Co — Maintenance — 2026-06-18",
       siteId: "rec_site",
       reportType: "Maintenance",
@@ -91,16 +99,12 @@ describe("createDraft writes checklist booleans + auto-evidence", () => {
       lighthouse: { performance: 90, accessibility: 100, bestPractices: 82, seo: 100 },
       lastTestedDate: null,
     });
-    const create = base.__calls.find((c) => c.kind === "create")!;
-    if (create.kind !== "create") throw new Error("expected create");
-    const fields = create.records[0]!.fields;
     expect(fields["Checklist auto-evidence"]).toBeUndefined();
     expect(fields["Maint: Google Indexed"]).toBeUndefined();
   });
 
   it("persists an 'unknown' evidence record for an unmeasured gating item (the inversion)", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await createDraft(base, {
+    const { fields } = await draft({
       reportId: "Acme Co — Maintenance — 2026-07-06",
       siteId: "rec_site",
       reportType: "Maintenance",
@@ -113,17 +117,14 @@ describe("createDraft writes checklist booleans + auto-evidence", () => {
         "Maint: Uptime Checked": { result: "unknown", checkedAt: null, note: "Not yet measured" },
       },
     });
-    const create = base.__calls.find((c) => c.kind === "create")!;
-    if (create.kind !== "create") throw new Error("expected create");
-    const ev = JSON.parse(create.records[0]!.fields["Checklist auto-evidence"] as string);
+    const ev = JSON.parse(fields["Checklist auto-evidence"] as string);
     expect(ev["Maint: Uptime Checked"].result).toBe("unknown");
   });
 });
 
 describe("ReportRow carries the override audit fields", () => {
   it("defaults sendOverride=false and the reason/by/at to null on a fresh draft", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    const row = await createDraft(base, {
+    const { row } = await draft({
       reportId: "Acme Co — Maintenance — 2026-07-06",
       siteId: "rec_site",
       reportType: "Maintenance",

@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ((t: string) => t) as unknown),
-}));
 vi.mock("../../src/dashboard/approve.js", async (orig) => {
   const real = (await orig()) as Record<string, unknown>;
   return { ...real, approveReport: vi.fn() };
@@ -44,8 +41,7 @@ describe("approve-report adapter — env + method gating", () => {
     const raw = await res.text();
     expect(raw).not.toContain("should_not_leak");
     expect(JSON.parse(raw).env).toEqual({
-      AIRTABLE_PAT: true,
-      AIRTABLE_BASE_ID: true,
+      TURSO_DATABASE_URL: true,
       DASHBOARD_PASSWORD: true,
     });
   });

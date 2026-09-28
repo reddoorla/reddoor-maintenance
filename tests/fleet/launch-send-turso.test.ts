@@ -1,17 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  touched: [] as string[],
   events: [] as string[],
 }));
-
-vi.mock("../../src/reports/airtable/client.js", async (importOriginal) => {
-  const { untouchableBase } = await import("./_helpers/untouchable-airtable.js");
-  return {
-    ...(await importOriginal<typeof import("../../src/reports/airtable/client.js")>()),
-    openBase: () => untouchableBase(h.touched),
-  };
-});
 
 vi.mock("../../src/reports/maintenance-email/header-image.js", () => ({
   prepareHeaderImage: vi.fn(async () => ({
@@ -33,7 +24,6 @@ import { sendApprovedReports } from "../../src/reports/send/orchestrate.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { mapRow as mapReport } from "../../src/reports/airtable/reports.js";
 import { mapRow as mapSite } from "../../src/reports/airtable/websites.js";
-import { untouchableFetch } from "./_helpers/untouchable-airtable.js";
 
 const SITE = mapSite({
   id: "rec_site_acme",
@@ -62,15 +52,16 @@ const LAUNCH = mapReport({
 });
 
 let logged: () => string;
+let fetchSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  h.touched.length = 0;
   h.events.length = 0;
-  vi.stubGlobal("fetch", untouchableFetch(h.touched));
+  fetchSpy = vi.fn(async (input: unknown) => {
+    throw new Error(`network touched: ${String(input)}`);
+  });
+  vi.stubGlobal("fetch", fetchSpy);
   vi.stubEnv("TURSO_DATABASE_URL", "");
   vi.stubEnv("TURSO_AUTH_TOKEN", "");
-  vi.stubEnv("AIRTABLE_PAT", "pat_test");
-  vi.stubEnv("AIRTABLE_BASE_ID", "app_test");
   const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
   logged = () => log.mock.calls.flat().join("\n");
 });
@@ -81,7 +72,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("shipped shadow-off: report --send-ready never touches Airtable", () => {
+describe("report --send-ready sends a Launch entirely through Turso", () => {
   it("sends a Launch from its Turso plate, stamps and flips it in Turso, and the run is green", async () => {
     const sent: ResendSendInput[] = [];
     const resend: ResendClient = {
@@ -111,7 +102,7 @@ describe("shipped shadow-off: report --send-ready never touches Airtable", () =>
       },
     });
 
-    expect(h.touched).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(res.code).toBe(0);
     expect(res.output).toContain("✓ sent: Acme Co — Launch — 2026-09-28 (msg_1)");
     expect(res.output).toContain("↳ launched: Acme Co flipped to maintained");
@@ -130,11 +121,5 @@ describe("shipped shadow-off: report --send-ready never touches Airtable", () =>
     ]);
     expect(h.events).toContain("site_launched");
     expect(logged()).toContain("header=turso");
-    expect(logged()).toContain(
-      "AIRTABLE_SHADOW skipped=shadow-off writer=updateLaunched id=rec_site_acme",
-    );
-    expect(logged()).toContain(
-      "AIRTABLE_SHADOW skipped=shadow-off writer=stampSent id=rec_report_1",
-    );
   });
 });

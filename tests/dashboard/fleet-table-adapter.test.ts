@@ -2,11 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { Context } from "@netlify/functions";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
-// Airtable client is mocked so importing the handler never reaches a live base
-// (the fleet table itself is a pure Turso read — Phase 4 has no Airtable call).
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ({}) as unknown),
-}));
 // Turso is stubbed at the seam the handler actually uses: `openDb(readDbConfig())`
 // plus the one `listSites` read that feeds the whole page. Originals are spread
 // through so every OTHER export of these modules still resolves for the rest of

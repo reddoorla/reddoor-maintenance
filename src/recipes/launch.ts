@@ -8,18 +8,14 @@ import { HARNESS_JSON_RELATIVE, UNGUARDED_TWIN_TELL } from "./match-harness/temp
 import { runAudits } from "../audits/index.js";
 import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-airtable.js";
 import { writeBackOneSite } from "../audits/write-audits-to-airtable.js";
-import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
-import type { AirtableBase } from "../reports/airtable/client.js";
 import { siteSlug } from "../reports/airtable/websites.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { updateReportScores } from "../reports/airtable/reports.js";
 import { createReportDraft, findReportForPeriod } from "../reports/create-report.js";
 import type { DraftInput } from "../reports/draft-fields.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import type { ReportMirror } from "../reports/report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft } from "../reports/queue.js";
-import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
 import type { LighthouseScores } from "../reports/types.js";
@@ -44,13 +40,9 @@ export type LaunchDeps = {
   bootstrap?: (site: Site) => Promise<RecipeResult>;
   /** Audit step. Defaults to the real `runAudits`. */
   audit?: (site: Site) => Promise<AuditResult[]>;
-  /** Airtable handle. Defaults to opening the live base from credentials. */
-  base?: AirtableBase;
-  /** Every site in the fleet, read from TURSO (#646 step 4) — the Airtable
-   *  roster this replaces could not see a `site_<ULID>` site, so launching one
-   *  failed at "no Websites row matched". Required, not defaulted: the unit
-   *  suite calls `launch` with a fake base and must not open a real libSQL
-   *  handle. The CLI composition root wires `readFleetRoster`. */
+  /** Every site in the fleet, read from TURSO (#646 step 4). Required, not
+   *  defaulted: the unit suite must not open a real libSQL handle. The CLI
+   *  composition root wires `readFleetRoster`. */
   roster: () => Promise<WebsiteRow[]>;
   /** #539 Phase 5, and since #646 step 4 the store that MINTS and holds the
    *  Launch row: the row itself (or a re-run's refreshed scores), the rendered
@@ -58,11 +50,9 @@ export type LaunchDeps = {
   reportMirror: ReportMirror;
   /** #539 Phase 5: the Websites-row twin — launch writes the site's FIRST audit
    *  results and (on send) its launched status. Injected at the CLI root. */
-  siteMirror?: SiteMirror;
-  /** HTTP probe for `dev-guard`. Defaults to global fetch. INJECTED in tests:
-   *  the suite stubs `global.fetch` for the Airtable attachment upload and that
-   *  stub answers 200 to everything — which is precisely the state this step
-   *  exists to fail on. */
+  siteMirror: SiteMirror;
+  /** HTTP probe for `dev-guard`. Defaults to global fetch. INJECTED in tests,
+   *  so a suite never probes a real url. */
   probe?: (url: string) => Promise<{ status: number; body: string }>;
 };
 
@@ -581,8 +571,8 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
  *  3b. dev-guard — the same twin, checked against the DEPLOYED url. It sits
  *      BETWEEN collecting the scores and writing them, so a site that fails it
  *      has been audited but leaves its Websites row untouched.
- *   4. writeAuditsToAirtable — the `audit --write-back` writer.
- *   5. createDraft — reportType "Launch", today's period, the audited scores.
+ *   4. writeBackOneSite — the `audit --write-back` writer.
+ *   5. createReportDraft — reportType "Launch", today's period, the audited scores.
  *
  * The REPORTED chain is deliberately not that order. The `audit` step is only
  * pushed once its write succeeds (:261), so the emitted steps read
@@ -596,7 +586,6 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   const label = siteLabel(site);
   const bootstrap = deps.bootstrap ?? selfUpdating;
   const audit = deps.audit ?? runAudits;
-  const base = deps.base ?? openBase(readAirtableConfig());
   const probe = deps.probe ?? defaultProbe;
 
   const steps: Array<{ name: string; result: LaunchStepResult }> = [];
@@ -623,7 +612,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   steps.push({ name: "self-updating", result: { kind: "recipe", result: recipe } });
   if (recipe.status === "failed") return stop();
 
-  // 2. Audit + write scores back to Airtable.
+  // 2. Audit + write scores back to the site row.
   let results: AuditResult[];
   try {
     results = await audit(site);
@@ -642,7 +631,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   // The launch announcement renders a numeric score per category; a metric that
   // errored this run (now null from lighthouseScoresFromResult) keeps the prior
   // 0 behavior here rather than propagating null into the launch-email path. The
-  // Airtable write path (write-audits-to-airtable) keeps the null → shows "—".
+  // write-back path (write-audits-to-airtable) keeps the null → shows "—".
   const rawScores = lighthouseScoresFromResult(lhResult);
   const scores: LighthouseScores = {
     performance: rawScores.performance ?? 0,
@@ -738,11 +727,10 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     // that writes a brand-new site's health, so without this its row reads empty
     // in the console.
     await writeBackOneSite({
-      base,
       websites,
       slug: siteSlug(target.name),
       results,
-      mirrorHealth: async (siteId, fields) => deps.siteMirror?.health(siteId, fields),
+      mirrorHealth: async (siteId, fields) => deps.siteMirror.health(siteId, fields),
     });
   } catch (err) {
     steps.push({ name: "audit", result: errorOf(err) });
@@ -776,11 +764,9 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
         lighthouse_seo: scores.seo,
         completed_on: today.toISOString().slice(0, 10),
       });
-      await updateReportScores(base, existing.id, scores, today);
       report = existing;
     } else {
-      // #646 step 4: minted and written in Turso (`report_<ULID>`). The Airtable
-      // Reports row this replaces is skipped, not written — see `createReportDraft`.
+      // #646 step 4: minted and written in Turso (`report_<ULID>`).
       report = await createReportDraft(draftInputFor(target, scores, today, period), {
         create: deps.reportMirror.create,
       });
@@ -811,13 +797,6 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     try {
       // The console preview reads the body from Turso, not the attachment.
       await deps.reportMirror.body(report.id, html);
-      await uploadAttachment(
-        report.id,
-        "Rendered HTML",
-        html,
-        `${slug}-${today.toISOString().slice(0, 10)}.html`,
-        "text/html",
-      );
     } catch (uploadErr) {
       console.warn(
         `⚠ Launch preview upload skipped for ${target.name}: ${
@@ -828,11 +807,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     // Critical: NOT wrapped — a failure here must surface as a failed launch. queueDraft
     // supersedes any lower-tier (Maintenance/Testing) drafts queued for this site; a Launch is
     // top tier so it only stands down if another Launch/Announcement is already queued.
-    await queueDraft(
-      base,
-      { id: report.id, siteId: target.id, reportType: "Launch" },
-      deps.reportMirror,
-    );
+    await queueDraft({ id: report.id, siteId: target.id, reportType: "Launch" }, deps.reportMirror);
   } catch (err) {
     steps.push({ name: "draft", result: errorOf(err) });
     return stop();

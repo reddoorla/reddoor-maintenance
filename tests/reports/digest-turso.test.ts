@@ -1,9 +1,7 @@
 /**
  * #646 step 4: the operator digest and preflight read the fleet from TURSO.
  *
- * The rest of the digest suite injects its two datasets from a fake Airtable base,
- * because that is where its fixtures live and because the digest-state shadow write
- * is still Airtable's. This file wires the readers the CLI actually wires — `listSites`
+ * This file wires the readers the CLI actually wires — `listSites`
  * and `listAllReports` over a REAL migrated libSQL database in a temp `file:` (never
  * `:memory:`, never a `TURSO_*` url from the environment) — and pins the thing the
  * step exists for: a `site_<ULID>` site, which has no Airtable record at all, reaches
@@ -19,7 +17,6 @@ import { mintSiteId } from "../../src/fleet/site-id.js";
 import { runDigest } from "../../src/reports/digest.js";
 import { preflight } from "../../src/reports/preflight.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
-import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
 
 const NOW = new Date("2026-09-17T09:00:00.000Z");
 const NATIVE = mintSiteId(NOW.getTime());
@@ -99,8 +96,6 @@ describe("the operator digest, read from Turso", () => {
     const { client, captured } = captureClient();
     const result = await runDigest({
       ...io(),
-      // Airtable is opened for the digest-state shadow write only.
-      base: makeFakeBase({}),
       digestState: memoryDigestState(),
       resend: client,
       baseUrl: BASE_URL,
@@ -120,7 +115,6 @@ describe("the operator digest, read from Turso", () => {
         throw new Error("turso down");
       },
       allReports: () => listAllReports(db),
-      base: makeFakeBase({}),
       digestState: memoryDigestState(),
       resend: client,
       baseUrl: BASE_URL,

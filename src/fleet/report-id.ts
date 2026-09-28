@@ -44,10 +44,7 @@ export function isMintedReportId(id: string): boolean {
  * query string, so the route answers 404 for anything that is not one of the two
  * minters' output shapes. The `rec` half is the routes' own `/^rec[A-Za-z0-9]+$/`
  * kept EXACTLY as it was — widening it here would quietly relax three request
- * paths that this change is only supposed to teach a second shape. That is also
- * why it is stricter than `isAirtableRecordId`, which is the SHADOW-WRITE
- * question ("could Airtable hold this row at all") and answers it for readable
- * test fixtures like `rec_report_1` too.
+ * paths that this change is only supposed to teach a second shape.
  */
 export function isReportId(id: string): boolean {
   return /^rec[A-Za-z0-9]+$/.test(id) || isMintedReportId(id);

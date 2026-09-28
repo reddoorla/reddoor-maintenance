@@ -102,9 +102,6 @@ describe("renderSubmissionsPageHtml — bulk mark-read form", () => {
 
 // ---------- adapter: the POST path on the submissions-page function ----------
 
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ({}) as unknown),
-}));
 // Phase 2: the fleet list is a Turso read (fleet-state), not Airtable.
 vi.mock("../../src/db/fleet-state.js", () => ({
   listSites: vi.fn(async () => [{ id: "recA", name: "Site A" }]),

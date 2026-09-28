@@ -126,7 +126,7 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
     return resultOf(
       site,
       "failed",
-      "could not determine a GitHub repo for this site — set Airtable 'Git repo', or give " +
+      "could not determine a GitHub repo for this site — set the site's 'Git repo' in its details, or give " +
         "the checkout an origin remote whose URL is a GitHub owner/repo",
     );
   }
@@ -153,7 +153,7 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
         site,
         "failed",
         `'Git repo' ${repo} does not match the checkout's origin ${originUrl} — refusing to ` +
-          "push into one repo and open the PR in another; fix the Airtable cell or the remote",
+          "push into one repo and open the PR in another; fix the site's 'Git repo' or the remote",
       );
     }
   }

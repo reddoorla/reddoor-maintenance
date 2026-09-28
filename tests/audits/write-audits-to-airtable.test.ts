@@ -1,27 +1,21 @@
-import { describe, it, expect, vi } from "vitest";
-import { writeAuditsToAirtable } from "../../src/audits/write-audits-to-airtable.js";
+import { describe, it, expect } from "vitest";
+import { writeBackOneSite } from "../../src/audits/write-audits-to-airtable.js";
 import type { AuditResult } from "../../src/types.js";
-import type { AirtableBase } from "../../src/reports/airtable/client.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
-vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
-  AIRTABLE_SHADOW_WRITES: true,
-}));
+type MirrorCall = { id: string; fields: Record<string, unknown> };
 
-type UpdateCall = { table: string; id: string; fields: Record<string, unknown> };
-
-function makeFakeBase(): { base: AirtableBase; calls: UpdateCall[] } {
-  const calls: UpdateCall[] = [];
-  const tableFn = (table: string) => ({
-    update: async (recs: Array<{ id: string; fields: Record<string, unknown> }>) => {
-      for (const r of recs) calls.push({ table, id: r.id, fields: r.fields });
-      return recs;
-    },
-  });
-  const base = tableFn as unknown as AirtableBase;
-  return { base, calls };
+function recordingMirror(): {
+  mirrorHealth: (siteId: string, fields: Record<string, unknown>) => Promise<boolean>;
+  calls: MirrorCall[];
+} {
+  const calls: MirrorCall[] = [];
+  const mirrorHealth = async (siteId: string, fields: Record<string, unknown>) => {
+    calls.push({ id: siteId, fields });
+    return true;
+  };
+  return { mirrorHealth, calls };
 }
 
 function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
@@ -117,11 +111,11 @@ const domResult = (certDaysRemaining: number | null): AuditResult =>
     },
   }) as unknown as AuditResult;
 
-describe("writeAuditsToAirtable", () => {
+describe("writeBackOneSite", () => {
   it("writes lighthouse scores when a real-scores lighthouse result is present", async () => {
-    const { base, calls } = makeFakeBase();
-    const summary = await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -141,9 +135,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("writes a11y / deps / security counts alongside lighthouse when all four ran", async () => {
-    const { base, calls } = makeFakeBase();
-    const summary = await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -154,7 +148,7 @@ describe("writeAuditsToAirtable", () => {
       ],
     });
     expect(summary.writes.map((w) => w.audit)).toEqual(["lighthouse", "a11y", "deps", "security"]);
-    // ONE atomic update carrying every audit's fields (not four separate updates).
+    // ONE atomic write carrying every audit's fields (not four separate writes).
     expect(calls).toHaveLength(1);
     expect(calls[0]!.fields).toMatchObject({
       pScore: 90,
@@ -181,9 +175,9 @@ describe("writeAuditsToAirtable", () => {
         url: null,
       })),
     ];
-    const { base, calls } = makeFakeBase();
-    await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -204,9 +198,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("writes an empty advisory list ('[]') on a clean security run so a stale list clears", async () => {
-    const { base, calls } = makeFakeBase();
-    await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [secResult({ low: 0, moderate: 0, high: 0, critical: 0 })],
@@ -215,9 +209,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("merges the domain result into the single atomic write (cert days + checked-at)", async () => {
-    const { base, calls } = makeFakeBase();
-    await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -236,9 +230,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("CLEARS Cert days remaining (writes null) when the domain probe found no cert / didn't resolve", async () => {
-    const { base, calls } = makeFakeBase();
-    await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -247,7 +241,7 @@ describe("writeAuditsToAirtable", () => {
       ],
     });
     expect(calls[0]!.fields["Domain checked at"]).toBe("2026-06-18T00:00:00.000Z");
-    // Present AND null — null clears the Airtable cell so the Domain/DNS/SSL auto-tick reads
+    // Present AND null — null clears the stored value so the Domain/DNS/SSL auto-tick reads
     // null → fail. The old "omit" behavior left a STALE prior value (e.g. 90) next to a fresh
     // "Domain checked at", which then false-passed the box for a site that's actually down.
     expect(calls[0]!.fields).toHaveProperty("Cert days remaining");
@@ -255,7 +249,7 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("merges the browser verdicts into the single atomic write", async () => {
-    const { base, calls } = makeFakeBase();
+    const { mirrorHealth, calls } = recordingMirror();
     const browserResult: AuditResult = {
       audit: "browser",
       site: "acme",
@@ -271,8 +265,8 @@ describe("writeAuditsToAirtable", () => {
         checkedAt: "2026-06-18T00:00:00.000Z",
       },
     } as unknown as AuditResult;
-    await writeAuditsToAirtable({
-      base,
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -294,9 +288,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("writes the real outdated-install count to the Deps Outdated field when determined", async () => {
-    const { base, calls } = makeFakeBase();
-    await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -310,9 +304,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("omits Deps Major Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {
-    const { base, calls } = makeFakeBase();
-    await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -325,9 +319,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("omits Deps Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {
-    const { base, calls } = makeFakeBase();
-    await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -340,9 +334,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("skips audit types whose result is missing or skipped (predicate false)", async () => {
-    const { base, calls } = makeFakeBase();
-    const summary = await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -373,10 +367,10 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("throws exit-code-1 with hasRealScores message when lighthouse has no scores", async () => {
-    const { base } = makeFakeBase();
+    const { mirrorHealth } = recordingMirror();
     await expect(
-      writeAuditsToAirtable({
-        base,
+      writeBackOneSite({
+        mirrorHealth,
         websites: [row()],
         slug: "acme",
         results: [
@@ -399,10 +393,10 @@ describe("writeAuditsToAirtable", () => {
   // a11y/deps/security results. The non-Lighthouse audits must be persisted
   // first; the function still throws exit-code-1 so the site is flagged.
   it("persists a11y/deps/security even when lighthouse has no scores, then still throws exit-code-1", async () => {
-    const { base, calls } = makeFakeBase();
+    const { mirrorHealth, calls } = recordingMirror();
     await expect(
-      writeAuditsToAirtable({
-        base,
+      writeBackOneSite({
+        mirrorHealth,
         websites: [row()],
         slug: "acme",
         results: [
@@ -443,9 +437,9 @@ describe("writeAuditsToAirtable", () => {
   it("writes present audits when lighthouse is absent (standalone non-lighthouse sweep), no throw", async () => {
     // A `--only security` sweep legitimately has no lighthouse result. It must still persist the
     // audits it ran (no exitCode-2), so a security-only nightly can write back.
-    const { base, calls } = makeFakeBase();
-    const summary = await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [secResult({ low: 0, moderate: 0, high: 0, critical: 0 })],
@@ -459,10 +453,10 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("throws exit-code-2 when no Websites row matches the slug", async () => {
-    const { base } = makeFakeBase();
+    const { mirrorHealth } = recordingMirror();
     await expect(
-      writeAuditsToAirtable({
-        base,
+      writeBackOneSite({
+        mirrorHealth,
         websites: [row({ name: "Beta" })], // slugs to "beta", not "acme"
         slug: "acme",
         results: [lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 })],
@@ -474,7 +468,7 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("merges the function-health verdicts into the single atomic write", async () => {
-    const { base, calls } = makeFakeBase();
+    const { mirrorHealth, calls } = recordingMirror();
     const fhResult: AuditResult = {
       audit: "function-health",
       site: "acme",
@@ -482,8 +476,8 @@ describe("writeAuditsToAirtable", () => {
       summary: "health ok (prismic ok)",
       details: { ok: true, prismic: "ok", forms: null, checkedAt: "2026-07-06T00:00:00.000Z" },
     } as unknown as AuditResult;
-    await writeAuditsToAirtable({
-      base,
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -502,15 +496,15 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("does NOT write a function-health verdict when the audit self-skipped (no details)", async () => {
-    const { base, calls } = makeFakeBase();
+    const { mirrorHealth, calls } = recordingMirror();
     const skipped: AuditResult = {
       audit: "function-health",
       site: "acme",
       status: "skip",
       summary: "health endpoint unreachable / not JSON",
     } as unknown as AuditResult;
-    await writeAuditsToAirtable({
-      base,
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [
@@ -522,9 +516,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("writes the Smoke OK verdict + Last Smoke At from a smoke result", async () => {
-    const { base, calls } = makeFakeBase();
-    const summary = await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [smokeResult("fail")],
@@ -538,9 +532,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("writes the Form E2E OK verdict + checked-at from a form-e2e result", async () => {
-    const { base, calls } = makeFakeBase();
-    await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [formE2eResult("pass")],
@@ -552,9 +546,9 @@ describe("writeAuditsToAirtable", () => {
   });
 
   it("clears Form E2E OK (n/a) but stamps checked-at when there is no contact form", async () => {
-    const { base, calls } = makeFakeBase();
-    await writeAuditsToAirtable({
-      base,
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
       websites: [row()],
       slug: "acme",
       results: [formE2eResult(null)],

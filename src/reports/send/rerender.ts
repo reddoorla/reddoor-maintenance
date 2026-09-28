@@ -17,7 +17,7 @@ import { retickEvidence } from "../retick.js";
  * header geometry to avoid sharp — trades away exactly the fidelity a preview
  * exists to provide.
  *
- * IO is injected so the decision logic is testable without sharp, Airtable or a
+ * IO is injected so the decision logic is testable without sharp or a
  * database; the CLI binds the real implementations.
  */
 export type RerenderDeps = {
@@ -25,8 +25,6 @@ export type RerenderDeps = {
   getSite: (siteId: string) => Promise<WebsiteRow | null>;
   /** The clean header plate from Turso (design D5), or null when unstored. */
   loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>;
-  /** Fallback: the site's Airtable header attachment. */
-  fetchAirtableHeader: (url: string) => Promise<Uint8Array>;
   render: (
     site: WebsiteRow,
     report: ReportRow,
@@ -48,7 +46,7 @@ export type RerenderResult =
       status: "rendered";
       reportId: string;
       bytes: number;
-      headerSource: "turso" | "airtable";
+      headerSource: "turso";
       evidence: EvidenceStatus;
     }
   /** Already sent: its stored body is the record of what the client received. */
@@ -87,28 +85,15 @@ export async function rerenderReport(
     evidence = retick.status;
   }
 
-  // Turso first: the bytes are already local, and the Airtable attachment URL is
-  // signed and expiring, so fetching it when we hold the same image is pure
-  // latency plus a dependency on a URL that may already be dead.
-  const stored = await deps.loadHeaderPlate(site.id);
-  let plate: Uint8Array;
-  let headerSource: "turso" | "airtable";
-  if (stored) {
-    plate = stored;
-    headerSource = "turso";
-  } else if (site.headerImage) {
-    plate = await deps.fetchAirtableHeader(site.headerImage.url);
-    headerSource = "airtable";
-  } else {
-    // Named, not rendered around: a report with no header is already blocked at
-    // approve, and a preview that quietly omitted it would disagree with both
-    // the email and that block.
-    return { status: "no-header", reportId, evidence };
-  }
+  const plate = await deps.loadHeaderPlate(site.id);
+  // Named, not rendered around: a report with no header is already blocked at
+  // approve, and a preview that quietly omitted it would disagree with both
+  // the email and that block.
+  if (!plate) return { status: "no-header", reportId, evidence };
 
   const { html } = await deps.render(site, current, plate);
   await deps.store(reportId, html);
-  return { status: "rendered", reportId, bytes: html.length, headerSource, evidence };
+  return { status: "rendered", reportId, bytes: html.length, headerSource: "turso", evidence };
 }
 
 /** One line per run, machine-greppable, emitted for every outcome — an absent

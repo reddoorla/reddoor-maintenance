@@ -78,7 +78,6 @@ function deps(over: Partial<RerenderDeps> = {}): RerenderDeps {
     getReport: async () => report(),
     getSite: async () => SITE,
     loadHeaderPlate: async () => new Uint8Array([9, 9, 9]),
-    fetchAirtableHeader: async () => new Uint8Array([1, 1, 1]),
     render: async () => ({ html: "<html>rendered</html>" }),
     store: async () => {},
     storeEvidence: async () => true,
@@ -98,18 +97,10 @@ describe("rerenderReport", () => {
     expect(stored).toEqual([{ id: "recREP", html: "<html>rendered</html>" }]);
   });
 
-  it("prefers the header plate stored in Turso over an Airtable fetch", async () => {
-    // D5: the bytes are already local, and the Airtable URL is signed and
-    // expiring. Fetching it when we have the same image is pure latency plus a
-    // dependency on a URL that may already be dead.
-    let fetched = false;
+  it("renders with the header plate stored in Turso", async () => {
     const seen: Uint8Array[] = [];
     const r = await rerenderReport(
       deps({
-        fetchAirtableHeader: async () => {
-          fetched = true;
-          return new Uint8Array([1, 1, 1]);
-        },
         render: async (_s, _r, plate) => {
           seen.push(plate);
           return { html: "x" };
@@ -117,25 +108,28 @@ describe("rerenderReport", () => {
       }),
       "recREP",
     );
-    expect(r.status).toBe("rendered");
-    expect(fetched).toBe(false);
+    expect(r).toMatchObject({ status: "rendered", headerSource: "turso" });
     expect(seen[0]).toEqual(new Uint8Array([9, 9, 9]));
   });
 
-  it("falls back to the Airtable attachment when Turso has no plate", async () => {
-    const seen: Uint8Array[] = [];
+  it("is no-header when Turso has no plate, even if the site row still names an attachment", async () => {
+    let rendered = false;
+    let stored = false;
     const r = await rerenderReport(
       deps({
         loadHeaderPlate: async () => null,
-        render: async (_s, _r, plate) => {
-          seen.push(plate);
+        render: async () => {
+          rendered = true;
           return { html: "x" };
         },
+        store: async () => void (stored = true),
       }),
       "recREP",
     );
-    expect(r.status).toBe("rendered");
-    expect(seen[0]).toEqual(new Uint8Array([1, 1, 1]));
+    expect(SITE.headerImage).not.toBeNull();
+    expect(r.status).toBe("no-header");
+    expect(rendered).toBe(false);
+    expect(stored).toBe(false);
   });
 
   it("REFUSES to re-render a report that has been sent", async () => {

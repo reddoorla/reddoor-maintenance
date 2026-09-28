@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll, beforeAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,31 +9,20 @@ import {
   UNGUARDED_TWIN_TELL,
 } from "../../src/recipes/match-harness/template.js";
 import type { AuditResult, RecipeResult, Site } from "../../src/types.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import {
   makeFakeReportWriter,
   type FakeReportWriter,
 } from "../reports/_helpers/fake-report-writer.js";
-import { mapRow as mapReportRow } from "../../src/reports/airtable/reports.js";
-import { mapRow as mapSiteRow } from "../../src/reports/airtable/websites.js";
+import { reportRowsFrom, websiteRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 
-vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
-  AIRTABLE_SHADOW_WRITES: true,
-}));
-
-// uploadAttachment (src/reports/airtable/attachments.ts) POSTs to content.airtable.com
-// via global fetch. Stub fetch so the preview upload "succeeds" without a network call;
-// AIRTABLE_PAT/BASE_ID are also required by uploadAttachment before it fetches.
+const realFetch = global.fetch;
 beforeEach(() => {
-  global.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    statusText: "OK",
-    text: async () => "",
-  }) as unknown as typeof global.fetch;
-  process.env.AIRTABLE_PAT = "pat_test";
-  process.env.AIRTABLE_BASE_ID = "app_test";
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-15T12:00:00.000Z"));
+});
+afterEach(() => {
+  global.fetch = realFetch;
+  vi.useRealTimers();
 });
 
 /** A real, empty SvelteKit checkout — `src/routes`, no `src/routes/dev/match`.
@@ -97,8 +86,10 @@ function lighthouseResult(): AuditResult {
   };
 }
 
+type Seed = { Websites: RawRow[]; Reports: RawRow[] };
+
 /** Seed a Websites row whose siteSlug matches the launched site. */
-function websitesSeed() {
+function websitesSeed(): Seed {
   return {
     Websites: [
       {
@@ -106,23 +97,25 @@ function websitesSeed() {
         fields: { Name: "Acme Co", url: "https://acme.example.com", Status: "launch period" },
       },
     ],
-    Reports: [] as Array<{ id: string; fields: Record<string, unknown> }>,
+    Reports: [],
   };
 }
 
 /** The Turso report writer the recipe writes through (#646 step 4), exposed at
- *  module scope so a case can read what was written. Seeded by `deps(base)` from
- *  the same records the Airtable fake holds, so the two stores start identical. */
+ *  module scope so a case can read what was written. Seeded by `deps(seed)`. */
 let writer: FakeReportWriter;
 
-function deps(base: ReturnType<typeof makeFakeBase>) {
-  writer = makeFakeReportWriter((base.__records.get("Reports") ?? []).map(mapReportRow));
+function deps(seed: Seed) {
+  writer = makeFakeReportWriter(reportRowsFrom(seed.Reports));
   return {
-    base,
-    // #646 step 4: the fleet roster is a Turso read. Derived from the fake base's
-    // own Websites seed so a case still seeds one fleet, not two.
-    roster: async () => (base.__records.get("Websites") ?? []).map(mapSiteRow),
+    roster: async () => websiteRowsFrom(seed.Websites),
     reportMirror: writer,
+    siteMirror: {
+      created: async () => {},
+      hasRow: async () => true,
+      health: async () => {},
+      site: async () => {},
+    },
     bootstrap: async (): Promise<RecipeResult> => ({
       recipe: "self-updating",
       site: "Acme Co",
@@ -140,8 +133,8 @@ function deps(base: ReturnType<typeof makeFakeBase>) {
 
 describe("recipes/launch", () => {
   it("runs bootstrap + audit + draft and reports complete=true", async () => {
-    const base = makeFakeBase(websitesSeed());
-    const result = await launch(siteOf(), deps(base));
+    const seed = websitesSeed();
+    const result = await launch(siteOf(), deps(seed));
 
     expect(result.complete).toBe(true);
     expect(result.steps.map((s) => s.name)).toEqual([
@@ -154,8 +147,8 @@ describe("recipes/launch", () => {
   });
 
   it("creates a Launch draft carrying the audited Lighthouse scores", async () => {
-    const base = makeFakeBase(websitesSeed());
-    await launch(siteOf(), deps(base));
+    const seed = websitesSeed();
+    await launch(siteOf(), deps(seed));
 
     // Written to TURSO since #646 step 4 — same field vocabulary, different store.
     expect(writer.inserts).toHaveLength(1);
@@ -171,11 +164,11 @@ describe("recipes/launch", () => {
     // Launch is the one path that writes a brand-new site's health. The FLEET
     // sweep has mirrored since Phase 3; this single-site write never did, so the
     // new site's row read empty in the console until the next hourly sync.
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
 
     await launch(siteOf(), {
-      ...deps(base),
+      ...deps(seed),
       siteMirror: {
         created: async () => {},
         hasRow: async () => true,
@@ -188,36 +181,31 @@ describe("recipes/launch", () => {
 
     expect(mirrored).toHaveLength(1);
     expect(mirrored[0]!.id).toBe("rec_site_acme");
-    // The EXACT FieldSet Airtable got — the audited Lighthouse scores.
+    // The audited Lighthouse scores.
     expect(mirrored[0]!.fields).toMatchObject({ pScore: 87, seoScore: 95 });
   });
 
   it("hands the created row to deps.reportMirror (#539 Phase 5 create-side dual-write)", async () => {
-    const base = makeFakeBase(websitesSeed());
-    await launch(siteOf(), deps(base));
+    const seed = websitesSeed();
+    await launch(siteOf(), deps(seed));
 
     expect(writer.inserts).toHaveLength(1);
     expect(writer.inserts[0]!.id).toMatch(/^report_[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(writer.inserts[0]!.fields["Report type"]).toBe("Launch");
-    // Nothing was created in Airtable — the id it would have minted is the one
-    // Turso now owns (#646 step 4).
-    expect(base.__calls.filter((c) => c.kind === "create" && c.table === "Reports")).toHaveLength(
-      0,
-    );
   });
 
   it("flips Draft ready=true so the launch draft enters the approve queue (BLOCKER)", async () => {
-    const base = makeFakeBase(websitesSeed());
-    await launch(siteOf(), deps(base));
+    const seed = websitesSeed();
+    await launch(siteOf(), deps(seed));
 
-    // The queue flag lands in Turso; its Airtable shadow skips a minted report id.
+    // The queue flag lands in Turso.
     expect(writer.patches).toEqual([{ id: writer.inserts[0]!.id, patch: { draft_ready: 1 } }]);
   });
 
   it("reuses an existing Launch row on a re-run instead of creating a second", async () => {
     const today = new Date();
     const period = today.toISOString().slice(0, 7);
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: websitesSeed().Websites,
       Reports: [
         {
@@ -230,54 +218,17 @@ describe("recipes/launch", () => {
           },
         },
       ],
-    });
+    };
 
-    const result = await launch(siteOf(), deps(base));
+    const result = await launch(siteOf(), deps(seed));
 
     expect(result.complete).toBe(true);
     // No second Reports row created — the existing one is reused.
-    const reportCreates = base.__calls.filter((c) => c.kind === "create" && c.table === "Reports");
-    expect(reportCreates).toHaveLength(0);
+    expect(writer.inserts).toHaveLength(0);
     // It is still made Draft-ready (idempotent re-flip).
-    const draftReadyUpdate = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Reports" &&
-        c.records[0]!.id === "rec_existing_launch" &&
-        c.records[0]!.fields["Draft ready"] === true,
-    );
-    expect(draftReadyUpdate).toBeDefined();
-  });
-
-  it("mirrors the reused Launch row's refreshed scores (#539 Phase 5)", async () => {
-    const today = new Date();
-    const period = today.toISOString().slice(0, 7);
-    const base = makeFakeBase({
-      Websites: websitesSeed().Websites,
-      Reports: [
-        {
-          id: "rec_existing_launch",
-          fields: {
-            "Report ID": "Acme Co — Launch — existing",
-            Site: ["rec_site_acme"],
-            "Report type": "Launch",
-            Period: period,
-            "Lighthouse — Performance": 10,
-          },
-        },
-      ],
-    });
-    await launch(siteOf(), deps(base));
-
-    const scores = writer.patches.find((p) => p.patch.lighthouse_performance !== undefined);
-    expect(scores).toMatchObject({
+    expect(writer.patches).toContainEqual({
       id: "rec_existing_launch",
-      patch: {
-        lighthouse_performance: 87,
-        lighthouse_accessibility: 91,
-        lighthouse_best_practices: 100,
-        lighthouse_seo: 95,
-      },
+      patch: { draft_ready: 1 },
     });
   });
 
@@ -285,7 +236,7 @@ describe("recipes/launch", () => {
     const today = new Date();
     const period = today.toISOString().slice(0, 7);
     // Seed an existing Launch row carrying STALE scores from a prior run.
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: websitesSeed().Websites,
       Reports: [
         {
@@ -302,51 +253,109 @@ describe("recipes/launch", () => {
           },
         },
       ],
-    });
+    };
+    await launch(siteOf(), deps(seed));
 
-    await launch(siteOf(), deps(base));
-
-    // The reuse path updates the existing row's Lighthouse cells to the fresh audit
+    // The reuse path patches the existing row's Lighthouse cells to the fresh audit
     // (lighthouseResult: 87/91/100/95) — NOT a second create.
-    const scoreUpdate = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Reports" &&
-        c.records[0]!.id === "rec_existing_launch" &&
-        c.records[0]!.fields["Lighthouse — Performance"] !== undefined,
-    );
-    expect(scoreUpdate).toBeDefined();
-    if (!scoreUpdate || scoreUpdate.kind !== "update") throw new Error("expected a score update");
-    expect(scoreUpdate.records[0]!.fields).toMatchObject({
-      "Lighthouse — Performance": 87,
-      "Lighthouse — Accessibility": 91,
-      "Lighthouse — Best Practices": 100,
-      "Lighthouse — SEO": 95,
+    expect(writer.inserts).toHaveLength(0);
+    const scores = writer.patches.find((p) => p.patch.lighthouse_performance !== undefined);
+    expect(scores).toMatchObject({
+      id: "rec_existing_launch",
+      patch: {
+        lighthouse_performance: 87,
+        lighthouse_accessibility: 91,
+        lighthouse_best_practices: 100,
+        lighthouse_seo: 95,
+        // Completed on is refreshed too (today, YYYY-MM-DD).
+        completed_on: today.toISOString().slice(0, 10),
+      },
     });
-    // Completed on is refreshed too (today, YYYY-MM-DD).
-    expect(scoreUpdate.records[0]!.fields["Completed on"]).toBe(today.toISOString().slice(0, 10));
+  });
+
+  it("stores the reused Launch row's rendered body in Turso", async () => {
+    const period = new Date().toISOString().slice(0, 7);
+    const seed: Seed = {
+      Websites: websitesSeed().Websites,
+      Reports: [
+        {
+          id: "rec_existing_launch",
+          fields: {
+            "Report ID": "Acme Co — Launch — existing",
+            Site: ["rec_site_acme"],
+            "Report type": "Launch",
+            Period: period,
+          },
+        },
+      ],
+    };
+    const result = await launch(siteOf(), deps(seed));
+    expect(result.complete).toBe(true);
+    expect(writer.bodies).toHaveLength(1);
+    expect(writer.bodies[0]!.id).toBe("rec_existing_launch");
+    expect(writer.bodies[0]!.html).toContain("Acme Co");
+  });
+
+  it("a failed Turso score refresh fails the draft step", async () => {
+    const period = new Date().toISOString().slice(0, 7);
+    const seed: Seed = {
+      Websites: websitesSeed().Websites,
+      Reports: [
+        {
+          id: "rec_existing_launch",
+          fields: {
+            "Report ID": "Acme Co — Launch — existing",
+            Site: ["rec_site_acme"],
+            "Report type": "Launch",
+            Period: period,
+          },
+        },
+      ],
+    };
+    const d = deps(seed);
+    const result = await launch(siteOf(), {
+      ...d,
+      reportMirror: {
+        ...writer,
+        patch: async () => {
+          throw new Error("turso unavailable");
+        },
+      },
+    });
+    expect(result.complete).toBe(false);
+    expect(result.steps.at(-1)).toEqual({
+      name: "draft",
+      result: { kind: "error", message: "turso unavailable" },
+    });
+    expect(writer.bodies).toHaveLength(0);
   });
 
   it("still completes (and flips Draft ready) when the preview upload fails", async () => {
     // A preview-upload hiccup must not fail the launch — it's wrapped in try/catch.
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: "Internal Server Error",
-      text: async () => "boom",
-    }) as unknown as typeof global.fetch;
-
-    const base = makeFakeBase(websitesSeed());
-    const result = await launch(siteOf(), deps(base));
+    const seed = websitesSeed();
+    const d = deps(seed);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await launch(siteOf(), {
+      ...d,
+      reportMirror: {
+        ...writer,
+        body: async () => {
+          throw new Error("turso body write failed");
+        },
+      },
+    });
+    const warned = warn.mock.calls.map((c) => String(c[0]));
+    warn.mockRestore();
 
     expect(result.complete).toBe(true);
+    expect(warned).toContainEqual(expect.stringMatching(/preview upload skipped/));
     expect(writer.patches).toEqual([{ id: writer.inserts[0]!.id, patch: { draft_ready: 1 } }]);
   });
 
   it("stops at dev-guard when the matching twin still answers 200 in production", async () => {
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const result = await launch(siteOf(), {
-      ...deps(base),
+      ...deps(seed),
       probe: async () => ({ status: 200, body: "<h1>Home</h1>" }),
     });
     expect(result.complete).toBe(false);
@@ -359,9 +368,9 @@ describe("recipes/launch", () => {
     // A parked domain, a CDN 404 and a deleted route all answer 404. Only the
     // site's own +error.svelte renders <h1>404</h1>. Without the marker the guard
     // would pass on a site that is simply gone.
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const result = await launch(siteOf(), {
-      ...deps(base),
+      ...deps(seed),
       probe: async (url: string) =>
         url.endsWith("/dev/match/home")
           ? { status: 404, body: "<html><body>Page not found · Netlify</body></html>" }
@@ -373,9 +382,9 @@ describe("recipes/launch", () => {
   });
 
   it("stops at dev-guard when the liveness control does not answer 200", async () => {
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const result = await launch(siteOf(), {
-      ...deps(base),
+      ...deps(seed),
       probe: async (url: string) =>
         url.endsWith("/health") ? { status: 503, body: "" } : { status: 404, body: "<h1>404</h1>" },
     });
@@ -396,10 +405,10 @@ describe("recipes/launch", () => {
     // Verified across the fleet: 23 of 23 starter-derived repos ship
     // src/routes/health/+server.ts, every one declaring `prerender = false`, so
     // a 200 from it still proves the render/function path is alive.
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const probed: string[] = [];
     const result = await launch(siteOf(), {
-      ...deps(base),
+      ...deps(seed),
       probe: async (url: string) => {
         probed.push(url);
         if (url.endsWith("/dev/match/home"))
@@ -423,9 +432,9 @@ describe("recipes/launch", () => {
     // +error.svelte the guard's 404 uses, so it carries <h1>404</h1> too. On a
     // site whose uid set lacks "home" the grant condition could never fail,
     // guarded or not. The route's own message is the tell, and it is a DENY.
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const result = await launch(siteOf(), {
-      ...deps(base),
+      ...deps(seed),
       probe: async (url: string) =>
         url.endsWith("/dev/match/home")
           ? {
@@ -439,7 +448,7 @@ describe("recipes/launch", () => {
     expect(guard?.result).toMatchObject({ kind: "error" });
     expect((guard?.result as { message: string }).message).toMatch(/no matching assembly/i);
     expect((guard?.result as { message: string }).message).toMatch(/not evidence of a dev guard/i);
-    // And nothing downstream ran: no draft, no Airtable write.
+    // And nothing downstream ran: no draft.
     expect(result.steps.map((s) => s.name)).toEqual([
       "matching-disposition",
       "self-updating",
@@ -467,9 +476,9 @@ describe("recipes/launch", () => {
     expect(UNGUARDED_TWIN_MARKER.test(reworded)).toBe(true);
 
     // End to end: a 404 whose only tell is the machine one is refused.
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const result = await launch(siteOf(), {
-      ...deps(base),
+      ...deps(seed),
       probe: async (url: string) =>
         url.endsWith("/dev/match/home")
           ? {
@@ -489,9 +498,9 @@ describe("recipes/launch", () => {
     // assembly for"; the ROUTE_PAGE template this same plan will install via
     // `match-harness` says "no assembly for". A deny clause that only knew the
     // first would go blind the moment the harness recipe ships.
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const result = await launch(siteOf(), {
-      ...deps(base),
+      ...deps(seed),
       probe: async (url: string) =>
         url.endsWith("/dev/match/home")
           ? {
@@ -509,9 +518,9 @@ describe("recipes/launch", () => {
     // Every other test injects a resolving probe, so "a rejection reads as a
     // refusal" was a claim from reading the code, not a pinned behaviour. It is
     // also the shape the 15s AbortSignal produces on a stalled origin.
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const result = await launch(siteOf(), {
-      ...deps(base),
+      ...deps(seed),
       probe: async () => {
         throw new TypeError("fetch failed");
       },
@@ -519,15 +528,13 @@ describe("recipes/launch", () => {
     expect(result.complete).toBe(false);
     const guard = result.steps.find((s) => s.name === "dev-guard");
     expect(guard?.result).toMatchObject({ kind: "error", message: "fetch failed" });
-    // The chain stopped there: nothing was drafted, nothing written to Airtable.
+    // The chain stopped there: nothing was drafted.
     expect(result.steps.map((s) => s.name)).toEqual([
       "matching-disposition",
       "self-updating",
       "dev-guard",
     ]);
-    expect(base.__calls.filter((c) => c.kind === "create" && c.table === "Reports")).toHaveLength(
-      0,
-    );
+    expect(writer.inserts).toHaveLength(0);
   });
 
   it("time-boxes the default probe so a trickling origin cannot stall the chain", async () => {
@@ -551,15 +558,15 @@ describe("recipes/launch", () => {
       return { ok: true, status: 200, statusText: "OK", text: async () => '{"ok":true}' };
     }) as unknown as typeof global.fetch;
 
-    const base = makeFakeBase(websitesSeed());
-    const d = deps(base);
+    const seed = websitesSeed();
+    const d = deps(seed);
     // NOTE: deps.probe deliberately omitted — this exercises defaultProbe.
     const result = await launch(siteOf(), {
-      base: d.base,
       bootstrap: d.bootstrap,
       audit: d.audit,
       roster: d.roster,
       reportMirror: d.reportMirror,
+      siteMirror: d.siteMirror,
     });
     expect(result.complete).toBe(true);
 
@@ -578,12 +585,12 @@ describe("recipes/launch", () => {
       join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
       "export const prerender = false;\nexport async function load({ params }) {\n  return { uid: params.uid };\n}\n",
     );
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     let bootstrapped = false;
     const result = await launch(
       { path: dir, name: "Acme Co" },
       {
-        ...deps(base),
+        ...deps(seed),
         bootstrap: async (): Promise<RecipeResult> => {
           bootstrapped = true;
           return { recipe: "self-updating", site: "Acme Co", status: "applied", commits: [] };
@@ -615,8 +622,8 @@ describe("recipes/launch", () => {
         "}",
       ].join("\n"),
     );
-    const base = makeFakeBase(websitesSeed());
-    const result = await launch({ path: dir, name: "Acme Co" }, deps(base));
+    const seed = websitesSeed();
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(seed));
     expect(result.complete).toBe(false);
     expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition"]);
     await rm(dir, { recursive: true, force: true });
@@ -638,8 +645,8 @@ describe("recipes/launch", () => {
         "}",
       ].join("\n"),
     );
-    const base = makeFakeBase(websitesSeed());
-    const result = await launch({ path: dir, name: "Acme Co" }, deps(base));
+    const seed = websitesSeed();
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(seed));
     expect(result.complete).toBe(false);
     expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition"]);
     await rm(dir, { recursive: true, force: true });
@@ -674,8 +681,8 @@ describe("recipes/launch", () => {
         "}",
       ].join("\n"),
     );
-    const base = makeFakeBase(websitesSeed());
-    const result = await launch({ path: dir, name: "Acme Co" }, deps(base));
+    const seed = websitesSeed();
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(seed));
     expect(result.complete).toBe(true);
     expect(result.steps[0]!.result).toMatchObject({
       kind: "probe",
@@ -691,8 +698,8 @@ describe("recipes/launch", () => {
       join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
       'import { dev } from "$app/environment";\nimport { error } from "@sveltejs/kit";\nexport const prerender = false;\nexport async function load({ params }) {\n  if (!dev) error(404, { message: "Not found" });\n  return { uid: params.uid };\n}\n',
     );
-    const base = makeFakeBase(websitesSeed());
-    const result = await launch({ path: dir, name: "Acme Co" }, deps(base));
+    const seed = websitesSeed();
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(seed));
     expect(result.complete).toBe(true);
     expect(result.steps[0]!.result).toMatchObject({
       kind: "probe",
@@ -1048,11 +1055,11 @@ describe("recipes/launch", () => {
         },
       }),
     );
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const result = await launch(
       { path: dir, name: "Acme Co" },
       {
-        ...deps(base),
+        ...deps(seed),
         probe: async (url: string) => {
           // home is correctly guarded; services is the LIVE twin, announcing
           // itself with the machine tell.
@@ -1082,12 +1089,12 @@ describe("recipes/launch", () => {
     const dir = await mkdtemp(join(tmpdir(), "launch-devguard-no-harness-"));
     await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
     await writeFile(join(dir, "src/routes/dev/match/[uid]/+page.server.ts"), GUARDED_TWIN);
-    const base = makeFakeBase(websitesSeed());
+    const seed = websitesSeed();
     const probed: string[] = [];
     const result = await launch(
       { path: dir, name: "Acme Co" },
       {
-        ...deps(base),
+        ...deps(seed),
         probe: async (url: string) => {
           probed.push(url);
           if (url.endsWith("/dev/match/home")) return { status: 404, body: "<h1>404</h1>" };

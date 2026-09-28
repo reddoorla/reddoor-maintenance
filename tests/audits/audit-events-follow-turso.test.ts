@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { runFleetWriteBack } from "../../src/cli/commands/audit.js";
-import { listWebsites } from "../../src/reports/airtable/websites.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import type { AuditResult } from "../../src/types.js";
 import type { FleetEvent } from "../../src/db/fleet-events.js";
 
@@ -26,15 +25,13 @@ const renewedCert = {
 } as unknown as AuditResult;
 
 async function sweep(mirrorLands: boolean) {
-  const base = makeFakeBase({ Websites: ROWS });
   const recorded: FleetEvent[] = [];
   const mirrored: Array<Record<string, unknown>> = [];
   const res = await runFleetWriteBack({
     results: [lighthouseMiss, renewedCert],
     which: ["lighthouse", "domain"],
     deps: {
-      openBase: () => base,
-      roster: async () => listWebsites(base as never),
+      roster: async () => websiteRowsFrom(ROWS),
       makeMirror: async () => async (_siteId: string, fields: Record<string, unknown>) => {
         mirrored.push(fields);
         return mirrorLands;

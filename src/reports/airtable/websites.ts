@@ -1,10 +1,6 @@
-import type { FieldSet } from "airtable";
-import type { AirtableBase } from "./client.js";
-import type { LighthouseScores, LighthouseScoreWriteback } from "../types.js";
+import type { LighthouseScoreWriteback } from "../types.js";
 import { canonicalizeStatus, toAirtableStatus } from "./site-status.js";
-import { skipsAirtableShadow } from "../../fleet/site-id.js";
 import {
-  siteSlug,
   trimToNull,
   parseNotifyRouting,
   toFrequency,
@@ -50,6 +46,8 @@ export {
 
 export const WEBSITES_TABLE = "Websites";
 
+export type FieldSet = Record<string, unknown>;
+
 // NOTE: every `f["..."]` key below is a load-bearing magic string that must match
 // the live Airtable "Websites" column name EXACTLY — including the legacy
 // misspelling `"maintenence freq"`, the mixed-case `"GA4 property ID"`, and the
@@ -61,7 +59,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
   const name = String(f["Name"] ?? "");
   const attachments =
     (f["Header image"] as Array<{ url: string; filename: string; type: string }> | undefined) ?? [];
-  // LAST, not first: Airtable's uploadAttachment APPENDS, so the newest file is the
+  // LAST, not first: Airtable's attachment upload APPENDED, so the newest file is the
   // tail. Reading [0] served the OLDEST forever whenever a field held more than one —
   // which is how a pre-clean-plate header reached a live announcement (#574/#577).
   // The prune keeps these fields at a single entry, so this is normally the same
@@ -170,46 +168,6 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     nextMaintenanceAt: (f["Next maintenance at"] as string | undefined) ?? null,
     nextTestingAt: (f["Next testing at"] as string | undefined) ?? null,
   };
-}
-
-export async function listWebsites(base: AirtableBase): Promise<WebsiteRow[]> {
-  const out: WebsiteRow[] = [];
-  await base(WEBSITES_TABLE)
-    .select({ pageSize: 100 })
-    .eachPage((records, fetchNextPage) => {
-      for (const rec of records) out.push(mapRow({ id: rec.id, fields: rec.fields }));
-      fetchNextPage();
-    });
-  return out;
-}
-
-export async function getWebsiteBySlug(
-  base: AirtableBase,
-  slug: string,
-): Promise<WebsiteRow | null> {
-  // Slugs are siteSlug() output: [a-z0-9] segments joined by single hyphens.
-  // Reject anything else — it can't match a real row, and it keeps URL-supplied
-  // input out of the filter formula below (formula-injection guard).
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return null;
-
-  // Narrow the fetch to the slug-matching row server-side instead of paging the
-  // whole table per request (MEDIUM-H). The formula replicates siteSlug() on
-  // {Name} — lowercase → non-alnum runs to "-" → strip leading/trailing "-" —
-  // verified against the live base. maxRecords caps it (slug collisions keep the
-  // prior first-match-wins behavior).
-  const formula = `REGEX_REPLACE(REGEX_REPLACE(LOWER({Name}),"[^a-z0-9]+","-"),"^-|-$","")=${JSON.stringify(
-    slug,
-  )}`;
-  const rows: WebsiteRow[] = [];
-  await base(WEBSITES_TABLE)
-    .select({ filterByFormula: formula, maxRecords: 1 })
-    .eachPage((records, fetchNextPage) => {
-      for (const rec of records) rows.push(mapRow({ id: rec.id, fields: rec.fields }));
-      fetchNextPage();
-    });
-  // Confirm the match in JS too: keeps the function correct if the formula and
-  // siteSlug() ever drift, and under test fakes that don't evaluate the formula.
-  return rows.find((w) => siteSlug(w.name) === slug) ?? null;
 }
 
 // ── audit-field builders ─────────────────────────────────────────────────────
@@ -436,35 +394,12 @@ function formE2eFields(r: FormE2eResult): FieldSet {
   return fields as FieldSet;
 }
 
-// ————————————————————————— Websites writers (the Airtable shadow) —————————————————————————
+// ————————————————————————— Websites FieldSet builders —————————————————————————
 //
-// Every writer below addresses a Websites row by SITE id, and every one opens with
-// `skipsAirtableShadow` (#646 step 3). Sites created since the Turso-native
-// `ensure-site` carry `site_<ULID>` ids that Airtable has never held, so a write
-// for one is skipped on purpose — with an `AIRTABLE_SHADOW skipped=non-rec-id` line — instead of
-// 404ing. The FieldSet-returning writers still RETURN their payload when they
-// skip: callers feed it to the authoritative Turso write, which must not depend on
-// the shadow. tests/reports/airtable/shadow-skip-site-ids.test.ts fails for any
-// exported `update*` writer that is not covered.
-
-/**
- * Write the four Lighthouse scores + a refreshed-at timestamp onto a Websites row.
- * Called by `audit lighthouse --write-back` after a successful audit run, so
- * the operator never has to paste numbers manually before drafting a report.
- */
-export async function updateScores(
-  base: AirtableBase,
-  recordId: string,
-  scores: LighthouseScores,
-): Promise<void> {
-  if (skipsAirtableShadow("updateScores", recordId)) return;
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: scoreFields(scores) }]);
-}
+// Pure builders for the Airtable-column-named FieldSets the Turso mirrors take.
 
 /** The `Analytics soft-fail at` FieldSet, as a pure function of the stamp (#782).
- *  Drafting mirrors THIS into Turso first — the authoritative store — and only
- *  then shadows it to Airtable, so the two writes carry one payload and the
- *  shadow's field gap cannot cost the real write. `at` is an ISO timestamp when
+ *  Drafting writes THIS into Turso. `at` is an ISO timestamp when
  *  the site's last draft had a GA/Search soft-failure, `null` after a clean
  *  enrichment (the signal self-heals). */
 export function analyticsHealthFields(at: string | null): FieldSet {
@@ -472,97 +407,8 @@ export function analyticsHealthFields(at: string | null): FieldSet {
   return fields as FieldSet;
 }
 
-/**
- * Record (or clear) the per-site GA/Search enrichment health on the `Analytics
- * soft-fail at` column. The caller (drafting) swallows errors: this column is
- * operator-added and — checked against the base on 2026-09-15 — has never
- * existed there, so Airtable throws UNKNOWN_FIELD_NAME on every call. That is
- * why drafting writes Turso BEFORE this (#782): Turso is authoritative and the
- * Airtable layer is the shadow Phase 6 (#646) deletes.
- */
-export async function updateAnalyticsHealth(
-  base: AirtableBase,
-  recordId: string,
-  at: string | null,
-): Promise<FieldSet> {
-  const fields = analyticsHealthFields(at);
-  if (!skipsAirtableShadow("updateAnalyticsHealth", recordId)) {
-    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
-  }
-  // Same contract as updateNextDueDates/updateAuditFields: the #539 Turso mirror
-  // consumes the returned FieldSet, so the two writes cannot diverge.
-  return fields;
-}
-
-/** Persist a11y violation count. */
-export async function updateA11yCounts(
-  base: AirtableBase,
-  recordId: string,
-  counts: A11yCounts,
-): Promise<void> {
-  if (skipsAirtableShadow("updateA11yCounts", recordId)) return;
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: a11yFields(counts) }]);
-}
-
-/** Persist deps drift counts (declared-range drift + real outdated installs). */
-export async function updateDepsCounts(
-  base: AirtableBase,
-  recordId: string,
-  counts: DepsCounts,
-): Promise<void> {
-  if (skipsAirtableShadow("updateDepsCounts", recordId)) return;
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: depsFields(counts) }]);
-}
-
-/** Persist security vulnerability counts by severity. */
-export async function updateSecurityCounts(
-  base: AirtableBase,
-  recordId: string,
-  counts: SecurityCounts,
-): Promise<void> {
-  if (skipsAirtableShadow("updateSecurityCounts", recordId)) return;
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: securityFields(counts) }]);
-}
-
 export function autoFixAttemptsFields(attempts: number): FieldSet {
   return { "Security Auto-Fix Attempts": attempts };
-}
-
-/** Persist a site's auto-fix attempt counter. Its own one-field writer so the
- *  nightly Renovate dispatch can update it without touching the audit's counts. */
-export async function updateAutoFixAttempts(
-  base: AirtableBase,
-  recordId: string,
-  attempts: number,
-): Promise<FieldSet> {
-  const fields = autoFixAttemptsFields(attempts);
-  if (!skipsAirtableShadow("updateAutoFixAttempts", recordId)) {
-    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
-  }
-  // Returned for the #539 Turso mirror — see updateNextDueDates.
-  return fields;
-}
-
-/**
- * Persist the code-computed next-due dates (date-only `YYYY-MM-DD`, or `null` to
- * clear) for the maintenance + testing schedules. Owned by the nightly `--due` sweep
- * so the "next" dates shown in Airtable come from the SAME logic as the scheduler
- * (`nextDueDate`) — no Airtable-side formula or automation. Best-effort at the call
- * site: the `Next … at` columns are operator-added, so until they exist Airtable
- * throws UNKNOWN_FIELD_NAME, which must not break the nightly draft run.
- */
-export async function updateNextDueDates(
-  base: AirtableBase,
-  recordId: string,
-  dates: { maintenanceAt: string | null; testingAt: string | null },
-): Promise<FieldSet> {
-  const fields = nextDueDatesFields(dates);
-  if (!skipsAirtableShadow("updateNextDueDates", recordId)) {
-    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
-  }
-  // Same contract as updateAuditFields/updateGitHubSignals: the Phase 3 Turso
-  // mirror consumes the returned FieldSet, so the two writes cannot diverge.
-  return fields;
 }
 
 export function nextDueDatesFields(dates: {
@@ -576,46 +422,15 @@ export function nextDueDatesFields(dates: {
   return fields as FieldSet;
 }
 
-/** The cell shapes the site editor can write. Airtable rejects a string written
- *  to a checkbox or a multi-select, so `Require Turnstile` (boolean) and
+/** The cell shapes the site editor can write. `Require Turnstile` (boolean) and
  *  `Accepted Watch Conditions` (string[]) travel as themselves rather than being
  *  stringified at the boundary and coerced back later. */
 export type AirtableCellValue = string | boolean | string[];
 
-/** Generic single-field writer for the dashboard site-details editor. The caller
- *  (setSiteDetail) restricts `column` to the EDITABLE_SITE_FIELDS allowlist, so this
- *  never writes an arbitrary column from request input. */
-export async function updateSiteField(
-  base: AirtableBase,
-  recordId: string,
-  column: string,
-  value: AirtableCellValue,
-): Promise<void> {
-  if (skipsAirtableShadow("updateSiteField", recordId)) return;
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: { [column]: value } }]);
-}
-
-/** The multi-column shadow for `ensure-site`'s fill-blanks / `--name` path on a
- *  pre-existing `rec` site (#646 step 3): ONE update, so a resumed bootstrap that
- *  fills `url` and retitles `Name` cannot leave the shadow half-written. Turso is
- *  the store that decides what to write; this only repeats it. */
-export async function updateSiteFields(
-  base: AirtableBase,
-  recordId: string,
-  fields: Record<string, string>,
-): Promise<void> {
-  if (skipsAirtableShadow("updateSiteFields", recordId)) return;
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
-}
-
 /**
- * Persist all of a single audit run's results to one Websites row in ONE atomic
- * `update()` — instead of up to four sequential updates on the same id (which left
- * a row half-written on a mid-sequence failure and quadrupled the request volume).
- * Pass only the audit slices that produced real values; each present slice is merged
- * via the SAME field mappings the per-audit writers use. Omit a slice (or pass
- * undefined) to leave those columns untouched. Returns the merged FieldSet so the
- * caller can enumerate what was written.
+ * All of a single audit run's results for one site, merged into ONE FieldSet so
+ * the row is written in one update. Pass only the audit slices that produced real
+ * values; omit a slice (or pass undefined) to leave those columns untouched.
  */
 export type AuditFieldInputs = {
   scores?: LighthouseScoreWriteback;
@@ -650,39 +465,9 @@ export function auditFields(audits: AuditFieldInputs): FieldSet {
   return fields;
 }
 
-export async function updateAuditFields(
-  base: AirtableBase,
-  recordId: string,
-  audits: AuditFieldInputs,
-): Promise<FieldSet> {
-  const fields = auditFields(audits);
-  await shadowAuditFieldSet(base, "updateAuditFields", recordId, fields);
-  return fields;
-}
-
-export async function updateAuditFieldSet(
-  base: AirtableBase,
-  recordId: string,
-  fields: FieldSet,
-): Promise<void> {
-  await shadowAuditFieldSet(base, "updateAuditFieldSet", recordId, fields);
-}
-
-async function shadowAuditFieldSet(
-  base: AirtableBase,
-  writer: string,
-  recordId: string,
-  fields: FieldSet,
-): Promise<void> {
-  if (skipsAirtableShadow(writer, recordId)) return;
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
-}
-
-/** Persist the GitHub-signals sweep onto a Websites row (slice 2a). A null
+/** The GitHub-signals sweep's FieldSet for one site (slice 2a). A null
  *  `lastCommitAt` is OMITTED so a not-determined-this-run value never clobbers a
- *  previously-good timestamp (mirrors updateDepsCounts' outdated handling).
- *  Returns the FieldSet it wrote — the Phase 3 Turso mirror consumes the same
- *  payload, so the two writes cannot diverge (updateAuditFields' contract). */
+ *  previously-good timestamp. */
 export type GitHubSignalsWriteback = {
   renovateFailingCis: number;
   ciState: string;
@@ -702,23 +487,10 @@ export function gitHubSignalsFields(signals: GitHubSignalsWriteback): FieldSet {
   return fields;
 }
 
-export async function updateGitHubSignals(
-  base: AirtableBase,
-  recordId: string,
-  signals: GitHubSignalsWriteback,
-): Promise<FieldSet> {
-  const fields = gitHubSignalsFields(signals);
-  if (!skipsAirtableShadow("updateGitHubSignals", recordId)) {
-    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
-  }
-  return fields;
-}
-
 /** One site's Prismic model verdict, as the sweep hands it to the record.
  *
- *  `verdict: null` is a REQUEST TO BLANK the cell, not "leave it alone" — see
- *  {@link updatePrismicModels}. There is no way to express "leave it alone" here
- *  on purpose. */
+ *  `verdict: null` is a REQUEST TO BLANK the cell, not "leave it alone". There
+ *  is no way to express "leave it alone" here on purpose. */
 export type PrismicModelsWriteback = {
   verdict: PrismicModelsVerdict | null;
   checkedAt: string;
@@ -727,7 +499,7 @@ export type PrismicModelsWriteback = {
   detail: string | null;
 };
 
-/** Airtable's long-text cells hold ~100k characters and the sweep's report runs
+/** The detail column was sized for Airtable's ~100k-character long-text cell, and the sweep's report runs
  *  long on a badly drifted site (an empty Prismic repository sorts every local
  *  model into `toCreate`, with a line per field). Half the cell is the budget;
  *  the rest is headroom for whatever renders it. */
@@ -740,7 +512,7 @@ const MAX_PRISMIC_DETAIL_CHARS = 50_000;
  * is a report that looks complete and is not.
  *
  * The cut is by code unit, so it can land between the halves of an astral
- * character; a lone surrogate is not valid text and can make Airtable reject the
+ * character; a lone surrogate is not valid text and can make a store reject the
  * write, losing the entire finding to a cosmetic detail.
  */
 function truncatePrismicDetail(detail: string): string {
@@ -755,38 +527,6 @@ function truncatePrismicDetail(detail: string): string {
   return head + notice;
 }
 
-/**
- * Persist one site's Prismic model verdict.
- *
- * ALL THREE COLUMNS, ALWAYS, in one update — including when the verdict is
- * `unknown` or blank. That is the whole design: the alternative ("only write a
- * verdict when we have one") leaves the PREVIOUS verdict standing for a site
- * whose check has since started failing, and a stale `pass` is never aged out by
- * anything — the digest's freshness gate only examines failures. So the record
- * always says what the last run actually established, and `checkedAt` always
- * says when. See {@link WebsiteRow.prismicModels} for the four states.
- *
- * Best-effort AT THE CALL SITE: `Prismic Models*` are operator-added columns, so
- * until they exist Airtable throws UNKNOWN_FIELD_NAME. The nightly sweep must
- * survive that and collect it — same contract as `updateNextDueDates`.
- *
- * Takes a non-null `AirtableBase`, like every other writer here: whether to write
- * at all is the caller's decision, and this repo keeps "do no writes" separate
- * from "do no IO" one layer up.
- */
-export async function updatePrismicModels(
-  base: AirtableBase,
-  recordId: string,
-  models: PrismicModelsWriteback,
-): Promise<FieldSet> {
-  const fields = prismicModelsFields(models);
-  if (!skipsAirtableShadow("updatePrismicModels", recordId)) {
-    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
-  }
-  // Returned for the #539 Turso mirror — see updateNextDueDates.
-  return fields;
-}
-
 export function prismicModelsFields(models: PrismicModelsWriteback): FieldSet {
   const fields: Record<string, string | null> = {
     "Prismic Models": models.verdict,
@@ -794,25 +534,6 @@ export function prismicModelsFields(models: PrismicModelsWriteback): FieldSet {
     "Prismic Models Drift": models.detail === null ? null : truncatePrismicDetail(models.detail),
   };
   return fields as FieldSet;
-}
-
-/** Mark a site launched: flip Status → maintained + stamp Launched at (M6b).
- *  The first code that writes Status. Called after a Launch report sends.
- *  Routed through `toAirtableStatus`, so it still writes Airtable's "maintenance"
- *  option until the stage-2 switch flips. */
-export async function updateLaunched(
-  base: AirtableBase,
-  recordId: string,
-  at: string,
-): Promise<FieldSet> {
-  const fields = launchedFields(at);
-  if (!skipsAirtableShadow("updateLaunched", recordId)) {
-    await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
-  }
-  // Returned for the #539 Turso mirror. BOTH columns travel together on purpose:
-  // mirroring them as two UPDATEs would open a window where Turso says a site is
-  // maintained but never launched.
-  return fields;
 }
 
 export function launchedFields(at: string): FieldSet {

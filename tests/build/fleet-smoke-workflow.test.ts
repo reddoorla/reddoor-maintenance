@@ -31,7 +31,7 @@ const execFileAsync = promisify(execFile);
  * fail is an untested assertion, not an instrument.
  */
 
-const SMOKE_STEP = "Fleet smoke suite + Airtable write-back";
+const SMOKE_STEP = "Fleet smoke suite + write-back";
 
 let gate: string;
 

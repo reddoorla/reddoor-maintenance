@@ -21,7 +21,8 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
+import type { RawRecord } from "../../src/db/import-airtable.js";
+import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
 import { makeSiteMirror } from "../../src/db/site-mirror.js";
 import { makeReportMirror } from "../../src/reports/report-mirror.js";
 import { TURSO_IS_AUTHORITATIVE } from "../../src/db/freeze.js";
@@ -33,16 +34,9 @@ import {
 const NOW = new Date("2026-08-26T00:00:00.000Z");
 const SITE: RawRecord = { id: "recSITE", fields: { Name: "Acme Gallery", Status: "maintained" } };
 
-const io = (records: RawRecord[]): ImportIo => ({
-  listWebsiteRecords: async () => records,
-  listReportRecords: async () => [],
-  fetchAttachment: async () => null,
-  now: () => NOW,
-});
-
 async function dbWithSite() {
   const db = await openDb({ url: ":memory:" });
-  await importFleetState(db, io([SITE]));
+  await mirrorSiteInsert(db, SITE, NOW.toISOString());
   return db;
 }
 

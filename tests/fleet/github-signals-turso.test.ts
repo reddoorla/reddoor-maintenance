@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { runGitHubSignalsCommand } from "../../src/cli/commands/github-signals.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { untouchableBase, untouchableFetch } from "./_helpers/untouchable-airtable.js";
 
 const LAST_COMMIT = "2026-08-20T00:00:00.000Z";
 
@@ -16,17 +15,17 @@ const ROSTER = [
   makeWebsiteRow({ id: "recB", name: "Beta Corp", gitRepo: "reddoorla/beta-corp" }),
 ];
 
-let touched: string[] = [];
-let logged: () => string;
+let fetchSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  touched = [];
-  vi.stubGlobal("fetch", untouchableFetch(touched));
+  fetchSpy = vi.fn(async (input: unknown) => {
+    throw new Error(`network touched: ${String(input)}`);
+  });
+  vi.stubGlobal("fetch", fetchSpy);
   vi.stubEnv("TURSO_DATABASE_URL", "");
   vi.stubEnv("TURSO_AUTH_TOKEN", "");
   vi.stubEnv("GH_TOKEN", "test-token");
-  const log = vi.spyOn(console, "log").mockImplementation(() => {});
-  logged = () => log.mock.calls.flat().join("\n");
+  vi.spyOn(console, "log").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -35,14 +34,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("shipped shadow-off: github-signals never touches Airtable", () => {
-  it("mirrors every row, records its events and exits 0 against a base that throws on contact", async () => {
+describe("github-signals --fleet --write-back lands in Turso", () => {
+  it("mirrors every row, records its events and exits 0", async () => {
     const mirrored: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
     const recorded: Array<{ type: string; siteId: string | null }> = [];
     const r = await runGitHubSignalsCommand(
       { fleet: true, writeBack: true },
       {
-        openBase: () => untouchableBase(touched),
         roster: async () => ROSTER,
         makeGh: () => ({
           openPullRequests: async () => [],
@@ -68,7 +66,7 @@ describe("shipped shadow-off: github-signals never touches Airtable", () => {
         },
       },
     );
-    expect(touched).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(r.code).toBe(0);
     expect(r.output).toContain(
       "FLEET_WRITE_SUMMARY wrote=2 failed=0 total=2 mirrored=2 mirror_failed=0 mirror_missed=0",
@@ -91,9 +89,6 @@ describe("shipped shadow-off: github-signals never touches Airtable", () => {
         { type: "pr_automerged", siteId: "recA" },
         { type: "fleet_swept", siteId: null },
       ]),
-    );
-    expect(logged()).toContain(
-      "AIRTABLE_SHADOW skipped=shadow-off writer=updateGitHubSignals id=recA",
     );
   });
 });

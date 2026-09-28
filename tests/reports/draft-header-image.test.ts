@@ -7,7 +7,6 @@ import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
 import { loadHeaderImage } from "../../src/db/header-images.js";
 import { refreshHeaderImage, draftReportForSite } from "../../src/reports/draft.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
-import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
 import { makeFakeReportWriter } from "./_helpers/fake-report-writer.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
@@ -122,7 +121,7 @@ describe("the default store is the plate the send reads", () => {
 
 /**
  * The draft-time wiring, kept honest in both directions. `DraftOptions.refreshHeader`
- * exists so unit suites (which all pass a fake base) don't pay a real chromium launch
+ * exists so unit suites don't pay a real chromium launch
  * per case — but an opt-out that accidentally reads `undefined` as "off" would silently
  * disable the feature on the nightly path, where nothing would notice. So: unset MUST
  * refresh, `false` MUST NOT.
@@ -137,8 +136,7 @@ describe("draftReportForSite header-refresh wiring", () => {
     makeWebsiteRow({ pScore: 87, rScore: 91, bpScore: 100, seoScore: 95 });
 
   it("refreshes when refreshHeader is unset — the production default", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, scoredSite(), "Maintenance", {
+    await draftReportForSite(scoredSite(), "Maintenance", {
       reportMirror: makeFakeReportWriter(),
     });
     expect(generateHeaderImage).toHaveBeenCalledTimes(1);
@@ -149,8 +147,7 @@ describe("draftReportForSite header-refresh wiring", () => {
   });
 
   it("skips the refresh when refreshHeader is false", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, scoredSite(), "Maintenance", {
+    await draftReportForSite(scoredSite(), "Maintenance", {
       refreshHeader: false,
       reportMirror: makeFakeReportWriter(),
     });
@@ -158,7 +155,7 @@ describe("draftReportForSite header-refresh wiring", () => {
   });
 
   it("never refreshes on the no-IO render path, even with refreshHeader unset", async () => {
-    const result = await draftReportForSite(null, scoredSite(), "Maintenance", {
+    const result = await draftReportForSite(scoredSite(), "Maintenance", {
       previewOnly: true,
       previewPath: `${process.env.TMPDIR ?? "/tmp"}/draft-header-wiring-preview.html`,
     });

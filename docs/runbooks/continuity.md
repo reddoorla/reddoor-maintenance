@@ -111,11 +111,11 @@ empty, nothing needs you.
 **Almost everything — and the reason is a feature, not an accident: no client-facing report can
 go out without a human approval.** Two independent gates:
 
-- `netlify/functions/approve-report.mts:81` — `requireOperator(req, { wants: "json" })`. Every
-  approval runs through one Basic-auth credential, checked before any Airtable read, behind a
+- `netlify/functions/approve-report.mts:78` — `requireOperator(req, { wants: "json" })`. Every
+  approval runs through one Basic-auth credential, checked before any store read, behind a
   CSRF check. No credential, no approval.
-- `src/reports/send/orchestrate.ts:211–232` — `sendOne` **throws** rather than send when the health
-  gate is not clear, _even if "Approved to send" was set directly in Airtable_. The row is
+- `src/reports/send/orchestrate.ts:178–197` — `sendOne` **throws** rather than send when the health
+  gate is not clear, _even if "Approved to send" was set directly in the database_. The row is
   skipped, `Sent at` stays null, and the at-least-once retry is preserved.
 
 So the worst case for the report pipeline over a week is that drafts pile up unsent. Nothing
@@ -180,9 +180,9 @@ node dist/cli/bin.js db replay-deadletters
 ```
 
 It re-runs each queued payload through the same ingest function, resolving sites through the
-same lookup the live path uses (Turso first; Airtable is opened but not called under the
-freeze, so a missing Airtable PAT no longer refuses the whole replay). It prints one line per
-row and then a summary:
+same lookup the live path uses — Turso's `getSiteBySlug`, and nothing else; the replay does not
+touch Airtable at all, so it needs only the Turso credentials (plus `RESEND_API_KEY` to email
+the recovered leads). It prints one line per row and then a summary:
 
 ```
 DEADLETTER_REPLAY replayed=<n> still_failing=<n> unmarked=<n> unreadable=<n>
@@ -202,7 +202,7 @@ Exit code is 1 while anything is still **owed**, which is three different things
 
 If Resend is unconfigured the replay still
 runs and the recovered leads land un-emailed (`notify=failed`) rather than blocking — you can
-re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:94–227`). If the
+re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:64–185`). If the
 alarm named an unresolvable slug, run `ensure-site <slug>` **first**, then replay.
 
 ### 3.2 Turnstile stops minting tokens on a site
@@ -233,7 +233,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and since the Airtable freeze, Turso is the only store
 there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
-pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:502`,
+pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
 `.github/workflows/fleet-db-backup.yml:160`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
@@ -256,14 +256,14 @@ A spam complaint from a client is worth a same-day human reply; do not let it si
 
 Names and locations only. Nothing below is a value, and you should not need to print one.
 
-| Where                                     | What lives there                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `~/.config/reddoor-maint/credentials.env` | **Everything except Discord.** Loaded into `process.env` by `loadCredentialsIntoEnv`, which never overwrites a variable already set (`src/util/credentials.ts:51–67`). Path respects `$XDG_CONFIG_HOME`. Names in use across the codebase include `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `TURSO_FLEET_USAGE`, `TURSO_ORG`, `TURNSTILE_SECRET_KEY{,_2,_3}`, `FORMS_INGEST_TOKEN`, `PROSPECT_EDIT_TOKEN`, `DASHBOARD_PASSWORD`, `DASHBOARD_BASE_URL`, `GH_TOKEN`, `GITHUB_TOKEN`, `NETLIFY_PAT`, `PRISMIC_ACCESS_TOKEN`, `PRISMIC_WRITE_TOKEN`, `GA_SA_KEY_PATH`, `GA_SUBJECT`, `OPERATOR_EMAIL`. `GITHUB_TOKEN` may be left OUT: `readGitHubConfig` (`src/github/config.ts`) falls back to `gh auth token` when it is unset, and a set-but-dead file value actively overrides the working keyring (#665) — `gh auth login` once is the single source of truth. |
-| The repo `.env`                           | **Discord only.** `DISCORD_BOT_KEY` **is** the bot token — use it directly as `Authorization: Bot $DISCORD_BOT_KEY`. There is no `DISCORD_BOT_TOKEN` anywhere; do not hunt for one (`CLAUDE.md` §"Discord is the tone reference").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| GitHub Actions secrets + variables        | The nightlies read the same names as repo **secrets**, plus `BACKUP_PASSPHRASE`, which exists only here and on the operator's machine. `OPERATOR_EMAIL` is an Actions **variable** — set in CI and nowhere else, which is exactly how a fleet digest once landed in the client inbox from a local run (`src/util/operator.ts`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Netlify site env                          | The central deploy's own copy: the full list with purposes is the table in `README.md` §"Site deployment (Netlify + Resend)". These are set in the Netlify UI, not from this repo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| 1Password (Personal vault)                | Six **client** credential items, imported during the Airtable retirement and verified byte-for-byte; the four credential fields were then cleared from all nine Airtable site rows (`docs/meta-week/04-journal-beat-by-beat.md:3230–3235`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| GitHub org                                | `reddoorla`. Repo admin, Actions secrets, branch protection and the secret-scanning alerts all live at the org or per-repo level here.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Where                                     | What lives there                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `~/.config/reddoor-maint/credentials.env` | **Everything except Discord.** Loaded into `process.env` by `loadCredentialsIntoEnv`, which never overwrites a variable already set (`src/util/credentials.ts:51–67`). Path respects `$XDG_CONFIG_HOME`. Names in use across the codebase include `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `TURSO_FLEET_USAGE`, `TURSO_ORG`, `TURNSTILE_SECRET_KEY{,_2,_3}`, `FORMS_INGEST_TOKEN`, `PROSPECT_EDIT_TOKEN`, `DASHBOARD_PASSWORD`, `DASHBOARD_BASE_URL`, `GH_TOKEN`, `GITHUB_TOKEN`, `NETLIFY_PAT`, `PRISMIC_ACCESS_TOKEN`, `PRISMIC_WRITE_TOKEN`, `GA_SA_KEY_PATH`, `GA_SUBJECT`, `OPERATOR_EMAIL`. `GITHUB_TOKEN` may be left OUT: `readGitHubConfig` (`src/github/config.ts`) falls back to `gh auth token` when it is unset, and a set-but-dead file value actively overrides the working keyring (#665) — `gh auth login` once is the single source of truth. |
+| The repo `.env`                           | **Discord only.** `DISCORD_BOT_KEY` **is** the bot token — use it directly as `Authorization: Bot $DISCORD_BOT_KEY`. There is no `DISCORD_BOT_TOKEN` anywhere; do not hunt for one (`CLAUDE.md` §"Discord is the tone reference").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| GitHub Actions secrets + variables        | The nightlies read the same names as repo **secrets**, plus `BACKUP_PASSPHRASE`, which exists only here and on the operator's machine. `OPERATOR_EMAIL` is an Actions **variable** — set in CI and nowhere else, which is exactly how a fleet digest once landed in the client inbox from a local run (`src/util/operator.ts`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Netlify site env                          | The central deploy's own copy: the full list with purposes is the table in `README.md` §"Site deployment (Netlify + Resend)". These are set in the Netlify UI, not from this repo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 1Password (Personal vault)                | Six **client** credential items, imported during the Airtable retirement and verified byte-for-byte; the four credential fields were then cleared from all nine Airtable site rows (`docs/meta-week/04-journal-beat-by-beat.md:3230–3235`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| GitHub org                                | `reddoorla`. Repo admin, Actions secrets, branch protection and the secret-scanning alerts all live at the org or per-repo level here.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 **`TURSO_FLEET_USAGE` is not `TURSO_AUTH_TOKEN`.** The first is an account-level Platform API
 token that can read plan quota; the second is a database-level token that cannot. A third,
@@ -331,9 +331,9 @@ Delivery outcomes come back through the Resend webhook
 bounce/complaint attention items in §3.4.
 
 **The per-site recipient field.** Who a report actually reaches is configured per site, not per
-message: `Report recipients (To)` and `Report recipients (CC)` on the Websites row, mirrored to
-`sites.report_recipients_to` / `report_recipients_cc` in Turso
-(`src/reports/airtable/websites.ts:88–89`, `src/db/fleet-state.ts:111–112`). Form
+message: `Report recipients (To)` and `Report recipients (CC)` in the site details on its console
+page (`/s/<slug>`), stored in Turso as `sites.report_recipients_to` / `report_recipients_cc`
+(`src/dashboard/site-details.ts:94–95`, `src/db/fleet-state.ts:112–113`). Form
 notifications have their own per-site routing, including field-value → recipient routes with a
 fallback (`NotifyRouting`, `src/fleet/site-row.ts:26–44`).
 
@@ -410,7 +410,7 @@ written in.
    ```
 
    `--url` never defaults — production is deliberately out of reach
-   (`src/cli/commands/db.ts:446`). Expect a line of this shape, and exit 0:
+   (`src/cli/commands/db.ts:235`). Expect a line of this shape, and exit 0:
 
    ```
    RESTORE loaded=true tables=11 rows=803 blob_bytes=7777769 mismatches=0
@@ -419,14 +419,14 @@ written in.
    The row and byte figures are whatever the dump carried (those are the 2026-08-31 values);
    what you are checking is `mismatches=0`. Row and byte counts are compared against the
    dump's origin manifest, so a restore that "succeeded" with fewer rows than the origin held
-   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:485–498`). Three
+   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:274–287`). Three
    refusals you may see instead, each naming itself: `RESTORE refused=auth-token-absent` (a
    remote url with no token), `RESTORE refused=manifest-absent` (not a dump this tool
    produced), and `RESTORE refused=target-not-empty`.
 
 5. **Repoint `TURSO_DATABASE_URL` at the new database.** This is the step the rehearsals never
    needed and the one most likely to be missed. `db restore` refuses a non-empty target
-   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:458–460`) — a restore is for an
+   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:259–261`) — a restore is for an
    EMPTY target, so a real recovery **always lands on a new database**, and nothing points at it
    until you say so. Set two names, `TURSO_DATABASE_URL` (the url from step 3) and
    `TURSO_AUTH_TOKEN` (the token from step 3 — the same value you passed as

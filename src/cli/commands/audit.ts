@@ -12,7 +12,6 @@ import { isHttpUrl } from "../../util/url.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 import { fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
-import type { AirtableBase } from "../../reports/airtable/client.js";
 import type { FleetRoster } from "../../fleet/roster.js";
 import type { HealthMirror } from "../../audits/health-mirror.js";
 import type { FleetEvent } from "../../db/fleet-events.js";
@@ -166,7 +165,7 @@ function buildAuditTasks(
 }
 
 type WriteSummary = Awaited<
-  ReturnType<typeof import("../../audits/write-audits-to-airtable.js").writeAuditsToAirtable>
+  ReturnType<typeof import("../../audits/write-audits-to-airtable.js").writeBackOneSite>
 >;
 
 function formatWriteSummary(summary: WriteSummary): string {
@@ -345,8 +344,6 @@ export async function runAuditCommand(
   // already non-zero via the propagated error.)
   let writeBackFailed = false;
   if (opts.writeBack !== undefined) {
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-
     if (opts.fleet !== undefined) {
       const wb = await runFleetWriteBack({ results, which });
       if (wb.anyFailed) writeBackFailed = true;
@@ -365,12 +362,8 @@ export async function runAuditCommand(
       await new Listr(
         [
           {
-            title: `Write to Airtable[${slug}]`,
+            title: `Write back[${slug}]`,
             task: async (_ctx, task) => {
-              const base = openBase(readAirtableConfig());
-              // #646 step 4: the row to write is found in Turso, which holds every
-              // site — a `site_<ULID>` site has no Airtable record to find. The
-              // Airtable write below stays as the shadow and skips non-`rec` ids.
               task.output = "loading the fleet roster…";
               const { readFleetRoster } = await import("../../fleet/roster.js");
               const websites = await readFleetRoster();
@@ -378,7 +371,6 @@ export async function runAuditCommand(
               const { makeSiteMirror } = await import("../../db/site-mirror.js");
               const siteMirror = await makeSiteMirror();
               const summary = await writeBackOneSite({
-                base,
                 websites,
                 slug,
                 results,
@@ -418,7 +410,6 @@ export async function runFleetWriteBack(args: {
   results: AuditResult[];
   which: AuditName[];
   deps?: {
-    openBase?: () => AirtableBase;
     /** #646 step 4: the rows results are matched against. Defaults to Turso
      *  (`readFleetRoster`); tests inject. */
     roster?: FleetRoster;
@@ -433,17 +424,6 @@ export async function runFleetWriteBack(args: {
   const { results, which, deps = {} } = args;
   const { writeFleetAuditsToAirtable, formatFleetWriteSummary, fleetWriteFailed } =
     await import("../../audits/write-audits-to-airtable.js");
-  let base: AirtableBase;
-  if (deps.openBase) {
-    base = deps.openBase();
-  } else {
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    base = openBase(readAirtableConfig());
-  }
-  // #646 step 4: match results against the TURSO roster. Every site is there,
-  // including a `site_<ULID>` site with no Airtable record — matched against
-  // Airtable it failed with "No Websites row matched". Airtable stays the
-  // shadow: updateAuditFields skips a non-`rec` id and logs the skip.
   const roster =
     deps.roster ??
     (async () => {
@@ -451,9 +431,6 @@ export async function runFleetWriteBack(args: {
       return readFleetRoster();
     });
   const websites = await roster();
-  // Phase 3 dual-write (#539): mirror each site's written FieldSet into
-  // site_health. Null when libSQL creds are absent — Airtable write-back
-  // proceeds exactly as before.
   const makeMirror =
     deps.makeMirror ??
     (async () => {
@@ -462,7 +439,6 @@ export async function runFleetWriteBack(args: {
     });
   const mirror = await makeMirror();
   const fleetWrite = await writeFleetAuditsToAirtable({
-    base,
     websites,
     results,
     ...(mirror ? { mirror } : {}),

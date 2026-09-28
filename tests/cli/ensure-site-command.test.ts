@@ -10,16 +10,6 @@ import { join } from "node:path";
 import { openDb, type Db } from "../../src/db/client.js";
 import { runEnsureSiteCommand } from "../../src/cli/commands/ensure-site.js";
 
-const openBase = vi.hoisted(() =>
-  vi.fn(() => {
-    throw new Error("ensure-site must never open Airtable");
-  }),
-);
-vi.mock("../../src/reports/airtable/client.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/reports/airtable/client.js")>()),
-  openBase,
-}));
-
 let dir: string;
 let db: Db;
 const deps = () => ({ openDb: async () => db });
@@ -77,7 +67,13 @@ describe("runEnsureSiteCommand", () => {
     expect(res.code).toBe(0);
     expect(res.output).toMatch(/^\[roalson\] created \(site_/);
     expect(res.output).not.toMatch(/Airtable/);
-    expect(openBase).not.toHaveBeenCalled();
+    const row = await db
+      .selectFrom("sites")
+      .select(["id", "name"])
+      .where("slug", "=", "roalson")
+      .executeTakeFirst();
+    expect(row?.id).toMatch(/^site_/);
+    expect(row?.name).toBe("Roalson");
   });
 
   it("reports exists + which blanks were filled", async () => {

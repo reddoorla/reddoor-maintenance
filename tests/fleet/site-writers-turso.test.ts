@@ -1,17 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  touched: [] as string[],
   health: [] as Array<{ siteId: string; fields: Record<string, unknown> }>,
 }));
-
-vi.mock("../../src/reports/airtable/client.js", async (importOriginal) => {
-  const { untouchableBase } = await import("./_helpers/untouchable-airtable.js");
-  return {
-    ...(await importOriginal<typeof import("../../src/reports/airtable/client.js")>()),
-    openBase: () => untouchableBase(h.touched),
-  };
-});
 
 vi.mock("../../src/fleet/roster.js", () => ({
   readFleetRoster: async () => [
@@ -40,19 +31,19 @@ import {
 import { writeNextDueDates } from "../../src/cli/commands/report.js";
 import type { SiteMirror } from "../../src/db/site-mirror.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { untouchableBase, untouchableFetch } from "./_helpers/untouchable-airtable.js";
 
+let fetchSpy: ReturnType<typeof vi.fn>;
 let logged: () => string;
 let warned: () => string;
 
 beforeEach(() => {
-  h.touched.length = 0;
   h.health.length = 0;
-  vi.stubGlobal("fetch", untouchableFetch(h.touched));
+  fetchSpy = vi.fn(async (input: unknown) => {
+    throw new Error(`network touched: ${String(input)}`);
+  });
+  vi.stubGlobal("fetch", fetchSpy);
   vi.stubEnv("TURSO_DATABASE_URL", "");
   vi.stubEnv("TURSO_AUTH_TOKEN", "");
-  vi.stubEnv("AIRTABLE_PAT", "pat_test");
-  vi.stubEnv("AIRTABLE_BASE_ID", "app_test");
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   logged = () => log.mock.calls.flat().join("\n");
@@ -65,7 +56,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("shipped shadow-off: the renovate-dispatch auto-fix counter never touches Airtable", () => {
+describe("the renovate-dispatch auto-fix counter lands in Turso", () => {
   it("resets every counter in Turso and tallies no failure", async () => {
     vi.stubEnv("GH_TOKEN", "tok");
     const mirrored: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
@@ -79,27 +70,23 @@ describe("shipped shadow-off: the renovate-dispatch auto-fix counter never touch
     };
     const r = await runRenovateDispatchCommand({
       fleet: true,
-      base: untouchableBase(h.touched),
       roster: async () => [
         makeWebsiteRow({ id: "recA", name: "Alamo", securityAutoFixAttempts: 7 }),
         makeWebsiteRow({ id: "recB", name: "Beta", securityAutoFixAttempts: 3 }),
       ],
       siteMirror,
     });
-    expect(h.touched).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(r.code).toBe(0);
     expect(r.output).toContain("AUTO_FIX_ATTEMPTS_SUMMARY written=2 failed=0");
     expect(mirrored).toEqual([
       { siteId: "recA", fields: { "Security Auto-Fix Attempts": 0 } },
       { siteId: "recB", fields: { "Security Auto-Fix Attempts": 0 } },
     ]);
-    expect(logged()).toContain(
-      "AIRTABLE_SHADOW skipped=shadow-off writer=updateAutoFixAttempts id=recA",
-    );
   });
 });
 
-describe("shipped shadow-off: the real prismic-models verdict sink never touches Airtable", () => {
+describe("the real prismic-models verdict sink lands in Turso", () => {
   const CHECKED_AT = "2026-09-28T06:00:00.000Z";
   const row = (site: string, over: Partial<SweepRow> = {}): SweepRow => ({
     site,
@@ -119,7 +106,7 @@ describe("shipped shadow-off: the real prismic-models verdict sink never touches
       sink.update,
       CHECKED_AT,
     );
-    expect(h.touched).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(res.failed).toEqual([]);
     expect(res.written.map((w) => w.siteName)).toEqual(["Espada", "Beacon"]);
     expect(h.health).toEqual([
@@ -140,18 +127,14 @@ describe("shipped shadow-off: the real prismic-models verdict sink never touches
         },
       },
     ]);
-    expect(logged()).toContain(
-      "AIRTABLE_SHADOW skipped=shadow-off writer=updatePrismicModels id=recB",
-    );
   });
 });
 
-describe("shipped shadow-off: report --due's next-due write never touches Airtable", () => {
+describe("report --due's next-due write lands in site_schedule", () => {
   it("lands every moved date in site_schedule and reports no failure", async () => {
     const today = new Date("2026-08-24T09:23:00.000Z");
     const mirrored: Array<{ siteId: string; fields: Record<string, unknown>; at: string }> = [];
     await writeNextDueDates(
-      untouchableBase(h.touched),
       [
         makeWebsiteRow({ id: "recA", name: "Acme", maintenanceFreq: "Monthly" }),
         makeWebsiteRow({ id: "recB", name: "Beta", testingFreq: "Monthly" }),
@@ -163,7 +146,7 @@ describe("shipped shadow-off: report --due's next-due write never touches Airtab
         return true;
       },
     );
-    expect(h.touched).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(mirrored).toEqual([
       {
         siteId: "recA",
@@ -178,9 +161,6 @@ describe("shipped shadow-off: report --due's next-due write never touches Airtab
     ]);
     expect(logged()).toContain(
       "NEXT_DUE_WRITE wrote=2 skipped=0 failed=0 mirrored=2 mirror_failed=0 mirror_missed=0",
-    );
-    expect(logged()).toContain(
-      "AIRTABLE_SHADOW skipped=shadow-off writer=updateNextDueDates id=recA",
     );
     expect(warned()).toBe("");
   });

@@ -1,23 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
 import { preflight } from "../../src/reports/preflight.js";
-import { listWebsites } from "../../src/reports/airtable/websites.js";
-import { listAllReports } from "../../src/reports/airtable/reports.js";
-import {
-  makeFakeBase,
-  type FakeRecord,
-  type FakeAirtableBase,
-} from "./_helpers/fake-airtable-base.js";
+import { websiteRowsFrom, reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 
 /** #646 step 4: preflight is handed its two reads; in production they come from
- *  Turso. These fixtures stay in a fake Airtable base because `listWebsites`/
- *  `listAllReports` build the same row shapes the Turso readers return. */
-const io = (base: FakeAirtableBase) => ({
-  roster: () => listWebsites(base),
-  allReports: () => listAllReports(base),
+ *  Turso. */
+const io = (tables: { Websites: RawRow[]; Reports: RawRow[] }) => ({
+  roster: async () => websiteRowsFrom(tables.Websites),
+  allReports: async () => reportRowsFrom(tables.Reports),
 });
 
 /** Raw Airtable Websites rows (mapRow field names), fully send-clean unless overridden. */
-function siteRecord(id: string, name: string, over: Record<string, unknown> = {}): FakeRecord {
+function siteRecord(id: string, name: string, over: Record<string, unknown> = {}): RawRow {
   return {
     id,
     fields: {
@@ -39,22 +32,27 @@ function siteRecord(id: string, name: string, over: Record<string, unknown> = {}
 
 const NOW = new Date("2026-07-02T12:00:00Z");
 
-describe("preflight() orchestrator (fake Airtable base)", () => {
+describe("preflight() orchestrator", () => {
   it("--all with Announcement selects only maintained-status sites (announce's own filter)", async () => {
-    const base = makeFakeBase({
+    const tables = {
       Websites: [
         siteRecord("rec1", "Acme"),
         siteRecord("rec2", "Hosting Co", { Status: "hosted-only" }),
         siteRecord("rec3", "Dead Co", { Status: "archived" }),
       ],
       Reports: [],
+    };
+    const { results } = await preflight({
+      ...io(tables),
+      all: true,
+      type: "Announcement",
+      now: NOW,
     });
-    const { results } = await preflight({ ...io(base), all: true, type: "Announcement", now: NOW });
     expect(results.map((r) => r.site)).toEqual(["Acme"]);
   });
 
   it("--all with Maintenance mirrors report --due eligibility: hosted-only + null-status included, archived excluded", async () => {
-    const base = makeFakeBase({
+    const tables = {
       Websites: [
         siteRecord("rec1", "Acme"),
         siteRecord("rec2", "Hosting Co", { Status: "hosted-only" }),
@@ -63,33 +61,38 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
         siteRecord("rec5", "Not Ours", { Status: "external" }),
       ],
       Reports: [],
+    };
+    const { results } = await preflight({
+      ...io(tables),
+      all: true,
+      type: "Maintenance",
+      now: NOW,
     });
-    const { results } = await preflight({ ...io(base), all: true, type: "Maintenance", now: NOW });
     expect(results.map((r) => r.site).sort()).toEqual(["Acme", "Hosting Co", "Legacy Row"]);
   });
 
   it("single-site mode matches by slug and skips fleet checks", async () => {
-    const base = makeFakeBase({
+    const tables = {
       Websites: [siteRecord("rec1", "Acme Co"), siteRecord("rec2", "Beta Co")],
       Reports: [],
-    });
-    const { results, fleet } = await preflight({ ...io(base), site: "acme-co", now: NOW });
+    };
+    const { results, fleet } = await preflight({ ...io(tables), site: "acme-co", now: NOW });
     expect(results.map((r) => r.site)).toEqual(["Acme Co"]);
     expect(fleet).toEqual([]);
   });
 
-  it("fetches the Reports table exactly once regardless of site count (rate-limit parity with --due)", async () => {
-    const base = makeFakeBase({
+  it("reads the reports exactly once regardless of site count (parity with --due)", async () => {
+    const tables = {
       Websites: [siteRecord("rec1", "A"), siteRecord("rec2", "B"), siteRecord("rec3", "C")],
       Reports: [],
-    });
-    await preflight({ ...io(base), all: true, type: "Announcement", now: NOW });
-    const reportSelects = base.__calls.filter((c) => c.kind === "select" && c.table === "Reports");
-    expect(reportSelects).toHaveLength(1);
+    };
+    const allReports = vi.fn(async () => reportRowsFrom(tables.Reports));
+    await preflight({ ...io(tables), allReports, all: true, type: "Announcement", now: NOW });
+    expect(allReports).toHaveBeenCalledTimes(1);
   });
 
   it("matches each site to its own reports via the Site link column", async () => {
-    const base = makeFakeBase({
+    const tables = {
       Websites: [siteRecord("rec1", "Acme"), siteRecord("rec2", "Beta")],
       Reports: [
         {
@@ -102,8 +105,13 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
           },
         },
       ],
+    };
+    const { results } = await preflight({
+      ...io(tables),
+      all: true,
+      type: "Announcement",
+      now: NOW,
     });
-    const { results } = await preflight({ ...io(base), all: true, type: "Announcement", now: NOW });
     const acme = results.find((r) => r.site === "Acme")!;
     const beta = results.find((r) => r.site === "Beta")!;
     expect(acme.findings.map((f) => f.check)).toContain("pending-drafts");
@@ -115,11 +123,11 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
     // fires here too — spy on it (silencing the stderr noise) and assert it.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      const base = makeFakeBase({
+      const tables = {
         Websites: [siteRecord("rec1", "Acme", { "maintenence freq": "Quaterly" })],
         Reports: [],
-      });
-      const { results } = await preflight({ ...io(base), site: "acme", now: NOW });
+      };
+      const { results } = await preflight({ ...io(tables), site: "acme", now: NOW });
       expect(results[0]!.findings.map((f) => f.check)).toContain("frequency-unrecognized");
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]![0]).toMatch(/Acme.*unrecognized frequency 'Quaterly'/);

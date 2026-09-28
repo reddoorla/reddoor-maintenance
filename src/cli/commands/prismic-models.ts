@@ -144,22 +144,14 @@ export const defaultDeps = (): PrismicModelsDeps => ({
   sendModel: (repo, token, entry, action) => sendModelImpl(repo, token, entry, action),
   env: process.env,
   spawn: makeSpawn(),
-  // Imported HERE rather than at the top of the file: the Airtable client is a
+  // Imported HERE rather than at the top of the file: the db client is a
   // devDependency of this package, and a consuming fleet site running the in-repo
-  // check in its own CI has no `airtable` installed. A static import would make
-  // every one of those runs fail on module load.
+  // check in its own CI does not install it. A static import would make every
+  // one of those runs fail on module load.
   openVerdictSink: async () => {
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { prismicModelsFields, updatePrismicModels } =
-      await import("../../reports/airtable/websites.js");
+    const { prismicModelsFields } = await import("../../reports/airtable/websites.js");
     const { readFleetRoster } = await import("../../fleet/roster.js");
-    // `openBase` throttles every HTTP call this base makes at its single funnel
-    // (≤4.5 req/s), so the serial writes below cannot burst past Airtable's rate
-    // limit no matter how large the fleet gets.
-    const base = openBase(readAirtableConfig());
-    // #646 step 4: the verdict sink's roster is Turso's — the sweep may hand it a
-    // site that has no Airtable record. `updatePrismicModels` skips a non-`rec`
-    // id itself, so the verdict lands in Turso and the shadow is skipped, logged.
+    // #646 step 4: the verdict sink's roster is Turso's.
     const websites = await readFleetRoster();
     // #539 Phase 5: the verdict lands on three site_health columns. Mirroring
     // here — inside the sink, which IS this command's composition root — keeps
@@ -170,7 +162,6 @@ export const defaultDeps = (): PrismicModelsDeps => ({
       websites: websites.map((w) => ({ id: w.id, name: w.name })),
       update: async (recordId, models) => {
         await mirror.health(recordId, prismicModelsFields(models));
-        await updatePrismicModels(base, recordId, models);
       },
     };
   },
@@ -1600,26 +1591,22 @@ export function sweepRowWriteback(row: SweepRow, checkedAt: string): PrismicMode
 }
 
 /**
- * Persist a fleet sweep to Airtable, one row at a time.
- *
- * SERIAL, like every other fleet writer here. The base returned by `openBase`
- * throttles its own HTTP calls (≤4.5 req/s), so this is belt-and-braces rather
- * than the only guard — but a `Promise.all` fan-out across the fleet would still
- * queue every request at once for no gain, and the failures are easier to read in
+ * Persist a fleet sweep to each site's Turso `site_health` row, one at a time.
+ * SERIAL, like every other fleet writer here: the failures are easier to read in
  * inventory order.
  *
  * EVERY ROW LANDS IN EXACTLY ONE BUCKET — written or failed. A row that fell out
  * of both would be a site the operator believes this sweep covered and it did
  * not, which is the same class of hole as a site missing from the sweep itself.
  *
- * The join is by SLUG, matching `writeAuditsToAirtable` and every other fleet
- * writer, so "Espada" in the inventory and "espada" in Airtable are one site. A
+ * The join is by SLUG, matching every other fleet writer, so "Espada" in the
+ * inventory and "espada" in the roster are one site. A
  * slug that matches TWO records is refused rather than resolved: a verdict
  * written to the wrong client's row is worse than a verdict not written, and only
  * a human can say which row is the real one.
  *
  * Nothing here throws. A per-row failure — no matching record, an ambiguous
- * match, an UNKNOWN_FIELD_NAME from columns the operator has not added yet — is
+ * match, a failed store write — is
  * COLLECTED, because one unwritable row must not cost the other fourteen their
  * verdicts.
  */
@@ -1741,7 +1728,7 @@ async function runFleetSweep(
     return {
       output:
         `the inventory resolved NO SITES, so no sites were swept and nothing was compared.` +
-        ` This is not a clean fleet — check the inventory (an Airtable view filter, an empty` +
+        ` This is not a clean fleet — check the inventory (an empty fleet roster, an empty` +
         ` JSON file, a dynamic inventory returning []). Do NOT read this exit as a result.`,
       code: 1,
     };
@@ -1862,8 +1849,8 @@ async function runFleetTokenDoctor(
     return {
       output:
         `the inventory resolved NO SITES, so no site's token requirement was established.` +
-        ` This is not a fleet that needs no secrets — check the inventory (an Airtable view` +
-        ` filter, an empty JSON file, a dynamic inventory returning []). Do NOT read this` +
+        ` This is not a fleet that needs no secrets — check the inventory (an empty fleet` +
+        ` roster, an empty JSON file, a dynamic inventory returning []). Do NOT read this` +
         ` exit as a checklist.`,
       code: 1,
     };

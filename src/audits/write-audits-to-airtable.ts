@@ -1,6 +1,4 @@
-import type { FieldSet } from "airtable";
 import type { AuditResult } from "../types.js";
-import type { AirtableBase } from "../reports/airtable/client.js";
 import type { HealthMirror } from "./health-mirror.js";
 import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 import {
@@ -8,7 +6,7 @@ import {
   type WebsiteRow,
   auditFields,
   siteSlug,
-  updateAuditFieldSet,
+  type FieldSet,
 } from "../reports/airtable/websites.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
 import { hasA11yCounts, a11yCountsFromResult } from "./a11y-airtable.js";
@@ -225,14 +223,7 @@ export function planAuditWrite(args: {
   };
 }
 
-export async function shadowAuditWrite(base: AirtableBase, plan: AuditWritePlan): Promise<void> {
-  const { siteId, fields } = plan.summary;
-  if (siteId === undefined || fields === undefined || Object.keys(fields).length === 0) return;
-  await updateAuditFieldSet(base, siteId, fields);
-}
-
 export async function writeBackOneSite(args: {
-  base: AirtableBase;
   websites: WebsiteRow[];
   slug: string;
   results: AuditResult[];
@@ -241,19 +232,6 @@ export async function writeBackOneSite(args: {
   const plan = planAuditWrite(args);
   const { siteId, fields } = plan.summary;
   if (siteId && fields) await args.mirrorHealth(siteId, fields);
-  await shadowAuditWrite(args.base, plan);
-  if (plan.lighthouseMiss) throw plan.lighthouseMiss;
-  return plan.summary;
-}
-
-export async function writeAuditsToAirtable(args: {
-  base: AirtableBase;
-  websites: WebsiteRow[];
-  slug: string;
-  results: AuditResult[];
-}): Promise<WriteSummary> {
-  const plan = planAuditWrite(args);
-  await shadowAuditWrite(args.base, plan);
   if (plan.lighthouseMiss) throw plan.lighthouseMiss;
   return plan.summary;
 }
@@ -267,11 +245,9 @@ export type FleetWriteResult = {
    *  that landed nothing = the fleet-wide outage alarm). */
   mirrored?: number;
   mirrorFailed?: number;
-  /** Mirror UPDATEs that matched no site_health row (site created in Airtable
-   *  after the last hourly import). Not a failure — the row converges on the
-   *  next sync — but not mirrored either: counted apart so `mirrored=` stays
-   *  an honest Phase 5 cutover signal instead of overcounting by the no-row
-   *  sites. */
+  /** Mirror UPDATEs that matched no site_health row. Every site creator
+   *  inserts that row, so a miss is a defect; the site is also filed under
+   *  `failed`. */
   mirrorMissed?: number;
   events?: FleetEvent[];
 };
@@ -284,24 +260,26 @@ export type FleetWriteResult = {
  *  still reding on a total or mass write-back failure. */
 /** Did this sweep fail, for exit-code purposes (#612)?
  *
- *  Pre-freeze, only an Airtable write failure counts. Mirror failures and missed
- *  rows are real but survivable: the hourly import converges them, and going red
- *  over a transient the system already handles would train the alarm to be
- *  ignored.
+ *  Turso is the only store, so a mirror failure, a missed row and an ABSENT
+ *  mirror are all fatal under `strict` — the absent one is the easiest to
+ *  misread as success: no counters at all means no libSQL creds, which means
+ *  the sweep wrote nothing.
  *
- *  Post-freeze there is no import to converge anything, so all three become
- *  fatal — including an ABSENT mirror, which is the worst of the three and the
- *  easiest to misread as success: no counters at all means no libSQL creds,
- *  which means the sweep wrote nothing to the only store there is.
- *
- *  Note what this deliberately does NOT change: `writeFleetAuditsToAirtable`
- *  still catches per-site mirror failures rather than throwing. One bad site
- *  must not abort a 44-site sweep. This gates the RUN, not the loop. */
+ *  `writeFleetAuditsToAirtable` still catches per-site failures rather than
+ *  throwing. One bad site must not abort a 44-site sweep. This gates the RUN,
+ *  not the loop. */
 export function fleetWriteFailed(
   result: FleetWriteResult,
   strict: boolean = TURSO_IS_AUTHORITATIVE,
 ): boolean {
   if (result.failed.length > 0) return true;
+  return tursoWriteFailed(result, strict);
+}
+
+export function tursoWriteFailed(
+  result: FleetWriteResult,
+  strict: boolean = TURSO_IS_AUTHORITATIVE,
+): boolean {
   if (!strict) return false;
   if (result.mirrored === undefined) return true; // no mirror was wired at all
   return (result.mirrorFailed ?? 0) > 0 || (result.mirrorMissed ?? 0) > 0;
@@ -311,7 +289,7 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
   const wrote = result.written.length;
   const failed = result.failed.length;
   const total = wrote + failed;
-  let out = `→ wrote ${wrote} site(s) to Airtable`;
+  let out = `→ wrote ${wrote} site(s)`;
   if (failed > 0) {
     out += `\n⚠ ${failed} site(s) not written: ${result.failed
       .map((f) => `${f.slug} (${f.error})`)
@@ -327,19 +305,21 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
   return out;
 }
 
-/** Write each site's pooled audit results back to its own Websites row,
+/** Write each site's pooled audit results to its Turso `site_health` row,
  *  best-effort. Results are grouped by `result.site` (the slug the fleet
  *  inventory stamped as Site.name). A per-site failure (no scores, no matching
- *  row) is collected — not thrown — so one bad site never aborts the batch. */
+ *  row, a Turso write that threw or matched nothing, no store at all) is
+ *  collected — not thrown — so one bad site never aborts the batch. A site is
+ *  `written` only when its FieldSet landed in Turso, so the nightly gates'
+ *  `wrote=0` catches a total store outage. */
 export async function writeFleetAuditsToAirtable(args: {
-  base: AirtableBase;
   websites: WebsiteRow[];
   results: AuditResult[];
-  /** Optional Turso write-through (#539 Phase 3 dual-write). A mirror failure
-   *  is counted, never thrown. */
+  /** The Turso write (#539 Phase 3). A failure is counted and files the site
+   *  under `failed`, never thrown. Absent → every site with a FieldSet fails. */
   mirror?: HealthMirror;
 }): Promise<FleetWriteResult> {
-  const { base, websites, results, mirror } = args;
+  const { websites, results, mirror } = args;
 
   const bySlug = new Map<string, AuditResult[]>();
   for (const r of results) {
@@ -354,11 +334,6 @@ export async function writeFleetAuditsToAirtable(args: {
   let mirrored = 0;
   let mirrorFailed = 0;
   let mirrorMissed = 0;
-  // Serial on purpose: even at one (now atomic) update call per site, Airtable's
-  // ~5 req/sec limit means a Promise.all fan-out across the fleet would burst and
-  // trip 429s (silently filed as failures). Below a few dozen sites, serial trades
-  // wall-clock for safety. (morning-brief 2026-06-09 MEDIUM-3.) Add a bounded pool
-  // when the fleet grows.
   for (const [slug, siteResults] of bySlug) {
     let plan: AuditWritePlan;
     try {
@@ -368,25 +343,31 @@ export async function writeFleetAuditsToAirtable(args: {
       continue;
     }
     const { summary } = plan;
-    if (mirror && summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
+    if (summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
+      if (!mirror) {
+        failed.push({ slug, error: "no Turso store configured" });
+        continue;
+      }
       try {
-        if (await mirror(summary.siteId, summary.fields)) {
-          mirrored++;
-          events.push(...(summary.events ?? []));
-        } else mirrorMissed++;
+        if (!(await mirror(summary.siteId, summary.fields))) {
+          mirrorMissed++;
+          failed.push({ slug, error: "no site_health row matched" });
+          continue;
+        }
+        mirrored++;
+        events.push(...(summary.events ?? []));
       } catch (e) {
         mirrorFailed++;
         console.error(`[health-mirror] ${slug}: ${(e as Error).message}`);
+        failed.push({ slug, error: `Turso write failed: ${(e as Error).message}` });
+        continue;
       }
     }
-    try {
-      await shadowAuditWrite(base, plan);
-      if (plan.lighthouseMiss) throw plan.lighthouseMiss;
-      written.push(summary);
-      if (!mirror) events.push(...(summary.events ?? []));
-    } catch (e) {
-      failed.push({ slug, error: (e as Error).message });
+    if (plan.lighthouseMiss) {
+      failed.push({ slug, error: plan.lighthouseMiss.message });
+      continue;
     }
+    written.push(summary);
   }
   return { written, failed, events, ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}) };
 }

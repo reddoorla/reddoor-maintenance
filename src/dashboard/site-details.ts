@@ -36,8 +36,8 @@ export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
  * everywhere, and it is why an unknown condition is rejected rather than sent.
  *
  * `no analytics` is the first option added after that constraint lapsed: since
- * `AIRTABLE_SHADOW_WRITES = false` (#933) the editor writes Turso only, so a
- * value Airtable's select lacks is never sent to it. It is the explicit opt-out
+ * #933 turned the Airtable shadow off (and #937 deleted the layer) the editor
+ * writes Turso only, so a value Airtable's select lacks is never sent to it. It is the explicit opt-out
  * from the GA4 setup requirement (`src/dashboard/onboarding.ts`).
  *
  * KNOWN GAP, operator-owned: `fleet-cockpit.ts` also supports a
@@ -81,7 +81,7 @@ export type EditableField = {
  */
 export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   // The site's own address, and the target EVERY deployed audit drives: the
-  // inventory exposes it as `Site.deployedUrl` (src/inventory/airtable.ts), so
+  // inventory exposes it as `Site.deployedUrl` (src/inventory/select.ts), so
   // function-health, lighthouse, browser, domain and form-e2e all resolve
   // against it. It was writable only at creation (`ensure-site`), and the #643
   // freeze retired Airtable hand-editing — which left a site that MOVED with no

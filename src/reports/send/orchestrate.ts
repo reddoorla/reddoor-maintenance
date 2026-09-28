@@ -1,9 +1,6 @@
-import { openBase, readAirtableConfig, type AirtableBase } from "../airtable/client.js";
-import { stampSent } from "../airtable/reports.js";
-import { launchedFields, updateLaunched } from "../airtable/websites.js";
+import { launchedFields } from "../airtable/websites.js";
 import { siteSlug, type WebsiteRow } from "../../fleet/site-row.js";
 import type { ReportRow } from "../report-row.js";
-import { fetchAttachmentBytes } from "../airtable/attachments.js";
 import { renderReportFromRow, requireLighthouse } from "./render-from-row.js";
 import { defaultResendClient, type ResendClient } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
@@ -48,30 +45,24 @@ export type OrchestrateOptions = {
   /**
    * The site's header plate, from `sites.header_image*` (design D5 made Turso its
    * source; the re-render path has read it from there since #643). `null` means
-   * Turso holds no bytes for that site, and the send falls back to the site's
-   * Airtable attachment — which is the ONLY reason this path still reads
-   * Airtable, and why the fallback fetches ONE site's record rather than the
-   * roster it used to get the signed url from.
+   * Turso holds no bytes for that site, and the send refuses it by name.
    */
   loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>;
-  /** #539 Phase 5: Turso write-through for the Websites row a Launch send
-   *  updates. Injected rather than defaulted — this function is called directly
-   *  by tests, and a default would open a real libSQL handle inside the suite. */
-  siteMirror?: SiteMirror;
-  /** #643 (the freeze): Turso write-through for the `Sent at` / `Resend message
-   *  ID` stamp. The console's already-sent guards (approve, the commentary lock,
+  /** #539 Phase 5: the Turso write for the site row a Launch send updates —
+   *  the only place the Launch flip lands. Required, not defaulted: this
+   *  function is called directly by tests, and a default would open a real
+   *  libSQL handle inside the suite. */
+  siteMirror: SiteMirror;
+  /** #643 (the freeze): the `Sent at` / `Resend message ID` stamp, the only
+   *  thing that removes a row from the send queue. The console's already-sent guards (approve, the commentary lock,
    *  re-render) read `sent_at` from Turso. Injected like siteMirror; the CLI wires it
    *  through `mirrorWrite` so the freeze switch owns the error semantics. */
-  reportSentMirror?: (reportId: string, sentAt: Date, messageId: string | null) => Promise<void>;
+  reportSentMirror: (reportId: string, sentAt: Date, messageId: string | null) => Promise<void>;
 };
 
 export async function sendApprovedReports(
   options: OrchestrateOptions,
 ): Promise<{ output: string; code: number }> {
-  // Airtable is still opened on this path: `stampSent`, `updateLaunched` and the
-  // header fallback below are all Airtable calls. What moved in #646 step 4 are
-  // the two READS that decided what the run does at all.
-  const base = openBase(readAirtableConfig());
   const client = options.resend ?? defaultResendClient();
 
   const sendable = await options.sendable();
@@ -90,14 +81,14 @@ export async function sendApprovedReports(
       continue;
     }
     try {
-      const sent = await sendOne(client, base, site, report, options.loadHeaderPlate);
+      const sent = await sendOne(client, site, report, options.loadHeaderPlate);
       lines.push(`✓ sent: ${report.reportId} (${sent.display})`);
-      // Mirror the stamp into Turso. Caught here rather than thrown so one
-      // report's lost mirror still lets the batch continue AND still runs this
-      // report's Launch flip below — but it reds the run (`anyFailed`), because
-      // post-freeze nothing converges the miss.
+      // Stamp the send. Caught here rather than thrown so one report's lost
+      // stamp still lets the batch continue AND still runs this report's Launch
+      // flip below — but it reds the run (`anyFailed`), because nothing else
+      // converges the miss.
       try {
-        await options.reportSentMirror?.(report.id, sent.sentAt, sent.messageId);
+        await options.reportSentMirror(report.id, sent.sentAt, sent.messageId);
       } catch (e) {
         lines.push(`  ✗ sent-stamp mirror failed for ${report.reportId}: ${(e as Error).message}`);
         anyFailed = true;
@@ -130,8 +121,7 @@ export async function sendApprovedReports(
           // Status and `Launched at` travel together — mirroring them as two
           // updates would open a window where Turso says a site is maintained
           // but never launched.
-          await options.siteMirror?.site(site.id, launchedFields(at));
-          await updateLaunched(base, site.id, at);
+          await options.siteMirror.site(site.id, launchedFields(at));
           lines.push(`  ↳ launched: ${site.name} flipped to maintained`);
           await recordFleetEventsBestEffort(
             [
@@ -148,15 +138,14 @@ export async function sendApprovedReports(
             new Date(),
           );
         } catch (e) {
-          // Post-freeze a swallowed flip failure is permanent divergence: Turso
-          // — the store lead routing reads — would keep the site in
-          // launch-period forever (its leads go operator-only). Red the run
-          // instead of shrugging; the email itself already went out.
+          // A swallowed flip failure is permanent: Turso — the store lead
+          // routing reads — would keep the site in launch-period forever (its
+          // leads go operator-only). Red the run instead of shrugging; the
+          // email itself already went out.
           lines.push(`  ⚠ launch flip failed for ${site.name}: ${(e as Error).message}`);
           anyFailed = true;
         }
       }
-      await stampSent(base, report.id, sent.sentAt, sent.messageId);
     } catch (e) {
       lines.push(`✗ ${report.reportId} — ${(e as Error).message}`);
       anyFailed = true;
@@ -166,55 +155,34 @@ export async function sendApprovedReports(
 }
 
 /**
- * The header plate for one send: Turso first, the site's Airtable attachment as
- * the fallback (#646 step 4).
- *
- * Turso first for the reason the re-render path already had: the bytes are local,
- * and an Airtable attachment url is SIGNED and expiring, so fetching one when the
- * same image is already in hand is latency plus a dependency on a url that may be
- * dead. The fallback exists because the plate columns were backfilled, not
- * enforced — a site whose image never made it across must still be able to send,
- * exactly as it did before this change.
- *
- * The fallback is a ONE-SITE Airtable lookup, not the whole Websites table: the
- * roster no longer comes from Airtable, so the signed url is not already in hand.
- * A site with no record there (every `site_<ULID>` site) and no plate gets a named
+ * The header plate for one send, from Turso. A site with no plate gets a named
  * error with the command that fixes it — not a silent unillustrated report.
  */
 async function headerPlateFor(
-  base: AirtableBase,
   site: WebsiteRow,
   loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>,
-): Promise<{ bytes: Uint8Array; source: "turso" | "airtable" }> {
+): Promise<{ bytes: Uint8Array; source: "turso" }> {
   const stored = await loadHeaderPlate(site.id);
   if (stored) return { bytes: stored, source: "turso" };
   const slug = siteSlug(site.name);
-  const { findWebsiteRecordBySlug } = await import("../airtable/ensure-site.js");
-  const { mapRow } = await import("../airtable/websites.js");
-  const rec = slug ? await findWebsiteRecordBySlug(base, slug) : null;
-  const url = rec ? mapRow(rec).headerImage?.url : undefined;
-  if (!url) {
-    throw new Error(
-      `Site '${site.name}' has no Header image: no header plate in Turso and no Airtable ` +
-        `attachment to fall back to — run \`reddoor-maint header-image ${slug || site.name} --write-back\``,
-    );
-  }
-  return { bytes: (await fetchAttachmentBytes(url)).bytes, source: "airtable" };
+  throw new Error(
+    `Site '${site.name}' has no Header image: no header plate in Turso — ` +
+      `run \`reddoor-maint header-image ${slug || site.name} --write-back\``,
+  );
 }
 
-/** What the caller stamps (`messageId` null on the 409 path, where Airtable's
- *  field is left untouched too), plus the display string for the ✓ line. */
+/** What the caller stamps (`messageId` null on the 409 path), plus the display
+ *  string for the ✓ line. */
 type SentStamp = { display: string; sentAt: Date; messageId: string | null };
 
 async function sendOne(
   client: ResendClient,
-  base: ReturnType<typeof openBase>,
   site: WebsiteRow,
   report: ReportRow,
   loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>,
 ): Promise<SentStamp> {
   // Hard health gate: a Maintenance/Testing report whose gating evidence isn't all pass/n/a must
-  // never go out — even if "Approved to send" was set directly in Airtable. Throw so the row is
+  // never go out — even if "Approved to send" was set directly in the store. Throw so the row is
   // skipped and `Sent at` stays null (at-least-once retry preserved). Launch/Announcement have no
   // gating fields → vacuously clear. A logged send-anyway override (Phase 10) bypasses the gate.
   const gateReport = { reportType: report.reportType, autoEvidence: report.autoEvidence ?? {} };
@@ -250,7 +218,7 @@ async function sendOne(
     if (!isProbablyEmail(addr)) {
       throw new Error(
         `Site '${site.name}' recipient is malformed: ${addr} — use a bare address only ` +
-          `(no \`Name <addr>\` display-name syntax); fix Report recipients (To) or point of contact in Airtable`,
+          `(no \`Name <addr>\` display-name syntax); fix Report recipients (To) or point of contact in the site's details`,
       );
     }
   }
@@ -259,13 +227,13 @@ async function sendOne(
     for (const addr of cc) {
       if (!isProbablyEmail(addr)) {
         throw new Error(
-          `Site '${site.name}' CC is malformed: ${addr} — fix Report recipients (CC) in Airtable`,
+          `Site '${site.name}' CC is malformed: ${addr} — fix Report recipients (CC) in the site's details`,
         );
       }
     }
   }
 
-  const header = await headerPlateFor(base, site, loadHeaderPlate);
+  const header = await headerPlateFor(site, loadHeaderPlate);
   console.log(`REPORT_SEND report=${report.reportId} site=${site.name} header=${header.source}`);
   // ONE render path, shared with the console's on-demand re-render — so a
   // preview cannot drift from what the client actually receives. The assembly
@@ -326,7 +294,7 @@ async function sendOne(
  * Split a comma/newline-separated address field into a clean array.
  * Lowercases (case-insensitive dedupe) and removes empty entries. Returns
  * null if nothing survives. Does NOT understand `Display Name <email>` —
- * operators should put a bare address in the Airtable field, or use multiple
+ * operators should put a bare address in the field, or use multiple
  * lines if needing multiple recipients.
  */
 export function parseAddresses(field: string | null): string[] | null {

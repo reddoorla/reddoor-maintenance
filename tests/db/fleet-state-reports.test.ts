@@ -10,8 +10,15 @@
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
-import { listAllReports, listReportsForSite, getReportHtml } from "../../src/db/fleet-state.js";
+import type { RawRecord } from "../../src/db/import-airtable.js";
+import {
+  insertReportRow,
+  listAllReports,
+  listReportsForSite,
+  getReportHtml,
+  mirrorSiteInsert,
+  storeRenderedHtml,
+} from "../../src/db/fleet-state.js";
 import { mapRow as mapReportAirtable } from "../../src/reports/airtable/reports.js";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
@@ -77,22 +84,21 @@ const WEIRD: RawRecord = {
   },
 };
 
-const io = (reports: RawRecord[], over: Partial<ImportIo> = {}): ImportIo => ({
-  listWebsiteRecords: async () => [SITE],
-  listReportRecords: async () => reports,
-  fetchAttachment: async () => "<html>rendered body</html>",
-  now: () => NOW,
-  ...over,
-});
+const BODY = "<html>rendered body</html>";
 
-async function importOf(reports: RawRecord[], over: Partial<ImportIo> = {}) {
+async function seeded(reports: RawRecord[], bodies: Record<string, string> = {}) {
   const db = await openDb({ url: ":memory:" });
-  await importFleetState(db, io(reports, over));
+  await mirrorSiteInsert(db, SITE, NOW.toISOString());
+  for (const rec of reports) {
+    await insertReportRow(db, rec);
+    const body = bodies[rec.id];
+    if (body !== undefined) await storeRenderedHtml(db, rec.id, body);
+  }
   return db;
 }
 
-async function expectEquivalent(rec: RawRecord) {
-  const db = await importOf([rec]);
+async function expectEquivalent(rec: RawRecord, bodies: Record<string, string> = {}) {
+  const db = await seeded([rec], bodies);
   const rows = await listAllReports(db);
   expect(rows).toHaveLength(1);
   const expected = mapReportAirtable(rec);
@@ -104,7 +110,7 @@ async function expectEquivalent(rec: RawRecord) {
 
 describe("reports read layer ≡ mapRow (the Phase 2 equivalence instrument)", () => {
   it("rich record: every populated field round-trips, incl. the string auto-evidence cell", async () => {
-    const attachment = await expectEquivalent(RICH);
+    const attachment = await expectEquivalent(RICH, { recRPT1: BODY });
     // Body stored → the link is the dashboard's OWN preview route, not an
     // expiring Airtable URL.
     expect(attachment).toEqual({
@@ -115,7 +121,7 @@ describe("reports read layer ≡ mapRow (the Phase 2 equivalence instrument)", (
 
   it("sparse record: every default matches (empty ids, Maintenance type, pending delivery, all-false checklist)", async () => {
     const attachment = await expectEquivalent(SPARSE);
-    expect(attachment).toBeNull(); // no attachment in Airtable → no body stored
+    expect(attachment).toBeNull();
   });
 
   it("weird record: coercion edges match (unknown type, 3-of-4 lighthouse, bad evidence JSON, false-not-null)", async () => {
@@ -123,25 +129,32 @@ describe("reports read layer ≡ mapRow (the Phase 2 equivalence instrument)", (
   });
 
   it("listReportsForSite filters by site and matches the same rows", async () => {
-    const db = await importOf([RICH, WEIRD]);
+    const db = await seeded([RICH, WEIRD]);
     const forSite = await listReportsForSite(db, "recSITE");
     expect(forSite.map((r) => r.id).sort()).toEqual(["recRPT1", "recRPT3"]);
     expect(await listReportsForSite(db, "recNOPE")).toEqual([]);
   });
 
   it("getReportHtml serves the stored body, null when none or unknown id", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH], { recRPT1: BODY });
     expect(await getReportHtml(db, "recRPT1")).toEqual({
-      html: "<html>rendered body</html>",
+      html: BODY,
       reportId: "ACME-2026-08-M",
     });
     expect(await getReportHtml(db, "recNOPE")).toBeNull();
   });
 
-  it("a report imported while its URL was expired reads with a null preview link until the body lands", async () => {
-    const db = await importOf([RICH], { fetchAttachment: async () => null });
+  it("a report with no stored body reads with a null preview link until the body lands", async () => {
+    const db = await seeded([RICH]);
     const [row] = await listAllReports(db);
     expect(row!.renderedHtmlAttachment).toBeNull();
     expect(await getReportHtml(db, "recRPT1")).toBeNull();
+    await storeRenderedHtml(db, "recRPT1", BODY);
+    const [after] = await listAllReports(db);
+    expect(after!.renderedHtmlAttachment).toEqual({
+      url: "/api/reports/recRPT1/preview",
+      filename: "ACME-2026-08-M.html",
+    });
+    expect((await getReportHtml(db, "recRPT1"))?.html).toBe(BODY);
   });
 });

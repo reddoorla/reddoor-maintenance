@@ -414,7 +414,7 @@ export function toFrequency(raw: unknown, context: string): Frequency {
   if ((FREQUENCIES as readonly string[]).includes(trimmed)) return trimmed as Frequency;
   if (trimmed !== "") {
     console.warn(
-      `⚠ ${context}: unrecognized frequency '${raw}' — treating as None (not scheduling); fix the Airtable value`,
+      `⚠ ${context}: unrecognized frequency '${raw}' — treating as None (not scheduling); fix it in the site's details`,
     );
   }
   return "None";

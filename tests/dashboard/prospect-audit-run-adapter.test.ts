@@ -1,14 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import type { Context } from "@netlify/functions";
 
-// Airtable client is mocked so importing the handler (via src/dashboard/index.js,
-// which re-exports the whole dashboard module graph) never reaches a live base —
-// same defensive convention as the other *-adapter tests. This endpoint never
-// calls it; the mock only guards against an accidental future call.
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ({}) as unknown),
-}));
-
 // Shared in-memory Turso instance across openDb() calls within one test — see
 // the identical workaround (and its rationale) in prospect-report.test.ts /
 // prospect-audits-page-adapter.test.ts.

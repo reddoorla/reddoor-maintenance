@@ -1,20 +1,5 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  encodeUlid,
-  isAirtableRecordId,
-  isMintedSiteId,
-  mintSiteId,
-  skipsAirtableShadow,
-} from "../../src/fleet/site-id.js";
-
-vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
-  AIRTABLE_SHADOW_WRITES: true,
-}));
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+import { describe, it, expect } from "vitest";
+import { encodeUlid, isMintedSiteId, mintSiteId } from "../../src/fleet/site-id.js";
 
 describe("encodeUlid — the ULID wire format", () => {
   it("matches the ULID spec's published time component", () => {
@@ -48,7 +33,6 @@ describe("mintSiteId", () => {
     const id = mintSiteId();
     expect(id).toMatch(/^site_[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(isMintedSiteId(id)).toBe(true);
-    expect(isAirtableRecordId(id)).toBe(false);
   });
 
   it("does not repeat across a burst (80 random bits per id)", () => {
@@ -58,15 +42,6 @@ describe("mintSiteId", () => {
 });
 
 describe("id-shape predicates", () => {
-  it("an Airtable record id is anything rec-prefixed; a minted site id never is", () => {
-    expect(isAirtableRecordId("recA1b2C3d4E5f6G7")).toBe(true);
-    expect(isAirtableRecordId("recEXIST")).toBe(true);
-    expect(isAirtableRecordId("rec_site_acme")).toBe(true);
-    for (const bad of ["site_01ARYZ6S41TSV4RRFFQ69G5FAV", "rec", "REC123", "xrec1", ""]) {
-      expect(isAirtableRecordId(bad), bad).toBe(false);
-    }
-  });
-
   it("a minted site id is exactly site_ + 26 Crockford chars", () => {
     expect(isMintedSiteId("site_01ARYZ6S41TSV4RRFFQ69G5FAV")).toBe(true);
     for (const bad of [
@@ -76,21 +51,5 @@ describe("id-shape predicates", () => {
     ]) {
       expect(isMintedSiteId(bad), bad).toBe(false);
     }
-  });
-});
-
-describe("skipsAirtableShadow — the one skip decision + its log line", () => {
-  it("skips a site_ id and logs the stable greppable line", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    expect(skipsAirtableShadow("updateSiteField", "site_01ARYZ6S41TSV4RRFFQ69G5FAV")).toBe(true);
-    expect(log).toHaveBeenCalledWith(
-      "AIRTABLE_SHADOW skipped=non-rec-id writer=updateSiteField id=site_01ARYZ6S41TSV4RRFFQ69G5FAV",
-    );
-  });
-
-  it("does NOT skip (and logs nothing for) a rec id — the positive control", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    expect(skipsAirtableShadow("updateSiteField", "recEXIST")).toBe(false);
-    expect(log).not.toHaveBeenCalled();
   });
 });

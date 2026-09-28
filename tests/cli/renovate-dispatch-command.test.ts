@@ -1,20 +1,41 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { runRenovateDispatchCommand } from "../../src/cli/commands/renovate-dispatch.js";
-import { makeFakeBase, type FakeAirtableBase } from "../reports/_helpers/fake-airtable-base.js";
-import { listWebsites } from "../../src/reports/airtable/websites.js";
+import type { SiteMirror } from "../../src/db/site-mirror.js";
+import { websiteRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 
-vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
-  AIRTABLE_SHADOW_WRITES: true,
-}));
+/** #646 step 4: the roster comes from Turso; injected here. */
+const rosterOf = (rows: RawRow[]) => async () => websiteRowsFrom(rows);
 
-/** #646 step 4: the roster comes from Turso. Injected from the fake base here —
- *  the counter write it drives is the Airtable shadow write these tests pin. */
-const rosterOf = (base: FakeAirtableBase) => () => listWebsites(base);
+type Write = { id: string; fields: Record<string, unknown> };
+
+function turso(opts: { fails?: boolean } = {}): { writes: Write[]; siteMirror: SiteMirror } {
+  const writes: Write[] = [];
+  return {
+    writes,
+    siteMirror: {
+      created: async () => {},
+      hasRow: async () => true,
+      health: async (id, fields) => {
+        if (opts.fails) throw new Error("turso down");
+        writes.push({ id, fields });
+      },
+      site: async () => {},
+    },
+  };
+}
 
 // Mirrors tests/cli/github-signals-command.test.ts: the two guard branches that
 // the fleet-security.yml step relies on to never fail. (The dispatch happy path
 // is covered by the pure helpers in tests/github/renovate-dispatch.test.ts.)
+const unusedMirror = {
+  created: async () => {},
+  hasRow: async () => true,
+  health: async () => {
+    throw new Error("this path must not write");
+  },
+  site: async () => {},
+};
+
 describe("runRenovateDispatchCommand guards", () => {
   const originalRenovate = process.env.RENOVATE_TOKEN;
   const originalGh = process.env.GH_TOKEN;
@@ -27,14 +48,14 @@ describe("runRenovateDispatchCommand guards", () => {
   });
 
   it("rejects a non-fleet invocation with exit 2", async () => {
-    const r = await runRenovateDispatchCommand({ fleet: false });
+    const r = await runRenovateDispatchCommand({ fleet: false, siteMirror: unusedMirror });
     expect(r.code).toBe(2);
   });
 
   it("clean-skips (exit 0) when no fleet token is configured", async () => {
     delete process.env.RENOVATE_TOKEN;
     delete process.env.GH_TOKEN;
-    const r = await runRenovateDispatchCommand({ fleet: true });
+    const r = await runRenovateDispatchCommand({ fleet: true, siteMirror: unusedMirror });
     expect(r.code).toBe(0);
     expect(r.output).toContain("skipped");
   });
@@ -46,8 +67,8 @@ describe("runRenovateDispatchCommand guards", () => {
     // and report "nothing to dispatch" instead of the no-token skip.
     const r = await runRenovateDispatchCommand({
       fleet: true,
-      base: makeFakeBase({ Websites: [] }),
       roster: async () => [],
+      siteMirror: unusedMirror,
     });
     expect(r.code).toBe(0);
     expect(r.output).toContain("skipped: no GH_TOKEN");
@@ -68,82 +89,53 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
     else process.env.GH_TOKEN = originalGh;
   });
 
-  it("resets stale auto-fix counters on a fully-clean fleet (zero targets)", async () => {
+  const ALAMO: RawRow = {
+    id: "recAlamo",
+    fields: {
+      Name: "Alamo",
+      Status: "maintenance",
+      url: "https://alamo.example.com",
+      "Git repo": "reddoorla/alamo",
+      "Security Vulns Critical": 0,
+      "Security Vulns High": 0,
+      "Security Auto-Fix Attempts": 7,
+    },
+  };
+
+  it("resets stale auto-fix counters in Turso on a fully-clean fleet (zero targets)", async () => {
     process.env.GH_TOKEN = "tok";
-    const base = makeFakeBase({
-      Websites: [
-        {
-          id: "recAlamo",
-          fields: {
-            Name: "Alamo",
-            Status: "maintenance",
-            url: "https://alamo.example.com",
-            "Git repo": "reddoorla/alamo",
-            "Security Vulns Critical": 0,
-            "Security Vulns High": 0,
-            "Security Auto-Fix Attempts": 7,
-          },
-        },
-      ],
+    const { writes, siteMirror } = turso();
+    const r = await runRenovateDispatchCommand({
+      fleet: true,
+      roster: rosterOf([ALAMO]),
+      siteMirror,
     });
-    const r = await runRenovateDispatchCommand({ fleet: true, base, roster: rosterOf(base) });
     expect(r.code).toBe(0);
     expect(r.output).toContain("RENOVATE_DISPATCH_SUMMARY dispatched=0 skipped=0 failed=0");
     expect(r.output).toContain("AUTO_FIX_ATTEMPTS_SUMMARY written=1 failed=0");
-    const updates = base.__calls.filter((c) => c.kind === "update");
-    expect(updates).toEqual([
-      {
-        kind: "update",
-        table: "Websites",
-        records: [{ id: "recAlamo", fields: { "Security Auto-Fix Attempts": 0 } }],
-      },
-    ]);
+    expect(writes).toEqual([{ id: "recAlamo", fields: { "Security Auto-Fix Attempts": 0 } }]);
   });
 
-  it("mirrors the auto-fix counter into Turso (#539 Phase 5)", async () => {
-    // This counter is written by the nightly Renovate dispatch, which was never
-    // part of the Phase 3 sweep — so it reached Turso only via the hourly sync.
-    // The cockpit's "auto-fix exhausted" chip reads it.
+  it("tallies a Turso write failure as failed, never throws, and still exits 0", async () => {
     process.env.GH_TOKEN = "tok";
-    const base = makeFakeBase({
-      Websites: [
-        {
-          id: "recAlamo",
-          fields: {
-            Name: "Alamo",
-            Status: "maintenance",
-            url: "https://alamo.example.com",
-            "Git repo": "reddoorla/alamo",
-            "Security Vulns Critical": 0,
-            "Security Vulns High": 0,
-            "Security Auto-Fix Attempts": 7,
-          },
-        },
-      ],
-    });
-    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
-
-    await runRenovateDispatchCommand({
+    const { writes, siteMirror } = turso({ fails: true });
+    const r = await runRenovateDispatchCommand({
       fleet: true,
-      base,
-      roster: rosterOf(base),
-      siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
-        health: async (id, fields) => {
-          mirrored.push({ id, fields });
-        },
-        site: async () => {},
-      },
+      roster: rosterOf([ALAMO, { id: "recB", fields: { ...ALAMO.fields, Name: "Beta" } }]),
+      siteMirror,
     });
-
-    expect(mirrored).toEqual([{ id: "recAlamo", fields: { "Security Auto-Fix Attempts": 0 } }]);
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("AUTO_FIX_ATTEMPTS_SUMMARY written=0 failed=2");
+    expect(writes).toEqual([]);
   });
 
-  it("makes no Airtable write when the counter is already 0 (or absent)", async () => {
+  it("makes no write when the counter is already 0 (or absent)", async () => {
     process.env.GH_TOKEN = "tok";
-    const base = makeFakeBase({
-      Websites: [
+    const { writes, siteMirror } = turso();
+    const r = await runRenovateDispatchCommand({
+      fleet: true,
+      siteMirror,
+      roster: rosterOf([
         {
           id: "recA",
           fields: {
@@ -168,20 +160,22 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
             // counter field absent — null reads as 0, no write
           },
         },
-      ],
+      ]),
     });
-    const r = await runRenovateDispatchCommand({ fleet: true, base, roster: rosterOf(base) });
     expect(r.code).toBe(0);
     expect(r.output).toContain("AUTO_FIX_ATTEMPTS_SUMMARY written=0 failed=0");
-    expect(base.__calls.filter((c) => c.kind === "update")).toEqual([]);
+    expect(writes).toEqual([]);
   });
 
   it("does not reset while advisories remain (repo-less row keeps targets empty)", async () => {
     process.env.GH_TOKEN = "tok";
     // No "Git repo" → selectRenovateTargets stays empty, so makeGitHub is never
     // constructed and no network is touched — while the vulns block the reset.
-    const base = makeFakeBase({
-      Websites: [
+    const { writes, siteMirror } = turso();
+    const r = await runRenovateDispatchCommand({
+      fleet: true,
+      siteMirror,
+      roster: rosterOf([
         {
           id: "recV",
           fields: {
@@ -192,11 +186,10 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
             "Security Auto-Fix Attempts": 4,
           },
         },
-      ],
+      ]),
     });
-    const r = await runRenovateDispatchCommand({ fleet: true, base, roster: rosterOf(base) });
     expect(r.code).toBe(0);
     expect(r.output).toContain("AUTO_FIX_ATTEMPTS_SUMMARY written=0 failed=0");
-    expect(base.__calls.filter((c) => c.kind === "update")).toEqual([]);
+    expect(writes).toEqual([]);
   });
 });

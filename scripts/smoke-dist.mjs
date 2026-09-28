@@ -36,10 +36,10 @@ async function check(name, fn) {
 }
 
 // The consumer-facing entries (CLI bin + ./forms + ./configs/*) must never
-// statically import a "central-only" devDep (mjml, airtable, the libSQL/Kysely
+// statically import a "central-only" devDep (mjml, resend, the libSQL/Kysely
 // stack, …) — a consuming fleet site never installs those, so an eager import
 // would crash it at load. We verify this by LOADING each entry under a Node
-// resolution hook that makes those 11 packages unresolvable
+// resolution hook that makes those 10 packages unresolvable
 // (scripts/central-dep-blocker.mjs), reproducing a consumer's install exactly.
 // This replaces an earlier source-scanning regex that silently missed esbuild's
 // multi-line imports and so passed vacuously.
@@ -72,13 +72,13 @@ await check("dist/cli/bin.js exists", () => {
 await check("central-dep blocker is active (negative self-test)", () => {
   let threw = false;
   try {
-    loadUnderBlocker(["--input-type=module", "-e", 'await import("airtable")']);
+    loadUnderBlocker(["--input-type=module", "-e", 'await import("mjml")']);
   } catch {
     threw = true;
   }
   if (!threw) {
     throw new Error(
-      'the blocker did not reject `import "airtable"` — the guard is inert and would not catch ' +
+      'the blocker did not reject `import "mjml"` — the guard is inert and would not catch ' +
         "a real leak. Check scripts/central-dep-blocker.mjs and its registration.",
     );
   }
@@ -263,7 +263,6 @@ const requiredExports = [
   // inventory
   "localPath",
   "fromJsonFile",
-  "fromAirtableBase",
   // reports
   "draftReportForSite",
   "sendApprovedReports",

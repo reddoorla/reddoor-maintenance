@@ -257,21 +257,20 @@ in anyone's voice.
 
 Design: `docs/superpowers/specs/2026-08-31-starter-track-split-design.md`.
 
-## In flight: the Airtable → Turso migration (#539, Phase 6 on #646)
+## Airtable is gone (#539, #646)
 
-Turso has been the only authoritative store since 2026-08-31
-(`TURSO_IS_AUTHORITATIVE` in `src/db/freeze.ts`). Since 2026-09-28 Airtable
-receives **no writes at all**: `AIRTABLE_SHADOW_WRITES = false` in the same
-file stops every shadow writer, and each skip logs
-`AIRTABLE_SHADOW skipped=shadow-off`. The base is a frozen, read-only archive.
+Turso is the only store. The code that talked to Airtable was deleted on
+2026-09-28 (#646 steps 6–8), along with the `airtable` package and every
+`AIRTABLE_*` variable a command, workflow or function read. The Airtable base
+still exists as a frozen archive nobody writes to. The final sites parity diff
+that was meant to precede the deletion never ran, because #891 and the quota
+blocked it. Any drift it would have found is still in the archive.
 
-- **The workspace is on Airtable's Free plan (1,000 API calls a month).** The
-  2026-08-17 "quota raise" did not move it off Free: the block recurred on
-  2026-09-27 and hung four nightlies. Any new Airtable call spends that budget,
-  including agent tooling. Airtable calls now fail fast on a 429
-  (`AIRTABLE_QUOTA_EXHAUSTED`) instead of hanging.
-- **Deleting the Airtable layer (#646 steps 6–8) still needs its own go from the
-  operator.** Its precondition is a sites-table parity diff, which is blocked on
-  #891. Removing `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` is not a kill switch: most
-  CLI entry points still call `openBase(readAirtableConfig())` eagerly and exit 2
-  without them.
+- **Do not reintroduce Airtable calls, including in agent tooling.** The
+  workspace is on Airtable's Free plan (1,000 API calls a month). The
+  2026-08-17 "quota raise" did not move it off Free, and the block recurred on
+  2026-09-27 and hung four nightlies.
+- Column names in `src/reports/airtable/` and `src/db/import-airtable.ts` are
+  still the Airtable ones. The fleet-state mirrors take Airtable-column-named
+  FieldSets. Relocating those pure modules out of the `airtable` directory is
+  follow-up work, not a sign that anything there still calls Airtable.

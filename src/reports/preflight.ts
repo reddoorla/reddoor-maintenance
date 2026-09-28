@@ -41,7 +41,7 @@ function domainOf(addr: string): string {
 function isOperatorSite(site: WebsiteRow): boolean {
   if (!site.url) return false;
   try {
-    // Airtable `url` cells aren't guaranteed a scheme; retry with one before giving up.
+    // Stored `url` cells aren't guaranteed a scheme; retry with one before giving up.
     const host = new URL(
       /^[a-z][a-z0-9+.-]*:\/\//i.test(site.url) ? site.url : `https://${site.url}`,
     ).hostname.toLowerCase();
@@ -76,7 +76,7 @@ function checkFrequency(
     findings.push({
       level: "fail",
       check: "frequency-unrecognized",
-      message: `${which} frequency cell is '${raw}' — not a recognized Monthly/Quarterly/Yearly/None (even after trimming), so the scheduler treats it as None and the site drops off the calendar; fix the Airtable value`,
+      message: `${which} frequency cell is '${raw}' — not a recognized Monthly/Quarterly/Yearly/None (even after trimming), so the scheduler treats it as None and the site drops off the calendar; fix it in the site's details`,
     });
     return;
   }
@@ -309,7 +309,7 @@ export function preflightFleet(sites: WebsiteRow[]): PreflightFinding[] {
       findings.push({
         level: "warn",
         check: "column-possibly-renamed",
-        message: `'${column}' is empty on all ${sites.length} selected sites — if that column was renamed in Airtable the code reads null silently; verify the column name`,
+        message: `'${column}' is empty on all ${sites.length} selected sites — a broken column mapping reads as null silently; verify the column name`,
       });
     }
   };
@@ -455,7 +455,7 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       findings.push({
         level: "fail",
         check: "recipients-malformed",
-        message: `recipient '${addr}' is malformed — fix Report recipients (To) / point of contact in Airtable`,
+        message: `recipient '${addr}' is malformed — fix Report recipients (To) / point of contact in the site's details`,
       });
     }
   }
@@ -464,7 +464,7 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       findings.push({
         level: "fail",
         check: "recipients-malformed",
-        message: `CC '${addr}' is malformed — fix Report recipients (CC) in Airtable`,
+        message: `CC '${addr}' is malformed — fix Report recipients (CC) in the site's details`,
       });
     }
   }

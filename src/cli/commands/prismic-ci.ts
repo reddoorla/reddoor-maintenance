@@ -166,7 +166,7 @@ export async function runPrismicCiCommand(
     return {
       output:
         `the inventory resolved NO SITES, so no site was offered the delivery workflow.` +
-        ` This is not a delivered fleet — check the inventory (an Airtable view filter, an` +
+        ` This is not a delivered fleet — check the inventory (an empty fleet roster, an` +
         ` empty JSON file, a dynamic inventory returning []). Do NOT read this exit as a` +
         ` rollout.`,
       code: 1,

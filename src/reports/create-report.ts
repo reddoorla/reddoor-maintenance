@@ -8,25 +8,9 @@
  * Websites record for the `Site` link to point at, so `createDraft` refused the
  * site by name (#646 step 3). Turso mints `report_<ULID>` here instead and owns
  * the row, exactly as `ensure-site` does for sites.
- *
- * ## The Airtable shadow for a NEW report: none
- *
- * Airtable cannot be told what record id to use. A shadow record would therefore
- * carry an id that is NOT the report id, which every later write addresses — the
- * approve stamp, the queue flag, `Sent at`, the delivery status — so the shadow
- * would be unreachable from the moment it was written and would drift on its
- * first update. Every Airtable report writer now skips a non-`rec` id with the
- * same `AIRTABLE_SHADOW skipped=non-rec-id` line the site writers log, and a
- * minted report id is never a `rec` id, so the create skips too. This function
- * logs that skip rather than staying silent about it, the same way
- * `ensureSite` does for a new site.
- *
- * Pre-existing `rec…` reports are untouched: both shapes coexist permanently, and
- * a `rec` report's Airtable row still receives its shadow writes until step 6.
  */
 import { draftFields, type DraftInput } from "./draft-fields.js";
 import { mintReportId } from "../fleet/report-id.js";
-import { skipsAirtableShadow } from "../fleet/site-id.js";
 import type { ReportRow } from "./report-row.js";
 import type { ReportType } from "./types.js";
 
@@ -53,10 +37,7 @@ export async function createReportDraft(
   deps: CreateReportDeps,
 ): Promise<ReportRow> {
   const id = (deps.mintId ?? mintReportId)();
-  const row = await deps.create({ id, fields: draftFields(input) });
-  // Logged, not attempted — see "The Airtable shadow for a NEW report" above.
-  skipsAirtableShadow("createReportDraft", id);
-  return row;
+  return deps.create({ id, fields: draftFields(input) });
 }
 
 /**

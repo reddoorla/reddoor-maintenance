@@ -1,13 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-// Airtable client is mocked so importing the handler never reaches a live base.
 // These tests only exercise the env/auth gates, which all return BEFORE any
-// Airtable read — the point is (a) the .mts module's deep src/ imports resolve
+// store read — the point is (a) the .mts module's deep src/ imports resolve
 // and (b) the gate branches behave. The full render path is covered by the
 // fleet-render / fleet-cockpit unit tests.
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ((t: string) => t) as unknown),
-}));
 
 import fleetHomepage from "../../netlify/functions/fleet-homepage.mjs";
 

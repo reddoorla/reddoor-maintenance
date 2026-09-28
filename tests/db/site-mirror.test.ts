@@ -16,22 +16,16 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
+import type { RawRecord } from "../../src/db/import-airtable.js";
+import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
 import { makeSiteMirror } from "../../src/db/site-mirror.js";
 
 const NOW = new Date("2026-08-25T12:00:00.000Z");
 const SITE: RawRecord = { id: "recSITE", fields: { Name: "Acme Gallery", Status: "launching" } };
 
-const io = (records: RawRecord[]): ImportIo => ({
-  listWebsiteRecords: async () => records,
-  listReportRecords: async () => [],
-  fetchAttachment: async () => null,
-  now: () => NOW,
-});
-
 async function dbWithSite() {
   const db = await openDb({ url: ":memory:" });
-  await importFleetState(db, io([SITE]));
+  await mirrorSiteInsert(db, SITE, NOW.toISOString());
   return db;
 }
 

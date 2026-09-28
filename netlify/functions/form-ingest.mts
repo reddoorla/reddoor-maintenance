@@ -1,8 +1,5 @@
 import type { Context, Config } from "@netlify/functions";
-import { openBase, readAirtableConfig } from "../../src/reports/airtable/client.js";
-import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { getSiteBySlug } from "../../src/db/fleet-state.js";
-import { makeLazySiteLookup } from "../../src/forms/site-lookup.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   createSubmission,
@@ -80,8 +77,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         status: "ok",
         service: "reddoor-form-ingest",
         env: {
-          AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
-          AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
           TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
           RESEND_API_KEY: typeof process.env.RESEND_API_KEY === "string",
           FORMS_INGEST_TOKEN: typeof process.env.FORMS_INGEST_TOKEN === "string",
@@ -106,14 +101,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
 
-  // NO Airtable precondition here, deliberately. Post-freeze the site lookup is
-  // Turso-only (site-lookup.ts `strict`), so Airtable cannot answer this request
-  // even in principle — a presence check on AIRTABLE_PAT / AIRTABLE_BASE_ID
-  // therefore guards nothing and can only ever refuse a lead. It refused it at
-  // the worst possible point too: BEFORE `ingestSubmission`, and the dead-letter
-  // lives inside `ingestSubmission`, so the lead was not captured anywhere and
-  // `submitToIngest` does not retry. fleet-homepage.mts made the same removal
-  // for a page; this is the path where the cost is a client's lead.
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[form-ingest] TURSO_DATABASE_URL missing");
     return json({ ok: false, error: "db-env-missing" }, 500);
@@ -132,24 +119,10 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   try {
     const db = await openDb(readDbConfig());
 
-    // #612: post-freeze the site lookup is Turso-ONLY. The Phase 2 shape this
-    // replaces ("Turso-primary, Airtable for a slug Turso doesn't know") ended
-    // with the freeze: the hourly import that opened that window is retired and
-    // `ensure-site` inserts straight into Turso, so a slug Turso does not know
-    // is an unknown slug. This is what retires the 08-17 outage class outright
-    // — an Airtable outage, an expired PAT or an unset one cannot reach a lead.
-    // The base is passed UNCALLED: `strict` returns null before the fallback
-    // runs, so on the live path no Airtable client is constructed and no
-    // Airtable credential is read. Constructing it eagerly is what put the whole
-    // Airtable layer in front of every lead. Reached only with `strict` false,
-    // where `readAirtableConfig()` throwing is the documented behaviour — it
-    // hands the lead to the dead-letter. Shared with `db replay-deadletters`
-    // (#645) so live and recovery cannot disagree about what the fleet is.
-    const lookupSite = makeLazySiteLookup({
-      fromDb: (s) => getSiteBySlug(db, s),
-      openAirtable: () => openBase(readAirtableConfig()),
-      fromAirtable: (base, s) => getWebsiteBySlug(base, s),
-    });
+    // #612: the site lookup is Turso-only, so a slug Turso does not know is an
+    // unknown slug. `db replay-deadletters` resolves the same way (#645), so
+    // live and recovery cannot disagree about what the fleet is.
+    const lookupSite = (slug: string) => getSiteBySlug(db, slug);
 
     // Screen-out beacon: a no-PII { _screenOut: honeypot|too-fast } body is routed
     // to the per-site/day Spam Screenouts counter instead of the submission path.

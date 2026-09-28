@@ -108,12 +108,8 @@ describe("report-rerender workflow gate", () => {
     expect(withoutComments(workflow)).toContain("workflow_dispatch:");
     const env = stepEnv(workflow, STEP);
     expect(Object.keys(env)).toEqual(
-      expect.arrayContaining([
-        "AIRTABLE_PAT",
-        "AIRTABLE_BASE_ID",
-        "TURSO_DATABASE_URL",
-        "TURSO_AUTH_TOKEN",
-      ]),
+      expect.arrayContaining(["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN", "REPORT_ID"]),
     );
+    expect(Object.keys(env).filter((k) => k.startsWith("AIRTABLE_"))).toEqual([]);
   });
 });
