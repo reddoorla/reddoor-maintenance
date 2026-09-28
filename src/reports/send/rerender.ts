@@ -1,5 +1,7 @@
 import type { WebsiteRow } from "../airtable/websites.js";
 import type { ReportRow } from "../airtable/reports.js";
+import type { EvidenceRecord } from "../auto-tick.js";
+import { retickEvidence } from "../retick.js";
 
 /**
  * Refresh a report's stored HTML body on demand (#539 Phase 4 report review).
@@ -31,13 +33,27 @@ export type RerenderDeps = {
     headerPlate: Uint8Array,
   ) => Promise<{ html: string }>;
   store: (reportId: string, html: string) => Promise<void>;
+  storeEvidence: (
+    reportId: string,
+    checklist: Record<string, boolean>,
+    autoEvidence: Record<string, EvidenceRecord>,
+  ) => Promise<boolean>;
+  now: () => Date;
 };
 
+export type EvidenceStatus = "reticked" | "unchanged" | "locked" | "not-written";
+
 export type RerenderResult =
-  | { status: "rendered"; reportId: string; bytes: number; headerSource: "turso" | "airtable" }
+  | {
+      status: "rendered";
+      reportId: string;
+      bytes: number;
+      headerSource: "turso" | "airtable";
+      evidence: EvidenceStatus;
+    }
   /** Already sent: its stored body is the record of what the client received. */
   | { status: "already-sent"; reportId: string }
-  | { status: "no-header"; reportId: string }
+  | { status: "no-header"; reportId: string; evidence: EvidenceStatus }
   | { status: "not-found"; reportId: string };
 
 export async function rerenderReport(
@@ -56,6 +72,21 @@ export async function rerenderReport(
   const site = await deps.getSite(report.siteId);
   if (!site) return { status: "not-found", reportId };
 
+  let current = report;
+  let evidence: EvidenceStatus;
+  const retick = retickEvidence(site, report, deps.now());
+  if (retick.status === "reticked") {
+    const written = await deps.storeEvidence(reportId, retick.checklist, retick.autoEvidence);
+    if (written) {
+      current = { ...report, checklist: retick.checklist, autoEvidence: retick.autoEvidence };
+      evidence = "reticked";
+    } else {
+      evidence = "not-written";
+    }
+  } else {
+    evidence = retick.status;
+  }
+
   // Turso first: the bytes are already local, and the Airtable attachment URL is
   // signed and expiring, so fetching it when we hold the same image is pure
   // latency plus a dependency on a URL that may already be dead.
@@ -72,17 +103,22 @@ export async function rerenderReport(
     // Named, not rendered around: a report with no header is already blocked at
     // approve, and a preview that quietly omitted it would disagree with both
     // the email and that block.
-    return { status: "no-header", reportId };
+    return { status: "no-header", reportId, evidence };
   }
 
-  const { html } = await deps.render(site, report, plate);
+  const { html } = await deps.render(site, current, plate);
   await deps.store(reportId, html);
-  return { status: "rendered", reportId, bytes: html.length, headerSource };
+  return { status: "rendered", reportId, bytes: html.length, headerSource, evidence };
 }
 
 /** One line per run, machine-greppable, emitted for every outcome — an absent
  *  line means the job never ran, never that it ran and did nothing. */
 export function formatRerenderResult(r: RerenderResult): string {
-  const suffix = r.status === "rendered" ? ` bytes=${r.bytes} header=${r.headerSource}` : "";
+  const suffix =
+    r.status === "rendered"
+      ? ` bytes=${r.bytes} header=${r.headerSource} evidence=${r.evidence}`
+      : r.status === "no-header"
+        ? ` evidence=${r.evidence}`
+        : "";
   return `REPORT_RERENDER report=${r.reportId} status=${r.status}${suffix}`;
 }
