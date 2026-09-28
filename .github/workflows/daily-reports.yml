@@ -29,7 +29,7 @@ on:
     # feedback loop on a credential that either works or silently does not.
     inputs:
       preview_site:
-        description: "Airtable Website NAME (e.g. Sonder) — render one report preview to prove the GA/Search Console secrets. Blank = normal daily run."
+        description: "Site NAME (e.g. Sonder) — render one report preview to prove the GA/Search Console secrets. Blank = normal daily run."
         required: false
         type: string
         default: ""

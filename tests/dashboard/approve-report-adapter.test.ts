@@ -41,8 +41,7 @@ describe("approve-report adapter — env + method gating", () => {
     const raw = await res.text();
     expect(raw).not.toContain("should_not_leak");
     expect(JSON.parse(raw).env).toEqual({
-      AIRTABLE_PAT: true,
-      AIRTABLE_BASE_ID: true,
+      TURSO_DATABASE_URL: true,
       DASHBOARD_PASSWORD: true,
     });
   });

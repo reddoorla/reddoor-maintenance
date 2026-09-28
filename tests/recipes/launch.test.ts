@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll, afterEach, beforeAll, vi } from "vitest";
+import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,8 +16,13 @@ import {
 import { reportRowsFrom, websiteRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 
 const realFetch = global.fetch;
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-15T12:00:00.000Z"));
+});
 afterEach(() => {
   global.fetch = realFetch;
+  vi.useRealTimers();
 });
 
 /** A real, empty SvelteKit checkout — `src/routes`, no `src/routes/dev/match`.
@@ -105,6 +110,12 @@ function deps(seed: Seed) {
   return {
     roster: async () => websiteRowsFrom(seed.Websites),
     reportMirror: writer,
+    siteMirror: {
+      created: async () => {},
+      hasRow: async () => true,
+      health: async () => {},
+      site: async () => {},
+    },
     bootstrap: async (): Promise<RecipeResult> => ({
       recipe: "self-updating",
       site: "Acme Co",
@@ -555,6 +566,7 @@ describe("recipes/launch", () => {
       audit: d.audit,
       roster: d.roster,
       reportMirror: d.reportMirror,
+      siteMirror: d.siteMirror,
     });
     expect(result.complete).toBe(true);
 

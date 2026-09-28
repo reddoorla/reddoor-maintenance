@@ -156,6 +156,29 @@ describe("per-site blast radius", () => {
     // failed=1 keeps the outage visible — wrote+skipped alone would undercount.
     expect(log.mock.calls.flat().join("\n")).toContain("NEXT_DUE_WRITE wrote=1 skipped=0 failed=1");
   });
+
+  it("a write that throws for one site still lets the next site write", async () => {
+    const log = quietLog();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const written: string[] = [];
+    await writeNextDueDates(
+      [
+        makeWebsiteRow({ id: "recBOOM", name: "Boom", maintenanceFreq: "Monthly" }),
+        makeWebsiteRow({ id: "recOK", name: "Okay", maintenanceFreq: "Monthly" }),
+      ],
+      [],
+      TODAY,
+      async (siteId) => {
+        if (siteId === "recBOOM") throw new Error("turso down");
+        written.push(siteId);
+        return true;
+      },
+    );
+    expect(written).toEqual(["recOK"]);
+    expect(log.mock.calls.flat().join("\n")).toContain(
+      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=1 mirror_failed=1 mirror_missed=0",
+    );
+  });
 });
 
 describe("the site_schedule mirror", () => {
@@ -180,7 +203,7 @@ describe("the site_schedule mirror", () => {
     );
   });
 
-  it("a mirror failure is counted and warned, never thrown", async () => {
+  it("a mirror failure is counted and warned, never thrown, and is not a write", async () => {
     const log = quietLog();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await writeNextDueDates(
@@ -192,12 +215,12 @@ describe("the site_schedule mirror", () => {
       },
     );
     expect(log.mock.calls.flat().join("\n")).toContain(
-      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=0 mirror_failed=1 mirror_missed=0",
+      "NEXT_DUE_WRITE wrote=0 skipped=0 failed=0 mirrored=0 mirror_failed=1 mirror_missed=0",
     );
     expect(warn.mock.calls.flat().join("\n")).toContain("[schedule-mirror] Stale: turso down");
   });
 
-  it("a 0-row mirror UPDATE counts as missed, never as mirrored", async () => {
+  it("a 0-row mirror UPDATE counts as missed, never as mirrored or written", async () => {
     const log = quietLog();
     await writeNextDueDates(
       [makeWebsiteRow({ id: "recNEW", name: "Fresh", maintenanceFreq: "Monthly" })],
@@ -206,7 +229,7 @@ describe("the site_schedule mirror", () => {
       async () => false,
     );
     expect(log.mock.calls.flat().join("\n")).toContain(
-      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=0 mirror_failed=0 mirror_missed=1",
+      "NEXT_DUE_WRITE wrote=0 skipped=0 failed=0 mirrored=0 mirror_failed=0 mirror_missed=1",
     );
   });
 
@@ -216,7 +239,8 @@ describe("the site_schedule mirror", () => {
     // from a healthy run. That is precisely how the dual-write ran dead in
     // production: the daily-reports draft step had no Turso credentials.
     // Counters still stay off — reporting mirrored=0 for a mirror that never
-    // existed would claim a zero-result write that was never attempted.
+    // existed would claim a zero-result write that was never attempted — and
+    // wrote=0, because nothing was.
     const log = quietLog();
     await writeNextDueDates(
       [makeWebsiteRow({ id: "recSTALE", name: "Stale", maintenanceFreq: "Monthly" })],
@@ -224,7 +248,7 @@ describe("the site_schedule mirror", () => {
       TODAY,
     );
     const line = log.mock.calls.flat().join("\n");
-    expect(line).toContain("NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirror=absent");
+    expect(line).toContain("NEXT_DUE_WRITE wrote=0 skipped=0 failed=0 mirror=absent");
     expect(line).not.toContain("mirrored=");
     expect(line).not.toContain("mirror_missed=");
   });

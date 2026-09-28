@@ -211,7 +211,7 @@ describe("the Turso mirror", () => {
     }
   });
 
-  it("counts a mirror failure without failing the site or the batch", async () => {
+  it("files a site whose Turso write throws under failed, without failing the batch", async () => {
     const out = await writeFleetAuditsToAirtable({
       websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
@@ -220,10 +220,24 @@ describe("the Turso mirror", () => {
         return true;
       },
     });
-    expect(out.written.map((w) => w.siteName).sort()).toEqual(["Acme Co", "Beta Corp"]);
-    expect(out.failed).toEqual([]);
+    expect(out.written.map((w) => w.siteName)).toEqual(["Acme Co"]);
+    expect(out.failed).toEqual([{ slug: "beta-corp", error: "Turso write failed: turso down" }]);
     expect(out.mirrored).toBe(1);
     expect(out.mirrorFailed).toBe(1);
+  });
+
+  it("a total Turso outage writes nothing, so the gates' wrote=0 reds the nightly", async () => {
+    const out = await writeFleetAuditsToAirtable({
+      websites: websiteRowsFrom(websites),
+      results: twoSiteResults(),
+      mirror: async () => {
+        throw new Error("turso down");
+      },
+    });
+    expect(out.written).toEqual([]);
+    expect(formatFleetWriteSummary(out)).toContain(
+      "FLEET_WRITE_SUMMARY wrote=0 failed=2 total=2 mirrored=0 mirror_failed=2 mirror_missed=0",
+    );
   });
 
   it("without a mirror: no counts on the result, no mirror keys on the summary line", async () => {
@@ -232,6 +246,11 @@ describe("the Turso mirror", () => {
       results: twoSiteResults(),
     });
     expect(out.mirrored).toBeUndefined();
+    expect(out.written).toEqual([]);
+    expect(out.failed.map((f) => f.error)).toEqual([
+      "no Turso store configured",
+      "no Turso store configured",
+    ]);
     expect(formatFleetWriteSummary(out)).not.toContain("mirrored=");
   });
 
@@ -247,20 +266,19 @@ describe("the Turso mirror", () => {
     );
   });
 
-  it("counts a mirror whose UPDATE matched no row as mirror_missed — not mirrored, not mirror_failed", async () => {
+  it("counts a mirror whose UPDATE matched no row as mirror_missed, and files the site as failed", async () => {
     const out = await writeFleetAuditsToAirtable({
       websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
-      // recB has no site_health row, so the real mirror resolves false.
       mirror: async (siteId) => siteId !== "recB",
     });
-    expect(out.written).toHaveLength(2);
-    expect(out.failed).toEqual([]);
+    expect(out.written).toHaveLength(1);
+    expect(out.failed).toEqual([{ slug: "beta-corp", error: "no site_health row matched" }]);
     expect(out.mirrored).toBe(1);
     expect(out.mirrorMissed).toBe(1);
     expect(out.mirrorFailed).toBe(0);
     expect(formatFleetWriteSummary(out)).toContain(
-      "FLEET_WRITE_SUMMARY wrote=2 failed=0 total=2 mirrored=1 mirror_failed=0 mirror_missed=1",
+      "FLEET_WRITE_SUMMARY wrote=1 failed=1 total=2 mirrored=1 mirror_failed=0 mirror_missed=1",
     );
   });
 

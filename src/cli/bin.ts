@@ -20,7 +20,7 @@ import { resolvePackageVersion } from "./version.js";
 // smoke-dist gate asserts bin.js's STATIC import closure stays free of them.
 
 // Load credentials from ~/.config/reddoor-maint/credentials.env before any
-// command runs, so AIRTABLE_PAT/AIRTABLE_BASE_ID/RESEND_API_KEY/etc. are
+// command runs, so TURSO_DATABASE_URL/RESEND_API_KEY/etc. are
 // available from any cwd. Shell-exported env vars still win. Silent on
 // missing file — commands that need the credentials will fail with their
 // own clear error.
@@ -707,7 +707,7 @@ cli
   .option("--type <type>", "Single-site draft report type: Maintenance (default) or Testing.")
   .option(
     "--preview",
-    "Single-site dry run; writes reports/<slug>/draft.html, never touches Airtable.",
+    "Single-site dry run; writes reports/<slug>/draft.html, never touches the store.",
   )
   .option(
     "--enrich",
@@ -751,7 +751,7 @@ cli
     "github-signals",
     "Sweep the fleet for GitHub signals (Renovate-failing/CI/last-commit) and write each site's row.",
   )
-  .option("--fleet", "Run across every site in the Airtable inventory.")
+  .option("--fleet", "Run across every site in the fleet roster.")
   .option("--write-back", "Write each site's signals back to its Websites row.")
   .action(async (opts: { fleet?: boolean; writeBack?: boolean; cwd?: string; verbose?: boolean }) =>
     runOrExit(
@@ -848,7 +848,7 @@ cli
     "renovate-dispatch",
     "Trigger Renovate on fleet sites the security sweep flagged with critical/high vulns.",
   )
-  .option("--fleet", "Run across every active, repo-backed site in the Airtable inventory.")
+  .option("--fleet", "Run across every active, repo-backed site in the fleet roster.")
   .action(async (opts: { fleet?: boolean; cwd?: string; verbose?: boolean }) =>
     runOrExit(
       async () =>

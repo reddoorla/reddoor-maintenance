@@ -50,7 +50,7 @@ export type LaunchDeps = {
   reportMirror: ReportMirror;
   /** #539 Phase 5: the Websites-row twin — launch writes the site's FIRST audit
    *  results and (on send) its launched status. Injected at the CLI root. */
-  siteMirror?: SiteMirror;
+  siteMirror: SiteMirror;
   /** HTTP probe for `dev-guard`. Defaults to global fetch. INJECTED in tests,
    *  so a suite never probes a real url. */
   probe?: (url: string) => Promise<{ status: number; body: string }>;
@@ -730,7 +730,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
       websites,
       slug: siteSlug(target.name),
       results,
-      mirrorHealth: async (siteId, fields) => deps.siteMirror?.health(siteId, fields),
+      mirrorHealth: async (siteId, fields) => deps.siteMirror.health(siteId, fields),
     });
   } catch (err) {
     steps.push({ name: "audit", result: errorOf(err) });

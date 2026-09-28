@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +18,7 @@ import { join } from "node:path";
 
 import reportCommentary from "../../netlify/functions/report-commentary.mjs";
 import { openDb, type Db } from "../../src/db/client.js";
+import { sql } from "kysely";
 
 // "op:s3cret" base64 — username ignored, password is the gate.
 const AUTH = "Basic " + Buffer.from("op:s3cret").toString("base64");
@@ -146,5 +147,19 @@ describe("report-commentary with NO Airtable env", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ ok: false, error: "too-long" });
     expect(await commentaryOf("recREP6")).toBeNull();
+  });
+});
+
+describe("a refused Turso write fails the request", () => {
+  it("a commentary edit whose write is refused is a 502, and the old note stays", async () => {
+    await seedReport("recREPF", { commentary: "the earlier note" });
+    await sql`CREATE TRIGGER refuse_report_update BEFORE UPDATE ON reports BEGIN SELECT RAISE(ABORT, 'turso write refused'); END`.execute(
+      db,
+    );
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await post("recREPF", "a new note");
+    expect(res.status).toBe(502);
+    expect(await commentaryOf("recREPF")).toBe("the earlier note");
+    err.mockRestore();
   });
 });

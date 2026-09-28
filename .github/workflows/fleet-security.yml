@@ -59,7 +59,7 @@ jobs:
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
           owner: reddoorla
 
-      - name: Fleet security + deps audit + Airtable write-back
+      - name: Fleet security + deps audit + write-back
         # Repo-backed sites are audited from GitHub Dependabot alerts (ground truth: prod+dev,
         # GitHub Advisory DB) via the REST API. Sites with no repo (or when the alerts API is
         # unreachable/forbidden) fall back to `pnpm audit` against the committed lockfile — which is
@@ -95,7 +95,7 @@ jobs:
           # substitution would abort the step before the explicit diagnostic below runs.
           summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/audit.out | tail -n1 || true)
           if [ -z "$summary" ]; then
-            echo "::error::fleet security printed no write summary — the run crashed before write-back (check Airtable creds / clone)."
+            echo "::error::fleet security printed no write summary — the run crashed before write-back (check the Turso creds / clone)."
             exit 1
           fi
           wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
@@ -112,7 +112,7 @@ jobs:
 
           # A site that couldn't even be prepared (bad/scheme-less URL + no repo, or a
           # private repo whose clone fails) is dropped rather than crashing the run
-          # (resilient fleet prep). Raise it so the misconfigured Airtable row gets fixed.
+          # (resilient fleet prep). Raise it so the misconfigured site row gets fixed.
           skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/audit.out | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet security: $skipped"
@@ -122,7 +122,7 @@ jobs:
           # is the silent-green hazard — every site's "Security Updates" box would stay
           # unticked while the job reported success.
           if [ "$wrote" -eq 0 ]; then
-            echo "::error::fleet security wrote 0 of $total site(s) — total write-back failure (check Airtable creds / API)."
+            echo "::error::fleet security wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
             exit 1
           fi
 

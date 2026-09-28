@@ -25,6 +25,7 @@ import { join } from "node:path";
 import siteDetailsHandler from "../../netlify/functions/site-details.mjs";
 import { openDb, type Db } from "../../src/db/client.js";
 import { CLEAR_SECRET } from "../../src/dashboard/site-details.js";
+import { sql } from "kysely";
 
 // "op:s3cret" base64 — username ignored, password is the gate.
 const AUTH = "Basic " + Buffer.from("op:s3cret").toString("base64");
@@ -213,5 +214,19 @@ describe("site-details: validation and secret semantics", () => {
     });
     expect(res.status).toBe(403);
     expect((await siteRow("recSite13"))?.copy_intro).toBeNull();
+  });
+});
+
+describe("a refused Turso write fails the request", () => {
+  it("a detail edit whose write is refused is a 502, and the old value stays", async () => {
+    await seedSite("recSiteF", "refused", { copy_intro: "the earlier intro" });
+    await sql`CREATE TRIGGER refuse_site_update BEFORE UPDATE ON sites BEGIN SELECT RAISE(ABORT, 'turso write refused'); END`.execute(
+      db,
+    );
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await post("refused", "copyIntro", "a new intro");
+    expect(res.status).toBe(502);
+    expect((await siteRow("recSiteF"))?.copy_intro).toBe("the earlier intro");
+    err.mockRestore();
   });
 });

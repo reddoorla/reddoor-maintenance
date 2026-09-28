@@ -130,7 +130,7 @@ describe("Resend webhook GET health check", () => {
 
   // The health check exists so the operator can curl the deployed URL right
   // after wiring Netlify env vars and confirm both (a) the function is reachable
-  // and (b) the three required env vars made it through. Reports presence-only,
+  // and (b) the required env vars made it through. Reports presence-only,
   // never values.
   it("returns 200 with all env vars absent when nothing is set", async () => {
     // @ts-expect-error — Netlify Context is unused for GET
@@ -145,8 +145,6 @@ describe("Resend webhook GET health check", () => {
     expect(body.service).toBe("reddoor-resend-webhook");
     expect(body.env).toEqual({
       RESEND_WEBHOOK_SECRET: false,
-      AIRTABLE_PAT: false,
-      AIRTABLE_BASE_ID: false,
       TURSO_DATABASE_URL: false,
     });
   });
@@ -162,8 +160,6 @@ describe("Resend webhook GET health check", () => {
     const body = JSON.parse(raw) as { env: Record<string, boolean> };
     expect(body.env).toEqual({
       RESEND_WEBHOOK_SECRET: true,
-      AIRTABLE_PAT: true,
-      AIRTABLE_BASE_ID: true,
       TURSO_DATABASE_URL: true,
     });
     // Defense-in-depth: the body must never contain a secret value, even

@@ -33,7 +33,7 @@ export async function runRenovateDispatchCommand(opts: {
   /** #539 Phase 5: the auto-fix counter's Turso write. Injected from
    *  bin.ts rather than defaulted here — this function is called directly by
    *  tests, and a default would open a real libSQL handle inside the suite. */
-  siteMirror?: SiteMirror;
+  siteMirror: SiteMirror;
 }): Promise<{ output: string; code: number }> {
   if (!opts.fleet) {
     return { output: "renovate-dispatch currently supports only --fleet", code: 2 };
@@ -90,7 +90,7 @@ export async function runRenovateDispatchCommand(opts: {
   // 0-vuln sites reset.
   const attemptUpdates = computeAutoFixAttemptUpdates(websites, result);
   const attemptTally = await applyAutoFixAttemptUpdates(attemptUpdates, async (id, attempts) => {
-    await opts.siteMirror?.health(id, autoFixAttemptsFields(attempts));
+    await opts.siteMirror.health(id, autoFixAttemptsFields(attempts));
   });
 
   lines.push(formatRenovateDispatchSummary(result));

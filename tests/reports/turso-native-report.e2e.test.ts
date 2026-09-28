@@ -158,6 +158,14 @@ describe("a Turso-only site receives a report end to end (#646 step 4)", () => {
           ...(messageId !== null ? { resend_message_id: messageId } : {}),
         });
       },
+      siteMirror: {
+        created: async () => {},
+        hasRow: async () => true,
+        health: async () => {},
+        site: async () => {
+          throw new Error("no Launch report here — the launch flip must not run");
+        },
+      },
     });
 
     expect(result.code).toBe(0);

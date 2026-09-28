@@ -45,7 +45,7 @@ jobs:
       # the runner level or the browser launch fails on a bare ubuntu runner.
       - run: pnpm exec playwright install --with-deps chromium
 
-      - name: Fleet smoke suite + Airtable write-back
+      - name: Fleet smoke suite + write-back
         # Clone + install + chromium + vite boot + specs, ~13 sites sequential — the
         # heaviest nightly leg. Backstop a wedged run so it can't pin the runner and
         # (via concurrency.cancel-in-progress=false) block the next night too.
@@ -80,7 +80,7 @@ jobs:
           # substitution would abort the step before the diagnostic below runs.
           summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
           if [ -z "$summary" ]; then
-            echo "::error::fleet smoke printed no write summary — the run crashed before write-back (check Airtable creds / API)."
+            echo "::error::fleet smoke printed no write summary — the run crashed before write-back (check the Turso creds / API)."
             exit 1
           fi
           wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
@@ -95,7 +95,7 @@ jobs:
           fi
 
           # A site that couldn't be prepared (bad URL/repo) is dropped from the run
-          # rather than crashing it; raise it so the misconfigured Airtable row is fixed.
+          # rather than crashing it; raise it so the misconfigured site row is fixed.
           skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet smoke: $skipped"
@@ -103,7 +103,7 @@ jobs:
 
           # Total write-back failure: nothing landed at all (creds/API/inventory).
           if [ "$wrote" -eq 0 ]; then
-            echo "::error::fleet smoke wrote 0 of $total site(s) — total write-back failure (check Airtable creds / API)."
+            echo "::error::fleet smoke wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
             exit 1
           fi
 

@@ -55,7 +55,7 @@ describe("the retired Airtable actions", () => {
       const r = await runDbCommand(action, {});
       expect(r.code).toBe(1);
       expect(r.output).toBe(
-        `unknown db action '${action}'. Use: migrate, replay-deadletters, dump, verify-dump, restore.`,
+        `unknown db action '${action}'. Use: migrate, replay-deadletters, dump, verify-dump, restore, usage.`,
       );
     },
   );

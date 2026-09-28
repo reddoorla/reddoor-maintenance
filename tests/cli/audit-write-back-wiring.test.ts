@@ -71,7 +71,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
     expect(events.some((e) => e.type === "fleet_swept")).toBe(true);
   });
 
-  it("makeMirror resolving null (no libSQL creds), non-strict: no mirror keys on the summary", async () => {
+  it("makeMirror resolving null (no libSQL creds), even non-strict: the site fails, no mirror keys", async () => {
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co")],
       which: ["lighthouse"],
@@ -82,15 +82,13 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
         strict: false,
       },
     });
-    expect(res.anyFailed).toBe(false);
-    expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=1 failed=0 total=1");
+    expect(res.anyFailed).toBe(true);
+    expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=0 failed=1 total=1");
+    expect(res.summary).toContain("acme-co (no Turso store configured)");
     expect(res.summary).not.toContain("mirrored=");
   });
 
   it("post-freeze: a null mirror flips anyFailed — the sweep wrote to nothing (#612)", async () => {
-    // Non-strict this exact case is GREEN (the test above). Post-freeze a sweep
-    // with no mirror wired wrote the fleet's health nowhere — and it would have
-    // finished green on a line reading `wrote=1 failed=0`.
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co")],
       which: ["lighthouse"],
@@ -102,9 +100,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
       },
     });
     expect(res.anyFailed).toBe(true);
-    // The planned write still reports honestly — this gates the RUN, it does
-    // not abort the loop.
-    expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=1 failed=0 total=1");
+    expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=0 failed=1 total=1");
   });
 
   it("post-freeze: a wired mirror that landed everything still passes (positive control)", async () => {
@@ -144,7 +140,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
       which: ["lighthouse"],
       deps: {
         roster,
-        makeMirror: async () => null,
+        makeMirror: async () => async () => true,
         recordEvents: async () => {},
         strict: false,
       },

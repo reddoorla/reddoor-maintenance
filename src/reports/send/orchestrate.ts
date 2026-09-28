@@ -48,15 +48,16 @@ export type OrchestrateOptions = {
    * Turso holds no bytes for that site, and the send refuses it by name.
    */
   loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>;
-  /** #539 Phase 5: Turso write-through for the Websites row a Launch send
-   *  updates. Injected rather than defaulted — this function is called directly
-   *  by tests, and a default would open a real libSQL handle inside the suite. */
-  siteMirror?: SiteMirror;
+  /** #539 Phase 5: the Turso write for the site row a Launch send updates —
+   *  the only place the Launch flip lands. Required, not defaulted: this
+   *  function is called directly by tests, and a default would open a real
+   *  libSQL handle inside the suite. */
+  siteMirror: SiteMirror;
   /** #643 (the freeze): the `Sent at` / `Resend message ID` stamp, the only
    *  thing that removes a row from the send queue. The console's already-sent guards (approve, the commentary lock,
    *  re-render) read `sent_at` from Turso. Injected like siteMirror; the CLI wires it
    *  through `mirrorWrite` so the freeze switch owns the error semantics. */
-  reportSentMirror?: (reportId: string, sentAt: Date, messageId: string | null) => Promise<void>;
+  reportSentMirror: (reportId: string, sentAt: Date, messageId: string | null) => Promise<void>;
 };
 
 export async function sendApprovedReports(
@@ -87,7 +88,7 @@ export async function sendApprovedReports(
       // flip below — but it reds the run (`anyFailed`), because nothing else
       // converges the miss.
       try {
-        await options.reportSentMirror?.(report.id, sent.sentAt, sent.messageId);
+        await options.reportSentMirror(report.id, sent.sentAt, sent.messageId);
       } catch (e) {
         lines.push(`  ✗ sent-stamp mirror failed for ${report.reportId}: ${(e as Error).message}`);
         anyFailed = true;
@@ -120,7 +121,7 @@ export async function sendApprovedReports(
           // Status and `Launched at` travel together — mirroring them as two
           // updates would open a window where Turso says a site is maintained
           // but never launched.
-          await options.siteMirror?.site(site.id, launchedFields(at));
+          await options.siteMirror.site(site.id, launchedFields(at));
           lines.push(`  ↳ launched: ${site.name} flipped to maintained`);
           await recordFleetEventsBestEffort(
             [

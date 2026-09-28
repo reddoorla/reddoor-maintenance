@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       report_id:
-        description: "Airtable Reports record id (recXXXXXXXX) — must be UNSENT."
+        description: "Report id (report_… or rec…) — must be UNSENT."
         required: true
         type: string
 

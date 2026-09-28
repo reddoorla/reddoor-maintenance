@@ -16,7 +16,7 @@ name: fleet-form-e2e
 # one deploy.
 on:
   schedule:
-    - cron: "15 10 * * *" # 10:15 UTC — clear of 06:00 security / 08:00 lighthouse / 10:00 smoke (separate runners; the offset just staggers Airtable writes)
+    - cron: "15 10 * * *" # 10:15 UTC — clear of 06:00 security / 08:00 lighthouse / 10:00 smoke (separate runners; the offset just staggers store writes)
   workflow_dispatch: {} # manual run from the Actions tab
 
 # Never overlap a manual run with the scheduled one.
@@ -49,7 +49,7 @@ jobs:
       # a bare ubuntu runner.
       - run: pnpm exec playwright install --with-deps chromium
 
-      - name: Fleet form-e2e + Airtable write-back
+      - name: Fleet form-e2e + write-back
         # Checkout-free and preflight-gated: undeclared sites cost one /health
         # fetch each, declared sites one browser session — far lighter than
         # fleet-smoke. 30 min is generous headroom.
@@ -85,7 +85,7 @@ jobs:
           # substitution would abort the step before the diagnostic below runs.
           summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" "$out" | tail -n1 || true)
           if [ -z "$summary" ]; then
-            echo "::error::fleet form-e2e printed no write summary — the run crashed before write-back (check Airtable creds / API)."
+            echo "::error::fleet form-e2e printed no write summary — the run crashed before write-back (check the Turso creds / API)."
             exit 1
           fi
           wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
@@ -124,7 +124,7 @@ jobs:
           fi
 
           # A site that couldn't be prepared (bad URL/repo) is dropped from the run
-          # rather than crashing it; raise it so the misconfigured Airtable row is fixed.
+          # rather than crashing it; raise it so the misconfigured site row is fixed.
           skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "$out" | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet form-e2e: $skipped"
@@ -160,7 +160,7 @@ jobs:
           # would fire, and "0 of 13 written" sends the reader to the creds and
           # the API, where the cause is, rather than hunting a per-site flake.
           if [ "$wrote" -eq 0 ]; then
-            echo "::error::fleet form-e2e wrote 0 of $total site(s) — total write-back failure (check Airtable creds / API)."
+            echo "::error::fleet form-e2e wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
             exit 1
           fi
 

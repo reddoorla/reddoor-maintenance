@@ -38,7 +38,7 @@ const execFileAsync = promisify(execFile);
  * to fail is an untested assertion, not an instrument.
  */
 
-const FORM_E2E_STEP = "Fleet form-e2e + Airtable write-back";
+const FORM_E2E_STEP = "Fleet form-e2e + write-back";
 
 let gate: string;
 

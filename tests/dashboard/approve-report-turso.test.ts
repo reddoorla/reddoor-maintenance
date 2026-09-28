@@ -25,6 +25,7 @@ import { join } from "node:path";
 import approveReportHandler from "../../netlify/functions/approve-report.mjs";
 import { openDb, type Db } from "../../src/db/client.js";
 import { gatingFields } from "../../src/reports/checklist.js";
+import { sql } from "kysely";
 
 /** Auto-evidence that clears the health gate for a Maintenance report. Derived
  *  from the PRODUCTION gating list rather than a hand-copied set of field names,
@@ -289,6 +290,38 @@ describe("approve-report: the authorization gates", () => {
     const res = await post("recREP1");
     expect(res.status).toBe(500);
     expect(await res.text()).toBe("Turso env missing");
+    err.mockRestore();
+  });
+});
+
+describe("a refused Turso write fails the request", () => {
+  async function refuseReportUpdates(): Promise<void> {
+    await sql`CREATE TRIGGER refuse_report_update BEFORE UPDATE ON reports BEGIN SELECT RAISE(ABORT, 'turso write refused'); END`.execute(
+      db,
+    );
+  }
+
+  it("an approve whose write is refused is a 502, and nothing is approved", async () => {
+    await seedSite("recSiteF");
+    await seedReport("recREPF", "recSiteF");
+    await refuseReportUpdates();
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await post("recREPF");
+    expect(res.status).toBe(502);
+    expect((await reportRow("recREPF"))?.approved_to_send).toBe(0);
+    err.mockRestore();
+  });
+
+  it("an override whose write is refused is a 502, and nothing is overridden", async () => {
+    await seedSite("recSiteG");
+    await seedReport("recREPG", "recSiteG");
+    await refuseReportUpdates();
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await post("recREPG", { override: true, reason: "client asked for it today" });
+    expect(res.status).toBe(502);
+    const row = await reportRow("recREPG");
+    expect(row?.send_override).toBe(0);
+    expect(row?.approved_to_send).toBe(0);
     err.mockRestore();
   });
 });

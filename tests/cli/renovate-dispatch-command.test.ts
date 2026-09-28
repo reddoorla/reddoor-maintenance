@@ -27,6 +27,15 @@ function turso(opts: { fails?: boolean } = {}): { writes: Write[]; siteMirror: S
 // Mirrors tests/cli/github-signals-command.test.ts: the two guard branches that
 // the fleet-security.yml step relies on to never fail. (The dispatch happy path
 // is covered by the pure helpers in tests/github/renovate-dispatch.test.ts.)
+const unusedMirror = {
+  created: async () => {},
+  hasRow: async () => true,
+  health: async () => {
+    throw new Error("this path must not write");
+  },
+  site: async () => {},
+};
+
 describe("runRenovateDispatchCommand guards", () => {
   const originalRenovate = process.env.RENOVATE_TOKEN;
   const originalGh = process.env.GH_TOKEN;
@@ -39,14 +48,14 @@ describe("runRenovateDispatchCommand guards", () => {
   });
 
   it("rejects a non-fleet invocation with exit 2", async () => {
-    const r = await runRenovateDispatchCommand({ fleet: false });
+    const r = await runRenovateDispatchCommand({ fleet: false, siteMirror: unusedMirror });
     expect(r.code).toBe(2);
   });
 
   it("clean-skips (exit 0) when no fleet token is configured", async () => {
     delete process.env.RENOVATE_TOKEN;
     delete process.env.GH_TOKEN;
-    const r = await runRenovateDispatchCommand({ fleet: true });
+    const r = await runRenovateDispatchCommand({ fleet: true, siteMirror: unusedMirror });
     expect(r.code).toBe(0);
     expect(r.output).toContain("skipped");
   });
@@ -56,7 +65,11 @@ describe("runRenovateDispatchCommand guards", () => {
     delete process.env.GH_TOKEN;
     // An empty fleet: had the retired name been honoured, the run would read it
     // and report "nothing to dispatch" instead of the no-token skip.
-    const r = await runRenovateDispatchCommand({ fleet: true, roster: async () => [] });
+    const r = await runRenovateDispatchCommand({
+      fleet: true,
+      roster: async () => [],
+      siteMirror: unusedMirror,
+    });
     expect(r.code).toBe(0);
     expect(r.output).toContain("skipped: no GH_TOKEN");
   });

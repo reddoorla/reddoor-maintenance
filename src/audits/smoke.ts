@@ -265,7 +265,7 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "smoke",
         site: label,
         status: "fail",
-        summary: `${SMOKE_UNMEASURED_PREFIX} — \`pnpm test:smoke\` exceeded its ${minutes}m budget; no verdict, prior Airtable value preserved`,
+        summary: `${SMOKE_UNMEASURED_PREFIX} — \`pnpm test:smoke\` exceeded its ${minutes}m budget; no verdict, prior stored value preserved`,
       };
     }
     throw err;

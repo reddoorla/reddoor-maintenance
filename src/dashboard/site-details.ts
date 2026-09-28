@@ -37,8 +37,8 @@ export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
  *
  * KNOWN GAP, operator-owned: `fleet-cockpit.ts` also supports a
  * `turnstile-unverified` accept key, and this field has no option for it — so
- * that one condition cannot be accepted from the console. Adding the option is a
- * UI action in Airtable; nothing here can do it.
+ * that one condition cannot be accepted from the console. Adding it is a code
+ * change to `WATCH_CONDITION_OPTIONS`.
  */
 export const WATCH_CONDITION_OPTIONS: readonly string[] = [
   "Performance",

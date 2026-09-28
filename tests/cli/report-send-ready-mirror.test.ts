@@ -60,8 +60,8 @@ describe("report --send-ready: the sent-stamp mirror surfaces the row count", ()
     await runReportCommand(undefined, { sendReady: true });
     expect(captured?.reportSentMirror).toBeTypeOf("function");
 
-    await captured!.reportSentMirror!("recHELD", new Date("2026-09-15T00:00:00Z"), "msg_1");
-    await captured!.reportSentMirror!("recGHOST", new Date("2026-09-15T00:00:00Z"), null);
+    await captured!.reportSentMirror("recHELD", new Date("2026-09-15T00:00:00Z"), "msg_1");
+    await captured!.reportSentMirror("recGHOST", new Date("2026-09-15T00:00:00Z"), null);
     expect(results).toEqual([true, false]);
 
     const stamped = await db
@@ -70,5 +70,32 @@ describe("report --send-ready: the sent-stamp mirror surfaces the row count", ()
       .where("id", "=", "recHELD")
       .executeTakeFirst();
     expect(stamped).toEqual({ sent_at: "2026-09-15T00:00:00.000Z", resend_message_id: "msg_1" });
+  });
+
+  it("the stamp never touches Delivery status, and the 409 replay keeps the original message id", async () => {
+    const db = await realOpenDb({ url: ":memory:" });
+    vi.mocked(openDb).mockResolvedValue(db);
+    await mirrorReportInsert(db, {
+      id: "recLANDED",
+      fields: {
+        "Report ID": "R2",
+        "Delivery status": "delivered",
+        "Resend message ID": "msg_original",
+      },
+    });
+
+    await runReportCommand(undefined, { sendReady: true });
+    await captured!.reportSentMirror("recLANDED", new Date("2026-09-16T00:00:00Z"), null);
+
+    const row = await db
+      .selectFrom("reports")
+      .select(["sent_at", "resend_message_id", "delivery_status"])
+      .where("id", "=", "recLANDED")
+      .executeTakeFirst();
+    expect(row).toEqual({
+      sent_at: "2026-09-16T00:00:00.000Z",
+      resend_message_id: "msg_original",
+      delivery_status: "delivered",
+    });
   });
 });

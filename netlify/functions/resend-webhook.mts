@@ -40,17 +40,14 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   // env made it through. Netlify env vars are site-wide, so this also surfaces
   // `TURSO_DATABASE_URL` — whose absence 500s the whole dashboard + forms
   // surface (the #1 fresh-deploy failure), and, since #646 step 2, this
-  // function's report lookup too. The AIRTABLE_* lines stay until Phase 6 step 7:
-  // they now report whether the shadow write will run, not whether the function
-  // can. Reports presence-only, never values; operators may share the output.
+  // function's report lookup too. Reports presence-only, never values; operators
+  // may share the output.
   if (req.method === "GET") {
     const body = {
       status: "ok",
       service: "reddoor-resend-webhook",
       env: {
         RESEND_WEBHOOK_SECRET: typeof process.env.RESEND_WEBHOOK_SECRET === "string",
-        AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
-        AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
         TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
       },
     };

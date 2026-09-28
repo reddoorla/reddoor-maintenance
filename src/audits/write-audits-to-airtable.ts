@@ -245,11 +245,9 @@ export type FleetWriteResult = {
    *  that landed nothing = the fleet-wide outage alarm). */
   mirrored?: number;
   mirrorFailed?: number;
-  /** Mirror UPDATEs that matched no site_health row (site created in Airtable
-   *  after the last hourly import). Not a failure — the row converges on the
-   *  next sync — but not mirrored either: counted apart so `mirrored=` stays
-   *  an honest Phase 5 cutover signal instead of overcounting by the no-row
-   *  sites. */
+  /** Mirror UPDATEs that matched no site_health row. Every site creator
+   *  inserts that row, so a miss is a defect; the site is also filed under
+   *  `failed`. */
   mirrorMissed?: number;
   events?: FleetEvent[];
 };
@@ -262,19 +260,14 @@ export type FleetWriteResult = {
  *  still reding on a total or mass write-back failure. */
 /** Did this sweep fail, for exit-code purposes (#612)?
  *
- *  Pre-freeze, only an Airtable write failure counts. Mirror failures and missed
- *  rows are real but survivable: the hourly import converges them, and going red
- *  over a transient the system already handles would train the alarm to be
- *  ignored.
+ *  Turso is the only store, so a mirror failure, a missed row and an ABSENT
+ *  mirror are all fatal under `strict` — the absent one is the easiest to
+ *  misread as success: no counters at all means no libSQL creds, which means
+ *  the sweep wrote nothing.
  *
- *  Post-freeze there is no import to converge anything, so all three become
- *  fatal — including an ABSENT mirror, which is the worst of the three and the
- *  easiest to misread as success: no counters at all means no libSQL creds,
- *  which means the sweep wrote nothing to the only store there is.
- *
- *  Note what this deliberately does NOT change: `writeFleetAuditsToAirtable`
- *  still catches per-site mirror failures rather than throwing. One bad site
- *  must not abort a 44-site sweep. This gates the RUN, not the loop. */
+ *  `writeFleetAuditsToAirtable` still catches per-site failures rather than
+ *  throwing. One bad site must not abort a 44-site sweep. This gates the RUN,
+ *  not the loop. */
 export function fleetWriteFailed(
   result: FleetWriteResult,
   strict: boolean = TURSO_IS_AUTHORITATIVE,
@@ -312,15 +305,18 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
   return out;
 }
 
-/** Write each site's pooled audit results back to its own Websites row,
+/** Write each site's pooled audit results to its Turso `site_health` row,
  *  best-effort. Results are grouped by `result.site` (the slug the fleet
  *  inventory stamped as Site.name). A per-site failure (no scores, no matching
- *  row) is collected — not thrown — so one bad site never aborts the batch. */
+ *  row, a Turso write that threw or matched nothing, no store at all) is
+ *  collected — not thrown — so one bad site never aborts the batch. A site is
+ *  `written` only when its FieldSet landed in Turso, so the nightly gates'
+ *  `wrote=0` catches a total store outage. */
 export async function writeFleetAuditsToAirtable(args: {
   websites: WebsiteRow[];
   results: AuditResult[];
-  /** Optional Turso write-through (#539 Phase 3 dual-write). A mirror failure
-   *  is counted, never thrown. */
+  /** The Turso write (#539 Phase 3). A failure is counted and files the site
+   *  under `failed`, never thrown. Absent → every site with a FieldSet fails. */
   mirror?: HealthMirror;
 }): Promise<FleetWriteResult> {
   const { websites, results, mirror } = args;
@@ -347,15 +343,24 @@ export async function writeFleetAuditsToAirtable(args: {
       continue;
     }
     const { summary } = plan;
-    if (mirror && summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
+    if (summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
+      if (!mirror) {
+        failed.push({ slug, error: "no Turso store configured" });
+        continue;
+      }
       try {
-        if (await mirror(summary.siteId, summary.fields)) {
-          mirrored++;
-          events.push(...(summary.events ?? []));
-        } else mirrorMissed++;
+        if (!(await mirror(summary.siteId, summary.fields))) {
+          mirrorMissed++;
+          failed.push({ slug, error: "no site_health row matched" });
+          continue;
+        }
+        mirrored++;
+        events.push(...(summary.events ?? []));
       } catch (e) {
         mirrorFailed++;
         console.error(`[health-mirror] ${slug}: ${(e as Error).message}`);
+        failed.push({ slug, error: `Turso write failed: ${(e as Error).message}` });
+        continue;
       }
     }
     if (plan.lighthouseMiss) {
@@ -363,7 +368,6 @@ export async function writeFleetAuditsToAirtable(args: {
       continue;
     }
     written.push(summary);
-    if (!mirror) events.push(...(summary.events ?? []));
   }
   return { written, failed, events, ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}) };
 }

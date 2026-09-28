@@ -320,14 +320,15 @@ export async function writeNextDueDates(
         try {
           const fields = nextDueDatesFields(dates);
           // false = the UPDATE matched no site_schedule row — missed, not mirrored.
-          if (await scheduleMirror(site.id, fields, today.toISOString())) mirrored++;
-          else mirrorMissed++;
+          if (await scheduleMirror(site.id, fields, today.toISOString())) {
+            mirrored++;
+            wrote++;
+          } else mirrorMissed++;
         } catch (e) {
           mirrorFailed++;
           console.warn(`⚠ [schedule-mirror] ${site.name}: ${(e as Error).message}`);
         }
       }
-      wrote++;
     } catch (e) {
       failed++;
       console.warn(`⚠ next-due write skipped for ${site.name}: ${(e as Error).message}`);

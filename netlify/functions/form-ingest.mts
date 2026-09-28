@@ -77,8 +77,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         status: "ok",
         service: "reddoor-form-ingest",
         env: {
-          AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
-          AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
           TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
           RESEND_API_KEY: typeof process.env.RESEND_API_KEY === "string",
           FORMS_INGEST_TOKEN: typeof process.env.FORMS_INGEST_TOKEN === "string",

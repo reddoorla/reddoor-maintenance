@@ -47,7 +47,7 @@ describe("fleet-security workflow", () => {
  */
 const APP_TOKEN = "${{ steps.app-token-late.outputs.token }}";
 const PROTECTION_STEP = "Protection coverage audit (org-wide)";
-const SWEEP_STEP = "Sweep GitHub signals to Airtable";
+const SWEEP_STEP = "Sweep GitHub signals to Turso";
 
 describe("fleet token wiring: the minted App token reaches the CLI as GH_TOKEN", () => {
   it.each([DISPATCH_STEP, PROTECTION_STEP])(

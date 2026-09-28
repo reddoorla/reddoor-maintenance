@@ -142,6 +142,14 @@ const io = () => ({
       ...(messageId !== null ? { resend_message_id: messageId } : {}),
     });
   },
+  siteMirror: {
+    created: async () => {},
+    hasRow: async () => true,
+    health: async () => {},
+    site: async () => {
+      throw new Error("no Launch report here — the launch flip must not run");
+    },
+  },
 });
 
 describe("the send path, read from Turso", () => {
