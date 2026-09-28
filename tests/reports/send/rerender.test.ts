@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { rerenderReport, type RerenderDeps } from "../../../src/reports/send/rerender.js";
+import {
+  rerenderReport,
+  formatRerenderResult,
+  type RerenderDeps,
+} from "../../../src/reports/send/rerender.js";
 import { makeWebsiteRow } from "../../_helpers/website-row.js";
 import type { ReportRow } from "../../../src/reports/airtable/reports.js";
 
@@ -22,15 +26,52 @@ const SITE = makeWebsiteRow({
   },
 });
 
+const NOW = new Date("2026-09-28T12:00:00.000Z");
+const CHECKED = "2026-09-27T13:40:57.211Z";
+const NOT_MEASURED = { result: "unknown", checkedAt: null, note: "Not yet measured" } as const;
+const GATING = [
+  "Maint: Deploy & Function Health",
+  "Maint: CMS Checked",
+  "Maint: Domain, DNS & SSL",
+  "Maint: Security Updates",
+  "Maint: Uptime Checked",
+];
+
 function report(over: Partial<ReportRow> = {}): ReportRow {
   return {
     id: "recREP",
     reportId: "ACME-M",
     siteId: "recSITE",
+    reportType: "Maintenance",
     sentAt: null,
+    approvedToSend: false,
+    checklist: {},
+    autoEvidence: {},
     ...over,
   } as ReportRow;
 }
+
+const MEASURED_SITE = makeWebsiteRow({
+  ...SITE,
+  url: "https://acme.com",
+  netlifyId: "n1",
+  deployStatus: "ready",
+  deployCheckedAt: CHECKED,
+  functionHealth: "pass",
+  cmsReachable: "pass",
+  functionHealthCheckedAt: CHECKED,
+  certDaysRemaining: 80,
+  domainCheckedAt: CHECKED,
+  securityVulnsCritical: 0,
+  securityVulnsHigh: 0,
+  lastSecurityAuditAt: CHECKED,
+  reachableOk: "pass",
+  browserCheckedAt: CHECKED,
+});
+
+const FROZEN = report({
+  autoEvidence: Object.fromEntries(GATING.map((f) => [f, NOT_MEASURED])),
+});
 
 function deps(over: Partial<RerenderDeps> = {}): RerenderDeps {
   return {
@@ -40,6 +81,8 @@ function deps(over: Partial<RerenderDeps> = {}): RerenderDeps {
     fetchAirtableHeader: async () => new Uint8Array([1, 1, 1]),
     render: async () => ({ html: "<html>rendered</html>" }),
     store: async () => {},
+    storeEvidence: async () => true,
+    now: () => NOW,
     ...over,
   };
 }
@@ -129,5 +172,75 @@ describe("rerenderReport", () => {
     expect((await rerenderReport(deps({ getSite: async () => null }), "recREP")).status).toBe(
       "not-found",
     );
+  });
+});
+
+describe("rerenderReport — health evidence (#890)", () => {
+  it("re-checks a frozen draft's evidence against current health, stores it, and renders from it", async () => {
+    const written: Array<{ id: string; evidence: Record<string, { result: string }> }> = [];
+    const rendered: ReportRow[] = [];
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => FROZEN,
+        getSite: async () => MEASURED_SITE,
+        storeEvidence: async (id, _c, evidence) => {
+          written.push({ id, evidence });
+          return true;
+        },
+        render: async (_s, rep) => {
+          rendered.push(rep);
+          return { html: "x" };
+        },
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", evidence: "reticked" });
+    expect(written).toHaveLength(1);
+    for (const f of GATING) expect(written[0]!.evidence[f]!.result).toBe("pass");
+    expect(rendered[0]!.autoEvidence![GATING[0]!]!.result).toBe("pass");
+  });
+
+  it("never touches the evidence of an approved report", async () => {
+    let wrote = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => ({ ...FROZEN, approvedToSend: true }),
+        getSite: async () => MEASURED_SITE,
+        storeEvidence: async () => (wrote = true),
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", evidence: "locked" });
+    expect(wrote).toBe(false);
+  });
+
+  it("renders from the row it read when the conditional write matched nothing", async () => {
+    const rendered: ReportRow[] = [];
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => FROZEN,
+        getSite: async () => MEASURED_SITE,
+        storeEvidence: async () => false,
+        render: async (_s, rep) => {
+          rendered.push(rep);
+          return { html: "x" };
+        },
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", evidence: "not-written" });
+    expect(rendered[0]!.autoEvidence![GATING[0]!]!.result).toBe("unknown");
+  });
+
+  it("names the evidence outcome on the machine-greppable line", () => {
+    expect(
+      formatRerenderResult({
+        status: "rendered",
+        reportId: "recREP",
+        bytes: 10,
+        headerSource: "turso",
+        evidence: "reticked",
+      }),
+    ).toBe("REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked");
   });
 });

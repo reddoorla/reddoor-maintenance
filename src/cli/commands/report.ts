@@ -185,7 +185,7 @@ export async function runReportCommand(
     const { rerenderReport, formatRerenderResult } = await import("../../reports/send/rerender.js");
     const { renderReportFromRow } = await import("../../reports/send/render-from-row.js");
     const { openDb, readDbConfig } = await import("../../db/client.js");
-    const { getReportById, getSiteById, storeRenderedHtml } =
+    const { getReportById, getSiteById, storeRenderedHtml, storeChecklistEvidence } =
       await import("../../db/fleet-state.js");
     const { loadHeaderImage } = await import("../../db/header-images.js");
     const { fetchAttachmentBytes } = await import("../../reports/airtable/attachments.js");
@@ -198,6 +198,9 @@ export async function runReportCommand(
         fetchAirtableHeader: async (url) => (await fetchAttachmentBytes(url)).bytes,
         render: (site, report, plate) => renderReportFromRow(site, report, plate),
         store: (id, html) => storeRenderedHtml(db, id, html),
+        storeEvidence: (id, checklist, autoEvidence) =>
+          storeChecklistEvidence(db, id, checklist, autoEvidence),
+        now: () => new Date(),
       },
       opts.rerender,
     );

@@ -23,6 +23,8 @@ import {
   mirrorReportPatch,
   mirrorReportInsert,
   storeRenderedHtml,
+  storeChecklistEvidence,
+  getReportById,
   getReportHtml,
   listAllReports,
 } from "../../src/db/fleet-state.js";
@@ -648,6 +650,61 @@ describe("mirrorSiteField — the non-text editor columns", () => {
  * is deliberately NOT in `ReportMirrorPatch` — that patch is for request-path
  * writers, and a rendered body is produced by a batch job, not a dashboard POST.
  */
+describe("storeChecklistEvidence (#890)", () => {
+  const insert = async (
+    db: Awaited<ReturnType<typeof importOf>>,
+    id: string,
+    over: { approved_to_send?: number; sent_at?: string | null } = {},
+  ) =>
+    db
+      .insertInto("reports")
+      .values({
+        id,
+        site_id: "recRICH",
+        report_id: "EV",
+        report_type: "Maintenance",
+        draft_ready: 1,
+        approved_to_send: 0,
+        send_override: 0,
+        checklist: JSON.stringify({ deploy: false, cms: false }),
+        checklist_auto_evidence: JSON.stringify({
+          "Maint: CMS Checked": { result: "unknown", checkedAt: null, note: "Not yet measured" },
+        }),
+        ...over,
+      })
+      .execute();
+  const EVIDENCE = {
+    "Maint: CMS Checked": {
+      result: "pass" as const,
+      checkedAt: "2026-09-27T13:40:57.214Z",
+      note: "Prismic reachable (server-side)",
+    },
+  };
+
+  it("writes evidence and ticks where the reader reads them back", async () => {
+    const db = await importOf([RICH]);
+    await insert(db, "recEV1");
+    const before = (await getReportById(db, "recEV1"))!;
+    const checklist = { ...before.checklist, "Maint: CMS Checked": true };
+    expect(await storeChecklistEvidence(db, "recEV1", checklist, EVIDENCE)).toBe(true);
+    const after = (await getReportById(db, "recEV1"))!;
+    expect(after.autoEvidence).toEqual(EVIDENCE);
+    expect(after.checklist).toEqual(checklist);
+  });
+
+  it("refuses an approved or a sent row, leaving it as it was", async () => {
+    const db = await importOf([RICH]);
+    await insert(db, "recEV2", { approved_to_send: 1 });
+    await insert(db, "recEV3", { sent_at: "2026-09-20T09:23:00.000Z" });
+    for (const id of ["recEV2", "recEV3"]) {
+      const before = (await getReportById(db, id))!;
+      expect(await storeChecklistEvidence(db, id, before.checklist, EVIDENCE)).toBe(false);
+      expect((await getReportById(db, id))!.autoEvidence).toEqual(before.autoEvidence);
+    }
+    expect(await storeChecklistEvidence(db, "recNOPE", {}, EVIDENCE)).toBe(false);
+  });
+});
+
 describe("storeRenderedHtml", () => {
   const insert = async (db: Awaited<ReturnType<typeof importOf>>, id: string) =>
     db

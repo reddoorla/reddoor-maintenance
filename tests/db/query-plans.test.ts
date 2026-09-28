@@ -720,6 +720,11 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.storeRenderedHtml(db, "recA", "<html>x</html>"),
     },
     {
+      name: "storeChecklistEvidence (preview refresh re-checks an unsent draft)",
+      covers: ["storeChecklistEvidence"],
+      run: (db) => fleetState.storeChecklistEvidence(db, "recA", {}, {}),
+    },
+    {
       name: "mirrorHealthFields (nightly audit write-through)",
       covers: ["mirrorHealthFields"],
       run: (db) => fleetState.mirrorHealthFields(db, "recA", { "Smoke OK": "pass" }),

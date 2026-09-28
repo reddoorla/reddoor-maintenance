@@ -50,6 +50,7 @@ import {
   type DeliveryStatus,
 } from "../reports/report-row.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
+import type { EvidenceRecord } from "../reports/auto-tick.js";
 import { canonicalizeStatus } from "../fleet/site-status.js";
 import {
   parseNotifyRouting,
@@ -832,6 +833,27 @@ export async function insertReportRow(db: Db, rec: RawRecord): Promise<void> {
  */
 export async function storeRenderedHtml(db: Db, reportId: string, html: string): Promise<void> {
   await db.updateTable("reports").set({ rendered_html: html }).where("id", "=", reportId).execute();
+}
+
+export async function storeChecklistEvidence(
+  db: Db,
+  reportId: string,
+  checklist: Record<string, boolean>,
+  autoEvidence: Record<string, EvidenceRecord>,
+): Promise<boolean> {
+  const stored: Record<string, boolean> = {};
+  for (const [key, field] of CHECKLIST_FIELD_BY_KEY) stored[key] = checklist[field] === true;
+  const res = await db
+    .updateTable("reports")
+    .set({
+      checklist: JSON.stringify(stored),
+      checklist_auto_evidence: JSON.stringify(autoEvidence),
+    })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("approved_to_send", "=", 0)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
 }
 
 /** By rec id (the PK) — approve-report's read. */
