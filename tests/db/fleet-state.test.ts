@@ -253,7 +253,7 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
   });
 
   it("an editor 'no analytics' opt-out lands in Turso and satisfies the GA4 setup check", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     const deps = {
       getSite: (slug: string) => getSiteBySlug(db, slug),
       updateField: (id: string, col: string, val: AirtableCellValue) =>
