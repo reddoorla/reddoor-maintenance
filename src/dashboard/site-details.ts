@@ -35,10 +35,15 @@ export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
  * effect; that is the silent-option-creation hazard this codebase refuses
  * everywhere, and it is why an unknown condition is rejected rather than sent.
  *
+ * `no analytics` is the first option added after that constraint lapsed: since
+ * `AIRTABLE_SHADOW_WRITES = false` (#933) the editor writes Turso only, so a
+ * value Airtable's select lacks is never sent to it. It is the explicit opt-out
+ * from the GA4 setup requirement (`src/dashboard/onboarding.ts`).
+ *
  * KNOWN GAP, operator-owned: `fleet-cockpit.ts` also supports a
  * `turnstile-unverified` accept key, and this field has no option for it — so
- * that one condition cannot be accepted from the console. Adding the option is a
- * UI action in Airtable; nothing here can do it.
+ * that one condition cannot be accepted from the console. The Airtable reason
+ * above no longer applies; adding it here is now a one-line change.
  */
 export const WATCH_CONDITION_OPTIONS: readonly string[] = [
   "Performance",
@@ -47,6 +52,7 @@ export const WATCH_CONDITION_OPTIONS: readonly string[] = [
   "SEO",
   "stale repo",
   "no custom domain",
+  "no analytics",
 ] as const;
 
 type FieldKind =

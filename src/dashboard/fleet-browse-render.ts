@@ -225,6 +225,7 @@ const FLEET_FILTERS = [
   "auto-fix-failed",
   "stale",
   "no-domain",
+  "no-analytics",
 ] as const;
 
 /** The fleet browser: one collapsed <details> holding the filter chips and a single flat
