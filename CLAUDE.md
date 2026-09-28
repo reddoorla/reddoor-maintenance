@@ -132,13 +132,21 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
 - **GitHub goes through a proxy that replaces the `Authorization` header.**
   `GH_TOKEN` is inert (a bogus token gets the same 200), and only repos attached
   to the session answer on the API, so attach a fleet repo with `add_repo`
-  before touching it. **GraphQL is refused outright**: `gh pr view|checks|list`,
-  `gh repo view|list` and therefore `scripts/land-prs.mjs` stop with a 403;
-  `gh api repos/…` (REST) works. `gh auth status` says "The token in GH_TOKEN is
-  invalid" — that is the GraphQL refusal, not the token.
-- **Landing a PR from the cloud is `land-prs.mjs`'s gate applied by hand**: one
-  PR at a time, never a release PR, CI green on the head you read, and the merge
-  pinned to that head (`expectedHeadSha` on the GitHub MCP merge).
+  before touching it. **GraphQL is refused outright**: `gh pr view|checks|list`
+  and `gh repo view|list` stop with a 403; `gh api repos/…` (REST) works.
+  `gh auth status` says "The token in GH_TOKEN is invalid" — that is the GraphQL
+  refusal, not the token. REST writes are not all open either: a branch delete
+  (`DELETE git/refs/…`) answers 403 "Write access to this GitHub API path is not
+  permitted through this proxy", and a percent-encoded path answers 400 "could
+  not be canonicalized". `PUT pulls/{n}/merge` and `PUT pulls/{n}/update-branch`
+  reach GitHub.
+- **Land PRs from the cloud with `node scripts/land-prs.mjs`, exactly as on the
+  laptop.** It has been REST-only since 2026-09-28, with every gate unchanged.
+  The one difference is the branch delete, which the proxy refuses: the script
+  then checks whether GitHub already removed the branch (it does when the repo
+  has "Automatically delete head branches" on, as reddoor-maintenance does) and
+  prints a `note:` only when the branch is still there. Attach a fleet repo with
+  `add_repo` before landing in it, or its first `gh api` call stops on the 403.
 - **`scripts/fleet-repos.sh` has nothing to enumerate**: the other checkouts
   are not here. For a sweep, list the org through the API and clone each repo
   after attaching it.
