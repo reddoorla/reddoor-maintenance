@@ -1,4 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openDb } from "../../src/db/client.js";
+import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
+import { loadHeaderImage } from "../../src/db/header-images.js";
 import { refreshHeaderImage, draftReportForSite } from "../../src/reports/draft.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
@@ -20,57 +26,97 @@ import { generateHeaderImage } from "../../src/reports/header-image/index.js";
 const site = { id: "rec1", name: "Acme", url: "https://acme.com/" } as WebsiteRow;
 
 describe("reports/draft refreshHeaderImage", () => {
-  it("uploads a freshly generated header", async () => {
-    const upload = vi.fn(async () => {});
-    const generate = vi.fn(async () => ({
-      bytes: new Uint8Array([1]),
-      domain: "acme.com",
-      filename: "acmeHeader.jpg",
-      contentType: "image/jpeg" as const,
-    }));
-    const ok = await refreshHeaderImage(site, { generate, upload });
+  const generated = () => ({
+    bytes: new Uint8Array([1]),
+    domain: "acme.com",
+    filename: "acmeHeader.jpg",
+    contentType: "image/jpeg" as const,
+  });
+
+  it("stores the freshly generated header as the site's Turso plate", async () => {
+    const store = vi.fn(async () => {});
+    const generate = vi.fn(async () => generated());
+    const ok = await refreshHeaderImage(site, { generate, store });
     expect(ok).toBe(true);
-    expect(upload).toHaveBeenCalledWith(
-      "rec1",
-      "Header image",
-      new Uint8Array([1]),
-      "acmeHeader.jpg",
-      "image/jpeg",
-      // replace: Airtable's upload endpoint appends and readers take
-      // attachment [0], so without this the field accumulates and the site
-      // keeps sending its OLDEST header.
-      { replaceIn: "Websites" },
-    );
+    expect(store).toHaveBeenCalledWith("rec1", {
+      bytes: new Uint8Array([1]),
+      filename: "acmeHeader.jpg",
+      contentType: "image/jpeg",
+      generatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    });
   });
 
   it("returns false and does NOT throw when capture fails — the draft continues", async () => {
-    const upload = vi.fn(async () => {});
+    const store = vi.fn(async () => {});
     const generate = vi.fn(async () => {
       throw new Error("net::ERR_TIMED_OUT");
     });
-    await expect(refreshHeaderImage(site, { generate, upload })).resolves.toBe(false);
-    expect(upload).not.toHaveBeenCalled();
+    await expect(refreshHeaderImage(site, { generate, store })).resolves.toBe(false);
+    expect(store).not.toHaveBeenCalled();
   });
 
-  it("returns false when the upload fails, leaving the stored header intact", async () => {
-    const generate = vi.fn(async () => ({
-      bytes: new Uint8Array([1]),
-      domain: "acme.com",
-      filename: "acmeHeader.jpg",
-      contentType: "image/jpeg" as const,
-    }));
-    const upload = vi.fn(async () => {
-      throw new Error("airtable 503");
+  it("returns false when the store fails, leaving the stored plate intact", async () => {
+    const generate = vi.fn(async () => generated());
+    const store = vi.fn(async () => {
+      throw new Error("turso down");
     });
-    await expect(refreshHeaderImage(site, { generate, upload })).resolves.toBe(false);
+    await expect(refreshHeaderImage(site, { generate, store })).resolves.toBe(false);
   });
 
   it("skips a site with no URL", async () => {
     const generate = vi.fn();
-    const upload = vi.fn();
-    const ok = await refreshHeaderImage({ ...site, url: "" } as WebsiteRow, { generate, upload });
+    const store = vi.fn();
+    const ok = await refreshHeaderImage({ ...site, url: "" } as WebsiteRow, { generate, store });
     expect(ok).toBe(false);
     expect(generate).not.toHaveBeenCalled();
+  });
+});
+
+describe("the default store is the plate the send reads", () => {
+  let dir: string;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes Turso's sites.header_image, which loadHeaderImage hands the send", async () => {
+    dir = mkdtempSync(join(tmpdir(), "header-refresh-"));
+    const url = `file:${join(dir, "fleet.db")}`;
+    const db = await openDb({ url });
+    await mirrorSiteInsert(
+      db,
+      { id: "rec1", fields: { Name: "Acme", Status: "maintained", url: "https://acme.com/" } },
+      "2026-09-28T00:00:00.000Z",
+    );
+    vi.stubEnv("TURSO_DATABASE_URL", url);
+    const generate = vi.fn(async () => ({
+      bytes: new Uint8Array([7, 7, 7]),
+      domain: "acme.com",
+      filename: "acmeHeader.jpg",
+      contentType: "image/jpeg" as const,
+    }));
+    await expect(refreshHeaderImage(site, { generate })).resolves.toBe(true);
+    const stored = await loadHeaderImage(db, "rec1");
+    expect(stored?.bytes).toEqual(new Uint8Array([7, 7, 7]));
+    expect(stored?.filename).toBe("acmeHeader.jpg");
+    await db.destroy();
+  });
+
+  it("without Turso configured, warns and returns false instead of throwing", async () => {
+    dir = mkdtempSync(join(tmpdir(), "header-refresh-"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const generate = vi.fn(async () => generated());
+    await expect(refreshHeaderImage(site, { generate })).resolves.toBe(false);
+    expect(warn.mock.calls.flat().join("\n")).toMatch(/header-image refresh skipped for Acme/);
+    warn.mockRestore();
+  });
+
+  const generated = () => ({
+    bytes: new Uint8Array([1]),
+    domain: "acme.com",
+    filename: "acmeHeader.jpg",
+    contentType: "image/jpeg" as const,
   });
 });
 
@@ -83,15 +129,6 @@ describe("reports/draft refreshHeaderImage", () => {
  */
 describe("draftReportForSite header-refresh wiring", () => {
   beforeEach(() => {
-    // uploadAttachment posts to content.airtable.com via fetch; stub it out.
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      text: async () => "",
-    }) as unknown as typeof global.fetch;
-    process.env.AIRTABLE_PAT = "pat_test";
-    process.env.AIRTABLE_BASE_ID = "app_test";
     delete process.env.GA_SUBJECT;
     vi.mocked(generateHeaderImage).mockClear();
   });
