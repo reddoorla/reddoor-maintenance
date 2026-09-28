@@ -1,6 +1,5 @@
 import type { Context, Config } from "@netlify/functions";
 import { Webhook } from "svix";
-import Airtable from "airtable";
 import {
   STATUS_MAP,
   isStatusDowngrade,
@@ -8,6 +7,7 @@ import {
   parseBounceDetail,
 } from "../../src/reports/webhook-events.js";
 import { setDeliveryStatus } from "../../src/reports/airtable/reports.js";
+import { openBase } from "../../src/reports/airtable/client.js";
 import { findReportByMessageId, mirrorReportPatch } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { mirrorWrite } from "../../src/db/freeze.js";
@@ -206,7 +206,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     // re-applied to Airtable; Turso holds it). A half-configured env (one var
     // of two) is treated the same way, under its own reason.
     if (airtablePat && baseId) {
-      const base = new Airtable({ apiKey: airtablePat }).base(baseId);
+      const base = openBase({ apiKey: airtablePat, baseId });
       await setDeliveryStatus(base, report.id, newStatus);
     } else {
       const reason = airtablePat || baseId ? "env-partial" : "env-absent";

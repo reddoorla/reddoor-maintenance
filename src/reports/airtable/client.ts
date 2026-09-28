@@ -30,8 +30,14 @@ export function readAirtableConfig(): AirtableConfig {
 
 export type AirtableBase = ReturnType<typeof openBase>;
 
+export const REQUEST_TIMEOUT_MS = 30_000;
+
 export function openBase(cfg: AirtableConfig) {
-  const base = new Airtable({ apiKey: cfg.apiKey }).base(cfg.baseId);
+  const base = new Airtable({
+    apiKey: cfg.apiKey,
+    noRetryIfRateLimited: true,
+    requestTimeout: REQUEST_TIMEOUT_MS,
+  }).base(cfg.baseId);
   // Throttle every Airtable HTTP call at its single funnel so paging bursts
   // (cockpit scans, fleet sweeps) stay under the per-base rate limit instead of
   // tripping 429s. See throttle.ts.
