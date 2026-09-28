@@ -749,6 +749,10 @@ export async function updatePrismicModels(
   return fields as FieldSet;
 }
 
+export function launchedFields(at: string): FieldSet {
+  return { Status: toAirtableStatus("maintained"), "Launched at": at };
+}
+
 /** Mark a site launched: flip Status → maintained + stamp Launched at (M6b).
  *  The first code that writes Status. Called after a Launch report sends.
  *  Routed through `toAirtableStatus`, so it still writes Airtable's "maintenance"
@@ -758,7 +762,7 @@ export async function updateLaunched(
   recordId: string,
   at: string,
 ): Promise<FieldSet> {
-  const fields: FieldSet = { Status: toAirtableStatus("maintained"), "Launched at": at };
+  const fields = launchedFields(at);
   if (!skipsAirtableShadow("updateLaunched", recordId)) {
     await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   }

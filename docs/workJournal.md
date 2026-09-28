@@ -4699,3 +4699,19 @@ Both production writes were the operator's to make. The session's permission lay
 ### Honest accounting
 
 The cloud setup hook from #925 did not run for this session: at start `node` was 22.22.2 and neither checkout had `node_modules`. The session's working directory was `/home/user`, above both repositories, which is the likely reason the project's hooks were not loaded; I did not verify that. Run by hand with `CLAUDE_PROJECT_DIR` set, it exited 0 and put Node 24.19.0 in place.
+
+## 2026-09-28 (evening) — A send stamps Turso before the Airtable shadow, so an Airtable outage cannot send an email twice (#928, `claude/admiring-bardeen-54ojqh`)
+
+The operator wanted to send 29 Navy's Maintenance email, and #928, filed earlier today, said not to while Airtable was over quota. The issue named two defects. **Airtable calls hang**, because airtable.js retries every 429 with no attempt cap and a monthly quota never clears. **The send path writes Airtable before Turso**, so a stuck or failed Airtable stamp leaves a sent report queued.
+
+Today's `daily-reports` run (36460182073) turned the first from a code reading into a measurement. Draft and send took 2 s each, because nothing was due or approved. "Email the operator digest" then printed nothing from 17:44:48 to 17:55:00, was killed by its `timeout-minutes: 10`, and auto-filed #931.
+
+**Honest accounting: the hang is not fixed here.** I built a fix at the `runAction` funnel. It passed a real-SDK test against a local server returning the quota body, and on `main`'s client that test timed out at 8 s. Only then did I find `claude/gracious-wozniak-z6t1z6` (`259a98e1`), committed by another session at 17:47Z, before this work began, fixing the same funnel more completely. It adds a 30 s `requestTimeout`, handles a synchronous throw inside `runAction`, and guards against any other `new Airtable(`. It also measured what I had not: the quota ran out at 14:59 UTC on 2026-09-27, and four fleet sweeps were already hanging on it (#923, #924, #926, #927). I checked open PRs before starting but not fresh branches, which is exactly what `CLAUDE.md` says to check. So my copy of the client fix was dropped, and this change keeps only what that branch does not touch.
+
+**The send path.** `sendOne` sent through Resend, then awaited Airtable's `stampSent`, and only then did the caller write Turso's `sent_at`. Since #646 step 4, that Turso stamp is what takes a report out of `listSendableReports`. Resend's idempotency key protects a replay for 24 h, and the code's own comment names the second email that follows. Turso now stamps first and Airtable second, and a Launch flips Turso before Airtable the same way. Approve, commentary, site-details and the webhook already wrote Turso first. The Airtable half still reds the run, as the freeze's rollback-window contract in `src/db/freeze.ts` asks.
+
+Worth knowing while the quota stays exhausted: a day that sends a `rec…` report reds the send step. The digest step's `if:` names no status function, so GitHub then skips the digest that day. Without the fail-fast branch merged, the shadow stamp would still hang the step until its 15-minute timeout, but only after Turso holds the stamp.
+
+**Proof.** Four tests pin the order: Turso before Airtable on a normal send and on the 409 path; an Airtable failure after it leaves exactly one send, one Turso stamp and a red run; and a Launch flips Turso before Airtable and keeps the flip when Airtable fails. Two mutations, putting the Airtable stamp and then the Airtable launch flip back in front, each failed a test.
+
+**Still the operator's.** Merge the fail-fast branch, which has no PR yet, as well as this one. The quota itself means raising the plan or waiting for the reset. Approve will answer "Temporarily unavailable" while the quota is out, after it has saved the approval in Turso.

@@ -193,6 +193,27 @@ const io = () => {
 };
 import { recordFleetEventsBestEffort } from "../../../src/audits/fleet-events-writer.js";
 
+function quotaError(): Error {
+  return Object.assign(new Error("Airtable PUBLIC_API_BILLING_LIMIT_EXCEEDED"), {
+    statusCode: 429,
+  });
+}
+
+function failingTable(
+  base: ReturnType<typeof makeFakeBase>,
+  table: string,
+  onUpdate: () => Promise<unknown>,
+): ReturnType<typeof makeFakeBase> {
+  const inner = base as unknown as (t: string) => Record<string, unknown>;
+  const patched = ((t: string) => {
+    const tbl = inner(t);
+    return t === table ? { ...tbl, update: onUpdate } : tbl;
+  }) as unknown as typeof base;
+  patched.__calls = base.__calls;
+  patched.__records = base.__records;
+  return patched;
+}
+
 describe("sendApprovedReports", () => {
   it("returns 0 and 'No reports ready' when nothing is sendable", async () => {
     vi.mocked(openBase).mockReturnValue(makeFakeBase({ Reports: [], Websites: [siteRow()] }));
@@ -996,5 +1017,96 @@ describe("sendApprovedReports", () => {
     expect(res.output).toContain("SQLITE_BUSY");
     expect(res.output).toContain("launched:");
     expect(mirrored).toEqual(["rec_site_acme"]);
+  });
+});
+
+describe("sendApprovedReports — Turso before the Airtable shadow (#928)", () => {
+  it("stamps Turso's sent_at before the Airtable shadow", async () => {
+    const order: string[] = [];
+    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(
+      failingTable(base, "Reports", async () => {
+        order.push("airtable");
+        return [];
+      }),
+    );
+    const { client } = captureClient();
+    const res = await sendApprovedReports({
+      ...io(),
+      resend: client,
+      reportSentMirror: async () => void order.push("turso"),
+    });
+    expect(res.code).toBe(0);
+    expect(order).toEqual(["turso", "airtable"]);
+  });
+
+  it("an Airtable quota failure cannot un-send: Turso is stamped once, the run reds, nothing re-sends", async () => {
+    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(
+      failingTable(base, "Reports", async () => {
+        throw quotaError();
+      }),
+    );
+    const { client, captured } = captureClient();
+    const stamps: Array<string | null> = [];
+    const res = await sendApprovedReports({
+      ...io(),
+      resend: client,
+      reportSentMirror: async (_id, _at, messageId) => void stamps.push(messageId),
+    });
+    expect(captured).toHaveLength(1);
+    expect(stamps).toEqual(["msg_1"]);
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("✓ sent:");
+    expect(res.output).toContain("Airtable shadow stamp failed");
+    expect(res.output).toContain("PUBLIC_API_BILLING_LIMIT_EXCEEDED");
+  });
+
+  it("stamps Turso on the 409 path too, before the shadow, with a null message id", async () => {
+    const order: string[] = [];
+    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(
+      failingTable(base, "Reports", async () => {
+        order.push("airtable");
+        return [];
+      }),
+    );
+    const { client } = idempotencyConflictClient();
+    const res = await sendApprovedReports({
+      ...io(),
+      resend: client,
+      reportSentMirror: async (_id, _at, messageId) => void order.push(`turso:${messageId}`),
+    });
+    expect(res.code).toBe(0);
+    expect(order).toEqual(["turso:null", "airtable"]);
+  });
+
+  it("flips a Launch in Turso first; an Airtable failure after it reds the run but keeps the flip", async () => {
+    const order: string[] = [];
+    const base = makeFakeBase({
+      Reports: [reportRow({ "Report type": "Launch" })],
+      Websites: [siteRow({ Status: "launch" })],
+    });
+    vi.mocked(openBase).mockReturnValue(
+      failingTable(base, "Websites", async () => {
+        order.push("airtable");
+        throw quotaError();
+      }),
+    );
+    const { client } = captureClient();
+    const res = await sendApprovedReports({
+      ...io(),
+      resend: client,
+      siteMirror: {
+        created: async () => {},
+        hasRow: async () => true,
+        health: async () => {},
+        site: async (_id, fields) => void order.push(`turso:${String(fields["Status"])}`),
+      },
+    });
+    expect(order).toEqual(["turso:maintained", "airtable"]);
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("launched:");
+    expect(res.output).toContain("in the Airtable shadow");
   });
 });

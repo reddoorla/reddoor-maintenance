@@ -1,6 +1,6 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../airtable/client.js";
 import { stampSent } from "../airtable/reports.js";
-import { updateLaunched } from "../airtable/websites.js";
+import { launchedFields, updateLaunched } from "../airtable/websites.js";
 import { siteSlug, type WebsiteRow } from "../../fleet/site-row.js";
 import type { ReportRow } from "../report-row.js";
 import { fetchAttachmentBytes } from "../airtable/attachments.js";
@@ -59,8 +59,8 @@ export type OrchestrateOptions = {
    *  by tests, and a default would open a real libSQL handle inside the suite. */
   siteMirror?: SiteMirror;
   /** #643 (the freeze): Turso write-through for the `Sent at` / `Resend message
-   *  ID` stamp. stampSent is what removes a row from listSendableReports, so
-   *  once it lands there is no replay left to converge a lost mirror — and the
+   *  ID` stamp. Its `sent_at` is what removes a row from listSendableReports, so
+   *  it is written BEFORE the Airtable shadow (#928) — and the
    *  console's already-sent guards (approve, the commentary lock, re-render)
    *  read `sent_at` from Turso. Injected like siteMirror; the CLI wires it
    *  through `mirrorWrite` so the freeze switch owns the error semantics. */
@@ -94,15 +94,26 @@ export async function sendApprovedReports(
     try {
       const sent = await sendOne(client, base, site, report, options.loadHeaderPlate);
       lines.push(`✓ sent: ${report.reportId} (${sent.display})`);
-      // Mirror the stamp into Turso. Caught here rather than thrown so one
-      // report's lost mirror still lets the batch continue AND still runs this
-      // report's Launch flip below — but it reds the run (`anyFailed`), because
-      // post-freeze nothing converges the miss; `db sync --force` is the manual
-      // converge during the rollback window.
+      // Turso first: its `sent_at` is what takes the row out of the send queue,
+      // so it must land before anything that can fail or stall (#928). Caught
+      // here rather than thrown so one report's lost stamp still lets the batch
+      // continue AND still runs this report's Launch flip below — but it reds
+      // the run (`anyFailed`), because post-freeze nothing converges the miss.
       try {
         await options.reportSentMirror?.(report.id, sent.sentAt, sent.messageId);
       } catch (e) {
         lines.push(`  ✗ sent-stamp mirror failed for ${report.reportId}: ${(e as Error).message}`);
+        anyFailed = true;
+      }
+      // The Airtable shadow of the same stamp, after Turso. It may still fail the
+      // run (the freeze's rollback-window contract), but it can no longer make a
+      // sent email replay.
+      try {
+        await stampSent(base, report.id, sent.sentAt, sent.messageId);
+      } catch (e) {
+        lines.push(
+          `  ✗ Airtable shadow stamp failed for ${report.reportId} (the email went out once): ${(e as Error).message}`,
+        );
         anyFailed = true;
       }
       if (report.sendOverride) {
@@ -128,12 +139,12 @@ export async function sendApprovedReports(
         );
       }
       if (report.reportType === "Launch") {
+        const launchedAt = new Date().toISOString();
         try {
-          const fields = await updateLaunched(base, site.id, new Date().toISOString());
           // Status and `Launched at` travel together — mirroring them as two
           // updates would open a window where Turso says a site is maintained
-          // but never launched.
-          await options.siteMirror?.site(site.id, fields);
+          // but never launched. Turso first, for the same reason as the stamp.
+          await options.siteMirror?.site(site.id, launchedFields(launchedAt));
           lines.push(`  ↳ launched: ${site.name} flipped to maintained`);
           await recordFleetEventsBestEffort(
             [
@@ -155,6 +166,14 @@ export async function sendApprovedReports(
           // launch-period forever (its leads go operator-only). Red the run
           // instead of shrugging; the email itself already went out.
           lines.push(`  ⚠ launch flip failed for ${site.name}: ${(e as Error).message}`);
+          anyFailed = true;
+        }
+        try {
+          await updateLaunched(base, site.id, launchedAt);
+        } catch (e) {
+          lines.push(
+            `  ⚠ launch flip failed for ${site.name} in the Airtable shadow: ${(e as Error).message}`,
+          );
           anyFailed = true;
         }
       }
@@ -203,9 +222,9 @@ async function headerPlateFor(
   return { bytes: (await fetchAttachmentBytes(url)).bytes, source: "airtable" };
 }
 
-/** What the caller needs to mirror the stamp: the exact values stampSent wrote
- *  (`messageId` null on the 409 path, where Airtable's field is left untouched
- *  too), plus the display string for the ✓ line. */
+/** What the caller stamps, in Turso and then in the Airtable shadow
+ *  (`messageId` null on the 409 path, where the id is unrecoverable), plus the
+ *  display string for the ✓ line. */
 type SentStamp = { display: string; sentAt: Date; messageId: string | null };
 
 async function sendOne(
@@ -294,38 +313,33 @@ async function sendOne(
   try {
     result = await client.send(payload);
   } catch (err) {
-    // The send path is at-least-once: client.send succeeds → stampSent writes
-    // `Sent at` (the ONLY thing that removes the row from listSendableReports). If
-    // stampSent threw on a PRIOR run (an Airtable blip), `Sent at` stayed null and
-    // the row replays here. By replay time the rendered body has usually changed
-    // (operator Commentary edit, `report --due` rewrote scores, or the header
+    // The send path is at-least-once: client.send succeeds → the caller stamps
+    // Turso's `sent_at` (the ONLY thing that removes the row from
+    // listSendableReports). If that stamp was lost on a PRIOR run, `sent_at`
+    // stayed null and the row replays here. By replay time the rendered body has
+    // usually changed (operator Commentary edit, `report --due` rewrote scores, or the header
     // re-encodes non-deterministically), so Resend rejects the same-key
     // (`report:<id>`) / different-body re-send with a 409 (`invalid_idempotent_request`).
     //
     // That 409 means the email ALREADY WENT OUT under this key on the prior run.
     // Do NOT re-throw and do NOT re-send (re-throwing leaves the row unstamped, and
-    // after the 24h key TTL a SECOND real email would go out). Instead stamp the row
-    // so it stops replaying, then return success so the caller runs the Launch flip —
+    // after the 24h key TTL a SECOND real email would go out). Instead return success
+    // so the caller stamps the row and it stops replaying, and runs the Launch flip —
     // which self-heals a launch that sent-but-never-flipped on the prior run.
     //
     // Any OTHER error (real network/Resend failure) re-throws, exactly as before, so
     // a genuine failure still fails loudly and the row replays next run.
     if (isIdempotencyConflict(err)) {
-      // Stamp `Sent at` ONLY — the original send's messageId is unrecoverable on
-      // the 409 path, so we leave `Resend message ID` null rather than writing a
-      // sentinel that would masquerade as a real id and orphan webhook lookups.
-      // Still return the sentinel string so the caller logs the already-sent path
-      // and runs the Launch flip.
-      const when = new Date();
-      await stampSent(base, report.id, when, null);
-      console.log(`↻ already sent (idempotency conflict), stamped: ${report.reportId}`);
-      return { display: "idempotent-conflict", sentAt: when, messageId: null };
+      // `Sent at` ONLY — the original send's messageId is unrecoverable on the
+      // 409 path, so `Resend message ID` stays null rather than a sentinel that
+      // would masquerade as a real id and orphan webhook lookups. The display
+      // string tells the caller's ✓ line this was the already-sent path.
+      console.log(`↻ already sent (idempotency conflict): ${report.reportId}`);
+      return { display: "idempotent-conflict", sentAt: new Date(), messageId: null };
     }
     throw err;
   }
-  const when = new Date();
-  await stampSent(base, report.id, when, result.messageId);
-  return { display: result.messageId, sentAt: when, messageId: result.messageId };
+  return { display: result.messageId, sentAt: new Date(), messageId: result.messageId };
 }
 
 /**
