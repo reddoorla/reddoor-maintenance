@@ -17,6 +17,11 @@ import {
 import { mapRow as mapReportRow } from "../../src/reports/airtable/reports.js";
 import { mapRow as mapSiteRow } from "../../src/reports/airtable/websites.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 // uploadAttachment (src/reports/airtable/attachments.ts) POSTs to content.airtable.com
 // via global fetch. Stub fetch so the preview upload "succeeds" without a network call;
 // AIRTABLE_PAT/BASE_ID are also required by uploadAttachment before it fetches.

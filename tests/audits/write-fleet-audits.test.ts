@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   writeFleetAuditsToAirtable,
   formatFleetWriteSummary,
@@ -9,6 +9,11 @@ import {
 } from "../../src/audits/write-audits-to-airtable.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import type { AuditResult } from "../../src/types.js";
+
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
 
 function lhResult(siteSlug: string, scores: Record<string, number>): AuditResult {
   return {

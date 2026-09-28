@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { updateGitHubSignals } from "../../../src/reports/airtable/websites.js";
+
+vi.mock("../../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
 
 /** Minimal fake matching the `base(table).update([{id,fields}])` surface used by the writers. */
 function fakeBase() {

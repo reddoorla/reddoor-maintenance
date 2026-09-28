@@ -5,7 +5,7 @@
  *  by exercising the REAL builders (via updateAuditFields / updateGitHubSignals
  *  with every slice populated) rather than a hand-copied column list.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   updateAuditFields,
   updateGitHubSignals,
@@ -19,6 +19,11 @@ import {
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import { openDb } from "../../src/db/client.js";
 import { importFleetState, type ImportIo } from "../../src/db/import-airtable.js";
+
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
 
 const base = () => makeFakeBase({ Websites: [{ id: "recA", fields: { Name: "Acme Co" } }] });
 

@@ -9,6 +9,11 @@ import {
   uploadAttachment,
 } from "../../../src/reports/airtable/attachments.js";
 
+vi.mock("../../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 type Callback = (err: unknown, resp?: unknown, body?: unknown) => void;
 type Scripted = { err: unknown; resp?: unknown; body?: unknown } | "throw";
 

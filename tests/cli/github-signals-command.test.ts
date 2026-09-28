@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import {
   githubSignalsExitCode,
   runGitHubSignalsCommand,
@@ -7,6 +7,11 @@ import {
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { makeFakeBase, type FakeAirtableBase } from "../reports/_helpers/fake-airtable-base.js";
 import type { HealthMirror } from "../../src/audits/health-mirror.js";
+
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
 
 describe("githubSignalsExitCode", () => {
   it("exits 0 when the whole fleet wrote", () => {

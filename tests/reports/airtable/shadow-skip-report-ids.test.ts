@@ -18,6 +18,11 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import * as reports from "../../../src/reports/airtable/reports.js";
 import { makeFakeBase, type FakeAirtableBase } from "../_helpers/fake-airtable-base.js";
 
+vi.mock("../../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 const REPORT_ID = "report_01ARYZ6S41TSV4RRFFQ69G5FAV";
 const REC_ID = "recREPORT1";
 

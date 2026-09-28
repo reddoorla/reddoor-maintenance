@@ -4,6 +4,11 @@ import {
   uploadAttachment,
 } from "../../../src/reports/airtable/attachments.js";
 
+vi.mock("../../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 /** Build a minimal Response-like stub for the global fetch mock. */
 function fetchStub(opts: {
   ok?: boolean;

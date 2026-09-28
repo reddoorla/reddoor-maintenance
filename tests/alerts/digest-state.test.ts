@@ -1,5 +1,5 @@
 // tests/alerts/digest-state.test.ts
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   diffAttention,
   readDigestState,
@@ -9,6 +9,11 @@ import {
 } from "../../src/alerts/digest-state.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
 
 const TODAY = "2026-06-11";
 

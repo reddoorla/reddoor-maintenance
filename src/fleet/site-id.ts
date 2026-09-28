@@ -29,6 +29,8 @@
  * needs a strict order finer than the millisecond.
  */
 
+import { AIRTABLE_SHADOW_WRITES } from "../db/freeze.js";
+
 /** Crockford base32, the ULID alphabet (no I, L, O, U). */
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const MAX_TIME = 2 ** 48 - 1;
@@ -104,8 +106,25 @@ export function isMintedSiteId(id: string): boolean {
  * Lives outside `src/reports/airtable/` so the Turso-native creator can use it
  * without importing the layer Phase 6 deletes.
  */
-export function skipsAirtableShadow(writer: string, id: string): boolean {
+export function skipsAirtableShadow(
+  writer: string,
+  id: string,
+  enabled: boolean = AIRTABLE_SHADOW_WRITES,
+): boolean {
+  if (airtableShadowOff(writer, id, enabled)) return true;
   if (isAirtableRecordId(id)) return false;
   console.log(`AIRTABLE_SHADOW skipped=non-rec-id writer=${writer} id=${id}`);
+  return true;
+}
+
+export function airtableShadowOff(
+  writer: string,
+  id?: string,
+  enabled: boolean = AIRTABLE_SHADOW_WRITES,
+): boolean {
+  if (enabled) return false;
+  console.log(
+    `AIRTABLE_SHADOW skipped=shadow-off writer=${writer}${id === undefined ? "" : ` id=${id}`}`,
+  );
   return true;
 }

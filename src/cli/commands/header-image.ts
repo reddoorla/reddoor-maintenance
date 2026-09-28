@@ -91,9 +91,8 @@ export async function generateForTargets(
       });
       if (opts.writeBack) {
         let stored = "";
+        let storeFailure: string | null = null;
         if (opts.storeDb) {
-          // Dual-write. A Turso failure must not void the Airtable upload —
-          // but it must be VISIBLE, never a silent divergence.
           try {
             await opts.storeDb(row.id, {
               bytes: gen.bytes,
@@ -103,7 +102,7 @@ export async function generateForTargets(
             });
             stored = " + turso";
           } catch (err) {
-            stored = ` (⚠ turso store FAILED: ${err instanceof Error ? err.message : String(err)})`;
+            storeFailure = err instanceof Error ? err.message : String(err);
           }
         }
         // replaceIn: the field must hold exactly the current header — see
@@ -111,9 +110,14 @@ export async function generateForTargets(
         await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
           replaceIn: "Websites",
         });
-        lines.push(
-          `✔ ${row.name} — uploaded ${gen.filename} (${(gen.bytes.byteLength / 1024 / 1024).toFixed(2)} MB)${stored}`,
-        );
+        if (storeFailure !== null) {
+          failed++;
+          lines.push(`✖ ${row.name} — turso store FAILED: ${storeFailure}`);
+        } else {
+          lines.push(
+            `✔ ${row.name} — uploaded ${gen.filename} (${(gen.bytes.byteLength / 1024 / 1024).toFixed(2)} MB)${stored}`,
+          );
+        }
       } else {
         const path = resolve(outDir, gen.filename);
         await writeFile(path, gen.bytes);

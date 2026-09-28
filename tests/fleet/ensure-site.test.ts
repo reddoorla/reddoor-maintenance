@@ -14,6 +14,11 @@ import { makeSiteStore } from "../../src/db/site-create.js";
 import { ensureSite, type LegacyAirtableSites } from "../../src/fleet/ensure-site.js";
 import { isMintedSiteId } from "../../src/fleet/site-id.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 let dir: string;
 let db: Db;
 

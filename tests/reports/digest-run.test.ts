@@ -30,6 +30,11 @@ vi.mock("../../src/reports/airtable/client.js", async () => {
 
 import { openBase } from "../../src/reports/airtable/client.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 /** #609: the digest reads its prior snapshot from Turso, and the read is
  *  deliberately NOT defensive — swallowing a failure would badge every item NEW.
  *  That makes libSQL a hard requirement of a real run, so the suite injects an

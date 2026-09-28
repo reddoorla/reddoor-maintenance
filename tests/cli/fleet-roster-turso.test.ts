@@ -21,6 +21,11 @@ import { runRenovateDispatchCommand } from "../../src/cli/commands/renovate-disp
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import type { AuditResult } from "../../src/types.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 const NOW = "2026-09-17T00:00:00.000Z";
 const NATIVE = mintSiteId(Date.parse(NOW));
 

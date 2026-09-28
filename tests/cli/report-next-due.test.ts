@@ -12,6 +12,11 @@ import { writeNextDueDates } from "../../src/cli/commands/report.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 const TODAY = new Date("2026-08-24T09:23:00.000Z");
 const TODAY_YMD = "2026-08-24";
 

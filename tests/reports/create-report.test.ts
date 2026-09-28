@@ -11,6 +11,11 @@ import { draftFields, type DraftInput } from "../../src/reports/draft-fields.js"
 import { mapRow } from "../../src/reports/airtable/reports.js";
 import { makeFakeReportWriter } from "./_helpers/fake-report-writer.js";
 
+vi.mock("../../src/db/freeze.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/db/freeze.js")>()),
+  AIRTABLE_SHADOW_WRITES: true,
+}));
+
 function input(over: Partial<DraftInput> = {}): DraftInput {
   return {
     reportId: "Acme Co — Maintenance — 2026-09-17",
