@@ -1,35 +1,43 @@
 #!/usr/bin/env node
 // Land PRs one at a time, each merge pinned to the head SHA its checks passed on.
 //
-//   node scripts/land-prs.mjs <pr> [<pr> …] [--repo owner/repo] [--dry-run] [--cleanup]
-//                             [--checks-timeout-min N]
+//   node scripts/land-prs.mjs <pr> [<pr> …] [--repo owner/repo] [--base branch] [--dry-run]
+//                             [--cleanup] [--checks-timeout-min N]
 //
 // `main` is strict and platform auto-merge is off, so landing a PR is a manual loop: if
 // it is BEHIND, update the branch, wait for the checks on the NEW head, then squash-merge
-// with `--match-head-commit` so nothing that arrived after the checks can ride in. In the
+// pinned to that head so nothing that arrived after the checks can ride in. In the
 // week of 2026-09-14 that loop was run by hand about eight times. This script is that
 // loop, run strictly serially — landing one PR makes the next one BEHIND, so running
 // them in parallel only multiplies the update-branch rounds.
 //
+// Every GitHub call is REST, through `gh api repos/<owner>/<repo>/…`. The script used to
+// drive `gh pr view|checks|update-branch|merge` and `gh repo view`, which are all GraphQL,
+// and the GitHub proxy in Claude Code on the web refuses GraphQL outright (HTTP 403), so
+// it could not run there at all. REST works in both places.
+//
 // Per PR, in order:
-//   1. view. MERGED → skip and continue. UNKNOWN → re-view (≤ 3 × 10 s) before deciding:
-//      the first view of a PR taken right after the previous one merged is UNKNOWN while
-//      GitHub recomputes, and acting on it skipped the BEHIND step in the first live run.
-//      CLOSED, draft, base ≠ main, or a release PR (title `chore(release)…` or head
-//      `changeset-release/*`, which AUTONOMY.md §"Merge authority" keeps human) → stop.
-//      DIRTY → stop (a conflict gets no CI).
-//   2. BEHIND → `gh pr update-branch`, sleep 25 s, poll until headRefOid moves (≤ 3 min).
-//   3. `gh pr checks --watch --fail-fast` (≤ --checks-timeout-min). Non-zero → stop,
-//      naming the failing checks.
+//   1. view (`GET pulls/N`). MERGED → skip and continue. UNKNOWN → re-view (≤ 3 × 10 s)
+//      before deciding: the first view of a PR taken right after the previous one merged
+//      is UNKNOWN while GitHub recomputes, and acting on it skipped the BEHIND step in the
+//      first live run. CLOSED, draft, base ≠ main (or --base), or a release PR (title
+//      `chore(release)…` or head `changeset-release/*`, which AUTONOMY.md §"Merge
+//      authority" keeps human) → stop. DIRTY → stop (a conflict gets no CI).
+//   2. BEHIND → `PUT pulls/N/update-branch` with expected_head_sha set to the head just
+//      viewed, sleep 25 s, poll until head.sha moves (≤ 3 min).
+//   3. poll the head's check runs and commit statuses every 10 s (≤ --checks-timeout-min),
+//      bucketed the way `gh pr checks` buckets them. The first failure stops the run,
+//      naming the failing checks; nothing pending and nothing failed passes.
 //   4. re-view. The head moved during the wait → back to 3. BEHIND (main moved during the
 //      wait) → back to 2. Both count against the same 3 rounds. Otherwise the merge state
 //      must be CLEAN (UNKNOWN/BLOCKED get a short settle first, because GitHub recomputes
 //      it lazily after the last check completes); any other state stops.
-//   5. `gh pr merge --squash --delete-branch --match-head-commit <sha>`, then verify
-//      MERGED. Run from a worktree, gh prints `failed to run git: fatal: 'main' is
-//      already used by worktree …` and exits non-zero AFTER the merge succeeded — its
-//      local branch switch fails, not the merge — so the view is the verdict, not the
-//      exit code.
+//   5. `PUT pulls/N/merge` with merge_method=squash and sha=<the gated head>, then verify
+//      MERGED from a fresh view: the view is the verdict, not the exit code. Then delete
+//      the head branch (`DELETE git/refs/heads/…`) unless it lives on a fork. The cloud
+//      proxy refuses that DELETE, and a repo with "automatically delete head branches"
+//      has usually removed it already, so a refused delete is only a note, and none at
+//      all once the branch is gone.
 //   6. --cleanup: a local worktree on the PR's head branch with a clean `git status` is
 //      removed (never forced), and its branch deleted if its tip is an ancestor of the
 //      merged head (fetched first: update-branch puts a merge commit on top on GitHub).
@@ -37,21 +45,19 @@
 // The first stop ends the run (`LAND #N stopped reason=…`, exit 1); later PRs are not
 // touched. --dry-run only views, and prints what it would do.
 //
-// The gh/git runner and the sleep are injected (see `landPrs`), which is how
+// The gh/git runner, the sleep and the clock are injected (see `landPrs`), which is how
 // tests/scripts/land-prs.test.ts drives every branch of this without a network.
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { isAbsolute, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const VIEW_FIELDS =
-  "number,title,state,isDraft,baseRefName,headRefName,headRefOid,mergeStateStatus";
-
 export const DEFAULT_TIMING = {
   afterUpdateSleepMs: 25_000,
   headPollIntervalMs: 10_000,
   headPollMaxMs: 180_000,
   maxCheckRounds: 3,
+  checksPollIntervalMs: 10_000,
   noChecksRetries: 3,
   noChecksIntervalMs: 20_000,
   // A head pushed moments ago has not had time to register a check run. On
@@ -69,6 +75,8 @@ export const DEFAULT_TIMING = {
   settleIntervalMs: 10_000,
   mergeVerifyRetries: 3,
   mergeVerifyIntervalMs: 5_000,
+  branchGoneRetries: 3,
+  branchGoneIntervalMs: 5_000,
 };
 
 const GH_TIMEOUT_MS = 60_000;
@@ -172,11 +180,6 @@ export function isReleasePr(pr) {
   );
 }
 
-/** gh's local branch switch after a successful merge, run from a worktree. */
-export function isWorktreeNoise(text) {
-  return /already used by worktree|is already checked out at/.test(text);
-}
-
 /** `git worktree list --porcelain` → [{ path, head, branch, detached, bare }]. The first
  *  entry is always the main worktree. */
 export function parseWorktreeList(porcelain) {
@@ -208,10 +211,13 @@ function isWithin(parent, child) {
   return !rel.startsWith("..") && !isAbsolute(rel);
 }
 
-// ── gh ───────────────────────────────────────────────────────────────────────────────
+// ── GitHub, over REST ────────────────────────────────────────────────────────────────
 
-function gh(ctx, args, timeoutMs = GH_TIMEOUT_MS) {
-  return ctx.run("gh", [...args, "--repo", ctx.repo], { cwd: ctx.cwd, timeoutMs });
+function api(ctx, path, args = [], timeoutMs = GH_TIMEOUT_MS) {
+  return ctx.run("gh", ["api", `repos/${ctx.repo}/${path}`, ...args], {
+    cwd: ctx.cwd,
+    timeoutMs,
+  });
 }
 
 /** Why a `gh` call failed, in a form that is never empty.
@@ -227,14 +233,100 @@ export function ghFailureDetail(r) {
   return `exit ${r.code} with no output`;
 }
 
-async function viewPr(ctx, n, fields = VIEW_FIELDS) {
-  const r = await gh(ctx, ["pr", "view", String(n), "--json", fields]);
-  if (r.code !== 0) throw new Stop(`gh pr view failed: ${ghFailureDetail(r)}`);
+const httpStatus = (r) => Number(/\(HTTP (\d{3})\)/.exec(r.stderr ?? "")?.[1] ?? NaN);
+
+function parseJson(text) {
   try {
-    return JSON.parse(r.stdout);
+    return JSON.parse(text);
   } catch {
-    throw new Stop(`gh pr view returned no JSON: ${firstLine(r.stdout)}`);
+    return undefined;
   }
+}
+
+async function apiJson(ctx, path) {
+  const r = await api(ctx, path);
+  if (r.code !== 0) throw new Stop(`gh api ${path} failed: ${ghFailureDetail(r)}`);
+  const body = parseJson(r.stdout);
+  if (body === null || typeof body !== "object") {
+    throw new Stop(`gh api ${path} returned no JSON: ${firstLine(r.stdout)}`);
+  }
+  return body;
+}
+
+async function allPages(ctx, path, key) {
+  const items = [];
+  for (let page = 1; ; page++) {
+    const sep = path.includes("?") ? "&" : "?";
+    const body = await apiJson(ctx, `${path}${sep}per_page=100&page=${page}`);
+    const got = Array.isArray(body[key]) ? body[key] : [];
+    items.push(...got);
+    if (got.length === 0 || items.length >= Number(body.total_count ?? 0)) return items;
+  }
+}
+
+/** `GET pulls/N` → the fields the gates read, in the GraphQL spelling they were written
+ *  against (`state` MERGED/OPEN/CLOSED, `mergeStateStatus` upper-case). */
+export function prFromRest(p) {
+  const merged = p.merged === true || Boolean(p.merged_at);
+  const headRepo = p.head?.repo?.full_name;
+  const baseRepo = p.base?.repo?.full_name;
+  return {
+    number: p.number,
+    title: p.title,
+    state: merged ? "MERGED" : String(p.state ?? "").toUpperCase(),
+    isDraft: p.draft === true,
+    baseRefName: p.base?.ref,
+    headRefName: p.head?.ref,
+    headRefOid: p.head?.sha,
+    mergeStateStatus: String(p.mergeable_state ?? "unknown").toUpperCase(),
+    mergeCommit: merged && p.merge_commit_sha ? { oid: p.merge_commit_sha } : null,
+    sameRepo:
+      typeof headRepo === "string" &&
+      typeof baseRepo === "string" &&
+      headRepo.toLowerCase() === baseRepo.toLowerCase(),
+  };
+}
+
+/** The bucket `gh pr checks` puts a check in. Cancelled is its own bucket and, as in gh,
+ *  does not fail the wait; anything unrecognised is pending. */
+export function checkBucket(state) {
+  switch (String(state ?? "").toUpperCase()) {
+    case "SUCCESS":
+      return "pass";
+    case "SKIPPED":
+    case "NEUTRAL":
+      return "skipping";
+    case "ERROR":
+    case "FAILURE":
+    case "TIMED_OUT":
+    case "ACTION_REQUIRED":
+    case "STARTUP_FAILURE":
+      return "fail";
+    case "CANCELLED":
+      return "cancel";
+    default:
+      return "pending";
+  }
+}
+
+export function checksFromRest(checkRuns, statuses) {
+  return [
+    ...checkRuns.map((c) => ({
+      name: c.name,
+      bucket: checkBucket(c.status === "completed" ? c.conclusion : c.status),
+    })),
+    ...statuses.map((s) => ({ name: s.context, bucket: checkBucket(s.state) })),
+  ];
+}
+
+async function readChecks(ctx, sha) {
+  const runs = await allPages(ctx, `commits/${sha}/check-runs?filter=latest`, "check_runs");
+  const statuses = await allPages(ctx, `commits/${sha}/status`, "statuses");
+  return checksFromRest(runs, statuses);
+}
+
+async function viewPr(ctx, n) {
+  return prFromRest(await apiJson(ctx, `pulls/${n}`));
 }
 
 export function refusal(pr, allowedBase = "main") {
@@ -263,8 +355,13 @@ export function refusal(pr, allowedBase = "main") {
 
 async function updateBranch(ctx, n, pr) {
   ctx.log(`LAND #${n} BEHIND — update-branch from ${short(pr.headRefOid)}`);
-  const r = await gh(ctx, ["pr", "update-branch", String(n)]);
-  if (r.code !== 0) throw new Stop(`update-branch failed: ${firstLine(r.stderr || r.stdout)}`);
+  const r = await api(ctx, `pulls/${n}/update-branch`, [
+    "--method",
+    "PUT",
+    "-f",
+    `expected_head_sha=${pr.headRefOid}`,
+  ]);
+  if (r.code !== 0) throw new Stop(`update-branch failed: ${ghFailureDetail(r)}`);
   let waited = 0;
   let wait = ctx.t.afterUpdateSleepMs;
   for (;;) {
@@ -284,17 +381,6 @@ async function updateBranch(ctx, n, pr) {
   }
 }
 
-async function failingChecks(ctx, n) {
-  const r = await gh(ctx, ["pr", "checks", String(n), "--json", "name,bucket"]);
-  try {
-    return JSON.parse(r.stdout)
-      .filter((c) => c.bucket === "fail" || c.bucket === "cancel")
-      .map((c) => c.name);
-  } catch {
-    return [];
-  }
-}
-
 /** How many "no checks reported" rounds to tolerate, from the head commit's age.
  *
  *  A head pushed in the last few minutes gets the long budget; anything older,
@@ -309,17 +395,10 @@ export function noChecksRetriesFor(committedAtMs, nowMs, t) {
   return t.noChecksFreshRetries;
 }
 
-async function noChecksBudget(ctx, n) {
-  const r = await gh(ctx, ["pr", "view", String(n), "--json", "commits"]);
-  if (r.code !== 0) return ctx.t.noChecksRetries;
-  let committedAt;
-  try {
-    const commits = JSON.parse(r.stdout).commits ?? [];
-    const last = commits[commits.length - 1];
-    committedAt = Date.parse(last?.committedDate ?? "");
-  } catch {
-    committedAt = NaN;
-  }
+async function noChecksBudget(ctx, n, sha) {
+  const r = await api(ctx, `commits/${sha}`);
+  const committedAt =
+    r.code === 0 ? Date.parse(parseJson(r.stdout)?.commit?.committer?.date ?? "") : NaN;
   const budget = noChecksRetriesFor(committedAt, ctx.now(), ctx.t);
   if (budget > ctx.t.noChecksRetries) {
     ctx.log(`LAND #${n} head is fresh — waiting up to ${budget} rounds for a first check`);
@@ -328,34 +407,41 @@ async function noChecksBudget(ctx, n) {
 }
 
 async function waitForChecks(ctx, n, sha) {
-  const deadline = Date.now() + ctx.checksTimeoutMin * 60_000;
+  const deadline = ctx.now() + ctx.checksTimeoutMin * 60_000;
   ctx.log(`LAND #${n} checks watching ${short(sha)} (timeout ${ctx.checksTimeoutMin} min)`);
   // Resolved lazily, and only if "no checks reported" actually happens — it
-  // costs one extra `gh` call and most runs never reach that branch.
+  // costs one extra call and most runs never reach that branch.
   let budget = null;
-  for (let attempt = 0; ; attempt++) {
-    const remaining = Math.max(1_000, deadline - Date.now());
-    const r = await gh(ctx, ["pr", "checks", String(n), "--watch", "--fail-fast"], remaining);
-    if (r.timedOut)
-      throw new Stop(`checks still running after ${ctx.checksTimeoutMin} min on ${short(sha)}`);
-    if (r.code === 0) {
-      ctx.log(`LAND #${n} checks passed on ${short(sha)}`);
-      return;
-    }
+  let empty = 0;
+  for (;;) {
+    const checks = await readChecks(ctx, sha);
     // Right after a push the new head can have no check runs registered yet.
-    if (/no checks reported/i.test(r.stdout + r.stderr)) {
-      if (budget === null) budget = await noChecksBudget(ctx, n);
-      if (attempt < budget) {
+    if (checks.length === 0) {
+      if (budget === null) budget = await noChecksBudget(ctx, n, sha);
+      if (empty < budget) {
+        empty++;
         await ctx.sleep(ctx.t.noChecksIntervalMs);
         continue;
       }
       const waited = Math.round((budget * ctx.t.noChecksIntervalMs) / 1000);
       throw new Stop(`no checks reported on ${short(sha)} after ${waited}s`);
     }
-    const names = await failingChecks(ctx, n);
-    const what =
-      names.length > 0 ? names.join(", ") : firstLine(r.stderr || r.stdout) || `exit ${r.code}`;
-    throw new Stop(`checks failed on ${short(sha)}: ${what}`);
+    const named = (...buckets) =>
+      checks.filter((c) => buckets.includes(c.bucket)).map((c) => c.name);
+    if (named("fail").length > 0) {
+      throw new Stop(`checks failed on ${short(sha)}: ${named("fail", "cancel").join(", ")}`);
+    }
+    const pending = named("pending");
+    if (pending.length === 0) {
+      ctx.log(`LAND #${n} checks passed on ${short(sha)}`);
+      return;
+    }
+    if (ctx.now() >= deadline) {
+      throw new Stop(
+        `checks still running after ${ctx.checksTimeoutMin} min on ${short(sha)}: ${pending.join(", ")}`,
+      );
+    }
+    await ctx.sleep(ctx.t.checksPollIntervalMs);
   }
 }
 
@@ -389,32 +475,47 @@ async function gateView(ctx, n, began) {
   return pr;
 }
 
-async function merge(ctx, n, sha) {
-  const r = await gh(
+async function merge(ctx, n, pr) {
+  const sha = pr.headRefOid;
+  const r = await api(
     ctx,
-    ["pr", "merge", String(n), "--squash", "--delete-branch", "--match-head-commit", sha],
+    `pulls/${n}/merge`,
+    ["--method", "PUT", "-f", "merge_method=squash", "-f", `sha=${sha}`],
     120_000,
   );
-  const output = `${r.stdout}\n${r.stderr}`;
-  const noise = r.code !== 0 && isWorktreeNoise(output);
-  const tries = r.code === 0 || noise ? ctx.t.mergeVerifyRetries : 1;
+  const tries = r.code === 0 ? ctx.t.mergeVerifyRetries : 1;
   let v;
   for (let i = 0; i < tries; i++) {
     if (i > 0) await ctx.sleep(ctx.t.mergeVerifyIntervalMs);
-    v = await viewPr(ctx, n, "state,mergeCommit");
+    v = await viewPr(ctx, n);
     if (v.state === "MERGED") break;
   }
   if (!v || v.state !== "MERGED") {
-    throw new Stop(
-      `merge did not land (state=${v?.state}): ${firstLine(r.stderr || r.stdout) || `exit ${r.code}`}`,
-    );
+    throw new Stop(`merge did not land (state=${v?.state}): ${ghFailureDetail(r)}`);
   }
-  if (r.code !== 0 && !noise) {
-    ctx.log(
-      `LAND #${n} note: gh pr merge exited ${r.code} but the PR is MERGED: ${firstLine(r.stderr || r.stdout)}`,
-    );
+  if (r.code !== 0) {
+    ctx.log(`LAND #${n} note: the merge call failed but the PR is MERGED: ${ghFailureDetail(r)}`);
   }
+  if (pr.sameRepo) await deleteBranch(ctx, n, pr.headRefName);
   return v.mergeCommit?.oid ?? "(unknown merge commit)";
+}
+
+async function deleteBranch(ctx, n, branch) {
+  const path = branch.split("/").map(encodeURIComponent).join("/");
+  const del = await api(ctx, `git/refs/heads/${path}`, ["--method", "DELETE"]);
+  if (del.code === 0 || httpStatus(del) === 422) return;
+  let seen;
+  for (let i = 0; i < ctx.t.branchGoneRetries; i++) {
+    if (i > 0) await ctx.sleep(ctx.t.branchGoneIntervalMs);
+    seen = await api(ctx, `git/ref/heads/${path}`);
+    if (httpStatus(seen) === 404) return;
+  }
+  const why = `delete failed: ${ghFailureDetail(del)}`;
+  ctx.log(
+    seen?.code === 0
+      ? `LAND #${n} note: branch ${branch} is still on GitHub: ${why}`
+      : `LAND #${n} note: branch ${branch} may still be on GitHub: ${why}${seen ? `; checking for it failed: ${ghFailureDetail(seen)}` : ""}`,
+  );
 }
 
 // ── cleanup ──────────────────────────────────────────────────────────────────────────
@@ -531,8 +632,9 @@ async function landOne(ctx, n) {
     if (pr.mergeStateStatus === "BEHIND") steps.push("update-branch and wait for the new head");
     steps.push(`wait for checks (≤ ${ctx.checksTimeoutMin} min)`, "require CLEAN");
     steps.push(
-      `merge --squash --delete-branch --match-head-commit ${pr.mergeStateStatus === "BEHIND" ? "<the new head>" : pr.headRefOid}`,
+      `merge --squash pinned to sha=${pr.mergeStateStatus === "BEHIND" ? "<the new head>" : pr.headRefOid}`,
     );
+    if (pr.sameRepo) steps.push(`delete branch ${pr.headRefName}`);
     ctx.log(`LAND #${n} dry-run would: ${steps.join("; ")}`);
     if (ctx.cleanup) await cleanupWorktree(ctx, n, pr.headRefName, pr.headRefOid);
     return { status: "dry-run" };
@@ -578,7 +680,7 @@ async function landOne(ctx, n) {
   }
 
   const sha = pr.headRefOid;
-  const mergeCommit = await merge(ctx, n, sha);
+  const mergeCommit = await merge(ctx, n, pr);
   ctx.log(`LAND #${n} merged ${mergeCommit} head=${sha}`);
   if (ctx.cleanup) await cleanupWorktree(ctx, n, pr.headRefName, sha);
   return { status: "merged", mergeCommit, head: sha };
@@ -637,6 +739,38 @@ export async function landPrs({
   return { code: 0, results };
 }
 
+/** `owner/repo` from a git remote URL (https, ssh or scp-style). Empty when it names none. */
+export function repoFromRemoteUrl(url) {
+  const m = String(url ?? "")
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "")
+    .match(/[/:]([\w.-]+)\/([\w.-]+)$/);
+  return m ? `${m[1]}/${m[2]}` : "";
+}
+
+/** The repo `origin` points at, as GitHub names it (`gh api repos/…` follows a rename). */
+export async function resolveRepo({ run = realRunner, cwd = process.cwd() } = {}) {
+  const remote = await run("git", ["remote", "get-url", "origin"], {
+    cwd,
+    timeoutMs: GIT_TIMEOUT_MS,
+  });
+  if (remote.code !== 0) {
+    return { error: `git remote get-url origin failed: ${ghFailureDetail(remote)}` };
+  }
+  const guess = repoFromRemoteUrl(remote.stdout);
+  if (!guess) return { error: `origin ${firstLine(remote.stdout)} does not name owner/repo` };
+  const r = await run("gh", ["api", `repos/${guess}`, "--jq", ".full_name"], {
+    cwd,
+    timeoutMs: GH_TIMEOUT_MS,
+  });
+  const repo = r.stdout.trim();
+  if (r.code !== 0 || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    return { error: `gh api repos/${guess} failed: ${ghFailureDetail(r)}` };
+  }
+  return { repo };
+}
+
 async function main() {
   let o;
   try {
@@ -647,21 +781,13 @@ async function main() {
     return;
   }
   if (!o.repo) {
-    const r = await realRunner(
-      "gh",
-      ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-      {
-        timeoutMs: GH_TIMEOUT_MS,
-      },
-    );
-    o.repo = r.stdout.trim();
-    if (r.code !== 0 || !o.repo) {
-      process.stderr.write(
-        `land-prs: cannot tell the repo (pass --repo): ${firstLine(r.stderr)}\n`,
-      );
+    const { repo, error } = await resolveRepo();
+    if (!repo) {
+      process.stderr.write(`land-prs: cannot tell the repo (pass --repo): ${error}\n`);
       process.exitCode = 2;
       return;
     }
+    o.repo = repo;
   }
   const { code } = await landPrs(o);
   process.exitCode = code;
