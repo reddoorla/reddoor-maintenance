@@ -23,6 +23,7 @@ const NOW = new Date("2026-06-11T12:00:00Z");
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     pointOfContact: "Tucker",
+    ga4PropertyId: "123456789",
     maintenanceFreq: "Monthly",
     reportRecipientsTo: "t@x.com",
     pScore: 95,
@@ -327,6 +328,40 @@ describe("assignTier", () => {
     );
     expect(r.tier).toBe("healthy");
     expect(r.acceptedReasons).toContain("on *.netlify.app (no custom domain)");
+  });
+
+  it("watches a maintained site with no GA4 property, and names the key that opts it out", () => {
+    const r = assignTier(site({ status: "maintained", ga4PropertyId: null }), [], NOW);
+    expect(r.tier).toBe("watch");
+    expect(r.watchReasons).toEqual(["no GA4 property (analytics not set up)"]);
+    expect(r.watchAcceptKeys).toEqual(["no analytics"]);
+    expect(r.watchSignals).toEqual(["no-analytics"]);
+  });
+
+  it("treats a blank GA4 property as missing", () => {
+    expect(assignTier(site({ status: "maintained", ga4PropertyId: "  " }), [], NOW).tier).toBe(
+      "watch",
+    );
+  });
+
+  it("an explicit 'no analytics' opt-out leaves the band but stays visible as a muted chip", () => {
+    const r = assignTier(
+      site({
+        status: "maintained",
+        ga4PropertyId: null,
+        acceptedWatchConditions: ["no analytics"],
+      }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons).toEqual(["no GA4 property (analytics not set up)"]);
+  });
+
+  it("does not ask a launching site for GA4 before go-live", () => {
+    expect(assignTier(site({ status: "launching", ga4PropertyId: null }), [], NOW).tier).toBe(
+      "pre-launch",
+    );
   });
 
   it("matches accepted conditions case-insensitively", () => {

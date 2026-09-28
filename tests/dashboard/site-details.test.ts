@@ -332,6 +332,7 @@ describe("setSiteDetail — the non-text fields", () => {
       "SEO",
       "stale repo",
       "no custom domain",
+      "no analytics",
     ]);
   });
 });

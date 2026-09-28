@@ -145,6 +145,24 @@ The property in our row is the empty one. Leave the site alone; the row is the
 only thing worth revisiting, and only if we want its report to read from
 whatever they actually use.
 
+**D8 — GA4 is part of fleet setup, with an explicit per-site opt-out**
+(operator, 2026-09-28). The site's setup score gains a fifth check, satisfied
+by a `ga4_property_id` on the row or by accepting `no analytics` under
+Accepted watch conditions on the site page. A maintained site with neither is a
+cockpit watch item, filterable as `no-analytics`, in the same shape as
+`no custom domain`; accepting it leaves the band and stays visible as a muted
+chip. A launching site is not asked until go-live. The opt-out is for a client
+who runs their own analytics, which is what D7 describes for `gallerysonder`.
+The audit in step 2 should skip an opted-out site; the one predicate is
+`analyticsOptedOut` in `src/dashboard/onboarding.ts`.
+
+Measured on the live fleet when this landed: 11 of 16 maintained or launching
+rows carry a property. The 5 maintained sites without one (`1836dig`,
+`29-navy`, `data-dynamiq`, `la-homelessness-initiative`, `revogen`) move to
+watch until they get a property or an opt-out. `sonder` passes on the empty
+property D7 describes, so recording its opt-out is an operator choice, and so
+is clearing that property.
+
 ## D2, measured
 
 Built `reddoor-starter` with probe scripts at three positions (above
