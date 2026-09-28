@@ -417,7 +417,7 @@ function spamScreenSection(
   </div>`;
 }
 
-/** Setup (N/4) status near the page header. Lists the missing onboarding items
+/** Setup (N/total) status near the page header. Lists the missing onboarding items
  *  visibly (the cockpit chip only hovers them) so the operator sees what's left
  *  to wire up without leaving the page. */
 function setupSection(site: WebsiteRow): string {

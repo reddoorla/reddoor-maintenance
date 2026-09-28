@@ -30,7 +30,9 @@ import {
   listAllReports,
 } from "../../src/db/fleet-state.js";
 import { openCapturingDb } from "./query-plan-harness.js";
-import { EDITABLE_SITE_FIELDS } from "../../src/dashboard/site-details.js";
+import { EDITABLE_SITE_FIELDS, setSiteDetail } from "../../src/dashboard/site-details.js";
+import { analyticsOptedOut, onboardingStatus } from "../../src/dashboard/onboarding.js";
+import type { AirtableCellValue } from "../../src/reports/airtable/websites.js";
 import {
   SITE_FIELDS,
   HEALTH_FIELDS,
@@ -248,6 +250,22 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
     // rather than waiting for the next hourly import, and it lands byte-for-byte.
     expect(mirrored?.statusRaw).toBe("archived");
     expect(mirrored?.status).toBe("archived");
+  });
+
+  it("an editor 'no analytics' opt-out lands in Turso and satisfies the GA4 setup check", async () => {
+    const db = await importOf([RICH]);
+    const deps = {
+      getSite: (slug: string) => getSiteBySlug(db, slug),
+      updateField: (id: string, col: string, val: AirtableCellValue) =>
+        mirrorSiteField(db, id, col, val),
+    };
+    expect(
+      (await setSiteDetail(deps, "acme-gallery", "acceptedWatchConditions", "no analytics")).status,
+    ).toBe("updated");
+    const after = (await getSiteBySlug(db, "acme-gallery"))!;
+    expect(after.acceptedWatchConditions).toEqual(["no analytics"]);
+    expect(analyticsOptedOut(after)).toBe(true);
+    expect(onboardingStatus({ ...after, ga4PropertyId: null }).checks.analytics).toBe(true);
   });
 
   it("mirrors a value the code does NOT recognize, rather than normalizing it away", async () => {
