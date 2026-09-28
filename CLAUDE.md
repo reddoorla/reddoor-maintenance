@@ -118,13 +118,14 @@ the two match will address the wrong repository.
 A cloud container is not the laptop. Measured from inside one on 2026-09-28:
 
 - **Setup is `.claude/hooks/cloud-session-setup.sh`**, which runs on startup
-  only when `CLAUDE_CODE_REMOTE=true`. It unshallows the clone (the harness
+  and resume, only when `CLAUDE_CODE_REMOTE=true`. It unshallows the clone (the harness
   clones `--depth 50` with no tags, which `check-match-harness-snapshots.mjs`
   refuses), puts `.nvmrc`'s Node on `PATH` (the image ships 22), runs
   `pnpm install`, writes the GA key from `GA_SA_KEY_B64`, installs the pinned
   Playwright browsers and `gh`, and adds the egress proxy's CA to Chromium's
   NSS store. It is silent when all of that worked; anything it could not do
-  arrives as a `cloud-session-setup:` message. It installs into the main
+  arrives as a `cloud-session-setup:` message (unless the 900 s hook timeout
+  killed it first). It installs into the main
   checkout, so a worktree needs its own `pnpm install --frozen-lockfile`.
 - **Credentials are the environment's variables**, not `credentials.env` or
   `.env`. `loadCredentialsIntoEnv` lets `process.env` win.

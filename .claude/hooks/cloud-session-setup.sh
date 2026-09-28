@@ -63,7 +63,7 @@ done < <(pnpm exec playwright install --dry-run "${engines[@]}" 2>/dev/null | se
 if [ "${#missing[@]}" -gt 0 ]; then
   cdn_status=$(curl -s -o /dev/null -m 5 -w '%{http_code}' https://cdn.playwright.dev/ 2>/dev/null)
   if [ "$cdn_status" = "000" ]; then
-    notes+=("Playwright browsers matching the pinned @playwright/test are not installed, and cdn.playwright.dev is blocked by this environment's network policy. A bare chromium.launch() (browser, form-e2e and a11y audits) will fail. Allow cdn.playwright.dev and playwright.download.prss.microsoft.com in the environment's Network access, then start a new session.")
+    notes+=("Playwright browsers matching the pinned @playwright/test are not installed, and cdn.playwright.dev gave no HTTP response within 5 s (blocked by the environment's network policy, or down, slow or unresolvable). A bare chromium.launch() (browser, form-e2e and a11y audits) will fail. If Network access does not allow cdn.playwright.dev and playwright.download.prss.microsoft.com, allow them; then start a new session.")
   elif ! PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD='' pnpm exec playwright install --with-deps "${engines[@]}" >&2; then
     notes+=("playwright install --with-deps ${engines[*]} FAILED although cdn.playwright.dev answered HTTP $cdn_status; browser audits will not run.")
   fi
