@@ -4699,3 +4699,60 @@ Both production writes were the operator's to make. The session's permission lay
 ### Honest accounting
 
 The cloud setup hook from #925 did not run for this session: at start `node` was 22.22.2 and neither checkout had `node_modules`. The session's working directory was `/home/user`, above both repositories, which is the likely reason the project's hooks were not loaded; I did not verify that. Run by hand with `CLAUDE_PROJECT_DIR` set, it exited 0 and put Node 24.19.0 in place.
+
+## 2026-09-28 (after that) — The Airtable quota hung five jobs; the shadow is off, calls fail fast, and Turso is written first (#933, `claude/gracious-wozniak-z6t1z6`)
+
+The operator got Airtable's "You hit your Public API limit" email and asked whether everything was routed through Turso yet. It was not, and the honest answer had two halves. Reads were done: every job and handler has read from Turso since 09-17. Writes were not: every write to one of the 44 original `rec…` sites or their reports was still copied to Airtable, because Phase 6 (#646 steps 6–8) was waiting on a second go that never came. The email is dated 2026-09-27 14:59:10 UTC and names the **Free** plan, 1,000 calls a month. The 2026-08-16 email says the same thing, so **the 08-17 "quota raise" that CLAUDE.md cited never moved the workspace off Free.** That belief had been steering sessions away from the migration as "nothing urgent".
+
+**What the block did, measured.** Every scheduled run was green up to daily-reports at 14:44Z on 09-27, fifteen minutes before the email. Five jobs have failed since:
+
+- fleet-smoke: killed at its 120-minute step timeout (#924).
+- fleet-form-e2e: killed at 30 minutes (#923).
+- fleet-prismic-drift: killed at 30 minutes (#926).
+- fleet-security: killed at 45 minutes (#927).
+- daily-reports' digest step: killed at 10 minutes (#931).
+
+None of the five logs contains the word 429. The audits finish, the logs go silent, and the timeout lands. A green form-e2e write-back takes about 9 seconds and a green drift sweep about 27. The reason is in `airtable@0.12.2`'s `run_action.js`: a 429 is retried after `random × min(600 s, 5 s × 2ⁿ)`, with no attempt cap. The retry recurses into the module function, so it also bypasses our throttle. `throttle.ts` called that retry "a backstop" whose "budget runs out and the error surfaces". There was no budget.
+
+A read-only probe of the live API returned `429` with body `{"errors":[{"error":"PUBLIC_API_BILLING_LIMIT_EXCEEDED",…}]}` and no `Retry-After`. The SDK reports that as `TOO_MANY_REQUESTS` with a message about "a short period of time", which hides a monthly quota entirely. The 2026-08-17 migration spec had already prescribed `noRetryIfRateLimited: true`. Nobody implemented it.
+
+**The hang cost the authoritative store as well as the shadow.** Nineteen callers wrote Airtable first and Turso second. In the nightly write-back, a hung Airtable write therefore meant Turso got nothing that night either, and the cockpit went stale behind a store that was perfectly healthy. The digest wrote its Turso snapshot at 17:44:51Z and then hung on the Airtable copy, a writer that no switch covered.
+
+**What shipped, in five commits:**
+
+1. **Fail fast.** `noRetryIfRateLimited`, a 30 s `requestTimeout`, and a bounded retry at the `runAction` funnel. The quota body rejects on the first response with `AIRTABLE_QUOTA_EXHAUSTED`. Any other 429 is retried after 2 s, 10 s and 30 s. A synchronous throw inside `runAction` now reaches the callback instead of being swallowed, which was another way to hang.
+2. **Turso first, at all nineteen callers.** Pure FieldSet builders make the payload identical in both stores.
+3. **A test-credential guard.** See the honest accounting.
+4. **`AIRTABLE_SHADOW_WRITES = false`.** A code constant beside `TURSO_IS_AUTHORITATIVE`, for the same uniformity reason. The digest line now reads `airtable=off`, a third state distinct from `0` (threw).
+5. **The three-lens review fold-in.**
+
+The proof that the fail-fast instrument works in both directions: the real SDK against a local server returning the captured quota body passes 3 of 3 cases in 38 ms, one request each. On `219aee75` the 200 control passes and both quota cases time out.
+
+**Three defects the reorder itself introduced, each caught before merge:**
+
+- **github-signals lost events.** The Turso mirror advanced the CI watermark, then the shadow threw and skipped event detection. The next night read the moved watermark, so merged-PR and CI-recovered events were gone for good. An agent-reviewer proved it over two simulated nights. Events are now recorded before the shadow write.
+- **The Lighthouse-miss path lost `cert_renewed`.** The miss path now mirrors its domain values to Turso, but events only rode on `written`. Planned `["cert_renewed"]`, reachable `[]`. Events now follow the Turso write: recorded when the mirror lands, not when it misses, so the next night re-detects them.
+- **The shadow's payload drifted from Turso's.** Rebuilding the audit fields for the shadow re-stamped `Last lighthouse audit at`, milliseconds later than the Turso write. The existing lockstep test caught it by timing luck. A fake-clock test now makes it deterministic.
+
+**Deliberate trade-offs, all moot while the shadow is off:**
+
+- next-due, the auto-fix reset, ensure-site and header-image choose what to write by reading Turso. Once Turso has landed, a failed shadow write is never retried.
+- A strict Turso failure no longer attempts the shadow, so Airtable can never get ahead of the authoritative store.
+- `db sync` and `import-airtable` now refuse even `--force` while the shadow is off. The import would roll Turso back to the archive and reap every `site_` and `report_` row.
+
+**Left open:**
+
+- `ensureSite`'s legacy Airtable lookup fails closed by design (#856). Onboarding a new slug errors under the quota, where before it hung. Workaround: `AIRTABLE_PAT=` empty.
+- The send's header fallback is an Airtable read. Every site has a Turso plate, so it does not run.
+- The draft-time `refreshHeaderImage` has uploaded only to Airtable, so since #864 its screenshot has never reached a client, and now it goes nowhere. Filed as a separate task.
+- Removing the `AIRTABLE_*` env is still not a kill switch: eager `openBase(readAirtableConfig())` calls exit 2 without it. That is #646 step 6.
+
+### Honest accounting
+
+**My own test runs wrote to production.** A cloud container carries production `TURSO_*`, `AIRTABLE_*` and `RESEND_*` in its environment, and CI carries none. `writeCockpitRollupToDb` opens the real database whenever `TURSO_DATABASE_URL` is set. `tests/reports/digest-turso.test.ts` calls `runDigest` twice without injecting it, on a fixed `2026-09-17T09:00:00Z` clock. After this session's full-suite runs, production's `digest_state.cockpit_rollup` row read `updated_at 2026-09-17T09:00:00.000Z`: real counts, computed for a window ending 09-17. That comes from one read-only query. The two earlier cloud sessions today could also have done it; I cannot tell which run was last. A read-only sweep of every table for fixture ids and names found nothing else. The row is derived, and the next digest that completes rewrites it.
+
+An agent writing the shadow-off tests found this. I had run the suite three times without asking what it could reach. That is the file's own first rule turned on its author: the instrument (the suite) was trusted without asking what it touched.
+
+**The first version of the guard was vacuous.** Its test imported the credential pattern from the setup file, and that import ran the strip itself, so the test passed unwired. It is now split into a side-effect-free module. It checks that the config wires the setup file, which fails in CI too. It strips canaries. It redirects `XDG_CONFIG_HOME` so CLI children cannot reload `credentials.env`: a reviewer's canary probe showed a child holding production values while the old guard stayed green.
+
+**Work split.** Three implementation agents did the nineteen reorders, one per disjoint file group, each followed by an adversarial verifier. The shadow-off caller tests were written the same way, and a nine-agent inventory mapped the call sites first. The inventory's completeness critic found both paths the switch alone would have missed: the digest writer and the header fallback. Suite: 7,410 passed on `219aee75`, 7,545 at the merge with `84e6d2e2`.
