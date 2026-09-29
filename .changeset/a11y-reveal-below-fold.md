@@ -88,4 +88,5 @@ the pass has scrolled past it is hidden at mount and not revealed again. This
 was not observed on roalson-interests, warm or cold, and is not addressed here.
 
 On roalson-interests the bump keeps the audit green: 0 violations across 5
-routes, and the run went from 57 s to 60 s.
+routes, and every route's reveal pass completed (4 to 55 steps, nothing capped
+or left running, each ending back at the top).
