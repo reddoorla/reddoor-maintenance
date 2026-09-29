@@ -1,0 +1,135 @@
+import { describe, it, expect } from "vitest";
+import { probeRosterUrl, type UrlFetch } from "../../src/fleet/roster-url-probe.js";
+
+const SITE_NOT_FOUND_BODY =
+  "Not Found - Request ID: 01K6A0000000000000000000ZZ\n\nBuild and deploy your own site for free: https://netlify.new/?utm_campaign=loops&utm_content=site-not-found-text&utm_source=netlify";
+
+function respond(status: number, body: string, headers: Record<string, string> = {}): UrlFetch {
+  return async () => new Response(body, { status, headers });
+}
+
+describe("probeRosterUrl classification", () => {
+  it("a final 2xx passes with the code", async () => {
+    expect(await probeRosterUrl("https://ok.example.com/", respond(200, "<html>"))).toEqual({
+      resolves: "pass",
+      status: "200",
+    });
+    expect(
+      await probeRosterUrl(
+        "https://ok.example.com/",
+        async () => new Response(null, { status: 204 }),
+      ),
+    ).toEqual({
+      resolves: "pass",
+      status: "204",
+    });
+  });
+
+  it("Netlify's site-not-found page is its own status (the-pointe-burbank)", async () => {
+    const f = respond(404, SITE_NOT_FOUND_BODY, {
+      server: "Netlify",
+      "content-type": "text/plain",
+    });
+    expect(await probeRosterUrl("https://the-pointe-burbank.netlify.app", f)).toEqual({
+      resolves: "fail",
+      status: "404 netlify-site-not-found",
+    });
+  });
+
+  it("the server header matches case-insensitively", async () => {
+    const f = respond(404, SITE_NOT_FOUND_BODY, { server: "NETLIFY" });
+    expect((await probeRosterUrl("https://x.netlify.app", f)).status).toBe(
+      "404 netlify-site-not-found",
+    );
+  });
+
+  it("a deployed site's own 404 on Netlify is a plain 404, not site-not-found", async () => {
+    const f = respond(404, "<!doctype html><html><body>Page not found</body></html>", {
+      server: "Netlify",
+      "content-type": "text/html",
+    });
+    expect(await probeRosterUrl("https://the-tower-burbank-rd.netlify.app/", f)).toEqual({
+      resolves: "fail",
+      status: "404",
+    });
+  });
+
+  it("the site-not-found body behind a non-Netlify server is a plain 404", async () => {
+    const f = respond(404, SITE_NOT_FOUND_BODY, { server: "nginx" });
+    expect(await probeRosterUrl("https://x.example.com", f)).toEqual({
+      resolves: "fail",
+      status: "404",
+    });
+  });
+
+  it("any other status fails with its code, including 401/403 and 3xx that were not followed", async () => {
+    for (const code of [301, 401, 403, 500, 503]) {
+      expect(await probeRosterUrl("https://x.example.com", respond(code, ""))).toEqual({
+        resolves: "fail",
+        status: String(code),
+      });
+    }
+  });
+
+  it("a network error fails with its cause code", async () => {
+    const f: UrlFetch = async () => {
+      throw Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("getaddrinfo ENOTFOUND x"), { code: "ENOTFOUND" }),
+      });
+    };
+    expect(await probeRosterUrl("https://x.example.com", f)).toEqual({
+      resolves: "fail",
+      status: "error: ENOTFOUND",
+    });
+  });
+
+  it("a timeout fails with the error name", async () => {
+    const f: UrlFetch = async () => {
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    };
+    expect(await probeRosterUrl("https://x.example.com", f)).toEqual({
+      resolves: "fail",
+      status: "error: TimeoutError",
+    });
+  });
+
+  it("a non-http(s) url fails without a request", async () => {
+    let calls = 0;
+    const f: UrlFetch = async () => {
+      calls++;
+      return new Response("", { status: 200 });
+    };
+    for (const url of ["ftp://x.example.com", "the-pointe-burbank.netlify.app", "javascript:1"]) {
+      expect(await probeRosterUrl(url, f)).toEqual({
+        resolves: "fail",
+        status: "not an http(s) url",
+      });
+    }
+    expect(calls).toBe(0);
+  });
+
+  it("a blank url is no verdict, not a failure, and makes no request", async () => {
+    let calls = 0;
+    const f: UrlFetch = async () => {
+      calls++;
+      return new Response("", { status: 200 });
+    };
+    expect(await probeRosterUrl("", f)).toEqual({ resolves: null, status: "no url" });
+    expect(await probeRosterUrl("   ", f)).toEqual({ resolves: null, status: "no url" });
+    expect(calls).toBe(0);
+  });
+
+  it("asks for one GET that follows redirects under a timeout signal", async () => {
+    const seen: { url: string; init: RequestInit | undefined }[] = [];
+    const f: UrlFetch = async (url, init) => {
+      seen.push({ url, init });
+      return new Response("", { status: 200 });
+    };
+    await probeRosterUrl("  https://x.example.com/  ", f);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toBe("https://x.example.com/");
+    expect(seen[0]!.init?.method ?? "GET").toBe("GET");
+    expect(seen[0]!.init?.redirect).toBe("follow");
+    expect(seen[0]!.init?.signal).toBeInstanceOf(AbortSignal);
+  });
+});

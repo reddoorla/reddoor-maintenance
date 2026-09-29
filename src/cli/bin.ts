@@ -781,6 +781,24 @@ cli
 
 cli
   .command(
+    "roster-urls",
+    "Probe every non-archived roster url and store whether it resolves (site_health).",
+  )
+  .option("--fleet", "Probe every non-archived site in the Turso roster.")
+  .option("--write-back", "Write url_resolves / url_status / url_checked_at to site_health.")
+  .action(async (opts: { fleet?: boolean; writeBack?: boolean; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/roster-urls.js")).runRosterUrlsCommand({
+          fleet: opts.fleet,
+          writeBack: opts.writeBack,
+        }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
     "db <action>",
     "Operate the libSQL store (migrate | replay-deadletters | dump | verify-dump | restore | usage).",
   )
