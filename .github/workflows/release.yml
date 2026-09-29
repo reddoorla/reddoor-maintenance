@@ -38,14 +38,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          # Authenticate git with the App token (not the default GITHUB_TOKEN)
-          # so the "Version Packages" branch PUSH the changesets action makes is
-          # attributed to the App's bot user. A GITHUB_TOKEN push is
-          # recursion-guarded (no push event fires) and makes the PR's
-          # pull_request runs trigger as github-actions[bot] → gated in
-          # "action_required". An App-authored push (like a PAT one) fires
-          # ci.yml (see its push trigger on this branch) and the check goes
-          # green without an admin approving each release cycle. Publishing
+          # Authenticate git with the App token (not the default GITHUB_TOKEN).
+          # The "Version Packages" branch PUSH must come from the App's bot
+          # user: a GITHUB_TOKEN push is recursion-guarded (no push event
+          # fires) and makes the PR's pull_request runs trigger as
+          # github-actions[bot] → gated in "action_required". An App-authored
+          # push (like a PAT one) fires ci.yml (see its push trigger on this
+          # branch) and the check goes green without an admin approving each
+          # release cycle. Since changesets/action v2 that push is authorized by
+          # the action's own `github-token` input (below), which it installs as
+          # a per-push Authorization header over this one; this token keeps
+          # every other git call in the job (`changeset publish` asks the remote
+          # whether a tag already exists) on the same identity. Publishing
           # still uses npm OIDC (id-token: write), independent of this token.
           token: ${{ steps.app-token.outputs.token }}
 
@@ -72,6 +76,12 @@ jobs:
       # release run red. Latent since npm 12.0.1 (2026-07-10); first fired
       # 2026-07-20 on the first main push after 0.75.1 published.
       # Revisit once @changesets/cli handles npm 12's output shape.
+      #
+      # Since @changesets/cli v3 it does not ask npm at all here: with pnpm >= 11
+      # it looks the package up with `pnpm info` (its getPublishTool picks the
+      # pnpm tool, and that tool's `info`), so npm 12's shape no longer reaches
+      # that decision. The pin stays until a release proves `pnpm publish` gets
+      # its OIDC token without npm 11; lifting it is its own change.
       - run: npm install -g npm@^11.5.0
 
       - run: pnpm install --frozen-lockfile
@@ -90,18 +100,21 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
+      # changesets/action v2 needs @changesets/cli v3 and refuses to start on v2;
+      # CLI v3 under action v1 publishes but never tags or creates the GitHub
+      # Release (v1 looks for a `New tag:` line CLI v3 no longer prints). The two
+      # move together (#955). With changesets pending, this runs version-script
+      # and pushes `changeset-release/main`, opening or updating the version PR;
+      # with none, it runs publish-script, then pushes a `v<version>` tag and
+      # creates the GitHub Release for each package the CLI reports through the
+      # CHANGESETS_OUTPUT file the action hands it.
+      #
+      # No NPM_TOKEN: trusted publishing uses the OIDC token from id-token: write.
+      # When npm CLI 11.5+ detects the GitHub Actions OIDC env and a trusted
+      # publisher is configured on the package, it mints a short-lived token.
       - name: Create release PR or publish
-        uses: changesets/action@v1
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
-          publish: pnpm run release
-          version: pnpm run version-packages
-          commit: "chore(release): version packages"
-          title: "chore(release): version packages"
-        env:
-          # No NPM_TOKEN: trusted publishing uses the OIDC token from id-token: write.
-          # When npm CLI 11.5+ detects the GitHub Actions OIDC env and a trusted
-          # publisher is configured on the package, it mints a short-lived token.
-          #
           # Use the minted App token (not the built-in GITHUB_TOKEN) so the
           # "Version Packages" PR this action opens actually TRIGGERS ci.yml.
           # GitHub does not start workflow runs for events made with the built-in
@@ -109,6 +122,30 @@ jobs:
           # `build` check stuck in "action_required" and unmergeable without an
           # admin override. The reddoor-renovate App has contents + pull-requests
           # write (it opens the fleet's Renovate PRs). Publishing still uses npm
-          # OIDC (id-token: write) — this token only authors the version PR,
-          # which now shows as reddoor-renovate[bot].
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # OIDC (id-token: write) — this token authors the version PR (shown as
+          # reddoor-renovate[bot]), pushes the `v*` tag and creates the Release.
+          #
+          # It must be this INPUT. v2 reads the token only from `github-token`,
+          # whose default is the built-in token, and fails the step when a
+          # GITHUB_TOKEN env var is set to anything else — so there is no env
+          # block here any more, and dropping this line would quietly bring back
+          # the "action_required" release PRs described above.
+          github-token: ${{ steps.app-token.outputs.token }}
+          publish-script: pnpm run release
+          version-script: pnpm run version-packages
+          commit-message: "chore(release): version packages"
+          pr-title: "chore(release): version packages"
+          # Push with git, exactly as v1 did: v1's `commitMode` defaulted to
+          # "git-cli" and this file never set it. v2 defaults to the GitHub API
+          # instead, which is not a drop-in here. Updating an existing version PR
+          # through the API creates and deletes a temporary
+          # `changesets-ghcommit-temp/changeset-release/main` branch on every run,
+          # and the release tag becomes a lightweight ref at the triggering commit
+          # instead of the annotated `v*` tag `changeset publish` makes locally.
+          # With git, the version-only run that updates the PR exercises the same
+          # push path and the same `github-token` that the publish run's tag push
+          # then uses. `push-git-tags` and `create-github-releases` keep their v2
+          # defaults (true); the tag is load-bearing, because
+          # scripts/check-match-harness-snapshots.mjs compares against the newest
+          # `v*` tag.
+          push-with-git-cli: true
