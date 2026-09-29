@@ -2,7 +2,9 @@
 
 Session rules for AI agents working this repo. The autonomy and merge
 contract lives in [AUTONOMY.md](AUTONOMY.md) — read it before merging
-anything.
+anything. What to work on, ranked, with each item's tier, evidence and "done
+when", is [docs/BACKLOG.md](docs/BACKLOG.md). It is a derived view: re-verify
+an item before starting it, and update the file in the PR that finishes it.
 
 ## Prove the instrument before you trust its verdict
 
