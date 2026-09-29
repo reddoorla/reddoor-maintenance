@@ -2,7 +2,7 @@ import type { Site } from "../../types.js";
 import { cloneIfNeeded } from "./clone-if-needed.js";
 
 /** A fleet site that couldn't be prepared for a command, with the reason. */
-export type SkippedSite = { site: string; reason: string };
+export type SkippedSite = { site: string; reason: string; repo?: string };
 export type FleetPrepResult = { prepared: Site[]; skipped: SkippedSite[] };
 
 type CloneFn = (site: Site, opts: { workdir: string }) => Promise<Site>;
@@ -37,7 +37,12 @@ export async function prepareFleetSites(
       try {
         return { ok: true, site: await clone(site, { workdir: opts.workdir }) };
       } catch (e) {
-        return { ok: false, site: site.name || site.path, reason: (e as Error).message };
+        return {
+          ok: false,
+          site: site.name || site.path,
+          reason: (e as Error).message,
+          ...(site.gitRepo ? { repo: site.gitRepo } : {}),
+        };
       }
     }),
   );
@@ -45,7 +50,7 @@ export async function prepareFleetSites(
   const skipped: SkippedSite[] = [];
   for (const r of settled) {
     if (r.ok) prepared.push(r.site);
-    else skipped.push({ site: r.site, reason: r.reason });
+    else skipped.push({ site: r.site, reason: r.reason, ...(r.repo ? { repo: r.repo } : {}) });
   }
   return { prepared, skipped };
 }
