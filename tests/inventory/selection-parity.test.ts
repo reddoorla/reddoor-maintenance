@@ -145,6 +145,9 @@ function expectedSite(f: Fixture): Site {
     path: `${WORKDIR}/${slug}`,
     name: slug,
     meta: { siteId: f.id, displayName: f.name },
+    // Always present on a roster site: null says the row was read and has no
+    // GA4 property, which a bare checkout (no row read) must not claim.
+    ga4PropertyId: null,
     ...(f.url !== undefined && /^https?:/.test(f.url) ? { deployedUrl: f.url } : {}),
     ...(f.gitRepo !== undefined ? { gitRepo: f.gitRepo } : {}),
     ...(f.netlifyId !== undefined ? { netlifyId: f.netlifyId } : {}),
@@ -196,6 +199,7 @@ describe("fleet selection: the Turso roster selects maintained sites with a url"
       path: `${WORKDIR}/native-launched`,
       name: "native-launched",
       meta: { siteId: launched.id, displayName: "Native Launched" },
+      ga4PropertyId: null,
       deployedUrl: "https://native-launched.example.com",
       gitRepo: "reddoorla/native-launched",
     });
