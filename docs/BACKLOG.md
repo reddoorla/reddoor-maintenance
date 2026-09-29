@@ -251,7 +251,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
 
 - 2026-09-29 — P1-8 / #907: the prospect-audit daily cap reserves a `running`
   row before the spend, atomically, and counts finished plus non-stale running
-  rows (#TBD, `wip/cap907`). The row cited `src/db/prospect-audits.ts:27`, the
+  rows (#968). The row cited `src/db/prospect-audits.ts:27`, the
   old two-state union. That union is now `FinishedProspectAuditStatus` at `:28`,
   and `ProspectAuditStatus` (with `running`) is at `:36`.
 

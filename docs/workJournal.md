@@ -4997,7 +4997,7 @@ Not proven: a real merge, update-branch or delete from the cloud. Every proof ab
 
 **#912 deferred: no stored signal covers it.** `the-pointe-burbank.netlify.app` still returns the same 206-byte Netlify 404 as the bogus-host control `no-such-site-zz9q.netlify.app`, and `-rd` still returns 200 "The Pointe | Reddoor". The only stored reachability verdict is the browser audit's `uptime_reachable`, which covers `maintained` only and measures sampled routes, not the roster URL. The work it needs is in `docs/BACKLOG.md` P1-3.
 
-## 2026-09-29 — The prospect-audit daily cap reserves before it spends (#TBD, `wip/cap907`)
+## 2026-09-29 — The prospect-audit daily cap reserves before it spends (#968)
 
 #907's defect is an order-of-operations one. Both paths checked the cap, then spent, then wrote the row. The CLI counted through `listRecentProspectAudits`, ran the pipeline, and called `createProspectAudit` at the very end. The cockpit counted, fired a `workflow_dispatch`, and wrote nothing at all. A run was therefore invisible to the cap for its whole duration. The cap bound a slow serial batch and could never bind the burst its own docstring names. The cap's value (25) and unit (audits) were settled on #853 and are unchanged.
 
