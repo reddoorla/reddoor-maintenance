@@ -6,6 +6,7 @@ import { makeWebsiteRow } from "../_helpers/website-row.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { websiteRowsFrom, reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 import { OPERATOR_FALLBACK } from "../../src/util/operator.js";
+import type { DigestSendLog } from "../../src/alerts/digest-send.js";
 
 /** #609: the digest reads its prior snapshot from Turso, and the read is
  *  deliberately NOT defensive — swallowing a failure would badge every item NEW.
@@ -996,5 +997,195 @@ describe("buildSubmissionsDigestSection", () => {
     expect(buildSubmissionsDigestSection(volume, sitesById)!.bySite.map((x) => x.siteName)).toEqual(
       ["Beta", "Alpha"],
     );
+  });
+});
+
+describe("runDigest — sends only on change, with ages and exact asks (P1-20)", () => {
+  const BASE = "https://reddoor-maintenance.netlify.app";
+
+  function memorySendLog(seed?: DigestSendLog) {
+    let log: DigestSendLog = seed ?? { sentOn: null, sent: {}, readySince: {} };
+    return {
+      read: async () => log,
+      write: async (next: DigestSendLog) => {
+        log = next;
+      },
+      get: () => log,
+    };
+  }
+
+  function day(n: number): Date {
+    return new Date(Date.UTC(2026, 8, 18 + n, 13, 0, 0));
+  }
+
+  function world() {
+    return {
+      digestState: memoryDigestState(),
+      sendLog: memorySendLog(),
+      ...captureClient(),
+    };
+  }
+
+  async function run(
+    w: ReturnType<typeof world>,
+    tables: { Websites: RawRow[]; Reports: RawRow[] },
+    now: Date,
+  ) {
+    return runDigest({
+      digestState: w.digestState,
+      sendLog: w.sendLog,
+      ...io(tables),
+      resend: w.client,
+      baseUrl: BASE,
+      now,
+    });
+  }
+
+  const navy = {
+    Reports: [readyReport(), approvedReport()],
+    Websites: [siteRow({ Name: "29 Navy", "point of contact": undefined })],
+  };
+
+  it("sends on the first day, then stays quiet while nothing changes", async () => {
+    const w = world();
+    const first = await run(w, navy, day(0));
+    expect(first.output).toContain("Digest sent (first)");
+    expect(w.captured).toHaveLength(1);
+    for (let n = 1; n <= 6; n++) {
+      const r = await run(w, navy, day(n));
+      expect(r.code).toBe(0);
+      expect(r.output).toContain("Digest skipped (unchanged since 2026-09-18");
+    }
+    expect(w.captured).toHaveLength(1);
+    expect(w.sendLog.get().sentOn).toBe("2026-09-18");
+  });
+
+  it("sends a weekly heartbeat for an unchanged set, carrying each item's age", async () => {
+    const w = world();
+    await run(w, navy, day(0));
+    for (let n = 1; n <= 6; n++) await run(w, navy, day(n));
+    const r = await run(w, navy, day(7));
+    expect(r.output).toContain("Digest sent (heartbeat)");
+    expect(w.captured).toHaveLength(2);
+    const html = w.captured[1]!.html;
+    expect(html).toContain("(waiting 7 days)");
+    expect(html).toContain("(7 days)");
+    expect(html).toContain("set Report recipients (To) on /s/29-navy, then");
+  });
+
+  it("sends when the set changes, and a repeated item reads its age", async () => {
+    const w = world();
+    await run(w, navy, day(0));
+    await run(w, navy, day(1));
+    const changed = {
+      Reports: [...navy.Reports, bouncedReport()],
+      Websites: navy.Websites,
+    };
+    const r = await run(w, changed, day(3));
+    expect(r.output).toContain("Digest sent (added)");
+    const html = w.captured[1]!.html;
+    expect(html).toContain("(3 days)");
+    expect(html).toContain("(waiting 3 days)");
+    expect(html).toMatch(/NEW<\/strong> <a [^>]*>A sent report bounced<\/a>(?! <span)/);
+  });
+
+  it("a resolution alone sends nothing; it rides the next send", async () => {
+    const w = world();
+    await run(w, navy, day(0));
+    const fewer = { Reports: [readyReport()], Websites: navy.Websites };
+    const r = await run(w, fewer, day(1));
+    expect(r.output).toContain("Digest skipped (unchanged since 2026-09-18");
+    expect(w.captured).toHaveLength(1);
+  });
+
+  it("a warning already sent that leaves for one run and comes back is not news; a critical one is", async () => {
+    const w = world();
+    const pending = { Reports: [readyReport()], Websites: navy.Websites };
+    await run(w, pending, day(0));
+    await run(w, { Reports: [], Websites: navy.Websites }, day(1));
+    const back = await run(w, pending, day(2));
+    expect(back.output).toContain("Digest skipped (unchanged");
+    await run(w, navy, day(3));
+    await run(w, pending, day(4));
+    const critical = await run(w, navy, day(5));
+    expect(critical.output).toContain("Digest sent (added)");
+    expect(w.captured).toHaveLength(3);
+  });
+
+  it("an item mailed, gone for two runs and back is mailed again", async () => {
+    const w = world();
+    const withBounce = {
+      Reports: [...navy.Reports, bouncedReport()],
+      Websites: navy.Websites,
+    };
+    await run(w, withBounce, day(0));
+    await run(w, navy, day(1));
+    await run(w, navy, day(2));
+    const r = await run(w, withBounce, day(3));
+    expect(r.output).toContain("Digest sent (added)");
+    expect(w.captured).toHaveLength(2);
+  });
+
+  it("a skip still writes the attention snapshot, so a resolved key drops out of it", async () => {
+    const w = world();
+    const withBounce = {
+      Reports: [...navy.Reports, bouncedReport()],
+      Websites: navy.Websites,
+    };
+    await run(w, withBounce, day(0));
+    expect(Object.keys(await w.digestState.read())).toContain("delivery:rec_report_bounced");
+    const r = await run(w, navy, day(1));
+    expect(r.output).toContain("Digest skipped (unchanged");
+    expect(Object.keys(await w.digestState.read())).not.toContain("delivery:rec_report_bounced");
+  });
+
+  it("fails open: an unreadable send log sends, as before P1-20", async () => {
+    const w = world();
+    const broken = {
+      read: async (): Promise<DigestSendLog> => {
+        throw new Error("turso down");
+      },
+      write: async () => {},
+    };
+    for (const n of [0, 1]) {
+      await runDigest({
+        digestState: w.digestState,
+        sendLog: broken,
+        ...io(navy),
+        resend: w.client,
+        baseUrl: BASE,
+        now: day(n),
+      });
+    }
+    expect(w.captured).toHaveLength(2);
+  });
+
+  it("prints the send-log marker the workflow gates on, 0 when the write throws", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const w = world();
+    await run(w, navy, day(0));
+    await run(w, navy, day(1));
+    await runDigest({
+      digestState: w.digestState,
+      sendLog: {
+        read: w.sendLog.read,
+        write: async () => {
+          throw new Error("turso down");
+        },
+      },
+      ...io(navy),
+      resend: w.client,
+      baseUrl: BASE,
+      now: day(2),
+    });
+    const lines = log.mock.calls
+      .map((c) => String(c[0]))
+      .filter((l) => l.startsWith("DIGEST_SEND_LOG"));
+    log.mockRestore();
+    expect(lines).toEqual([
+      "DIGEST_SEND_LOG write=1 decision=first",
+      "DIGEST_SEND_LOG write=1 decision=unchanged",
+      "DIGEST_SEND_LOG write=0 decision=unchanged",
+    ]);
   });
 });

@@ -433,7 +433,10 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         ],
         { env, timeoutMs: 60_000 },
       );
-      if (r.code !== 0) return null; // 404 = file absent on this branch
+      if (r.code !== 0) {
+        if (/HTTP 404/.test(r.stderr)) return null;
+        throw new Error(`fileContentsOnBranch(${repo}/${path}) failed: ${r.stderr.trim()}`);
+      }
       return r.stdout;
     },
     async branchProtectionContexts(repo, branch) {
@@ -448,7 +451,10 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         ],
         { env, timeoutMs: 60_000 },
       );
-      if (r.code !== 0) return []; // 404 = no protection configured
+      if (r.code !== 0) {
+        if (/Branch not protected \(HTTP 404\)/.test(r.stderr)) return [];
+        throw new Error(`branchProtectionContexts(${repo}:${branch}) failed: ${r.stderr.trim()}`);
+      }
       return r.stdout
         .split("\n")
         .map((l) => l.trim())
