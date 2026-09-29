@@ -198,7 +198,12 @@ export type GitHub = {
   branchRequiredChecks: (repo: string, branch: string) => Promise<BranchRequiredChecks | null>;
 };
 
-export type BranchRequiredChecks = { rules: RulesetRule[]; classicContexts: string[] };
+/** One rule as `rules/branches/{b}` reports it: the rule plus the id of the
+ *  ruleset that contributes it (#981), which is how its `bypass_actors` are
+ *  found. The id is absent only when GitHub sent none; it is never invented. */
+export type BranchRule = RulesetRule & { ruleset_id?: number };
+
+export type BranchRequiredChecks = { rules: BranchRule[]; classicContexts: string[] };
 
 export type WorkflowHealth =
   { present: false } | { present: true; state: string; lastSuccessAt: string | null };
@@ -827,7 +832,7 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
           "--paginate",
           `repos/${repo}/rules/branches/${branch}?per_page=100`,
           "--jq",
-          ".[].type",
+          '.[] | "\\(.type)\\t\\(.ruleset_id // "")"',
         ],
         { env, timeoutMs: 60_000 },
       );
@@ -838,7 +843,12 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l.length > 0)
-        .map((type) => ({ type }));
+        .map((l): BranchRule => {
+          const tab = l.indexOf("\t");
+          const type = tab === -1 ? l : l.slice(0, tab);
+          const id = tab === -1 ? NaN : Number(l.slice(tab + 1).trim() || NaN);
+          return Number.isSafeInteger(id) && id > 0 ? { type, ruleset_id: id } : { type };
+        });
       return { rules, classicContexts };
     },
     async workflowHealth(repo, filename) {

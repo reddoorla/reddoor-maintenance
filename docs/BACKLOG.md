@@ -126,12 +126,12 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                              | Tier | Effort | Start here                                                                                           | Done when                                                                                                  |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| P1-3  | **#912**: PR 1 (#986) stores the verdict nightly (`roster-urls` → `site_health.url_resolves`/`url_status`/`url_checked_at`); remains: the surface (PR 2; #975 merged, so it can start). #889 (blank repo / Netlify ID) is done in #962                                            | 🟡   | M      | see "P1-3 start here" below this table                                                               | PR 2: a `fail` row reaches the digest, a stale `url_checked_at` is caught, an accept key mutes only `fail` |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                               | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                       |
-| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                      |
-| P1-17 | **#981**, built in PR #985, held at Operator decisions 22. Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review) | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap                        |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                           | Done when                                                                                                  |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| P1-3  | **#912**: PR 1 (#986) stores the verdict nightly (`roster-urls` → `site_health.url_resolves`/`url_status`/`url_checked_at`); remains: the surface (PR 2; #975 merged, so it can start). #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                                                                                                                                                                                                                                                                                              | 🟡   | M      | see "P1-3 start here" below this table                                                               | PR 2: a `fail` row reaches the digest, a stale `url_checked_at` is caught, an accept key mutes only `fail` |
+| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                       |
+| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                      |
+| P1-22 | Read `RULESET_BYPASS` from the first scheduled fleet-security run after #985, and settle P1-17's measurement fork. `unread` > 0 means the reddoor-renovate App token gets no `bypass_actors`, so the default-branch floor (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night: write an Operator decisions line with the run URL and both numbers, asking which credential lets `protection-audit` see bypass lists — (a) Administration read/write on reddoor-renovate, (b) a dedicated audit-only App or token, (c) accept "unverified" fleet-wide (all 🔴). `unread=0` closes the fork. Do NOT dispatch `fleet-security.yml` to get the number (P0-1) | 🟢   | S      | the `RULESET_BYPASS unread=N read=M` line in the protection-audit step of the scheduled run          | An Operator decisions line with the run URL and numbers, or a Done line saying `unread=0`                  |
 
 ### P1-3 start here (#912)
 
@@ -278,6 +278,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `summittrek` and `young-life-connect-compliance-site` NULL / `no url`, and
     `url_checked_at` set on the 34 non-archived rows and on no archived row. My
     pick is the nightly, since it is the same code with no new permission.
+    **Answered 2026-09-29 ~20:50Z: tonight's nightly.**
 21. **the-pointe-burbank url**: set its url to
     `https://the-pointe-burbank-rd.netlify.app` on `/s/the-pointe-burbank`.
     The probe named it on 2026-09-29 (`404 netlify-site-not-found`, and the
@@ -296,20 +297,23 @@ Ordered by what unblocks the most. Each line is the exact ask.
     allSettled count fix, which round 2 cleared), or run a third review round
     first. Landing it is `git merge origin/main` (keep both sides of BACKLOG),
     CI green, then `node scripts/land-prs.mjs 985`.
+    **Answered 2026-09-29 ~20:50Z: land as is.** Landed by the PM session.
 23. **0.102.0 release gate: these palette PRs to merge first** — measured
     2026-09-29 with #916's build on all 15 maintained sites plus
     `reddoor-starter-blux` (table: `docs/palette-rollout-2026-09-29.md`).
     The palette PRs are done: [29-navy#58](https://github.com/reddoorla/29-navy/pull/58)
     and [reddoor-starter-blux#36](https://github.com/reddoorla/reddoor-starter-blux/pull/36)
     (13 lines in `@theme`, render byte-identical, gate green on #916), merged
-    by the operator at 20:45Z. The `reddoor-starter` fix is still the PM
-    session's. 13 sites already pass on #916. **Vida
+    by the PM session at ~20:50Z on the operator's go, after green CI. The
+    `reddoor-starter` fix merged as reddoor-starter#162. 13 sites already pass on #916. **Vida
     stays red after the palette** and needs your call. axe throws on
     `mix-blend-plus-lighter` on `/` and `/es`: do we exempt it in the gate, or
     change the design? Measured, its fixtures' `text-red-600` form errors fail
     contrast. No vida PR is open. My pick: ship 0.102.0 and let vida's Renovate
     PR sit red until that is decided, since nothing reaches vida's `main`
     unreviewed.
+    **Answered 2026-09-29 ~20:50Z: ship 0.102.0; vida's call (exempt the
+    blend-mode crash, or change the design) stays open.**
 
 24. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** — two
     review rounds each found a real defect, so #989 is held for your call, not a
@@ -386,6 +390,12 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — P1-17 / #981: `protection-audit` joins each
+  `required_status_checks` rule on a non-default Renovate base branch to its
+  ruleset's `bypass_actors`; a branch every one of whose gating rulesets can be
+  bypassed is a gap, and a ruleset read without the field is unverified (#985).
+  The new `RULESET_BYPASS` line's first live number is P1-22.
 
 - 2026-09-29 — P1-16 / #980: a prospect audit that throws after a paid stage
   (or in its render) marks its row `failed`, re-stamped to the failure, which
