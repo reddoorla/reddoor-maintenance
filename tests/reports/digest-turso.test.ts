@@ -4,8 +4,8 @@
  * This file wires the readers the CLI actually wires — `listSites`
  * and `listAllReports` over a REAL migrated libSQL database in a temp `file:` (never
  * `:memory:`, never a `TURSO_*` url from the environment) — and pins the thing the
- * step exists for: a `site_<ULID>` site, which has no Airtable record at all, reaches
- * the operator's morning email and the preflight checks.
+ * step exists for: a `site_<ULID>` site reaches the operator's morning email and
+ * the preflight checks.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -54,8 +54,7 @@ beforeEach(async () => {
   db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
   // A Turso-native site (#646 step 3) carrying a critical vulnerability whose
   // auto-fix is EXHAUSTED — the shape the digest actually emails about (a fresh
-  // vuln stays muted while Renovate is still self-patching). It has no Airtable
-  // record, by design.
+  // vuln stays muted while Renovate is still self-patching).
   await mirrorSiteInsert(
     db,
     {
@@ -92,7 +91,7 @@ const io = () => ({
 });
 
 describe("the operator digest, read from Turso", () => {
-  it("raises a site_<ULID> site's vulnerability — the site Airtable cannot see", async () => {
+  it("raises a site_<ULID> site's vulnerability", async () => {
     const { client, captured } = captureClient();
     const result = await runDigest({
       ...io(),

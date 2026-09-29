@@ -1,13 +1,13 @@
-/** The reader-equivalence instrument for Phase 2 (#539): for the same Airtable
- *  record, the Turso read layer must produce EXACTLY the WebsiteRow the
- *  Airtable module's mapRow produces — proven by deep-equal over the whole row,
+/** The reader-equivalence instrument for Phase 2 (#539): for the same raw
+ *  record, the Turso read layer must produce EXACTLY the WebsiteRow that
+ *  site-fields' mapRow produces — proven by deep-equal over the whole row,
  *  so every one of the 76 fields is pinned and a NEW WebsiteRow field fails
  *  here until fleet-state.ts carries it. Three fixtures: rich (every kind of
  *  field populated), sparse (Name only — every default exercised), and weird
  *  (unknown enum values, padded strings, malformed JSON — the coercion edges).
  *
- *  headerImage is asserted separately: per design D5 its source MOVED to Turso
- *  (Airtable's attachment is deliberately not imported), so equivalence with
+ *  headerImage is asserted separately: per design D5 its source is Turso (the
+ *  record's attachment is deliberately not imported), so equivalence with
  *  mapRow is not the contract — "null until the Phase 3 writer lands" is.
  */
 import { describe, it, expect } from "vitest";
@@ -190,8 +190,8 @@ describe("fleet-state read layer ≡ mapRow (the Phase 2 equivalence instrument)
   // equivalence, so a one-sided change fails here. `archived` was the riskiest
   // value while the alias map lived: it was the ONE many-to-one merge, with
   // `legacy` and `deprecated` both landing on it while `statusRaw` kept them
-  // apart. Since stage 3 those two names cannot be entered in Airtable at all,
-  // so `archived` is the only archived fixture production can produce.
+  // apart. Since stage 3 those two names cannot be entered at all, so
+  // `archived` is the only archived fixture production can produce.
   it("archived record: the archived status pairs identically through either reader", async () => {
     await expectEquivalent({
       id: "recARCH",
@@ -243,8 +243,7 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
     const db = await seeded([RICH]);
     await mirrorSiteField(db, "recRICH", "Status", "archived");
     const mirrored = await getSiteBySlug(db, "acme-gallery");
-    // Stored raw, canonicalized on read — the Turso half of the #539 Phase 4
-    // status-vocabulary seam (mapRow does the same on the Airtable half).
+    // Stored raw, canonicalized on read, as mapRow does.
     //
     // This used to mirror "legacy" and assert it read back as "archived", which
     // demonstrated the seam by making the two halves DIFFER. Stage 3 deleted the
@@ -288,8 +287,8 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
   it("mirrors a value the code does NOT recognize, rather than normalizing it away", async () => {
     // The half of the retired test that still bites. The write-through must not
     // filter or coerce what it is given — a stale or hand-entered cell has to
-    // land verbatim so the cockpit can flag it, exactly as the Airtable reader
-    // does. `legacy` is the realistic instance: a retired option name that no
+    // land verbatim so the cockpit can flag it, exactly as mapRow does.
+    // `legacy` is the realistic instance: a retired option name that no
     // longer exists in the field and must now read as an anomaly, not as archived.
     const db = await seeded([RICH]);
     await mirrorSiteField(db, "recRICH", "Status", "legacy");
@@ -383,9 +382,8 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
     // false branch below may be read as a finding (a check that has only ever
     // failed is an untested assertion).
     await expect(mirrorHealthFields(db, "recRICH", { "Smoke OK": "pass" })).resolves.toBe(true);
-    // A site created in Airtable after the last import has no site_health row:
-    // the UPDATE matches 0 rows and the caller must be told — counting it as
-    // "mirrored" is the honesty gap Phase 5 cutover confidence would inherit.
+    // A site with no site_health row: the UPDATE matches 0 rows and the caller
+    // must be told, not count it as "mirrored".
     await expect(mirrorHealthFields(db, "recGHOST", { "Smoke OK": "pass" })).resolves.toBe(false);
   });
 

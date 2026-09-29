@@ -1,13 +1,7 @@
 /**
  * Creating a report, Turso-native (#539 Phase 6 step 4, #646; operator decision
- * 2026-09-17).
- *
- * Until now Airtable MINTED the report id: `createDraft` posted to the Reports
- * table and whatever record id came back became `reports.id` in Turso. That is why
- * a `site_<ULID>` site could not receive a report at all — Airtable had no
- * Websites record for the `Site` link to point at, so `createDraft` refused the
- * site by name (#646 step 3). Turso mints `report_<ULID>` here instead and owns
- * the row, exactly as `ensure-site` does for sites.
+ * 2026-09-17). Turso mints `report_<ULID>` here and owns the row, exactly as
+ * `ensure-site` does for sites.
  */
 import { draftFields, type DraftInput } from "./draft-fields.js";
 import { mintReportId } from "../fleet/report-id.js";
@@ -43,13 +37,7 @@ export async function createReportDraft(
 /**
  * The `(site, type, period)` idempotency lookup behind search-before-create
  * drafting — the re-run dedupe the `launch` and `announce` recipes make before
- * they draft.
- *
- * It replaces the Airtable `findReportByPeriod`, whose whole design was a
- * workaround: Airtable's formula layer renders a linked-record field as the
- * linked rows' primary-field NAMES, so no formula could filter by site id and
- * the site had to be matched client-side after fetching every row of the
- * (type, period). Here the site scope IS the query (`forSite`, served by
+ * they draft. The site scope IS the query (`forSite`, served by
  * idx_reports_site) and the triple is matched in memory over one site's handful
  * of reports.
  */

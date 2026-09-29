@@ -280,12 +280,9 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
   const findings = approveBlockers(site, r);
   const blocked = findings.some((f) => f.level === "fail");
   // Draft-time render: sendOne re-renders at send with current Commentary /
-  // subject override, so this is the DRAFT preview, labeled as such.
-  // The dashboard's OWN route, not the Airtable attachment URL. Those were signed
-  // and expired, so a tab left open 404'd — the reason `/api/reports/:id/preview`
-  // was built in Phase 2 to serve the body from Turso. It was never linked to,
-  // so the expiring URL stayed in front of the operator. `renderedHtmlAttachment`
-  // still gates the link: it is how we know a body was ever rendered at all.
+  // subject override, so this is the DRAFT preview, labeled as such, served by
+  // the dashboard's own `/api/reports/:id/preview` route. `renderedHtmlAttachment`
+  // gates the link: it is how we know a body was ever rendered at all.
   const preview = r.renderedHtmlAttachment
     ? `<a href="${escapeHtml(reportPreviewUrl(r.id))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
@@ -528,7 +525,7 @@ export const DETAIL_VALUE_FN = `function detailValue(el) {
  * **The resync on line `el.defaultValue = el.value` is load-bearing.** The blur
  * listener fires on `value !== defaultValue`, and this function used not to touch
  * `defaultValue` at all — so after one successful edit the two stayed different
- * forever and every later focus+blur of that field posted another Airtable write,
+ * forever and every later focus+blur of that field posted another write,
  * until the page was reloaded. The commentary handler 40 lines below always did
  * this correctly, which is what marks the omission as an oversight rather than a
  * decision.
@@ -536,9 +533,7 @@ export const DETAIL_VALUE_FN = `function detailValue(el) {
  * The worst case is the `secret` kind, which deliberately emits no `value`
  * attribute so an existing credential is never echoed into the HTML: its
  * `defaultValue` is permanently `""`, so every blur after typing re-POSTed the
- * credential. And one Airtable quota exhaustion has already reddened six
- * workflows fleet-wide (2026-08-17), so a tab-through of this form was a cheap
- * way to burn the fleet's write budget.
+ * credential.
  *
  * Only on `r.ok`: a failed save must stay dirty so the next blur retries it.
  * Guarded by an `in` check because `select` elements have no `defaultValue`.

@@ -65,11 +65,11 @@ const deps = (): PrismicModelsDeps => ({
   sendModel: vi.fn(async () => {}),
   env: { PRISMIC_WRITE_TOKEN: "tok" },
   spawn: vi.fn<SpawnFn>(async () => ({ code: 0, stdout: "", stderr: "" })),
-  // No test in this file writes to Airtable. Required (not optional) on the deps
+  // No test here writes to the fleet store. Required (not optional) on the deps
   // type precisely so that stays true by construction: a stub that throws is the
   // only way this path can be reached from here.
   openVerdictSink: async () => {
-    throw new Error("this test never opens Airtable");
+    throw new Error("this test never opens the fleet store");
   },
 });
 

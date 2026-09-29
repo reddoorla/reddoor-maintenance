@@ -257,21 +257,9 @@ in anyone's voice.
 
 Design: `docs/superpowers/specs/2026-08-31-starter-track-split-design.md`.
 
-## Airtable is gone (#539, #646)
+## Stored column names
 
-Turso is the only store. The code that talked to Airtable was deleted on
-2026-09-28 (#646 steps 6–8), along with the `airtable` package and every
-`AIRTABLE_*` variable a command, workflow or function read. The Airtable base
-still exists as a frozen archive nobody writes to. The final sites parity diff
-that was meant to precede the deletion never ran, because #891 and the quota
-blocked it. Any drift it would have found is still in the archive.
-
-- **Do not reintroduce Airtable calls, including in agent tooling.** The
-  workspace is on Airtable's Free plan (1,000 API calls a month). The
-  2026-08-17 "quota raise" did not move it off Free, and the block recurred on
-  2026-09-27 and hung four nightlies.
-- The stored column names are still the ones the Airtable base used
-  (`"maintenence freq"`, `"Report recipients (To)"`, …). The pure builders in
-  `src/fleet/site-fields.ts` and `src/reports/report-fields.ts` produce FieldSets
-  keyed by those names, and `src/db/field-map.ts` maps them to Turso columns.
-  That vocabulary is all that is left of Airtable in the code.
+Turso is the only store. The FieldSet builders in `src/fleet/site-fields.ts`
+and `src/reports/report-fields.ts` are keyed by legacy column names
+(`"maintenence freq"`, `"Report recipients (To)"`, …), and
+`src/db/field-map.ts` maps them to Turso columns.

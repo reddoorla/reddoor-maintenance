@@ -4,11 +4,9 @@
  * `WebsiteRow` is what BOTH readers return — `mapRow` over a column-named record
  * (`src/fleet/site-fields.ts`) and `rowFromJoined` over Turso
  * (`src/db/fleet-state.ts`) — and the coercers below are the ONE truth each of
- * them applies to a raw cell/column. They lived in the Airtable module until
- * #539 Phase 6 step 1 (#646) moved them here: they run on every Turso lead read,
- * so they could not stay in the directory Phase 6 deleted. Nothing here touches
- * a store; the doc comments still name Airtable columns because that is where
- * each value was first defined, and the Turso columns carry the same raw values.
+ * them applies to a raw cell/column. Nothing here touches a store; the doc
+ * comments use legacy column names, and the Turso columns carry the same raw
+ * values.
  *
  * `src/fleet/site-fields.ts` re-exports every name, so existing imports
  * resolve unchanged.
@@ -17,8 +15,7 @@ import { CANONICAL_STATUSES, type Status } from "./site-status.js";
 
 export type Frequency = "None" | "Monthly" | "Quarterly" | "Yearly";
 
-/** The canonical lifecycle vocabulary lives in ./site-status.ts (the Airtable
- *  write-direction mapping, `toAirtableStatus`, was deleted with that module).
+/** The canonical lifecycle vocabulary lives in ./site-status.ts.
  *  Re-exported here because every consumer already imports `Status` alongside
  *  `WebsiteRow`. */
 export type { Status };
@@ -384,8 +381,7 @@ export const KNOWN_STATUSES: ReadonlySet<string> = new Set<Status>(CANONICAL_STA
 /** Terminal, out-of-fleet lifecycle states: kept for the record,
  *  excluded from every fleet op (sweeps, reports, audits, cockpit tiers) exactly
  *  as before, but surfaced on the cockpit as an archived lane so a row can never
- *  silently vanish. Airtable's `legacy` AND `deprecated` both canonicalize to the
- *  single `archived` — an approved merge; the two were always treated alike. */
+ *  silently vanish. */
 export const ARCHIVED_STATUSES: ReadonlySet<Status> = new Set<Status>(["archived"]);
 
 export function isArchivedStatus(status: Status | null): boolean {

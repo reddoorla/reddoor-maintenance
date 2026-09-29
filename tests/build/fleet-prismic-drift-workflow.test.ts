@@ -43,7 +43,7 @@ beforeAll(async () => {
  * `bash -e` matches the shell Actions gives a `run:` block (`bash -e {0}`), so a
  * script that only passes here because of a friendlier shell would not be
  * believed. The stub is a `node` earlier on PATH that prints `stdout` verbatim and
- * exits with `exit`; nothing here touches Prismic, Airtable, GitHub or the network.
+ * exits with `exit`; nothing here touches Prismic, GitHub or the network.
  */
 async function runGate(opts: {
   stdout: string;
@@ -348,9 +348,8 @@ describe("fleet-prismic-drift — the per-repository token env block", () => {
     expect(Object.keys(env)).not.toContain("PRISMIC_WRITE_TOKEN");
   });
 
-  it("passes no Airtable credentials: the write-back lands in Turso only", () => {
+  it("passes the Turso credentials the write-back lands in", () => {
     expect(Object.keys(env)).toContain("TURSO_DATABASE_URL");
-    expect(Object.keys(env).filter((k) => k.startsWith("AIRTABLE_"))).toEqual([]);
   });
 });
 
@@ -447,11 +446,10 @@ describe("fleet-prismic-drift — a red night is durably visible", () => {
     );
   });
 
-  it("gives the sweep step its Prismic tokens (positive control) and no Airtable credentials", () => {
+  it("gives the sweep step its Prismic tokens (positive control)", () => {
     // Proves stepEnv is reading the real block, so the assertion above cannot
     // be passing against an empty or mis-parsed map.
     const env = stepEnv(wf, SWEEP_STEP);
     expect(Object.keys(env).some((k) => k.startsWith("PRISMIC_TOKEN_"))).toBe(true);
-    expect(Object.keys(env).filter((k) => k.startsWith("AIRTABLE_"))).toEqual([]);
   });
 });

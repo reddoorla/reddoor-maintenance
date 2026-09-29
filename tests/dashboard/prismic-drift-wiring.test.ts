@@ -25,8 +25,7 @@ const io = (records: RawRow[]) => ({
  *  deliberately NOT defensive — swallowing a failure would badge every item NEW.
  *  That makes libSQL a hard requirement of a real run, so the suite injects an
  *  in-memory store instead of pretending one exists. Fresh per call, so a test
- *  that does not seed it sees the empty-snapshot case (everything NEW), which is
- *  what these tests asserted against Airtable before.
+ *  that does not seed it sees the empty-snapshot case (everything NEW).
  */
 function memoryDigestState(
   seed: Record<string, { metric: number; firstFlaggedAt: string; exhausted?: boolean }> = {},
