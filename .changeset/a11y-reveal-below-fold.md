@@ -49,12 +49,21 @@ sites. Every mutation below turns it red:
 
 A second group of mutations holds the attribution rules above:
 
-- Classifying errors by stack URL fails a library crash's test.
+- Classifying errors by stack URL, or falling back to the stack's origin when
+  a cross-origin frame on the page shares it (the Vimeo shape), fails the
+  library tests.
 - No downgrade at all fails a lazy embed's error test.
-- Calling every frame cross-origin fails the same-origin frame and srcdoc
-  facade tests.
+- Calling every child frame cross-origin fails the same-origin frame and
+  srcdoc facade tests. This applies to BOTH checks: their violation nodes
+  must be kept, and their thrown errors must stay the site's.
 - Checking only the outermost frame, or reading the `src` attribute, fails the
   wrapper-frame and facade tests.
+- Treating a frame path that cannot be resolved as cross-origin fails a unit
+  test with fake frames. No element, no frame, a throw, and no answer must
+  all keep the node.
+- Reading a frame without a time limit, or not settling the hydration smoke's
+  errors, fails a live site whose home page crashes next to a lazy iframe that
+  never loads. The first times out; the second loses the crash.
 
 The exact length of the waits between steps and between settle reads, two
 frames and a task, is a margin that no test holds.
@@ -122,12 +131,29 @@ Turnstile's `api.js`, Google Maps) has a stack that starts on that origin, and
 it is still the site's crash and still fails. Every `client-error` entry
 carries `source`, the stack's first URL, for the reader only.
 
-Two cases move nothing, because the message a frame's log sees can be hidden:
+The browser can hide an error's message from the frame it happened in. These
+cases move nothing:
 
-- if a site frame logged a hidden `Script error.`, nothing on that route
-  moves;
-- an embed's error that its own window saw only as `Script error.` cannot be
-  matched, so it stays the site's and fails.
+- A site frame logged a hidden `Script error.`, or its log could not be read
+  at all. Nothing on that route moves.
+- A rejection inside a cross-origin script leaves no entry anywhere, because
+  Chromium fires no `unhandledrejection` for it. Nothing can match it, so it
+  stays the site's.
+- An embed's error that its own window saw only as `Script error.` cannot be
+  matched either, so it stays the site's and fails.
+
+**Every frame read is bounded, and nothing held is dropped.** A lazy iframe
+that has not loaded is still listed by Playwright, with an empty URL and no
+document. That happens below the fold on the hydration smoke, which runs no
+reveal pass, and for a `display: none` iframe anywhere. Reading its log would
+wait forever, which would turn any uncaught error on such a page into a
+5-minute hang with the crash unnamed. So:
+
+- frames with no document are skipped;
+- every other read, and every step of the frame-path walk, gives up after 2 s.
+  A cross-origin frame that does not answer is no evidence, and a site frame
+  that does not answer counts as a hidden entry;
+- after the last route, anything still held is settled as the site's.
 
 **Each route ends on `about:blank`.** Navigating to route B keeps route A's
 document alive until B commits. An error that A's timers threw late therefore
