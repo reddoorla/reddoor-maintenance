@@ -4819,3 +4819,64 @@ The operator asked for Search Console to count as part of site launch, the day a
 **One adjacent inconsistency, not changed.** Search enrichment only runs for a site that is "analytics-enrolled", meaning it has a `ga4PropertyId` or a `searchQuery` (`src/reports/draft.ts:487`). A site that opts out of GA4 but records a Search Console property will still get no search section. No site is in that state today. Widening enrollment to include `searchConsoleProperty` changes report content, so it needs its own change.
 
 **Proof.** Eight mutations, each failing a test: the check always true, the opt-out ignored in setup, no watch, the watch ignoring the opt-out key, the option missing from the editor, a blank property counting as set, the filter chip removed, and a GA4 opt-out leaking into Search Console. The end-to-end editor test now writes both opt-outs into an in-memory Turso and reads both back. `runbook-anchors` caught `continuity.md:336` pointing at `site-details.ts` two lines early. Two `fleet-cockpit.ts` ranges below the new block it let through on overlap; I checked those by hand and re-numbered all three.
+
+## 2026-09-29 — What Airtable left behind: the modules move out, and the mirrors lose their switch (#940 `668940c`, #945 `4c27a3e`)
+
+This is the follow-up the 09-28 entry listed as C2, plus #646 step 6's last clause, which became its own PR.
+
+**#940 — the pure modules leave `src/reports/airtable/`.**
+
+- **The moves.** After #937 that directory held only column-named mappers and FieldSet builders. They still read, from the outside, like code that calls Airtable. They moved to:
+  - `src/fleet/site-fields.ts`
+  - `src/reports/report-fields.ts`
+  - `src/db/field-map.ts`
+  - `src/audits/*-fields.ts` and `write-audits.ts`
+
+  Sixty-two files that imported only site-row names through the old re-exports now import `src/fleet/site-row.ts` directly (#646 step 7).
+
+- **Dead code.**
+  - Two identities, `toAirtableStatus` and `restoreCell`, were inlined.
+  - Four operations had no production caller and are deleted: `SiteMirror.created`, `SiteMirror.hasRow`, `ReportMirror.created` and `siteRowExists`.
+- **The CLI keyword.** `--fleet airtable` had read the Turso roster with a deprecation warning since step 4. It now exits 2 and names `--fleet turso`.
+- **The comment sweep.** Three agents rewrote the comments of about 100 files on disjoint lists. Two of the comments they found were false: `makeSiteMirror` and `makeReportMirror` both said "never throws", and both throw under strict.
+
+**The comment-only claim needed an instrument, and the first one was wrong.** The first check compared TypeScript scanner token streams between the WIP commit and the swept tree. It flagged 94 of 139 files. The raw scanner does not re-scan template-literal continuations, so every file containing a template literal differed. The second check printed each file's AST through the TypeScript printer with `removeComments` and compared the output. Before trusting it, I showed it reports a changed constant and a changed template literal and ignores a moved comment. It then found:
+
+- 77 files byte-identical;
+- 62 differing only in the `site-fields.js` → `site-row.js` import specifiers;
+- 0 with any other difference.
+
+**The rebase onto #939** conflicted in three places:
+
+- the `continuity.md` citation;
+- a `site-details.ts` comment both sides rewrote;
+- `fleet-state.test.ts`'s imports.
+
+#939's own journal entry notes that `runbook-anchors` let two stale `fleet-cockpit.ts` ranges through because the shifted lines still contained an anchor term. For that reason the resolved citation (`site-details.ts:95–96`) was checked by reading the lines, not by the test.
+
+**One failure is unidentified.** The first full run after the rebase failed one test out of 7268. The run meant to name it was killed (exit 137, a worker restart) before it printed anything. The next three full runs were green. So it is recorded as unidentified, not as a flake.
+
+**#945 — `TURSO_IS_AUTHORITATIVE` is gone.**
+
+- **What the constant was guarding.** It had been `true` since 08-31. Every branch it guarded was unreachable in production and kept alive only by tests injecting `strict=false`: `mirrorWrite` swallowing, the mirror factories returning null or reporting `mirrored=absent`, and `tursoWriteFailed` returning false.
+- **The code changes.**
+  - `src/db/freeze.ts` is now `src/db/mirror-write.ts`.
+  - The two `BestEffort` health factories are `makeHealthMirror`/`makeScheduleMirror` and are typed as never returning null.
+  - Every `strict` parameter is gone.
+  - The suite lost 13 tests, all of them pre-freeze cases.
+- **The mutation check.** Each of the six removed swallow paths was put back one at a time, and each turned its suite red.
+- **Two instruments that were not what they claimed.**
+  - The new factory test's schedule positive control first wrote an empty FieldSet. `mirrorScheduleFields` short-circuits an empty patch to `true`, so the assertion could not fail. Tightening it to a real column, with a `false` expected for a missing site, exposed that; it now proves both directions.
+  - The query-plan gate exempted `freeze.ts` as "a single exported constant — no queries, no runtime behaviour of its own". That had been untrue since `mirrorWrite` moved into the file. The gate checks that an exemption names a real file, not that its reason is still true.
+
+**Issues.**
+
+- **#891 closed as not planned.** The parity tool is deleted. Its one real drift, the `legacy` site's "site host", was checked here rather than assumed. The value sits in the `sites.legacy` JSON archive column, which `fleet-state.ts` selects but `rowFromJoined` maps into no `WebsiteRow` field, so nothing reads the stale value.
+- **#539 closed as complete.**
+- **#646 closes with #945.**
+
+**Still the operator's (unchanged from 09-28):**
+
+- `.claude/settings.json`'s Airtable MCP write pre-approval and `api.airtable.com` allow;
+- AUTONOMY.md's Airtable tiers;
+- revoking or narrowing `AIRTABLE_PAT` in Actions, Netlify and the local credentials.
