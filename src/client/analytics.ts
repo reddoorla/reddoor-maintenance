@@ -57,7 +57,7 @@ export type InitAnalyticsOptions = {
    * Not to be confused with the numeric property ID the Data API reads, which
    * lives on the Turso site row. The two fail asymmetrically: a wrong
    * measurement ID collects into nothing and looks fine, a wrong property ID
-   * errors loudly. `reddoor-maint audit --only analytics` checks both ends so the
+   * errors loudly. `reddoor-maint audit --fleet turso --only analytics` checks both ends so the
    * silent direction cannot hide.
    */
   measurementId?: string | null | undefined;
@@ -121,7 +121,7 @@ const LOADER_ORIGIN = "https://www.googletagmanager.com";
  *   as done.
  *
  * Installing alongside a foreign loader is the safe direction: both properties
- * then count correctly, and `reddoor-maint audit --only analytics` warns about the
+ * then count correctly, and `reddoor-maint audit --fleet turso --only analytics` warns about the
  * second loader, so the situation is visible instead of silent.
  */
 const LOADER_SELECTOR = 'script[src*="googletagmanager.com/gtag/js"]';
