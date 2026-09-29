@@ -108,7 +108,7 @@ export function descendantGroups(
   while (queue.length > 0) {
     const parent = queue.shift() as number;
     for (const r of children.get(parent) ?? []) {
-      if (r.pid === root || r.pid === self || pids.has(r.pid)) continue;
+      if (r.pid === root || r.pid === self) continue;
       pids.add(r.pid);
       queue.push(r.pid);
       if (r.pgid > 1 && r.pgid !== root && r.pgid !== own.pgid && r.pgid !== self) {

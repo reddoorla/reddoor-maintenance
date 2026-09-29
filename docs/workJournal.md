@@ -5420,3 +5420,26 @@ Beliefs corrected on contact:
 
 - "Send on change" sounded like one rule. It needed five parameters: memory per kind, tolerance per kind, grace per severity, baseline direction, heartbeat. Each came from a replay, not from reading the code.
 - The two-dirty-rounds rule worked as written: it put a real design fork in front of the operator. What it did not prevent was two sessions answering the same "go". The claim check has to be re-run after every pause, including the author's own pause while waiting for the operator.
+
+## 2026-09-29 — A timed-out spawn reaps the process groups its descendants detached into (#989)
+
+#969 was filed from #950's review: when the a11y audit's Playwright run timed out, `defaultSpawn` killed Playwright's process group, and the site's dev server stayed up. This worker session took it from a PM brief. The shape turned out to be more general than a11y. Playwright's `launchProcess` spawns the `webServer` with `detached: true` (`playwright-core@1.62.1` `coreBundle.js:8905`), so the server leads a new session and process group of its own. The runner has no SIGTERM handler, so the SIGTERM ends it before its `exit`-only teardown can run. chrome-launcher (lhci's Chrome) spawns with `detached: true` too (`chrome-launcher.js:196`). So `kill(-child.pid)` never reached any of them, and the `spawn.ts` comment that said it reached "Chromium under lhci/playwright" was wrong from the day it was written. That comment is corrected in this PR.
+
+Measured with the brief's probe, on this container, before the fix: the positive control (`HANG=0`) printed `playwright exited 0` and `webServer pid 4794: gone; port 43177 accepting=false`, which proved the probe can say "gone". The hanging spec printed `rejected: SpawnTimeoutError` and then `webServer pid 4873: Sl; port 50181 accepting=true`, 7 s after the timeout and past the 5 s SIGKILL grace. After the fix the same run printed `gone; port 49130 accepting=false`.
+
+The fix stays inside `spawn.ts`. At the timeout, before the first signal, it reads `ps -A -o pid=,ppid=,pgid=` once. That is the only moment the ancestry exists: once the wrapper dies, the server's `sh -c` is reparented to PID 1. It walks every descendant, not only the direct children, because the server sits two or more levels down. It then SIGTERMs each descendant group alongside `-child.pid`. After the grace it re-reads the table and SIGKILLs only a group that still holds a pid from the snapshot. That escalation outlives the wrapper's `close`, which the leader's does not: the wrapper usually dies on the SIGTERM, and a detached server that ignores SIGTERM would otherwise never see a SIGKILL. `-A` is load-bearing on macOS, where `ps` without it lists only processes with a controlling terminal, and a setsid'd child has none. On Linux CI the flag makes no difference, so a unit test pins the argv.
+
+Review round 1 ran as a Workflow (correctness, test validity with the reviewers' own mutations, integration with the full suite in a fresh worktree: 7604 passed, 5 skipped), with three skeptics on each serious finding. It confirmed two:
+
+- **The walk trusted `child.pid` after the wrapper could have been reaped.** A wrapper that exits early while a grandchild holds its stdout pipe fires `exit` but not `close`, so the timer stays armed, and the pid is free for reuse. A walk from a reused pid would SIGTERM a stranger's children's groups. One of three skeptics refuted it, arguing the pid stays reserved while any process keeps it as pgid or sid. That is true only while something is left in the old group or session, and the finding's own case is a descendant that setsid'd away. Now the root's row must still show `ppid === process.pid`, and a wrapper with an `exitCode` or `signalCode` is skipped. The leader's own `kill(-pid)` is unchanged, because a live group's id cannot be reused.
+- **The membership re-check was tested with one group only**, so "SIGKILL every group once any snapshot pid lives" survived. The code was already per-group; a two-group test now pins it.
+
+Dead ends named in the brief and not walked, recorded so nobody walks them later:
+
+- **Patching Playwright** (`pnpm patch` to undo `detached`). The a11y audit runs `npx --yes playwright` from the site's own tree, so a patch in this repo never reaches it.
+- **Sending SIGINT first** so that Playwright tears down its own server. That depends on the runner still being responsive, which a timeout says it is not, and it does nothing for lhci's Chrome.
+
+Beliefs corrected on contact:
+
+- The container runs as root, and the old mocked tests read the real `ps` for fake pid 4242. That is harmless only because they also inject `killImpl`. The new mocked tests always pass a table. The brief kept the old ones unchanged, so they stay as they were.
+- My first mutation loop reverted each mutation with `git checkout spawn.ts`. I started it once against uncommitted round-1 fixes, which it would have silently reverted. I stopped it after it had applied its first mutation but before any revert, restored that line by hand, and committed before running it again. A `pkill -f` on the vitest pattern then killed my own shell, because the pattern matched the shell's command line. Commit before mutating, and never `pkill -f` a pattern that your own command contains.
