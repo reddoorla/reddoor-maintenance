@@ -55,8 +55,8 @@ BAZ=qux
   });
 
   it("parses `export KEY=value` lines (common hand-edit)", () => {
-    expect(parseEnvFile('export AIRTABLE_PAT=pat123\nexport BAZ="q u x"')).toEqual({
-      AIRTABLE_PAT: "pat123",
+    expect(parseEnvFile('export API_TOKEN=tok123\nexport BAZ="q u x"')).toEqual({
+      API_TOKEN: "tok123",
       BAZ: "q u x",
     });
   });

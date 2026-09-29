@@ -45,7 +45,7 @@ describe("isReportId — what the report routes accept", () => {
     expect(isReportId(mintReportId())).toBe(true);
   });
 
-  it("accepts an Airtable rec id, exactly as the routes' old regex did", () => {
+  it("accepts a rec id, exactly as the routes' old regex did", () => {
     expect(isReportId("recABC123xyz")).toBe(true);
   });
 

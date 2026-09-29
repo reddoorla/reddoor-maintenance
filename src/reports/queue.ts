@@ -46,10 +46,8 @@ export type QueueOutcome = {
  * two queued reports.
  *
  * #646 step 4: the site's other reports are READ from Turso (`mirror.forSite`),
- * which is why `mirror` is no longer optional. The Airtable read this replaces
- * could not see a report drafted for a `site_<ULID>` site — and an empty answer
- * does not fail, it silently queues a second report for a site that already had
- * one.
+ * which is why `mirror` is required: an empty answer does not fail, it silently
+ * queues a second report for a site that already had one.
  */
 export async function queueDraft(
   report: { id: string; siteId: string; reportType: ReportType },

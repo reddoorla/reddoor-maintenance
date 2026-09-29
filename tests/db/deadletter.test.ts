@@ -20,7 +20,7 @@ const LEAD = {
   // hostname on a requireTurnstile site is spam_auto BY DESIGN, and the gated-site
   // replay test below depends on this lead being genuinely clean.
   turnstile: { outcome: "pass" as const, hostname: "acme.example.com" },
-  error: "Error: airtable 429 quota",
+  error: "Error: upstream 429 quota",
   receivedAt: NOW,
 };
 

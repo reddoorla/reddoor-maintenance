@@ -87,7 +87,7 @@ export type CanonicalBase = {
 
 /**
  * Resolve the audit's effective base URL by following the configured URL's own redirect ONCE.
- * WHY (2026-07-17, Vineyard): an apex-configured Airtable url (vineyardconstruction.com) that
+ * WHY (2026-07-17, Vineyard): an apex-configured site url (vineyardconstruction.com) that
  * 301s to www adds a redirect hop to EVERY probed route; under the audit's own probe burst that
  * hop tipped two heavy gallery pages over the nav timeout → "no response" false alarms on a
  * perfectly healthy site. Probing the canonical host removes the hop at the source, so the class

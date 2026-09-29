@@ -96,8 +96,8 @@ describe("pushModels", () => {
       { kind: "slice", id: "hero" },
       { kind: "customtype", id: "page" },
     ]);
-    // Identity only — the report is serialised into a PR comment and an Airtable
-    // cell, and a live repository's full model JSON does not belong in either.
+    // Identity only — the report is serialised into a PR comment, and a live
+    // repository's full model JSON does not belong there.
     expect(report.remoteOnlyReported.every((e) => !("model" in e))).toBe(true);
   });
 
@@ -340,10 +340,10 @@ describe("pushModels", () => {
 
   // The key is OMITTED, not set to undefined. `exactOptionalPropertyTypes` makes
   // the compiler agree, but the reason is at the far end of the pipeline: this
-  // report is serialised into a PR comment and an Airtable cell, and a present
-  // `status` key holding nothing reads as "there was a status and it was
-  // blank" — inviting exactly the token-vs-model misdiagnosis the field exists
-  // to prevent. A network failure (`fetch failed`) genuinely has no status.
+  // report is serialised into a PR comment, and a present `status` key holding
+  // nothing reads as "there was a status and it was blank" — inviting exactly
+  // the token-vs-model misdiagnosis the field exists to prevent. A network
+  // failure (`fetch failed`) genuinely has no status.
   it("omits status entirely when the failure carries none", async () => {
     const send = throws(new Error("fetch failed"));
     const diff = emptyDiff();

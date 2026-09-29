@@ -1,9 +1,9 @@
 /** Turso plan-quota headroom (#539 HIGH-10).
  *
  *  The starter plan carries `"overages": false`, which means crossing a quota
- *  BLOCKS reads and writes rather than billing for them. From the Airtable
- *  cutover on, Turso is the only store the fleet has — so a silently-approached
- *  quota is a fleet outage with no warning shot. This module turns the platform
+ *  BLOCKS reads and writes rather than billing for them. Turso is the only
+ *  store the fleet has — so a silently-approached quota is a fleet outage with
+ *  no warning shot. This module turns the platform
  *  API's usage numbers into one machine line the nightly can gate on.
  *
  *  Quotas are read from the API's own /plans response rather than hardcoded:

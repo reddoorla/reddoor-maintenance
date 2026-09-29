@@ -1,7 +1,6 @@
-/** Phase 4 of the Airtable → Turso migration (#539): the fleet table.
+/** The fleet table.
  *
- *  A sortable/filterable inventory of EVERY fleet site — the console's
- *  replacement for eyeballing the Airtable grid. Unlike the cockpit
+ *  A sortable/filterable inventory of EVERY fleet site. Unlike the cockpit
  *  (isDashboardVisible = {maintained, launching}), NOTHING here is
  *  status-filtered by default: archived/legacy/null-status rows all render,
  *  and the status is carried RAW — this module never remaps or invents status
@@ -37,10 +36,10 @@ export const FLEET_SORT_KEYS = [
 ] as const;
 export type FleetSortKey = (typeof FLEET_SORT_KEYS)[number];
 
-/** Status-filter sentinel for "no status set" — the hygiene question ("which
- *  sites have no Status?") this page replaces the Airtable grid for. Null-status
- *  rows are otherwise reachable only by sorting nulls-last and scrolling, which
- *  does not survive the ~200-site direction.
+/** Status-filter sentinel for "no status set" — the hygiene question "which
+ *  sites have no Status?". Null-status rows are otherwise reachable only by
+ *  sorting nulls-last and scrolling, which does not survive the ~200-site
+ *  direction.
  *
  *  Status is free text upstream, so a stored value COULD equal this string. If
  *  one ever does, the DATA wins (see `noStatusFilterActive`): a real row must

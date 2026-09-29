@@ -34,14 +34,12 @@ import type { ReportRow } from "./report-row.js";
  *  together: a caller holding `create` but not `body` produces exactly the
  *  half-written state (row present, preview 404) this module exists to prevent.
  *
- *  Since #646 step 4 this is no longer only a mirror. `create` is the PRIMARY
- *  write — Turso mints the report id and owns the row (see
- *  `src/reports/create-report.ts`) — and `forSite` is a READ the drafting path
- *  used to make against Airtable, which could not see a report for a
- *  `site_<ULID>` site. `body` and `patch` were write-throughs until #937 deleted
- *  Airtable; now they too are the only write. The name is kept because every
- *  composition root and every injection site already uses it, and a rename
- *  would churn ten files to say what this comment says. */
+ *  Despite the name this is not a mirror. `create` is the PRIMARY write — Turso
+ *  mints the report id and owns the row (see `src/reports/create-report.ts`) —
+ *  `forSite` is the drafting path's READ, and `body` and `patch` are the only
+ *  writes. The name is kept because every composition root and every injection
+ *  site already uses it, and a rename would churn ten files to say what this
+ *  comment says. */
 export type ReportMirror = {
   /** Insert a brand-new report row and return what Turso stored. Not a mirror:
    *  the row exists nowhere else. */
@@ -100,8 +98,7 @@ export async function makeReportMirror(
       await run(rec.id, "create", (d) => insertReportRow(d, rec));
       // Read back rather than map the input: the caller gets what Turso STORED,
       // so a coercion in the mapper can never diverge the returned row from the
-      // persisted one. The same rule the Airtable create followed by returning
-      // Airtable's echo.
+      // persisted one.
       const row = await getReportById(db, rec.id);
       if (!row)
         throw new Error(`REPORT_MIRROR report=${rec.id} op=create: row not found after insert`);

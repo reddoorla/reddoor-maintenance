@@ -1,13 +1,13 @@
 /**
  * #539 Phase 5: the multi-column twin of `mirrorSiteField`, for writers that
- * touch more than one `sites` cell in a single Airtable update.
+ * touch more than one `sites` cell in a single update.
  *
  * `updateLaunched` is the reason it exists — it flips `Status` AND stamps
  * `Launched at` in one write, and mirroring those as two separate UPDATEs would
  * leave a window where Turso says a site is maintained but never launched.
  *
  * Same contract as `mirrorHealthFields`, deliberately: it takes the EXACT
- * FieldSet just written to Airtable (the writers return it), resolves columns
+ * FieldSet the writers return, resolves columns
  * through the importer's own `SITE_FIELDS` + `siteValueFor`, and reports whether
  * a row matched so a caller can count a not-yet-imported site honestly instead
  * of claiming it mirrored.
@@ -37,7 +37,7 @@ const stored = async (db: Awaited<ReturnType<typeof openDb>>) =>
     .executeTakeFirst();
 
 describe("mirrorSiteFields", () => {
-  it("writes every column of one Airtable update in a single UPDATE", async () => {
+  it("writes every column of one field set in a single UPDATE", async () => {
     const db = await dbWithSite();
 
     const matched = await mirrorSiteFields(db, "recSITE", {
