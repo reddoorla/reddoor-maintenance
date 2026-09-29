@@ -278,7 +278,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
     - #672 (cockpit design): design brief first. Brief written, awaiting the
       operator's markup:
       [`docs/cockpit-design-brief-2026-09.md`](cockpit-design-brief-2026-09.md).
-    - #674 (design-review tool): mine the rules only.
+    - #674 (design-review tool): mine the rules only. Rules mined in
+      `docs/design-review-rules-2026-09.md` (#1012); awaiting the operator's
+      accept/cut, plus a call on a `data-bleed`-style full-bleed opt-in.
     - Still open, on the laptop: #773 (local-only git objects).
 19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
     rule, then, after two sessions built it in parallel (`f6d5ee8c` on #975,
