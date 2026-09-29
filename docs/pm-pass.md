@@ -1,10 +1,11 @@
 # The daily PM pass
 
-A scheduled Routine starts a fresh cloud session every weekday morning and
-gives it this file. The session's job is to **prioritize, not build**: it
-re-checks `docs/BACKLOG.md` against the live state of the fleet and this repo,
-re-ranks it, writes the day's morning report, and lands one docs-only PR. It
-does not write code, dispatch fleet workflows, or send anything to a client.
+A scheduled Routine ("Daily PM pass", 04:48 America/Los_Angeles, every day)
+starts a fresh cloud session and gives it this file. The session's job is to
+**prioritize, not build**: it re-checks `docs/BACKLOG.md` against the live
+state of the fleet and this repo, re-ranks it, writes the day's morning
+report, and lands one docs-only PR. It does not write code, dispatch fleet
+workflows, or send anything to a client.
 Worker sessions, started by the operator, pick items off the backlog.
 
 The prompt lives here so it can be changed by PR, like everything else.
@@ -55,24 +56,63 @@ The prompt lives here so it can be changed by PR, like everything else.
    `https://discord.com/api/v10`. For each text channel with a message in the
    last 14 days, read its recent messages and list every message that
    mentions the operator (`tucksravin`, user id `214787673846579200`) or asks
-   him something by name, where he has neither replied after it in that
-   channel nor left **any reaction** on it (the operator's rule since
-   2026-09-29: any reaction from him closes the ask). List asks older than two
-   days under "Waiting on you (Discord)" in the morning report: channel, who,
-   date, and the ask in one line. Do not quote credentials, codes, addresses
-   or phone numbers that appear in messages. There are no clients in the
-   guild; everyone in it is Reddoor staff.
+   the operator something by name, where the operator has neither replied
+   after it in that channel nor left **any reaction** on it (the operator's
+   rule since 2026-09-29: any reaction from the operator closes the ask).
+   List asks older than two days under "Waiting on you (Discord)" in the
+   morning report: channel, who, date, and the ask in one line. Do not quote
+   credentials, codes, addresses or phone numbers that appear in messages.
+   There are no clients in the guild; everyone in it is Reddoor staff.
 
 5. **Backlog diff.** For each P0/P1 item: still true? done? claimed? Move done
    items to the Done section with the PR number. Add what the day's evidence
-   surfaced. Re-rank. Update the "Last full re-rank" line.
+   surfaced. Re-rank. Update the "Last full re-rank" line. Read every line
+   added under "Operator decisions" since the last report: workers write their
+   stop-condition questions there instead of asking (`CLAUDE.md` → "Worker
+   sessions never ask mid-flight"), so each new line goes into the morning
+   report's top of stack with the branch or PR it names.
+
+   **[H] items** are the ones the operator builds by hand. Rank them with
+   everything else, but list them in their own "Yours to build [H]" section of
+   the morning report, never recommend a worker for one, and never write a
+   brief for one. A worker that finds an [H] item already started by the
+   operator leaves it alone, as it would another session's branch.
+
 6. **Morning report.** Copy the shape of the most recent file in
    `docs/morning-reports/`: one-line verdict, top of stack for the operator
    (dated, ordered), what landed, nightlies, what went wrong, next for agents.
    Every number in it comes from a query or a log line made that morning.
+
+   **Next for agents ends with briefs.** For each item you recommend starting
+   today (one to three, none of them [H], none claimed), paste a filled-in
+   brief from `docs/worker-brief.md` under a "Briefs" heading, ready for the
+   operator to copy into a new session unchanged. Re-run the item's _Verify_
+   line and re-read its "start here" lines before writing the brief, so the
+   line numbers in it were measured this morning. An item whose brief would
+   need an operator decision is not ready: put the decision under "Operator
+   decisions" instead.
+
 7. **Journal entry**, then the PR, then land it.
 8. **Finish by posting the one-line verdict and the operator's top three
    items** as the session's last message, so the notification carries them.
+
+## Mondays: the heavier pass
+
+On a Monday the pass does three more things, inside a budget of about 75
+minutes instead of 45:
+
+- **Fresh reads, not a diff.** Every open issue, not only those touched since
+  the last report, and the live fleet state from Turso (SELECT only): row
+  counts by status, cockpit attention and watch, staleness of each sweep, and
+  unread form submissions. Rewrite BACKLOG's "Fleet snapshot" from them.
+- **Refute the week's claims.** Run the `refute-claims` skill over the
+  morning reports from the previous seven days. Every [M] claim in them was
+  measured once and then carried forward; this is the one place a wrong one is
+  caught. A refuted claim gets a forward pointer in that report (the one edit
+  an old document may take, as in the journal rule) and a corrected line in
+  today's.
+- **Full re-rank.** Re-order P0/P1 from scratch rather than editing the
+  previous order, and say so in the header's "Last full re-rank" line.
 
 ## What the operator wants to see
 

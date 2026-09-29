@@ -64,6 +64,23 @@ work:
   for fresh `fix/*` branches and open or just-merged PRs there — another
   session may already be on it (this is exactly how six duplicate-fix PRs
   nearly double-merged on 2026-07-09).
+- **Look at fresh branches, not only open PRs.** On 2026-09-29 #932
+  duplicated #933: its session checked the open PRs but not the fresh
+  branches, where the other session's work already sat. Before your first
+  edit, list every `claude/*` and `fix/*` branch by age and open anything
+  under a day old:
+
+  ```sh
+  git fetch -q origin 'refs/heads/claude/*:refs/remotes/origin/claude/*' 'refs/heads/fix/*:refs/remotes/origin/fix/*'
+  git for-each-ref --sort=-committerdate --format='%(committerdate:iso-strict) %(refname:short)' refs/remotes/origin/claude refs/remotes/origin/fix | head
+  git diff --stat origin/main...origin/claude/<name>
+  ```
+
+  `git ls-remote --heads origin 'refs/heads/claude/*' 'refs/heads/fix/*'` is
+  the quick form, but it prints SHAs with no dates, and this repo carries
+  dozens of months-old `fix/*` branches, so "under a day old" cannot be read
+  off it. A fresh branch that touches your files belongs to that session.
+
 - **Stay in your charter.** If the operator scoped the session to a problem,
   don't opportunistically pick up other fleet signals without the claim check
   above.
@@ -81,6 +98,34 @@ work:
 
 Individual site repos generally get **one** agent session at a time; the
 worktree rule is mandatory here in the central repo and best practice there.
+
+## Worker sessions never ask mid-flight
+
+Since 2026-09-30 the operator reads one morning report and spends 15–20 minutes
+on it (`docs/operating-model-review-2026-09-29.md` §R3, `docs/pm-pass.md`). A
+question asked in the middle of a worker session waits hours for an answer
+nobody is watching for, and the session that asked it has usually ended by
+then. So a worker started from a backlog item or a brief
+(`docs/worker-brief.md`) follows three rules:
+
+- **At a stop condition, write the question down and end.** Any of
+  `AUTONOMY.md`'s stop conditions, or a fork the brief did not settle, becomes
+  one line under "Operator decisions" in `docs/BACKLOG.md`: the exact ask, what
+  you would pick and why, and the branch or PR that holds the work so far.
+  Land that line (a docs-only PR is fine), push the branch, and end the
+  session. The next morning's PM pass puts it in front of the operator. Do not
+  wait in the session for a reply.
+- **Two dirty review rounds, then stop.** If the second adversarial review of
+  the same PR still finds a real defect, the PR goes to "Operator decisions"
+  with the findings of both rounds, not into a third round. #918 and #920
+  reached a sixth round with majors before anyone asked whether the design was
+  right; this rule would have put them in front of the operator two weeks
+  earlier. Review finding bugs is the process working; the cost is the third
+  and fourth round.
+- **The mutations are named before the code.** A brief lists the mutations the
+  worker commits to running against its own tests. Run each, record whether a
+  test went red, and put the table in the PR body. A test no mutation turns
+  red is not yet evidence (see "Prove the instrument", above).
 
 ## Before a fleet sweep, ask which repos can receive a push
 
