@@ -236,7 +236,15 @@ describe("collectAttention", () => {
             "URL Checked At": "2020-01-02T08:05:00.000Z",
           },
         },
-        { id: "rec_never", fields: { Name: "Never Probed", url: "https://never.example.com" } },
+        {
+          id: "rec_aged",
+          fields: {
+            Name: "Aged Probe",
+            url: "https://aged.example.com",
+            "URL Resolves": "pass",
+            "URL Checked At": "2019-12-20T08:05:00.000Z",
+          },
+        },
       ],
     };
     // A 2020 clock: were the wiring to drop `now`, the wall clock would read the

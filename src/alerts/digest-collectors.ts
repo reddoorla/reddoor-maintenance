@@ -796,8 +796,11 @@ export function urlProbeFresh(checkedAt: string | null, now: Date): boolean {
  * The accept key mutes only the fresh `fail` branch; an accepted row still counts
  * toward staleness.
  *
- * A row added after the day's probe and before the digest reads "never checked"
- * for one day. That is true, and the next nightly clears it. A known failure whose
+ * A never-stamped row counts only while no row in the fleet is fresh. A site added
+ * after the day's probe would otherwise mail "the probe is behind" about a probe
+ * that is working; a probe that has never run, or has stopped, leaves no fresh row,
+ * so it is still caught. The cost: a single row the probe keeps failing to stamp
+ * while stamping the rest is not caught here. A known failure whose
  * stamp goes stale leaves the digest, so if the probe comes back and it still
  * fails it mails again as new: the operator hears once more about a failure that
  * outlived a probe outage, which is the same trade `prismic-stale:` makes.
@@ -811,14 +814,18 @@ export function collectUrlResolveAlerts(
   let covered = 0;
   let never = 0;
   let aged = 0;
+  let unreadable = 0;
+  let anyFresh = false;
   for (const s of sites) {
     if (isArchivedStatus(s.status)) continue;
     covered++;
     if (!urlProbeFresh(s.urlCheckedAt, now)) {
       if (s.urlCheckedAt === null) never++;
-      else aged++;
+      else if (Number.isFinite(Date.parse(s.urlCheckedAt))) aged++;
+      else unreadable++;
       continue;
     }
+    anyFresh = true;
     if (s.urlResolves !== "fail") continue;
     const accepted = new Set(s.acceptedWatchConditions.map((c) => c.trim().toLowerCase()));
     if (URL_NOT_DEPLOYED_KEYS.some((k) => accepted.has(k))) continue;
@@ -832,11 +839,13 @@ export function collectUrlResolveAlerts(
       metric: 1,
     });
   }
-  const stale = never + aged;
+  if (anyFresh) never = 0;
+  const stale = never + aged + unreadable;
   if (stale > 0) {
     const parts = [
       ...(never > 0 ? [`${never} never checked`] : []),
       ...(aged > 0 ? [`${aged} not checked in ${URL_PROBE_STALE_DAYS} days`] : []),
+      ...(unreadable > 0 ? [`${unreadable} with an unreadable stamp`] : []),
     ];
     items.push({
       key: "url-probe-stale",

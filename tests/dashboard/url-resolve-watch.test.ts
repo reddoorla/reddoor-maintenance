@@ -8,7 +8,7 @@ import { makeWebsiteRow } from "../_helpers/website-row.js";
 const NOW = new Date("2026-09-30T12:00:00Z");
 const FRESH = "2026-09-30T08:05:00.000Z";
 const STALE = new Date(NOW.getTime() - (URL_PROBE_STALE_DAYS * 24 + 1) * 3600_000).toISOString();
-const REASON = "roster url does not resolve (404 netlify-site-not-found)";
+const REASON = "roster url https://good.example.com does not resolve (404 netlify-site-not-found)";
 
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
@@ -55,6 +55,13 @@ describe("assignTier — roster url watch (#912)", () => {
 
   it("the accept key the card names is one the site editor will store", () => {
     expect(WATCH_CONDITION_OPTIONS).toContain(URL_NOT_DEPLOYED);
+  });
+
+  it("names a missing status", () => {
+    const r = assignTier(failing({ urlStatus: null }), [], NOW);
+    expect(r.watchReasons).toEqual([
+      "roster url https://good.example.com does not resolve (no status)",
+    ]);
   });
 
   it("a fresh blank url (null verdict) is not a watch", () => {

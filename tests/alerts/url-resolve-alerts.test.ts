@@ -129,7 +129,16 @@ describe("collectUrlResolveAlerts — the accept key mutes only fail", () => {
 
   it("an unrelated accepted condition mutes nothing", () => {
     const items = collectUrlResolveAlerts(
-      [row({ acceptedWatchConditions: ["no custom domain", "stale repo", "url"] })],
+      [
+        row({
+          acceptedWatchConditions: [
+            "no custom domain",
+            "stale repo",
+            "url",
+            "url not deployed yet",
+          ],
+        }),
+      ],
       BASE,
       NOW,
     );
@@ -152,9 +161,8 @@ describe("collectUrlResolveAlerts — a stale stamp is itself caught", () => {
     const items = collectUrlResolveAlerts(
       [
         passing({ id: "a", urlCheckedAt: STALE }),
-        passing({ id: "b", urlCheckedAt: null }),
+        passing({ id: "b", urlCheckedAt: null, url: "", urlResolves: null, urlStatus: null }),
         passing({ id: "c", urlCheckedAt: "not a date" }),
-        passing({ id: "d" }),
         passing({ id: "e", status: "archived", urlCheckedAt: null }),
       ],
       BASE,
@@ -168,9 +176,10 @@ describe("collectUrlResolveAlerts — a stale stamp is itself caught", () => {
       metric: 3,
       url: BASE,
     });
-    expect(items[0]!.title).toMatch(/3 of 4/);
+    expect(items[0]!.title).toMatch(/3 of 3/);
     expect(items[0]!.title).toContain("1 never checked");
-    expect(items[0]!.title).toContain("2 not checked in 3 days");
+    expect(items[0]!.title).toContain("1 not checked in 3 days");
+    expect(items[0]!.title).toContain("1 with an unreadable stamp");
     expect(items[0]!.title).toContain("Probe roster urls to Turso");
   });
 
@@ -190,6 +199,37 @@ describe("collectUrlResolveAlerts — a stale stamp is itself caught", () => {
     expect(
       collectUrlResolveAlerts([passing({ urlCheckedAt: at(73) })], BASE, NOW).map((i) => i.key),
     ).toEqual(["url-probe-stale"]);
+  });
+
+  it("the boundary is exact to the minute", () => {
+    const at = (m: number) => new Date(NOW.getTime() - m * 60_000).toISOString();
+    expect(
+      collectUrlResolveAlerts([passing({ urlCheckedAt: at(72 * 60 - 1) })], BASE, NOW),
+    ).toEqual([]);
+    expect(
+      collectUrlResolveAlerts([passing({ urlCheckedAt: at(72 * 60 + 1) })], BASE, NOW).map(
+        (i) => i.key,
+      ),
+    ).toEqual(["url-probe-stale"]);
+  });
+
+  it("a row added after the probe ran does not alarm while the rest of the fleet is fresh", () => {
+    const items = collectUrlResolveAlerts(
+      [passing({ id: "a" }), passing({ id: "new", urlCheckedAt: null })],
+      BASE,
+      NOW,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("a never-stamped row alarms once no row in the fleet is fresh", () => {
+    const items = collectUrlResolveAlerts(
+      [passing({ id: "a", urlCheckedAt: STALE }), passing({ id: "new", urlCheckedAt: null })],
+      BASE,
+      NOW,
+    );
+    expect(items.map((i) => [i.key, i.metric])).toEqual([["url-probe-stale", 2]]);
+    expect(items[0]!.title).toContain("1 never checked");
   });
 
   it("a stale fail is not reported as a current failure; it rides the stale item", () => {

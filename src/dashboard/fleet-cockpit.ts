@@ -271,7 +271,7 @@ export function assignTier(
     candidates.push({
       signal: "url-unresolved",
       acceptKeys: URL_NOT_DEPLOYED_KEYS,
-      reason: `roster url does not resolve (${site.urlStatus ?? "no status"})`,
+      reason: `roster url ${site.url.trim()} does not resolve (${site.urlStatus ?? "no status"})`,
     });
   }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less
