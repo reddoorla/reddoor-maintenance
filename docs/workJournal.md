@@ -5731,6 +5731,23 @@ Neither LA site ships a GA tag today, so the move corrects the record but produc
 
 The operator answered Operator decisions 25 in chat: land #989 as it is. The line was marked answered in #989's own BACKLOG diff, and `land-prs` merged it at `8819e841`, pinned to head `51008acf`. `spawn.ts` did not change after round 2; the merge carried only the base merges and that BACKLOG line. The first `land-prs` run stopped with "still BEHIND after 3 check rounds": `main` moved three times while CI ran, and every check round passed. The second run landed after one update-branch. During the hold, two other pushes landed on the branch, both merges of `main`: one from another session (`fb6b5351`) and one from GitHub's update-branch under the operator's account (`81fc23e2`). Each was merged in, never force-pushed over.
 
+## 2026-09-29 — P1-12 lands: the weekly config-drift sweep, and its first run finds all 15 repos drifted (#995, `84b9155c`)
+
+This session resumed #995 after the previous worker hit a usage limit. The PM brief described it as stopped mid–round 2. It had in fact finished round 2 and parked #995 as Operator decisions 24 (#1000), asking "land as is, or a third round". The brief's instruction, rerun round 2 from scratch and land only if it is clean, answers that ask with the more careful option, so that is what ran. The line is marked resolved in #995's own BACKLOG diff.
+
+The rerun covered `be476956` with `main` merged in, using three lenses. Correctness found nothing. Integration found nothing: frozen install, lint, typecheck, prettier, the full suite (7810 tests), match-harness and smoke-dist all passed. A local fleet `--dry` over file:// clones left every source repo's HEAD unchanged. The test lens ran 30 mutations of its own, none repeated from the PR body. 22 went red, 4 were equivalent, and 4 survived. All 4 survivors were minor and all were in the issue steps, so no finding reached the skeptic stage:
+
+- `--state open` on the finding lookup. The `gh` stub ignored `--state`, so the open step could have commented on a closed issue.
+- `continue-on-error` on the finding open step. Without it, a `gh` error while filing drift would red the run as an outage.
+- The recovery close's exact-title filter.
+- The close loop judging only `.[0]`. The only test put the verified issue first.
+
+Each survivor got a test, and each test was shown red under its mutation before `b1403e87` was pushed. With no blocker or major, this was a clean round, not a third dirty one, and the PR landed. `main` moved three times while `land-prs` waited: two update-branches, plus one hand merge for a BACKLOG conflict with #989's answered line.
+
+**First live run** (dispatched once on `main`): https://github.com/reddoorla/reddoor-maintenance/actions/runs/36638161272. The positive control passed on all three fixtures. The sweep printed `SYNC_CONFIGS_DRIFT drifted=15 clean=0 skipped=0 total=15`, with 51 DRIFT lines across 15 repos. It filed #1007 "Fleet config drift", and the recovery-close step ran and found nothing to close.
+
+**Beliefs corrected on contact.** The instrument works. What it measured is that every site on the roster has drifted from the templates, with nothing clean and nothing skipped. Counting DRIFT lines per file: `.gitignore` 13 of 15 repos, `playwright.config.ts` 9, `eslint.config.js` 8, `lighthouserc.json` 7, `.prettierrc.json` 6, `netlify.toml` 4, `renovate.json` 3, `.prettierignore` 1. So the weekly report starts as a standing backlog of 15 per-repo `sync-configs` PRs, not an exception feed. Healing it is a per-repo PR each time; a fleet-wide push is 🔴 and was not attempted. Until those land, #1007 stays open every week by design.
+
 ## 2026-09-29 — Renovate's grouped PR opens on the run that pushes it: preset change written, not deliverable from the cloud (#898)
 
 The operator picked `prCreation: "immediate"` on the grouped rule for #898. Before writing it, the delay was measured on this repo. The 2026-09-28 Monday 02:05Z run pushed `renovate/all-minor-patch` at 02:07:37Z. The branch carried `renovate/stability-days: success` and zero check runs, which is the state #35 made possible. The next scheduled run started at 18:48Z, 48 minutes after `before 6pm on monday` closed, and no Renovate PR was created in this repo that week. That is obstacles 1 and 2 of #898 exactly, so the grouped rule is where the delay comes from and the stop condition did not fire.
