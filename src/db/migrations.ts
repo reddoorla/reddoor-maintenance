@@ -544,4 +544,14 @@ export const MIGRATIONS: Migration[] = [
     sql: `CREATE INDEX IF NOT EXISTS idx_deadletter_slug_unreplayed
             ON submission_deadletter (site_slug, replayed_at, abandoned_at);`,
   },
+  {
+    // #907: the prospect-audit daily cap is a reservation — a `running` row is
+    // written before anything is spent. A cockpit dispatch reserves with this
+    // NULL; the dispatched job's CLI claims that row by setting it, instead of
+    // reserving a second one for the same audit. A CLI run started directly
+    // reserves with it already set. Single statement: SQLite has no
+    // ADD COLUMN IF NOT EXISTS, and a single-statement script cannot half-apply.
+    id: "0029_prospect_audits_claimed_at",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN claimed_at TEXT;`,
+  },
 ];

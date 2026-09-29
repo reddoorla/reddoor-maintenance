@@ -1,6 +1,10 @@
 import type { Context, Config } from "@netlify/functions";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listRecentProspectAudits } from "../../src/db/prospect-audits.js";
+import {
+  listRecentProspectAudits,
+  releaseProspectAuditReservation,
+  reserveProspectAudit,
+} from "../../src/db/prospect-audits.js";
 import {
   requireOperator,
   denialResponse,
@@ -131,6 +135,9 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     const result = await triggerProspectAudit(
       {
         listRecent: (limit) => listRecentProspectAudits(db, limit),
+        // #907: the cap is a `running` row written before the dispatch.
+        reserve: (req, now) => reserveProspectAudit(db, req, { now }),
+        release: (id) => releaseProspectAuditReservation(db, id),
         dispatch: makeWorkflowDispatchDispatcher({ token }),
       },
       { repo, workflowFile },

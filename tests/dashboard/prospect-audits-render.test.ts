@@ -59,6 +59,25 @@ describe("renderProspectAuditsPageHtml", () => {
     expect(html).not.toContain(">Complete<");
   });
 
+  it("#907: a running audit reads as running, with no report link — there is no report yet", () => {
+    // Started five minutes before NOW: well inside the stale window.
+    const html = renderProspectAuditsPageHtml(
+      model({ audits: [item({ status: "running", created_at: "2026-08-25T12:05:00.000Z" })] }),
+    );
+    expect(html).toContain(">Running<");
+    expect(html).not.toContain(">Partial<");
+    expect(html).not.toContain(`/r/${"A".repeat(22)}`);
+  });
+
+  it("#907: a running audit past the stale window reads as did-not-finish, not as running", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({ audits: [item({ status: "running", created_at: "2026-08-24T12:00:00.000Z" })] }),
+    );
+    expect(html).toContain(">Did not finish<");
+    expect(html).not.toContain(">Running<");
+    expect(html).not.toContain(`/r/${"A".repeat(22)}`);
+  });
+
   it("escapes a hostile business name instead of injecting it", () => {
     const hostile = '<img src=x onerror=alert(1)>Acme "Evil" & Co';
     const html = renderProspectAuditsPageHtml(model({ audits: [item({ business: hostile })] }));

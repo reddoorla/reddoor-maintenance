@@ -14,13 +14,16 @@
  * none."* Identical sentence, different guard.
  *
  * Dependency-free on purpose: the CLI's command modules are lazily loaded and
- * must not drag the GitHub/dispatch layer in behind a constant, and the count
- * needs nothing from a row but its timestamp.
+ * must not drag the GitHub/dispatch layer in behind a constant.
+ *
+ * #907: the count itself no longer lives here. It used to be a pure filter over
+ * rows the caller had fetched — and those rows only existed after a run had
+ * spent its money, so N concurrent starts all read the same count and all
+ * proceeded. The cap is now a reservation: one conditional INSERT in
+ * `reserveProspectAudit` (src/db/prospect-audits.ts) that counts and writes a
+ * `running` row in a single statement. This module keeps the numbers that
+ * statement is built from, and the wording both callers refuse with.
  */
-
-/** Anything with a creation timestamp — `ProspectAuditListItem` satisfies it.
- *  Structural so this module needs no import from `src/db`. */
-export type DatedAudit = { created_at: string };
 
 /** Most audits that may be STARTED in any rolling 24 hours (#612 review).
  *
@@ -35,32 +38,56 @@ export type DatedAudit = { created_at: string };
  *  normal operation is the point: it is a runaway brake, not a quota. */
 export const PROSPECT_AUDIT_DAILY_CAP = 25;
 
-/** Lookback for the daily cap. Must exceed the cap so the count can actually
- *  reach it — a lookback at or below the cap would make the limit unreachable
- *  and the brake permanently disengaged, which is exactly the kind of guard
- *  that reads as working while doing nothing. */
-export const DAILY_CAP_LOOKBACK = PROSPECT_AUDIT_DAILY_CAP * 2;
+/** The rolling window the cap counts over. */
+export const DAILY_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** The rolling window itself. */
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** How many of `recent` were created in the 24 hours before `now`.
+/**
+ * How long a `running` row counts against the cap before it is taken to be a
+ * run that crashed without finishing (#907).
  *
- *  `recent` is expected to be the newest `DAILY_CAP_LOOKBACK` audits; the
- *  caller does the fetching so this stays pure and testable from either side. */
-export function countAuditsInDailyWindow(recent: readonly DatedAudit[], now: Date): number {
-  const dayAgo = now.getTime() - DAY_MS;
-  return recent.filter((r) => Date.parse(r.created_at) >= dayAgo).length;
+ * Derived from the one hard bound a production run has: the private runner's
+ * "Run the audit and email the sheet" step is `timeout-minutes: 30`
+ * (docs/private-runner/prospect-audit.yml), which kills a wedged Chrome and
+ * the CLI with it. The pipeline itself has no overall deadline — only
+ * per-call ones (`ANALYZE_TIMEOUT_MS` 10 min and `PROBE_TIMEOUT_MS` 4 min in
+ * src/prospect/claude-code.ts), which is why the step backstop exists.
+ *
+ * A cockpit reservation is written at DISPATCH, before the job is even queued,
+ * so its clock also covers queueing, the job's setup (checkout, `pnpm install`,
+ * build, a Playwright install) and — because the workflow's concurrency group
+ * is per-URL with `cancel-in-progress: false` — waiting behind at most one
+ * earlier run of the same URL (the cockpit refuses a second within 10
+ * minutes). Worst legitimate case: roughly 30 + setup + 30 + setup, about 70
+ * minutes. Two hours covers that with margin.
+ *
+ * Getting this wrong in either direction is bounded. Too short: a slow but
+ * live run stops counting until it finishes, when its row counts again. Too
+ * long: a crashed run holds its slot a while longer. Neither can make the
+ * brake looser than it was before #907, when a running audit counted for
+ * nothing at all.
+ */
+export const PROSPECT_AUDIT_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
+
+/** The two lower bounds the cap's count is taken over, as the ISO-8601 strings
+ *  `created_at` is stored as (fixed-width UTC, so they compare as strings):
+ *  a row counts when it was created at or after `windowStart` AND is either
+ *  finished or was created at or after `staleBefore`. */
+export function capBounds(now: Date): { windowStart: string; staleBefore: string } {
+  return {
+    windowStart: new Date(now.getTime() - DAILY_CAP_WINDOW_MS).toISOString(),
+    staleBefore: new Date(now.getTime() - PROSPECT_AUDIT_STALE_AFTER_MS).toISOString(),
+  };
 }
 
-/** Whether that count trips the brake. */
-export function isOverDailyCap(count: number): boolean {
-  return count >= PROSPECT_AUDIT_DAILY_CAP;
+/** Whether a `running` row has outlived the stale window — for display. The
+ *  count applies the same rule in SQL, from `capBounds`. */
+export function isStaleRunning(row: { status: string; created_at: string }, now: Date): boolean {
+  return row.status === "running" && row.created_at < capBounds(now).staleBefore;
 }
 
 /** The refusal, worded once so the dashboard's 429 body and the CLI's stderr
  *  say the same thing. Carries both numbers: a bare "refused" leaves the
  *  operator guessing whether they hit a limit or broke something. */
 export function dailyCapMessage(count: number, cap: number = PROSPECT_AUDIT_DAILY_CAP): string {
-  return `${count} audits have run in the last 24 hours (cap ${cap}). This is a runaway brake — if the run is genuinely needed, raise PROSPECT_AUDIT_DAILY_CAP.`;
+  return `${count} audits have been started in the last 24 hours (cap ${cap}). This is a runaway brake — if the run is genuinely needed, raise PROSPECT_AUDIT_DAILY_CAP.`;
 }

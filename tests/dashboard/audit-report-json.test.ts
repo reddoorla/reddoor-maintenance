@@ -21,6 +21,7 @@ import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   createProspectAudit,
   getProspectAuditByToken,
+  reserveProspectAudit,
   setProspectAuditOverrides,
 } from "../../src/db/prospect-audits.js";
 import auditReportJson, { config } from "../../netlify/functions/audit-report-json.mjs";
@@ -122,6 +123,21 @@ describe("audit-report-json — refusals", () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     await openDb(readDbConfig());
     const res = await auditReportJson(req(), ctxFor(ABSENT_TOKEN));
+    expect(res.status).toBe(404);
+  });
+
+  it("#907: 404s a reserved-but-running audit — there is no report behind its token yet", async () => {
+    // reddoor-website renders whatever `report` this route returns; a running
+    // row's placeholder `{}` would render as a blank report rather than a 404.
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const r = await reserveProspectAudit(db, {
+      url: "https://acme.example/",
+      business: null,
+      claimed: true,
+    });
+    if (r.kind !== "reserved") throw new Error("positive control");
+    const res = await auditReportJson(req(), ctxFor(r.token));
     expect(res.status).toBe(404);
   });
 

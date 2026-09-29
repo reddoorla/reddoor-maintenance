@@ -2,19 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { hostnameOf, isHttpUrl, isPrivateOrLoopbackHost } from "../../util/url.js";
 import { reportUrl, reportPrintUrl } from "../../prospect/report-url.js";
-import type { ProspectAuditStatus } from "../../db/prospect-audits.js";
+import type { FinishedProspectAuditStatus } from "../../db/prospect-audits.js";
+import type { Db } from "../../db/client.js";
 import type { PipelineDeps, StageName } from "../../prospect/pipeline.js";
 import type { ProspectAuditResult } from "../../prospect/types.js";
 import type { SendAuditEmailResult } from "../../prospect/email.js";
 import type { SiteGoal } from "../../prospect/goals.js";
-import {
-  PROSPECT_AUDIT_DAILY_CAP,
-  DAILY_CAP_LOOKBACK,
-  countAuditsInDailyWindow,
-  isOverDailyCap,
-  dailyCapMessage,
-  type DatedAudit,
-} from "../../prospect/daily-cap.js";
+import { PROSPECT_AUDIT_DAILY_CAP, dailyCapMessage } from "../../prospect/daily-cap.js";
 
 /** The operator-selectable goals, in the order the dispatch dropdown lists
  *  them. `unknown` is deliberately absent: it is a finding the audit can reach
@@ -72,12 +66,12 @@ export type ProspectAuditCliOptions = {
   /** Test seam: injected pipeline deps. Never set from the CLI. */
   deps?: PipelineDeps;
   /**
-   * Test seam: newest-first recent audits for the daily cap. Never set from the
-   * CLI — the real implementation opens Turso below. Same injection shape
-   * `ProspectAuditTriggerDeps.listRecent` uses on the dashboard side, so both
-   * paths' cap tests drive the brake the same way and neither needs a database.
+   * Test seam: the database the run reserves its slot in and persists to.
+   * Never set from the CLI — the real implementation opens Turso from env.
+   * Opened ONCE per run and shared by the reservation and the persist, because
+   * the persist finishes the very row the reservation wrote (#907).
    */
-  listRecent?: (limit: number) => Promise<DatedAudit[]>;
+  openDb?: () => Promise<Db>;
   /** Test seam: injectable clock for the cap's 24h window. */
   now?: () => Date;
 };
@@ -104,7 +98,7 @@ function scoreLine(label: string, value: number | null): string {
  *  (--no-probes, the checks→analyze cascade) into the same `ok: false` — both
  *  mean the report has a "not measured" section, so both count as partial
  *  here too. */
-function auditStatus(result: ProspectAuditResult): ProspectAuditStatus {
+function auditStatus(result: ProspectAuditResult): FinishedProspectAuditStatus {
   const allStagesOk =
     result.checks.ok && result.lighthouse.ok && result.analyze.ok && result.probes.ok;
   return allStagesOk ? "complete" : "partial";
@@ -188,7 +182,8 @@ function summarize(
 
 /** What the runaway brake concluded before any money was spent. */
 type DailyCapCheck =
-  | { kind: "under"; count: number }
+  /** A slot is held: a `running` row this run must finish (or release). */
+  | { kind: "reserved"; db: Db; id: string; token: string }
   | { kind: "over"; count: number }
   /** The brake could not be applied at all — carries the sentence the operator
    *  must see, because a guard that quietly abstains is worse than none. */
@@ -206,8 +201,13 @@ const NO_DB_CAP_WARNING =
  * did NOT fix: "one layer at the far end of the chain — so anyone running the
  * CLI directly, or any future second caller, had none."
  *
- * Counted, not re-implemented: the window, the threshold and the wording all
- * come from `src/prospect/daily-cap.ts`, which the dashboard path uses too.
+ * #907: and the cap it then got counted rows this CLI wrote at the very END of
+ * a run, so a run was invisible to it for its whole duration and N concurrent
+ * starts all passed the same count. It is now a reservation, taken here, before
+ * the pipeline: first the cockpit's own reservation for this url if this run is
+ * the job the cockpit dispatched (one audit, one slot), otherwise a new
+ * `running` row written under the cap in one atomic statement
+ * (`reserveProspectAudit`). The persist below finishes that same row.
  *
  * **When there is no database, this WARNS and lets the run proceed.** A run with
  * no persistence cannot count prior audits, and refusing would break the
@@ -215,35 +215,43 @@ const NO_DB_CAP_WARNING =
  * one-off: an unpersisted run is invisible to every later count, so it is not
  * the automated path the brake exists for. What it must never do is pass in
  * silence, so the sentence goes to stderr AND into the run's warnings, where
- * `--json` consumers see it too. Same answer if the count itself throws: a
- * Turso blip must not block a legitimate audit, but must not look like a
+ * `--json` consumers see it too. Same answer if the reservation itself throws:
+ * a Turso blip must not block a legitimate audit, but must not look like a
  * passed check either.
  */
-async function checkDailyCap(
-  canPersist: boolean,
-  opts: ProspectAuditCliOptions,
+async function reserveDailyCapSlot(
+  url: string,
+  getDb: (() => Promise<Db>) | null,
+  now: Date,
+  opts: { business: string | undefined; chosenTerms: string[]; chosenQuestions: string[] },
 ): Promise<DailyCapCheck> {
-  const now = (opts.now ?? (() => new Date()))();
-  const listRecent =
-    opts.listRecent ??
-    (canPersist
-      ? async (limit: number): Promise<DatedAudit[]> => {
-          const { openDb, readDbConfig } = await import("../../db/client.js");
-          const { listRecentProspectAudits } = await import("../../db/prospect-audits.js");
-          return listRecentProspectAudits(await openDb(readDbConfig()), limit);
-        }
-      : null);
-  if (listRecent === null) return { kind: "unchecked", warning: NO_DB_CAP_WARNING };
-
+  if (getDb === null) return { kind: "unchecked", warning: NO_DB_CAP_WARNING };
   try {
-    const count = countAuditsInDailyWindow(await listRecent(DAILY_CAP_LOOKBACK), now);
-    return isOverDailyCap(count) ? { kind: "over", count } : { kind: "under", count };
+    const db = await getDb();
+    const { claimProspectAuditReservation, reserveProspectAudit } =
+      await import("../../db/prospect-audits.js");
+    const claimed = await claimProspectAuditReservation(db, url, now);
+    if (claimed) return { kind: "reserved", db, ...claimed };
+    const slot = await reserveProspectAudit(
+      db,
+      {
+        url,
+        business: opts.business || null,
+        chosenTerms: opts.chosenTerms,
+        chosenQuestions: opts.chosenQuestions,
+        claimed: true,
+      },
+      { now },
+    );
+    return slot.kind === "reserved"
+      ? { kind: "reserved", db, id: slot.id, token: slot.token }
+      : { kind: "over", count: slot.count };
   } catch (err) {
     return {
       kind: "unchecked",
       warning:
-        `Could not read recent audits, so the 24h runaway brake (cap ${PROSPECT_AUDIT_DAILY_CAP}) ` +
-        `is NOT protecting this run: ${errorMessage(err)}`,
+        `Could not reserve a slot under the 24h runaway brake (cap ${PROSPECT_AUDIT_DAILY_CAP}), ` +
+        `so it is NOT protecting this run: ${errorMessage(err)}`,
     };
   }
 }
@@ -284,26 +292,6 @@ export async function runProspectAuditCommand(
     );
   }
 
-  // Collected from here on, so the brake's verdict can be recorded BEFORE the
-  // pipeline runs — a warning printed only in the summary arrives after the
-  // money is spent.
-  const warnings: string[] = [];
-
-  // MED-15. The last refusal before anything is spent (see checkDailyCap).
-  const cap = await checkDailyCap(canPersist, opts);
-  if (cap.kind === "over") return fail(dailyCapMessage(cap.count));
-  if (cap.kind === "unchecked") {
-    warnings.push(cap.warning);
-    console.error(`! ${cap.warning}`);
-  }
-
-  const { runProspectAudit } = await import("../../prospect/pipeline.js");
-  const onStage = (name: StageName, status: "start" | "ok" | "fail", detail?: string): void => {
-    if (status === "start") console.error(`… ${name}`);
-    else if (status === "ok") console.error(`✓ ${name}`);
-    else console.error(`! ${name} — ${detail ?? "failed"}`);
-  };
-
   const business = opts.business?.trim();
   const goal = opts.goal?.trim();
   // #676. Comma-separated on a flag (a newline is not typeable in one); the
@@ -316,32 +304,93 @@ export async function runProspectAuditCommand(
       .filter((x) => x !== "");
   const chosenTerms = splitList(opts.terms);
   const chosenQuestions = splitList(opts.questions);
+  // Every refusal that needs no database comes BEFORE the reservation below: a
+  // run refused after taking its slot would hold that slot for nothing (#907).
   if (goal !== undefined && goal !== "" && !isSiteGoal(goal)) {
     return fail(`--goal must be one of: ${GOALS.join(", ")}`);
   }
 
-  const result = await runProspectAudit(
-    url,
-    {
-      ...(business ? { business } : {}),
-      // An empty string is what a blank dispatch field sends; it must read as
-      // "not supplied" so the model's own inference still runs, rather than
-      // overriding it with nothing.
-      ...(goal ? { goal } : {}),
-      ...(opts.competitors
-        ? {
-            competitors: opts.competitors
-              .split(",")
-              .map((c) => c.trim())
-              .filter(Boolean),
-          }
-        : {}),
-      ...(opts.probes === false ? { probes: false } : {}),
-      ...(chosenTerms.length > 0 ? { terms: chosenTerms } : {}),
-      ...(chosenQuestions.length > 0 ? { questions: chosenQuestions } : {}),
-    },
-    { ...(opts.deps ?? {}), onStage },
-  );
+  // Collected from here on, so the brake's verdict can be recorded BEFORE the
+  // pipeline runs — a warning printed only in the summary arrives after the
+  // money is spent.
+  const warnings: string[] = [];
+
+  // One connection for the whole run: the reservation and the persist must
+  // reach the same database, since the persist finishes the reserved row.
+  let dbPromise: Promise<Db> | null = null;
+  const getDb = canPersist
+    ? (): Promise<Db> =>
+        (dbPromise ??=
+          opts.openDb?.() ??
+          import("../../db/client.js").then(({ openDb, readDbConfig }) => openDb(readDbConfig())))
+    : null;
+  // A failed open must not be cached into the persist: it gets its own try.
+  const resetDbAfterFailure = (): void => {
+    dbPromise = null;
+  };
+
+  // MED-15 / #907. The last refusal before anything is spent, and the slot this
+  // run will finish (see reserveDailyCapSlot).
+  const now = (opts.now ?? (() => new Date()))();
+  const cap = await reserveDailyCapSlot(url, getDb, now, {
+    business,
+    chosenTerms,
+    chosenQuestions,
+  });
+  if (cap.kind === "over") return fail(dailyCapMessage(cap.count));
+  if (cap.kind === "unchecked") {
+    resetDbAfterFailure();
+    warnings.push(cap.warning);
+    console.error(`! ${cap.warning}`);
+  }
+  const reservation = cap.kind === "reserved" ? cap : null;
+
+  const onStage = (name: StageName, status: "start" | "ok" | "fail", detail?: string): void => {
+    if (status === "start") console.error(`… ${name}`);
+    else if (status === "ok") console.error(`✓ ${name}`);
+    else console.error(`! ${name} — ${detail ?? "failed"}`);
+  };
+
+  let result: ProspectAuditResult;
+  try {
+    const { runProspectAudit } = await import("../../prospect/pipeline.js");
+    result = await runProspectAudit(
+      url,
+      {
+        ...(business ? { business } : {}),
+        // An empty string is what a blank dispatch field sends; it must read as
+        // "not supplied" so the model's own inference still runs, rather than
+        // overriding it with nothing.
+        ...(goal ? { goal } : {}),
+        ...(opts.competitors
+          ? {
+              competitors: opts.competitors
+                .split(",")
+                .map((c) => c.trim())
+                .filter(Boolean),
+            }
+          : {}),
+        ...(opts.probes === false ? { probes: false } : {}),
+        ...(chosenTerms.length > 0 ? { terms: chosenTerms } : {}),
+        ...(chosenQuestions.length > 0 ? { questions: chosenQuestions } : {}),
+      },
+      { ...(opts.deps ?? {}), onStage },
+    );
+  } catch (err) {
+    // The pipeline throws only before it spends: an unresolvable
+    // PROSPECT_LLM_AUTH, or a failed crawl — its one fatal stage, which runs
+    // before every model call. Nothing was bought, so the slot goes back.
+    // Best effort: a failed release is held only until the stale window.
+    if (reservation) {
+      try {
+        const { releaseProspectAuditReservation } = await import("../../db/prospect-audits.js");
+        await releaseProspectAuditReservation(reservation.db, reservation.id);
+      } catch (releaseErr) {
+        console.error(`! Could not release the reserved slot: ${errorMessage(releaseErr)}`);
+      }
+    }
+    throw err;
+  }
 
   const { renderProspectReport } = await import("../../prospect/render.js");
   const html = renderProspectReport(result);
@@ -359,13 +408,12 @@ export async function runProspectAuditCommand(
   let link: string | null = null;
   let token: string | null = null;
   let auditId: string | null = null;
-  if (canPersist) {
+  if (getDb) {
     try {
-      const { openDb, readDbConfig } = await import("../../db/client.js");
-      const { createProspectAudit } = await import("../../db/prospect-audits.js");
-      const db = await openDb(readDbConfig());
-      const created = await createProspectAudit(db, {
-        url: result.url,
+      const { createProspectAudit, finishProspectAudit } =
+        await import("../../db/prospect-audits.js");
+      const db = reservation?.db ?? (await getDb());
+      const finished = {
         // Map at the boundary: ProspectAuditResult.businessName is the field
         // name (Item 2 — it's a resolved NAME, not a description); the
         // `prospect_audits.business` column keeps its existing name, since
@@ -377,7 +425,13 @@ export async function runProspectAuditCommand(
         // the /audits listing marks them without reading the blob.
         chosenTerms: chosenTerms.length > 0 ? chosenTerms : null,
         chosenQuestions: chosenQuestions.length > 0 ? chosenQuestions : null,
-      });
+      };
+      // #907: finish the reserved row in place, so the slot it held becomes
+      // this report. With no reservation (the brake could not be applied), or
+      // one that vanished, insert — a paid report must land somewhere.
+      const created =
+        (reservation ? await finishProspectAudit(db, reservation.id, finished) : null) ??
+        (await createProspectAudit(db, { url: result.url, ...finished }));
       auditId = created.id;
       token = created.token;
       link = reportUrl(token);

@@ -12,7 +12,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
-import { createProspectAudit } from "../../src/db/prospect-audits.js";
+import { finishProspectAudit } from "../../src/db/prospect-audits.js";
 import type { PipelineDeps } from "../../src/prospect/pipeline.js";
 
 let forcePersistFailure = false;
@@ -24,6 +24,14 @@ vi.mock("../../src/db/prospect-audits.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/db/prospect-audits.js")>();
   return {
     ...actual,
+    // #907: a run reserves its row before the pipeline and FINISHES it here, so
+    // the persist is `finishProspectAudit`; `createProspectAudit` is only its
+    // fallback when there is no reservation. Both fail together, so a forced
+    // failure cannot slip through the fallback.
+    finishProspectAudit: vi.fn(async (...args: Parameters<typeof actual.finishProspectAudit>) => {
+      if (forcePersistFailure) throw new Error("simulated turso outage");
+      return actual.finishProspectAudit(...args);
+    }),
     createProspectAudit: vi.fn(async (...args: Parameters<typeof actual.createProspectAudit>) => {
       if (forcePersistFailure) throw new Error("simulated turso outage");
       return actual.createProspectAudit(...args);
@@ -195,7 +203,7 @@ describe("prospect-audit CLI — Turso persistence", () => {
 // (StageResult) — the CLI is the one place that actually knows whether every
 // stage succeeded, so it computes the real value and passes it through.
 describe("prospect-audit CLI — status column", () => {
-  it("passes status: 'partial' to createProspectAudit when a stage failed or was skipped", async () => {
+  it("passes status: 'partial' to finishProspectAudit when a stage failed or was skipped", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     // stubDeps()'s lighthouse always throws, and probes:false skips that
     // stage too — both make this a partial run.
@@ -204,12 +212,12 @@ describe("prospect-audit CLI — status column", () => {
       deps: stubDeps(),
     });
     expect(code).toBe(0);
-    const calls = vi.mocked(createProspectAudit).mock.calls;
+    const calls = vi.mocked(finishProspectAudit).mock.calls;
     const lastCall = calls[calls.length - 1]!;
-    expect(lastCall[1].status).toBe("partial");
+    expect(lastCall[2].status).toBe("partial");
   });
 
-  it("passes status: 'complete' to createProspectAudit when every stage succeeded", async () => {
+  it("passes status: 'complete' to finishProspectAudit when every stage succeeded", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const deps = stubDeps();
     deps.lighthouse = async () => ({
@@ -229,8 +237,8 @@ describe("prospect-audit CLI — status column", () => {
     deps.probeDelayMs = 0;
     const { code } = await runProspectAuditCommand("https://acme.example/", { deps });
     expect(code).toBe(0);
-    const calls = vi.mocked(createProspectAudit).mock.calls;
+    const calls = vi.mocked(finishProspectAudit).mock.calls;
     const lastCall = calls[calls.length - 1]!;
-    expect(lastCall[1].status).toBe("complete");
+    expect(lastCall[2].status).toBe("complete");
   });
 });

@@ -260,6 +260,20 @@ describe("prospect-audit-run adapter — a good request", () => {
     });
   });
 
+  it("#907: writes a `running` row BEFORE the dispatch, so the next click's cap counts it", async () => {
+    configureEnv();
+    const res = await prospectAuditRun(post(GOOD_BODY, authHeader("tucker", "s3cret")), ctx);
+    expect(res.status).toBe(202);
+    const db = await openDb(readDbConfig());
+    const rows = await db
+      .selectFrom("prospect_audits")
+      .select(["url", "status", "business"])
+      .execute();
+    expect(rows).toEqual([
+      { url: "https://prospect.example/", status: "running", business: "Prospect Co" },
+    ]);
+  });
+
   it("records the signed-in operator's verified address as requested_by", async () => {
     // The point of the whole exercise: with a real session the audit log names
     // a person Google verified, not a string someone typed into a password box.
@@ -292,7 +306,15 @@ describe("prospect-audit-run adapter — a good request", () => {
     expect(dispatchCalls[0]?.inputs.requested_by).toBe("cockpit");
 
     dispatchCalls.length = 0;
-    await prospectAuditRun(post(GOOD_BODY, authHeader("definitely-erik", "s3cret")), ctx);
+    // A different url: since #907 the first POST's `running` row makes a
+    // second POST of the SAME url a duplicate, which is the guard working.
+    await prospectAuditRun(
+      post(
+        { ...GOOD_BODY, url: "https://another-prospect.example/" },
+        authHeader("definitely-erik", "s3cret"),
+      ),
+      ctx,
+    );
     expect(dispatchCalls[0]?.inputs.requested_by).toBe("cockpit");
   });
 
@@ -312,6 +334,9 @@ describe("prospect-audit-run adapter — a good request", () => {
     expect(res.status).toBeGreaterThanOrEqual(500);
     const body = (await res.json()) as { message: string };
     expect(body.message).toContain("403 no actions:write");
+    // Nothing will ever run to finish that reservation, so it is given back.
+    const db = await openDb(readDbConfig());
+    expect(await db.selectFrom("prospect_audits").select("id").execute()).toEqual([]);
   });
 });
 
