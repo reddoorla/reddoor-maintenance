@@ -225,6 +225,20 @@ jobs:
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            # Never onto a body with no GAP line: the close step below gates each
+            # issue on its own body's GAP lines and refuses one that has none, so a
+            # run whose audit broke before printing any ("see run output") keeps the
+            # last GAP-bearing body and only comments.
+            if printf '%s\n' "$detail" | grep -q '^GAP'; then
+              gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+                || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            else
+              echo "::warning::this run printed no GAP line; keeping the body of #$existing so a clean sweep can still close it"
+            fi
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
@@ -318,6 +332,12 @@ jobs:
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"

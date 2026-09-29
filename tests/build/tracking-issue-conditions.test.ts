@@ -659,6 +659,151 @@ exit 1
   });
 });
 
+describe("an existing tracking issue's body is rewritten to the current run's, and still commented on", () => {
+  // P1-11. On an existing issue every open step used to `gh issue comment` and
+  // nothing else, so the BODY kept the first failure's run URL for the issue's
+  // whole life: #895 closed on 09-29 with a body naming 09-21's run
+  // (35627658119) while the real cause sat in later comments. Anyone reading
+  // the issue head — an agent, the cockpit — read stale evidence.
+  //
+  // EXECUTE each open step's shell against a stub `gh` that records every call.
+  // First with no existing issue, to capture the body a new issue would get;
+  // then with an existing one, which must receive `issue edit <n> --body` with
+  // exactly that body AND `issue comment <n>`, so the history survives. Then
+  // with each of the two failing, which must not stop the other.
+  const EXISTING = "4242";
+  const GH = `#!/bin/bash
+{ printf '%s\\037' "$@"; printf '\\036'; } >> "$GH_LOG"
+case "$1 $2" in
+  "issue list") [ -n "\${GH_EXISTING:-}" ] && echo "$GH_EXISTING"; exit 0 ;;
+  "issue edit") [ -n "\${GH_FAIL_EDIT:-}" ] && exit 1; exit 0 ;;
+  "issue comment") [ -n "\${GH_FAIL_COMMENT:-}" ] && exit 1; exit 0 ;;
+  "issue create") exit 0 ;;
+esac
+exit 1
+`;
+  /** A protection-audit output carrying one GAP line, so fleet-security's
+   *  protection-gap step builds a body its close step can gate on. */
+  const PROTECTION_OUT = "GAP     reddoorla/example — no branch ruleset\nPROTECTION_AUDIT gaps=1\n";
+
+  async function ghCalls(
+    step: Found,
+    env: Record<string, string>,
+    opts: { protectionOut?: string } = {},
+  ): Promise<string[][]> {
+    const wf = await readFile(workflowPath(step.file), "utf-8");
+    const script = stepRunScript(wf, step.label).replace(/\$\{\{[^}]*\}\}/g, "STUB_EXPR");
+    const dir = await mkdtemp(join(tmpdir(), "tracking-body-"));
+    await mkdir(join(dir, "bin"));
+    await writeFile(join(dir, "bin", "gh"), GH, "utf-8");
+    await chmod(join(dir, "bin", "gh"), 0o755);
+    const protectionOut = opts.protectionOut ?? PROTECTION_OUT;
+    if (protectionOut !== "") await writeFile(join(dir, "protection.out"), protectionOut, "utf-8");
+    const log = join(dir, "gh.log");
+    await writeFile(log, "", "utf-8");
+    // `bash -e`: Actions' default `run:` shell. A step that exits non-zero is
+    // allowed here (continue-on-error keeps it off the run's status); what is
+    // judged is which `gh` calls it made.
+    await promisify(execFile)("bash", ["-e", "-c", script], {
+      cwd: dir,
+      env: {
+        ...process.env,
+        PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+        RUNNER_TEMP: dir,
+        JOB_STATUS: "failure",
+        DAYS: "90",
+        GH_LOG: log,
+        ...env,
+      },
+    }).catch(() => undefined);
+    return (await readFile(log, "utf-8"))
+      .split("\x1e")
+      .filter((r) => r !== "")
+      .map((r) => r.split("\x1f").slice(0, -1));
+  }
+  const bodyArg = (call: string[]) => call[call.indexOf("--body") + 1];
+  const calls = (log: string[][], verb: string) =>
+    log.filter((c) => c[0] === "issue" && c[1] === verb);
+
+  // The population this block judges. The list above pins the names; this pins
+  // that the block itself saw all of them, so a filter here cannot shrink it.
+  it("finds all 15 open steps", () => {
+    expect(opens(all)).toHaveLength(15);
+  });
+
+  // POSITIVE CONTROL first: with no existing issue each step creates one with a
+  // body and never edits or comments — the harness sees the calls it must see.
+  it("with no existing issue, each open step creates one and edits nothing", async () => {
+    const wrong: string[] = [];
+    for (const s of opens(all)) {
+      const got = await ghCalls(s, {});
+      const created = calls(got, "create");
+      if (created.length !== 1 || !bodyArg(created[0]!)?.includes("Run: ")) {
+        wrong.push(`${id(s)}: create calls ${JSON.stringify(created)}`);
+      }
+      if (calls(got, "edit").length + calls(got, "comment").length !== 0) {
+        wrong.push(`${id(s)}: edited or commented with no existing issue`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("with an existing issue, each open step rewrites ITS body to the new-issue body and comments on it", async () => {
+    const wrong: string[] = [];
+    for (const s of opens(all)) {
+      const fresh = bodyArg(calls(await ghCalls(s, {}), "create")[0] ?? []);
+      const got = await ghCalls(s, { GH_EXISTING: EXISTING });
+      const edits = calls(got, "edit");
+      const comments = calls(got, "comment");
+      if (edits.length !== 1) {
+        wrong.push(`${id(s)}: ${edits.length} \`gh issue edit\` calls (want 1)`);
+      } else if (edits[0]![2] !== EXISTING || !edits[0]!.includes("--body")) {
+        wrong.push(`${id(s)}: edited ${JSON.stringify(edits[0])} (want issue ${EXISTING} --body)`);
+      } else if (bodyArg(edits[0]!) !== fresh) {
+        wrong.push(`${id(s)}: the edited body is not the body a new issue gets`);
+      }
+      if (comments.length !== 1 || comments[0]![2] !== EXISTING) {
+        wrong.push(
+          `${id(s)}: comment calls ${JSON.stringify(comments)} (want one on #${EXISTING})`,
+        );
+      }
+      if (calls(got, "create").length !== 0) wrong.push(`${id(s)}: created a duplicate issue`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("a failed body edit never stops the comment, and a failed comment never stops the edit", async () => {
+    const wrong: string[] = [];
+    for (const s of opens(all)) {
+      const editFails = await ghCalls(s, { GH_EXISTING: EXISTING, GH_FAIL_EDIT: "1" });
+      if (!calls(editFails, "comment").some((c) => c[2] === EXISTING)) {
+        wrong.push(`${id(s)}: a failed edit stopped the comment`);
+      }
+      const commentFails = await ghCalls(s, { GH_EXISTING: EXISTING, GH_FAIL_COMMENT: "1" });
+      if (!calls(commentFails, "edit").some((c) => c[2] === EXISTING)) {
+        wrong.push(`${id(s)}: a failed comment stopped the edit`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  // The one deliberate exception. fleet-security's protection-gap close step
+  // gates each issue on the GAP lines in ITS OWN body, and refuses one with
+  // none. A run where the audit broke before printing a GAP line (an empty
+  // minted token exits before `tee`) builds a body reading "see run output";
+  // rewriting onto it would leave the issue unclosable by any later clean
+  // sweep. So that run comments, and the body keeps the last GAP-bearing one.
+  it("protection-gap keeps a GAP-bearing body when this run printed no GAP line, and still comments", async () => {
+    const s = opens(all).find(
+      (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
+    )!;
+    const got = await ghCalls(s, { GH_EXISTING: EXISTING }, { protectionOut: "" });
+    expect(calls(got, "edit")).toEqual([]);
+    expect(calls(got, "comment").map((c) => c[2])).toEqual([EXISTING]);
+    expect(bodyArg(calls(got, "comment")[0]!)).toContain("see run output");
+  });
+});
+
 describe("fleet-lighthouse — the GitHub-signals sweep runs every night that is not cancelled", () => {
   // Moving mint + sweep off `always()` is only safe if they still run on a
   // green night AND after a failed audit. Nothing else notices if they stop:
