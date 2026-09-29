@@ -5769,3 +5769,36 @@ The operator answered BACKLOG Operator decisions 18 in the PM pass, and this wor
 **#690, measured.** The org listing endpoint is refused from the cloud (`orgs/reddoorla/repos` answers 403, "sessions are bound to their configured repositories"), so the repo list came from repository search, which returned 33 repos: 27 public and non-archived, 3 archived (`the-pointe`, `the-tower`, `reddoor-test`) and 3 private (`claude-skills`, `reddoor-rfp-analyses`, `reddoor-prospect-runner`). The pins came from `raw.githubusercontent.com`, whose answer for this repo was checked first against the local `package.json` (`pnpm@11.11.0` on both). 21 repos read `pnpm@12.5.1`, and a PR search on `head:renovate/pnpm-12.x` returned exactly 21 merged Renovate PRs, one per repo, from reddoor-starter#157 on 09-21 to the batch merged 09-22. The two counts matching is the positive control. The 5 repos still on `pnpm@11.11.0` (29-navy, erp-industrial, reddoor-maintenance, reddoor-md-pdf, roalson-interests) each list "update pnpm to v12" under Awaiting Schedule on their Dependency Dashboard, and four already carry a `renovate/pnpm-12.x` branch whose `package.json` reads `pnpm@12.6.0`. Every in-scope repo extends `github>reddoorla/.github:renovate-config`, so none is outside Renovate. `.github` has no `package.json`. The private and archived repos are out of the pin guard's scope by the operator's 2026-09-17 decision. #690 closed with the table.
 
 **Found on the way, not touched.** reddoor-maintenance still carries `renovate/npm-pnpm-vulnerability`, left behind by #668 (merged 2026-09-02). That is the same branch name that swallowed reddoor-starter's pnpm security bump for two months (#690's first comment). Its dashboard (#490) does not list it under "PR Edited (Blocked)" today, so it blocks nothing yet. It is primed for the next pnpm advisory, though, and the cloud proxy refuses branch deletes, so it is left for a laptop session.
+
+## 2026-09-29 — Beachfront's self-comparing matching scripts deleted: 101, not 33 (#728, beachfront#69 `e3547dfe`)
+
+The operator's call on #728 was to delete, not to route through the read
+layer. The issue's premise had moved since it was filed: beachfront#54 deleted
+the 16 `sweep*.sh`, and beachfront#65 put 17 probes behind `assertRef`,
+which is fail-closed, so those now refuse where they used to match. Re-measured
+on beachfront `5221c02`, 147 tracked top-level scripts hard-code
+`https://[www.]beachfrontdentistry.com` or `beachfront-dentistry.webflow.io`.
+The 101 deleted were the ones that also load a candidate, carry no guard, and
+are named nowhere but LEDGER. The guard grep was first shown to hit on
+`probe-cut.mjs`, a known-guarded probe. #728's 33 does not reproduce from any
+grep shape tried, so the shape is recorded in beachfront's journal, not the
+number.
+
+**The brief was wrong about `gate.sh`, and the brief's own keep rule caught
+it.** #728 described gate.sh's REF as the dead webflow host. It now reads REF
+from harness.json and refuses through `--check-ref`. Beachfront is also the
+source `gen-match-harness-template.mjs` cuts the recipe from (`SRC` defaults to
+the laptop's beachfront checkout), so deleting gate.sh there would have left the
+next template regeneration without its upstream. Also kept: the recipe harness,
+the 17 guarded probes, config-driven tools, 37 reference-only measurement
+scripts (they compare nothing), 7 scripts cited from `src/` or `SPEC.md`, and
+`probe-markup-i2-z3`/`-z4`/`-z5` (localhost only), which the brief's
+`probe-markup-i2-z*` glob would otherwise have swept in.
+
+Re-probed: webflow.io 404 (906 bytes). `www.` 301 to the apex. The apex is 200
+and carries `candMark` 29 times, which proves by fingerprint that it is our
+build. Beachfront lint, check, 812/812 unit tests and build were green. The
+manual `node --test matching/probe-ref.test.mjs` is 24/25 on both the branch and
+`main`; the failure is `probe-footer-chrome.mjs` exiting 1 where 2 is expected.
+It predates the change and is not in CI, and it is left for whoever next touches
+beachfront matching.
