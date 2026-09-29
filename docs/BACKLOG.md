@@ -257,7 +257,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
     that persist; compare health asks by field, not by status. That is about
     30 lines plus tests on `claude/digest-send-on-change`. Say "go" and a
     worker finishes it, or name another rule (e.g. "send on any NEW badge,
-    ignore metric changes").
+    ignore metric changes"). **Answered 2026-09-29 ~19:00Z: "go"** on that
+    pick; a worker finishes #975 with a third review round, which the answer
+    sanctions.
 
 ---
 
