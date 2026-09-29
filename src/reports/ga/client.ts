@@ -3,6 +3,7 @@ import { JWT } from "google-auth-library";
 import { BetaAnalyticsDataClient } from "@google-analytics/data";
 import { withSubjectFailover } from "./failover.js";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
+import { siteHostnames } from "../../client/site-host.js";
 
 const ANALYTICS_READONLY = "https://www.googleapis.com/auth/analytics.readonly";
 const MS_PER_DAY = 86_400_000;
@@ -39,10 +40,11 @@ export type GaQuery = {
  */
 export function measuredHostnames(siteUrl: string): string[] {
   if (!isHttpUrl(siteUrl)) return [];
-  const host = hostnameOf(siteUrl).toLowerCase();
-  if (!host.includes(".")) return [];
-  const apex = host.startsWith("www.") ? host.slice(4) : host;
-  return [apex, `www.${apex}`];
+  // The apex/www rule itself lives in src/client/site-host.ts, which is also
+  // what `initAnalytics` gates the tag on. Two copies of this would let the
+  // emit side and the read side drift apart, and the resulting site reads as
+  // "no traffic" rather than "misconfigured" — see that module's header.
+  return siteHostnames(hostnameOf(siteUrl));
 }
 
 /** UTC YYYY-MM-DD — matches the rest of the reports pipeline's date handling. */
@@ -71,7 +73,9 @@ export async function fetchPeriodUsers(
   const lengthDays = Math.round((periodEnd.getTime() - periodStart.getTime()) / MS_PER_DAY);
   const prevEnd = new Date(periodStart.getTime() - MS_PER_DAY);
   const prevStart = new Date(prevEnd.getTime() - lengthDays * MS_PER_DAY);
-  const property = `properties/${query.propertyId}`;
+  // Trimmed: a trailing newline from a paste or a `--jq` round-trip would ride
+  // into the resource name and 404, which the analytics audit already guards.
+  const property = `properties/${query.propertyId.trim()}`;
 
   return withSubjectFailover(query.subjects, "GA", async (subject) => {
     const authClient = new JWT({

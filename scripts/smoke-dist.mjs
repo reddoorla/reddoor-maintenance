@@ -12,8 +12,16 @@
 //   - CLI subcommand dynamic-import paths broken by bundling
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -149,6 +157,68 @@ await check("cli/commands/audit.js loads with central-only deps blocked", () => 
         `Make the offending import lazy (e.g. dynamic import in db/client). Blocker output: ${e.stderr ?? e.message}`,
       { cause: e },
     );
+  }
+});
+
+// Loading the audit command is not RUNNING it. The analytics audit is in the
+// default set and imports the GA client lazily; before 0.102.0's round-six
+// review it imported that client before checking for credentials, so every
+// bare `reddoor-maint audit` in a site ended in "analytics: unexpected error"
+// while the load check above stayed green. Run it, under the blocker, through
+// its default deps, with and without GA credentials. A row with a property
+// comes from a JSON inventory; the deployed URL is a closed local port, so the
+// only IO is a refused connection.
+await check("audit --only analytics runs to a verdict with central-only deps blocked", () => {
+  const dir = mkdtempSync(join(tmpdir(), "smoke-analytics-"));
+  const site = join(dir, "site");
+  mkdirSync(join(site, "src"), { recursive: true });
+  writeFileSync(
+    join(site, "src", "hooks.client.ts"),
+    'initAnalytics({ measurementId: "G-AAAAAAAAAA", productionHost: "127.0.0.1" });\n',
+  );
+  const inventory = join(dir, "inventory.json");
+  writeFileSync(
+    inventory,
+    JSON.stringify([
+      { path: site, name: "smoke", deployedUrl: "http://127.0.0.1:9/", ga4PropertyId: "123456789" },
+    ]),
+  );
+  for (const subject of ["", "smoke@example.invalid"]) {
+    const env = { PATH: process.env.PATH ?? "", HOME: dir, GA_SUBJECT: subject };
+    let out;
+    try {
+      out = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          blockerBootstrap,
+          distBin,
+          "audit",
+          "--fleet",
+          inventory,
+          "--workdir",
+          join(dir, "work"),
+          "--only",
+          "analytics",
+          "--json",
+        ],
+        { encoding: "utf-8", env, stdio: ["ignore", "pipe", "pipe"] },
+      );
+    } catch (e) {
+      throw new Error(
+        `the analytics audit exited non-zero in a consumer install (GA_SUBJECT=${JSON.stringify(subject)}): ` +
+          `${e.stdout ?? ""} ${e.stderr ?? e.message}`,
+        { cause: e },
+      );
+    }
+    const results = JSON.parse(out.slice(out.indexOf("[")));
+    const r = results.find((x) => x.audit === "analytics");
+    if (!r || r.status === "fail" || /unexpected error/.test(r.summary)) {
+      throw new Error(
+        `analytics did not reach a clean verdict in a consumer install (GA_SUBJECT=${JSON.stringify(subject)}): ` +
+          JSON.stringify(r),
+      );
+    }
   }
 });
 
