@@ -251,7 +251,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
 ## Done (move items here when they land)
 
 - 2026-09-29 — P1-6 / #892: `protection-audit` judges every branch Renovate
-  merges into, not only the default branch (#TBD, `wip/prot892`).
+  merges into, not only the default branch (#966).
   reddoor-website's `staging` is expected to show as the one new gap;
   applying its ruleset stays 🔴.
 
