@@ -7,68 +7,84 @@ import {
   nextReadySince,
   DIGEST_HEARTBEAT_DAYS,
   EMPTY_SEND_LOG,
+  sentFrom,
+  type DigestLine,
   type DigestSendLog,
 } from "../../src/alerts/digest-send.js";
-import type { AttentionItem } from "../../src/alerts/attention.js";
 
-const item = (key: string, status: AttentionItem["status"] = "standing"): AttentionItem => ({
+const line = (key: string, metric = 1, asks?: string[]): DigestLine => ({
   key,
-  kind: "preflight",
-  siteName: "29 Navy",
-  title: "t",
-  severity: "warning",
-  metric: 1,
-  status,
+  metric,
+  ...(asks ? { asks } : {}),
 });
 
-const sent = (keys: string[], sentOn = "2026-09-20"): DigestSendLog => ({
+const sent = (lines: DigestLine[], sentOn = "2026-09-20"): DigestSendLog => ({
   sentOn,
-  keys,
+  sent: sentFrom(lines),
   readySince: {},
 });
 
 describe("decideDigestSend", () => {
   it("sends the first time, when nothing has been sent", () => {
-    expect(decideDigestSend(["a"], [item("a")], EMPTY_SEND_LOG, "2026-09-21")).toEqual({
+    expect(decideDigestSend([line("a")], EMPTY_SEND_LOG, "2026-09-21")).toEqual({
       send: true,
       reason: "first",
     });
   });
 
-  it("stays quiet when the set and every status are unchanged", () => {
-    expect(decideDigestSend(["a", "b"], [item("a")], sent(["b", "a"]), "2026-09-21")).toEqual({
+  it("stays quiet when every item was already sent at the same or a better metric", () => {
+    const log = sent([line("a", 3), line("b")]);
+    expect(decideDigestSend([line("b"), line("a", 3)], log, "2026-09-21")).toEqual({
       send: false,
       reason: "unchanged",
     });
+    expect(decideDigestSend([line("a", 2)], log, "2026-09-21").send).toBe(false);
   });
 
-  it("sends when an item joins the set", () => {
-    expect(decideDigestSend(["a", "c"], [], sent(["a"]), "2026-09-21").reason).toBe("changed");
-  });
-
-  it("sends when an item leaves the set", () => {
-    expect(decideDigestSend(["a"], [], sent(["a", "b"]), "2026-09-21").reason).toBe("changed");
-  });
-
-  it("sends when one item is swapped for another of the same count", () => {
-    expect(decideDigestSend(["a", "c"], [], sent(["a", "b"]), "2026-09-21").reason).toBe("changed");
-  });
-
-  it("sends when an unchanged key recurred as NEW", () => {
-    expect(decideDigestSend(["a"], [item("a", "new")], sent(["a"]), "2026-09-21").reason).toBe(
-      "new",
+  it("sends when an item the operator was not sent appears", () => {
+    expect(decideDigestSend([line("a"), line("c")], sent([line("a")]), "2026-09-21").reason).toBe(
+      "added",
     );
   });
 
-  it("sends when an unchanged key got WORSE", () => {
-    expect(decideDigestSend(["a"], [item("a", "worse")], sent(["a"]), "2026-09-21").reason).toBe(
-      "worse",
+  it("does not send for a resolution alone; it rides the next send", () => {
+    expect(decideDigestSend([line("a")], sent([line("a"), line("b")]), "2026-09-21").send).toBe(
+      false,
     );
+  });
+
+  it("an item that left and came back since the last send is not news", () => {
+    expect(decideDigestSend([line("b")], sent([line("a"), line("b")]), "2026-09-22").send).toBe(
+      false,
+    );
+  });
+
+  it("sends when a metric is worse than at the last send, not than yesterday", () => {
+    const log = sent([line("lh", 40)]);
+    expect(decideDigestSend([line("lh", 41)], log, "2026-09-21").reason).toBe("worse");
+    expect(decideDigestSend([line("lh", 39)], log, "2026-09-21").send).toBe(false);
+    expect(decideDigestSend([line("lh", 40)], log, "2026-09-22").send).toBe(false);
+  });
+
+  it("sends when an item's ask gains a part, not when it loses one", () => {
+    const log = sent([line("p", 2, ["set Report recipients (To)", "health-gate: X (unknown)"])]);
+    expect(
+      decideDigestSend(
+        [line("p", 2, ["add a Header image", "health-gate: X (unknown)"])],
+        log,
+        "2026-09-21",
+      ).reason,
+    ).toBe("new-ask");
+    expect(
+      decideDigestSend([line("p", 1, ["health-gate: X (unknown)"])], log, "2026-09-21").send,
+    ).toBe(false);
   });
 
   it("sends a heartbeat on the seventh day of silence, not the sixth", () => {
-    expect(decideDigestSend(["a"], [], sent(["a"], "2026-09-14"), "2026-09-20").send).toBe(false);
-    expect(decideDigestSend(["a"], [], sent(["a"], "2026-09-14"), "2026-09-21")).toEqual({
+    expect(decideDigestSend([line("a")], sent([line("a")], "2026-09-14"), "2026-09-20").send).toBe(
+      false,
+    );
+    expect(decideDigestSend([line("a")], sent([line("a")], "2026-09-14"), "2026-09-21")).toEqual({
       send: true,
       reason: "heartbeat",
     });
@@ -106,9 +122,15 @@ describe("coerceSendLog", () => {
   it("reads garbage as never sent", () => {
     expect(coerceSendLog(null)).toEqual(EMPTY_SEND_LOG);
     expect(coerceSendLog([1])).toEqual(EMPTY_SEND_LOG);
-    expect(coerceSendLog({ sentOn: 5, keys: ["a", 2], readySince: { x: "d", y: 3 } })).toEqual({
+    expect(
+      coerceSendLog({
+        sentOn: 5,
+        sent: { a: { metric: 2, asks: ["x", 1] }, b: { metric: "3" }, c: 4 },
+        readySince: { x: "d", y: 3 },
+      }),
+    ).toEqual({
       sentOn: null,
-      keys: ["a"],
+      sent: { a: { metric: 2, asks: ["x"] } },
       readySince: { x: "d" },
     });
   });

@@ -1004,7 +1004,7 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
   const BASE = "https://reddoor-maintenance.netlify.app";
 
   function memorySendLog(seed?: DigestSendLog) {
-    let log: DigestSendLog = seed ?? { sentOn: null, keys: [], readySince: {} };
+    let log: DigestSendLog = seed ?? { sentOn: null, sent: {}, readySince: {} };
     return {
       read: async () => log,
       write: async (next: DigestSendLog) => {
@@ -1082,40 +1082,48 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
       Websites: navy.Websites,
     };
     const r = await run(w, changed, day(3));
-    expect(r.output).toContain("Digest sent (changed)");
+    expect(r.output).toContain("Digest sent (added)");
     const html = w.captured[1]!.html;
     expect(html).toContain("(3 days)");
     expect(html).toContain("(waiting 3 days)");
     expect(html).toMatch(/NEW<\/strong> <a [^>]*>A sent report bounced<\/a>(?! <span)/);
   });
 
-  it("sends when an item resolves, even though nothing new appeared", async () => {
+  it("a resolution alone sends nothing; it rides the next send", async () => {
     const w = world();
     await run(w, navy, day(0));
     const fewer = { Reports: [readyReport()], Websites: navy.Websites };
     const r = await run(w, fewer, day(1));
-    expect(r.output).toContain("Digest sent (changed)");
+    expect(r.output).toContain("Digest skipped (unchanged since 2026-09-18");
+    expect(w.captured).toHaveLength(1);
   });
 
-  it("an empty day forgets what was sent, so the same set coming back is news", async () => {
+  it("an item already sent that leaves and comes back is not news; a new one is", async () => {
     const w = world();
     await run(w, navy, day(0));
     await run(w, { Reports: [], Websites: navy.Websites }, day(1));
-    expect(w.sendLog.get().keys).toEqual([]);
-    const r = await run(w, navy, day(2));
-    expect(r.output).toContain("Digest sent");
+    const back = await run(w, navy, day(2));
+    expect(back.output).toContain("Digest skipped (unchanged");
+    const added = await run(
+      w,
+      { Reports: [...navy.Reports, bouncedReport()], Websites: navy.Websites },
+      day(3),
+    );
+    expect(added.output).toContain("Digest sent (added)");
     expect(w.captured).toHaveLength(2);
   });
 
-  it("keeps writing the attention snapshot on an unchanged skip", async () => {
+  it("a skip still writes the attention snapshot, so a resolved key drops out of it", async () => {
     const w = world();
-    await run(w, navy, day(0));
-    const before = JSON.stringify(await w.digestState.read());
-    await run(w, navy, day(1));
-    expect(JSON.stringify(await w.digestState.read())).toBe(before);
-    expect(Object.keys(await w.digestState.read())).toContain(
-      "preflight:rec_report_approved:approved",
-    );
+    const withBounce = {
+      Reports: [...navy.Reports, bouncedReport()],
+      Websites: navy.Websites,
+    };
+    await run(w, withBounce, day(0));
+    expect(Object.keys(await w.digestState.read())).toContain("delivery:rec_report_bounced");
+    const r = await run(w, navy, day(1));
+    expect(r.output).toContain("Digest skipped (unchanged");
+    expect(Object.keys(await w.digestState.read())).not.toContain("delivery:rec_report_bounced");
   });
 
   it("fails open: an unreadable send log sends, as before P1-20", async () => {

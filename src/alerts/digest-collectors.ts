@@ -166,34 +166,41 @@ function healthAsk(message: string): string {
   return head;
 }
 
-export function preflightAsks(fails: readonly PreflightFinding[]): string[] {
-  const asks: string[] = [];
+export function preflightAskParts(fails: readonly PreflightFinding[]): {
+  fixes: string[];
+  health: string[];
+} {
+  const fixes: string[] = [];
   const health: string[] = [];
   for (const f of fails) {
     switch (f.check) {
       case "recipients-missing":
-        asks.push("set Report recipients (To)");
+        fixes.push("set Report recipients (To)");
         break;
       case "header-image-missing":
-        asks.push("add a Header image");
+        fixes.push("add a Header image");
         break;
       case "header-image-not-image":
-        asks.push("replace the Header image with an image file");
+        fixes.push("replace the Header image with an image file");
         break;
       case "report-scores-missing":
-        asks.push("give the report its Lighthouse scores");
+        fixes.push("give the report its Lighthouse scores");
         break;
       case "health-gate":
         health.push(healthAsk(f.message));
         break;
       default:
-        asks.push(f.message);
+        fixes.push(f.message);
     }
   }
-  if (health.length > 0) {
-    asks.push(`clear the health gate: ${health.join(", ")}, or log a send-anyway override`);
-  }
-  return [...new Set(asks)];
+  return { fixes: [...new Set(fixes)], health: [...new Set(health)] };
+}
+
+export function preflightAsks(fails: readonly PreflightFinding[]): string[] {
+  const { fixes, health } = preflightAskParts(fails);
+  return health.length > 0
+    ? [...fixes, `clear the health gate: ${health.join(", ")}, or log a send-anyway override`]
+    : fixes;
 }
 
 export function collectPreflightBlocked(
@@ -244,6 +251,9 @@ export function collectPreflightBlocked(
       severity: r.approvedToSend ? "critical" : "warning",
       metric: fails.length,
       ask: `${preflightAsks(fails).join("; ")}${where}, ${then}`,
+      askParts: (({ fixes, health }) => [...fixes, ...health.map((h) => `health-gate: ${h}`)])(
+        preflightAskParts(fails),
+      ),
     });
   }
   return items;

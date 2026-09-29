@@ -76,6 +76,7 @@ export type AttentionItem = {
    *  failed" chip + filter token; absent on every other item and flavor. */
   autoFixExhausted?: boolean;
   ask?: string;
+  askParts?: string[];
   ageDays?: number;
 };
 

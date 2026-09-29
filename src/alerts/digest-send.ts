@@ -1,17 +1,19 @@
-import type { AttentionItem } from "./attention.js";
-
 export const DIGEST_HEARTBEAT_DAYS = 7;
+
+export type SentItem = { metric: number; asks?: string[] };
 
 export type DigestSendLog = {
   sentOn: string | null;
-  keys: string[];
+  sent: Record<string, SentItem>;
   readySince: Record<string, string>;
 };
 
-export const EMPTY_SEND_LOG: DigestSendLog = { sentOn: null, keys: [], readySince: {} };
+export const EMPTY_SEND_LOG: DigestSendLog = { sentOn: null, sent: {}, readySince: {} };
+
+export type DigestLine = { key: string; metric: number; asks?: readonly string[] };
 
 export type SendDecision =
-  | { send: true; reason: "first" | "changed" | "new" | "worse" | "heartbeat" }
+  | { send: true; reason: "first" | "added" | "worse" | "new-ask" | "heartbeat" }
   | { send: false; reason: "unchanged" };
 
 export function daysBetween(fromDay: string, toDay: string): number {
@@ -27,23 +29,31 @@ export function ageLabel(days: number | undefined): string {
 }
 
 export function decideDigestSend(
-  keys: readonly string[],
-  needsAttention: readonly AttentionItem[],
+  lines: readonly DigestLine[],
   log: DigestSendLog,
   today: string,
 ): SendDecision {
   if (log.sentOn === null) return { send: true, reason: "first" };
-  const now = new Set(keys);
-  const then = new Set(log.keys);
-  if (now.size !== then.size || [...now].some((k) => !then.has(k))) {
-    return { send: true, reason: "changed" };
-  }
-  if (needsAttention.some((it) => it.status === "new")) return { send: true, reason: "new" };
-  if (needsAttention.some((it) => it.status === "worse")) return { send: true, reason: "worse" };
+  if (lines.some((l) => !(l.key in log.sent))) return { send: true, reason: "added" };
+  if (lines.some((l) => l.metric > log.sent[l.key]!.metric)) return { send: true, reason: "worse" };
+  const newAsk = lines.some((l) => {
+    const before = new Set(log.sent[l.key]!.asks ?? []);
+    return (l.asks ?? []).some((a) => !before.has(a));
+  });
+  if (newAsk) return { send: true, reason: "new-ask" };
   if (daysBetween(log.sentOn, today) >= DIGEST_HEARTBEAT_DAYS) {
     return { send: true, reason: "heartbeat" };
   }
   return { send: false, reason: "unchanged" };
+}
+
+export function sentFrom(lines: readonly DigestLine[]): Record<string, SentItem> {
+  const out: Record<string, SentItem> = {};
+  for (const l of lines) {
+    out[l.key] =
+      l.asks && l.asks.length > 0 ? { metric: l.metric, asks: [...l.asks] } : { metric: l.metric };
+  }
+  return out;
 }
 
 export function nextReadySince(
@@ -56,18 +66,28 @@ export function nextReadySince(
   return out;
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 export function coerceSendLog(raw: unknown): DigestSendLog {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return EMPTY_SEND_LOG;
-  const o = raw as Record<string, unknown>;
-  const sentOn = typeof o.sentOn === "string" ? o.sentOn : null;
-  const keys = Array.isArray(o.keys)
-    ? o.keys.filter((k): k is string => typeof k === "string")
-    : [];
+  if (!isRecord(raw)) return EMPTY_SEND_LOG;
+  const sentOn = typeof raw.sentOn === "string" ? raw.sentOn : null;
+  const sent: Record<string, SentItem> = {};
+  if (isRecord(raw.sent)) {
+    for (const [k, v] of Object.entries(raw.sent)) {
+      if (!isRecord(v) || typeof v.metric !== "number" || !Number.isFinite(v.metric)) continue;
+      const asks = Array.isArray(v.asks)
+        ? v.asks.filter((a): a is string => typeof a === "string")
+        : [];
+      sent[k] = asks.length > 0 ? { metric: v.metric, asks } : { metric: v.metric };
+    }
+  }
   const readySince: Record<string, string> = {};
-  if (typeof o.readySince === "object" && o.readySince !== null && !Array.isArray(o.readySince)) {
-    for (const [k, v] of Object.entries(o.readySince as Record<string, unknown>)) {
+  if (isRecord(raw.readySince)) {
+    for (const [k, v] of Object.entries(raw.readySince)) {
       if (typeof v === "string") readySince[k] = v;
     }
   }
-  return { sentOn, keys, readySince };
+  return { sentOn, sent, readySince };
 }

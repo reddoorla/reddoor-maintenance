@@ -87,7 +87,10 @@ describe("digest state on Turso", () => {
 describe("digest send log on Turso (P1-20)", () => {
   const LOG = {
     sentOn: "2026-09-28",
-    keys: ["ready:r1", "preflight:r2:pending"],
+    sent: {
+      "ready:r1": { metric: 1 },
+      "preflight:r2:pending": { metric: 2, asks: ["add a Header image"] },
+    },
     readySince: { "ready:r1": "2026-09-18" },
   };
 
@@ -106,6 +109,6 @@ describe("digest send log on Turso (P1-20)", () => {
       .insertInto("digest_state")
       .values({ id: "digest_send_log", snapshot: "{nope", updated_at: null })
       .execute();
-    expect(await readDigestSendLog(db)).toEqual({ sentOn: null, keys: [], readySince: {} });
+    expect(await readDigestSendLog(db)).toEqual({ sentOn: null, sent: {}, readySince: {} });
   });
 });

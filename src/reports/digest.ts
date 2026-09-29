@@ -23,6 +23,8 @@ import {
   ageLabel,
   daysBetween,
   decideDigestSend,
+  sentFrom,
+  type DigestLine,
   nextReadySince,
   EMPTY_SEND_LOG,
   DIGEST_HEARTBEAT_DAYS,
@@ -672,7 +674,14 @@ export async function runDigest(
       const since = readySince[readyKeys[i]!];
       if (since) it.ageDays = daysBetween(since, dayKey);
     });
-    const digestKeys = [...readyKeys, ...needsAttention.map((it) => it.key)];
+    const digestLines: DigestLine[] = [
+      ...readyKeys.map((key) => ({ key, metric: 1 })),
+      ...needsAttention.map((it) => ({
+        key: it.key,
+        metric: it.metric,
+        ...(it.askParts ? { asks: it.askParts } : {}),
+      })),
+    ];
 
     // No-noise default: skip entirely when there's nothing to report.
     if (readyForYourYes.length === 0 && needsAttention.length === 0) {
@@ -684,11 +693,11 @@ export async function runDigest(
       await persistDigestState(next, options.digestState?.write, () =>
         writeRollupOnce(options, today),
       );
-      await writeSendLogSafely(options, { ...sendLog, keys: [], readySince }, "empty");
+      await writeSendLogSafely(options, { ...sendLog, readySince }, "empty");
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
     }
 
-    const decision = decideDigestSend(digestKeys, needsAttention, sendLog, dayKey);
+    const decision = decideDigestSend(digestLines, sendLog, dayKey);
     if (!decision.send) {
       await persistDigestState(next, options.digestState?.write, () =>
         writeRollupOnce(options, today),
@@ -696,7 +705,7 @@ export async function runDigest(
       await writeSendLogSafely(options, { ...sendLog, readySince }, decision.reason);
       const last = sendLog.sentOn ?? "never";
       return {
-        output: `Digest skipped (unchanged since ${last}; ${digestKeys.length} items, heartbeat after ${DIGEST_HEARTBEAT_DAYS} days).`,
+        output: `Digest skipped (unchanged since ${last}; ${digestLines.length} items, heartbeat after ${DIGEST_HEARTBEAT_DAYS} days).`,
         code: 0,
       };
     }
@@ -758,7 +767,7 @@ export async function runDigest(
     );
     await writeSendLogSafely(
       options,
-      { sentOn: dayKey, keys: digestKeys, readySince },
+      { sentOn: dayKey, sent: sentFrom(digestLines), readySince },
       decision.reason,
     );
     return {
