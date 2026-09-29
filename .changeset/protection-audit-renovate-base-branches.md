@@ -1,0 +1,5 @@
+---
+"@reddoorla/maintenance": minor
+---
+
+`protection-audit` now judges every branch Renovate merges into, not only the default branch (#892). It reads `baseBranchPatterns` (or the older `baseBranches`) from the repo's Renovate config at the default branch, in Renovate's own file order (`renovate.json`, `renovate.json5`, `.github/renovate.json`, …), and from a `github>`/`local>` preset when the repo sets none itself. Each non-default base branch must carry a required status check, from a ruleset or classic branch protection; one that has none is a gap on the repo's own row that names the branch, e.g. `renovate merges into reddoor-website:staging (baseBranchPatterns in renovate.json), which has NO required status check`. A repo with no Renovate config, or one that names no base branch, is judged exactly as before. A refused read of the repo's config or of the branch reports as `(unverified, not clean)`, never as an unprotected branch. A preset that cannot be read is a note on the row, not a gap, so one refused read of the shared org preset cannot gap every repo that extends it.

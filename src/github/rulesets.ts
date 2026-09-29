@@ -74,6 +74,14 @@ function statusChecksOf(rule: RulesetRule | undefined): Array<{ context?: string
   return Array.isArray(raw) ? (raw as Array<{ context?: string }>) : [];
 }
 
+/** Does this rule list gate merges on CI? The ONE predicate for "a required
+ *  status check exists": the default branch's covering-ruleset detail and the
+ *  Renovate base-branch gap (#892) in protection-coverage.ts both call it, so
+ *  the two can never disagree about what counts as a CI gate. */
+export function requiresStatusChecks(rules: RulesetRule[] | undefined): boolean {
+  return (rules ?? []).some((rule) => rule.type === "required_status_checks");
+}
+
 function ruleOfType(rules: RulesetRule[] | undefined, type: string): RulesetRule | undefined {
   return (rules ?? []).find((r) => r.type === type);
 }

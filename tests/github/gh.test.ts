@@ -672,3 +672,95 @@ describe("makeGitHub repo file reads (the pnpm-pin sweep's inputs)", () => {
     );
   });
 });
+
+describe("makeGitHub.branchRequiredChecks (#892: what requires CI on a Renovate base branch)", () => {
+  /** Answers by endpoint, so the two reads are asserted independently. */
+  function routed(routes: { branch: Partial<SpawnResult>; rules?: Partial<SpawnResult> }) {
+    const calls: string[][] = [];
+    const spawn: SpawnFn = async (_cmd, args) => {
+      calls.push([...args]);
+      const isRules = args.some((a) => a.includes("/rules/branches/"));
+      const r = isRules ? (routes.rules ?? {}) : routes.branch;
+      return { code: 0, stdout: "", stderr: "", ...r };
+    };
+    return { spawn, calls };
+  }
+  const classicOff = JSON.stringify({
+    enabled: false,
+    required_status_checks: { enforcement_level: "off", contexts: [], checks: [] },
+  });
+
+  it("reads GitHub's own per-branch rule evaluation plus classic protection", async () => {
+    // Live shape, reddoor-maintenance `main`, 2026-09-29: a ruleset-only branch
+    // reports classic protection `enabled: false`, enforcement "off".
+    const { spawn, calls } = routed({
+      branch: { stdout: `${classicOff}\n` },
+      rules: { stdout: "deletion\nnon_fast_forward\nrequired_status_checks\n" },
+    });
+    const out = await makeGitHub({ token: "T", spawn }).branchRequiredChecks("o/r", "staging");
+    expect(out).toEqual({
+      rules: [
+        { type: "deletion" },
+        { type: "non_fast_forward" },
+        { type: "required_status_checks" },
+      ],
+      classicContexts: [],
+    });
+    expect(calls[0]).toEqual(["api", "repos/o/r/branches/staging", "--jq", ".protection"]);
+    expect(calls[1]).toEqual([
+      "api",
+      "--paginate",
+      "repos/o/r/rules/branches/staging?per_page=100",
+      "--jq",
+      ".[].type",
+    ]);
+  });
+
+  it("classic protection's contexts AND checks count, unless enforcement is off", async () => {
+    const on = JSON.stringify({
+      enabled: true,
+      required_status_checks: {
+        enforcement_level: "non_admins",
+        contexts: ["ci / ci"],
+        checks: [{ context: "ci / ci" }, { context: "build" }],
+      },
+    });
+    const gated = routed({ branch: { stdout: on }, rules: { stdout: "" } });
+    expect(
+      await makeGitHub({ token: "T", spawn: gated.spawn }).branchRequiredChecks("o/r", "staging"),
+    ).toEqual({ rules: [], classicContexts: ["ci / ci", "build"] });
+
+    const off = routed({ branch: { stdout: classicOff }, rules: { stdout: "deletion\n" } });
+    expect(
+      await makeGitHub({ token: "T", spawn: off.spawn }).branchRequiredChecks("o/r", "staging"),
+    ).toEqual({ rules: [{ type: "deletion" }], classicContexts: [] });
+  });
+
+  it("a 404 branch is the ANSWER null; a refusal or a missing protection object THROWS", async () => {
+    const gone = routed({ branch: { code: 1, stderr: "gh: Branch not found (HTTP 404)" } });
+    expect(
+      await makeGitHub({ token: "T", spawn: gone.spawn }).branchRequiredChecks("o/r", "staging"),
+    ).toBeNull();
+    expect(gone.calls).toHaveLength(1);
+
+    const refused = routed({ branch: { code: 1, stderr: "gh: Forbidden (HTTP 403)" } });
+    await expect(
+      makeGitHub({ token: "T", spawn: refused.spawn }).branchRequiredChecks("o/r", "staging"),
+    ).rejects.toThrow(/HTTP 403/);
+
+    // `protection` absent is not "no protection" — it is a response this reader
+    // does not understand, and must not arrive downstream as zero checks.
+    const hidden = routed({ branch: { stdout: "null\n" } });
+    await expect(
+      makeGitHub({ token: "T", spawn: hidden.spawn }).branchRequiredChecks("o/r", "staging"),
+    ).rejects.toThrow(/protection/);
+
+    const rulesRefused = routed({
+      branch: { stdout: classicOff },
+      rules: { code: 1, stderr: "gh: Forbidden (HTTP 403)" },
+    });
+    await expect(
+      makeGitHub({ token: "T", spawn: rulesRefused.spawn }).branchRequiredChecks("o/r", "staging"),
+    ).rejects.toThrow(/HTTP 403/);
+  });
+});

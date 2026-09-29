@@ -160,6 +160,8 @@ async function sweepOutput(
     repoTextFile: async () => null,
     listWorkflowPaths: async () => [],
     branchTip: async () => null,
+    defaultBranch: async () => "main",
+    branchRequiredChecks: async () => null,
   };
   return runProtectionAuditCommand({ org: "reddoorla" }, deps);
 }
