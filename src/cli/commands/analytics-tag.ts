@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { analyticsTag } from "../../recipes/analytics-tag/index.js";
+import { analyticsTag, isBareHost } from "../../recipes/analytics-tag/index.js";
 import { MEASUREMENT_ID_RE } from "../../recipes/analytics-tag/template.js";
 import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
@@ -50,6 +50,16 @@ export async function runAnalyticsTagCommand(
         "--production-host is required: the hostname the tag is gated on, e.g. " +
         "www.example.com. A checkout path carries no deployed URL to derive it from, and the " +
         "tag is inert on every other host.",
+      code: 2,
+    };
+  }
+
+  if (!isBareHost(productionHost)) {
+    return {
+      output:
+        `--production-host must be a bare hostname such as www.example.com; got ` +
+        `${JSON.stringify(opts.productionHost)}. No scheme, port or path: initAnalytics compares ` +
+        "it to location.hostname, so a URL here keeps the tag off on every host.",
       code: 2,
     };
   }

@@ -100,34 +100,6 @@ export const SVELTE_EVENT_REPLAY_HASH = "sha256-7dQwUgLau1NFCCGjfn9FsYptB6ZtWxJi
  * carry `'unsafe-hashes'` + SVELTE_EVENT_REPLAY_HASH itself or it reintroduces
  * the violation above.
  */
-/**
- * The hosts a GA4 tag needs, by directive.
- *
- * Exported as data and folded in by `csp: { analytics: true }` rather than
- * written into each site's `svelte.config.js`, for the same reason
- * {@link SVELTE_EVENT_REPLAY_HASH} is imported and never transcribed: a copied
- * host list cannot be told apart from a stale one, and a CSP that is stale in
- * the direction of MISSING a host fails silently — the loader is refused, the
- * property records nothing, and the page looks fine.
- *
- * `script-src` is required and not optional. The emitted policy carries no
- * `'strict-dynamic'` (measured on reddoor-starter, 2026-09-22), so the host
- * allowlist governs the loader `initAnalytics` injects from bundle JS exactly
- * as it governs one typed into `app.html`.
- *
- * `img-src` is for gtag's beacon fallback: when `sendBeacon` is unavailable the
- * tag falls back to an image GET, which `connect-src` does not cover.
- */
-export const ANALYTICS_CSP: Readonly<Record<string, readonly string[]>> = {
-  "script-src": ["https://www.googletagmanager.com"],
-  "connect-src": [
-    "https://www.google-analytics.com",
-    "https://*.google-analytics.com",
-    "https://*.analytics.google.com",
-  ],
-  "img-src": ["https://www.google-analytics.com"],
-};
-
 const BASELINE_CSP = {
   mode: "auto",
   directives: {
@@ -211,6 +183,40 @@ type PrerenderErrorDetails = {
   status?: number;
   message?: string;
   referrer?: string;
+};
+
+/**
+ * The hosts a GA4 tag needs, by directive.
+ *
+ * Google's own list for "Google Analytics without any Ads features", from
+ * https://developers.google.com/tag-platform/security/guides/csp (read
+ * 2026-09-29): `script-src-elem` www.googletagmanager.com; `img-src`
+ * www.googletagmanager.com and *.google-analytics.com; `connect-src`
+ * www.googletagmanager.com, *.google-analytics.com and *.google.com. The
+ * script host goes in `script-src`, which `script-src-elem` falls back to. The
+ * fleet's properties run no Ads features and no Google Signals; turning either
+ * on needs that page's wider list (*.g.doubleclick.net, *.google.<TLD>, …).
+ *
+ * Exported as data and folded in by `csp: { analytics: true }` rather than
+ * written into each site's `svelte.config.js`, for the same reason
+ * {@link SVELTE_EVENT_REPLAY_HASH} is imported and never transcribed: a copied
+ * host list cannot be told apart from a stale one, and a CSP that is stale in
+ * the direction of MISSING a host fails silently — the loader is refused, the
+ * property records nothing, and the page looks fine.
+ *
+ * `script-src` is required and not optional. The emitted policy carries no
+ * `'strict-dynamic'` (measured on reddoor-starter, 2026-09-22), so the host
+ * allowlist governs the loader `initAnalytics` injects from bundle JS exactly
+ * as it governs one typed into `app.html`.
+ */
+export const ANALYTICS_CSP: Readonly<Record<string, readonly string[]>> = {
+  "script-src": ["https://www.googletagmanager.com"],
+  "img-src": ["https://www.googletagmanager.com", "https://*.google-analytics.com"],
+  "connect-src": [
+    "https://www.googletagmanager.com",
+    "https://*.google-analytics.com",
+    "https://*.google.com",
+  ],
 };
 
 /**

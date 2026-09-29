@@ -15,15 +15,35 @@
  * needs a hand": the failure lands on the live site, on every request.
  */
 
+import { ANALYTICS_CSP } from "../../configs/svelte.js";
+
 export type CspEditPlan =
-  /** No `csp` option at all. The site has no CSP, so nothing governs the loader. */
+  /** No `csp` option in svelte.config.js. A policy set elsewhere (a header) was not read. */
   | { kind: "none" }
   /** `analytics` is already on. */
   | { kind: "already" }
   /** The rewritten file. */
   | { kind: "edit"; next: string }
-  /** Recognised the option but not its shape. The caller reports and does not write. */
-  | { kind: "refuse"; reason: string };
+  /**
+   * Not edited. The caller reports and does not write. `policy` says whether a
+   * CSP is known to be there ("present": the option was located) or only
+   * possible ("possible": the file could not be parsed far enough to tell), so
+   * the note never claims the browser refuses a loader on a site with no CSP.
+   * `handAdd` is always the full host list, whatever the reason.
+   */
+  | { kind: "refuse"; reason: string; policy: "present" | "possible"; handAdd: string };
+
+/** {@link ANALYTICS_CSP}, spelled for a human to add by hand, one directive per
+ *  clause. Derived from the constant, never transcribed: a copied host list
+ *  cannot be told apart from a stale one, and round six's review found the
+ *  transcribed copy here had fallen out of every refusal it was meant for. */
+export const HAND_ADD_HOSTS: string = Object.entries(ANALYTICS_CSP)
+  .map(([directive, hosts]) => `${directive} ${hosts.join(" ")}`)
+  .join("; ");
+
+function refuse(reason: string, policy: "present" | "possible"): CspEditPlan {
+  return { kind: "refuse", reason, policy, handAdd: HAND_ADD_HOSTS };
+}
 
 /** `csp:` as an object KEY — start of line or after `{`/`,` — so a `csp:` inside
  *  a comment or a string is not mistaken for the option. */
@@ -93,43 +113,41 @@ export function maskNonCode(source: string): string {
  * at validation — so writing it into a native block does not merely fail to
  * work, it breaks the build.
  *
- * The first version of this module did not distinguish the two and the mapping
- * turned out to be perfectly inverted: measured across all 28 fleet configs, it
- * fired on 13 native blocks where the option is invalid and on zero of the 12
- * `createSvelteConfig` callers where it would have worked. Both starter
- * templates were in that 13. The proof that "passed" was `node --check`, which
- * only ever asked whether the result was syntactically a JavaScript file.
+ * A POSITIVE test: the object that holds this `csp:` key must be the literal
+ * first argument of a `createSvelteConfig(` call. The previous test was
+ * negative ("not under a `kit:` key"), so a kit object held in a variable —
+ * `const kit = { csp: {…} }` — read as the factory's and was edited into a
+ * build failure.
  */
-function usesConfigFactory(source: string, masked: string, cspIndex: number): boolean {
-  if (!/\bcreateSvelteConfig\s*\(/.test(masked)) return false;
-  // A `csp:` nested inside a `kit: { … }` is SvelteKit's own, even in a file
-  // that also calls the factory.
-  const before = masked.slice(0, cspIndex);
+function isFactoryOption(masked: string, cspIndex: number): boolean {
   let depth = 0;
-  for (let i = before.length - 1; i >= 0; i--) {
-    const c = before[i];
+  for (let i = cspIndex - 1; i >= 0; i--) {
+    const c = masked[i];
     if (c === "}") depth++;
     else if (c === "{") {
-      if (depth === 0) {
-        // The key that opened this block.
-        const key = /([A-Za-z_$][\w$]*)\s*:\s*$/.exec(before.slice(Math.max(0, i - 40), i));
-        if (key?.[1] === "kit") return false;
+      if (depth > 0) {
+        depth--;
         continue;
       }
-      depth--;
+      // The object literal that holds the key. What opened it?
+      return /\bcreateSvelteConfig\s*\(\s*$/.test(masked.slice(Math.max(0, i - 60), i));
     }
   }
-  return true;
+  return false;
 }
 
-/** The hosts, spelled for a human to paste into a native `kit.csp`. */
-const MANUAL_HOSTS = [
-  '"script-src": add "https://www.googletagmanager.com"',
-  '"connect-src": add "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.analytics.google.com"',
-  '"img-src": add "https://www.google-analytics.com"',
-].join("; ");
+/** The 1-based line of `index` in `source`. */
+function lineOf(source: string, index: number): number {
+  return source.slice(0, index).split("\n").length;
+}
 
 export function planCspEdit(source: string): CspEditPlan {
+  // Certain, and checked first: a file that never says "csp" in any case, in
+  // code, comment or string, sets no CSP here. roalson-interests' refusal on
+  // a regex literal used to precede this, so a site with no CSP at all was
+  // told the browser refuses its loader.
+  if (!/csp/i.test(source)) return { kind: "none" };
+
   // Located against the masked copy so prose cannot be mistaken for code, then
   // sliced out of the ORIGINAL, which the mask is length-preserving for.
   const masked = maskNonCode(source);
@@ -139,47 +157,58 @@ export function planCspEdit(source: string): CspEditPlan {
   // The masker has no notion of regex literals, and it does not need one — but
   // it must not pretend. A quote inside a regex (`const A = /'/;`) opens a
   // phantom string and INVERTS quote parity for the rest of the file, after
-  // which the edit can land inside a comment while `cspNote` reports success:
-  // a wrong edit that parses, on a live site's policy, announced as done. That
-  // is the one outcome this module exists to prevent, so an unclassifiable
-  // slash is a refusal rather than a guess.
-  //
+  // which the edit can land inside a comment while the note reports success.
   // Comments are blanked INCLUDING their `//` and `/*`, so any `/` left in the
-  // mask is in code position: division, or a regex literal. None of the 22
-  // fleet configs has one, so refusing costs nothing today and cannot be
-  // silently wrong tomorrow.
+  // mask is in code position: division, or a regex literal.
   const stray = masked.indexOf("/");
   if (stray !== -1) {
-    const line = source.slice(0, stray).split("\n").length;
-    return {
-      kind: "refuse",
-      reason:
-        `line ${line} has a \`/\` this recipe cannot classify as a comment (a regex literal or ` +
-        "division). Quote parity after one is not something it will guess at",
-    };
+    const mention = /\bcsp\s*:/.exec(source);
+    return refuse(
+      `svelte.config.js line ${lineOf(source, stray)} has a \`/\` this recipe cannot classify ` +
+        "(a regex literal or division), and quote parity after one is not something it will " +
+        "guess at, so it did not look for the CSP" +
+        (mention !== null
+          ? ` (the file mentions \`csp:\` at line ${lineOf(source, mention.index)})`
+          : ""),
+      "possible",
+    );
   }
+
   const matches = [...masked.matchAll(CSP_KEY)];
-  if (matches.length === 0) return { kind: "none" };
+  if (matches.length === 0) {
+    // "csp" appears, but never as a `csp:` key in code: in a comment, a string
+    // (a quoted `"csp":` key is a string to the masker), or as a shorthand
+    // `{ csp }`. The last two set a policy this recipe cannot see.
+    if (/\bcsp\b/.test(masked) || /["'`]csp["'`]\s*:/.test(source)) {
+      return refuse(
+        "svelte.config.js sets `csp` in a shape this recipe does not parse (a shorthand " +
+          "`{ csp }` or a quoted key)",
+        "possible",
+      );
+    }
+    return { kind: "none" };
+  }
   if (matches.length > 1) {
-    return {
-      kind: "refuse",
-      reason: `found ${matches.length} \`csp:\` keys, so which one configures the policy is ambiguous`,
-    };
+    return refuse(
+      `found ${matches.length} \`csp:\` keys, so which one configures the policy is ambiguous`,
+      "present",
+    );
   }
 
   const m = matches[0] as RegExpMatchArray;
+  const keyIndex = (m.index ?? 0) + (m[1]?.length ?? 0);
   const valueStart = (m.index ?? 0) + m[0].length;
   const rest = source.slice(valueStart);
   const maskedRest = masked.slice(valueStart);
 
-  if (!usesConfigFactory(source, masked, m.index ?? 0)) {
-    return {
-      kind: "refuse",
-      reason:
-        "this `csp` is SvelteKit's own `kit.csp`, not a `createSvelteConfig` option. " +
-        "`analytics` is not a key SvelteKit accepts there — it rejects unknown csp keys and the " +
-        `build would fail. Add the hosts to the directives by hand: ${MANUAL_HOSTS}`,
-    };
+  if (!isFactoryOption(masked, keyIndex)) {
+    return refuse(
+      "this `csp` is not the literal option object of a `createSvelteConfig(` call — it is " +
+        "SvelteKit's own `kit.csp`, or an object this recipe cannot trace to the factory. " +
+        "`analytics` is not a key SvelteKit accepts in kit.csp; it rejects unknown keys and the " +
+        "build would fail",
+      "present",
+    );
   }
 
   if (/^true\b/.test(rest)) {
@@ -194,15 +223,12 @@ export function planCspEdit(source: string): CspEditPlan {
     // unrelated `analytics` key elsewhere must not read as already done.
     const end = matchingBrace(maskedRest);
     if (end === null) {
-      return { kind: "refuse", reason: "the `csp: {` block has no matching closing brace" };
+      return refuse("the `csp: {` block has no matching closing brace", "present");
     }
     const block = maskedRest.slice(0, end + 1);
     if (/(^|[{,\s])analytics:\s*true\b/.test(block)) return { kind: "already" };
     if (/(^|[{,\s])analytics:/.test(block)) {
-      return {
-        kind: "refuse",
-        reason: "`csp` already sets `analytics` to something other than true",
-      };
+      return refuse("`csp` already sets `analytics` to something other than true", "present");
     }
     return {
       kind: "edit",
@@ -210,10 +236,10 @@ export function planCspEdit(source: string): CspEditPlan {
     };
   }
 
-  return {
-    kind: "refuse",
-    reason: `\`csp:\` is set to an expression this recipe cannot extend (${rest.slice(0, 40).split("\n")[0]}…)`,
-  };
+  return refuse(
+    `\`csp:\` is set to an expression this recipe cannot extend (${rest.slice(0, 40).split("\n")[0]}…)`,
+    "present",
+  );
 }
 
 /** Index of the `}` closing the `{` at position 0, or null. Skips braces inside

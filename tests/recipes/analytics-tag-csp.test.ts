@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFile } from "node:fs/promises";
 import { planCspEdit } from "../../src/recipes/analytics-tag/csp-edit.js";
+import { ANALYTICS_CSP } from "../../src/configs/svelte.js";
 import {
   hooksClientTemplate,
   MEASUREMENT_ID_RE,
@@ -25,7 +25,7 @@ describe("planCspEdit", () => {
     expect(out.kind).toBe("refuse");
     if (out.kind === "refuse") {
       expect(out.reason).toContain("SvelteKit's own");
-      expect(out.reason).toContain("script-src");
+      expect(out.handAdd).toContain("script-src https://www.googletagmanager.com");
     }
   });
 
@@ -184,36 +184,56 @@ describe("MEASUREMENT_ID_RE", () => {
     expect(MEASUREMENT_ID_RE.test("551435715")).toBe(false);
     expect(MEASUREMENT_ID_RE.test("UA-12345-1")).toBe(false);
     expect(MEASUREMENT_ID_RE.test("G-TOOSHORT")).toBe(false);
+    expect(MEASUREMENT_ID_RE.test("G-51J638HZPLX")).toBe(false);
     expect(MEASUREMENT_ID_RE.test("g-51j638hzpl")).toBe(false);
   });
 });
 
-describe("cspNote tells you what it checked, not what is true", () => {
-  it("does not claim nothing blocks the loader when it only read svelte.config.js", async () => {
-    // reddoor-website and gallerysonder set an enforcing Content-Security-Policy
-    // in netlify.toml and have no `csp:` in svelte.config.js at all. The old
-    // wording asserted "nothing blocks the loader" about sites where a header
-    // can refuse it on every request — the one thing this half exists to report.
-    const { analyticsTag } = await import("../../src/recipes/analytics-tag/index.js");
-    expect(typeof analyticsTag).toBe("function");
-    const src = await readFile(
-      new URL("../../src/recipes/analytics-tag/index.ts", import.meta.url),
-      "utf8",
-    );
-    expect(src).not.toContain("so nothing blocks the loader");
-    expect(src).toContain("was NOT checked");
+describe("planCspEdit, round six", () => {
+  it("puts the full host list on every refusal, derived from ANALYTICS_CSP", () => {
+    const expected = Object.entries(ANALYTICS_CSP)
+      .map(([d, hosts]) => `${d} ${hosts.join(" ")}`)
+      .join("; ");
+    for (const src of [
+      'export default { kit: { csp: { mode: "auto" } } };',
+      "const A = /x/;\nexport default { kit: { csp: true } };",
+      "export default createSvelteConfig({ csp: SHARED });",
+      'const kit = { csp: { mode: "auto" } };\nexport default { kit };',
+    ]) {
+      const out = planCspEdit(src);
+      expect(out.kind).toBe("refuse");
+      if (out.kind === "refuse") expect(out.handAdd).toBe(expected);
+    }
   });
 
-  it("refuses to install alongside a loader the site already has", async () => {
-    // initAnalytics stands down only for its OWN id, and a site-local loader
-    // that runs later never sees ours. beachfront's component appends in
-    // onMount with no guard, so migrating it with its existing id would give
-    // one property two loaders and double every session.
-    const src = await readFile(
-      new URL("../../src/recipes/analytics-tag/index.ts", import.meta.url),
-      "utf8",
+  it("says 'none' for a file that never mentions csp, even with a regex in it", () => {
+    // roalson-interests' shape minus its CSP: a regex literal used to refuse
+    // first, and the note then said the browser refuses the loader on a site
+    // with no CSP at all.
+    expect(
+      planCspEdit("const re = /^\\/properties\\/([^/]+)$/;\nexport default { kit: {} };").kind,
+    ).toBe("none");
+  });
+
+  it("calls a CSP it could not locate 'possible', and one it located 'present'", () => {
+    const regex = planCspEdit(
+      "const re = /a/;\nexport default { kit: { csp: { mode: 'auto' } } };",
     );
-    expect(src).toContain("findForeignAnalytics");
-    expect(src).toContain("double every session");
+    expect(regex.kind === "refuse" && regex.policy).toBe("possible");
+    const native = planCspEdit('export default { kit: { csp: { mode: "auto" } } };');
+    expect(native.kind === "refuse" && native.policy).toBe("present");
+  });
+
+  it("refuses a kit object held in a variable, which a negative test used to edit", () => {
+    // The old factory check was "not under a `kit:` key". `const kit = {…}`
+    // is not a `kit:` key, so this was edited into a build failure.
+    const src = `const kitOptions = { adapter: adapter(), csp: { mode: "auto", directives: {} } };
+export default createSvelteConfig({ kit: kitOptions });`;
+    expect(planCspEdit(src).kind).toBe("refuse");
+  });
+
+  it("refuses a shorthand or quoted csp key rather than calling the file CSP-free", () => {
+    expect(planCspEdit("const csp = x;\nexport default { kit: { csp } };").kind).toBe("refuse");
+    expect(planCspEdit('export default { kit: { "csp": { mode: "auto" } } };').kind).toBe("refuse");
   });
 });

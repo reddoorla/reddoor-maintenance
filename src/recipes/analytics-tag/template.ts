@@ -39,8 +39,9 @@ import { initAnalytics } from "@reddoorla/maintenance/client";
  *
  * The measurement ID below is public by design — it ships in the page. The
  * NUMERIC property ID the monthly report reads is a different value and lives
- * on the site's row in the fleet database. \`reddoor-maint audit --only analytics\`
- * checks that the two still describe the same site.
+ * on the site's row in the fleet database. \`reddoor-maint audit --fleet turso
+ * --only analytics\`, run centrally, checks that the two still describe the same
+ * site; run from this checkout alone it has no row to pair with.
  */
 export const init: ClientInit = () => {
   initAnalytics({

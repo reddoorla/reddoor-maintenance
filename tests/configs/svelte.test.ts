@@ -253,22 +253,28 @@ describe("configs/svelte — the analytics CSP fold", () => {
   it("adds nothing unless asked — a site with no tag does not allow a script host it never loads", () => {
     const d = directivesOf(createSvelteConfig({ csp: true }));
     expect(d["script-src"]).not.toContain("https://www.googletagmanager.com");
-    expect(d["connect-src"]).not.toContain("https://www.google-analytics.com");
+    expect(d["connect-src"]).not.toContain("https://*.google-analytics.com");
   });
 
-  it("adds every host the tag needs when asked", () => {
+  it("adds every host Google lists for GA4 without Ads features", () => {
+    // https://developers.google.com/tag-platform/security/guides/csp, read
+    // 2026-09-29. Transcribed here ON PURPOSE, as the independent check on the
+    // exported constant: a narrowing of ANALYTICS_CSP must fail this test.
     const d = directivesOf(createSvelteConfig({ csp: { analytics: true } }));
     expect(d["script-src"]).toContain("https://www.googletagmanager.com");
-    expect(d["connect-src"]).toEqual(
+    expect(d["img-src"]).toEqual(
       expect.arrayContaining([
-        "https://www.google-analytics.com",
+        "https://www.googletagmanager.com",
         "https://*.google-analytics.com",
-        "https://*.analytics.google.com",
       ]),
     );
-    // The beacon fallback: gtag GETs an image when sendBeacon is unavailable,
-    // which connect-src does not cover.
-    expect(d["img-src"]).toContain("https://www.google-analytics.com");
+    expect(d["connect-src"]).toEqual(
+      expect.arrayContaining([
+        "https://www.googletagmanager.com",
+        "https://*.google-analytics.com",
+        "https://*.google.com",
+      ]),
+    );
   });
 
   it("survives a site that overrides script-src wholesale", () => {
@@ -291,7 +297,10 @@ describe("configs/svelte — the analytics CSP fold", () => {
     const d = directivesOf(
       createSvelteConfig({ csp: { analytics: true, directives: { "img-src": [] } } }),
     );
-    expect(d["img-src"]).toEqual(["https://www.google-analytics.com"]);
+    expect(d["img-src"]).toEqual([
+      "https://www.googletagmanager.com",
+      "https://*.google-analytics.com",
+    ]);
   });
 
   it("does not list a host twice when the site already has it by hand", () => {

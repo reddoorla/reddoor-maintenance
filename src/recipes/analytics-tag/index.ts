@@ -1,4 +1,4 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
@@ -6,9 +6,10 @@ import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.j
 import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
+import { siteHostnames } from "../../client/site-host.js";
 import { HOOKS_CLIENT_RELATIVE, MEASUREMENT_ID_RE, hooksClientTemplate } from "./template.js";
-import { planCspEdit, type CspEditPlan } from "./csp-edit.js";
-import { findForeignAnalytics } from "../../audits/analytics.js";
+import { HAND_ADD_HOSTS, planCspEdit, type CspEditPlan } from "./csp-edit.js";
+import { SCAN_FILE_CAP, scanCheckout } from "../../audits/analytics.js";
 
 const SVELTE_CONFIG_RELATIVE = "svelte.config.js";
 
@@ -21,6 +22,8 @@ export type AnalyticsTagDeps = {
   /** Resolve the TARGET repo's own prettier. Injected so a test can assert the
    *  absolute-path spawn without a populated `node_modules`. */
   resolvePrettier?: (repoRoot: string) => Promise<string | null>;
+  /** The src/ walk's file cap. A test seam: the default is SCAN_FILE_CAP. */
+  scanCap?: number;
 };
 
 export type AnalyticsTagOptions = {
@@ -30,13 +33,113 @@ export type AnalyticsTagOptions = {
   productionHost?: string;
 };
 
-async function fileExists(path: string): Promise<boolean> {
+/**
+ * The first `@reddoorla/maintenance` whose `./client` exports `initAnalytics`.
+ * The hook this recipe writes imports it, so a site whose declared range
+ * cannot reach this version fails its build on the new file. Must match the
+ * release these changes ship in (0.102.0, per the changesets).
+ */
+export const FIRST_MAINTENANCE_WITH_INIT_ANALYTICS = "0.102.0";
+
+/** SvelteKit's client `init` hook and its `ClientInit` type are `@since 2.10.0`
+ *  (read from the installed @sveltejs/kit's types/index.d.ts). */
+export const FIRST_KIT_WITH_CLIENT_INIT = "2.10.0";
+
+/** Every file SvelteKit accepts as the client hook. A `.ts` written beside an
+ *  existing `.js` is IGNORED by SvelteKit while the recipe reports success. */
+const HOOK_CANDIDATES = [
+  "src/hooks.client.ts",
+  "src/hooks.client.js",
+  "src/hooks.client.mts",
+  "src/hooks.client.mjs",
+  "src/hooks.client/index.ts",
+  "src/hooks.client/index.js",
+];
+
+/** A bare hostname: labels of letters, digits and hyphens, at least one dot, no
+ *  scheme, port, path or whitespace. `https://www.x.com` as a production host
+ *  gates the tag off on every host there is. */
+const BARE_HOST = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?:\.(?!-)[a-z0-9-]{1,63})+$/;
+
+/** Is `host` a bare hostname initAnalytics can compare to location.hostname? */
+export function isBareHost(host: string): boolean {
+  const h = host.trim().toLowerCase();
+  return BARE_HOST.test(h) && siteHostnames(h).length > 0;
+}
+
+/** The lower bound of a semver range as [major, minor, patch], or null. */
+export function rangeFloor(range: string): [number, number, number] | null {
+  const m = /^\s*(?:\^|~|>=|=)?\s*v?(\d+)(?:\.(\d+|x|\*))?(?:\.(\d+|x|\*))?(?:[-+\s]|$)/.exec(
+    range,
+  );
+  if (!m) return null;
+  const n = (v: string | undefined) => (v === undefined || v === "x" || v === "*" ? 0 : Number(v));
+  return [Number(m[1]), n(m[2]), n(m[3])];
+}
+
+function atLeast(v: [number, number, number], min: string): boolean {
+  const [a, b, c] = min.split(".").map(Number) as [number, number, number];
+  if (v[0] !== a) return v[0] > a;
+  if (v[1] !== b) return v[1] > b;
+  return v[2] >= c;
+}
+
+async function exists(path: string): Promise<boolean> {
   try {
-    await access(path);
+    await stat(path);
     return true;
   } catch {
     return false;
   }
+}
+
+/** The snippet an operator adds to an existing hook by hand. */
+function handSnippet(id: string, host: string): string {
+  return (
+    `import { initAnalytics } from "@reddoorla/maintenance/client"; and in its init: ` +
+    `initAnalytics({ measurementId: ${JSON.stringify(id)}, productionHost: ${JSON.stringify(host)} });`
+  );
+}
+
+/** Refusals the site's package.json earns, or null when it can take the hook. */
+async function packageRefusal(sitePath: string): Promise<string | null> {
+  let pkg: Record<string, unknown>;
+  try {
+    pkg = JSON.parse(await readFile(join(sitePath, "package.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return "the site has no readable package.json, so whether it can import initAnalytics is unknown";
+  }
+  const deps = {
+    ...(pkg["devDependencies"] as Record<string, string> | undefined),
+    ...(pkg["dependencies"] as Record<string, string> | undefined),
+  };
+  const checks: Array<[string, string, string]> = [
+    ["@reddoorla/maintenance", FIRST_MAINTENANCE_WITH_INIT_ANALYTICS, "exports initAnalytics"],
+    ["@sveltejs/kit", FIRST_KIT_WITH_CLIENT_INIT, "runs a client `init` hook"],
+  ];
+  for (const [name, min, what] of checks) {
+    const range = deps[name];
+    if (range === undefined) {
+      return `the site does not depend on ${name}, and the hook this writes needs one that ${what} (${min} or later)`;
+    }
+    const floor = rangeFloor(range);
+    if (floor === null) {
+      return (
+        `the site's ${name} range ${JSON.stringify(range)} is not one this recipe can read; make ` +
+        `it ^${min} or later (the first that ${what}), then re-run`
+      );
+    }
+    if (!atLeast(floor, min)) {
+      return (
+        `the site's ${name} range ${JSON.stringify(range)} allows versions before ${min}, the ` +
+        `first that ${what}, so the hook would fail its build. Bump it to ^${min} or later first`
+      );
+    }
+  }
+  return null;
 }
 
 type Planned = {
@@ -81,7 +184,7 @@ export async function analyticsTag(
         };
       }
 
-      const productionHost = opts.productionHost?.trim() || deriveHost(site);
+      const productionHost = (opts.productionHost?.trim() || deriveHost(site)).toLowerCase();
       if (!productionHost) {
         return {
           kind: "failed",
@@ -91,9 +194,65 @@ export async function analyticsTag(
             "silent no-op.",
         };
       }
+      if (!isBareHost(productionHost)) {
+        return {
+          kind: "failed",
+          notes:
+            `productionHost ${JSON.stringify(productionHost)} is not a bare hostname. Pass the ` +
+            "host alone, like www.example.com: no scheme, port or path. initAnalytics compares it " +
+            "to location.hostname, so anything else keeps the tag off on every host.",
+        };
+      }
 
-      if (await fileExists(join(site.path, HOOKS_CLIENT_RELATIVE))) {
-        return { kind: "noop", notes: `${HOOKS_CLIENT_RELATIVE} already exists` };
+      // One walk of src/, shared with the audit so the gate and the reading
+      // can never disagree about a file.
+      const scan = await scanCheckout(site.path, deps.scanCap ?? SCAN_FILE_CAP);
+      if (scan === null) {
+        return { kind: "failed", notes: "the site has no src/ directory to install into" };
+      }
+
+      // Already running the package? Only the SAME ID on the SAME host is a
+      // noop. A different ID, or one this recipe cannot read, used to be a
+      // noop with exit 0 while GA4 with the requested ID was never installed.
+      if (scan.references.length > 0) {
+        const where = scan.references.map((r) => r.file).join(", ");
+        const same = scan.references.every(
+          (r) => r.measurementId === id && r.productionHost === productionHost,
+        );
+        if (same && scan.foreignFile === null) {
+          return {
+            kind: "noop",
+            notes: `${where} already starts ${id} on ${productionHost} through initAnalytics`,
+          };
+        }
+        const ids = [
+          ...new Set(
+            scan.references.map((r) => r.measurementId ?? "an ID this recipe cannot read"),
+          ),
+        ];
+        return {
+          kind: "failed",
+          notes:
+            `${where} already call${scan.references.length === 1 ? "s" : ""} initAnalytics with ` +
+            `${ids.join(" / ")}` +
+            (same ? `, and ${scan.foreignFile} also loads a tag` : "") +
+            `, not ${id} on ${productionHost}. A second call would load a second property. ` +
+            "Change the existing call by hand, or remove it and re-run.",
+        };
+      }
+
+      // A hook SvelteKit will use already exists, and does not start GA4.
+      // Writing src/hooks.client.ts beside a .js one is ignored by SvelteKit
+      // while this recipe reported "applied" and the audit passed.
+      for (const rel of HOOK_CANDIDATES) {
+        if (await exists(join(site.path, rel))) {
+          return {
+            kind: "failed",
+            notes:
+              `${rel} already exists, and this recipe does not edit someone else's hook. Add ` +
+              `GA4 to it by hand: ${handSnippet(id, productionHost)}`,
+          };
+        }
       }
 
       // REFUSE rather than install alongside a loader the site already has.
@@ -103,26 +262,45 @@ export async function analyticsTag(
       // beachfront is exactly that shape: its component appends in `onMount`
       // with no guard of any kind, and SvelteKit's ClientInit runs before the
       // app starts — so migrating it with its existing ID would give one
-      // property two loaders and double every session. That is not separable
-      // afterwards, and reusing the site's current ID is the natural thing to
-      // type when migrating.
-      const foreign = await findForeignAnalytics(site.path, join(site.path, HOOKS_CLIENT_RELATIVE));
-      if (foreign !== null) {
-        const rel = foreign.startsWith(site.path) ? foreign.slice(site.path.length + 1) : foreign;
+      // property two loaders and double every session.
+      if (scan.foreignFile !== null) {
         return {
           kind: "failed",
           notes:
-            `${rel} already references a tag manager. Installing alongside it would give one ` +
-            "property two loaders and double every session, which GA4 cannot separate " +
-            "afterwards. Remove that loader in the same PR, then re-run.",
+            `${scan.foreignFile} already references a tag manager. Installing alongside it would ` +
+            "give one property two loaders and double every session, which GA4 cannot separate " +
+            "afterwards. Remove that loader and commit the removal (this recipe refuses a dirty " +
+            "tree), then re-run: its commit sits on top of yours in the same PR.",
         };
       }
+      if (!scan.complete) {
+        return {
+          kind: "failed",
+          notes:
+            `src/ holds more than ${deps.scanCap ?? SCAN_FILE_CAP} files, so this recipe could not rule out a ` +
+            "loader the site already has, and installing alongside one doubles every session. " +
+            "Check by hand and install it by hand.",
+        };
+      }
+
+      const pkgRefusal = await packageRefusal(site.path);
+      if (pkgRefusal !== null) return { kind: "failed", notes: pkgRefusal };
 
       let cspSource: string | null;
       try {
         cspSource = await readFile(join(site.path, SVELTE_CONFIG_RELATIVE), "utf8");
       } catch {
         cspSource = null;
+      }
+      // A custom `kit.files.hooks.client` moves the hook; the file this writes
+      // would then be ignored exactly like a .ts beside a .js.
+      if (cspSource !== null && /\bhooks\s*:\s*\{[^}]*\bclient\b/.test(cspSource)) {
+        return {
+          kind: "failed",
+          notes:
+            "svelte.config.js sets kit.files.hooks.client, so SvelteKit reads the client hook " +
+            `from somewhere else. Add GA4 there by hand: ${handSnippet(id, productionHost)}`,
+        };
       }
       const csp: CspEditPlan = cspSource === null ? { kind: "none" } : planCspEdit(cspSource);
 
@@ -213,20 +391,22 @@ function cspNote(plan: CspEditPlan): string {
     case "none":
       // Says what was CHECKED, not what is true. reddoor-website and
       // gallerysonder set an enforcing Content-Security-Policy in
-      // `netlify.toml` and have no `csp:` in svelte.config.js at all — so the
-      // old wording asserted "nothing blocks the loader" about a site where a
-      // header could refuse it on every request, which is the one thing this
-      // half exists to report.
+      // `netlify.toml` and have no `csp:` in svelte.config.js at all. And a
+      // header needs every directive, not only script-src.
       return (
-        "CSP: no `csp` option in svelte.config.js. A policy set elsewhere " +
-        "(netlify.toml headers, an edge function) was NOT checked — if this site has one, " +
-        "googletagmanager.com must be in its script-src or the tag is refused on every request."
+        "CSP: no `csp` option in svelte.config.js. A policy set elsewhere (netlify.toml " +
+        "headers, an edge function) was NOT checked — if this site has one, it must allow " +
+        `${HAND_ADD_HOSTS}, or the browser refuses the tag.`
       );
     case "refuse":
-      // The reason carries the right instruction for the shape that was found.
-      // The old note appended "add `analytics: true` by hand", which is exactly
-      // the edit that breaks a native kit.csp — the wrong fix, printed under a
-      // correct refusal.
-      return `CSP NOT CHANGED — ${plan.reason}. Until that is done the browser refuses the loader on every request.`;
+      // Only a located CSP earns "the browser refuses". A refusal that never
+      // found the option (a regex literal stopped the parse) says "if".
+      return plan.policy === "present"
+        ? `CSP NOT CHANGED — ${plan.reason}. The browser refuses the loader until these are ` +
+            `added to that policy by hand: ${plan.handAdd}.`
+        : `CSP NOT CHANGED — ${plan.reason}. If svelte.config.js sets a Content-Security-Policy, ` +
+            `the browser refuses the loader until these are added to it by hand: ${plan.handAdd}. ` +
+            "(If that `csp` is a createSvelteConfig option rather than kit.csp, `analytics: true` " +
+            "inside it does the same.)";
   }
 }
