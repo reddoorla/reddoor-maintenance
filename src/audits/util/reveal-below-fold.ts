@@ -7,12 +7,16 @@
 // neither the spec nor the page). Types are erased before either trip.
 
 /** What one pass did. Returned so the caller can see that the page actually
- *  scrolled, instead of inferring it from the absence of a hidden element. */
+ *  scrolled, instead of inferring it from the absence of a hidden element. The
+ *  generated spec writes it into the audit artifact, and the summary names any
+ *  route whose pass was incomplete. */
 export type RevealPass = {
   /** Scroll positions visited, the top included. 1 means the page could not scroll. */
   steps: number;
   /** The step, in CSS px: half the viewport height. */
   stepPx: number;
+  /** True when the pass stopped at its step cap before reaching the bottom. */
+  capped: boolean;
   /** `document.documentElement.scrollHeight` when the pass finished. */
   scrollHeight: number;
   /** `window.scrollY` after the return to the top. 0 unless the page fought it. */
@@ -22,9 +26,9 @@ export type RevealPass = {
 };
 
 /**
- * Scroll the page top to bottom, let every scroll-triggered reveal fire and
- * settle, then return to the top — so axe measures below-the-fold content in the
- * state a reader sees, not the hidden state it waits in (#100).
+ * Scroll the page top to bottom, return to the top, and let every
+ * scroll-triggered reveal settle — so axe measures below-the-fold content in
+ * the state a reader sees, not the hidden state it waits in (#100).
  *
  * The generated spec used to navigate and run axe at `scrollY = 0`. Anything a
  * `use:animateIn`-style action hides until it first intersects the viewport was
@@ -34,7 +38,8 @@ export type RevealPass = {
  * The injected `transition:none` sheet could not help: there was no transition
  * to snap, because nothing had asked the element to reveal.
  *
- * Four choices, each forced by a way the simpler version is wrong:
+ * Choices, each forced by a way the simpler version is wrong, and each held by
+ * a mutation in tests/audits/a11y-live-spec.test.ts:
  *
  *   - **Half-viewport steps, not whole ones.** A reveal observed with a negative
  *     bottom `rootMargin` (`"0px 0px -25% 0px"` is common) only counts the top
@@ -43,26 +48,36 @@ export type RevealPass = {
  *     band never reveals. Half steps cover any bottom margin down to -50%.
  *   - **`behavior: "instant"` on every scroll.** Sites set `scroll-behavior:
  *     smooth` on `html` for readers who have not asked for reduced motion, and
- *     the audit does not emulate reduced motion. A plain `scrollTo(0, y)` would
- *     animate, so the viewport would lag the loop and the final return to the
- *     top would still be travelling when axe ran.
- *   - **The page height is re-read every step.** Reveals and lazy media can
- *     lengthen the page as it is scrolled; a height read once stops short.
- *   - **Two frames and a task per step.** IntersectionObserver entries are
- *     computed during a rendering update and delivered in a task after it, so
- *     the reveal for a given stop has run only once a second frame has started
- *     and a task has had its turn.
+ *     the audit does not emulate reduced motion. A plain `scrollTo(0, y)`
+ *     animates, and each call retargets the last, so the viewport never
+ *     reaches the reveals at all.
+ *   - **The page height is re-read every step.** A reveal can lengthen the
+ *     page as it is scrolled; a height read once stops short of what it added.
+ *   - **Back to the top before axe.** A header that changes once scrolled, or a
+ *     fixed element that would overlap content at some other offset, is then
+ *     measured where the old audit measured it.
+ *   - **Settle last, in a loop.** IntersectionObserver entries are computed
+ *     during a rendering update and delivered in a task after it, so every
+ *     stop waits two frames and a task. CSS transitions and animations are
+ *     already snapped by the spec's injected sheet, which must be added BEFORE
+ *     this runs. What that sheet cannot reach is the Web Animations API, which
+ *     Svelte 5 `in:`/`transition:` directives run on — and a Svelte intro with
+ *     a `delay` runs a placeholder animation first and creates the real one in
+ *     its `onfinish`. A single read of `document.getAnimations()` waits for the
+ *     placeholder only and lets axe sample the real fade mid-way. So settling
+ *     happens after the return to the top (which can start animations of its
+ *     own), and re-reads the running finite animations until none are left or
+ *     the 5 s budget is spent. An infinite animation (a marquee) is not waited on.
  *
- * Settling: CSS transitions and animations are already snapped by the spec's
- * injected sheet, which must be added BEFORE this runs. What that sheet cannot
- * reach is the Web Animations API — Svelte 5 `in:`/`transition:` directives run
- * on it — so this waits for every running finite animation to finish, bounded
- * at 5 s. An infinite one (a marquee) is not waited on. A reveal delayed by a
- * bare `setTimeout` is invisible to both and is not covered.
+ * Not covered, and audited hidden exactly as before:
  *
- * The return to the top keeps everything else the old audit measured
- * unchanged: a header that changes once scrolled, or a fixed element that
- * would overlap content at some other offset, is measured where it was before.
+ *   - a reveal that toggles both ways — hidden again when it leaves the
+ *     viewport — is hidden again by the return to the top;
+ *   - a CSS-keyframe reveal whose visible end state exists only as its
+ *     `forwards` fill, because the spec's `animation:none!important` cancels
+ *     the animation and leaves the element at its hidden base style;
+ *   - a reveal delayed by a bare `setTimeout`, which no animation list shows;
+ *   - a page that scrolls an inner container instead of the window.
  */
 export async function revealBelowFold(): Promise<RevealPass> {
   const maxSteps = 400;
@@ -71,35 +86,52 @@ export async function revealBelowFold(): Promise<RevealPass> {
   const stepPx = Math.max(1, Math.floor(window.innerHeight / 2));
 
   let steps = 0;
+  let reachedBottom = false;
   for (let y = 0; steps < maxSteps; y += stepPx) {
     window.scrollTo({ top: y, left: 0, behavior: "instant" });
     steps += 1;
     await new Promise((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0))),
     );
-    if (y + window.innerHeight >= root.scrollHeight) break;
+    if (y + window.innerHeight >= root.scrollHeight) {
+      reachedBottom = true;
+      break;
+    }
   }
-
-  const running = document.getAnimations().filter((animation) => {
-    if (animation.playState !== "running" || animation.effect === null) return false;
-    return Number.isFinite(Number(animation.effect.getComputedTiming().endTime));
-  });
-  if (running.length > 0) {
-    await Promise.race([
-      Promise.all(running.map((animation) => animation.finished.catch(() => undefined))),
-      new Promise((resolve) => setTimeout(resolve, settleBudgetMs)),
-    ]);
-  }
-  const unsettled = running.filter((animation) => animation.playState === "running").length;
 
   window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   await new Promise((resolve) =>
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0))),
   );
 
+  const deadline = performance.now() + settleBudgetMs;
+  let unsettled = 0;
+  for (;;) {
+    const running = document.getAnimations().filter((animation) => {
+      if (animation.playState !== "running" || animation.effect === null) return false;
+      return Number.isFinite(Number(animation.effect.getComputedTiming().endTime));
+    });
+    if (running.length === 0) break;
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) {
+      unsettled = running.length;
+      break;
+    }
+    await Promise.race([
+      Promise.all(running.map((animation) => animation.finished.catch(() => undefined))),
+      new Promise((resolve) => setTimeout(resolve, remaining)),
+    ]);
+    // An animation's `onfinish` can start the next one (a delayed Svelte
+    // intro does exactly that), so let it run before looking again.
+    await new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0))),
+    );
+  }
+
   return {
     steps,
     stepPx,
+    capped: !reachedBottom,
     scrollHeight: root.scrollHeight,
     finalScrollY: window.scrollY,
     unsettled,

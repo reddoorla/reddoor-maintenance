@@ -78,6 +78,18 @@ function plainPage(title: string): string {
  * Both reveals hold `#aaa` text on white (2.32:1), so a `color-contrast`
  * violation naming them exists only if axe measured them revealed.
  *
+ * Two more are about the settle, and both END failing contrast, so a hit is
+ * positive evidence that the pass waited:
+ *
+ *   - `#waapi` at 250vh animates its text's colour #111 → #aaa over 2 s on the
+ *     Web Animations API, `fill: forwards`. Measured early, it passes.
+ *   - `#delayed` at 380vh is a delayed Svelte 5 intro's shape: a placeholder
+ *     animation runs first, and only its `onfinish` starts the real one. A
+ *     settle that reads `getAnimations()` once waits for the placeholder and
+ *     measures the real animation at its start. The real one runs 3 s so it
+ *     outlasts `#waapi`: a single read waits on everything it saw, and a
+ *     shorter tail would finish inside that wait and pass by accident.
+ *
  * `#outside-landmarks` fails axe's `region` rule, which is tagged
  * `best-practice` only. The gate asks for WCAG tags, so it must never appear;
  * if it does, the tag filter was lost. `AxeBuilder.options()` REPLACES the
@@ -98,6 +110,8 @@ const FIXTURE_PAGE = `<!doctype html>
   .faint { color: #aaa; margin: 0; }
   #below-fold { top: 130vh; }
   #gap-band { top: 180vh; height: 10vh; }
+  #waapi { top: 250vh; }
+  #delayed { top: 380vh; }
 </style>
 </head>
 <body>
@@ -106,6 +120,8 @@ const FIXTURE_PAGE = `<!doctype html>
   <img src="CROSS_ORIGIN/canary.png" alt="">
   <div class="reveal" id="below-fold"><p class="faint" id="below-fold-text">Revealed once scrolled to</p></div>
   <div class="reveal" id="gap-band"><p class="faint" id="gap-band-text">Revealed in the top three quarters of the viewport</p></div>
+  <div class="reveal" id="waapi"><p id="waapi-text">Fades to a failing grey over two seconds</p></div>
+  <div class="reveal" id="delayed"><p id="delayed-text">Starts fading only after a placeholder animation</p></div>
 </main>
 <div id="outside-landmarks">Outside every landmark</div>
 <script>
@@ -120,6 +136,27 @@ const FIXTURE_PAGE = `<!doctype html>
       }
     }, { threshold: 0, rootMargin }).observe(el);
   }
+  const toGrey = [{ color: "#111" }, { color: "#aaa" }];
+  const onFirstSight = (id, reveal) => {
+    const el = document.getElementById(id);
+    el.style.opacity = "0";
+    new IntersectionObserver((entries, observer) => {
+      if (entries[0].isIntersecting) {
+        observer.disconnect();
+        el.style.opacity = "1";
+        reveal(el);
+      }
+    }, { threshold: 0 }).observe(el);
+  };
+  onFirstSight("waapi", () => {
+    document.getElementById("waapi-text").animate(toGrey, { duration: 2000, fill: "forwards" });
+  });
+  onFirstSight("delayed", (el) => {
+    const placeholder = el.animate([], { duration: 600 });
+    placeholder.onfinish = () => {
+      document.getElementById("delayed-text").animate(toGrey, { duration: 3000, fill: "forwards" });
+    };
+  });
 </script>
 </body>
 </html>`;
@@ -260,6 +297,14 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
 
   it("reaches a reveal that only observes the top three quarters of the viewport", () => {
     expect(contrastTargets()).toContain("#gap-band-text");
+  });
+
+  it("waits for a Web Animation started by a reveal to finish before axe runs", () => {
+    expect(contrastTargets()).toContain("#waapi-text");
+  });
+
+  it("waits for an animation that a finished animation starts (a delayed Svelte 5 intro)", () => {
+    expect(contrastTargets()).toContain("#delayed-text");
   });
 
   it("does not re-fetch the page's cross-origin stylesheet, so the site's CSP is not tripped (#52)", async () => {
