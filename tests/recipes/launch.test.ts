@@ -1,14 +1,22 @@
 import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launch, matchingDisposition, UNGUARDED_TWIN_MARKER } from "../../src/recipes/launch.js";
+import {
+  launch,
+  launchAudits,
+  matchingDisposition,
+  UNGUARDED_TWIN_MARKER,
+} from "../../src/recipes/launch.js";
+import { ALL_AUDIT_NAMES } from "../../src/audits/index.js";
+import { lighthouseAudit } from "../../src/audits/lighthouse.js";
+import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import {
   MATCH_ROUTE_SERVER_TEMPLATE,
   UNGUARDED_TWIN_TELL,
 } from "../../src/recipes/match-harness/template.js";
-import type { AuditResult, RecipeResult, Site } from "../../src/types.js";
+import type { AuditName, AuditResult, RecipeResult, Site } from "../../src/types.js";
 import {
   makeFakeReportWriter,
   type FakeReportWriter,
@@ -1101,5 +1109,165 @@ describe("recipes/launch", () => {
     expect(result.complete).toBe(true);
     expect(probed.some((u) => u.endsWith("/dev/match/home"))).toBe(true);
     await rm(dir, { recursive: true, force: true });
+  });
+});
+
+type Collect = { url: string[]; startServerCommand?: string };
+
+function recordingLhci(collects: Collect[]): SpawnFn {
+  return async (_cmd, args, opts) => {
+    const configArg = args.find((a) => a.startsWith("--config="))!;
+    const config = JSON.parse(await readFile(configArg.slice("--config=".length), "utf-8")) as {
+      ci: { collect: Collect };
+    };
+    collects.push(config.ci.collect);
+    const dir = join(opts?.cwd ?? process.cwd(), ".lighthouseci");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "lhr-0.json"),
+      JSON.stringify({
+        requestedUrl: config.ci.collect.url[0],
+        categories: {
+          performance: { score: 0.72 },
+          accessibility: { score: 1 },
+          "best-practices": { score: 1 },
+          seo: { score: 1 },
+        },
+      }),
+    );
+    return { code: 0, stdout: "", stderr: "" };
+  };
+}
+
+function lighthouseThroughLaunchAudits(spawn: SpawnFn) {
+  return (site: Site) =>
+    launchAudits(site, async (s, which) =>
+      which && !which.includes("lighthouse") ? [] : [await lighthouseAudit({ site: s, spawn })],
+    );
+}
+
+function launchingSeed(url: string): Seed {
+  return {
+    Websites: [{ id: "rec_site_acme", fields: { Name: "Acme Co", url, Status: "launching" } }],
+    Reports: [],
+  };
+}
+
+describe("recipes/launch — the Lighthouse baseline", () => {
+  it("measures a launching site's row url through the deployed path and stores those scores", async () => {
+    const collects: Collect[] = [];
+    const mirrored: Array<Record<string, unknown>> = [];
+    const result = await launch(siteOf(), {
+      ...deps(launchingSeed("https://acme.example.com")),
+      audit: lighthouseThroughLaunchAudits(recordingLhci(collects)),
+      siteMirror: {
+        health: async (_id: string, fields: Record<string, unknown>) => {
+          mirrored.push(fields);
+        },
+        site: async () => {},
+      },
+    });
+
+    expect(result.complete).toBe(true);
+    expect(collects).toHaveLength(1);
+    expect(collects[0]!.url).toEqual(["https://acme.example.com"]);
+    expect(collects[0]!.startServerCommand).toBeUndefined();
+    expect(result.steps.find((s) => s.name === "audit")?.result).toMatchObject({
+      kind: "audit",
+      deployedUrl: "https://acme.example.com",
+      scores: { performance: 72, accessibility: 100, bestPractices: 100, seo: 100 },
+    });
+    expect(writer.inserts[0]!.fields["Lighthouse — Performance"]).toBe(72);
+    expect(writer.inserts[0]!.fields["Lighthouse — SEO"]).toBe(100);
+    expect(mirrored[0]).toMatchObject({ pScore: 72, seoScore: 100 });
+  });
+
+  it("falls back to the checkout's dev server, and reports it, when the row has no url", async () => {
+    const collects: Collect[] = [];
+    const result = await launch(siteOf(), {
+      ...deps(launchingSeed("")),
+      audit: lighthouseThroughLaunchAudits(recordingLhci(collects)),
+    });
+
+    expect(collects).toHaveLength(1);
+    expect(collects[0]!.startServerCommand).toMatch(/^npm run vite:dev /);
+    expect(collects[0]!.url[0]).toMatch(/^http:\/\/localhost:\d+\//);
+    expect(result.steps.find((s) => s.name === "audit")?.result).toMatchObject({
+      kind: "audit",
+      deployedUrl: null,
+    });
+  });
+
+  it("does not hand a url that is not http(s) to the deployed path", async () => {
+    const audited: Site[] = [];
+    const result = await launch(siteOf(), {
+      ...deps(launchingSeed("acme.example.com")),
+      audit: async (site: Site) => {
+        audited.push(site);
+        return [lighthouseResult()];
+      },
+    });
+
+    expect(audited).toHaveLength(1);
+    expect(audited[0]!.deployedUrl).toBeUndefined();
+    expect(result.steps.find((s) => s.name === "audit")?.result).toMatchObject({
+      deployedUrl: null,
+    });
+  });
+
+  it("stops before auditing when no site row matches", async () => {
+    let audited = false;
+    const result = await launch(siteOf(), {
+      ...deps({ Websites: [], Reports: [] }),
+      audit: async () => {
+        audited = true;
+        return [lighthouseResult()];
+      },
+    });
+
+    expect(result.complete).toBe(false);
+    expect(audited).toBe(false);
+    expect(result.steps.at(-1)).toEqual({
+      name: "audit",
+      result: { kind: "error", message: 'no site row matched site "Acme Co"' },
+    });
+  });
+});
+
+describe("recipes/launch launchAudits", () => {
+  function recordingRun(calls: Array<{ site: Site; which?: AuditName[] }>) {
+    return async (site: Site, which?: AuditName[]): Promise<AuditResult[]> => {
+      calls.push(which ? { site, which } : { site });
+      return (which ?? ALL_AUDIT_NAMES).map((audit) => ({
+        audit,
+        site: "acme",
+        status: "pass" as const,
+        summary: audit,
+      }));
+    };
+  }
+
+  it("points Lighthouse alone at the deployed url and keeps every other audit on the checkout", async () => {
+    const calls: Array<{ site: Site; which?: AuditName[] }> = [];
+    const site: Site = { path: "/c/acme", name: "acme", deployedUrl: "https://acme.example.com" };
+
+    const results = await launchAudits(site, recordingRun(calls));
+
+    expect(calls).toHaveLength(2);
+    expect(calls).toContainEqual({ site, which: ["lighthouse"] });
+    const rest = calls.find((c) => !c.which?.includes("lighthouse"))!;
+    expect(rest.site).toEqual({ path: "/c/acme", name: "acme" });
+    expect("deployedUrl" in rest.site).toBe(false);
+    expect(rest.which).toEqual(ALL_AUDIT_NAMES.filter((n) => n !== "lighthouse"));
+    expect(results.map((r) => r.audit).sort()).toEqual([...ALL_AUDIT_NAMES].sort());
+  });
+
+  it("runs every audit on the checkout when there is no deployed url", async () => {
+    const calls: Array<{ site: Site; which?: AuditName[] }> = [];
+    const site: Site = { path: "/c/acme", name: "acme" };
+
+    await launchAudits(site, recordingRun(calls));
+
+    expect(calls).toEqual([{ site }]);
   });
 });

@@ -8,6 +8,27 @@ describe("cli/launch formatStep", () => {
     );
   });
 
+  const scores = { performance: 72, accessibility: 100, bestPractices: 100, seo: 100 };
+
+  it("names the deployed url an audit measured", () => {
+    expect(
+      formatStep("audit", {
+        kind: "audit",
+        results: [],
+        scores,
+        deployedUrl: "https://vidalegacy.org/",
+      }),
+    ).toBe(
+      "audit                audited (deployed https://vidalegacy.org/): P=72 A=100 BP=100 SEO=100",
+    );
+  });
+
+  it("flags an audit measured on the local dev server", () => {
+    expect(formatStep("audit", { kind: "audit", results: [], scores, deployedUrl: null })).toBe(
+      "audit                audited (local dev server — not a production baseline): P=72 A=100 BP=100 SEO=100",
+    );
+  });
+
   it("still renders an error step as an error line", () => {
     expect(formatStep("dev-guard", { kind: "error", message: "live in production" })).toBe(
       "dev-guard            error: live in production",

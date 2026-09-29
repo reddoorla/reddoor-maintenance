@@ -10,7 +10,10 @@ export function formatStep(name: string, r: LaunchStepResult): string {
   if (r.kind === "error") return `${name.padEnd(20)} error: ${r.message}`;
   if (r.kind === "audit") {
     const s = r.scores;
-    return `${name.padEnd(20)} audited (P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo})`;
+    const source = r.deployedUrl
+      ? `deployed ${r.deployedUrl}`
+      : "local dev server — not a production baseline";
+    return `${name.padEnd(20)} audited (${source}): P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo}`;
   }
   if (r.kind === "draft") {
     return `${name.padEnd(20)} drafted ${r.report.reportId}`;

@@ -1,0 +1,5 @@
+---
+"@reddoorla/maintenance": patch
+---
+
+`launch` measures the site's Lighthouse baseline on its deployed url, not on a local dev server. The site row is read before the audit, and when its `url` is http(s) Lighthouse runs against that url with the nightly's settings (desktop preset, three runs averaged). Every other audit in the first run still reads the checkout, as before. Before this change the first audit always booted `vite:dev` and measured the default `/dev/a11y-fixtures` page, and those scores went on the Launch row and on `site_health`. On vida-legacy-foundation that stored 52/100/100/61. Run again through the same code path, the old audit reproduces those exact numbers, and the new one gives 77/100/100/100 against https://vidalegacy.org/. The `audit` line now says what was measured: `audited (deployed https://…)`, or `audited (local dev server — not a production baseline)` for the dev-server fallback. That fallback runs only when the row's `url` is not http(s), and such a row cannot pass the dev guard today, so its scores are never stored.

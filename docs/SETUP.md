@@ -234,6 +234,8 @@ reddoor-maint launch <path-to-site>
 This runs the chain — **bootstrap (`self-updating`) → first audit → draft a purpose-built launch email** — and stops at a `draft_ready` Launch report in your approve queue (it never sends directly). Approve it on the site's dashboard page; the next run sends the go-live email and **flips the site's Status to `maintained`** with a `launched_at` stamp. The launch email reuses the per-site Copy — Contact / Copy — Footer overrides from the site details.
 
 > Requires the site's row in Turso with its deployed `url` (Phase 4): `launch` finds the site by name, checks its dev guard against that url, and stops with `no site row matched` when there is no row. The send also needs the site's header plate (`header-image <slug> --write-back`).
+>
+> The first audit's Lighthouse scores are the site's baseline: they go on the Launch report and on `site_health`. Lighthouse measures the row's `url` with the same settings as the `fleet-lighthouse` nightly (desktop preset, three runs averaged), and the `audit` line names it: `audited (deployed https://…): P=… A=… BP=… SEO=…`. A row whose `url` is not http(s) falls back to the checkout's dev server, which measures `/dev/a11y-fixtures` unless the site's `package.json#reddoor.lighthouseUrl` says otherwise, and that page is `noindex` by design. Today such a row cannot pass the dev guard, which probes the same `url`, so a fallback baseline is never stored; if one ever is, the line reads `audited (local dev server — not a production baseline)`. The other audits in the first run still read the checkout; `domain`, `browser` and `function-health` start with the first nightly after the send.
 
 ---
 

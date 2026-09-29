@@ -1,14 +1,15 @@
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { AuditResult, RecipeResult, Site } from "../types.js";
+import type { AuditName, AuditResult, RecipeResult, Site } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { selfUpdating } from "./self-updating/index.js";
 import { HARNESS_JSON_RELATIVE, UNGUARDED_TWIN_TELL } from "./match-harness/template.js";
-import { runAudits } from "../audits/index.js";
+import { ALL_AUDIT_NAMES, runAudits } from "../audits/index.js";
 import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-fields.js";
 import { writeBackOneSite } from "../audits/write-audits.js";
 import { siteSlug } from "../fleet/site-row.js";
+import { isHttpUrl } from "../util/url.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { createReportDraft, findReportForPeriod } from "../reports/create-report.js";
 import type { DraftInput } from "../reports/draft-fields.js";
@@ -22,7 +23,12 @@ import type { LighthouseScores } from "../reports/types.js";
 
 export type LaunchStepResult =
   | { kind: "recipe"; result: RecipeResult }
-  | { kind: "audit"; results: AuditResult[]; scores: LighthouseScores }
+  | {
+      kind: "audit";
+      results: AuditResult[];
+      scores: LighthouseScores;
+      deployedUrl: string | null;
+    }
   | { kind: "draft"; report: ReportRow }
   | { kind: "probe"; message: string }
   | { kind: "error"; message: string };
@@ -38,7 +44,7 @@ export type LaunchResult = {
 export type LaunchDeps = {
   /** Bootstrap step (Renovate + protection; ci.yml comes from the starter). Defaults to the real `selfUpdating`. */
   bootstrap?: (site: Site) => Promise<RecipeResult>;
-  /** Audit step. Defaults to the real `runAudits`. */
+  /** Audit step. Defaults to `launchAudits`. */
   audit?: (site: Site) => Promise<AuditResult[]>;
   /** Every site in the fleet, read from TURSO (#646 step 4). Required, not
    *  defaulted: the unit suite must not open a real libSQL handle. The CLI
@@ -557,6 +563,23 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
   return { status: res.status, body: await res.text() };
 };
 
+export async function launchAudits(
+  site: Site,
+  run: (site: Site, which?: AuditName[]) => Promise<AuditResult[]> = runAudits,
+): Promise<AuditResult[]> {
+  if (!site.deployedUrl) return run(site);
+  const checkout: Site = { ...site };
+  delete checkout.deployedUrl;
+  const [lighthouse, rest] = await Promise.all([
+    run(site, ["lighthouse"]),
+    run(
+      checkout,
+      ALL_AUDIT_NAMES.filter((n) => n !== "lighthouse"),
+    ),
+  ]);
+  return [...lighthouse, ...rest];
+}
+
 /**
  * Launch a site: bootstrap → first-audit → DRAFT a launch email. The M3
  * approve loop is what actually sends; `launch` never sends — it stops at a
@@ -566,8 +589,8 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
  * EXECUTION order, stopping on the first error or `failed` recipe:
  *   0. matchingDisposition — filesystem pre-flight, BEFORE any GitHub write.
  *   1. selfUpdating — Renovate + protection (platform auto-merge OFF; ci.yml is the starter's).
- *   2. audit — the Lighthouse scores that feed the draft are collected here.
- *   3. the Websites-row lookup, which supplies the url the next step probes.
+ *   2. the Websites-row lookup, which supplies the url the next two steps use.
+ *   3. audit — the Lighthouse scores that feed the draft are collected here.
  *  3b. dev-guard — the same twin, checked against the DEPLOYED url. It sits
  *      BETWEEN collecting the scores and writing them, so a site that fails it
  *      has been audited but leaves its Websites row untouched.
@@ -580,12 +603,12 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
  * is what the CLI prints and what tests/recipes/launch.test.ts asserts. Do not
  * renumber either list to match the other: one says when work happens, the
  * other says what has been proved. Only step 0 precedes a GitHub write —
- * dev-guard cannot, because it needs the row from step 3 to know the url.
+ * dev-guard cannot, because it needs the row from step 2 to know the url.
  */
 export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult> {
   const label = siteLabel(site);
   const bootstrap = deps.bootstrap ?? selfUpdating;
-  const audit = deps.audit ?? runAudits;
+  const audit = deps.audit ?? launchAudits;
   const probe = deps.probe ?? defaultProbe;
 
   const steps: Array<{ name: string; result: LaunchStepResult }> = [];
@@ -612,10 +635,22 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   steps.push({ name: "self-updating", result: { kind: "recipe", result: recipe } });
   if (recipe.status === "failed") return stop();
 
+  const websites = await deps.roster();
+  const target = websites.find((w) => siteSlug(w.name) === siteSlug(label));
+  if (!target) {
+    steps.push({
+      name: "audit",
+      result: { kind: "error", message: `no site row matched site "${label}"` },
+    });
+    return stop();
+  }
+
   // 2. Audit + write scores back to the site row.
+  const auditSite: Site = isHttpUrl(target.url) ? { ...site, deployedUrl: target.url } : site;
+  const deployedUrl = auditSite.deployedUrl ?? null;
   let results: AuditResult[];
   try {
-    results = await audit(site);
+    results = await audit(auditSite);
   } catch (err) {
     steps.push({ name: "audit", result: errorOf(err) });
     return stop();
@@ -639,16 +674,6 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     bestPractices: rawScores.bestPractices ?? 0,
     seo: rawScores.seo ?? 0,
   };
-
-  const websites = await deps.roster();
-  const target = websites.find((w) => siteSlug(w.name) === siteSlug(label));
-  if (!target) {
-    steps.push({
-      name: "audit",
-      result: { kind: "error", message: `no site row matched site "${label}"` },
-    });
-    return stop();
-  }
 
   // 2b. The dev guard, on the DEPLOYED build. Two halves, both required:
   //     /dev/match/home must 404 WITH this site's own error page, and /health
@@ -736,7 +761,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     steps.push({ name: "audit", result: errorOf(err) });
     return stop();
   }
-  steps.push({ name: "audit", result: { kind: "audit", results, scores } });
+  steps.push({ name: "audit", result: { kind: "audit", results, scores, deployedUrl } });
 
   // 3. Draft the launch email (reuses draft.ts's reportId/period scheme). DRAFTS
   //    ONLY — the M3 approve loop sends it and flips Status on send.
