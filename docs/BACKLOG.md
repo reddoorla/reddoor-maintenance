@@ -143,8 +143,10 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
 ### Blocked behind another PR (do not start early)
 
 - **#905, #949** (a11y spec: missing-browser message, `addStyleTag` under strict
-  CSP): both edit the spec that open PR **#950** (another session) rewrites. Wait
-  for #950.
+  CSP): **unblocked**. #950 (another session) merged 2026-09-29 12:39Z and
+  rewrote the spec both edit, so start from `main` after it, not from either
+  issue's line numbers. Claim on the issue first; the session that filed #949
+  may pick it up.
 - **#947 (recipe half)**: `src/recipes/smoke-suite/template.ts:32` scaffolds
   `hydrationMarker: "footer"`, which cannot prove hydration. It is agent-ready,
   but pairs with #948's hydration-signal decision.
@@ -154,6 +156,10 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
 
 - **#960**: the `spawn.test` zombie flake (`kill ESRCH`, about 1 in 180 cloud
   runs). Another session filed it and has a tested patch.
+- **#969**: a11y audit's `SpawnTimeoutError` kills Playwright's process group
+  but orphans its `webServer` (the site's dev server). Filed from #950's review
+  by the same session; its fix touches `src/audits/util/spawn.ts`, as #960 does,
+  so the two should not be worked in parallel.
 
 ---
 
@@ -188,8 +194,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
 8. **#918 / #920** (GA4 tag mechanism + recipe) — their author stopped after
    four dirty review rounds with "the merge is yours". #918 is 16 behind main
    and predates #936's `no analytics` opt-out.
-9. **#916 vs #950** — both rewrite the a11y spec and conflict. #916 would turn
-   9 of 12 sampled sites red until their palettes are fixed. Pick the order.
+9. **#916** — #950 merged first (2026-09-29 12:39Z), so #916 now conflicts
+   with `main` and needs a rebase over it. It would turn 9 of 12 sampled sites
+   red until their palettes are fixed. Decide whether it is still wanted before
+   anyone spends the rebase.
 10. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
