@@ -25,6 +25,10 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     pointOfContact: "Tucker",
     ga4PropertyId: "123456789",
     searchConsoleProperty: "sc-domain:acme.example.com",
+    // The two roster identities the nightly sweeps need (#889): a healthy
+    // maintained fixture carries both, so it reads healthy.
+    gitRepo: "reddoorla/acme",
+    netlifyId: "11111111-2222-3333-4444-555555555555",
     maintenanceFreq: "Monthly",
     reportRecipientsTo: "t@x.com",
     pScore: 95,
