@@ -251,7 +251,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
     differently or drop out.
 18. **Standing product calls** — #943 (what "Search Console set up" means),
     #948 (hydration signal), #690 (pnpm pin questions), #672 (cockpit design),
-    #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
+    #674 (design-review tool: rules mined in
+    `docs/design-review-rules-2026-09.md`; awaiting the operator's accept/cut, plus a
+    call on a `data-bleed`-style full-bleed opt-in), #711 (close into CLAUDE.md or scope one lint),
     #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
     #773 (local-only git objects).
 19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2

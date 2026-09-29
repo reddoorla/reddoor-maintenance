@@ -5747,3 +5747,29 @@ Each survivor got a test, and each test was shown red under its mutation before 
 **First live run** (dispatched once on `main`): https://github.com/reddoorla/reddoor-maintenance/actions/runs/36638161272. The positive control passed on all three fixtures. The sweep printed `SYNC_CONFIGS_DRIFT drifted=15 clean=0 skipped=0 total=15`, with 51 DRIFT lines across 15 repos. It filed #1007 "Fleet config drift", and the recovery-close step ran and found nothing to close.
 
 **Beliefs corrected on contact.** The instrument works. What it measured is that every site on the roster has drifted from the templates, with nothing clean and nothing skipped. Counting DRIFT lines per file: `.gitignore` 13 of 15 repos, `playwright.config.ts` 9, `eslint.config.js` 8, `lighthouserc.json` 7, `.prettierrc.json` 6, `netlify.toml` 4, `renovate.json` 3, `.prettierignore` 1. So the weekly report starts as a standing backlog of 15 per-repo `sync-configs` PRs, not an exception feed. Healing it is a per-repo PR each time; a fleet-wide push is 🔴 and was not attempted. Until those land, #1007 stays open every week by design.
+
+## 2026-09-29 — #674: design-review rules mined, no code (#PRNUM)
+
+The operator decided on 2026-09-29 that #674 should mine the rules first and write no code. This session did the mining from the cloud. The result is `docs/design-review-rules-2026-09.md`: 25 ranked rules, nine single-site clusters, eleven rules for the written guide, and a tail of rules seen once.
+
+**What was read.**
+
+- This repo: the whole journal, meta-week (its `_data/commits.jsonl` of fleet commit subjects turned out to be the densest source here), the morning reports and the specs.
+- Eight public fleet repos: reddoor-website, beachfront-dentistry, gallerysonder, vida-legacy-foundation, roalson-interests, 29-navy and both starters. For each one, every issue and PR body (954 in total), every human comment (179), CLAUDE.md, docs, journals and code comments that state a rule.
+- Seven read-only agents did the reading, one per source group. 44 of their quotes were then grepped back against the sources: all were genuine, and a deliberately wrong probe missed.
+
+Discord, Figma comments and the MarkUp boards could not be reached from a cloud session. Neither could the private `claude-skills` repo, which was not attached. They are listed in the file as a second pass for a laptop session.
+
+**Beliefs corrected on contact.**
+
+- **Design review never happened in GitHub's review UI.** PR line-review comments are zero on all eight repos. The reviewers' words reach the repos only as agent-written fix PRs and journal entries that quote them. The best primary record a cloud session can read is beachfront's and 29-navy's `matching/LEDGER.md`, which transcribe Tim's MarkUp pins round by round.
+- **The seed rule holds and is the most restated note:** about 30 instances on 5 sites. But **neither starter has an explicit full-bleed marker.** Full-bleed is implicit: an element sits in the band's section, outside its content box. #674 itself says full-bleed must be an explicit opt-in and never inferred. So the first rule has a prerequisite, and that prerequisite is a design call, which is now an ask.
+- **Two of the issue's illustrative seeds are thinner than the issue implied.**
+  - The blend/transform isolation bug has about 6 instances, all on reddoor-website plus one on beachfront.
+  - "A container class passed from outside collapses the gutter" has **no recorded defect** in anything a cloud session can read. reddoor-starter's `ContentWidth` already protects its gutter against a passed class. By #674's own bar ("must fail on at least one real page") it does not qualify yet. The Discord pass should look for it specifically.
+- **The broadest rules are motion and contrast, not layout.**
+  - Reduced motion shows up on all 8 repos.
+  - Contrast against the ground that is actually painted (photos, textures, hover and open states, after reveals settle) is the largest cluster, at about 40 instances. Most of it is what axe cannot see. The fleet audit's axe filter also drops the best-practice heading rules (`page-has-heading-one`, `heading-order`), which is why the 25-instance heading-outline cluster kept being found by hand.
+- **A recurring meta-finding: the gates only sampled three widths.** Beachfront's gutters agreed at 1440/834/390 and splayed at 1294. Vida's 4-up grid was keyed to the comp's 1440 and fell to 2×2 at a maximized 1440 window's 1425. Rule 10 turns this into the viewport sweep every other rule runs on.
+
+**Honest accounting.** The rule counts are distinct instances as the miners reported them, not a deduplicated census. One fix PR, its journal entry and its commit subject can describe the same event, and some rules count all three. The ranking is frequency × testability, judged per rule, and is not a formula. Nothing here has been run against a page. Every "check" line is a proposal until a fixture shows it passing on a known-good page and failing on the real past defect it cites.
