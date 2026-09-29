@@ -1,8 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { siteSlug, ACTIVE_STATUSES } from "../../reports/airtable/websites.js";
-import type { WebsiteRow } from "../../reports/airtable/websites.js";
-import { uploadAttachment } from "../../reports/airtable/attachments.js";
+import { siteSlug, ACTIVE_STATUSES } from "../../fleet/site-row.js";
+import type { WebsiteRow } from "../../fleet/site-row.js";
 import { generateHeaderImage } from "../../reports/header-image/index.js";
 import type { StoredHeaderImage } from "../../db/header-images.js";
 
@@ -13,10 +12,8 @@ export type HeaderImageOptions = {
   outDir?: string;
   settleMs?: string;
   consentSelector?: string;
-  /** Injected Turso store for the dual-write (#539, design D5): while Airtable
-   *  is still written (until the Phase 5 freeze), every upload ALSO lands the
-   *  bytes in sites.header_image* so the Turso read layer serves a real image.
-   *  Absent → Airtable-only (a local run without Turso env still works). */
+  /** The Turso store `--write-back` lands the bytes in (sites.header_image*,
+   *  design D5). Injected in tests; the command wires the real one. */
   storeDb?: (siteId: string, img: StoredHeaderImage) => Promise<void>;
 };
 
@@ -60,9 +57,9 @@ export function parseSettleMs(value: string | undefined): number | undefined {
 type Generate = typeof generateHeaderImage;
 
 /**
- * Generate a header image per target row and either upload it to Airtable or
+ * Generate a header image per target row and either store it in Turso or
  * write it locally for review. Split out of {@link runHeaderImageCommand} so
- * the local-output path is testable without an Airtable base.
+ * both paths are testable without a real store.
  */
 export async function generateForTargets(
   targets: readonly WebsiteRow[],
@@ -90,29 +87,15 @@ export async function generateForTargets(
         ...(opts.consentSelector === undefined ? {} : { consentSelector: opts.consentSelector }),
       });
       if (opts.writeBack) {
-        // replaceIn: the field must hold exactly the current header — see
-        // uploadAttachment, where appending left readers on a stale [0].
-        await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
-          replaceIn: "Websites",
+        if (!opts.storeDb) throw new Error("--write-back has no Turso store to write to");
+        await opts.storeDb(row.id, {
+          bytes: gen.bytes,
+          filename: gen.filename,
+          contentType: gen.contentType,
+          generatedAt: new Date().toISOString(),
         });
-        let stored = "";
-        if (opts.storeDb) {
-          // Dual-write. A Turso failure must not void the Airtable upload —
-          // but it must be VISIBLE, never a silent divergence.
-          try {
-            await opts.storeDb(row.id, {
-              bytes: gen.bytes,
-              filename: gen.filename,
-              contentType: gen.contentType,
-              generatedAt: new Date().toISOString(),
-            });
-            stored = " + turso";
-          } catch (err) {
-            stored = ` (⚠ turso store FAILED: ${err instanceof Error ? err.message : String(err)})`;
-          }
-        }
         lines.push(
-          `✔ ${row.name} — uploaded ${gen.filename} (${(gen.bytes.byteLength / 1024 / 1024).toFixed(2)} MB)${stored}`,
+          `✔ ${row.name} — stored ${gen.filename} (${(gen.bytes.byteLength / 1024 / 1024).toFixed(2)} MB) in turso`,
         );
       } else {
         const path = resolve(outDir, gen.filename);
@@ -132,8 +115,8 @@ export async function generateForTargets(
 /**
  * `header-image [site]` — capture a site's live homepage and composite its
  * report header image. Defaults to writing the JPEG locally so the operator can
- * eyeball it; `--write-back` uploads it to the Websites row's Header image
- * field. `--all` backfills every live site that has no header image yet.
+ * eyeball it; `--write-back` stores it as the site's header plate in Turso.
+ * `--all` backfills every live site that has no header image yet.
  */
 export async function runHeaderImageCommand(
   site: string | undefined,
@@ -142,7 +125,7 @@ export async function runHeaderImageCommand(
   // #646 step 4: the roster comes from Turso, which holds every site. That also
   // makes `--all` honest about what it backfills: `headerImage` on a Turso row
   // reflects `sites.header_image*`, the bytes the report actually renders from
-  // (design D5), not the Airtable attachment the send path no longer needs.
+  // (design D5).
   const { readFleetRoster } = await import("../../fleet/roster.js");
   const rows = await readFleetRoster();
   const targets = resolveTargets(rows, { site, all: opts.all, force: opts.force });
@@ -152,10 +135,10 @@ export async function runHeaderImageCommand(
       code: 1,
     };
   }
-  // Wire the Turso dual-write when the env is present; a local run without it
-  // still works Airtable-only (the store is per-site error-isolated above).
+  // readDbConfig throws a named config error when the Turso env is absent, so a
+  // `--write-back` that has nowhere to write refuses before any capture.
   let withStore = opts;
-  if (opts.writeBack && !opts.storeDb && process.env.TURSO_DATABASE_URL) {
+  if (opts.writeBack && !opts.storeDb) {
     const { openDb, readDbConfig } = await import("../../db/client.js");
     const { storeHeaderImage } = await import("../../db/header-images.js");
     const db = await openDb(readDbConfig());

@@ -269,7 +269,7 @@ async function repoToplevel(cwd: string): Promise<string | null> {
 
 /**
  * Resolve the `owner/repo` a recipe will act on, and PROVE it rather than infer
- * it. An explicit `site.gitRepo` (Airtable, or a JSON inventory) wins;
+ * it. An explicit `site.gitRepo` (the fleet roster, or a JSON inventory) wins;
  * otherwise it is derived from the checkout's `origin`.
  *
  * Returns `null` for the two states that genuinely mean "nothing is wired
@@ -303,7 +303,7 @@ async function repoToplevel(cwd: string): Promise<string | null> {
  * statuses), so the positional path is the ONLY one `/new-site` can use.
  */
 export async function resolveOwnerRepo(site: Site): Promise<string | null> {
-  // Trimmed: a hand-typed Airtable cell with a trailing space is a typo, not a
+  // Trimmed: a hand-typed cell with a trailing space is a typo, not a
   // malformed identity, and a blank cell means "unset" — fall through to origin
   // rather than fail closed with an alarming refusal.
   const declared = site.gitRepo?.trim();

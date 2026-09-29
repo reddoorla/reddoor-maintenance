@@ -11,7 +11,7 @@ export function defaultCredentialsPath(): string {
 
 /** Parse a tiny subset of dotenv: `KEY=value` per line, `# comments`,
  *  blank lines. A leading `export ` token is stripped (dotenv does this),
- *  so a hand-edited `export AIRTABLE_PAT=…` parses instead of being dropped.
+ *  so a hand-edited `export RESEND_API_KEY=…` parses instead of being dropped.
  *  Quoted values strip the surrounding quotes. A non-blank, non-comment line
  *  that still doesn't parse (no `=`, bad key) is skipped with a one-line
  *  stderr warning naming the line number — this is a credentials file, so a

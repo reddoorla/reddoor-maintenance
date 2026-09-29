@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
-import type { ExistingRuleset, RulesetPayload } from "./rulesets.js";
+import type { ExistingRuleset, RulesetPayload, RulesetRule } from "./rulesets.js";
 
 /** Aggregate CI state of a PR's head commit, normalized from GitHub's rollup. */
 export type CiState = "passing" | "failing" | "pending" | "none";
@@ -130,8 +130,8 @@ export type GitHub = {
    *  need a paid plan, so callers gate on this rather than attempting. */
   repoVisibility: (repo: string) => Promise<string>;
   /** Every repo in the org (paginated) — the anti-hand-typed-list enumerator.
-   *  Sweeps driven by a hand-maintained or Airtable-scoped list have already
-   *  produced two false "all clear"s; enumerate from the API instead.
+   *  Sweeps driven by a hand-maintained list have already produced two false
+   *  "all clear"s; enumerate from the API instead.
    *  secretScanning/pushProtection come from the same listing (no extra call);
    *  "unavailable" means the token couldn't read security_and_analysis (needs
    *  admin/security read) — callers must treat that as unverified, not fine. */
@@ -186,7 +186,19 @@ export type GitHub = {
    *  `pnpm/action-setup` steps that pin a pnpm `version:` input — see
    *  parsePnpmActionSetupPins for why the file must be PARSED, not grepped. */
   listWorkflowPaths: (repo: string) => Promise<string[]>;
+  /** What requires CI on ONE branch — the Renovate base-branch check (#892).
+   *  `null` when the branch does not exist, which is an ANSWER: Renovate cannot
+   *  merge into a branch that is not there. `rules` is GitHub's own evaluation
+   *  of every ACTIVE ruleset that applies to the branch (`rules/branches/…`),
+   *  so ref include/exclude patterns, `~ALL` and org rulesets are resolved by
+   *  GitHub rather than re-implemented here. `classicContexts` is classic
+   *  branch protection's required checks, read from `branches/…`, which needs
+   *  only read access (`…/protection` needs Administration). Every other
+   *  failure THROWS, so a refusal can never arrive as "no required check". */
+  branchRequiredChecks: (repo: string, branch: string) => Promise<BranchRequiredChecks | null>;
 };
+
+export type BranchRequiredChecks = { rules: RulesetRule[]; classicContexts: string[] };
 
 export type WorkflowHealth =
   { present: false } | { present: true; state: string; lastSuccessAt: string | null };
@@ -594,7 +606,7 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       }
       // Every segment interpolates into the API path, so guard them all like the
       // other write methods do (defense in depth). `owner`/`name` are the most
-      // operator-controlled (typed into Airtable's "Git repo"); `workflow` is a
+      // operator-controlled (typed into the site's "Git repo"); `workflow` is a
       // constant today; `ref` is repo-sourced. A junk value like `repo?x=1` would
       // otherwise smuggle a query string past the bare two-part shape check.
       assertUrlSegment("path", owner);
@@ -761,6 +773,67 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l.endsWith(".yml") || l.endsWith(".yaml"));
+    },
+    async branchRequiredChecks(repo, branch) {
+      assertUrlSegment("path", repo);
+      assertUrlSegment("branch", branch);
+      // spawn-direct: a 404 is the answer "no such branch"; anything else throws.
+      const b = await spawn(
+        "gh",
+        ["api", `repos/${repo}/branches/${branch}`, "--jq", ".protection"],
+        {
+          env,
+          timeoutMs: 60_000,
+        },
+      );
+      if (b.code !== 0) {
+        if (/HTTP 404/.test(b.stderr)) return null;
+        throw new Error(`branchRequiredChecks(${repo}:${branch}) failed: ${b.stderr.trim()}`);
+      }
+      const protection = JSON.parse(b.stdout.trim() || "null") as {
+        required_status_checks?: {
+          enforcement_level?: string;
+          contexts?: string[];
+          checks?: Array<{ context?: string }>;
+        };
+      } | null;
+      // Absent is not "unprotected" — it is a response this reader does not
+      // understand, and it must not arrive downstream as zero required checks.
+      if (protection === null || typeof protection !== "object") {
+        throw new Error(
+          `branchRequiredChecks(${repo}:${branch}): no protection object in the response`,
+        );
+      }
+      const rsc = protection.required_status_checks;
+      const classicContexts =
+        rsc && rsc.enforcement_level !== "off"
+          ? [
+              ...new Set([
+                ...(rsc.contexts ?? []),
+                ...(rsc.checks ?? []).map((c) => c.context ?? "").filter((c) => c.length > 0),
+              ]),
+            ]
+          : [];
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          "--paginate",
+          `repos/${repo}/rules/branches/${branch}?per_page=100`,
+          "--jq",
+          ".[].type",
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        throw new Error(`branchRequiredChecks(${repo}:${branch}) rules failed: ${r.stderr.trim()}`);
+      }
+      const rules = r.stdout
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .map((type) => ({ type }));
+      return { rules, classicContexts };
     },
     async workflowHealth(repo, filename) {
       // spawn-direct for the workflow GET: 404 (file not registered as a

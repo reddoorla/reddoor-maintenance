@@ -2,10 +2,13 @@
 
 Design: [`specs/2026-08-17-airtable-to-turso-migration-design.md`](../specs/2026-08-17-airtable-to-turso-migration-design.md)
 Tracking issue: **#539**
-Written: 2026-08-17 · **Status refreshed: 2026-08-26**
+Written: 2026-08-17 · **Status refreshed: 2026-09-29**
 
-**Status: phases 0–4 complete, phase 5 (freeze) in progress. The flip is the week
-of Monday 2026-08-31.**
+**Status: complete.** Phase 5 flipped on 2026-08-31, the Airtable shadow was
+switched off on 2026-09-28 (#933), and Phase 6 deleted the Airtable layer the same
+day (#937), with the follow-up relocation of the pure modules after it. The base
+is kept as a frozen archive. The status below the Phase 6 heading is as it was
+written before that; the work journal has what actually happened.
 
 Read the design first. It records the four decisions and the verified baseline;
 this file is only the ordering and the checks.
@@ -136,7 +139,7 @@ _actual nightly artifact_ was downloaded, decrypted locally with
 independently confirmed by a `turso db shell` count check. A full fleet restore
 takes seconds.
 
-## Phase 6 — retire ⏳ SCHEDULED — not before 2026-09-07
+## Phase 6 — retire ✅ DONE 2026-09-28 (#934, #935, #937)
 
 Delete `src/reports/airtable/**` and its callers; keep the frozen base as an
 archive. **The order is load-bearing — see #646 for the dependency-ordered

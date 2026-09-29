@@ -112,7 +112,7 @@ export function defaultNetlifyDeployDeps(
     fetchLatestProductionDeploy: async (siteId): Promise<NetlifyDeployFetch> => {
       // `production=true` + `per_page=1` asks Netlify for ONLY the newest
       // production deploy, so we read `[0]` without paging. siteId is the
-      // Airtable-supplied site identity; encode it so it can't break the path.
+      // inventory-supplied site identity; encode it so it can't break the path.
       const url =
         `https://api.netlify.com/api/v1/sites/${encodeURIComponent(siteId)}/deploys` +
         `?per_page=1&production=true`;
@@ -173,7 +173,7 @@ export function defaultNetlifyDeployDeps(
  * fail (the "needs attention" status — it lands the site in the cockpit's attention
  * tier, mirroring a sub-floor Lighthouse score); an in-flight build or any
  * unknown/unreadable state → warn (neutral, no verdict yet). `details` carries
- * `{ state, deployedAt, logUrl, checkedAt }` for the Airtable writer + dashboard.
+ * `{ state, deployedAt, logUrl, checkedAt }` for the write-back + dashboard.
  */
 export async function netlifyDeployAudit(ctx: AuditContext): Promise<AuditResult> {
   const { site } = ctx;
@@ -191,7 +191,7 @@ export async function netlifyDeployAudit(ctx: AuditContext): Promise<AuditResult
   const fetched = await checkNetlifyDeploy(site.netlifyId, deps);
 
   // Couldn't read Netlify (network error / non-2xx / malformed). Return WITHOUT
-  // details so `hasNetlifyDeployResult` is false and the Airtable writer skips the
+  // details so `hasNetlifyDeployResult` is false and the write-back skips the
   // write — leaving the prior `Deploy status` intact. A `Deploy status` of `error`
   // drives the cockpit's Broken band, and a transient API hiccup during the nightly
   // sweep must NEVER silently clear that alarm to "all clear" while prod is down.

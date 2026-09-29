@@ -1,6 +1,5 @@
-// #646 step 4: preflight reads through the readers its caller hands it, so this
-// file no longer touches the Airtable layer at all — its row helpers come from
-// the vendor-neutral modules step 1 moved them to.
+// #646 step 4: preflight reads through the readers its caller hands it; its row
+// helpers come from the vendor-neutral modules step 1 moved them to.
 import { siteSlug } from "../fleet/site-row.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-row.js";
@@ -41,7 +40,7 @@ function domainOf(addr: string): string {
 function isOperatorSite(site: WebsiteRow): boolean {
   if (!site.url) return false;
   try {
-    // Airtable `url` cells aren't guaranteed a scheme; retry with one before giving up.
+    // Stored `url` cells aren't guaranteed a scheme; retry with one before giving up.
     const host = new URL(
       /^[a-z][a-z0-9+.-]*:\/\//i.test(site.url) ? site.url : `https://${site.url}`,
     ).hostname.toLowerCase();
@@ -66,7 +65,7 @@ function checkFrequency(
   findings: PreflightFinding[],
   now: Date,
 ): void {
-  // Validate the RAW Airtable cell, not the coerced Frequency: toFrequency trims
+  // Validate the RAW cell, not the coerced Frequency: toFrequency trims
   // whitespace (so "Monthly " schedules), then coerces any still-unrecognized value
   // (typo, renamed option) to "None" with a console.warn. That warn only lands in
   // logs — this finding is the structured, surfaced version of the same failure.
@@ -76,7 +75,7 @@ function checkFrequency(
     findings.push({
       level: "fail",
       check: "frequency-unrecognized",
-      message: `${which} frequency cell is '${raw}' — not a recognized Monthly/Quarterly/Yearly/None (even after trimming), so the scheduler treats it as None and the site drops off the calendar; fix the Airtable value`,
+      message: `${which} frequency cell is '${raw}' — not a recognized Monthly/Quarterly/Yearly/None (even after trimming), so the scheduler treats it as None and the site drops off the calendar; fix it in the site's details`,
     });
     return;
   }
@@ -103,13 +102,13 @@ function checkFrequency(
 /**
  * Pure per-site preflight: every check that, left unfixed, makes a report send fail,
  * go to the wrong inbox, or surprise the operator. Read-only over data already
- * fetched; no Airtable handle, no network — trivially testable.
+ * fetched; no database handle, no network — trivially testable.
  *
  * Mirrors the send/draft-time validation (recipients + header image in
  * send/orchestrate.ts, Websites-row scores in draft.ts) so problems surface BEFORE
  * draft/approve instead of exploding at `report --send-ready`, and adds the checks
  * send time cannot do: operator-address leftovers, To-override shadowing,
- * pending-draft races, schedule hygiene against the RAW Airtable values.
+ * pending-draft races, schedule hygiene against the RAW stored values.
  */
 export function preflightSite(
   site: WebsiteRow,
@@ -276,7 +275,7 @@ export function preflightSite(
     }
   }
 
-  // --- Schedule hygiene (validates the RAW Airtable frequency cells).
+  // --- Schedule hygiene (validates the RAW frequency cells).
   checkFrequency(site, "maintenance", reports, findings, now);
   checkFrequency(site, "testing", reports, findings, now);
   if (type === "Announcement") {
@@ -295,8 +294,8 @@ export function preflightSite(
 }
 
 /**
- * Fleet-level heuristics that need the whole selection. Airtable column renames
- * don't error — the mapper reads null forever (its own header comment admits this).
+ * Fleet-level heuristics that need the whole selection. Column renames don't
+ * error — a broken column mapping reads null forever.
  * A load-bearing column empty on EVERY selected site is far more likely a rename
  * than N coincidences; say so. Likewise two different sites resolving to one
  * recipient is worth one eyeball (it can be legitimate — same owner, two sites).
@@ -309,7 +308,7 @@ export function preflightFleet(sites: WebsiteRow[]): PreflightFinding[] {
       findings.push({
         level: "warn",
         check: "column-possibly-renamed",
-        message: `'${column}' is empty on all ${sites.length} selected sites — if that column was renamed in Airtable the code reads null silently; verify the column name`,
+        message: `'${column}' is empty on all ${sites.length} selected sites — a broken column mapping reads as null silently; verify the column name`,
       });
     }
   };
@@ -455,7 +454,7 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       findings.push({
         level: "fail",
         check: "recipients-malformed",
-        message: `recipient '${addr}' is malformed — fix Report recipients (To) / point of contact in Airtable`,
+        message: `recipient '${addr}' is malformed — fix Report recipients (To) / point of contact in the site's details`,
       });
     }
   }
@@ -464,7 +463,7 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       findings.push({
         level: "fail",
         check: "recipients-malformed",
-        message: `CC '${addr}' is malformed — fix Report recipients (CC) in Airtable`,
+        message: `CC '${addr}' is malformed — fix Report recipients (CC) in the site's details`,
       });
     }
   }

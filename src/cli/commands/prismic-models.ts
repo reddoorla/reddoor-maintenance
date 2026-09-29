@@ -79,13 +79,13 @@ import {
   type PrismicModel,
   type RemoteEntry,
 } from "../../prismic/models/index.js";
-// `siteSlug` is a VALUE import and deliberately safe to take: websites.ts imports
-// nothing at runtime (its `airtable`/client imports are all `import type`), so
-// this does not put the Airtable SDK into the module graph of a consuming fleet
-// site's `reddoor-maint prismic-models` CI run. `FleetWriteResult` and
+// `siteSlug` is a VALUE import and deliberately safe to take: site-fields.ts
+// imports only pure sibling modules at runtime, so this does not put a store
+// client into the module graph of a consuming fleet site's
+// `reddoor-maint prismic-models` CI run. `FleetWriteResult` and
 // `PrismicModelsWriteback` are type-only and erase entirely.
-import { siteSlug, type PrismicModelsWriteback } from "../../reports/airtable/websites.js";
-import type { FleetWriteResult } from "../../audits/write-audits-to-airtable.js";
+import { siteSlug, type PrismicModelsWriteback } from "../../fleet/site-fields.js";
+import type { FleetWriteResult } from "../../audits/write-audits.js";
 import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../../recipes/_prettier.js";
 import {
   isClean,
@@ -131,8 +131,8 @@ export type PrismicModelsDeps = {
    * {@link PrismicVerdictSink}.
    *
    * REQUIRED rather than optional, and that is the point: an optional dep with a
-   * real-Airtable default would let any future test that passes `writeBack:
-   * true` reach a live base if `AIRTABLE_PAT` happened to be in the environment.
+   * real-store default would let any future test that passes `writeBack:
+   * true` reach the live database if `TURSO_*` happened to be in the environment.
    * Required, every test has to hand over a stub, and the ones that never write
    * hand over a stub that throws.
    */
@@ -144,21 +144,14 @@ export const defaultDeps = (): PrismicModelsDeps => ({
   sendModel: (repo, token, entry, action) => sendModelImpl(repo, token, entry, action),
   env: process.env,
   spawn: makeSpawn(),
-  // Imported HERE rather than at the top of the file: the Airtable client is a
+  // Imported HERE rather than at the top of the file: the db client is a
   // devDependency of this package, and a consuming fleet site running the in-repo
-  // check in its own CI has no `airtable` installed. A static import would make
-  // every one of those runs fail on module load.
+  // check in its own CI does not install it. A static import would make every
+  // one of those runs fail on module load.
   openVerdictSink: async () => {
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { updatePrismicModels } = await import("../../reports/airtable/websites.js");
+    const { prismicModelsFields } = await import("../../fleet/site-fields.js");
     const { readFleetRoster } = await import("../../fleet/roster.js");
-    // `openBase` throttles every HTTP call this base makes at its single funnel
-    // (≤4.5 req/s), so the serial writes below cannot burst past Airtable's rate
-    // limit no matter how large the fleet gets.
-    const base = openBase(readAirtableConfig());
-    // #646 step 4: the verdict sink's roster is Turso's — the sweep may hand it a
-    // site that has no Airtable record. `updatePrismicModels` skips a non-`rec`
-    // id itself, so the verdict lands in Turso and the shadow is skipped, logged.
+    // #646 step 4: the verdict sink's roster is Turso's.
     const websites = await readFleetRoster();
     // #539 Phase 5: the verdict lands on three site_health columns. Mirroring
     // here — inside the sink, which IS this command's composition root — keeps
@@ -168,8 +161,7 @@ export const defaultDeps = (): PrismicModelsDeps => ({
     return {
       websites: websites.map((w) => ({ id: w.id, name: w.name })),
       update: async (recordId, models) => {
-        const fields = await updatePrismicModels(base, recordId, models);
-        await mirror.health(recordId, fields);
+        await mirror.health(recordId, prismicModelsFields(models));
       },
     };
   },
@@ -218,7 +210,7 @@ const describeThrown = (e: unknown): string => {
  * `clean: null` alone cannot separate the last two, and they are OPPOSITE
  * operational facts: one is "nothing to do here", the other is this pipeline's
  * governing failure ("I could not read X" wearing the face of "X does not
- * exist"). Task 17's majority-failure exit rule and Task 19's Airtable write
+ * exist"). Task 17's majority-failure exit rule and Task 19's verdict write
  * both need the distinction, and the only signal available to them without this
  * field is `repositoryName !== null` — which is WRONG for exactly the case that
  * matters: a config that is present and broken never yields a repositoryName,
@@ -229,7 +221,7 @@ export type SiteCheckStatus = "checked" | "skipped" | "failed";
 
 /** The outcome of checking one site.
  *
- *  `clean` is the machine-readable verdict the fleet sweep writes to Airtable and
+ *  `clean` is the machine-readable verdict the fleet sweep writes to Turso and
  *  the cockpit alarms on, and it is deliberately three-valued: `true` in sync,
  *  `false` diverged, `null` NOT KNOWN — the check itself failed. A boolean here
  *  would have to make "we could not find out" wear one of the other two faces.
@@ -455,8 +447,8 @@ export async function checkOneSite(
   // saying in words that it is a misconfiguration rather than a clean run. This
   // is the same verdict in the field the cockpit reads: reporting `clean: true`
   // for the state the report itself calls broken is how a wrong repositoryName,
-  // a dead slice-library path, or a partial checkout becomes a green row in
-  // Airtable. `false` (diverged — a human should look) rather than `null`,
+  // a dead slice-library path, or a partial checkout becomes a green row.
+  // `false` (diverged — a human should look) rather than `null`,
   // because the check itself did not fail; it succeeded and found nothing, which
   // is a finding.
   const foundNothingAnywhere = isClean(diff) && diff.unchanged.length === 0;
@@ -484,7 +476,7 @@ export async function checkOneSite(
   // The renderer's head says, in prose, "⚠ INCONSISTENT — ... do not act on
   // this." A machine-readable verdict of `clean: true` under that sentence is
   // the report contradicting itself, and it is the field — not the prose — that
-  // reaches Airtable and the cockpit. So the same fact drives both, read as
+  // reaches Turso and the cockpit. So the same fact drives both, read as
   // DATA. It is deliberately NOT recovered by grepping the rendered string: that
   // would make the exact wording of a warning load-bearing, and rewording it
   // would silently turn every inconsistent site green.
@@ -511,7 +503,7 @@ export async function checkOneSite(
     // rule counts `status`, and this row is `status: "checked"` on either value,
     // so the sweep's exit code would not move — which is the point. `clean` is
     // the PER-SITE verdict: the field the sweep carries for each row and the one
-    // Task 19 writes to Airtable and the cockpit alarms on. `null` there writes
+    // Task 19 writes to Turso and the cockpit alarms on. `null` there writes
     // no verdict at all for a check that ran to completion and found something,
     // so the loudest failure this renderer can report would be the one row the
     // fleet never hears about.
@@ -902,12 +894,12 @@ async function pullRemoteOnly(
 /** Exit code for a fleet sweep. Non-zero when failures are the MAJORITY of the
  *  fleet, matching `githubSignalsExitCode` — a run where 11/12 repos could not be
  *  read is an outage, not a flake. DRIFT is never a failure: a readable site that
- *  diverges is a finding written to Airtable, and reddening the nightly for it
+ *  diverges is a finding written to its row, and reddening the nightly for it
  *  would make the alarm meaningless the first time someone edits a model.
  *
  *  An exact tie is NOT a majority, deliberately and in agreement with
  *  `githubSignalsExitCode`: 6 read and 6 unreadable is bad, but it is the
- *  Airtable rows for the 6 that were read — not this exit code — that say so, and
+ *  rows for the 6 that were read — not this exit code — that say so, and
  *  a rule that reddened on a tie would fire the first time half a small fleet was
  *  legitimately mid-migration. */
 export function prismicSweepExitCode(checked: number, failed: number): number {
@@ -924,7 +916,7 @@ export function prismicSweepExitCode(checked: number, failed: number): number {
  */
 export type CheckoutCommit = { resolved: string } | { unresolved: string };
 
-/** One row per site from a fleet sweep, ready for the Airtable writer. */
+/** One row per site from a fleet sweep, ready for the writer. */
 export type SweepRow = {
   site: string;
   repositoryName: string | null;
@@ -1127,7 +1119,7 @@ export type DuplicateSiteRow = { site: string; count: number; repositoryNames: s
  * A NOTE, not an alarm, and deliberately not an exit code: every one of those
  * rows was actually swept, nothing was mis-compared, and no client repo needs
  * changing — the inventory does. Making it non-zero would redden a nightly for a
- * duplicated Airtable row, which is how an operator learns to ignore the red.
+ * duplicated fleet row, which is how an operator learns to ignore the red.
  *
  * It still has to be SAID, because the detectors above now drop the duplicates
  * (see {@link uniqueBySite}) and a fact nobody prints is a fact nobody fixes. The
@@ -1292,7 +1284,7 @@ export function describeNothingChecked(rows: readonly SweepRow[]): string {
  *  the renderer might throw on a model shape nobody has seen yet, and the
  *  INJECTED `remoteModels`, which this module can promise nothing about. It does
  *  not collapse anything: the row says `failed`, which counts toward the outage
- *  rule and writes nothing to Airtable. */
+ *  rule and writes nothing. */
 /**
  * The commit a checkout currently stands at, read out of the checkout itself.
  *
@@ -1432,7 +1424,7 @@ async function sweepOneSite(s: Site, deps: PrismicModelsDeps): Promise<SweepRow>
  * an inventory that named nobody is not a clean fleet.
  *
  * `resolveSites` is allowed to THROW here (a positional site alongside `--fleet`,
- * an unsupported inventory extension, an Airtable read that failed). Those are
+ * an unsupported inventory extension, a roster read that failed). Those are
  * "the fleet itself could not be established", which has no per-site row to live
  * in; `bin.ts` prints the message and exits with the error's own `exitCode`.
  */
@@ -1461,7 +1453,7 @@ async function prepareFleet(
  *  given a read-only sweep.
  *
  *  `resolveSites` is allowed to THROW (a positional site alongside `--fleet`,
- *  an unsupported inventory extension, an Airtable read that failed). Those are
+ *  an unsupported inventory extension, a roster read that failed). Those are
  *  "the fleet itself could not be established", which has no per-site row to
  *  live in and must not be reported as a sweep of zero sites; `bin.ts` prints the
  *  message and exits with the error's own `exitCode`. */
@@ -1523,15 +1515,15 @@ export async function sweepFleet(
 
 /**
  * The fleet's record, as this command needs it — and the ONE seam through which
- * `--write-back` can touch Airtable.
+ * `--write-back` can touch the fleet store.
  *
  * Injected (see {@link PrismicModelsDeps.openVerdictSink}) so the whole write
- * path is exercised with no base, no credential and no network.
+ * path is exercised with no database, no credential and no network.
  *
  * `websites` is the WHOLE table rather than a per-site lookup, because the join
  * below has to be able to see that TWO rows claim one site name. A query that
  * fetched one row per site would answer "here is your row" for a table that
- * holds two, and the verdict would land on whichever one Airtable returned
+ * holds two, and the verdict would land on whichever one the store returned
  * first — a client's row carrying another client's verdict.
  */
 export type PrismicVerdictSink = {
@@ -1599,30 +1591,26 @@ export function sweepRowWriteback(row: SweepRow, checkedAt: string): PrismicMode
 }
 
 /**
- * Persist a fleet sweep to Airtable, one row at a time.
- *
- * SERIAL, like every other fleet writer here. The base returned by `openBase`
- * throttles its own HTTP calls (≤4.5 req/s), so this is belt-and-braces rather
- * than the only guard — but a `Promise.all` fan-out across the fleet would still
- * queue every request at once for no gain, and the failures are easier to read in
+ * Persist a fleet sweep to each site's Turso `site_health` row, one at a time.
+ * SERIAL, like every other fleet writer here: the failures are easier to read in
  * inventory order.
  *
  * EVERY ROW LANDS IN EXACTLY ONE BUCKET — written or failed. A row that fell out
  * of both would be a site the operator believes this sweep covered and it did
  * not, which is the same class of hole as a site missing from the sweep itself.
  *
- * The join is by SLUG, matching `writeAuditsToAirtable` and every other fleet
- * writer, so "Espada" in the inventory and "espada" in Airtable are one site. A
+ * The join is by SLUG, matching every other fleet writer, so "Espada" in the
+ * inventory and "espada" in the roster are one site. A
  * slug that matches TWO records is refused rather than resolved: a verdict
  * written to the wrong client's row is worse than a verdict not written, and only
  * a human can say which row is the real one.
  *
  * Nothing here throws. A per-row failure — no matching record, an ambiguous
- * match, an UNKNOWN_FIELD_NAME from columns the operator has not added yet — is
+ * match, a failed store write — is
  * COLLECTED, because one unwritable row must not cost the other fourteen their
  * verdicts.
  */
-export async function writeSweepToAirtable(
+export async function writeSweep(
   rows: readonly SweepRow[],
   websites: ReadonlyArray<{ id: string; name: string }>,
   update: PrismicVerdictSink["update"],
@@ -1698,8 +1686,7 @@ async function persistSweep(
     // while "nothing was written" is still a true sentence. Dynamically, because
     // this module is also loaded by a consuming fleet site's own CI, where the
     // audit chain this import drags in is not installed.
-    formatSummary = (await import("../../audits/write-audits-to-airtable.js"))
-      .formatFleetWriteSummary;
+    formatSummary = (await import("../../audits/write-audits.js")).formatFleetWriteSummary;
     sink = await deps.openVerdictSink();
   } catch (e) {
     return {
@@ -1711,12 +1698,7 @@ async function persistSweep(
       code: 1,
     };
   }
-  const result = await writeSweepToAirtable(
-    rows,
-    sink.websites,
-    sink.update,
-    new Date().toISOString(),
-  );
+  const result = await writeSweep(rows, sink.websites, sink.update, new Date().toISOString());
   return { output: formatSummary(result), code: 0 };
 }
 
@@ -1731,16 +1713,15 @@ async function runFleetSweep(
   const { rows, skipped, resolved } = await sweepFleet(site, opts, deps, cwd);
 
   // NOTHING RESOLVED IS NOT A CLEAN FLEET. The inventory was read and named no
-  // sites, so nothing was compared and this run learned nothing — and the
-  // Airtable inventory is view-filtered, so one filter change empties it with no
-  // error anywhere. Exiting 0 here is a green tick that silently retires the
-  // whole drift alarm; `prismicSweepExitCode(0, 0)` cannot express it, because
-  // for a fleet that legitimately has no Prismic sites 0/0 is correct.
+  // sites, so nothing was compared and this run learned nothing. Exiting 0 here
+  // is a green tick that silently retires the whole drift alarm;
+  // `prismicSweepExitCode(0, 0)` cannot express it, because for a fleet that
+  // legitimately has no Prismic sites 0/0 is correct.
   if (resolved === 0) {
     return {
       output:
         `the inventory resolved NO SITES, so no sites were swept and nothing was compared.` +
-        ` This is not a clean fleet — check the inventory (an Airtable view filter, an empty` +
+        ` This is not a clean fleet — check the inventory (an empty fleet roster, an empty` +
         ` JSON file, a dynamic inventory returning []). Do NOT read this exit as a result.`,
       code: 1,
     };
@@ -1830,8 +1811,7 @@ async function runFleetSweep(
  * Three things follow, and each is the same rule in a different place:
  *
  *   - an inventory that resolved nobody is refused, not printed as an empty
- *     checklist (the Airtable inventory is view-filtered — one filter change
- *     empties it with no error anywhere);
+ *     checklist;
  *   - a site that could not be PREPARED gets a row saying nothing was
  *     established about it, never a skip;
  *   - a run in which not one site's requirement was established is refused
@@ -1861,8 +1841,8 @@ async function runFleetTokenDoctor(
     return {
       output:
         `the inventory resolved NO SITES, so no site's token requirement was established.` +
-        ` This is not a fleet that needs no secrets — check the inventory (an Airtable view` +
-        ` filter, an empty JSON file, a dynamic inventory returning []). Do NOT read this` +
+        ` This is not a fleet that needs no secrets — check the inventory (an empty fleet` +
+        ` roster, an empty JSON file, a dynamic inventory returning []). Do NOT read this` +
         ` exit as a checklist.`,
       code: 1,
     };

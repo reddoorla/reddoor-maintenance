@@ -4,7 +4,7 @@ import { recordFleetEvent, pruneFleetEvents, type FleetEvent } from "../db/fleet
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Persist a batch of fleet events + prune the 30-day window — best-effort.
- *  Opens its OWN libSQL connection (the producers carry only Airtable creds today).
+ *  Opens its OWN libSQL connection.
  *  A missing TURSO_* (creds not yet added to the workflow) or any write error is
  *  swallowed with a console.error: recording fleet activity must NEVER fail the
  *  sweep that produced it. The feed ships dark until the creds are present.

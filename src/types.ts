@@ -2,13 +2,13 @@ export type Site = {
   path: string;
   name?: string;
   repoUrl?: string;
-  /** GitHub repo identity as `owner/repo`, when known (from Airtable). */
+  /** GitHub repo identity as `owner/repo`, when known (from the fleet roster). */
   gitRepo?: string;
   /** Deployed/production URL. When set, the lighthouse audit runs against this
    *  URL directly (no checkout, no dev server) instead of a local vite server. */
   deployedUrl?: string;
   /** Netlify site id (the API `id`/`site_id`, e.g. a UUID), when known (from
-   *  Airtable). The `netlify-deploy` audit needs it to query the Netlify API;
+   *  the fleet roster). The `netlify-deploy` audit needs it to query the Netlify API;
    *  absent → that audit skips. NOT derived from the URL — it's an explicit
    *  identity column on the Websites row. */
   netlifyId?: string;

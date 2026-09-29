@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Db } from "./client.js";
+import { PROSPECT_AUDIT_DAILY_CAP, capBounds } from "../prospect/daily-cap.js";
 
 /** 16 random bytes → 22-char base64url string: unguessable, URL-safe. */
 export function generateToken(): string {
@@ -24,7 +25,15 @@ export function newProspectAuditId(): string {
  *  itself already degrades each failed section to "not measured"; this is
  *  what lets a future dashboard tell complete from partial without
  *  deserializing the whole result_json. */
-export type ProspectAuditStatus = "complete" | "partial";
+export type FinishedProspectAuditStatus = "complete" | "partial";
+
+/** #907. `running` is a reservation: the row the daily cap counts, written
+ *  before a run spends anything and finished in place when it ends. It has no
+ *  report behind it yet — `result_json` holds a `{}` placeholder — so nothing
+ *  that serves a report may serve it (see `getProspectAuditByToken`). A
+ *  `running` row older than `PROSPECT_AUDIT_STALE_AFTER_MS` is a run that
+ *  never finished; the cap stops counting it and the /audits list says so. */
+export type ProspectAuditStatus = FinishedProspectAuditStatus | "running";
 
 /**
  * The lineage handle for a site: one key for every way of writing its address.
@@ -69,9 +78,10 @@ export type NewProspectAudit = {
   chosenQuestions?: string[] | null;
   /** Defaults to "complete" — the column's own SQL default — for callers
    *  (tests, ad-hoc scripts) that don't track per-stage outcomes. The
-   *  prospect-audit CLI, the only real writer, always computes and passes
-   *  this explicitly. */
-  status?: ProspectAuditStatus;
+   *  prospect-audit CLI always computes and passes this explicitly. A
+   *  `running` row is never created here: that is `reserveProspectAudit`'s
+   *  job, because only it counts against the cap as it writes. */
+  status?: FinishedProspectAuditStatus;
 };
 
 /** A chosen list as stored: JSON, or NULL when nothing usable was chosen.
@@ -82,6 +92,15 @@ function jsonListOrNull(xs: string[] | null | undefined): string | null {
   return cleaned.length === 0 ? null : JSON.stringify(cleaned);
 }
 
+/**
+ * Insert a FINISHED audit in one step, with no reservation behind it.
+ *
+ * Since #907 the CLI's normal path reserves first and finishes that row with
+ * `finishProspectAudit`. This remains for the paths that have no reservation:
+ * a run whose reservation could not be written (the brake warned and let it
+ * proceed), a reservation that vanished before the run finished, and callers
+ * outside the CLI (tests, ad-hoc scripts).
+ */
 export async function createProspectAudit(
   db: Db,
   audit: NewProspectAudit,
@@ -145,6 +164,13 @@ export async function getProspectAuditByToken(
       "chosen_questions",
     ])
     .where("token", "=", token)
+    // #907. A `running` row is a reservation, not a report: its `result_json`
+    // is a `{}` placeholder. Served, reddoor-website would render that as a
+    // blank report (it types the payload with a cast and does not validate
+    // it), and the editor would accept overrides against nothing. Its token is
+    // never handed out before the run finishes, so treating it as absent costs
+    // no legitimate reader anything.
+    .where("status", "!=", "running")
     .executeTakeFirst();
   return row ?? null;
 }
@@ -168,6 +194,10 @@ export type ProspectAuditListItem = {
   /** #676. Present so the listing can mark which audits used chosen terms
    *  WITHOUT reading `result_json`, which it deliberately never selects. */
   chosen_terms: string | null;
+  /** #907. When a job took a `running` reservation. The stale window runs
+   *  from here (or from `created_at` while unclaimed), so the listing needs it
+   *  to tell "Running" from "Did not finish" the way the cap's count does. */
+  claimed_at: string | null;
 };
 
 /** Ceiling on `listRecentProspectAudits`' `limit`, enforced defensively (a
@@ -203,10 +233,339 @@ export async function listRecentProspectAudits(
       "edited_at",
       "opened_at",
       "chosen_terms",
+      "claimed_at",
     ])
     .orderBy("created_at", "desc")
     .limit(clampLimit(limit))
     .execute();
+}
+
+/** What a caller hands `reserveProspectAudit`: what the /audits listing needs
+ *  to show a run that has not finished, and who owns it. */
+export type ProspectAuditReservationRequest = {
+  url: string;
+  business: string | null;
+  chosenTerms?: string[] | null;
+  chosenQuestions?: string[] | null;
+  /**
+   * Whether the caller is the process that will spend. The CLI is, and
+   * reserves already claimed. The cockpit is not — it dispatches a job whose
+   * CLI will claim this row by url (`claimProspectAuditReservation`) rather
+   * than reserve a second slot for the same audit.
+   */
+  claimed: boolean;
+};
+
+export type ProspectAuditReservation =
+  | { kind: "reserved"; id: string; token: string }
+  /** The cap was already reached. `count` is re-read after the refusal, for the
+   *  message only — the refusal itself was decided inside the INSERT. */
+  | { kind: "capped"; count: number };
+
+/** The placeholder a `running` row carries in its NOT NULL `result_json`.
+ *  Valid JSON, so a reader that parses every row (scripts/replay-checks.mts)
+ *  sees an empty object rather than a parse error. */
+const RESERVATION_PLACEHOLDER_JSON = "{}";
+
+/** The rows that count against the cap, as a WHERE on `prospect_audits`: made
+ *  inside the 24h window, and either finished or not yet stale. Shared by the
+ *  reservation and the refusal count so the two cannot disagree.
+ *
+ *  Staleness runs from the CLAIM — `COALESCE(claimed_at, created_at)` — not
+ *  from creation. A cockpit row is created at dispatch; if its job starts late
+ *  (queued behind a same-URL run), judging it by creation would free its slot
+ *  while the run it now belongs to is still spending (review of #907, P3).
+ *  The COALESCE sits in the residual filter only: the 24h range on
+ *  `created_at` is still what `idx_prospect_audits_created` seeks on. */
+function countedTowardCap(db: Db, now: Date) {
+  const { windowStart, staleBefore } = capBounds(now);
+  return db
+    .selectFrom("prospect_audits")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("created_at", ">=", windowStart)
+    .where((eb) =>
+      eb.or([
+        eb("status", "!=", "running"),
+        eb(eb.fn.coalesce("claimed_at", "created_at"), ">=", staleBefore),
+      ]),
+    );
+}
+
+/** Attempts `retryOnBusy` makes before letting SQLITE_BUSY through. */
+export const RESERVATION_BUSY_ATTEMPTS = 8;
+
+/** SQLite's "another writer holds the lock" — including the WAL form, where a
+ *  writer's snapshot went stale — as libSQL reports it. */
+function isBusy(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) return true;
+  return err instanceof Error && /SQLITE_BUSY|database is locked/i.test(err.message);
+}
+
+/**
+ * Run a reservation statement, retrying while the database says it is busy.
+ *
+ * SQLITE_BUSY is how SQLite refuses the SECOND of two concurrent writers
+ * rather than letting it write on a stale count — i.e. it is the atomicity
+ * working, and it arrives exactly when a burst does. Measured on 2026-09-29:
+ * twelve OS processes reserving against one SQLite file under a cap of 5 were
+ * never admitted past 5, but 3 to 8 of them got SQLITE_BUSY instead of an
+ * answer. The CLI treats a reservation that throws as a blip and runs anyway
+ * (the fail-open decision recorded on MED-15), so without this every loser of
+ * the lock race would have run unbraked. Retried, the statement re-reads the
+ * count and gets a real answer: reserved or capped.
+ */
+async function retryOnBusy<T>(run: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run();
+    } catch (err) {
+      if (!isBusy(err) || attempt >= RESERVATION_BUSY_ATTEMPTS) throw err;
+      await new Promise((r) => setTimeout(r, attempt * 25 + Math.random() * 25));
+    }
+  }
+}
+
+/** How many audits the cap currently counts. For the refusal message; the
+ *  refusal itself is decided atomically inside `reserveProspectAudit`. */
+export async function countProspectAuditsTowardCap(db: Db, now: Date): Promise<number> {
+  const row = await countedTowardCap(db, now).executeTakeFirstOrThrow();
+  return Number(row.n);
+}
+
+/**
+ * Take one slot under the daily cap, or be refused — BEFORE anything is spent
+ * (#907).
+ *
+ * This is one statement, and that is the whole design:
+ *
+ *   INSERT INTO prospect_audits (…)
+ *   SELECT ?, ?, … , 'running', …
+ *   WHERE (SELECT count(*) FROM prospect_audits WHERE <counted>) < ?
+ *
+ * The count and the write are not two steps that something can come between.
+ * SQLite runs every statement as a transaction and allows one writer at a
+ * time: a statement that writes holds the database's write lock from the
+ * moment it starts writing until it commits, and a writer whose read snapshot
+ * went stale while another committed is refused (SQLITE_BUSY, or
+ * SQLITE_BUSY_SNAPSHOT under WAL) rather than allowed to write on it. So two
+ * concurrent reservations are serialised: the second one's subquery sees the
+ * first one's row, or the second one fails. Turso runs every write on its
+ * primary under the same SQLite rules. Either way no two reservations can both
+ * be admitted on the same count, which is exactly what a count-then-insert in
+ * two statements allowed — and what the `running` row did not exist to prevent
+ * before, because there was no row at all until the run had finished.
+ *
+ * A transaction wrapping a SELECT and an INSERT would also be atomic, but only
+ * as BEGIN IMMEDIATE, and it would cost three round trips to Turso where this
+ * costs one. It also cannot run on the shared in-memory client the tests and
+ * the query-plan gate use (see the `site-create.ts` exemption there).
+ */
+export async function reserveProspectAudit(
+  db: Db,
+  req: ProspectAuditReservationRequest,
+  opts: { now?: Date; cap?: number } = {},
+): Promise<ProspectAuditReservation> {
+  const now = opts.now ?? new Date();
+  const cap = opts.cap ?? PROSPECT_AUDIT_DAILY_CAP;
+  const id = newProspectAuditId();
+  const token = generateToken();
+  const nowIso = now.toISOString();
+  // `RETURNING id`, not the driver's affected-row count: the row coming back is
+  // what THIS statement wrote. Measured 2026-09-29 on the local-file libSQL
+  // driver, which reads `changes` off the connection: after a SQLITE_BUSY
+  // attempt, a retried INSERT that inserted nothing reported 1 — twelve
+  // processes all "reserved" against a cap of 5 while two rows existed.
+  //
+  // Not a cure for that driver, only for the counter: the same probe showed its
+  // connection can be left with the BUSY statement still active, after which
+  // its writes are visible to itself and never commit (docs/workJournal.md,
+  // 2026-09-29). That is local-file mode under multi-process contention; the
+  // cockpit and the runner talk to Turso over HTTP.
+  const written = await retryOnBusy(() =>
+    db
+      .insertInto("prospect_audits")
+      .columns([
+        "id",
+        "token",
+        "url",
+        "site_key",
+        "business",
+        "created_at",
+        "status",
+        "result_json",
+        "chosen_terms",
+        "chosen_questions",
+        "claimed_at",
+      ])
+      .expression(
+        db
+          .selectNoFrom((eb) => [
+            eb.val(id).as("id"),
+            eb.val(token).as("token"),
+            eb.val(req.url).as("url"),
+            eb.val(siteKey(req.url)).as("site_key"),
+            eb.val(req.business).as("business"),
+            eb.val(nowIso).as("created_at"),
+            eb.val("running").as("status"),
+            eb.val(RESERVATION_PLACEHOLDER_JSON).as("result_json"),
+            eb.val(jsonListOrNull(req.chosenTerms)).as("chosen_terms"),
+            eb.val(jsonListOrNull(req.chosenQuestions)).as("chosen_questions"),
+            eb.val(req.claimed ? nowIso : null).as("claimed_at"),
+          ])
+          .where((eb) => eb(countedTowardCap(db, now), "<", cap)),
+      )
+      .returning("id")
+      .executeTakeFirst(),
+  );
+  if (written?.id === id) return { kind: "reserved", id, token };
+  return { kind: "capped", count: await countProspectAuditsTowardCap(db, now) };
+}
+
+/**
+ * Take ownership of the cockpit's reservation for `url`, if there is one.
+ *
+ * The cockpit reserves at dispatch; the job it dispatches runs this CLI, which
+ * must not then reserve a second slot for the same audit. The workflow's inputs
+ * are fixed by a file in a private repo, so no reservation id can be passed
+ * through — the handoff is by SITE: `siteKey(url)`, not the url string.
+ *
+ * Deliberately the lineage key rather than an exact match. The workflow that
+ * carries the url from the cockpit to this CLI lives in a private repo this
+ * code cannot see (its public copy in docs/private-runner/ already lacks the
+ * `goal` input the cockpit sends, so the two have drifted before), and one
+ * reshaped character — a trailing slash, a scheme — would make an exact match
+ * miss and charge one audit two slots. Matching by site can at worst hand one
+ * job another job's reservation for the same site, which still leaves one slot
+ * per spend. A finished run rewrites the row's url, site, business, status,
+ * report, chosen lists and `created_at` (`finishProspectAudit`), so what is
+ * left of the reservation is its id and its token — and no one has seen a
+ * reservation's token.
+ *
+ * Only UNCLAIMED rows are candidates, and that filter has to be in the
+ * subquery, not only in the outer re-check: with an older claimed row and a
+ * newer unclaimed one for the same site, a subquery that picked the oldest
+ * running row would hand the outer check a claimed row, the claim would come
+ * back empty, and the job would reserve a second slot (review of #907, M1).
+ * The subquery's staleness test reads `created_at` because every candidate is
+ * unclaimed, where that equals `COALESCE(claimed_at, created_at)`.
+ *
+ * One statement, so two claimants cannot both win: the UPDATE re-checks
+ * `claimed_at IS NULL` on the row it writes, and `site_key` is served by its
+ * index (0014). A STALE reservation is not claimable: the cap has already
+ * stopped counting it, so a job that starts that late must reserve afresh under
+ * the cap like any other run.
+ */
+export async function claimProspectAuditReservation(
+  db: Db,
+  url: string,
+  now: Date,
+): Promise<{ id: string; token: string } | null> {
+  const { staleBefore } = capBounds(now);
+  const row = await retryOnBusy(() =>
+    db
+      .updateTable("prospect_audits")
+      .set({ claimed_at: now.toISOString() })
+      .where("id", "=", (eb) =>
+        eb
+          .selectFrom("prospect_audits")
+          .select("id")
+          .where("site_key", "=", siteKey(url))
+          .where("status", "=", "running")
+          .where("claimed_at", "is", null)
+          .where("created_at", ">=", staleBefore)
+          .orderBy("created_at", "asc")
+          .limit(1),
+      )
+      .where("claimed_at", "is", null)
+      .returning(["id", "token"])
+      .executeTakeFirst(),
+  );
+  return row ?? null;
+}
+
+/** What a finished run writes over its reservation. */
+export type FinishedProspectAudit = {
+  /** The url the run actually audited. The claim matches by site, so the job
+   *  may have taken a reservation written under another spelling (`www.`, a
+   *  scheme); the finished row must record what was audited, and the
+   *  cockpit's url-keyed duplicate check must see it (review of #907, P2). */
+  url: string;
+  business: string | null;
+  status: FinishedProspectAuditStatus;
+  resultJson: string;
+  chosenTerms?: string[] | null;
+  chosenQuestions?: string[] | null;
+};
+
+/**
+ * Turn a `running` reservation into the finished report, in place: same id and
+ * same token.
+ *
+ * `created_at` is RE-STAMPED to the finish, which is what it meant for every
+ * finished row before #907 — the row used to be born at the finish. Two
+ * readers depend on that: the cockpit's 10-minute duplicate guard, which must
+ * refuse a re-click within 10 minutes of the report being emailed rather than
+ * 10 minutes of the run starting (review of #907, P6), and the /audits
+ * listing's "when it ran". For the cap, a finished row now counts for 24h from
+ * its finish rather than its start — later by the run's length, so never a gap
+ * and never looser.
+ *
+ * Null when there is no `running` row with that id — the caller then inserts
+ * the report with `createProspectAudit` rather than losing it. Nothing in this
+ * code deletes a claimed row any more (the cockpit's release is
+ * `onlyIfUnclaimed`), so that is a belt for a row removed by hand; a paid
+ * report must land somewhere either way.
+ */
+export async function finishProspectAudit(
+  db: Db,
+  id: string,
+  audit: FinishedProspectAudit,
+  now: Date = new Date(),
+): Promise<{ id: string; token: string } | null> {
+  const row = await db
+    .updateTable("prospect_audits")
+    .set({
+      url: audit.url,
+      site_key: siteKey(audit.url),
+      created_at: now.toISOString(),
+      business: audit.business,
+      status: audit.status,
+      result_json: audit.resultJson,
+      chosen_terms: jsonListOrNull(audit.chosenTerms),
+      chosen_questions: jsonListOrNull(audit.chosenQuestions),
+    })
+    .where("id", "=", id)
+    .where("status", "=", "running")
+    .returning(["id", "token"])
+    .executeTakeFirst();
+  return row ?? null;
+}
+
+/**
+ * Give a reservation's slot back, for a start that ended before it spent
+ * anything: a cockpit dispatch GitHub refused, or a CLI run whose pipeline
+ * threw before its first paid stage started.
+ *
+ * Deletes, rather than marking, because the row never had a report and never
+ * will. Only a `running` row can go: whatever else a bad id reaches, a
+ * finished report is never deleted here.
+ *
+ * `onlyIfUnclaimed` is the cockpit's form and it is required, not defaulted,
+ * so every caller states whose row it is releasing. A dispatch GitHub reported
+ * as failed may still have been accepted; if its job has already claimed the
+ * row, that row now belongs to a run that may be spending, and deleting it
+ * would free its slot mid-spend (review of #907, P4). The runner releases its
+ * own claimed row, so it passes `false`.
+ */
+export async function releaseProspectAuditReservation(
+  db: Db,
+  id: string,
+  opts: { onlyIfUnclaimed: boolean },
+): Promise<void> {
+  let q = db.deleteFrom("prospect_audits").where("id", "=", id).where("status", "=", "running");
+  if (opts.onlyIfUnclaimed) q = q.where("claimed_at", "is", null);
+  await q.execute();
 }
 
 /** One replaced string and the generated text it replaced. */

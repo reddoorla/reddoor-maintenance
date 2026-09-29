@@ -2,10 +2,9 @@
  * #647: the send batch's sent-stamp mirror (`report --send-ready`) hands
  * `mirrorReportPatch`'s row count to `mirrorWrite`, so a stamp for a report row
  * Turso never held is `missed` rather than a green no-op. `mirrorWrite`'s own
- * strict/loose behaviour on a `false` result is proven in
- * `tests/db/mirror-write-freeze.test.ts`; this suite pins only the WIRING —
- * that the closure the CLI builds actually surfaces the count — independent of
- * which way the freeze constant points.
+ * behaviour on a `false` result is proven in `tests/db/mirror-write.test.ts`;
+ * this suite pins only the WIRING — that the closure the CLI builds actually
+ * surfaces the count.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mirrorReportInsert } from "../../src/db/fleet-state.js";
@@ -20,7 +19,6 @@ vi.mock("../../src/reports/send/orchestrate.js", () => ({
 }));
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({
-    created: async () => {},
     health: async () => {},
     site: async () => {},
   }),
@@ -30,10 +28,10 @@ vi.mock("../../src/db/client.js", async (orig) => {
   const real = await orig<typeof import("../../src/db/client.js")>();
   return { ...real, readDbConfig: () => ({ url: ":memory:" }), openDb: vi.fn() };
 });
-// Record what the CLI's `run` closure RESOLVES to, whatever the switch says.
+// Record what the CLI's `run` closure RESOLVES to, before mirrorWrite judges it.
 const results: unknown[] = [];
-vi.mock("../../src/db/freeze.js", async (orig) => {
-  const real = await orig<typeof import("../../src/db/freeze.js")>();
+vi.mock("../../src/db/mirror-write.js", async (orig) => {
+  const real = await orig<typeof import("../../src/db/mirror-write.js")>();
   return {
     ...real,
     mirrorWrite: vi.fn(async (_label: string, run: () => Promise<unknown>) => {
@@ -60,8 +58,8 @@ describe("report --send-ready: the sent-stamp mirror surfaces the row count", ()
     await runReportCommand(undefined, { sendReady: true });
     expect(captured?.reportSentMirror).toBeTypeOf("function");
 
-    await captured!.reportSentMirror!("recHELD", new Date("2026-09-15T00:00:00Z"), "msg_1");
-    await captured!.reportSentMirror!("recGHOST", new Date("2026-09-15T00:00:00Z"), null);
+    await captured!.reportSentMirror("recHELD", new Date("2026-09-15T00:00:00Z"), "msg_1");
+    await captured!.reportSentMirror("recGHOST", new Date("2026-09-15T00:00:00Z"), null);
     expect(results).toEqual([true, false]);
 
     const stamped = await db
@@ -70,5 +68,32 @@ describe("report --send-ready: the sent-stamp mirror surfaces the row count", ()
       .where("id", "=", "recHELD")
       .executeTakeFirst();
     expect(stamped).toEqual({ sent_at: "2026-09-15T00:00:00.000Z", resend_message_id: "msg_1" });
+  });
+
+  it("the stamp never touches Delivery status, and the 409 replay keeps the original message id", async () => {
+    const db = await realOpenDb({ url: ":memory:" });
+    vi.mocked(openDb).mockResolvedValue(db);
+    await mirrorReportInsert(db, {
+      id: "recLANDED",
+      fields: {
+        "Report ID": "R2",
+        "Delivery status": "delivered",
+        "Resend message ID": "msg_original",
+      },
+    });
+
+    await runReportCommand(undefined, { sendReady: true });
+    await captured!.reportSentMirror("recLANDED", new Date("2026-09-16T00:00:00Z"), null);
+
+    const row = await db
+      .selectFrom("reports")
+      .select(["sent_at", "resend_message_id", "delivery_status"])
+      .where("id", "=", "recLANDED")
+      .executeTakeFirst();
+    expect(row).toEqual({
+      sent_at: "2026-09-16T00:00:00.000Z",
+      resend_message_id: "msg_original",
+      delivery_status: "delivered",
+    });
   });
 });

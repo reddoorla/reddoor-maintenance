@@ -87,10 +87,11 @@ export interface SubmissionDeadletterTable {
   abandoned_reason: string | null;
 }
 
-/** Operator-owned fleet config (migration 0007). PK = Airtable rec id (D1).
- *  `legacy` holds the 33 populated-but-code-unreferenced Airtable columns as a
- *  JSON object keyed by original column name; the plaintext DNS/cms credential
- *  cells never migrate (operator ruling 2026-08-23). */
+/** Operator-owned fleet config (migration 0007). PK = `rec…` id (D1), or
+ *  `site_<ULID>` since #646 step 3 (src/fleet/site-id.ts). `legacy` holds the 33
+ *  populated-but-code-unreferenced columns as a JSON object keyed by legacy
+ *  column name; the plaintext DNS/cms credential cells never migrate
+ *  (operator ruling 2026-08-23). */
 export interface SitesTable {
   id: string;
   slug: string;
@@ -129,8 +130,7 @@ export interface SitesTable {
 
 /** Nightly-cron-owned health/telemetry (migration 0007) — one row per site,
  *  written as one batched upsert per sweep family. `analytics_soft_fail_at` is
- *  the "Analytics soft-fail at" column code always wrote best-effort but no
- *  operator ever created in Airtable. */
+ *  the "Analytics soft-fail at" column, written best-effort. */
 export interface SiteHealthTable {
   site_id: string;
   p_score: number | null;
@@ -181,7 +181,7 @@ export interface SiteHealthTable {
   prismic_models_drift: string | null;
 }
 
-/** Code-derived schedule (migration 0007) — written by updateNextDueDates. */
+/** Code-derived schedule (migration 0007) — written by the report cron (`nextDueDatesFields`). */
 export interface SiteScheduleTable {
   site_id: string;
   next_maintenance_at: string | null;
@@ -189,9 +189,10 @@ export interface SiteScheduleTable {
   computed_at: string | null;
 }
 
-/** Report rows (migration 0007). PK = Airtable rec id. `checklist` is JSON
- *  keyed by the STABLE checklist key (src/reports/checklist.ts), not the
- *  Airtable column name; `rendered_html` is the downloaded attachment body. */
+/** Report rows (migration 0007). PK = `rec…` id, or `report_<ULID>` since
+ *  #646 step 4 (src/fleet/report-id.ts). `checklist` is JSON keyed by the STABLE
+ *  checklist key (src/reports/checklist.ts), not the legacy column name;
+ *  `rendered_html` is the rendered report body. */
 export interface ReportsTable {
   id: string;
   site_id: string | null;
@@ -257,6 +258,12 @@ export interface ProspectAuditsTable {
    *  from your site" are different claims the report has to be able to make. */
   chosen_terms: string | null;
   chosen_questions: string | null;
+  /** #907 (migration 0029). ISO-8601 of when the process that spends — the
+   *  CLI — took ownership of a `running` reservation. NULL on a reservation the
+   *  cockpit made at dispatch and no job has picked up yet, which is what lets
+   *  that job claim it instead of reserving a second slot for the same audit.
+   *  NULL on every row written before the column existed. */
+  claimed_at: string | null;
 }
 
 /** The digest's prior-run snapshot (migration 0011). One row, `id` = the

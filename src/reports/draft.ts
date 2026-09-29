@@ -2,35 +2,36 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ReportType, LighthouseScores } from "./types.js";
 import { renderReportHtml } from "./render.js";
-import { analyticsHealthFields, siteSlug, updateAnalyticsHealth } from "./airtable/websites.js";
+import { analyticsHealthFields, siteSlug } from "../fleet/site-fields.js";
 import { resolveCopy } from "./copy.js";
-import type { WebsiteRow } from "./airtable/websites.js";
-import type { ReportRow } from "./airtable/reports.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
+import type { ReportRow } from "./report-fields.js";
 import { createReportDraft } from "./create-report.js";
 import type { ReportMirror } from "./report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
-import { queueDraft } from "./queue.js";
+import { queueDraft, type QueueOutcome } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
-import { uploadAttachment } from "./airtable/attachments.js";
-import type { AirtableBase } from "./airtable/client.js";
 import { readGaConfig } from "./ga/config.js";
+import { searchConsoleOptedOut } from "../fleet/opt-outs.js";
 import { fetchPeriodUsers, measuredHostnames } from "./ga/client.js";
 import { fetchSearchPresence } from "./search/client.js";
 import type { SearchPresence } from "./search/client.js";
 import { generateHeaderImage } from "./header-image/index.js";
 import type { GeneratedHeaderImage } from "./header-image/index.js";
+import type { StoredHeaderImage } from "../db/header-images.js";
 
 export type RefreshHeaderDeps = {
   generate?: (input: { url: string; slug?: string }) => Promise<GeneratedHeaderImage>;
-  upload?: (
-    recordId: string,
-    field: string,
-    bytes: Uint8Array,
-    filename: string,
-    contentType: string,
-    opts?: { replaceIn?: string },
-  ) => Promise<void>;
+  store?: (siteId: string, image: StoredHeaderImage) => Promise<void>;
 };
+
+async function storeHeaderPlateInTurso(siteId: string, image: StoredHeaderImage): Promise<void> {
+  const [{ openDb, readDbConfig }, { storeHeaderImage }] = await Promise.all([
+    import("../db/client.js"),
+    import("../db/header-images.js"),
+  ]);
+  await storeHeaderImage(await openDb(readDbConfig()), siteId, image);
+}
 
 /**
  * Regenerate a site's Header image from its live homepage so the report ships a
@@ -38,7 +39,7 @@ export type RefreshHeaderDeps = {
  * hand. Sonder alone runs 16 reports a year, so a static header goes visibly
  * stale.
  *
- * BEST-EFFORT BY DESIGN — returns false and never throws. A capture or upload
+ * BEST-EFFORT BY DESIGN — returns false and never throws. A capture or store
  * failure must not fail the draft: the stored image is still perfectly usable,
  * and the operator reviews the rendered preview before approving the send.
  */
@@ -48,11 +49,14 @@ export async function refreshHeaderImage(
 ): Promise<boolean> {
   if (!site.url) return false;
   const generate = deps.generate ?? generateHeaderImage;
-  const upload = deps.upload ?? uploadAttachment;
+  const store = deps.store ?? storeHeaderPlateInTurso;
   try {
     const gen = await generate({ url: site.url, slug: siteSlug(site.name) });
-    await upload(site.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
-      replaceIn: "Websites",
+    await store(site.id, {
+      bytes: gen.bytes,
+      filename: gen.filename,
+      contentType: gen.contentType,
+      generatedAt: new Date().toISOString(),
     });
     return true;
   } catch (err) {
@@ -68,13 +72,13 @@ export async function refreshHeaderImage(
 export type DraftOptions = {
   /** Where to write the local preview HTML when `previewOnly`. Defaults to `reports/<slug>/draft.html`. */
   previewPath?: string;
-  /** If true: render locally only, never touch Airtable. */
+  /** If true: render locally only, never touch a store. */
   previewOnly?: boolean;
   /** Whether to run the GA / Search Console enrichment fetches. Defaults to
-   *  `base !== null`, i.e. the real drafting path enriches and a preview does not.
+   *  `!previewOnly`, i.e. the real drafting path enriches and a preview does not.
    *
-   *  This exists because `base === null` was carrying two unrelated meanings —
-   *  "never write to Airtable" AND "perform no IO at all" — and only the first is
+   *  This exists because the preview flag once carried two unrelated meanings —
+   *  "never write to a store" AND "perform no IO at all" — and only the first is
    *  what `previewOnly` actually asks for. Enrichment reads Google; it writes
    *  nothing, so there is no reason a preview cannot do it on request. Conflating
    *  the two made the preview path structurally incapable of ever producing an
@@ -84,11 +88,11 @@ export type DraftOptions = {
   enrich?: boolean;
   /** UTC "YYYY-MM" recurrence key; falls back to periodEnd's month when omitted. */
   period?: string;
-  /** Airtable record id of an EXISTING (not-ready) row to COMPLETE in place rather
-   *  than creating a new one. When set, we skip createDraft and only re-render →
-   *  upload the HTML attachment → flip Draft ready on this row. Used by the --due
-   *  re-draft path to finish a draft whose createDraft succeeded but whose
-   *  setDraftReady never ran (a crash mid-sequence wedged the period). */
+  /** Id of an EXISTING (not-ready) row to COMPLETE in place rather than creating
+   *  a new one. When set, we skip the create and only re-render → store the body
+   *  → flip Draft ready on this row. Used by the --due re-draft path to finish a
+   *  draft whose create succeeded but whose queue flag never landed (a crash
+   *  mid-sequence wedged the period). */
   completeRowId?: string;
   /** The mapped ReportRow being completed, returned as `reportRow` from the
    *  complete path so callers keep the same shape they get on the create path. */
@@ -97,10 +101,8 @@ export type DraftOptions = {
    *  entirely. Tests set `false` (or a stub) so a unit suite never launches a
    *  browser or resolves DNS. Production leaves it unset and gets the real thing. */
   refreshHeader?: RefreshHeaderDeps | false;
-  /** #539 Phase 5: Turso write-through for everything this function writes to
-   *  Airtable — the created row, the rendered body, and the queue flag — so a
-   *  fresh draft is fully readable in the Turso-backed console immediately
-   *  instead of after the next hourly sync.
+  /** #539 Phase 5: the Turso writer for everything this function writes — the
+   *  created row, the rendered body, and the queue flag.
    *
    *  Deliberately NOT defaulted here. Defaulting would open a real libSQL handle
    *  from inside `draftReportForSite`, which every unit test calls — and on a
@@ -155,7 +157,7 @@ function scoresFromWebsite(siteRow: WebsiteRow): LighthouseScores {
   if (pScore === null || rScore === null || bpScore === null || seoScore === null) {
     throw new Error(
       `Site '${siteRow.name}' is missing one or more Lighthouse scores on the Websites row (pScore, rScore, bpScore, seoScore). ` +
-        `Run 'reddoor-maint audit lighthouse' from the site's checkout and paste the four numbers into Airtable, then retry.`,
+        `Run 'reddoor-maint audit lighthouse --write-back' from the site's checkout, then retry.`,
     );
   }
   return { performance: pScore, accessibility: rScore, bestPractices: bpScore, seo: seoScore };
@@ -163,7 +165,7 @@ function scoresFromWebsite(siteRow: WebsiteRow): LighthouseScores {
 
 function daysAgo(today: Date, n: number): Date {
   // UTC accessors to stay TZ-consistent with `due.ts` (and avoid landing
-  // Airtable's `Period start` on a different calendar day than the operator
+  // `Period start` on a different calendar day than the operator
   // expects on late-night runs near a month boundary). See morning brief
   // 2026-05-29 (M1) for context.
   const out = new Date(today);
@@ -172,17 +174,15 @@ function daysAgo(today: Date, n: number): Date {
 }
 
 /**
- * Render and create an Airtable draft for one site.
+ * Render and create a report draft for one site.
  *
  * No idempotency guard here — the recurrence guard lives in draftDueReports
  * (cli/commands/report.ts), keyed on reportPeriodKey(dueDate).  The manual
  * single-site path intentionally always drafts (an operator asking for a draft
- * gets one).  findReportByPeriod (airtable/reports.ts) is the real-Airtable
- * point lookup available to dashboard/digest callers that need the same
- * idempotency guarantee outside the CLI batch loop.
+ * gets one).  `findReportForPeriod` (create-report.ts) is the point lookup for
+ * callers that need the same idempotency guarantee outside the CLI batch loop.
  */
 export async function draftReportForSite(
-  base: AirtableBase | null,
   siteRow: WebsiteRow,
   reportType: ReportType,
   options: DraftOptions = {},
@@ -223,12 +223,10 @@ export async function draftReportForSite(
 
   // GA enrichment. Soft-fail: any GA problem leaves the numbers null so
   // the draft still proceeds (operator fills them manually) — GA is an enhancement, not a
-  // gate. Rendered with the fetched numbers so the review HTML matches the Airtable fields.
+  // gate. Rendered with the fetched numbers so the review HTML matches the stored fields.
   // An *error* (vs a legitimate not-configured skip) is recorded in softFailures so the
   // caller can surface a fleet-wide outage in the batch summary.
-  // Enrichment is gated on `enrich`, NOT on `base`: reading Google and writing to
-  // Airtable are independent, and only the write is what previewOnly forbids.
-  const shouldEnrich = options.enrich ?? base !== null;
+  const shouldEnrich = options.enrich ?? !options.previewOnly;
   const gaResult = shouldEnrich
     ? await fetchGaUsers(siteRow, periodStart, periodEnd)
     : NO_ENRICHMENT;
@@ -251,14 +249,12 @@ export async function draftReportForSite(
 
   // Header-image refresh (real path only). Regenerated BEFORE the render so the
   // preview the operator approves carries the same screenshot the client will
-  // receive — the send reads this attachment off the Websites row. Gated on
-  // `base !== null` exactly like the GA/Search enrichment above: the no-IO render
-  // path (base === null, used for pure rendering and tests) must not launch a
-  // browser or write to production Airtable. `refreshHeader: false` is the second
-  // gate, for suites that DO pass a fake base and would otherwise pay a real
+  // receive — the send reads this plate from Turso. The preview path must not
+  // launch a browser or write to production. `refreshHeader: false` is the second
+  // gate, for suites that run the real path and would otherwise pay a real
   // chromium launch per case. Production leaves it unset and gets the real
   // refresh. Best-effort — see refreshHeaderImage.
-  if (base !== null && options.refreshHeader !== false) {
+  if (!options.previewOnly && options.refreshHeader !== false) {
     await refreshHeaderImage(siteRow, options.refreshHeader ?? {});
   }
 
@@ -294,54 +290,34 @@ export async function draftReportForSite(
     };
   }
 
-  if (base === null) throw new Error("base required when previewOnly=false");
-
   // Record this site's GA/Search enrichment health for the per-site analytics-failure
   // signal (cockpit/digest). Only when analytics is configured for THIS site — set the
   // timestamp on a soft-fail, clear it (null) on a clean enrichment so the signal
   // self-heals.
-  //
-  // Turso FIRST, in its own try (#782). The Airtable `Analytics soft-fail at` column
-  // is operator-added and has never existed in the base, so that write throws
-  // UNKNOWN_FIELD_NAME on every real draft — and while the Turso mirror sat after it
-  // inside one try, `site_health.analytics_soft_fail_at` was never written either, so
-  // the digest collector reading it was green on a question it could not fail. Turso
-  // is authoritative; Airtable is the best-effort shadow Phase 6 deletes. Both stay
-  // best-effort here: a stamp is re-derived on every draft, so a lost one costs a
-  // period's signal, not the draft the operator is waiting on — and each failure is
-  // logged naming its store.
-  if (readGaConfig() !== null && Boolean(siteRow.ga4PropertyId || siteRow.searchQuery)) {
+  // Best-effort: a stamp is re-derived on every draft, so a lost one costs a
+  // period's signal, not the draft the operator is waiting on.
+  if (readGaConfig() !== null && analyticsEnrolled(siteRow)) {
     const at = softFailures.length > 0 ? today.toISOString() : null;
-    // One payload for both stores, so the two writes cannot diverge.
-    const fields = analyticsHealthFields(at);
     try {
-      await options.siteMirror?.health(siteRow.id, fields);
+      await options.siteMirror?.health(siteRow.id, analyticsHealthFields(at));
     } catch (e) {
       console.warn(
         `⚠ analytics-health Turso mirror failed for ${siteRow.name}: ${(e as Error).message}`,
-      );
-    }
-    try {
-      await updateAnalyticsHealth(base, siteRow.id, at);
-    } catch (e) {
-      console.warn(
-        `⚠ analytics-health Airtable shadow write skipped for ${siteRow.name}: ${(e as Error).message}`,
       );
     }
   }
 
   // "Finish an existing row" path (the --due re-draft wedge fix). When the caller
   // hands us a row that was created but never made Draft-ready — a crash between
-  // createDraft and setDraftReady leaves exactly this — we DON'T createDraft again
-  // (that would duplicate the period). We re-attach the rendered HTML and queue the
+  // the create and the queue flag leaves exactly this — we DON'T create again
+  // (that would duplicate the period). We re-store the rendered body and queue the
   // EXISTING row, completing the half-made draft in place. The row's other fields
   // (scores, period, dates) were already written at create time; the only pieces a
-  // crash drops are the attachment + the ready flag.
+  // crash drops are the body + the ready flag.
   if (options.completeRowId) {
-    await uploadDraftHtml(options.completeRowId, slug, periodEnd, html, store!);
-    const outcome = await queueDraft(
-      base,
+    const outcome = await storeAndQueueDraft(
       { id: options.completeRowId, siteId: siteRow.id, reportType },
+      html,
       store!,
     );
     return {
@@ -367,11 +343,7 @@ export async function draftReportForSite(
   const autoEvidence = Object.fromEntries(evidence);
 
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;
-  // #646 step 4: the row is MINTED and written in Turso (`report_<ULID>`), not in
-  // Airtable. A `site_<ULID>` site could not be drafted for at all before this —
-  // Airtable has no Websites record for the `Site` link to point at — and the
-  // Airtable Reports row it used to create is now skipped, not written, for the
-  // reason `createReportDraft` states.
+  // #646 step 4: the row is MINTED and written in Turso (`report_<ULID>`).
   const created = await createReportDraft(
     {
       reportId,
@@ -394,10 +366,9 @@ export async function draftReportForSite(
     { create: store!.create },
   );
 
-  await uploadDraftHtml(created.id, slug, periodEnd, html, store!);
-  const outcome = await queueDraft(
-    base,
+  const outcome = await storeAndQueueDraft(
     { id: created.id, siteId: siteRow.id, reportType },
+    html,
     store!,
   );
 
@@ -413,27 +384,18 @@ export async function draftReportForSite(
   };
 }
 
-/** Attach the rendered HTML to a Reports row. Queueing (Draft ready + the single-queue
- *  reconciliation) is handled separately by queueDraft so both the create path and the
- *  "complete a half-made row" path share the identical, re-runnable upload step.
- *
- *  #539 Phase 5: the body is ALSO stored in Turso, because that is where the
- *  console's preview route reads it. Storing the row without the body leaves a
- *  visible draft whose preview answers "No rendered body stored" until the next
- *  hourly sync re-downloads this very attachment. */
-async function uploadDraftHtml(
-  rowId: string,
-  slug: string,
-  periodEnd: Date,
+/** Store the rendered HTML on the report row, then queue it (Draft ready + the
+ *  single-queue reconciliation), so both the create path and the "complete a
+ *  half-made row" path share the identical, re-runnable step. Storing the row
+ *  without the body leaves a visible draft whose preview answers "No rendered
+ *  body stored". */
+async function storeAndQueueDraft(
+  report: { id: string; siteId: string; reportType: ReportType },
   html: string,
   store: ReportMirror,
-): Promise<void> {
-  const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
-  // Airtable's copy of the body is a shadow: `uploadAttachment` skips a report id
-  // Airtable cannot hold (#646 step 3's writer rule), so a minted report's body
-  // lives only in Turso — which is where the console's preview route reads it.
-  await uploadAttachment(rowId, "Rendered HTML", html, htmlFilename, "text/html");
-  await store.body(rowId, html);
+): Promise<QueueOutcome> {
+  await store.body(report.id, html);
+  return queueDraft(report, store);
 }
 
 /** Result of an enrichment fetch: the value (null if unavailable) plus whether
@@ -487,11 +449,21 @@ type SearchEnrichment = Enrichment<SearchPresence> & {
   notConfigured: boolean;
 };
 
+export function searchEnrolled(row: WebsiteRow): boolean {
+  if (searchConsoleOptedOut(row)) return false;
+  return Boolean(row.ga4PropertyId || row.searchQuery || row.searchConsoleProperty?.trim());
+}
+
+export function analyticsEnrolled(row: WebsiteRow): boolean {
+  return Boolean(row.ga4PropertyId) || searchEnrolled(row);
+}
+
 /**
  * Fetch the site's Google search presence for the period, soft-failing to null. Runs whenever
  * GA/SA is configured (`readGaConfig()` non-null — search shares the SA credentials) AND the
- * site is analytics-enrolled (has a `ga4PropertyId` OR an explicit `searchQuery`); otherwise a
- * legitimate skip (null value, `softFailed: false`). The brand query defaults to the site NAME
+ * site is search-enrolled ({@link searchEnrolled}: a `ga4PropertyId`, an explicit
+ * `searchQuery` or a recorded `searchConsoleProperty`, and no "no search console" opt-out);
+ * otherwise a legitimate skip (null value, `softFailed: false`). The brand query defaults to the site NAME
  * when no explicit `searchQuery` is set (whitespace-only counts as unset) — so brand presence is
  * tracked automatically, and the operator only hand-tunes the handful of sites the name misses.
  *
@@ -523,7 +495,7 @@ export async function fetchSearch(
   periodEnd: Date,
 ): Promise<SearchEnrichment> {
   const cfg = readGaConfig();
-  const enrolled = Boolean(siteRow.ga4PropertyId || siteRow.searchQuery);
+  const enrolled = searchEnrolled(siteRow);
   if (!cfg || !enrolled) {
     const notConfigured = enrolled && !cfg;
     if (notConfigured) {
@@ -557,7 +529,7 @@ export async function fetchSearch(
     const defaultQueryMissed = value.propertyFound && usedDefault && value.position === null;
     if (defaultQueryMissed) {
       console.warn(
-        `⚑ Search: site-name default "${query}" found no Search Console data for ${siteRow.name} — set an explicit "Search query" in Airtable to track brand presence.`,
+        `⚑ Search: site-name default "${query}" found no Search Console data for ${siteRow.name} — set an explicit search query on the site to track brand presence.`,
       );
     }
     return { value, softFailed: false, defaultQueryMissed, propertyMissing, notConfigured: false };
@@ -576,10 +548,7 @@ export async function fetchSearch(
 /** The half-open period's start: the day after this site's last report of the same
  *  type ended, or 30 days ago when it has none.
  *
- *  #646 step 4: read from TURSO (`store.forSite`). The Airtable read it replaces
- *  returned nothing for a `site_<ULID>` site — and "nothing" is not an error here,
- *  it is the 30-day fallback, so every report for such a site would have silently
- *  re-measured a window it had already reported on. */
+ *  #646 step 4: read from TURSO (`store.forSite`). */
 async function derivePeriodStart(
   store: ReportMirror,
   siteRow: WebsiteRow,

@@ -4,7 +4,7 @@ import {
   isArchivedStatus,
   isUnrecognizedStatus,
   type Status,
-} from "../../src/reports/airtable/websites.js";
+} from "../../src/fleet/site-fields.js";
 
 describe("mapRow frequency coercion", () => {
   afterEach(() => {
@@ -34,7 +34,7 @@ describe("mapRow frequency coercion", () => {
   });
 
   it("warns LOUDLY and falls back to None for a genuinely unrecognized value", () => {
-    // A renamed or mistyped Airtable single-select option must NOT flow downstream — the
+    // A renamed or mistyped select option must NOT flow downstream — the
     // announcement would otherwise render "We do this undefined." into a client email.
     // But it must not be SILENT either: that drops the site from report scheduling
     // with zero signal.
@@ -61,12 +61,8 @@ describe("mapRow frequency coercion", () => {
 
 describe("mapRow status", () => {
   it("reads an 'archived' cell as archived — the merge now lives in the DATA, not the map", () => {
-    // This test used to prove that 'legacy' and 'deprecated' BOTH read as
-    // 'archived'. That merge happened for real on 2026-08-24: all 12 archived
-    // cells were rewritten to 'archived' and, on 2026-08-25, the two old options
-    // were deleted from the Airtable field outright. With the alias map gone
-    // (stage 3), neither old name is translated any more — so the merge is no
-    // longer a mapping this seam performs, it is a fact about the stored data.
+    // Neither 'legacy' nor 'deprecated' is translated any more: the merge into
+    // 'archived' is a fact about the stored data, not a mapping this seam performs.
     expect(mapRow({ id: "r1", fields: { Status: "archived" } }).status).toBe("archived");
     expect(mapRow({ id: "r1", fields: { Status: "archived" } }).statusRaw).toBe("archived");
     // A retired name is now an anomaly, not a synonym: it survives verbatim so

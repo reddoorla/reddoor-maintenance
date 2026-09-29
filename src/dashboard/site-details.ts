@@ -1,44 +1,42 @@
-import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { parseNotifyRouting } from "../reports/airtable/websites.js";
-import { CANONICAL_STATUSES, toAirtableStatus } from "../reports/airtable/site-status.js";
-import type { AirtableCellValue } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
+import { parseNotifyRouting } from "../fleet/site-row.js";
+import { CANONICAL_STATUSES } from "../fleet/site-status.js";
+import type { CellValue } from "../fleet/site-fields.js";
 import { isOwnerRepo } from "../util/git.js";
 import { isHttpUrl } from "../util/url.js";
+import { normalizeSearchConsoleProperty } from "../reports/search/property.js";
 
 /**
- * Status options the editor offers, expressed as the values Airtable actually
- * STORES — this dropdown writes straight into the "Status" single-select, so its
- * options must be options that column accepts.
+ * Status options the editor offers, expressed as the values the "Status" column
+ * actually STORES — this dropdown writes straight into it.
  *
  * Since stage 3 (the retired option names deleted from the field, the alias map
- * deleted from the code) these ARE the canonical names, and `toAirtableStatus`
- * is the identity — so this list is exactly the six options the column holds.
+ * deleted from the code) these ARE the canonical names — so this list is exactly
+ * the six canonical statuses.
  *
  * `render.ts` still preselects against `site.statusRaw` rather than
- * `site.status`. Those two now coincide for every value the single-select can
- * hold, so the distinction is dormant rather than load-bearing; it is kept
+ * `site.status`. Those two now coincide for every canonical value, so the
+ * distinction is dormant rather than load-bearing; it is kept
  * because the placeholder behaviour it produces — an unrecognized cell shows the
  * disabled "— select —" instead of being silently re-labelled — is what should
  * happen if a stale value ever reappears.
  */
-export const SITE_STATUS_OPTIONS: readonly string[] = CANONICAL_STATUSES.map(toAirtableStatus);
+export const SITE_STATUS_OPTIONS: readonly string[] = [...CANONICAL_STATUSES];
 export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
 
 /**
- * The options the live `Accepted Watch Conditions` multi-select carries, read
- * off the base schema on 2026-08-25.
+ * The options of the `Accepted Watch Conditions` multi-select. Spelled out
+ * rather than derived: an unknown condition is rejected rather than sent.
  *
- * Spelled out rather than derived, because the API CANNOT add an option to a
- * select — a PATCH with new choices returns 422, proven during the status
- * migration — so offering a value this field does not have would produce a write
- * Airtable rejects. The records API would create one as a `typecast` side
- * effect; that is the silent-option-creation hazard this codebase refuses
- * everywhere, and it is why an unknown condition is rejected rather than sent.
+ * `no analytics` is the explicit opt-out from the GA4 setup requirement
+ * (`src/dashboard/onboarding.ts`); `no search console` is the same for the
+ * Search Console requirement. `no git repo` / `no netlify id` accept a
+ * maintained site that genuinely has no repo or is not on Netlify (#889).
  *
  * KNOWN GAP, operator-owned: `fleet-cockpit.ts` also supports a
  * `turnstile-unverified` accept key, and this field has no option for it — so
- * that one condition cannot be accepted from the console. Adding the option is a
- * UI action in Airtable; nothing here can do it.
+ * that one condition cannot be accepted from the console. Adding it here is a
+ * one-line change.
  */
 export const WATCH_CONDITION_OPTIONS: readonly string[] = [
   "Performance",
@@ -47,6 +45,10 @@ export const WATCH_CONDITION_OPTIONS: readonly string[] = [
   "SEO",
   "stale repo",
   "no custom domain",
+  "no analytics",
+  "no search console",
+  "no git repo",
+  "no netlify id",
 ] as const;
 
 type FieldKind =
@@ -60,7 +62,8 @@ type FieldKind =
   | "notifyRouting"
   | "bool"
   | "multiselect"
-  | "secret";
+  | "secret"
+  | "searchConsoleProperty";
 export type EditableField = {
   column: string;
   kind: FieldKind;
@@ -69,20 +72,16 @@ export type EditableField = {
 };
 
 /**
- * The ONLY columns the dashboard editor may write. `column` is the EXACT Airtable
- * field name (note the lowercase / em-dash / misspelled ones), kept in lockstep
- * with `mapRow` in src/reports/airtable/websites.ts.
+ * The ONLY columns the dashboard editor may write. `column` is the EXACT legacy
+ * column name (note the lowercase / em-dash / misspelled ones), kept in lockstep
+ * with `mapRow` in src/fleet/site-fields.ts.
  */
 export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   // The site's own address, and the target EVERY deployed audit drives: the
-  // inventory exposes it as `Site.deployedUrl` (src/inventory/airtable.ts), so
+  // inventory exposes it as `Site.deployedUrl` (src/inventory/select.ts), so
   // function-health, lighthouse, browser, domain and form-e2e all resolve
-  // against it. It was writable only at creation (`ensure-site`), and the #643
-  // freeze retired Airtable hand-editing — which left a site that MOVED with no
-  // way to be corrected anywhere. Found on vida-legacy-foundation, whose row
-  // still pointed at a hostname that 404s, so every audit that ran against it
-  // was measuring nothing. `kind: "url"` applies the same scheme allowlist the
-  // audit target itself uses.
+  // against it, so a site that MOVES must be correctable here. `kind: "url"`
+  // applies the same scheme allowlist the audit target itself uses.
   url: { column: "url", kind: "url" },
   pointOfContact: { column: "point of contact", kind: "email" },
   reportRecipientsTo: { column: "Report recipients (To)", kind: "emails" },
@@ -97,26 +96,21 @@ export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   maintenanceFreq: { column: "maintenence freq", kind: "enum", options: FREQ_OPTIONS },
   testingFreq: { column: "testing freq", kind: "enum", options: FREQ_OPTIONS },
   // #539 Phase 4 — the fields the design lists as "the eight nothing renders
-  // today". Kinds follow the LIVE Airtable column types, read off the base
-  // schema rather than inferred from the reader: `maintenance day`/`testing day`
-  // are `date`, `Notify Routing` is `multilineText` holding JSON, the rest are
-  // `singleLineText`. All seven are string-valued, which is why they need no
-  // change to `updateSiteField`. `Require Turnstile` (checkbox) and `Accepted
-  // Watch Conditions` (multipleSelects) are NOT here — they cannot be written as
-  // strings and need a typed writer first.
+  // today". Kinds follow the column types: `maintenance day`/`testing day`
+  // are dates, `Notify Routing` holds JSON, the rest are single-line text.
   //
-  // `Mailchimp API Key` is deliberately absent too: it is a live credential, and
+  // `Mailchimp API Key` is deliberately absent: it is a live credential, and
   // every field in this map is rendered back into the page carrying its stored
   // value (see `inputRow` in render.ts). It needs a write-only kind first.
   netlifyId: { column: "Netlify ID", kind: "text", maxLen: 200 },
-  searchConsoleProperty: { column: "Search Console property", kind: "text", maxLen: 500 },
+  searchConsoleProperty: { column: "Search Console property", kind: "searchConsoleProperty" },
   mailchimpAudienceId: { column: "Mailchimp Audience ID", kind: "text", maxLen: 200 },
   newsletterWebhook: { column: "Newsletter Webhook", kind: "url" },
   maintenanceDay: { column: "maintenance day", kind: "date" },
   testingDay: { column: "testing day", kind: "date" },
   notifyRouting: { column: "Notify Routing", kind: "notifyRouting" },
   // The two non-text columns. They write a boolean and a string[] respectively,
-  // which is why `updateSiteField` and `mirrorSiteField` take AirtableCellValue.
+  // which is why `mirrorSiteField` takes CellValue.
   requireTurnstile: { column: "Require Turnstile", kind: "bool" },
   acceptedWatchConditions: {
     column: "Accepted Watch Conditions",
@@ -152,10 +146,10 @@ function isCalendarDate(v: string): boolean {
  * `null` when invalid. Empty (after trim) is allowed — it clears the cell — for
  * every kind EXCEPT `enum`, which must be one of its options.
  */
-export function normalizeFieldValue(f: EditableField, raw: string): AirtableCellValue | null {
+export function normalizeFieldValue(f: EditableField, raw: string): CellValue | null {
   const v = raw.trim();
   // Hard upper bound across every kind (text additionally enforces its own
-  // tighter maxLen below) — a single absurdly long value can't reach Airtable.
+  // tighter maxLen below) — a single absurdly long value can't reach the store.
   if (v.length > 2000) return null;
   switch (f.kind) {
     case "enum":
@@ -209,15 +203,17 @@ export function normalizeFieldValue(f: EditableField, raw: string): AirtableCell
       // on every page load (its value is never sent to the browser), so
       // clear-on-empty would let any unrelated save destroy a working key.
       return v.length <= (f.maxLen ?? 500) ? v : null;
+    case "searchConsoleProperty":
+      return v === "" ? "" : normalizeSearchConsoleProperty(v);
     case "text":
       return v.length <= (f.maxLen ?? 500) ? v : null;
   }
 }
 
-/** Injected IO — the `.mts` binds these to a live Airtable base; tests bind fakes. */
+/** Injected IO — the `.mts` binds these to Turso; tests bind fakes. */
 export type SiteDetailDeps = {
   getSite: (slug: string) => Promise<WebsiteRow | null>;
-  updateField: (recordId: string, column: string, value: AirtableCellValue) => Promise<void>;
+  updateField: (recordId: string, column: string, value: CellValue) => Promise<void>;
 };
 
 /** Typed into a `secret` field to ERASE it. A sentinel rather than a new
@@ -245,9 +241,9 @@ export type SiteDetailResult =
  * Write one allowlisted site-detail field from the dashboard editor.
  *
  * SAFETY: an unknown `field` is rejected BEFORE any read (a hand-crafted authed
- * POST can never write an arbitrary Airtable column), and the value is
+ * POST can never write an arbitrary column), and the value is
  * validated/normalized per kind before the write — invalid input never reaches
- * Airtable.
+ * the store.
  */
 export async function setSiteDetail(
   deps: SiteDetailDeps,
@@ -263,12 +259,11 @@ export async function setSiteDetail(
   // rendered without a value, so it is blank on every load. Returning before the
   // read means an accidental save cannot even touch the record.
   if (f.kind === "secret" && value === "") return { status: "unchanged", slug, field };
-  // ...which left NO way to clear one from the console. Airtable was the escape
-  // hatch, and the freeze removes it (#612), so clearing needs its own explicit
-  // gesture. A typed sentinel rather than a new control: the secret input is the
-  // one field whose blur listener already fires on any keystroke (it renders
-  // with no value, so anything typed differs from its default), so this needs no
-  // change to the inline dashboard script — which no test executes.
+  // ...so clearing one needs its own explicit gesture. A typed sentinel rather
+  // than a new control: the secret input is the one field whose blur listener
+  // already fires on any keystroke (it renders with no value, so anything typed
+  // differs from its default), so this needs no change to the inline dashboard
+  // script — which no test executes.
   if (f.kind === "secret" && value === CLEAR_SECRET) {
     const target = await deps.getSite(slug);
     if (!target) return { status: "not-found", slug };

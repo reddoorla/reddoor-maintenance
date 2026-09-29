@@ -1,4 +1,4 @@
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import type {
   SubmissionRow,
   SubmissionInput,
@@ -142,7 +142,7 @@ export async function ingestScreenOut(
 /**
  * Normalize → resolve site → persist → notify → stamp. The order is load-bearing:
  * the row is written BEFORE notify, and notify/stamp failures are swallowed (logged)
- * so a Resend or Airtable-write-back hiccup can never turn an accepted lead into a 502.
+ * so a Resend or write-back hiccup can never turn an accepted lead into a 502.
  */
 export async function ingestSubmission(
   deps: IngestDeps,
@@ -163,11 +163,9 @@ export async function ingestSubmission(
     return { status: "rejected", reason: "invalid-payload", errors: normalized.errors };
   }
   // Persist before enrich (#539 Phase 0). The lookup THROWING is a store outage,
-  // not an answer — and until 2026-08-23 it was the one await that could cost a
-  // lead: the row write comes later, so a thrown lookup 502'd the visitor with
-  // nothing recorded anywhere (the 2026-08-17 Airtable quota outage did exactly
-  // that, while the submissions store itself was healthy the whole time). With
-  // `deadLetter` wired, the lead lands there and the visitor gets an honest
+  // not an answer: the row write comes later, so a thrown lookup would 502 the
+  // visitor with nothing recorded anywhere. With `deadLetter` wired, the lead
+  // lands there and the visitor gets an honest
   // "accepted"; `db replay-deadletters` runs it through this same function once
   // the lookup recovers, producing a normal row with real classification+notify.
   //
@@ -210,7 +208,7 @@ export async function ingestSubmission(
   //  1. `/api/forms/:slug` is TOKEN-GATED before this function runs, so the
   //     slugs that reach here belong to fleet sites, not to bots guessing.
   //  2. Post-#643 the lookup reads Turso only, so a real client site whose Turso
-  //     row is missing — a half-finished `ensure-site`, a deleted row, Phase 6 —
+  //     row is missing — a half-finished `ensure-site`, a deleted row —
   //     is indistinguishable here from a typo, and dropping it loses a paying
   //     client's lead permanently and silently. It is the only failure in the
   //     fleet that does that.

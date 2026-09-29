@@ -41,17 +41,12 @@ function html(body: string, status: number): Response {
 }
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
-  // Authenticate BEFORE the Airtable/Turso env guards so an unauthenticated probe
+  // Authenticate BEFORE the Turso env guard so an unauthenticated probe
   // can't tell which backend env is unset (a differentiated 500 leaks config
   // state). Only the password check — unavoidable, since auth needs it — precedes.
   const auth = requireOperator(req, { wants: "redirect" });
   if (!auth.ok) return denialResponse(auth.denial);
 
-  // #609: this page no longer touches Airtable at all. The last call was the
-  // digest NEW-badge read, which was an AIRTABLE CALL ON A REQUEST PATH — a
-  // Phase 2 leftover, since digest state was never in that phase's scope. With
-  // it on Turso the AIRTABLE_PAT/AIRTABLE_BASE_ID gate that used to guard this
-  // handler is gone too: the page cannot be degraded by an Airtable outage.
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[fleet-homepage] TURSO_DATABASE_URL missing");
     return plainText("Turso env missing", 500);

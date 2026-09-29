@@ -9,29 +9,8 @@ import type { Db } from "../../db/client.js";
 /** The `--fleet` keyword that reads the fleet roster from the database (#646 step 4). */
 export const FLEET_KEYWORD = "turso";
 
-/**
- * The keyword every sweep used until #646 step 4. It is kept as an ALIAS that now
- * reads Turso, not as a path that still reads Airtable, because:
- *
- *  - Airtable can no longer answer the question. A site made by the Turso-native
- *    `ensure-site` (step 3) has a `site_<ULID>` id and no Airtable record, so an
- *    Airtable roster is silently short — the invisibility step 4 exists to close.
- *  - The keyword is typed by hand from the docs, the runbooks, AUTONOMY.md and
- *    shell history. Refusing it would break those invocations; keeping it on
- *    Airtable would keep them wrong and keep Airtable load-bearing for reads.
- *
- * It is not SILENT: every use prints DEPRECATED_FLEET_KEYWORD_WARNING to stderr,
- * naming the store actually read, so a misleading name never reads a different
- * store without saying so. Remove it with the Airtable layer (steps 6–8).
- */
-export const DEPRECATED_FLEET_KEYWORD = "airtable";
-
-export const DEPRECATED_FLEET_KEYWORD_WARNING =
-  "[fleet] --fleet airtable is deprecated: the fleet roster is read from Turso, not Airtable " +
-  "(#646 step 4). Use --fleet turso.";
-
 /** A dynamic .js/.mjs/.cjs inventory returns arbitrary Site objects; apply the
- *  same `deployedUrl` scheme-allowlist the JSON + Airtable providers enforce, so
+ *  same `deployedUrl` scheme-allowlist the JSON + Turso providers enforce, so
  *  a module returning `file:///…`/`gopher://…` can't reach Chrome/lhci. Drop the
  *  offending value (and warn) rather than throw — matching the JSON provider. */
 export function sanitizeDynamicSites(sites: Site[]): Site[] {
@@ -67,8 +46,7 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
     });
   }
 
-  if (input.fleet === FLEET_KEYWORD || input.fleet === DEPRECATED_FLEET_KEYWORD) {
-    if (input.fleet === DEPRECATED_FLEET_KEYWORD) console.warn(DEPRECATED_FLEET_KEYWORD_WARNING);
+  if (input.fleet === FLEET_KEYWORD) {
     const { openDb, readDbConfig } = await import("../../db/client.js");
     const { fromTursoDb } = await import("../../inventory/turso.js");
     const open = input.openDb ?? (() => openDb(readDbConfig()));
@@ -92,7 +70,7 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
         });
       }
       // A dynamic module's deployedUrl is unvalidated — sanitize before it can
-      // reach a deployed audit (the JSON/Airtable providers already do this).
+      // reach a deployed audit (the JSON/Turso providers already do this).
       return sanitizeDynamicSites(await mod.default());
     }
     throw Object.assign(

@@ -1,11 +1,11 @@
-import type { ReportRow } from "../reports/airtable/reports.js";
+import type { ReportRow } from "../reports/report-fields.js";
 
 /**
  * Report review, #539 Phase 4 — the operator-written half of a client report.
  *
- * Commentary is edited in Airtable today; this is the console's write path for
- * it, shaped like `setSiteDetail`: validate before reading, write one named
- * field, return a status the caller renders rather than throwing.
+ * This is the console's write path for commentary, shaped like
+ * `setSiteDetail`: validate before reading, write one named field, return a
+ * status the caller renders rather than throwing.
  *
  * THE LOCK IS `sentAt`, NOT APPROVAL — an operator ruling, not an inference from
  * the approve flow. Approving means "this is ready to go", so a typo spotted
@@ -16,7 +16,7 @@ import type { ReportRow } from "../reports/airtable/reports.js";
 
 /** Upper bound on a commentary cell. Matches the copy-override fields in the
  *  site editor — commentary is a paragraph in a client email, not a document,
- *  and an unbounded string reaching Airtable is a hand-crafted-POST concern
+ *  and an unbounded string reaching the store is a hand-crafted-POST concern
  *  rather than a typo. */
 export const COMMENTARY_MAX_LEN = 2000;
 
@@ -44,7 +44,7 @@ export async function setReportCommentary(
 ): Promise<ReportCommentaryResult> {
   const text = rawText.trim();
   // Validate BEFORE the read, the same order `setSiteDetail` uses: an
-  // over-long value is refused without costing an Airtable round-trip.
+  // over-long value is refused without costing a round-trip.
   if (text.length > COMMENTARY_MAX_LEN) return { status: "invalid", reportId };
 
   const report = await deps.getReportById(reportId);

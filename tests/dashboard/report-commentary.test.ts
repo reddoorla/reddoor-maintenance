@@ -4,11 +4,11 @@ import {
   COMMENTARY_MAX_LEN,
   type ReportCommentaryDeps,
 } from "../../src/dashboard/report-commentary.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 
 /**
  * Report review, #539 Phase 4: commentary is the one part of a client report an
- * operator writes by hand, and it is edited in Airtable today.
+ * operator writes by hand.
  *
  * The gate is SENT, not approved — an operator who approves and then spots a
  * typo can still fix it, but once the email has gone out the stored row must
@@ -111,8 +111,8 @@ describe("setReportCommentary", () => {
 
   it("refuses an over-long value BEFORE any read", async () => {
     // Same shape as the site editor's bad-field guard: a hand-crafted authed
-    // POST must not be able to push an unbounded string at Airtable, and must
-    // not cost a read to find that out.
+    // POST must not be able to store an unbounded string, and must not cost a
+    // read to find that out.
     let read = false;
     const { deps } = harness({
       getReportById: async () => {

@@ -2,7 +2,7 @@
  * Public `@reddoorla/maintenance/forms` subpath — the site-facing API for
  * forwarding contact-form submissions to the dashboard ingest endpoint. Exports
  * ONLY browser/server-safe code; the dashboard-only modules (ingest/notify/token,
- * the Airtable submissions module) are intentionally not re-exported here.
+ * the submissions module) are intentionally not re-exported here.
  */
 export {
   submitToIngest,

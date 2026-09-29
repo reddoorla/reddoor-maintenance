@@ -12,6 +12,17 @@ import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
+import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
+import {
+  collectFrameErrorLogs,
+  firstStackUrl,
+  frameOnPathIsForeign,
+  isForeignUrl,
+  recordFrameErrors,
+  resolveTargetElement,
+  splitCrossOriginFrameNodes,
+  splitThirdPartyErrors,
+} from "./util/cross-origin.js";
 
 type Impact = "minor" | "moderate" | "serious" | "critical";
 
@@ -22,6 +33,9 @@ type AxeViolation = {
   help?: string;
   helpUrl?: string;
   nodes?: Array<{ html?: string; target?: string[] }>;
+  /** On a `client-error`: the first URL in the error's stack, or null when it
+   *  names none — so the artifact says where the error came from. */
+  source?: string | null;
 };
 
 /** A route the spec navigated to, found non-200, and deliberately did NOT scan
@@ -35,11 +49,34 @@ export type SkippedRoute = {
   reason: string;
 };
 
+/** One route's reveal pass (#100), as the spec records it in the artifact. */
+export type RevealRecord = RevealPass & { route: string };
+
+/** Violation nodes inside cross-origin frames that one scanned route did not
+ *  count (#100 review): how many, and under which rules. */
+export type FrameNodesDropped = { route: string; count: number; rules: string[] };
+
+/** An uncaught error that a cross-origin frame's own log recorded (#100
+ *  review): recorded and named, never failed. `frame` is that frame's URL —
+ *  the evidence; `source` is the stack's first URL, for the reader only. */
+export type ThirdPartyError = {
+  route: string;
+  frame?: string;
+  source: string | null;
+  message: string;
+};
+
 type NormalizedA11y = {
   totalViolations: number;
   byImpact: Partial<Record<Impact, number>>;
   violations: AxeViolation[];
   skipped?: SkippedRoute[];
+  /** Absent in an artifact written by a spec from before this field existed. */
+  reveals?: RevealRecord[];
+  /** Absent in an artifact written by a spec from before this field existed. */
+  frameNodesDropped?: FrameNodesDropped[];
+  /** Absent in an artifact written by a spec from before this field existed. */
+  thirdPartyErrors?: ThirdPartyError[];
 };
 
 /** One route as the generated spec sees it. `placeholder404Ok` is set only on
@@ -60,6 +97,15 @@ const PLACEHOLDER_SKIP_REASON = "placeholder Prismic repo";
  *  the spec and reproduced verbatim in the summary, exactly as the reason
  *  above, so an operator reading a skip always learns WHY. */
 const ABSENT_FIXTURE_SKIP_REASON = "fixture not in this site's source";
+
+/** Prefixed to the help of a `client-error` that was THROWN WHILE the reveal
+ *  pass (#100) was running. It marks a time window, not a cause. The pass runs
+ *  IntersectionObserver and scroll callbacks that never ran under the gate
+ *  before (on roalson-interests it boots MapLibre), so errors in that window
+ *  are the likeliest to be new — but a late hydration error can land in it
+ *  too, and an error the pass triggers through async work can land after it.
+ *  It still fails: a reader who scrolls hits it too. */
+const REVEAL_PASS_ERROR_PREFIX = "while the reveal pass ran: ";
 
 export type RouteVerdict = "scan" | "skip" | "missing";
 
@@ -345,8 +391,30 @@ import { dirname } from "node:path";
 
 // Injected, not transcribed — see classifyRouteResponse in src/audits/a11y.ts.
 const classifyRouteResponse = ${classifyRouteResponse.toString()};
+// Injected the same way, and run in the page — see src/audits/util/reveal-below-fold.ts.
+const revealBelowFold = ${revealBelowFold.toString()};
+// Injected the same way — see src/audits/util/cross-origin.ts.
+const isForeignUrl = ${isForeignUrl.toString()};
+const resolveTargetElement = ${resolveTargetElement.toString()};
+const splitCrossOriginFrameNodes = ${splitCrossOriginFrameNodes.toString()};
+const recordFrameErrors = ${recordFrameErrors.toString()};
+const splitThirdPartyErrors = ${splitThirdPartyErrors.toString()};
+const firstStackUrl = ${firstStackUrl.toString()};
+const collectFrameErrorLogs = ${collectFrameErrorLogs.toString()};
+const frameOnPathIsForeign = ${frameOnPathIsForeign.toString()};
+// Every read of a frame is bounded: a lazy iframe that never loaded is listed
+// with no document, and waiting on it hung the whole run (#100 review).
+const FRAME_READ_TIMEOUT_MS = 2000;
+// Every navigation to about:blank is bounded too, and its failure swallowed. A
+// renderer kept permanently busy (a cross-origin embed in an endless loop
+// shares the page's renderer under Playwright's Chromium) never finishes the
+// navigation, and an unbounded one would hang the run to the spawn timeout
+// with the crash unnamed. Bounded, the run goes on: the final settle reads
+// what is left and results.json is written.
+const ABOUT_BLANK_TIMEOUT_MS = 10_000;
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
+const REVEAL_PASS_ERROR_PREFIX = ${JSON.stringify(REVEAL_PASS_ERROR_PREFIX)};
 
 const pages = ${JSON.stringify(axePages)};
 const smokePages = ${JSON.stringify(smokeRoutes)};
@@ -363,97 +431,237 @@ const OUTPUT = process.env.REDDOOR_A11Y_OUTPUT;
 // configured route in a single test, so the budget needs to scale.
 test.setTimeout(5 * 60_000);
 
-test("a11y + hydration across configured routes", async ({ page }) => {
+test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
   const violations = [];
   // Routes navigated but deliberately not scanned. Separate from violations so
   // they cannot fail the run, and written to the artifact so they cannot vanish
   // from the summary either.
   const skipped = [];
+  // One entry per scanned route: what the reveal pass did there. Written to
+  // the artifact so a pass that stopped short can be named, not assumed.
+  const reveals = [];
+  // One entry per scanned route: violation nodes inside cross-origin frames
+  // that were not counted against the site, and under which rules.
+  const frameNodesDropped = [];
+  // Uncaught errors that a cross-origin frame's own log recorded -- a
+  // third-party embed's script, which the reveal pass may be what loaded.
+  // Named in the summary, never failed: the site cannot fix them.
+  const thirdPartyErrors = [];
+  // This route's uncaught errors, held until the route ends and each frame's
+  // own error log can say where they were thrown.
+  const pendingErrors = [];
+  // Every frame, out-of-process ones included, keeps a log of its own
+  // uncaught errors from before its first script runs. That log -- not the
+  // stack -- is the evidence of which frame an error was thrown in.
+  await page.addInitScript(recordFrameErrors);
 
   // Capture uncaught client-side exceptions across every route we visit. A page
   // that builds + SSRs cleanly can still throw on hydrate and blank itself
   // (data-dynamiq: a Svelte 4->5 run() referenced a $state declared after it) --
   // axe never sees that, so we listen for it directly and tag the route in scope.
   let currentRoute = "";
+  // The origin of the route being visited, from the URL being navigated to
+  // (an error thrown on load arrives before goto resolves, so page.url() may
+  // still be the previous page).
+  let currentOrigin = "";
+  const originOf = (url) => new URL(url, baseURL ?? "http://localhost").origin;
+
+  // Settle this route's pending errors. An error moves to thirdPartyErrors
+  // only when a cross-origin frame's own log recorded it (see
+  // splitThirdPartyErrors); everything else is the site's client-error. Every
+  // frame read is bounded (see collectFrameErrorLogs): a frame that does not
+  // answer is no evidence for the third party, and a site frame that does not
+  // answer moves nothing.
+  const settleErrors = async () => {
+    if (pendingErrors.length === 0) return;
+    const frameLogs = await collectFrameErrorLogs(
+      page.frames(),
+      page.mainFrame(),
+      currentOrigin,
+      isForeignUrl,
+      FRAME_READ_TIMEOUT_MS,
+    );
+    const errors = pendingErrors.splice(0, pendingErrors.length);
+    const split = splitThirdPartyErrors(errors, frameLogs);
+    for (const e of split.site) {
+      violations.push({
+        id: "client-error",
+        impact: "critical",
+        route: e.route,
+        help: e.help,
+        source: e.source,
+      });
+    }
+    for (const e of split.thirdParty) {
+      thirdPartyErrors.push({ route: e.route, frame: e.frame, source: e.source, message: e.message });
+    }
+  };
+
+  // Is there positive evidence that this frame path runs through a
+  // cross-origin document? See frameOnPathIsForeign: the URL each frame on the
+  // path actually loaded, and anything unresolvable is no.
+  const pathIsForeign = (path) =>
+    frameOnPathIsForeign(
+      page.mainFrame(),
+      path,
+      currentOrigin,
+      isForeignUrl,
+      resolveTargetElement,
+      FRAME_READ_TIMEOUT_MS,
+    );
+  // True only while the reveal pass is running on this route (#100). An
+  // error caught then is labelled with that time window -- which is all the
+  // label claims: not that the pass caused it.
+  let inRevealPass = false;
   page.on("pageerror", (err) => {
-    violations.push({
-      id: "client-error",
-      impact: "critical",
+    const message = String(err && err.message ? err.message : err);
+    pendingErrors.push({
       route: currentRoute,
-      help: String(err && err.message ? err.message : err),
+      message,
+      help: (inRevealPass ? REVEAL_PASS_ERROR_PREFIX : "") + message,
+      source: firstStackUrl(err && err.stack ? String(err.stack) : ""),
     });
   });
 
   for (const { path, name, placeholder404Ok, sourceAbsent } of pages) {
     currentRoute = name;
-    const response = await page.goto(path);
-    const status = response ? response.status() : null;
-    // A route that does not exist is a config problem, not a markup one. The
-    // audit used to navigate, get a 404, run axe over whatever the error page
-    // was and report the count -- for months that page was a bare fallback with
-    // nothing to flag, so a missing fixture read as green. When reddoor-website
-    // gave its 404 page a designed watermark the count went to 1 with no route
-    // and no rule in the summary, and the "violation" was bisected as markup
-    // (#680). Name it as a missing route and do not scan the error page.
-    //
-    // The one exception (#863): a site still on the starter's Prismic sentinel
-    // has no content to serve, so a 404 on ITS OWN routes is the designed
-    // answer. Those carry placeholder404Ok; the /dev fixtures never do.
-    //
-    // The /dev fixtures have their own, narrower tolerance instead (#900):
-    // sourceAbsent, set only when this site's src/routes tree has no directory
-    // for that fixture. A fixture that IS in the tree and 404s stays a
-    // violation, which is the case #680 was written for.
-    const verdict = classifyRouteResponse({
-      status,
-      placeholder404Ok: placeholder404Ok === true,
-      sourceAbsent: sourceAbsent === true,
-    });
-    if (verdict === "skip") {
-      // Two reasons reach this branch and an operator has to be able to tell
-      // them apart: "no Prismic repo behind it yet" is temporary and ends at
-      // /new-site step 6, while "this site does not have that fixture" is
-      // permanent. Reporting both as one reason would make the summary say
-      // less than the artifact knows, which is #680's original complaint.
-      skipped.push({
-        route: name,
-        path,
+    currentOrigin = originOf(path);
+    try {
+      const response = await page.goto(path);
+      const status = response ? response.status() : null;
+      // A route that does not exist is a config problem, not a markup one. The
+      // audit used to navigate, get a 404, run axe over whatever the error page
+      // was and report the count -- for months that page was a bare fallback with
+      // nothing to flag, so a missing fixture read as green. When reddoor-website
+      // gave its 404 page a designed watermark the count went to 1 with no route
+      // and no rule in the summary, and the "violation" was bisected as markup
+      // (#680). Name it as a missing route and do not scan the error page.
+      //
+      // The one exception (#863): a site still on the starter's Prismic sentinel
+      // has no content to serve, so a 404 on ITS OWN routes is the designed
+      // answer. Those carry placeholder404Ok; the /dev fixtures never do.
+      //
+      // The /dev fixtures have their own, narrower tolerance instead (#900):
+      // sourceAbsent, set only when this site's src/routes tree has no directory
+      // for that fixture. A fixture that IS in the tree and 404s stays a
+      // violation, which is the case #680 was written for.
+      const verdict = classifyRouteResponse({
         status,
-        reason: sourceAbsent === true ? ABSENT_FIXTURE_SKIP_REASON : SKIP_REASON,
+        placeholder404Ok: placeholder404Ok === true,
+        sourceAbsent: sourceAbsent === true,
       });
-      continue;
-    }
-    if (verdict === "missing") {
-      violations.push({
-        id: "route-missing",
-        impact: "serious",
-        route: name,
-        help: \`\${path} returned \${status === null ? "no response" : status}\`,
+      if (verdict === "skip") {
+        // Two reasons reach this branch and an operator has to be able to tell
+        // them apart: "no Prismic repo behind it yet" is temporary and ends at
+        // /new-site step 6, while "this site does not have that fixture" is
+        // permanent. Reporting both as one reason would make the summary say
+        // less than the artifact knows, which is #680's original complaint.
+        skipped.push({
+          route: name,
+          path,
+          status,
+          reason: sourceAbsent === true ? ABSENT_FIXTURE_SKIP_REASON : SKIP_REASON,
+        });
+        continue;
+      }
+      if (verdict === "missing") {
+        violations.push({
+          id: "route-missing",
+          impact: "serious",
+          route: name,
+          help: \`\${path} returned \${status === null ? "no response" : status}\`,
+        });
+        continue;
+      }
+      // Snap CSS transitions/animations to their resting state before axe runs.
+      // AnimateIn-style fixtures transition opacity 0->1; sampling mid-transition
+      // makes axe compute color-contrast against semi-transparent text, yielding a
+      // flaky "serious" color-contrast violation (~1/3 of runs on /dev/animate-in).
+      // Disabling transitions forces their final, rendered state
+      // deterministically -- which is also what users (and prefers-reduced-motion
+      // users) actually see, so it's the correct thing to assert. Disabling a CSS
+      // keyframe animation does NOT: it drops the animation and leaves the
+      // element at its base style, so a keyframe reveal whose visible state
+      // exists only as its forwards fill is audited hidden (see #100).
+      await page.addStyleTag({
+        content: "*,*::before,*::after{transition:none!important;animation:none!important;}",
       });
-      continue;
-    }
-    // Snap CSS transitions/animations to their resting state before axe runs.
-    // AnimateIn-style fixtures transition opacity 0->1; sampling mid-transition
-    // makes axe compute color-contrast against semi-transparent text, yielding a
-    // flaky "serious" color-contrast violation (~1/3 of runs on /dev/animate-in).
-    // Disabling transitions/animations forces the final, rendered state
-    // deterministically -- which is also what users (and prefers-reduced-motion
-    // users) actually see, so it's the correct thing to assert.
-    await page.addStyleTag({
-      content: "*,*::before,*::after{transition:none!important;animation:none!important;}",
-    });
-    const results = await new AxeBuilder({ page })
-      .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
-      .analyze();
-    for (const v of results.violations) {
-      violations.push({
-        id: v.id,
-        impact: v.impact ?? "moderate",
-        route: name,
-        help: v.help,
-        helpUrl: v.helpUrl,
-        nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
-      });
+      // Scroll the whole page through the viewport and back before axe runs
+      // (#100). Without it every scroll-triggered reveal below the fold was
+      // audited at the opacity 0 it waits in, and axe does not measure contrast
+      // through that -- the text fell out of the result instead of failing it.
+      // After the sheet above, so a TRANSITION-driven reveal snaps to its end
+      // state as it fires; Web Animations are waited for by the pass itself. A
+      // keyframe reveal is cancelled by the sheet and stays hidden, and a reveal
+      // that hides again on leaving the viewport is hidden again by the return
+      // to the top -- neither is covered.
+      let pass;
+      inRevealPass = true;
+      try {
+        pass = await page.evaluate(revealBelowFold);
+      } finally {
+        inRevealPass = false;
+      }
+      reveals.push({ route: name, ...pass });
+      // preload: false (#52). axe's CSSOM preload re-fetches every cross-origin
+      // stylesheet with an XHR, which a site's CSP judges under connect-src, not
+      // style-src. A site allowing fonts.googleapis.com for styles only got a
+      // real connect-src report posted on every audit, and the failed preload
+      // was dropped anyway. Nothing the gate can fail on is lost: in axe-core
+      // 4.13 only css-orientation-lock (tagged experimental, so these tags never
+      // run it) and no-autoplay-audio (reviewOnFail, so it can only ever be
+      // incomplete) read preloaded assets.
+      //
+      // .options() comes FIRST: it replaces the whole options object, and
+      // withTags() writes runOnly into it. Called after, it would drop the tag
+      // filter without a word and axe would run every rule it has.
+      const results = await new AxeBuilder({ page })
+        .options({ preload: false })
+        .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
+        .analyze();
+      // Cross-origin frame CONTENTS do not count against the site. The reveal
+      // pass brings lazy third-party iframes (a Google Maps footer, a YouTube
+      // player) into load range; their documents' violations are not the
+      // site's to fix, and whether axe reached them at all depended on
+      // injecting into them inside a 1 s window. So a node is dropped here --
+      // counted, and named in the summary, never silently -- only on positive
+      // evidence: a frame on its path loaded a document from another origin.
+      //
+      // Default mode, deliberately. Legacy mode (setLegacyMode) skips those
+      // frames too, but it also drops frame-focusable-content, which axe can
+      // only evaluate INSIDE the frame and which is the site's own defect (an
+      // iframe given tabindex=-1 whose document still has something to focus).
+      // splitCrossOriginFrameNodes keeps every frame-focusable-content node.
+      const foreignPaths = [];
+      const checkedPaths = [];
+      for (const v of results.violations) {
+        for (const n of v.nodes) {
+          const t = n.target;
+          if (!Array.isArray(t) || t.length < 2) continue;
+          const key = JSON.stringify(t.slice(0, -1));
+          if (checkedPaths.includes(key)) continue;
+          checkedPaths.push(key);
+          if (await pathIsForeign(t.slice(0, -1))) foreignPaths.push(key);
+        }
+      }
+      const split = splitCrossOriginFrameNodes(results.violations, foreignPaths);
+      frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });
+      for (const v of split.kept) {
+        violations.push({
+          id: v.id,
+          impact: v.impact ?? "moderate",
+          route: name,
+          help: v.help,
+          helpUrl: v.helpUrl,
+          nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
+        });
+      }
+    } finally {
+      // Say whose this route's errors were while its frames can still be read,
+      // then end on about:blank, so an error that route A's timers or pending
+      // work throw late can never be charged to route B.
+      await settleErrors();
+      await page.goto("about:blank", { timeout: ABOUT_BLANK_TIMEOUT_MS }).catch(() => {});
     }
   }
 
@@ -464,10 +672,17 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   // renders empty-but-valid won't false-fail -- only a real client crash does.
   for (const { path, name } of smokePages) {
     currentRoute = name;
+    currentOrigin = originOf(SMOKE_ORIGIN + path);
     await page.goto(SMOKE_ORIGIN + path);
     // Let hydration + first effects run so a TDZ/ReferenceError surfaces.
     await page.waitForTimeout(2000);
+    await settleErrors();
+    await page.goto("about:blank", { timeout: ABOUT_BLANK_TIMEOUT_MS }).catch(() => {});
   }
+  // Anything still held -- an error that arrived after its route's settle --
+  // is the site's: with no frame left to read, nothing can move it. Nothing
+  // held is ever dropped.
+  await settleErrors();
 
   const byImpact = {};
   for (const v of violations) {
@@ -478,7 +693,15 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     await writeFile(
       OUTPUT,
       JSON.stringify(
-        { totalViolations: violations.length, byImpact, violations, skipped },
+        {
+          totalViolations: violations.length,
+          byImpact,
+          violations,
+          skipped,
+          reveals,
+          frameNodesDropped,
+          thirdPartyErrors,
+        },
         null,
         2,
       ),
@@ -497,21 +720,43 @@ const NAMED_VIOLATIONS_MAX = 6;
 /**
  * One line naming each violation as `<rule> on <route>`, identical pairs folded
  * into `<rule> ×N on <route>`. A `route-missing` entry appends its help, which
- * is where the path and HTTP status live -- that is the one case where the id
- * and route alone do not say what went wrong. Empty for no violations.
+ * is where the path and HTTP status live -- the id and route alone do not say
+ * what went wrong there. A `client-error` thrown while the reveal pass ran is
+ * marked `(while the reveal pass ran)` — a time window, not a cause — and never
+ * folded into one thrown outside it (#100). Empty for no violations.
  */
 export function describeViolations(violations: AxeViolation[]): string {
-  const groups = new Map<string, { id: string; route: string; help?: string; n: number }>();
+  const groups = new Map<
+    string,
+    { id: string; route: string; help?: string; duringReveal: boolean; n: number }
+  >();
   for (const v of violations) {
-    const key = `${v.id}\u0000${v.route}`;
+    // A client error thrown while the reveal pass ran is kept apart from one
+    // thrown outside it, so the two never fold into one entry.
+    const duringReveal =
+      v.id === "client-error" && (v.help ?? "").startsWith(REVEAL_PASS_ERROR_PREFIX);
+    const key = `${v.id}\u0000${v.route}\u0000${duringReveal ? "reveal" : ""}`;
     const g = groups.get(key);
     if (g) g.n += 1;
-    else groups.set(key, { id: v.id, route: v.route, ...(v.help ? { help: v.help } : {}), n: 1 });
+    else {
+      groups.set(key, {
+        id: v.id,
+        route: v.route,
+        ...(v.help ? { help: v.help } : {}),
+        duringReveal,
+        n: 1,
+      });
+    }
   }
   const entries = [...groups.values()];
   const shown = entries.slice(0, NAMED_VIOLATIONS_MAX).map((g) => {
     const count = g.n > 1 ? ` ×${g.n}` : "";
-    const detail = g.id === "route-missing" && g.help ? ` (${g.help})` : "";
+    const detail =
+      g.id === "route-missing" && g.help
+        ? ` (${g.help})`
+        : g.duringReveal
+          ? " (while the reveal pass ran)"
+          : "";
     return `${g.id}${count} on ${g.route}${detail}`;
   });
   const rest = entries.length - shown.length;
@@ -569,6 +814,89 @@ export function describeSkipped(skipped: SkippedRoute[]): string {
   }
   const names = shown.map((s) => s.route).join(", ") + more;
   return `${skipped.length} skipped: ${names}${reasons.length > 0 ? ` — ${reasons.join(", ")}` : ""}`;
+}
+
+/**
+ * The reveal clause of the summary: every route whose reveal pass (#100) did
+ * not finish cleanly, and why. Empty when every pass did, so a clean run keeps
+ * its line byte-for-byte.
+ *
+ * Three ways a pass can stop short, each of which leaves part of the page
+ * audited in a state no reader sees:
+ *
+ *   - it hit its step cap before the bottom, so reveals below that point never
+ *     fired;
+ *   - finite animations were still running when the settle budget ran out, so
+ *     axe sampled them mid-way;
+ *   - the page did not come back to the top, so everything scroll-dependent
+ *     was measured at the wrong offset.
+ *
+ * None of them is a defect in the site's markup, which is why they warn and
+ * never fail. But a green that quietly covered less than it says is the thing
+ * #100 was about, so they are named.
+ */
+export function describeReveals(reveals: RevealRecord[]): string {
+  const incomplete = reveals
+    .map((r) => {
+      const why: string[] = [];
+      if (r.capped) why.push(`stopped at the step cap (${r.steps} steps) before the bottom`);
+      if (r.unsettled > 0) {
+        why.push(`${r.unsettled} animation${r.unsettled === 1 ? "" : "s"} still running after 5 s`);
+      }
+      if (r.finalScrollY !== 0) why.push(`left at scrollY ${r.finalScrollY}, not the top`);
+      return why.length > 0 ? `${r.route} (${why.join("; ")})` : "";
+    })
+    .filter((line) => line.length > 0);
+  if (incomplete.length === 0) return "";
+  const routes = incomplete.length === 1 ? "1 route" : `${incomplete.length} routes`;
+  return `reveal pass incomplete on ${routes}: ${incomplete.join(", ")}`;
+}
+
+/**
+ * The frame clause of the summary: violation nodes inside cross-origin frames
+ * that were not counted against the site. Information, never a status change —
+ * but never silent either, because a filter nobody can see is how coverage
+ * goes missing. Empty when nothing was dropped, so such a run keeps its line
+ * byte-for-byte.
+ */
+export function describeFrameNodesDropped(dropped: FrameNodesDropped[]): string {
+  const hit = dropped.filter((d) => d.count > 0);
+  if (hit.length === 0) return "";
+  const total = hit.reduce((sum, d) => sum + d.count, 0);
+  const where = hit.map((d) => `${d.route} (${d.count}: ${d.rules.join(", ")})`).join(", ");
+  return `${total} violation node${total === 1 ? "" : "s"} inside cross-origin frames not counted: ${where}`;
+}
+
+/**
+ * The third-party clause of the summary: uncaught errors that a cross-origin
+ * frame's own log recorded, by route and that frame's origin. They do not fail
+ * the audit — a third party's embed is not the site's to fix — but they move a
+ * clean run to `warn`, because an error the site's page shows its readers is
+ * worth knowing about even when it is not the site's code. An error whose
+ * stack merely STARTS on another origin is not one of these: a site crashing
+ * inside a library it loaded from a CDN is still the site's `client-error`.
+ * Empty when there are none.
+ */
+export function describeThirdPartyErrors(errors: ThirdPartyError[]): string {
+  if (errors.length === 0) return "";
+  const groups = new Map<string, { route: string; origin: string; n: number }>();
+  for (const e of errors) {
+    let origin = "unknown origin";
+    try {
+      if (e.frame) origin = new URL(e.frame).origin;
+    } catch {
+      // keep "unknown origin"
+    }
+    const key = `${e.route}\u0000${origin}`;
+    const g = groups.get(key);
+    if (g) g.n += 1;
+    else groups.set(key, { route: e.route, origin, n: 1 });
+  }
+  const where = [...groups.values()]
+    .map((g) => `${g.route} (${g.origin}${g.n > 1 ? ` ×${g.n}` : ""})`)
+    .join(", ");
+  const n = errors.length;
+  return `${n} uncaught error${n === 1 ? "" : "s"} thrown inside cross-origin frames, not counted: ${where}`;
 }
 
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
@@ -752,11 +1080,20 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // said "0 violations across 2 routes" — a warning with nothing in it to
     // act on. A warn now requires that the run actually declined to scan.
     const absentSkips = skippedRoutes.filter((r) => r.reason === ABSENT_FIXTURE_SKIP_REASON);
+    // #100. A reveal pass that stopped short is named and warns, never fails.
+    const revealNote = describeReveals(Array.isArray(artifact.reveals) ? artifact.reveals : []);
+    const thirdPartyNote = describeThirdPartyErrors(
+      Array.isArray(artifact.thirdPartyErrors) ? artifact.thirdPartyErrors : [],
+    );
+    // Information only: third-party frame contents never change the status.
+    const frameNote = describeFrameNodesDropped(
+      Array.isArray(artifact.frameNodesDropped) ? artifact.frameNodesDropped : [],
+    );
     const absenceDowngrade =
       undeclaredAbsent.length > 0 && absentSkips.some((r) => undeclaredAbsent.includes(r.path));
     const status: AuditResult["status"] = hasSerious
       ? "fail"
-      : hasAny || absenceDowngrade
+      : hasAny || absenceDowngrade || revealNote.length > 0 || thirdPartyNote.length > 0
         ? "warn"
         : "pass";
 
@@ -811,9 +1148,13 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
         : `+${smokeRoutes.length} hydration smoke on a production preview`;
     const named = describeViolations(artifact.violations ?? []);
     const summary =
-      status === "pass"
+      (status === "pass"
         ? `a11y: 0 violations across ${scanned} (${smokeNote})`
-        : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`;
+        : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`) +
+      [revealNote, thirdPartyNote, frameNote]
+        .filter((note) => note.length > 0)
+        .map((note) => `; ${note}`)
+        .join("");
 
     return {
       audit: "a11y",

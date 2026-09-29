@@ -17,7 +17,7 @@ export function formatAnnounceResult(result: AnnounceResult): string {
 }
 
 /**
- * `announce [site]` — Airtable-driven and fleet-wide. Draft the monthly-report
+ * `announce [site]` — fleet-wide. Draft the monthly-report
  * announcement email for every `maintenance` site (or one, when `site` is given) into
  * the M3 approve queue. Never sends; the operator approves each draft and the next send
  * run delivers it. Reads the Lighthouse scores already stored on each Websites row —
@@ -27,16 +27,14 @@ export async function runAnnounceCommand(
   site: string | undefined,
   _opts: AnnounceCommandOptions,
 ): Promise<{ output: string; code: number }> {
-  // #539 Phase 5: the create-side Turso dual-write is wired HERE rather than
-  // inside `announce`, so a unit suite calling the recipe with a fake base can
+  // #539 Phase 5: the create-side Turso write is wired HERE rather than
+  // inside `announce`, so a unit suite calling the recipe with fakes can
   // never open a real libSQL handle (and, with TURSO_* exported locally, write
   // into production).
   const { makeReportMirror } = await import("../../reports/report-mirror.js");
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
   const reportMirror = await makeReportMirror();
   const siteMirror = await makeSiteMirror();
-  // #646 step 4: the fleet roster comes from Turso — an Airtable roster cannot
-  // see a `site_<ULID>` site, so one created since step 3 was never announced.
   const { readFleetRoster } = await import("../../fleet/roster.js");
   const result = await announce({
     ...(site ? { site } : {}),

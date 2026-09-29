@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
-import { mapRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
+import { mapRow } from "../../src/fleet/site-fields.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { gatingFields } from "../../src/reports/checklist.js";
 
@@ -32,6 +32,12 @@ function model(
 function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     pointOfContact: "Tucker",
+    ga4PropertyId: "123456789",
+    searchConsoleProperty: "sc-domain:acme.example.com",
+    // The roster identities the sweeps need (#889); without them a maintained
+    // row watches for "Git repo / Netlify ID not recorded".
+    gitRepo: "reddoorla/acme",
+    netlifyId: "11111111-2222-3333-4444-555555555555",
     // Send-clean: the cockpit now runs collectPreflightBlocked, so a pending
     // report on a site missing its header image would tier the site "watch"
     // and change the verdict these tests assert.
@@ -98,16 +104,16 @@ describe("renderCockpitHtml — card per site", () => {
 });
 
 describe("renderCockpitHtml — header row (setup + audited)", () => {
-  it("shows '4/4' when the site is fully onboarded", () => {
+  it("shows '6/6' when the site is fully onboarded", () => {
     const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain(">4/4<");
+    expect(html).toContain(">6/6<");
   });
 
   it("shows the partial fraction when the site is missing some onboarding signals", () => {
     const html = renderCockpitHtml(
       model([siteRow({ pointOfContact: null, reportRecipientsTo: null })]),
     );
-    expect(html).toContain(">2/4<");
+    expect(html).toContain(">4/6<");
   });
 
   it("renders the lighthouse-audited timestamp as a relative-time string", () => {
@@ -805,6 +811,40 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).not.toMatch(/data-signals="[^"]*lighthouse[^"]*"/);
   });
 
+  it("tags a maintained site with no GA4 property with the no-analytics signal, and offers the filter", () => {
+    const html = renderCockpitHtml(
+      model([siteRow({ id: "n", name: "NoGa", status: "maintained", ga4PropertyId: null })]),
+    );
+    expect(html).toMatch(/data-signals="[^"]*no-analytics[^"]*"/);
+    expect(html).toContain('data-filter="no-analytics"');
+    expect(html).toContain("GA4 property not recorded");
+  });
+
+  it("tags a maintained site that records no Search Console property with its signal, and offers the filter", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "g", name: "NoGsc", status: "maintained", searchConsoleProperty: null }),
+      ]),
+    );
+    expect(html).toMatch(/data-signals="[^"]*search-console-unrecorded[^"]*"/);
+    expect(html).toContain('data-filter="search-console-unrecorded"');
+    expect(html).toContain("Search Console property not recorded");
+  });
+
+  it("tags a maintained site missing its Git repo / Netlify ID with their signals, and offers both filters (#889)", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "r", name: "NoIds", status: "maintained", gitRepo: null, netlifyId: null }),
+      ]),
+    );
+    expect(html).toMatch(/data-signals="[^"]*no-git-repo[^"]*"/);
+    expect(html).toMatch(/data-signals="[^"]*no-netlify-id[^"]*"/);
+    expect(html).toContain('data-filter="no-git-repo"');
+    expect(html).toContain('data-filter="no-netlify-id"');
+    expect(html).toContain("Git repo not recorded");
+    expect(html).toContain("Netlify ID not recorded");
+  });
+
   it("tags a maintenance site still on *.netlify.app with the no-domain signal", () => {
     const html = renderCockpitHtml(
       model([
@@ -817,6 +857,26 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
       ]),
     );
     expect(html).toMatch(/data-signals="[^"]*no-domain[^"]*"/);
+  });
+
+  it("a broken site keeps its watch tags, so it stays under those filter chips (#941)", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "r",
+          name: "Broken",
+          status: "maintained",
+          defaultBranchCi: "failing",
+          searchConsoleProperty: null,
+        }),
+      ]),
+    );
+    expect(html).toMatch(/class="pill attention"/);
+    expect(html).toMatch(/data-signals="[^"]*\bci\b[^"]*"/);
+    expect(html).toMatch(/data-signals="[^"]*\bsearch-console-unrecorded\b[^"]*"/);
+    // Tagged, not re-tiered: the verdict still counts it once, as broken.
+    expect(html).toMatch(/⚠ 1 site broken/);
+    expect(html).not.toMatch(/\d+ watching/);
   });
 
   it("renders the ok verdict when nothing needs attention", () => {
@@ -1081,7 +1141,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
 
   it("labels each archived row from its OWN raw cell, not from the shared canonical one", () => {
     // A RENDERER contract test, and deliberately synthetic: since stage 3 no
-    // Airtable cell can produce `status !== statusRaw`, so these rows are built
+    // cell can produce `status !== statusRaw`, so these rows are built
     // by hand rather than through mapRow. What it still catches is a renderer
     // that starts labelling from `status` — the change that once relabelled all
     // 12 live archived rows and was caught only on the combined tree.
@@ -1097,16 +1157,9 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     expect(html).toContain('<span class="muted">deprecated</span>');
   });
 
-  it("labels the archived lane from a RAW Airtable cell driven through mapRow", () => {
-    // End-to-end through the real read seam. This used to drive "legacy" and
-    // "deprecated" cells through mapRow and assert they rendered under their own
-    // names — which worked because the alias map made them archived while
-    // statusRaw kept them distinct. Stage 3 deleted that map and the operator
-    // deleted the two options from Airtable, so that fixture now describes a
-    // state the base cannot hold.
-    //
-    // What it pins now is the same seam in its post-migration shape: the lane is
-    // driven by real mapRow output, and the label still comes from the raw cell.
+  it("labels the archived lane from a RAW cell driven through mapRow", () => {
+    // End-to-end through the real read seam: the lane is driven by real mapRow
+    // output, and the label still comes from the raw cell.
     const record = (id: string, name: string, status: string) =>
       mapRow({ id, fields: { Name: name, Status: status } });
     const html = renderCockpitHtml(

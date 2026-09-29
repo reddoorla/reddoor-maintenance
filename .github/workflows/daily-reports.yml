@@ -15,8 +15,8 @@ on:
     # `preview_site` turns the run into a read-only credential proof instead:
     # `report <slug> --preview --enrich` renders one site's report through the
     # very same draft path AND runs the real GA / Search Console fetches, but
-    # takes previewOnly, so it never queues a draft, never writes an Airtable
-    # Reports row, and never consumes the (site, period) idempotency guard. The
+    # takes previewOnly, so it never queues a draft, never writes a Reports row,
+    # and never consumes the (site, period) idempotency guard. The
     # send and digest steps are skipped, so no email leaves the runner either.
     # `--enrich` is load-bearing: a plain `--preview` does no IO whatsoever, so
     # the verify step below could never pass however good the secrets were.
@@ -29,14 +29,14 @@ on:
     # feedback loop on a credential that either works or silently does not.
     inputs:
       preview_site:
-        description: "Airtable Website NAME (e.g. Sonder) — render one report preview to prove the GA/Search Console secrets. Blank = normal daily run."
+        description: "Site NAME (e.g. Sonder) — render one report preview to prove the GA/Search Console secrets. Blank = normal daily run."
         required: false
         type: string
         default: ""
 
 # Single-flight: a once-daily job can't realistically overlap, but this closes
-# the search-then-create drafting race (Airtable has no atomic upsert) and stops
-# a manual run colliding with the scheduled one.
+# the search-then-create drafting race and stops a manual run colliding with
+# the scheduled one.
 concurrency:
   group: m3-daily
   cancel-in-progress: false
@@ -97,18 +97,16 @@ jobs:
         continue-on-error: true
         timeout-minutes: 15
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           GA_SUBJECT: ${{ secrets.GA_SUBJECT }}
           GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
           GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
           PREVIEW_SITE: ${{ inputs.preview_site }}
-          # `report --due` is a Phase 3 dual-writer: writeNextDueDates mirrors
-          # each next-due write into site_schedule. The mirror is best-effort, so
-          # without these it returns null and the dual-write silently never runs —
-          # no warning, no nonzero exit, just an absent `mirrored=` suffix. That
-          # is what shipped, and the hourly sync re-importing site_schedule from
-          # Airtable is what hid it. Pinned by tests/build/daily-reports-workflow.
+          # `report --due` writes each next-due date into site_schedule
+          # (writeNextDueDates). As a Phase 3 dual-write it was best-effort, so
+          # without these it returned null and silently never ran — no warning,
+          # no nonzero exit, just an absent `mirrored=` suffix. That is what
+          # shipped, and an hourly re-import of site_schedule
+          # is what hid it. Pinned by tests/build/daily-reports-workflow.
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
@@ -121,7 +119,7 @@ jobs:
             # `report <slug>` matches on siteSlug(name), NOT the display name, so
             # the input is slugified here rather than handed over raw. Otherwise
             # the obvious input ("Sonder", the name the operator actually sees in
-            # Airtable) dies with `No Websites row matched slug "Sonder"`.
+            # the console) dies with `No Websites row matched slug "Sonder"`.
             slug=$(printf '%s' "$PREVIEW_SITE" | tr '[:upper:]' '[:lower:]' \
               | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')
             echo "resolving '$PREVIEW_SITE' -> slug '$slug'"
@@ -162,6 +160,8 @@ jobs:
 
       - name: Upload the rendered preview
         if: ${{ inputs.preview_site && always() }}
+        # Seconds for one draft.html; the job itself has no timeout-minutes.
+        timeout-minutes: 5
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: report-preview
@@ -178,8 +178,6 @@ jobs:
         if: ${{ !inputs.preview_site }}
         timeout-minutes: 15
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
@@ -191,8 +189,6 @@ jobs:
         if: ${{ !inputs.preview_site }}
         timeout-minutes: 10
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           # Turso creds: REQUIRED since #609. The digest reads notify-bounce
           # counts + submissions telemetry from libSQL (both degrade gracefully),
@@ -252,12 +248,6 @@ jobs:
             exit 1
           fi
 
-          # AIRTABLE IS DELIBERATELY NOT ASSERTED — not even read. It is the
-          # reversibility half of the #609 dual-write and Phase 6 removes it; a gate
-          # that demanded it would turn a planned deletion into a false red, and one
-          # that merely tolerated `airtable=0` would still break when the counter
-          # disappears from the line. The value stays visible in the log above.
-
           # ROLLUP: `0` means the write was attempted and THREW — red. `absent` is a
           # third state the code names as legitimate ("No Turso configured is a
           # THIRD state, not a failure ... reporting it as rollup=0 would train the
@@ -306,25 +296,41 @@ jobs:
       # genuinely open daily-failure issue. That is a false all-clear on the one
       # surface that exists to make failures durably visible.
       - name: Open/update the daily-reports-failing tracking issue
-        if: ${{ failure() && !inputs.preview_site }}
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: ${{ (failure() || cancelled()) && !inputs.preview_site && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
+          JOB_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Daily reports run failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body=$(printf 'The daily **daily-reports** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
           fi
 
       - name: Close the daily-reports-failing issue on recovery
-        if: ${{ success() && !inputs.preview_site }}
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: ${{ success() && !inputs.preview_site && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

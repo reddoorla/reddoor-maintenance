@@ -2,7 +2,9 @@
 
 Session rules for AI agents working this repo. The autonomy and merge
 contract lives in [AUTONOMY.md](AUTONOMY.md) — read it before merging
-anything.
+anything. What to work on, ranked, with each item's tier, evidence and "done
+when", is [docs/BACKLOG.md](docs/BACKLOG.md). It is a derived view: re-verify
+an item before starting it, and update the file in the PR that finishes it.
 
 ## Prove the instrument before you trust its verdict
 
@@ -113,6 +115,59 @@ Also note the script maps by REMOTE, not by directory name: the checkout
 `welcome-to-the-flower-court` is `tucksravin/invitations`. A sweep that assumes
 the two match will address the wrong repository.
 
+## Cloud sessions (Claude Code on the web)
+
+A cloud container is not the laptop. Measured from inside one on 2026-09-28:
+
+- **Setup is `.claude/hooks/cloud-session-setup.sh`**, which runs on startup
+  and resume, only when `CLAUDE_CODE_REMOTE=true`. It unshallows the clone (the harness
+  clones `--depth 50` with no tags, which `check-match-harness-snapshots.mjs`
+  refuses), puts `.nvmrc`'s Node on `PATH` (the image ships 22), runs
+  `pnpm install`, writes the GA key from `GA_SA_KEY_B64`, installs the pinned
+  Playwright browsers and `gh`, and adds the egress proxy's CA to Chromium's
+  NSS store. It is silent when all of that worked; anything it could not do
+  arrives as a `cloud-session-setup:` message (unless the 900 s hook timeout
+  killed it first). It installs into the main
+  checkout, so a worktree needs its own `pnpm install --frozen-lockfile`.
+- **Credentials are the environment's variables**, not `credentials.env` or
+  `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
+- **GitHub goes through a proxy that replaces the `Authorization` header.**
+  `GH_TOKEN` is inert (a bogus token gets the same 200), and only repos attached
+  to the session answer on the API, so attach a fleet repo with `add_repo`
+  before touching it. **GraphQL is refused outright**: `gh pr view|checks|list`
+  and `gh repo view|list` stop with a 403; `gh api repos/…` (REST) works.
+  `gh auth status` says "The token in GH_TOKEN is invalid" — that is the GraphQL
+  refusal, not the token. REST writes are not all open either: a branch delete
+  (`DELETE git/refs/…`) answers 403 "Write access to this GitHub API path is not
+  permitted through this proxy", and a percent-encoded path answers 400 "could
+  not be canonicalized". `PUT pulls/{n}/merge` and `PUT pulls/{n}/update-branch`
+  reach GitHub.
+- **Land PRs from the cloud with `node scripts/land-prs.mjs`.** It has been
+  REST-only since 2026-09-28, with the same gates on the laptop and in the
+  cloud. What proves the port so far is its tests (REST-shaped fakes) and live
+  runs from a cloud session that stopped before the first write: `--dry-run`s,
+  and one full run with every PUT and DELETE withheld. No real merge,
+  update-branch or branch delete has yet been made from the cloud, so the first
+  real cloud landing is the remaining proof — read that run's raw output, not
+  just its verdict line. The one known difference is the branch delete, which
+  the proxy refuses: the script then checks whether GitHub already removed the
+  branch (it does when the repo has "Automatically delete head branches" on, as
+  reddoor-maintenance does) and prints a `note:` only when the branch is still
+  there. A branch name is percent-encoded only where it must be (`#`, `%`), so
+  only such a branch's delete and check hit the proxy's 400. Attach a fleet
+  repo with `add_repo` before landing in it, or its first `gh api` call stops
+  on the 403.
+- **`scripts/fleet-repos.sh` has nothing to enumerate**: the other checkouts
+  are not here. For a sweep, list the org through the API and clone each repo
+  after attaching it.
+- **The container runs as root**, so a test that proves a refusal by removing a
+  permission cannot fail there. `tests/prismic/models/write.test.ts` skips its
+  one such case under root; CI, which is not root, still runs it.
+- **Nothing on the laptop but this repo arrives**: not the user-level
+  `~/.claude` memory or plugins, not the other checkouts. `.session-logs/` dies
+  with the container, so the journal entry has to be committed and pushed
+  before the session ends.
+
 ## The work journal
 
 **Every working session appends a dated entry to `docs/workJournal.md`** — what
@@ -220,11 +275,9 @@ in anyone's voice.
 
 Design: `docs/superpowers/specs/2026-08-31-starter-track-split-design.md`.
 
-## In flight: the Airtable → Turso migration
+## Stored column names
 
-Scheduled for the weekend of 2026-08-22. Pinned as issue #539. Design and plan
-are on branch `docs/airtable-to-turso-spec` under `docs/superpowers/`.
-
-Do not start it early or opportunistically. The Airtable quota was raised on
-2026-08-17, so nothing about it is urgent, and the operator explicitly deferred
-it to conserve tokens.
+Turso is the only store. The FieldSet builders in `src/fleet/site-fields.ts`
+and `src/reports/report-fields.ts` are keyed by legacy column names
+(`"maintenence freq"`, `"Report recipients (To)"`, …), and
+`src/db/field-map.ts` maps them to Turso columns.

@@ -9,8 +9,7 @@
 //
 //   - an inventory that resolved NOBODY prints "0 applied, 0 noop, 0 failed."
 //     and exits 0, which is indistinguishable from a fleet with nothing left to
-//     do. The Airtable inventory is view-filtered; one filter change empties it
-//     with no error anywhere.
+//     do.
 //   - a site that could not be PREPARED is isolated into `skipped` by
 //     `prepareFleetSites` (correctly — one bad row must not abort the fleet) and
 //     then disappears from a summary built out of `prepared` alone. It gets a
@@ -22,9 +21,8 @@
 //
 // SEQUENTIAL, one site at a time, like every other fleet recipe command — see
 // `runRecipeOverSites`. Each site does git work in its own checkout plus a
-// handful of GitHub calls; there is no Airtable write on this path (so the
-// fleet's ≤4.5 req/s throttle does not apply) and nothing parallelism would buy
-// except a burst of writes against fifteen repositories at once.
+// handful of GitHub calls; there is nothing parallelism would buy except a
+// burst of writes against fifteen repositories at once.
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { prismicCi } from "../../recipes/prismic-ci/index.js";
@@ -137,7 +135,7 @@ async function checkoutFailure(repoRoot: string): Promise<string | null> {
  * Roll the delivery workflow out to one site or to the fleet.
  *
  * `resolveSites` is allowed to THROW (a positional site alongside `--fleet`, an
- * unsupported inventory extension, an Airtable read that failed). Those are "the
+ * unsupported inventory extension, a roster read that failed). Those are "the
  * fleet itself could not be established", which has no per-site row to live in
  * and must not be reported as a rollout across zero sites; `bin.ts` prints the
  * message and exits with the error's own `exitCode`.
@@ -166,7 +164,7 @@ export async function runPrismicCiCommand(
     return {
       output:
         `the inventory resolved NO SITES, so no site was offered the delivery workflow.` +
-        ` This is not a delivered fleet — check the inventory (an Airtable view filter, an` +
+        ` This is not a delivered fleet — check the inventory (an empty fleet roster, an` +
         ` empty JSON file, a dynamic inventory returning []). Do NOT read this exit as a` +
         ` rollout.`,
       code: 1,

@@ -279,7 +279,7 @@ export const MANIFEST_PREFIX = "-- REDDOOR_DUMP_MANIFEST ";
  *
  *  `blobBytes` is the cheap content check. Row counts alone pass a dump in
  *  which every `header_image` came back NULL — and those bytes exist in no
- *  other store once Airtable is frozen. */
+ *  other store. */
 export type DumpManifest = {
   tables: Record<string, number>;
   blobBytes: number;

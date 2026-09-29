@@ -35,11 +35,11 @@ const BLURRED_TESTS = `cid:${BLURRED_CID}`;
 
 export function fmtDate(d: Date | null): string {
   // Guard BOTH null AND an Invalid Date — `new Date("not-a-date")` (a malformed
-  // Airtable date string) is a truthy Date whose getUTC* accessors all return
+  // stored date string) is a truthy Date whose getUTC* accessors all return
   // NaN, which would render "NaN.NaN.NaN" into a real client email. `!d` alone
   // misses it; `Number.isNaN(d.getTime())` catches it.
   if (!d || Number.isNaN(d.getTime())) return "";
-  // Airtable date fields are wall-clock YYYY-MM-DD strings parsed as UTC midnight.
+  // Stored date fields are wall-clock YYYY-MM-DD strings parsed as UTC midnight.
   // Use UTC accessors so the rendered date matches what the operator entered.
   // US format: MM.DD.YYYY (Reddoor is Texas-based, clients are US).
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");

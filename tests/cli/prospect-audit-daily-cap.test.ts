@@ -3,21 +3,27 @@
  * in the dashboard dispatch path. `prospect-audit` on the CLI — the path every
  * batch to date went through, including the 29-site corpus — had no cap at all.
  *
- * Driven entirely off injected deps, like `tests/dashboard/prospect-audit-
- * trigger.test.ts`: `listRecent` is the same seam there, and no test here opens
- * a database other than an in-memory one.
+ * #907: and once it had one, it counted rows written AFTER the spend, so a
+ * burst of concurrent runs all read the same count and all proceeded. The CLI
+ * now reserves a `running` row before the pipeline runs, atomically, and
+ * finishes that same row at the end.
+ *
+ * The database is injected through the `openDb` seam — a real migrated
+ * in-memory libSQL database, seeded per test — because the property under test
+ * is what the SQL does under concurrency, which no fake can show.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
+import type { KyselyPlugin } from "kysely";
 import { runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
 import { respondToProspectAuditTrigger } from "../../src/dashboard/prospect-audit-trigger.js";
-import {
-  PROSPECT_AUDIT_DAILY_CAP,
-  DAILY_CAP_LOOKBACK,
-  countAuditsInDailyWindow,
-  dailyCapMessage,
-} from "../../src/prospect/daily-cap.js";
+import { PROSPECT_AUDIT_DAILY_CAP, dailyCapMessage } from "../../src/prospect/daily-cap.js";
 import type { PipelineDeps } from "../../src/prospect/pipeline.js";
-import type { ProspectAuditListItem } from "../../src/db/prospect-audits.js";
+import { openDb, type Db } from "../../src/db/client.js";
+import {
+  countProspectAuditsTowardCap,
+  generateToken,
+  reserveProspectAudit,
+} from "../../src/db/prospect-audits.js";
 
 const ORIGINAL_ENV = { ...process.env };
 const NOW = new Date("2026-09-17T12:00:00.000Z");
@@ -27,19 +33,25 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** `n` distinct-url audits at `at`. Only `created_at` is read by the cap. */
-function recentRun(n: number, at = "2026-09-17T09:00:00.000Z"): ProspectAuditListItem[] {
-  return Array.from({ length: n }, (_, i) => ({
-    id: `pa_${i}`,
-    token: `tok${String(i).padStart(19, "0")}`,
-    url: `https://site-${i}.example/`,
-    business: null,
-    status: "complete",
-    created_at: at,
-    edited_at: null,
-    opened_at: null,
-    chosen_terms: null,
-  }));
+/** A migrated in-memory database holding `n` finished audits at `at` — the
+ *  rows a cap has to count. */
+async function seededDb(n: number, at = "2026-09-17T09:00:00.000Z"): Promise<Db> {
+  const db = await openDb({ url: ":memory:" });
+  for (let i = 0; i < n; i++) {
+    await db
+      .insertInto("prospect_audits")
+      .values({
+        id: `pa_seed_${i}`,
+        token: generateToken(),
+        url: `https://site-${i}.example/`,
+        business: null,
+        created_at: at,
+        status: "complete",
+        result_json: "{}",
+      })
+      .execute();
+  }
+  return db;
 }
 
 /** Offline pipeline stubs, plus a counter proving whether the crawl ran at all.
@@ -100,11 +112,12 @@ function stubDeps(): { deps: PipelineDeps; crawled: () => number } {
 describe("prospect-audit CLI — the 24h runaway brake", () => {
   it("refuses at the cap, before the crawl spends anything", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(PROSPECT_AUDIT_DAILY_CAP);
     const { deps, crawled } = stubDeps();
     const { output, code } = await runProspectAuditCommand("https://brand-new.example/", {
       probes: false,
       deps,
-      listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP),
+      openDb: async () => db,
       now: () => NOW,
     });
     expect(code).toBe(2);
@@ -115,11 +128,12 @@ describe("prospect-audit CLI — the 24h runaway brake", () => {
   it("still runs one below the cap (positive control)", async () => {
     // Without this, a cap that refused unconditionally would pass the test above.
     process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(PROSPECT_AUDIT_DAILY_CAP - 1);
     const { deps, crawled } = stubDeps();
     const { code } = await runProspectAuditCommand("https://acme.example/", {
       probes: false,
       deps,
-      listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP - 1),
+      openDb: async () => db,
       now: () => NOW,
     });
     expect(code).toBe(0);
@@ -128,11 +142,12 @@ describe("prospect-audit CLI — the 24h runaway brake", () => {
 
   it("ignores audits older than 24h — the window rolls", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(PROSPECT_AUDIT_DAILY_CAP, "2026-09-15T09:00:00.000Z");
     const { deps } = stubDeps();
     const { code } = await runProspectAuditCommand("https://acme.example/", {
       probes: false,
       deps,
-      listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP, "2026-09-15T09:00:00.000Z"),
+      openDb: async () => db,
       now: () => NOW,
     });
     expect(code).toBe(0);
@@ -142,11 +157,12 @@ describe("prospect-audit CLI — the 24h runaway brake", () => {
     // The two paths refuse for the same reason; wording them separately is how
     // they drift into disagreeing about what the operator should do.
     process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(PROSPECT_AUDIT_DAILY_CAP);
     const { deps } = stubDeps();
     const { output } = await runProspectAuditCommand("https://brand-new.example/", {
       probes: false,
       deps,
-      listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP),
+      openDb: async () => db,
       now: () => NOW,
     });
     const dashboard = respondToProspectAuditTrigger(
@@ -174,16 +190,28 @@ describe("prospect-audit CLI — the 24h runaway brake", () => {
     expect(err.mock.calls.some((c) => /runaway brake/i.test(String(c[0])))).toBe(true);
   });
 
-  it("with the count unreadable, warns LOUDLY and runs", async () => {
+  it("with the reservation unwritable, warns LOUDLY and runs", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = await seededDb(0);
+    // Fails exactly the first statement the run issues — the reservation step —
+    // and lets everything after it through, so the persist still lands.
+    let failed = false;
+    const failFirst: KyselyPlugin = {
+      transformQuery: (args) => {
+        if (!failed) {
+          failed = true;
+          throw new Error("simulated turso outage");
+        }
+        return args.node;
+      },
+      transformResult: async (args) => args.result,
+    };
     const { deps } = stubDeps();
     const { output, code } = await runProspectAuditCommand("https://acme.example/", {
       probes: false,
       deps,
-      listRecent: async () => {
-        throw new Error("simulated turso outage");
-      },
+      openDb: async () => db.withPlugin(failFirst),
       now: () => NOW,
     });
     // A Turso blip must not block a legitimate audit — but it must not look
@@ -194,18 +222,164 @@ describe("prospect-audit CLI — the 24h runaway brake", () => {
   });
 });
 
-describe("the shared cap arithmetic", () => {
-  it("the lookback exceeds the cap, or the brake could never engage", () => {
-    // Moved with the constants: a lookback at or below the cap makes the limit
-    // unreachable — a guard that reads as working while doing nothing.
-    expect(DAILY_CAP_LOOKBACK).toBeGreaterThan(PROSPECT_AUDIT_DAILY_CAP);
+/**
+ * #907. The cap bound a slow serial batch and could not bind a burst: every
+ * run was invisible to it until its row was written at the very end.
+ */
+describe("prospect-audit CLI — a burst of concurrent runs (#907)", () => {
+  it("N concurrent runs against cap C with K existing rows admit exactly C − K, and only those crawl", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const K = PROSPECT_AUDIT_DAILY_CAP - 3;
+    const N = 7;
+    const db = await seededDb(K, "2026-09-17T09:00:00.000Z");
+    const crawledHosts = new Set<string>();
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) => {
+        const { deps } = stubDeps();
+        const fetchUrl = deps.crawl!.fetchUrl;
+        deps.crawl!.fetchUrl = async (url: string) => {
+          crawledHosts.add(new URL(url).hostname);
+          return fetchUrl(url);
+        };
+        return runProspectAuditCommand(`https://burst-${i}.example/`, {
+          probes: false,
+          deps,
+          openDb: async () => db,
+          now: () => NOW,
+        });
+      }),
+    );
+    const admitted = results.filter((r) => r.code === 0).length;
+    const refused = results.filter((r) => r.code === 2).length;
+    expect({ admitted, refused }).toEqual({ admitted: 3, refused: N - 3 });
+    // The refusals happened BEFORE the spend: only the admitted runs crawled.
+    expect(crawledHosts.size).toBe(3);
+    // And every admitted run finished its row — nothing is left `running`.
+    const statuses = await db
+      .selectFrom("prospect_audits")
+      .select("status")
+      .where("id", "not like", "pa_seed_%")
+      .execute();
+    expect(statuses.map((s) => s.status).sort()).toEqual(["partial", "partial", "partial"]);
   });
 
-  it("counts inside the window and not outside it", () => {
-    expect(countAuditsInDailyWindow(recentRun(3), NOW)).toBe(3);
-    expect(countAuditsInDailyWindow(recentRun(3, "2026-09-15T09:00:00.000Z"), NOW)).toBe(0);
+  it("a finished run's row counts against the next one", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(PROSPECT_AUDIT_DAILY_CAP - 1);
+    const first = await runProspectAuditCommand("https://acme.example/", {
+      probes: false,
+      deps: stubDeps().deps,
+      openDb: async () => db,
+      now: () => NOW,
+    });
+    expect(first.code).toBe(0);
+    const { deps, crawled } = stubDeps();
+    const second = await runProspectAuditCommand("https://another.example/", {
+      probes: false,
+      deps,
+      openDb: async () => db,
+      now: () => NOW,
+    });
+    expect(second.code).toBe(2);
+    expect(crawled()).toBe(0);
   });
 
+  it("a run the cockpit dispatched is ONE row, not two: the CLI claims the cockpit's reservation", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(0);
+    const cockpit = await reserveProspectAudit(
+      db,
+      { url: "https://acme.example/", business: "Acme", claimed: false },
+      { now: NOW },
+    );
+    if (cockpit.kind !== "reserved") throw new Error("positive control");
+    const { output, code } = await runProspectAuditCommand("https://acme.example/", {
+      probes: false,
+      json: true,
+      deps: stubDeps().deps,
+      openDb: async () => db,
+      now: () => NOW,
+    });
+    expect(code).toBe(0);
+    expect((JSON.parse(output) as { token: string }).token).toBe(cockpit.token);
+    const rows = await db.selectFrom("prospect_audits").select(["id", "status"]).execute();
+    expect(rows).toEqual([{ id: cockpit.id, status: "partial" }]);
+  });
+
+  it("#907 review P6: the finished row carries the FINISH time from a clock that moved on", async () => {
+    // Every other CLI test injects a constant clock, so a finish stamped with
+    // the START time would pass them all — and in production would put P6
+    // back: the cockpit's 10-minute duplicate guard would run from the start.
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(0);
+    const started = new Date("2026-09-17T12:00:00.000Z");
+    const finished = new Date("2026-09-17T12:17:00.000Z");
+    const cockpit = await reserveProspectAudit(
+      db,
+      { url: "https://acme.example/", business: null, claimed: false },
+      { now: started },
+    );
+    if (cockpit.kind !== "reserved") throw new Error("positive control");
+    let reads = 0;
+    const { code } = await runProspectAuditCommand("https://acme.example/", {
+      probes: false,
+      deps: stubDeps().deps,
+      openDb: async () => db,
+      // The first read is the reservation's; every later read is the run
+      // having moved on.
+      now: () => (reads++ === 0 ? started : finished),
+    });
+    expect(code).toBe(0);
+    const row = await db
+      .selectFrom("prospect_audits")
+      .select(["id", "status", "created_at"])
+      .executeTakeFirstOrThrow();
+    expect(row).toEqual({
+      id: cockpit.id,
+      status: "partial",
+      created_at: finished.toISOString(),
+    });
+    // The clock was actually consulted again, not merely advanced by luck.
+    expect(reads).toBeGreaterThanOrEqual(2);
+  });
+
+  it("a run whose pipeline throws before spending gives its slot back", async () => {
+    // The crawl is the pipeline's one fatal stage, and it runs before any model
+    // call. A slot held by a run that spent nothing would be a leak.
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(PROSPECT_AUDIT_DAILY_CAP - 1);
+    const { deps } = stubDeps();
+    deps.crawl!.fetchUrl = async () => {
+      throw new Error("ENOTFOUND");
+    };
+    await expect(
+      runProspectAuditCommand("https://gone.example/", {
+        probes: false,
+        deps,
+        openDb: async () => db,
+        now: () => NOW,
+      }),
+    ).rejects.toThrow();
+    expect(await countProspectAuditsTowardCap(db, NOW)).toBe(PROSPECT_AUDIT_DAILY_CAP - 1);
+  });
+
+  it("an invalid --goal is refused before a slot is reserved", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(0);
+    const { code } = await runProspectAuditCommand("https://acme.example/", {
+      probes: false,
+      goal: "not-a-goal",
+      deps: stubDeps().deps,
+      openDb: async () => db,
+      now: () => NOW,
+    });
+    expect(code).toBe(2);
+    expect(await countProspectAuditsTowardCap(db, NOW)).toBe(0);
+  });
+});
+
+describe("the shared cap wording", () => {
   it("names both numbers", () => {
     expect(dailyCapMessage(25, 25)).toContain("25 audits");
     expect(dailyCapMessage(25, 25)).toContain("cap 25");

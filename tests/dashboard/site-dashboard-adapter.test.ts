@@ -1,12 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { Context } from "@netlify/functions";
 
-// Airtable client mocked: the gates below return before any base read. Proves
+// The gates below return before any store read. Proves
 // the .mts module's deep src/ imports resolve and the no-slug/env/auth branches
 // behave; the render path is covered by the render unit tests.
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ((t: string) => t) as unknown),
-}));
 
 import siteDashboard from "../../netlify/functions/site-dashboard.mjs";
 
@@ -29,8 +26,6 @@ function ctx(params?: Record<string, string>): Context {
 
 describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
   beforeEach(() => {
-    delete process.env.AIRTABLE_PAT;
-    delete process.env.AIRTABLE_BASE_ID;
     delete process.env.TURSO_DATABASE_URL;
     delete process.env.DASHBOARD_PASSWORD;
   });
@@ -48,7 +43,6 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
     const body = (await res.json()) as { service: string; env: Record<string, boolean> };
     expect(body.service).toBe("reddoor-site-dashboard");
     // presence-only: false because env is unset, never the value itself
-    // (Phase 2: the page is Turso-backed; Airtable is gone from this function)
     expect(body.env.TURSO_DATABASE_URL).toBe(false);
   });
 
@@ -62,16 +56,14 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
   });
 
   it("does NOT leak backend env state to an UNAUTHENTICATED slug request (auth precedes env guards)", async () => {
-    // Password set, no creds, Airtable/Turso unset → the auth redirect, not a
+    // Password set, no creds, Turso unset → the auth redirect, not a
     // differentiated 500.
     process.env.DASHBOARD_PASSWORD = "s3cret";
     const res = await siteDashboard(get("https://dash.reddoor.test/s/acme"), ctx({ slug: "acme" }));
     expect(res.status).toBe(302);
   });
 
-  it("redirects an unauthenticated slug request (gate fires before any Airtable read)", async () => {
-    process.env.AIRTABLE_PAT = "pat";
-    process.env.AIRTABLE_BASE_ID = "appX";
+  it("redirects an unauthenticated slug request (gate fires before any store read)", async () => {
     process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     const res = await siteDashboard(get("https://dash.reddoor.test/s/acme"), ctx({ slug: "acme" }));
@@ -84,8 +76,6 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
   });
 
   it("resolves the slug from the ?slug= query param when no path param", async () => {
-    process.env.AIRTABLE_PAT = "pat";
-    process.env.AIRTABLE_BASE_ID = "appX";
     process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     // No ctx.params → slug comes from the query string → NOT the health check,

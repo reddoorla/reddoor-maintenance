@@ -48,7 +48,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   try {
     // Turso IS the page (the one `listSites` read feeds everything), so open it
     // non-defensively — a failure 502s via handlerError rather than rendering an
-    // empty table that pretends the fleet vanished. No Airtable read at all.
+    // empty table that pretends the fleet vanished.
     const db = await openDb(readDbConfig());
     const query = parseFleetTableQuery(new URL(req.url).searchParams);
     const sites = await listSites(db);

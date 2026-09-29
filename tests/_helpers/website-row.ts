@@ -1,5 +1,4 @@
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
-import { toAirtableStatus } from "../../src/reports/airtable/site-status.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 
 /**
  * Shared WebsiteRow test factory. Every field of the real `WebsiteRow` type has a
@@ -103,13 +102,13 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     notifyRoutingRaw: null,
     ...over,
   };
-  // `statusRaw` is the literal Airtable cell behind `status`. Deriving it keeps
+  // `statusRaw` is the literal cell behind `status`. Deriving it keeps
   // every caller self-consistent for free: `makeWebsiteRow({ status: "archived" })`
-  // gets the Airtable value that WOULD produce that status, matching what mapRow
+  // gets the raw value that WOULD produce that status, matching what mapRow
   // hands the dashboard editor. A caller that needs an off-vocabulary raw cell
   // (a typo, or "legacy" specifically) passes `statusRaw` explicitly.
   if (over.statusRaw === undefined) {
-    row.statusRaw = row.status === null ? null : toAirtableStatus(row.status);
+    row.statusRaw = row.status;
   }
   // Same idea for `notifyRoutingRaw`: the literal cell behind the parsed routing.
   // A caller that sets `notifyRouting` gets the JSON that WOULD parse to it, so

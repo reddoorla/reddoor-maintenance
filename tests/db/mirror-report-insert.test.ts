@@ -1,26 +1,14 @@
 /**
- * #539 Phase 5 (freeze prerequisite): report rows are CREATED in Airtable by
- * `createDraft`, and every mirror built so far is UPDATE-only — so a report
- * drafted at 09:05 does not exist in Turso until the 09:20 sync. Phase 4 moved
- * report review onto Turso, which makes that window user-visible today; at the
- * freeze it stops being a window and becomes a lost row.
- *
- * The instrument is EQUIVALENCE WITH THE IMPORTER, not a column checklist:
- * parity diffs Turso against `mapReportRecord(rec)`, so the only mirror that
- * cannot red the hourly run is one that stores exactly what the importer would
- * store for the same record. Asserting that directly means a new Reports column
- * can never be half-mirrored — it either flows through `mapReportRecord` to
- * both sides or to neither.
+ * #539 Phase 5. The instrument is EQUIVALENCE WITH `mapReportRecord(rec)`, not
+ * a column checklist. Asserting that directly means a new Reports column can
+ * never be half-mirrored.
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
+import { mapReportRecord, type RawRecord } from "../../src/db/field-map.js";
 import { mirrorReportInsert } from "../../src/db/fleet-state.js";
 
-const NOW = new Date("2026-08-25T12:00:00.000Z");
-
-/** The shape Airtable's create response hands back: every field `createDraft`
- *  writes, as Airtable echoes it. */
+/** Every field `createDraft` writes. */
 const DRAFT: RawRecord = {
   id: "recRPT_NEW",
   fields: {
@@ -49,29 +37,17 @@ const DRAFT: RawRecord = {
  *  importer's defaults for them rather than leaving them out of the INSERT. */
 const SPARSE: RawRecord = { id: "recRPT_BARE", fields: { "Report ID": "bare" } };
 
-const io = (reports: RawRecord[]): ImportIo => ({
-  listWebsiteRecords: async () => [],
-  listReportRecords: async () => reports,
-  fetchAttachment: async () => null,
-  now: () => NOW,
-});
-
 async function rowOf(db: Awaited<ReturnType<typeof openDb>>, id: string) {
   return db.selectFrom("reports").selectAll().where("id", "=", id).executeTakeFirst();
 }
 
-/** Mirror the record into one db, import the same record into another, and
- *  demand the stored rows be identical. */
 async function expectEquivalent(rec: RawRecord) {
   const mirrored = await openDb({ url: ":memory:" });
   await mirrorReportInsert(mirrored, rec);
 
-  const imported = await openDb({ url: ":memory:" });
-  await importFleetState(imported, io([rec]));
-
   const got = await rowOf(mirrored, rec.id);
   expect(got).toBeDefined();
-  expect(got).toEqual(await rowOf(imported, rec.id));
+  expect(got).toEqual(mapReportRecord(rec, null));
 }
 
 describe("mirrorReportInsert ≡ the importer (the Phase 5 create-side instrument)", () => {

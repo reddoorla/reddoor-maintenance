@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { announce } from "../../src/recipes/announce.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import {
   makeFakeReportWriter,
   type FakeReportWriter,
 } from "../reports/_helpers/fake-report-writer.js";
-import { mapRow as mapReportRow } from "../../src/reports/airtable/reports.js";
-import { mapRow as mapSiteRow } from "../../src/reports/airtable/websites.js";
+import { reportRowsFrom, websiteRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 
 // GA + Search enrichment is the report pipeline's soft-failing wrappers. Mock them so the
 // recipe never hits Google in tests; the default is "not configured" (null) so existing
@@ -18,18 +16,7 @@ vi.mock("../../src/reports/draft.js", async (orig) => ({
 }));
 import { fetchGaUsers, fetchSearch } from "../../src/reports/draft.js";
 
-// uploadAttachment (src/reports/airtable/attachments.ts) POSTs to content.airtable.com
-// via global fetch. Stub fetch so the preview upload "succeeds" without a network call;
-// AIRTABLE_PAT/BASE_ID are also required by uploadAttachment before it fetches.
 beforeEach(() => {
-  global.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    statusText: "OK",
-    text: async () => "",
-  }) as unknown as typeof global.fetch;
-  process.env.AIRTABLE_PAT = "pat_test";
-  process.env.AIRTABLE_BASE_ID = "app_test";
   // readGaConfig() reads GA_SUBJECT; keep it unset by default so the analytics-health
   // write is skipped (matches the live "GA unconfigured" path). Tests that exercise the
   // health write set it explicitly.
@@ -57,19 +44,28 @@ function scoredFields(over: Record<string, unknown> = {}): Record<string, unknow
   };
 }
 
+type Seed = { Websites: RawRow[]; Reports: RawRow[] };
+
 /** The Turso report writer the recipe writes through (#646 step 4), exposed so a
- *  case can read what was written. Built by `A(base, …)` from the same records the
- *  Airtable fake holds, so the two stores start identical. */
+ *  case can read what was written. Built by `A(seed, …)`. */
 let writer: FakeReportWriter;
 
-/** `announce` deps for a case: the fake Airtable base for the shadow writes, plus
- *  the two Turso reads/writes that replaced Airtable enumeration and creation. */
-function A(base: ReturnType<typeof makeFakeBase>, over: Record<string, unknown> = {}) {
-  writer = makeFakeReportWriter((base.__records.get("Reports") ?? []).map(mapReportRow));
+/** Every `siteMirror.health` write the default site mirror recorded. */
+let siteHealth: Array<{ id: string; fields: Record<string, unknown> }>;
+
+/** `announce` deps for a case: the Turso roster, report writer and site mirror. */
+function A(seed: Seed, over: Record<string, unknown> = {}) {
+  writer = makeFakeReportWriter(reportRowsFrom(seed.Reports));
+  siteHealth = [];
   return {
-    base,
-    roster: async () => (base.__records.get("Websites") ?? []).map(mapSiteRow),
+    roster: async () => websiteRowsFrom(seed.Websites),
     reportMirror: writer,
+    siteMirror: {
+      health: async (id: string, fields: Record<string, unknown>) => {
+        siteHealth.push({ id, fields });
+      },
+      site: async () => {},
+    },
     now: NOW,
     refreshHeader: false as const,
     ...over,
@@ -79,23 +75,15 @@ function A(base: ReturnType<typeof makeFakeBase>, over: Record<string, unknown> 
 const NOW = new Date("2026-06-17T12:00:00.000Z");
 const PERIOD = "2026-06";
 
-/** The fields of the `Analytics soft-fail at` write to the Websites table, or undefined
+/** The fields of the `Analytics soft-fail at` write to the site row, or undefined
  *  if announce never wrote it (GA unconfigured / no property). */
-function analyticsHealthWrite(
-  base: ReturnType<typeof makeFakeBase>,
-): Record<string, unknown> | undefined {
-  for (const c of base.__calls) {
-    if (c.kind === "update" && c.table === "Websites") {
-      const f = c.records[0]?.fields ?? {};
-      if ("Analytics soft-fail at" in f) return f;
-    }
-  }
-  return undefined;
+function analyticsHealthWrite(): Record<string, unknown> | undefined {
+  return siteHealth.find((h) => "Analytics soft-fail at" in h.fields)?.fields;
 }
 
 describe("recipes/announce", () => {
   it("processes only maintained sites (skips launching and hosted-only)", async () => {
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_maint",
@@ -127,9 +115,9 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
 
-    const result = await announce(A(base));
+    const result = await announce(A(seed));
 
     expect(result.results.map((r) => r.site)).toEqual(["Acme Co"]);
   });
@@ -139,7 +127,7 @@ describe("recipes/announce", () => {
     // pass-through an announcement draft is invisible to the Turso-backed
     // console until the next hourly sync — the same defect Phase 4 closed for
     // every OTHER field on the page.
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_maint",
@@ -153,20 +141,16 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
-    await announce(A(base));
+    };
+    await announce(A(seed));
 
     expect(writer.inserts).toHaveLength(1);
     expect(writer.inserts[0]!.id).toMatch(/^report_[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(writer.inserts[0]!.fields["Report type"]).toBe("Announcement");
-    // Nothing was created in Airtable — Turso owns the row and its id (#646 step 4).
-    expect(base.__calls.filter((c) => c.kind === "create" && c.table === "Reports")).toHaveLength(
-      0,
-    );
   });
 
   it("filters to a single site by slug when deps.site is set", async () => {
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -188,15 +172,15 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
 
-    const result = await announce(A(base, { site: "Delta Co" }));
+    const result = await announce(A(seed, { site: "Delta Co" }));
 
     expect(result.results.map((r) => r.site)).toEqual(["Delta Co"]);
   });
 
   it("skips a maintained site missing any of the four scores (no create)", async () => {
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_no_scores",
@@ -212,17 +196,16 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
 
-    const result = await announce(A(base));
+    const result = await announce(A(seed));
 
     expect(result.results).toEqual([{ site: "Acme Co", status: "skipped-no-scores" }]);
-    const reportCreates = base.__calls.filter((c) => c.kind === "create" && c.table === "Reports");
-    expect(reportCreates).toHaveLength(0);
+    expect(writer.inserts).toHaveLength(0);
   });
 
   it("drafts an Announcement report with a Subject override and flips Draft ready", async () => {
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -236,9 +219,9 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
 
-    const result = await announce(A(base));
+    const result = await announce(A(seed));
 
     expect(result.results).toEqual([
       {
@@ -265,7 +248,7 @@ describe("recipes/announce", () => {
   });
 
   it("reports recipientMissing=true when the row has no Report recipients (To)", async () => {
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -278,9 +261,9 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
 
-    const result = await announce(A(base));
+    const result = await announce(A(seed));
 
     expect(result.results[0]).toMatchObject({
       site: "Acme Co",
@@ -290,7 +273,7 @@ describe("recipes/announce", () => {
   });
 
   it("reuses a pre-existing Announcement row for (site, period) without a second create", async () => {
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -314,35 +297,26 @@ describe("recipes/announce", () => {
           },
         },
       ],
-    });
+    };
 
-    const result = await announce(A(base));
+    const result = await announce(A(seed));
 
     expect(result.results[0]).toMatchObject({
       site: "Acme Co",
       status: "reused",
       reportId: "rec_existing_announce",
     });
-    const reportCreates = base.__calls.filter((c) => c.kind === "create" && c.table === "Reports");
-    expect(reportCreates).toHaveLength(0);
+    expect(writer.inserts).toHaveLength(0);
 
     // The reused row's scores are refreshed and it is made Draft-ready.
-    const scoreUpdate = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Reports" &&
-        c.records[0]!.id === "rec_existing_announce" &&
-        c.records[0]!.fields["Lighthouse — Performance"] === 87,
+    const scoreUpdate = writer.patches.find(
+      (p) => p.id === "rec_existing_announce" && p.patch.lighthouse_performance === 87,
     );
     expect(scoreUpdate).toBeDefined();
-    const draftReadyUpdate = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Reports" &&
-        c.records[0]!.id === "rec_existing_announce" &&
-        c.records[0]!.fields["Draft ready"] === true,
-    );
-    expect(draftReadyUpdate).toBeDefined();
+    expect(writer.patches).toContainEqual({
+      id: "rec_existing_announce",
+      patch: { draft_ready: 1 },
+    });
   });
 
   it("mirrors the reused row's refreshed scores (#539 Phase 5)", async () => {
@@ -350,7 +324,7 @@ describe("recipes/announce", () => {
     // console reads the same numbers from Turso, so a mirror that covered only
     // the CREATE path would leave a re-announced site showing last month's
     // scores next to this month's email.
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -374,8 +348,8 @@ describe("recipes/announce", () => {
           },
         },
       ],
-    });
-    await announce(A(base));
+    };
+    await announce(A(seed));
 
     const scores = writer.patches.find((p) => p.patch.lighthouse_performance !== undefined);
     expect(scores).toMatchObject({
@@ -401,7 +375,7 @@ describe("recipes/announce", () => {
       propertyMissing: false,
       notConfigured: false,
     });
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -415,9 +389,9 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
 
-    await announce(A(base));
+    await announce(A(seed));
 
     const fields = writer.inserts[0]!.fields;
     expect(fields["GA users (period)"]).toBe(280);
@@ -427,7 +401,7 @@ describe("recipes/announce", () => {
   });
 
   it("one site that throws does not abort the run — other sites still draft", async () => {
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_bad",
@@ -450,12 +424,12 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
 
     // Force the FIRST site's report creation to throw. Since #646 step 4 the row
     // is written to TURSO, so the failure is injected there — the store that can
     // actually refuse a draft now.
-    const deps = A(base);
+    const deps = A(seed);
     const realCreate = deps.reportMirror.create;
     deps.reportMirror.create = async (rec) => {
       if (String(rec.fields["Report ID"] ?? "").startsWith("Bad Co")) {
@@ -473,11 +447,11 @@ describe("recipes/announce", () => {
 
   // MEDIUM-B: an announcement-time GA/Search outage must surface the per-site
   // analytics-failure signal, not silently hide the traffic block (it reads identically
-  // to "site has no GA configured"). Mirrors the `--due` draft path's updateAnalyticsHealth.
+  // to "site has no GA configured"). Mirrors the `--due` draft path's analytics-health write.
   it("stamps the analytics soft-fail timestamp when GA errors during the announcement", async () => {
     process.env.GA_SUBJECT = "tucker@reddoorla.com"; // readGaConfig() != null
     vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -491,11 +465,11 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
 
-    await announce(A(base));
+    await announce(A(seed));
 
-    expect(analyticsHealthWrite(base)?.["Analytics soft-fail at"]).toBe(NOW.toISOString());
+    expect(analyticsHealthWrite()?.["Analytics soft-fail at"]).toBe(NOW.toISOString());
   });
 
   it("mirrors the analytics-health stamp into Turso (#539 Phase 5)", async () => {
@@ -503,7 +477,7 @@ describe("recipes/announce", () => {
     // different mirror. The cockpit's per-site analytics-failure signal reads it.
     process.env.GA_SUBJECT = "tucker@reddoorla.com";
     vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -517,14 +491,12 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
     const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
 
     await announce(
-      A(base, {
+      A(seed, {
         siteMirror: {
-          created: async () => {},
-          hasRow: async () => true,
           health: async (id: string, fields: Record<string, unknown>) => {
             mirrored.push({ id, fields });
           },
@@ -544,7 +516,7 @@ describe("recipes/announce", () => {
       value: { current: 1200, previous: 1000 },
       softFailed: false,
     });
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -558,19 +530,19 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
-    });
+    };
 
-    await announce(A(base));
+    await announce(A(seed));
 
-    expect(analyticsHealthWrite(base)).toBeDefined();
-    expect(analyticsHealthWrite(base)?.["Analytics soft-fail at"]).toBeNull();
+    expect(analyticsHealthWrite()).toBeDefined();
+    expect(analyticsHealthWrite()?.["Analytics soft-fail at"]).toBeNull();
   });
 
   it("does NOT write analytics health when GA is unconfigured (GA_SUBJECT unset)", async () => {
     // GA_SUBJECT stays unset (beforeEach) → readGaConfig() null → skip the write entirely,
     // even though the fetch soft-failed.
     vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
-    const base = makeFakeBase({
+    const seed: Seed = {
       Websites: [
         {
           id: "rec_acme",
@@ -584,10 +556,126 @@ describe("recipes/announce", () => {
         },
       ],
       Reports: [],
+    };
+
+    await announce(A(seed));
+
+    expect(analyticsHealthWrite()).toBeUndefined();
+  });
+});
+
+describe("announce's Turso writes on the reuse path", () => {
+  const REUSE_SEED: Seed = {
+    Websites: [
+      {
+        id: "rec_acme",
+        fields: {
+          Name: "Acme Co",
+          url: "https://acme.example.com",
+          Status: "maintained",
+          "GA4 property ID": "G-123",
+          "Report recipients (To)": "client@acme.example.com",
+          ...scoredFields(),
+        },
+      },
+    ],
+    Reports: [
+      {
+        id: "rec_existing_announce",
+        fields: {
+          "Report ID": "Acme Co — Announcement — existing",
+          Site: ["rec_acme"],
+          "Report type": "Announcement",
+          Period: PERIOD,
+        },
+      },
+    ],
+  };
+
+  function captureWarn() {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    return () => {
+      const text = warn.mock.calls.flat().join("\n");
+      warn.mockRestore();
+      return text;
+    };
+  }
+
+  it("patches the reused row's scores and Completed on in one write", async () => {
+    await announce(A(REUSE_SEED));
+    expect(writer.patches[0]).toEqual({
+      id: "rec_existing_announce",
+      patch: {
+        lighthouse_performance: 87,
+        lighthouse_accessibility: 91,
+        lighthouse_best_practices: 100,
+        lighthouse_seo: 95,
+        completed_on: "2026-06-17",
+      },
     });
+  });
 
-    await announce(A(base));
+  it("a failed score refresh errors the site", async () => {
+    const deps = A(REUSE_SEED);
+    const result = await announce({
+      ...deps,
+      reportMirror: {
+        ...writer,
+        patch: async () => {
+          throw new Error("libsql down");
+        },
+      },
+    });
+    expect(result.results).toEqual([{ site: "Acme Co", status: "error", message: "libsql down" }]);
+  });
 
-    expect(analyticsHealthWrite(base)).toBeUndefined();
+  it("stores the reused row's rendered body (known-good control)", async () => {
+    const result = await announce(A(REUSE_SEED));
+    expect(writer.bodies).toHaveLength(1);
+    expect(writer.bodies[0]!.id).toBe("rec_existing_announce");
+    expect(writer.bodies[0]!.html).toContain("Acme Co");
+    expect(result.results[0]).toMatchObject({ status: "reused", queued: true });
+  });
+
+  it("a failed body write warns, and the site still drafts and queues", async () => {
+    const warned = captureWarn();
+    const deps = A(REUSE_SEED);
+    const result = await announce({
+      ...deps,
+      reportMirror: {
+        ...writer,
+        body: async () => {
+          throw new Error("libsql down");
+        },
+      },
+    });
+    expect(warned()).toContain("⚠ Announcement preview upload skipped for Acme Co: libsql down");
+    expect(writer.bodies).toHaveLength(0);
+    expect(result.results[0]).toMatchObject({
+      status: "reused",
+      reportId: "rec_existing_announce",
+      queued: true,
+    });
+  });
+
+  it("a failed analytics-health mirror is warned and the draft continues", async () => {
+    process.env.GA_SUBJECT = "tucker@reddoorla.com";
+    vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
+    const warned = captureWarn();
+    const result = await announce(
+      A(REUSE_SEED, {
+        siteMirror: {
+          health: async () => {
+            throw new Error("libsql down");
+          },
+          site: async () => {},
+        },
+      }),
+    );
+    expect(warned()).toContain("⚠ analytics-health Turso mirror failed for Acme Co: libsql down");
+    expect(result.results[0]).toMatchObject({
+      status: "reused",
+      reportId: "rec_existing_announce",
+    });
   });
 });

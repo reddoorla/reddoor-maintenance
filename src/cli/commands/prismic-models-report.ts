@@ -91,7 +91,7 @@ const intersect = (a: Set<string>, b: Set<string>): string[] =>
  * EXPORTED, and that is the point of it being a named function rather than an
  * inline block inside the renderer. The report's head says "do not act on this"
  * in PROSE, and the caller has to turn that into a machine-readable verdict —
- * `clean`, and an exit code — for Airtable and the cockpit. The only other way
+ * `clean`, and an exit code — for Turso and the cockpit. The only other way
  * to get the answer out of here is to grep the rendered string for the warning
  * text, which makes the wording of a warning load-bearing: reword the sentence
  * and the verdict silently flips to "clean" with nothing red. So the fact is

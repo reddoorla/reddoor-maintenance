@@ -5,11 +5,8 @@ import { getReportHtml } from "../../src/db/fleet-state.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 import { isReportId } from "../../src/fleet/report-id.js";
 
-// Phase 2 (#539): serve a report's rendered body straight from Turso. The old
-// "draft preview" links pointed at Airtable's SIGNED attachment URL, which
-// expires — a stale dashboard tab 404'd. The body now lives in
-// reports.rendered_html, so the dashboard serves it itself, behind the same
-// operator Basic auth as every other dashboard page.
+// Serve a report's rendered body straight from Turso (reports.rendered_html),
+// behind the same operator Basic auth as every other dashboard page.
 export const config: Config = {
   path: ["/api/reports/:id/preview"],
   rateLimit: {
@@ -40,7 +37,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   }
 
   const id = ctx.params?.id;
-  // Both report id shapes — `rec…` (Airtable-minted, pre-#646) and a minted
+  // Both report id shapes — `rec…` (pre-#646) and a minted
   // `report_<ULID>` — and nothing else: anything else is a probe, not a report.
   if (!id || !isReportId(id)) return plainText("Not found.", 404);
 

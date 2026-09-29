@@ -112,7 +112,7 @@ describe("runSubmissionsCommand", () => {
     expect(r.output).toMatch(/conflict/i);
   });
 
-  it("rescore against an empty :memory: db reports a clean no-op (no Airtable/Turso env needed)", async () => {
+  it("rescore against an empty :memory: db reports a clean no-op (no Turso env needed)", async () => {
     const r = await runSubmissionsCommand("rescore", { url: ":memory:" });
     expect(r.code).toBe(0);
     expect(r.output).toMatch(/Scanned 0 status='new' submissions/);

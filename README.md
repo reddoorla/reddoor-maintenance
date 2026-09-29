@@ -6,7 +6,7 @@ A single CLI (`reddoor-maint`) covering the full operator workflow:
 
 - **Audits** inspect a site (lighthouse, a11y, security, lint, deps).
 - **Recipes** mutate one (branch-isolated, idempotent, never on a dirty tree) — start with [`init`](#init) for fresh sites.
-- **Reports** ([per-site monthly/quarterly emails](#reports-per-site-maintenancetesting-emails)) draft + send client-facing maintenance + testing summaries, backed by Airtable as the source of truth and Resend for delivery.
+- **Reports** ([per-site monthly/quarterly emails](#reports-per-site-maintenancetesting-emails)) draft + send client-facing maintenance + testing summaries, backed by Turso as the source of truth and Resend for delivery.
 - **Canonical configs** (eslint, prettier, lighthouserc, playwright-a11y, svelte) ship as importable presets every reddoor site shares.
 
 Designed to run against either a single local site or a fleet declared in an inventory file.
@@ -16,7 +16,7 @@ pnpm add -D @reddoorla/maintenance
 pnpm reddoor-maint --help
 ```
 
-> **Standing the whole system up** (Airtable, the Netlify dashboard, the cron secrets, the daily approve loop, launching) — see the end-to-end **[setup walkthrough](docs/SETUP.md)**. This README is the per-command reference.
+> **Standing the whole system up** (the Turso database, the Netlify dashboard, the cron secrets, the daily approve loop, launching) — see the end-to-end **[setup walkthrough](docs/SETUP.md)**. This README is the per-command reference.
 
 ---
 
@@ -304,7 +304,7 @@ Pass `--fleet <path>` to run a command against multiple sites declared in an inv
 
 The package's main entry exports every recipe, audit, and report function so you can wire them into custom tooling (CI jobs, scheduled scripts, alternative CLIs):
 
-> **These bare-entry (`@reddoorla/maintenance`) library exports require the package's full dependency set.** The report/audit/dashboard stack — `mjml`, `airtable`, `resend`, the Google Analytics + libSQL/Kysely libraries, `sharp`, `svix`, `@lhci/cli` — ships as **devDependencies**, so a plain `pnpm add @reddoorla/maintenance` does **not** install them. Import these functions only from an environment that installs this package's dev dependencies (this repo's own CLI/Netlify functions, or your own tooling that installs them). **Fleet sites never use this entry** — they run the `reddoor-maint` CLI and import the dependency-light `@reddoorla/maintenance/forms` + `@reddoorla/maintenance/configs/*` subpaths, which by design pull none of that chain.
+> **These bare-entry (`@reddoorla/maintenance`) library exports require the package's full dependency set.** The report/audit/dashboard stack — `mjml`, `resend`, the Google Analytics + libSQL/Kysely libraries, `sharp`, `svix`, `@lhci/cli` — ships as **devDependencies**, so a plain `pnpm add @reddoorla/maintenance` does **not** install them. Import these functions only from an environment that installs this package's dev dependencies (this repo's own CLI/Netlify functions, or your own tooling that installs them). **Fleet sites never use this entry** — they run the `reddoor-maint` CLI and import the dependency-light `@reddoorla/maintenance/forms` + `@reddoorla/maintenance/configs/*` subpaths, which by design pull none of that chain.
 
 ```ts
 import {
@@ -385,18 +385,18 @@ Neither `pnpm audit` nor `npm audit` produced a parseable result. Check that at 
 
 ## Reports (per-site maintenance/testing emails)
 
-Generates the monthly/quarterly/yearly client-facing email reports — Lighthouse scores + GA users + the standard checklist + per-client header image — from Airtable as the source of truth, delivered via [Resend](https://resend.com/).
+Generates the monthly/quarterly/yearly client-facing email reports — Lighthouse scores + GA users + the standard checklist + per-client header image — from Turso as the source of truth, delivered via [Resend](https://resend.com/).
 
 ### Required env
 
 ```bash
-AIRTABLE_PAT=patXXXX          # Airtable PAT: schema.bases:read, data.records:read+write
-AIRTABLE_BASE_ID=appHG8nLOzULzXOER
+TURSO_DATABASE_URL=libsql://<db>-<org>.turso.io
+TURSO_AUTH_TOKEN=XXXX
 RESEND_API_KEY=re_XXXX
 RESEND_WEBHOOK_SECRET=whsec_XXXX  # only for the deployed webhook
 ```
 
-> The above is the **report CLI** env. The **deployed Netlify functions** (dashboard + form-ingest) additionally require `TURSO_DATABASE_URL` (+ optional `TURSO_AUTH_TOKEN`) — submissions live in libSQL/Turso, not Airtable. See [Site deployment](#site-deployment-netlify--resend) for the full env table.
+> The above is the **report CLI** env. See [Site deployment](#site-deployment-netlify--resend) for the full env table of the deployed Netlify functions.
 
 ### Operator flow
 
@@ -404,8 +404,9 @@ Before any send day, run the **read-only preflight** — it surfaces everything 
 would make a send fail or reach the wrong inbox (missing/malformed recipients,
 operator-address leftovers in client To fields, To-override shadowing the point of
 contact, missing header image or Lighthouse scores, queued unsent drafts that would
-race the new report, unrecognized/stale schedule values, and renamed Airtable
-columns):
+race the new report, unrecognized/stale schedule values, and a load-bearing field —
+point of contact, maintenance cadence, header plate — that is empty on every selected
+site, which is how a broken field mapping shows up):
 
 ```bash
 reddoor-maint preflight --all            # announcement targets (maintenance sites) + fleet checks
@@ -416,13 +417,13 @@ reddoor-maint preflight --all --type maintenance   # everything `report --due` s
 Exit 0 = safe to send (warnings printed for review); 1 = at least one hard failure.
 Nothing is written and nothing is sent.
 
-0. **Prereq: refresh Lighthouse scores on each Websites row.** From each site's checkout:
+0. **Prereq: fresh Lighthouse scores on each site.** The `fleet-lighthouse` nightly writes them for every `maintained` site. To refresh one site by hand, from its checkout:
 
    ```bash
-   reddoor-maint audit lighthouse --write-back
+   reddoor-maint audit --only lighthouse --write-back
    ```
 
-   This runs Lighthouse and writes the 4 scores directly to the matching Websites row (slug auto-derived from `package.json#name`; pass `--write-back=<slug>` to override), along with a `Last lighthouse audit at` timestamp. The report orchestrator copies these into the new Reports row — drafting a report for a site missing scores fails with a clear error.
+   This runs Lighthouse and writes the 4 scores to the site's `site_health` row in Turso (slug auto-derived from `package.json#name`; pass `--write-back=<slug>` to override), along with a `lighthouse_at` timestamp. The report orchestrator copies these into the new report row — drafting a report for a site missing scores fails with a clear error.
 
 1. **Draft overdue reports**
 
@@ -430,21 +431,23 @@ Nothing is written and nothing is sent.
    reddoor-maint report --due
    ```
 
-   Scans Websites where `maintenence freq` ≠ `None`, finds (site, type) pairs whose next-due date has passed, creates Reports rows with snapshotted scores + attaches the rendered HTML preview.
+   Scans every `maintained` / `hosted-only` site whose maintenance or testing cadence is not `None`, finds (site, type) pairs whose next-due date has passed ([Frequency math](#frequency-math)), and creates a report row in Turso for each, with snapshotted scores and the rendered HTML, queued for approval (`draft_ready`).
 
-2. **Preview a single site without touching Airtable**
+2. **Preview a single site without writing anything**
 
    ```bash
    reddoor-maint report <slug> --preview
    ```
 
-   Writes `reports/<slug>/draft.html` locally — open in a browser to verify before any side effects. (The header image renders broken in the browser because the CID can only resolve inside an email client; that's expected for a preview.)
+   Writes `reports/<slug>/draft.html` locally — open in a browser to verify before any side effects. It reads the site from Turso and writes nothing back. A plain `--preview` also skips the GA / Search Console fetches; add `--enrich` to run them for real (still writes nothing). (The header image renders broken in the browser because the CID can only resolve inside an email client; that's expected for a preview.)
 
-3. **Review on Airtable mobile**
-   - Tap the `Rendered HTML` attachment on the Reports row to preview in Safari.
-   - Fill in `GA users (period)` and `GA users (prev period)`.
-   - Optionally add a `Commentary` line; optionally override the subject.
-   - Flip `Approved to send`.
+3. **Review and approve in the console.** On the cockpit (`/`), each site with a draft is in the "Needs you" feed under **Waiting on your yes**; **Open ▸** goes to the site's page (`/s/<slug>`). Its **Pending your yes** section shows, per draft:
+   - **draft preview ▸** — the rendered HTML, served from Turso (`GET /api/reports/:id/preview`). It is the draft-time render; the send re-renders with the current commentary.
+   - A **Commentary** box on Maintenance and Testing reports (`POST /api/reports/:id/commentary`, refused once the report is sent), and **refresh preview**, which re-renders the stored body in Actions (`report-rerender.yml`) so the preview shows the edit.
+   - A preflight chip and the resolved recipients (To + CC).
+   - **Approve** — `POST /api/reports/:id/approve` sets `approved_to_send` and stamps who and when. It does not send. It refuses, with the reasons, a report whose send would fail (no resolvable recipient, no header plate, no scores) or whose health gate is not clear; a health-red report offers **Send anyway…** instead, which requires a written reason and is logged as an override.
+
+   GA users and search figures are fetched at draft time, not typed in.
 
 4. **Send approved reports**
 
@@ -452,9 +455,9 @@ Nothing is written and nothing is sent.
    reddoor-maint report --send-ready
    ```
 
-   Renders + sends every Reports row with `Draft ready=true && Approved to send=true && Sent at IS NULL`. Stamps `Sent at` + `Delivery status=pending` on each.
+   Renders + sends every report with `draft_ready` and `approved_to_send` set and no `sent_at`. Stamps `sent_at` (and the Resend message id) on each; its delivery status reads `pending` until the webhook reports.
 
-5. **Delivery status updates automatically** via the Resend webhook (Netlify Function at `netlify/functions/resend-webhook.mts`) — `Delivery status` flips to `delivered` / `bounced` / `complained` as events arrive. Deploy procedure: see [Site deployment](#site-deployment-netlify--resend) below.
+5. **Delivery status updates automatically** via the Resend webhook (Netlify Function at `netlify/functions/resend-webhook.mts`) — the report's `delivery_status` flips to `delivered` / `bounced` / `complained` as events arrive. Deploy procedure: see [Site deployment](#site-deployment-netlify--resend) below.
 
 ### Site deployment (Netlify + Resend)
 
@@ -470,10 +473,8 @@ This repo's Netlify site hosts the whole dashboard + forms surface: the Resend d
 
 | Variable                                           | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AIRTABLE_PAT`                                     | Same PAT used by the CLI (read+write on the Websites + Reports tables)                                                                                                                                                                                                                                                                                                                                                                               |
-| `AIRTABLE_BASE_ID`                                 | `appHG8nLOzULzXOER`                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `RESEND_WEBHOOK_SECRET`                            | Generated by Resend in step 4 — paste back here after creating the endpoint                                                                                                                                                                                                                                                                                                                                                                          |
-| `TURSO_DATABASE_URL`                               | `libsql://<db>-<org>.turso.io` — submissions + spam counters live here; the dashboard + forms functions 500 without it                                                                                                                                                                                                                                                                                                                               |
+| `TURSO_DATABASE_URL`                               | `libsql://<db>-<org>.turso.io` — the fleet database: sites, reports, submissions and spam counters all live here; the dashboard + forms functions 500 without it                                                                                                                                                                                                                                                                                     |
 | `TURSO_AUTH_TOKEN`                                 | Auth token for that Turso url (required for a remote `libsql://` url)                                                                                                                                                                                                                                                                                                                                                                                |
 | `FORMS_INGEST_TOKEN`                               | Shared secret gating `POST /api/forms/:slug` — the SAME value is set on each fleet site                                                                                                                                                                                                                                                                                                                                                              |
 | `TURNSTILE_SECRET_KEY`                             | Cloudflare Turnstile secret for central spam verification. **Optional** — absent → Turnstile is disabled and fails open (the heuristic classifier is then the only defense). The per-site `PUBLIC_TURNSTILE_SITE_KEY` lives on each fleet site, not here                                                                                                                                                                                             |
@@ -483,7 +484,7 @@ This repo's Netlify site hosts the whole dashboard + forms surface: the Resend d
 | `DASHBOARD_BASE_URL`                               | Public base URL of this deploy (e.g. `https://<your-site>.netlify.app`) — used to build absolute links such as report approve URLs                                                                                                                                                                                                                                                                                                                   |
 | `GH_TOKEN`                                         | GitHub token for the dashboard's request-path REST calls, with `actions:write` — the "Trigger Renovate" button, the fleet-refresh and prospect-audit dispatches (each answers 503 `not-configured` without it), plus GitHub-sourced signals. The only name these functions read: `RENOVATE_TOKEN` was retired with the operator PAT                                                                                                                  |
 
-> The first seven vars cover the webhook + forms ingest (`TURNSTILE_SECRET_KEY` optional); `PROSPECT_EDIT_TOKEN` is needed only to SAVE edits to a prospect report (serving one needs no secret beyond its URL token); `DASHBOARD_PASSWORD` / `DASHBOARD_BASE_URL` / `GH_TOKEN` are additionally required by the operator **dashboard** this same deploy serves (cockpit at `/`, per-site at `/s/:slug`).
+> The first five vars cover the webhook + forms ingest (`TURNSTILE_SECRET_KEY` optional); `PROSPECT_EDIT_TOKEN` is needed only to SAVE edits to a prospect report (serving one needs no secret beyond its URL token); `DASHBOARD_PASSWORD` / `DASHBOARD_BASE_URL` / `GH_TOKEN` are additionally required by the operator **dashboard** this same deploy serves (cockpit at `/`, per-site at `/s/:slug`).
 
 **3. Trigger a deploy** (Deploys → Trigger deploy → Deploy site). When it goes green, curl the health endpoint:
 
@@ -499,14 +500,12 @@ Expected:
   "service": "reddoor-resend-webhook",
   "env": {
     "RESEND_WEBHOOK_SECRET": true,
-    "AIRTABLE_PAT": true,
-    "AIRTABLE_BASE_ID": true,
     "TURSO_DATABASE_URL": true
   }
 }
 ```
 
-Any `false` means the env var didn't land — re-check step 2 and re-deploy. (`TURSO_DATABASE_URL` is surfaced here because its absence 500s the dashboard + forms surface — the most common fresh-deploy failure; `DASHBOARD_PASSWORD` and the other dashboard vars aren't in this presence list, so verify those by loading the cockpit. `PROSPECT_EDIT_TOKEN` isn't in it either, and it fails closed: verify it by saving an edit to a prospect report and confirming you don't get a 503 — a 404 there means the value doesn't match the marketing site's, not that it's missing, since a wrong secret and an unknown report deliberately answer alike.) The health endpoint reports presence-only and never returns secret values, so the output is safe to share in a support ticket.
+Any `false` means the env var didn't land — re-check step 2 and re-deploy. (`TURSO_DATABASE_URL` is surfaced here because its absence 500s the dashboard + forms surface and breaks this webhook's own report lookup — the most common fresh-deploy failure; `TURSO_AUTH_TOKEN`, `DASHBOARD_PASSWORD` and the other dashboard vars aren't in this presence list, so verify those by loading the cockpit. `PROSPECT_EDIT_TOKEN` isn't in it either, and it fails closed: verify it by saving an edit to a prospect report and confirming you don't get a 503 — a 404 there means the value doesn't match the marketing site's, not that it's missing, since a wrong secret and an unknown report deliberately answer alike.) The health endpoint reports presence-only and never returns secret values, so the output is safe to share in a support ticket.
 
 **4. Register the webhook in Resend:** [resend.com/webhooks](https://resend.com/webhooks) → Add Endpoint → paste the function URL from step 3 → select events `email.delivered`, `email.bounced`, `email.complained` → save. Copy the generated **Signing Secret** (`whsec_…`) into Netlify's `RESEND_WEBHOOK_SECRET` env var (step 2) and trigger another deploy so the secret takes effect.
 
@@ -514,20 +513,20 @@ Any `false` means the env var didn't land — re-check step 2 and re-deploy. (`T
 
 ```bash
 # from your CLI:
-reddoor-maint report erp-industrials   # drafts a Maintenance report → Airtable
-# approve the draft in Airtable, then:
+reddoor-maint report erp-industrials   # drafts a Maintenance report into Turso, queued for approval
+# approve it on the dashboard at /s/erp-industrials, then:
 reddoor-maint report --send-ready
 ```
 
-Within a few minutes, watch the ERP Reports row's `Delivery status` flip from `pending` → `delivered` as Resend pings the webhook. Function logs in Netlify show each event with its messageId + new status. If the webhook returns 5xx, svix retries; check the Netlify function log for the error envelope.
+Within a few minutes the report's `delivery_status` flips from `pending` → `delivered` as Resend pings the webhook. Function logs in Netlify show each event with its messageId + new status (a bounce or complaint also surfaces as a cockpit and digest attention item). If the webhook returns 5xx, svix retries; check the Netlify function log for the error envelope.
 
 ### Frequency math
 
-Per (site, type): `dueDate = max(last Sent at for this type, Websites.maintenance day fallback) + frequency months`. A site with no Reports row AND no fallback day is due immediately.
+Per (site, type): `dueDate = (the last sent_at for this type, else the site's maintenance/testing day anchor) + frequency months` (`nextDueDate`, `src/reports/due.ts`). A site with no sent report of that type AND no anchor day is due immediately. Only `maintained` and `hosted-only` sites (and rows with no Status) are scheduled, and a `None` cadence means no schedule. `report --due` writes each site's next-due dates to `site_schedule`.
 
 ### Header images
 
-Each Website row's `Header image` attachment is fetched at send time and embedded inline via CID (Content-ID) in the email — no CDN, no link rot, ~100 KB per send.
+Each site's header plate lives in Turso (`sites.header_image`). The send reads it, stamps the report type's headline on, and embeds it inline via CID (Content-ID) — no CDN, no link rot, ~100 KB per send. `reddoor-maint header-image <slug> --write-back` regenerates a plate, and every real draft refreshes it from the live homepage.
 
 ---
 

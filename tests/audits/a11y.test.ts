@@ -1,13 +1,29 @@
 import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, chmod } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   a11yAudit,
   classifyRouteResponse,
+  describeFrameNodesDropped,
+  describeReveals,
   describeSkipped,
+  describeThirdPartyErrors,
   describeViolations,
+  type RevealRecord,
 } from "../../src/audits/a11y.js";
+import { revealBelowFold } from "../../src/audits/util/reveal-below-fold.js";
+import {
+  collectFrameErrorLogs,
+  firstStackUrl,
+  frameOnPathIsForeign,
+  isForeignUrl,
+  recordFrameErrors,
+  resolveTargetElement,
+  splitCrossOriginFrameNodes,
+  splitThirdPartyErrors,
+} from "../../src/audits/util/cross-origin.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 async function tmpSite(): Promise<string> {
@@ -19,6 +35,14 @@ type A11yArtifact = {
   byImpact: Partial<Record<"minor" | "moderate" | "serious" | "critical", number>>;
   violations?: Array<{ id: string; impact: string; route: string; help?: string }>;
   skipped?: Array<{ route: string; path: string; status: number | null; reason: string }>;
+  reveals?: RevealRecord[];
+  frameNodesDropped?: Array<{ route: string; count: number; rules: string[] }>;
+  thirdPartyErrors?: Array<{
+    route: string;
+    frame?: string;
+    source: string | null;
+    message: string;
+  }>;
 };
 
 /**
@@ -575,6 +599,27 @@ describe("audits/a11y — describeViolations", () => {
       },
     ]);
     expect(text).toBe("route-missing on x (/x returned 404), color-contrast on y");
+  });
+
+  // #100 review: an error thrown while the reveal pass ran is labelled with
+  // that time window (not a cause) and kept apart from errors outside it.
+  it("marks a client error thrown while the reveal pass ran, and never folds it into one thrown outside it", () => {
+    const line = describeViolations([
+      { id: "client-error", impact: "critical", route: "/", help: "boom" },
+      {
+        id: "client-error",
+        impact: "critical",
+        route: "/",
+        help: "while the reveal pass ran: map failed",
+      },
+      {
+        id: "client-error",
+        impact: "critical",
+        route: "/",
+        help: "while the reveal pass ran: map failed again",
+      },
+    ]);
+    expect(line).toBe("client-error on /, client-error ×2 on / (while the reveal pass ran)");
   });
 
   it("is empty for no violations", () => {
@@ -1387,5 +1432,620 @@ describe("audits/a11y — describeSkipped pairs routes with reasons once reasons
     expect(line).toContain(`/ (${PLACEHOLDER})`);
     // The whole point: the capped skip's reason survives.
     expect(line).toContain(ABSENT);
+  });
+});
+
+/** The spec a default site gets, captured as text. */
+async function specOf(): Promise<string> {
+  const cwd = await tmpSite();
+  const sink = { spec: "" };
+  await a11yAudit({
+    site: { path: cwd },
+    spawn: async (_cmd, args, opts) => {
+      sink.spec = await readFile(args[args.length - 1] as string, "utf-8");
+      const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
+      await mkdir(out, { recursive: true });
+      await writeFile(
+        join(out, "results.json"),
+        JSON.stringify({ totalViolations: 0, byImpact: {} }),
+      );
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  });
+  return sink.spec;
+}
+
+/**
+ * #100. a11y-live-spec.test.ts runs the generated spec in Chromium against ONE
+ * fixture page and shows that the reveals planted there — plain, rootMargin,
+ * Web Animations, a delayed two-stage intro, a page that grows, a bar that
+ * depends on the scroll offset — are measured as a reader sees them. That is
+ * evidence about those shapes, not about every reveal a site can write. This
+ * pins where the call sits in the spec, which a browser run alone would not
+ * name if it went wrong.
+ */
+describe("audits/a11y — the page is scrolled through before axe runs (#100)", () => {
+  it("the generated spec runs the exported function, not a copy of it", async () => {
+    expect(await specOf()).toContain(`const revealBelowFold = ${revealBelowFold.toString()};`);
+  });
+
+  it("scrolls after the transition-snapping sheet and before axe, on every scanned route", async () => {
+    const spec = await specOf();
+    const loopAt = spec.indexOf(
+      "for (const { path, name, placeholder404Ok, sourceAbsent } of pages)",
+    );
+    const snapAt = spec.indexOf("await page.addStyleTag(", loopAt);
+    const revealAt = spec.indexOf("await page.evaluate(revealBelowFold);", loopAt);
+    const axeAt = spec.indexOf("new AxeBuilder({ page })", loopAt);
+    expect(loopAt).toBeGreaterThan(-1);
+    expect(snapAt).toBeGreaterThan(loopAt);
+    // After the sheet, so each reveal snaps to its final state as it fires.
+    expect(revealAt).toBeGreaterThan(snapAt);
+    expect(axeAt).toBeGreaterThan(revealAt);
+    // Once, in the axe loop — not in the hydration smoke, which runs no axe.
+    expect(spec.split("page.evaluate(revealBelowFold)").length - 1).toBe(1);
+  });
+});
+
+/**
+ * #52. a11y-live-spec.test.ts shows that, on its fixture page with a CSP of
+ * roalson-interests' shape, the generated spec's axe run posts no connect-src
+ * report while a canary report does arrive. This pins the option and its
+ * position in the chain.
+ */
+describe("audits/a11y — axe runs without its CSSOM preload (#52)", () => {
+  const axeChain = (spec: string): string => {
+    const start = spec.indexOf("new AxeBuilder({ page })");
+    const end = spec.indexOf(".analyze()", start);
+    // Not a soft fallback: a chain this cannot find would pass both checks below.
+    if (start < 0 || end < 0) throw new Error("generated spec has no AxeBuilder chain");
+    return spec.slice(start, end);
+  };
+
+  it("the axe config carries preload: false", async () => {
+    expect(axeChain(await specOf())).toContain(".options({ preload: false })");
+  });
+
+  // AxeBuilder.options() REPLACES the options object that withTags() writes
+  // runOnly into. After withTags(), it would drop the WCAG filter silently.
+  // Round-2 review: legacy mode skipped cross-origin frames but also dropped
+  // frame-focusable-content, the site's own defect that axe evaluates inside
+  // the frame. Default mode audits the frames; the spec drops their nodes
+  // afterwards and keeps that rule (held by a11y-live-spec.test.ts).
+  it("stays in default mode, so rules that run inside a frame still run", async () => {
+    expect(axeChain(await specOf())).not.toContain("setLegacyMode");
+  });
+
+  it("sets the options before the tags, so the tag filter survives", async () => {
+    const chain = axeChain(await specOf());
+    expect(chain.indexOf(".options(")).toBeGreaterThan(-1);
+    expect(chain.indexOf(".withTags(")).toBeGreaterThan(chain.indexOf(".options("));
+  });
+
+  // The claim the spec's comment makes, as code: turning the preload off costs
+  // the gate no violation it could have raised. A rule that reads preloaded
+  // assets is harmless here only if these tags never run it, or if it can only
+  // ever report `incomplete`. Read against the axe-core that
+  // @axe-core/playwright resolves in THIS repo — a site's own install may
+  // differ, and a new axe-core that adds a preload rule the gate would run
+  // fails here and forces the decision to be made again.
+  it("no rule the gate runs needs the preload to raise a violation", async () => {
+    type AxeRule = { id: string; tags: string[]; preload?: boolean; reviewOnFail?: boolean };
+    const fromAxePlaywright = createRequire(
+      createRequire(import.meta.url).resolve("@axe-core/playwright"),
+    );
+    const axe = fromAxePlaywright("axe-core") as {
+      _audit: { rules: AxeRule[]; tagExclude: string[] };
+    };
+    const tags = JSON.parse(
+      axeChain(await specOf()).match(/\.withTags\((\[[^\]]*\])\)/)?.[1] ?? "null",
+    ) as string[] | null;
+    if (tags === null) throw new Error("generated spec has no withTags([...]) call");
+
+    // axe's own tag matching: run when any tag matches, unless the rule carries
+    // a default-excluded tag ("experimental", "deprecated") the gate did not ask for.
+    const excluded = axe._audit.tagExclude.filter((t) => !tags.includes(t));
+    const runs = (rule: AxeRule) =>
+      rule.tags.some((t) => tags.includes(t)) && !rule.tags.some((t) => excluded.includes(t));
+
+    const preloading = axe._audit.rules.filter((r) => r.preload === true);
+    // Not vacuous: axe-core 4.13 has two such rules. If this ever reads zero,
+    // the property below is being checked over nothing.
+    expect(preloading.length).toBeGreaterThan(0);
+    expect(preloading.filter((r) => runs(r) && r.reviewOnFail !== true).map((r) => r.id)).toEqual(
+      [],
+    );
+  });
+});
+
+/**
+ * #100 review: the reveal pass's own report used to be discarded. It is now in
+ * the artifact, and a pass that stopped short warns by name.
+ */
+describe("audits/a11y — the reveal pass is recorded, and an incomplete one warns (#100)", () => {
+  const pass = (route: string, over: Partial<RevealRecord> = {}): RevealRecord => ({
+    route,
+    steps: 12,
+    stepPx: 360,
+    capped: false,
+    scrollHeight: 4000,
+    finalScrollY: 0,
+    unsettled: 0,
+    ...over,
+  });
+  const clean = [pass("a11y fixtures"), pass("animate-in demo")];
+
+  it("is empty when every pass finished cleanly", () => {
+    expect(describeReveals(clean)).toBe("");
+    expect(describeReveals([])).toBe("");
+  });
+
+  it("names each way a pass can stop short, per route", () => {
+    expect(describeReveals([pass("/", { capped: true, steps: 400 })])).toBe(
+      "reveal pass incomplete on 1 route: / (stopped at the step cap (400 steps) before the bottom)",
+    );
+    expect(describeReveals([pass("/a", { unsettled: 2 }), pass("/b", { finalScrollY: 120 })])).toBe(
+      "reveal pass incomplete on 2 routes: /a (2 animations still running after 5 s), /b (left at scrollY 120, not the top)",
+    );
+    expect(describeReveals([pass("/", { unsettled: 1, finalScrollY: 5 })])).toBe(
+      "reveal pass incomplete on 1 route: / (1 animation still running after 5 s; left at scrollY 5, not the top)",
+    );
+  });
+
+  it("warns — not passes — when a pass stopped short, and says where", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        reveals: [pass("a11y fixtures", { unsettled: 1 }), pass("animate-in demo")],
+      }),
+    });
+    expect(result.status).toBe("warn");
+    expect(result.summary).toContain(
+      "reveal pass incomplete on 1 route: a11y fixtures (1 animation still running after 5 s)",
+    );
+  });
+
+  it("never turns a fail into anything else, and still names the pass", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 1,
+          byImpact: { serious: 1 },
+          violations: [{ id: "color-contrast", impact: "serious", route: "a11y fixtures" }],
+          reveals: [pass("a11y fixtures", { capped: true, steps: 400 })],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toContain("reveal pass incomplete on 1 route: a11y fixtures");
+  });
+
+  it("leaves a clean run's summary byte-for-byte what it was without the field", async () => {
+    const withReveals = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({ totalViolations: 0, byImpact: {}, reveals: clean }),
+    });
+    const without = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({ totalViolations: 0, byImpact: {} }),
+    });
+    expect(withReveals.status).toBe("pass");
+    expect(withReveals.summary).toBe(without.summary);
+  });
+
+  it("the generated spec records every scanned route's pass in the artifact", async () => {
+    const spec = await specOf();
+    expect(spec).toContain("pass = await page.evaluate(revealBelowFold);");
+    expect(spec).toContain("reveals.push({ route: name, ...pass });");
+    // The artifact write carries it, beside skipped.
+    const artifactWrite = spec.slice(spec.indexOf("totalViolations: violations.length"));
+    expect(artifactWrite).toMatch(
+      /^totalViolations: violations\.length,\s+byImpact,\s+violations,\s+skipped,\s+reveals,/,
+    );
+  });
+});
+
+/**
+ * #100 review, rounds 2 and 3: cross-origin frame contents are audited
+ * (default mode) and then not counted — but only on positive evidence. The
+ * spec walks each nested node's frame path and asks every frame for the URL it
+ * actually loaded (a11y-live-spec.test.ts holds that walk against redirects,
+ * wrapper frames, shadow roots and a srcdoc facade). What the filter then
+ * keeps and drops, as a table — this is the function the spec runs.
+ */
+describe("audits/a11y — nodes inside cross-origin frames are counted, not failed", () => {
+  const XO = "#xo";
+  const path = (...frames: unknown[]) => JSON.stringify(frames);
+  const v = (id: string, ...targets: unknown[][]) => ({
+    id,
+    nodes: targets.map((target) => ({ target })),
+  });
+
+  it("drops a node only when its whole frame path was found foreign, and keeps everything else", () => {
+    const split = splitCrossOriginFrameNodes(
+      [
+        v("image-alt", [XO, "img"], ["#own", "img"], ["img.top"], ["#own", "iframe", "img"]),
+        v("color-contrast", [XO, "p"]),
+        v("frame-title", [XO]),
+      ],
+      [path(XO), path("#own", "iframe")],
+    );
+    expect(split.kept).toEqual([
+      // A same-origin frame's node and a top-document node stay.
+      v("image-alt", ["#own", "img"], ["img.top"]),
+      // The <iframe> element itself is a top-document node (length 1) and stays.
+      v("frame-title", [XO]),
+    ]);
+    // A violation left with no nodes is gone, and every dropped node is counted.
+    expect(split.dropped).toBe(3);
+    expect(split.rules).toEqual(["image-alt", "color-contrast"]);
+  });
+
+  it("keeps every frame-focusable-content node — the site's defect, seen from inside the frame", () => {
+    const split = splitCrossOriginFrameNodes(
+      [v("frame-focusable-content", [XO, "html"])],
+      [path(XO)],
+    );
+    expect(split.kept).toEqual([v("frame-focusable-content", [XO, "html"])]);
+    expect(split.dropped).toBe(0);
+  });
+
+  it("matches a shadow-root frame by its whole selector array", () => {
+    const shadow = v("image-alt", [["#host", "iframe"], "img"]);
+    expect(splitCrossOriginFrameNodes([shadow], [path(["#host", "iframe"])]).dropped).toBe(1);
+    expect(splitCrossOriginFrameNodes([shadow], [path("#host")]).kept).toEqual([shadow]);
+  });
+
+  it("calls a document foreign only when it is http(s) on another origin", () => {
+    const TOP = "http://localhost:5173";
+    expect(isForeignUrl("https://www.youtube.com/embed/x", TOP)).toBe(true);
+    expect(isForeignUrl("http://127.0.0.1:5173/x", TOP)).toBe(true);
+    expect(isForeignUrl("http://localhost:5173/own", TOP)).toBe(false);
+    // A srcdoc facade, a script-filled blank frame, data: and blob: documents
+    // hold the site's markup; an unparsable URL is "cannot tell".
+    expect(isForeignUrl("about:srcdoc", TOP)).toBe(false);
+    expect(isForeignUrl("about:blank", TOP)).toBe(false);
+    expect(isForeignUrl("data:text/html,<p>x</p>", TOP)).toBe(false);
+    expect(isForeignUrl("blob:http://localhost:5173/abc", TOP)).toBe(false);
+    expect(isForeignUrl("not a url", TOP)).toBe(false);
+  });
+
+  it("the generated spec runs these exact functions, not copies of them", async () => {
+    const spec = await specOf();
+    for (const fn of [isForeignUrl, resolveTargetElement, splitCrossOriginFrameNodes]) {
+      expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
+    }
+    expect(spec).toContain(
+      "frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });",
+    );
+    // The decision is made from the URL each frame actually loaded, by the
+    // walker (held below with fake frames).
+    expect(spec).toContain("frameOnPathIsForeign(");
+  });
+
+  it("names dropped nodes in the summary as information: empty when there are none", () => {
+    expect(describeFrameNodesDropped([])).toBe("");
+    expect(describeFrameNodesDropped([{ route: "/", count: 0, rules: [] }])).toBe("");
+    expect(
+      describeFrameNodesDropped([
+        { route: "/", count: 2, rules: ["image-alt", "link-name"] },
+        { route: "/about", count: 0, rules: [] },
+        { route: "/contact", count: 1, rules: ["image-alt"] },
+      ]),
+    ).toBe(
+      "3 violation nodes inside cross-origin frames not counted: / (2: image-alt, link-name), /contact (1: image-alt)",
+    );
+  });
+
+  it("never changes the status: a clean run with dropped nodes still passes, and says so", async () => {
+    const result = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        frameNodesDropped: [{ route: "a11y fixtures", count: 1, rules: ["image-alt"] }],
+      }),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).toContain(
+      "; 1 violation node inside cross-origin frames not counted: a11y fixtures (1: image-alt)",
+    );
+  });
+});
+
+/**
+ * #100 review, rounds 2 and 3: an error thrown inside a third-party iframe
+ * reaches `pageerror` too, and the reveal pass is what loads lazy embeds. An
+ * error is the third party's ONLY on positive evidence — a cross-origin
+ * frame's own error log recorded it. Where the stack starts is never
+ * evidence: a site crashing inside a library it loaded from a CDN has a stack
+ * that starts on the CDN, and it is still the site's crash.
+ */
+describe("audits/a11y — an error is a cross-origin frame's only on that frame's own evidence", () => {
+  const TOP = { url: "http://localhost:5173/", foreign: false };
+  const EMBED = { url: "https://embed.example.com/widget", foreign: true };
+  const err = (message: string) => ({ message, route: "/" });
+
+  it("moves an error a cross-origin frame's log recorded, and names that frame", () => {
+    const split = splitThirdPartyErrors(
+      [err("embed broke"), err("site broke")],
+      [
+        { ...TOP, messages: ["site broke"] },
+        { ...EMBED, messages: ["embed broke"] },
+      ],
+    );
+    expect(split.site).toEqual([err("site broke")]);
+    expect(split.thirdParty).toEqual([{ ...err("embed broke"), frame: EMBED.url }]);
+  });
+
+  it("keeps an error no cross-origin frame recorded — whatever its stack says", () => {
+    // The library case: the site's own frame logged it (or logged it hidden),
+    // no embed did. Nothing in this function reads a stack.
+    const split = splitThirdPartyErrors(
+      [err("lib.render was given no element")],
+      [
+        { ...TOP, messages: ["lib.render was given no element"] },
+        { ...EMBED, messages: [] },
+      ],
+    );
+    expect(split.site).toEqual([err("lib.render was given no element")]);
+    expect(split.thirdParty).toEqual([]);
+  });
+
+  it("with the same message on both sides, counts the site's first", () => {
+    const split = splitThirdPartyErrors(
+      [err("boom"), err("boom"), err("boom")],
+      [
+        { ...TOP, messages: ["boom", "boom"] },
+        { ...EMBED, messages: ["boom", "boom"] },
+      ],
+    );
+    expect(split.site).toHaveLength(2);
+    expect(split.thirdParty).toHaveLength(1);
+  });
+
+  it("moves nothing when a site frame logged a hidden error, which could be any of them", () => {
+    const split = splitThirdPartyErrors(
+      [err("embed broke")],
+      [
+        { ...TOP, messages: [null] },
+        { ...EMBED, messages: ["embed broke"] },
+      ],
+    );
+    expect(split.site).toEqual([err("embed broke")]);
+    expect(split.thirdParty).toEqual([]);
+  });
+
+  it("does not match a cross-origin frame's hidden error to anything", () => {
+    const split = splitThirdPartyErrors(
+      [err("maps broke")],
+      [
+        { ...TOP, messages: [] },
+        { ...EMBED, messages: [null] },
+      ],
+    );
+    expect(split.site).toEqual([err("maps broke")]);
+  });
+
+  it("records the stack's first URL for the reader, reading only `at` lines", () => {
+    expect(firstStackUrl("Error: x\n    at http://127.0.0.1:9/lib.js:1:20")).toBe(
+      "http://127.0.0.1:9/lib.js:1:20",
+    );
+    expect(
+      firstStackUrl(
+        "Error: failed https://cdn.example/x\n    at <anonymous>:1:5\n    at f (http://localhost:5173/app.js:3:1)",
+      ),
+    ).toBe("http://localhost:5173/app.js:3:1");
+    expect(firstStackUrl("Error: x\n    at <anonymous>:1:1")).toBeNull();
+    expect(firstStackUrl("")).toBeNull();
+  });
+
+  it("the generated spec runs these exact functions, and never classifies by stack", async () => {
+    const spec = await specOf();
+    for (const fn of [recordFrameErrors, splitThirdPartyErrors, firstStackUrl]) {
+      expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
+    }
+    expect(spec).toContain("await page.addInitScript(recordFrameErrors);");
+    expect(spec).toContain("const split = splitThirdPartyErrors(errors, frameLogs);");
+  });
+
+  it("names third-party errors by route and origin, folding repeats", () => {
+    expect(describeThirdPartyErrors([])).toBe("");
+    expect(
+      describeThirdPartyErrors([
+        { route: "/", frame: "https://www.youtube.com/embed/a", source: null, message: "a" },
+        { route: "/", frame: "https://www.youtube.com/embed/b", source: null, message: "b" },
+        { route: "/contact", source: "https://cdn.example/x.js:1:1", message: "c" },
+      ]),
+    ).toBe(
+      "3 uncaught errors thrown inside cross-origin frames, not counted: / (https://www.youtube.com ×2), /contact (unknown origin)",
+    );
+  });
+
+  it("warns — never fails — on third-party errors alone, and says where", async () => {
+    const result = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        thirdPartyErrors: [
+          {
+            route: "/",
+            frame: "https://maps.example.com/embed",
+            source: "https://maps.example.com/x.js:1:1",
+            message: "boom",
+          },
+        ],
+      }),
+    });
+    expect(result.status).toBe("warn");
+    expect(result.summary).toContain(
+      "1 uncaught error thrown inside cross-origin frames, not counted: / (https://maps.example.com)",
+    );
+  });
+});
+
+/**
+ * #100 review, round 4: the two frame-walking steps of the spec, lifted into
+ * functions so their safe directions can be held with fake frames. Every read
+ * is bounded, and every "cannot tell" stays the site's.
+ */
+describe("audits/a11y — frame reads are bounded, and unreadable is the site's", () => {
+  const TOP = "http://localhost:5173";
+  const NEVER = () => new Promise<never>(() => undefined);
+  // These tests hold time limits, so an unbounded regression must fail them
+  // fast, not at the suite's 120 s test timeout.
+  const FAST = 5_000;
+  const logFrame = (url: string, read: () => Promise<unknown>) => ({
+    url: () => url,
+    evaluate: read,
+  });
+
+  it(
+    "skips a frame with no document, and never waits on one",
+    async () => {
+      const main = logFrame(`${TOP}/`, async () => ["site broke"]);
+      const unloaded = logFrame("", NEVER);
+      const started = Date.now();
+      const logs = await collectFrameErrorLogs([main, unloaded], main, TOP, isForeignUrl, 60_000);
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(logs).toEqual([{ url: `${TOP}/`, foreign: false, messages: ["site broke"] }]);
+    },
+    FAST,
+  );
+
+  it(
+    "gives up on a frame that does not answer: no evidence from a cross-origin one, a hidden entry for the site's",
+    async () => {
+      const main = logFrame(`${TOP}/`, NEVER);
+      const embed = logFrame("https://embed.example.com/w", NEVER);
+      const answering = logFrame("https://other.example.com/x", async () => ["embed broke"]);
+      const logs = await collectFrameErrorLogs(
+        [main, embed, answering],
+        main,
+        TOP,
+        isForeignUrl,
+        50,
+      );
+      expect(logs).toEqual([
+        { url: `${TOP}/`, foreign: false, messages: [null] },
+        { url: "https://other.example.com/x", foreign: true, messages: ["embed broke"] },
+      ]);
+    },
+    FAST,
+  );
+
+  it(
+    "treats a read that throws like one that does not answer",
+    async () => {
+      const main = logFrame(`${TOP}/`, async () => {
+        throw new Error("detached");
+      });
+      const embed = logFrame("https://embed.example.com/w", async () => {
+        throw new Error("detached");
+      });
+      expect(await collectFrameErrorLogs([main, embed], main, TOP, isForeignUrl, 50)).toEqual([
+        { url: `${TOP}/`, foreign: false, messages: [null] },
+      ]);
+    },
+    FAST,
+  );
+
+  type Walkable = Parameters<typeof frameOnPathIsForeign>[0];
+  const walkFrame = (url: string, children: Record<string, Walkable | null> = {}): Walkable => ({
+    url: () => url,
+    evaluateHandle: async (_fn, selector) => {
+      const key = JSON.stringify(selector);
+      if (!(key in children)) return { asElement: () => null };
+      const child = children[key] ?? null;
+      return { asElement: () => ({ contentFrame: async () => child }) };
+    },
+  });
+  const walk = (main: Walkable, path: Array<string | string[]>, timeoutMs = 1000) =>
+    frameOnPathIsForeign(main, path, TOP, isForeignUrl, resolveTargetElement, timeoutMs);
+
+  it("finds a foreign document through same-origin wrappers and shadow selectors", async () => {
+    const embed = walkFrame("https://embed.example.com/x");
+    const wrapper = walkFrame(`${TOP}/wrapper`, { [JSON.stringify("iframe")]: embed });
+    const main = walkFrame(`${TOP}/`, {
+      [JSON.stringify("#wrap")]: wrapper,
+      [JSON.stringify(["#host", "iframe"])]: embed,
+    });
+    expect(await walk(main, ["#wrap", "iframe"])).toBe(true);
+    expect(await walk(main, [["#host", "iframe"]])).toBe(true);
+    expect(await walk(main, ["#wrap"])).toBe(false);
+  });
+
+  it("calls a srcdoc facade the site's", async () => {
+    const main = walkFrame(`${TOP}/`, { [JSON.stringify("#facade")]: walkFrame("about:srcdoc") });
+    expect(await walk(main, ["#facade"])).toBe(false);
+  });
+
+  it(
+    "keeps anything unresolvable the site's: no element, no frame, a throw, or no answer",
+    async () => {
+      const main = walkFrame(`${TOP}/`, { [JSON.stringify("#gone")]: null });
+      // The selector no longer resolves (a frame removed before the walk).
+      expect(await walk(main, ["#missing"])).toBe(false);
+      // It resolves, but to something with no frame.
+      expect(await walk(main, ["#gone"])).toBe(false);
+      const throwing: Walkable = {
+        url: () => `${TOP}/`,
+        evaluateHandle: async () => {
+          throw new Error("Frame was detached");
+        },
+      };
+      expect(await walk(throwing, ["#x"])).toBe(false);
+      const silent: Walkable = { url: () => `${TOP}/`, evaluateHandle: NEVER };
+      const started = Date.now();
+      expect(await walk(silent, ["#x"], 50)).toBe(false);
+      expect(Date.now() - started).toBeLessThan(1000);
+    },
+    FAST,
+  );
+
+  it("the generated spec runs these exact functions and passes FRAME_READ_TIMEOUT_MS at both call sites", async () => {
+    const spec = await specOf();
+    for (const fn of [collectFrameErrorLogs, frameOnPathIsForeign]) {
+      expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
+    }
+    expect(spec).toContain("const FRAME_READ_TIMEOUT_MS = 2000;");
+    // The limit is only as good as the calls that pass it: the settle's log
+    // read, and the frame-path walk.
+    expect(spec).toMatch(
+      /collectFrameErrorLogs\(\s*page\.frames\(\),\s*page\.mainFrame\(\),\s*currentOrigin,\s*isForeignUrl,\s*FRAME_READ_TIMEOUT_MS,?\s*\)/,
+    );
+    expect(spec).toMatch(
+      /frameOnPathIsForeign\(\s*page\.mainFrame\(\),\s*path,\s*currentOrigin,\s*isForeignUrl,\s*resolveTargetElement,\s*FRAME_READ_TIMEOUT_MS,?\s*\)/,
+    );
+  });
+
+  it("bounds every navigation to about:blank, and never lets one throw", async () => {
+    const spec = await specOf();
+    const navigations = spec.match(/page\.goto\("about:blank"[^\n]*/g) ?? [];
+    // One per axe route and one per smoke route.
+    expect(navigations).toHaveLength(2);
+    for (const line of navigations) {
+      expect(line).toBe(
+        'page.goto("about:blank", { timeout: ABOUT_BLANK_TIMEOUT_MS }).catch(() => {});',
+      );
+    }
+    expect(spec).toContain("const ABOUT_BLANK_TIMEOUT_MS = 10_000;");
+  });
+
+  it("settles once more after the smoke loop: nothing held is ever dropped", async () => {
+    const spec = await specOf();
+    const smokeStart = spec.indexOf("for (const { path, name } of smokePages)");
+    const loopEnd = spec.indexOf("\n  }\n", smokeStart);
+    const byImpact = spec.indexOf("const byImpact = {};");
+    expect(smokeStart).toBeGreaterThan(-1);
+    expect(loopEnd).toBeGreaterThan(smokeStart);
+    expect(spec.slice(loopEnd, byImpact)).toContain("await settleErrors();");
   });
 });

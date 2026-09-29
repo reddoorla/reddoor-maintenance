@@ -1,10 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { collectTurnstileGuardrailAlerts } from "../../src/alerts/digest-collectors.js";
-import { updateAuditFields } from "../../src/reports/airtable/websites.js";
-import { formE2eResultFromAudit, hasFormE2eResult } from "../../src/audits/form-e2e-airtable.js";
+import { auditFields } from "../../src/fleet/site-fields.js";
+import { formE2eResultFromAudit, hasFormE2eResult } from "../../src/audits/form-e2e-fields.js";
 import { formE2eAudit } from "../../src/audits/form-e2e.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 
 const NOW = new Date("2026-09-10T00:00:00.000Z");
 const FRESH = "2026-09-09T10:15:00.000Z";
@@ -57,7 +56,6 @@ describe("the Turnstile alarm ages on the verdict's OWN clock", () => {
  */
 describe("verdict and stamp are written together, on every form-e2e exit", () => {
   const site = { path: "/x", name: "acme", deployedUrl: "https://acme.example.com" };
-  const base = () => makeFakeBase({ Websites: [{ id: "recA", fields: { Name: "Acme" } }] });
 
   const EXITS: Array<[string, Record<string, unknown>]> = [
     ["submitted and passed", { formPresent: true, success: true }],
@@ -73,9 +71,7 @@ describe("verdict and stamp are written together, on every form-e2e exit", () =>
       formRunner: { submit: async () => outcome as never },
     });
     if (!hasFormE2eResult(r)) return; // nothing written at all is always safe
-    const fields = await updateAuditFields(base(), "recA", {
-      formE2e: formE2eResultFromAudit(r),
-    });
+    const fields = auditFields({ formE2e: formE2eResultFromAudit(r) });
     const wroteStamp = Object.keys(fields).includes("Form E2E checked at");
     const wroteVerdict = Object.keys(fields).includes("Turnstile widget");
     // The invariant: refreshing the clock without refreshing the verdict is what
@@ -94,7 +90,7 @@ describe("verdict and stamp are written together, on every form-e2e exit", () =>
       now: NOW,
       formRunner: { submit: async () => ({ testModeUndeclared: true }) as never },
     });
-    const fields = await updateAuditFields(base(), "recA", { formE2e: formE2eResultFromAudit(r) });
+    const fields = auditFields({ formE2e: formE2eResultFromAudit(r) });
     expect(Object.keys(fields)).toEqual(["Turnstile widget"]);
     expect(fields["Turnstile widget"]).toBeNull();
   });

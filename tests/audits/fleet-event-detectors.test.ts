@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import {
   cleanRenovateTitle,
   detectAuditEvents,

@@ -91,10 +91,9 @@ export async function rescoreNewSubmissions(
   return { scanned: rows.length, flagged };
 }
 
-/** site_id → display name for the table. Reads the roster from Turso (#646 step 4),
- *  which is also where the submissions themselves live — an Airtable read here could
- *  not name a `site_<ULID>` site at all. Soft-fails to an empty map (raw ids still
- *  print) so the re-score itself never depends on the name lookup. */
+/** site_id → display name for the table, read from the Turso roster. Soft-fails
+ *  to an empty map (raw ids still print) so the re-score itself never depends on
+ *  the name lookup. */
 async function loadSiteNames(): Promise<Map<string, string>> {
   try {
     const { openDb, readDbConfig } = await import("../../db/client.js");
@@ -166,7 +165,7 @@ export async function runSubmissionsCommand(
     };
   }
 
-  // Airtable is only consulted when there is a table to print.
+  // The roster is only read when there is a table to print.
   const table = formatTable(flagged, await loadSiteNames());
   const head = `Scanned ${scanned} status='new' submissions; ${flagged.length} score >= ${SPAM_THRESHOLD} under the current classifier:`;
   if (!apply) {

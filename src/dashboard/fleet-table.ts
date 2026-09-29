@@ -1,17 +1,16 @@
-/** Phase 4 of the Airtable → Turso migration (#539): the fleet table.
+/** The fleet table.
  *
- *  A sortable/filterable inventory of EVERY fleet site — the console's
- *  replacement for eyeballing the Airtable grid. Unlike the cockpit
+ *  A sortable/filterable inventory of EVERY fleet site. Unlike the cockpit
  *  (isDashboardVisible = {maintained, launching}), NOTHING here is
  *  status-filtered by default: archived/legacy/null-status rows all render,
  *  and the status is carried RAW — this module never remaps or invents status
  *  names.
  *
- *  RAW means `statusRaw`, the literal Airtable cell, NOT the canonical
- *  `status` (#539 Phase 4). This table is the console's mirror of the Airtable
- *  grid, so it must show what that grid shows: the canonical vocabulary merges
- *  `legacy` and `deprecated` into `archived`, which would render 12 fleet rows
- *  identically and offer a status FILTER whose options match no Airtable cell.
+ *  RAW means `statusRaw`, the literal stored cell, NOT the canonical
+ *  `status` (#539 Phase 4). This table must show what the cells hold: the
+ *  canonical vocabulary merges `legacy` and `deprecated` into `archived`, which
+ *  would render 12 fleet rows identically and offer a status FILTER whose
+ *  options match no stored cell.
  *  Canonical values decide behaviour; anything displaying a Status cell uses
  *  the raw one.
  *
@@ -20,8 +19,8 @@
  *  (#556) covers request-path statements, and a per-column ORDER BY would
  *  buy nothing at this fleet size while costing an index per sort key.
  */
-import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { siteSlug } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
+import { siteSlug } from "../fleet/site-row.js";
 
 export const FLEET_SORT_KEYS = [
   "name",
@@ -37,10 +36,10 @@ export const FLEET_SORT_KEYS = [
 ] as const;
 export type FleetSortKey = (typeof FLEET_SORT_KEYS)[number];
 
-/** Status-filter sentinel for "no status set" — the hygiene question ("which
- *  sites have no Status?") this page replaces the Airtable grid for. Null-status
- *  rows are otherwise reachable only by sorting nulls-last and scrolling, which
- *  does not survive the ~200-site direction.
+/** Status-filter sentinel for "no status set" — the hygiene question "which
+ *  sites have no Status?". Null-status rows are otherwise reachable only by
+ *  sorting nulls-last and scrolling, which does not survive the ~200-site
+ *  direction.
  *
  *  Status is free text upstream, so a stored value COULD equal this string. If
  *  one ever does, the DATA wins (see `noStatusFilterActive`): a real row must
@@ -85,7 +84,7 @@ export type FleetTableModel = {
   /** Pre-filter fleet size, so the header can say "N of M sites". */
   totalSites: number;
   /** Distinct raw statuses present in the fleet (a-z) — the filter options.
-   *  Derived from DATA, not from the code Status union, so an Airtable-only
+   *  Derived from DATA, not from the code Status union, so a non-canonical
    *  value like "legacy" is filterable without this module naming statuses. */
   statuses: string[];
   query: FleetTableQuery;
@@ -109,7 +108,7 @@ export function parseFleetTableQuery(params: URLSearchParams): FleetTableQuery {
   return { sort, dir, status, q };
 }
 
-/** The status this table speaks: the RAW Airtable cell, never the canonical one.
+/** The status this table speaks: the RAW stored cell, never the canonical one.
  *  ONE accessor so the rendered label, the filter options, the filter predicate
  *  and the sort key can never disagree about which vocabulary they are in — a
  *  dropdown offering "archived" that matches no cell would filter to nothing. */
