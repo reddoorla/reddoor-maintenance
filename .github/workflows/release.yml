@@ -80,8 +80,10 @@ jobs:
       # Since @changesets/cli v3 it does not ask npm at all here: with pnpm >= 11
       # it looks the package up with `pnpm info` (its getPublishTool picks the
       # pnpm tool, and that tool's `info`), so npm 12's shape no longer reaches
-      # that decision. The pin stays until a release proves `pnpm publish` gets
-      # its OIDC token without npm 11; lifting it is its own change.
+      # that decision. The publish itself is `pnpm publish` under both CLI
+      # versions, and pnpm 11 exchanges the OIDC token itself, so nothing here
+      # still depends on npm 11. The pin stays anyway; lifting it is its own
+      # change.
       - run: npm install -g npm@^11.5.0
 
       - run: pnpm install --frozen-lockfile
@@ -110,9 +112,11 @@ jobs:
       # reports through the CHANGESETS_OUTPUT file the action hands it.
       #
       # No NPM_TOKEN: trusted publishing uses the OIDC token from id-token: write.
-      # When npm CLI 11.5+ detects the GitHub Actions OIDC env and a trusted
-      # publisher is configured on the package, it mints a short-lived token.
+      # `changeset publish` runs `pnpm publish`, and pnpm 11 exchanges the
+      # GitHub Actions OIDC token for a short-lived npm token itself when a
+      # trusted publisher is configured on the package.
       - name: Create release PR or publish
+        id: changesets
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           # Use the minted App token (not the built-in GITHUB_TOKEN) so the
@@ -149,3 +153,23 @@ jobs:
           # scripts/check-match-harness-snapshots.mjs compares against the newest
           # `v*` tag.
           push-with-git-cli: true
+
+      # v2 only warns when the tag push fails ("Failed to create git tag …
+      # Assuming it was manually pushed") and still creates the GitHub Release,
+      # which then makes a LIGHTWEIGHT tag at whatever main's HEAD is by then.
+      # v1 failed the step instead. The snapshot guard
+      # (scripts/check-match-harness-snapshots.mjs) compares against the newest
+      # `v*` tag, so a missing or misplaced tag must turn this run red. The
+      # peeled `^{}` line exists only for an annotated tag, and it must name the
+      # commit that was published.
+      - name: Verify the release tag is annotated and on the published commit
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          head="$(git rev-parse HEAD)"
+          tagged="$(git ls-remote origin "refs/tags/${v}^{}" | cut -f1)"
+          if [ -z "$tagged" ] || [ "$tagged" != "$head" ]; then
+            echo "::error::${v} is not an annotated tag on ${head} (peeled: ${tagged:-none}). Push it by hand: git tag -a ${v} ${head} -m ${v} && git push origin ${v}"
+            exit 1
+          fi
+          echo "${v} is annotated on ${head}"
