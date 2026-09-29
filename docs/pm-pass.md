@@ -83,6 +83,14 @@ The prompt lives here so it can be changed by PR, like everything else.
    (dated, ordered), what landed, nightlies, what went wrong, next for agents.
    Every number in it comes from a query or a log line made that morning.
 
+   **The clean-send streak.** Read the table under "Clean-send streak" in
+   `docs/BACKLOG.md` and put one line near the top of the report: "clean
+   [TEST] sends in a row: N", counted up from the table's last row. Each
+   `awaiting` row is an ask in the operator's top of stack: "Verdict on the
+   [TEST] <site> <report> sent <date>: clean, or what was wrong". Never
+   write a verdict yourself; only the operator can see what the email looked
+   like.
+
    **Next for agents ends with briefs.** For each item you recommend starting
    today (one to three, none of them [H], none claimed), paste a filled-in
    brief from `docs/worker-brief.md` under a "Briefs" heading, ready for the
