@@ -5,6 +5,7 @@ import {
   siteSlug,
   ACTIVE_STATUSES,
   isPreLaunch,
+  isArchivedStatus,
   type WebsiteRow,
 } from "../fleet/site-row.js";
 import type { ReportRow } from "../reports/report-fields.js";
@@ -751,6 +752,87 @@ export function collectPrismicDriftAlerts(
       url: dashboardUrl(baseUrl, s.name),
       severity: "warning",
       metric: 1,
+    });
+  }
+  return items;
+}
+
+/** The `Accepted Watch Conditions` token that mutes a fresh `url_resolves = 'fail'`
+ *  (#912): the operator knows this row's url is not deployed yet. It mutes ONLY the
+ *  failure; a stale probe stamp is never muted by it, so the check stays two-sided. */
+export const URL_NOT_DEPLOYED = "url not deployed";
+export const URL_NOT_DEPLOYED_KEYS: [string, ...string[]] = [URL_NOT_DEPLOYED, "url-not-deployed"];
+
+/** How old a `roster-urls` stamp may be before the verdict stops claiming the
+ *  present. The probe is nightly and `continue-on-error`, and a control misread
+ *  writes nothing, so an aging stamp is the only trace of a probe that stopped. 3
+ *  days mirrors GITHUB_SIGNALS_STALE_DAYS: a weekend of runner flakes is tolerated. */
+export const URL_PROBE_STALE_DAYS = 3;
+
+/** Is a `roster-urls` stamp current? A null or unparseable stamp is not: no probe
+ *  run vouches for the verdict beside it. A future stamp is. */
+export function urlProbeFresh(checkedAt: string | null, now: Date): boolean {
+  if (checkedAt === null) return false;
+  const ageMs = now.getTime() - Date.parse(checkedAt);
+  return Number.isFinite(ageMs) && ageMs <= URL_PROBE_STALE_DAYS * MS_PER_DAY;
+}
+
+/**
+ * The roster-url surface (#912, PR 2) over the `roster-urls` verdict PR 1 stores.
+ * PURE (`now` injected). Scope is every NON-ARCHIVED row, the same set the probe
+ * stamps: a `building` row pointing at nothing has no cockpit card, so the digest
+ * is where it surfaces.
+ *
+ *   - fresh `fail`, not accepted → `url-unresolved:<siteId>`, naming the url and the
+ *     status. One key per site whatever the status wording, so a 404 turning into a
+ *     DNS error does not re-mail as a new finding.
+ *   - a stamp that is null, unparseable or older than {@link URL_PROBE_STALE_DAYS}
+ *     → counted into ONE fleet item, `url-probe-stale`, whose `metric` is the count.
+ *     The probe stamps every non-archived row on every outcome, so a stale stamp
+ *     means the probe did not reach the row. A dead nightly stales the whole fleet
+ *     at once; one item says that once instead of thirty times. A stale `fail` is
+ *     not reported as a current failure (it may be fixed) but it is never silent.
+ *
+ * The accept key mutes only the fresh `fail` branch; an accepted row still counts
+ * toward staleness.
+ */
+export function collectUrlResolveAlerts(
+  sites: WebsiteRow[],
+  baseUrl: string,
+  now: Date = new Date(),
+): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  let covered = 0;
+  let stale = 0;
+  for (const s of sites) {
+    if (isArchivedStatus(s.status)) continue;
+    covered++;
+    if (!urlProbeFresh(s.urlCheckedAt, now)) {
+      stale++;
+      continue;
+    }
+    if (s.urlResolves !== "fail") continue;
+    const accepted = new Set(s.acceptedWatchConditions.map((c) => c.trim().toLowerCase()));
+    if (URL_NOT_DEPLOYED_KEYS.some((k) => accepted.has(k))) continue;
+    items.push({
+      key: `url-unresolved:${s.id}`,
+      kind: "url",
+      siteName: s.name,
+      title: `Roster url ${s.url.trim()} does not resolve (${s.urlStatus ?? "no status"}) — fix the url, or accept "${URL_NOT_DEPLOYED}"`,
+      url: dashboardUrl(baseUrl, s.name),
+      severity: "warning",
+      metric: 1,
+    });
+  }
+  if (stale > 0) {
+    items.push({
+      key: "url-probe-stale",
+      kind: "url",
+      siteName: "(fleet)",
+      title: `Roster url probe has not checked ${stale} of ${covered} non-archived rows in ${URL_PROBE_STALE_DAYS} days — check fleet-lighthouse's "Probe roster urls to Turso" step`,
+      url: baseUrl.replace(/\/$/, ""),
+      severity: "warning",
+      metric: stale,
     });
   }
   return items;

@@ -26,6 +26,8 @@ function signalSite(over: Partial<RawRow["fields"]> = {}): RawRow {
       "Renovate Failing CIs": 1,
       "Default Branch CI": "failing",
       "GitHub Signals At": new Date().toISOString(),
+      "URL Resolves": "pass",
+      "URL Checked At": new Date().toISOString(),
       ...over,
     },
   };
@@ -34,7 +36,13 @@ function signalSite(over: Partial<RawRow["fields"]> = {}): RawRow {
 function vulnSite(): RawRow {
   return {
     id: "rec_site_acme",
-    fields: { Name: "Acme Co", url: "https://acme.example.com", "Security Vulns Critical": 2 },
+    fields: {
+      Name: "Acme Co",
+      url: "https://acme.example.com",
+      "Security Vulns Critical": 2,
+      "URL Resolves": "pass",
+      "URL Checked At": new Date().toISOString(),
+    },
   };
 }
 
@@ -210,6 +218,32 @@ describe("collectAttention", () => {
       notifyBounces: new Map([["rec_site_acme", { total: 1, permanent: 1 }]]),
     });
     expect(single.some((i) => i.kind === "notify-bounce")).toBe(false);
+  });
+
+  it("emits the roster-url items from the persisted probe verdict (#912)", async () => {
+    const now = new Date("2026-09-30T09:23:00Z");
+    const tables = {
+      Reports: [],
+      Websites: [
+        {
+          id: "rec_pointe",
+          fields: {
+            Name: "The Pointe Burbank",
+            Status: "building",
+            url: "https://the-pointe-burbank.netlify.app",
+            "URL Resolves": "fail",
+            "URL Status": "404 netlify-site-not-found",
+            "URL Checked At": "2026-09-30T08:05:00.000Z",
+          },
+        },
+        { id: "rec_never", fields: { Name: "Never Probed", url: "https://never.example.com" } },
+      ],
+    };
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL, now });
+    const fail = items.find((i) => i.key === "url-unresolved:rec_pointe")!;
+    expect(fail).toMatchObject({ kind: "url", siteName: "The Pointe Burbank" });
+    expect(fail.title).toContain("404 netlify-site-not-found");
+    expect(items.find((i) => i.key === "url-probe-stale")).toMatchObject({ metric: 1 });
   });
 
   it("digest and cockpit produce the SAME renovate/ci keys for one site (key-space pinned)", async () => {
