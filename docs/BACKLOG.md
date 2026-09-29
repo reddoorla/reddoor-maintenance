@@ -256,7 +256,12 @@ Ordered by what unblocks the most. Each line is the exact ask.
     (`maintenance-email/template.ts` → `email-sections.ts`). With #957, LAHI's
     email will say "CMS Checked ✓" for a site with no CMS, as Form Functionality
     already does for sites without a form. Decide whether `n/a` rows render
-    differently or drop out.
+    differently or drop out. **Answered 2026-09-29: they drop out**, neither ✓
+    nor "N/A". Done in #1015, on every render path (send, refresh preview,
+    stored draft body, `report --preview`, `selftest email`). A draft stored
+    before that release keeps its old body until "refresh preview". The next
+    [TEST] send is the change's first real check. The Announcement email's
+    checklist is unchanged, since it is not evidence and not named here.
 18. **Standing product calls** — answered 2026-09-29, except #773:
     - #943 (what "Search Console set up" means): evidence-based; a worker is
       building it.
@@ -447,6 +452,11 @@ verdict is its only input, because no client and no check sees the email.
   partial. Not done, and still #910's larger half: no fleet sweep runs the
   a11y audit, so the columns fill only when someone runs `audit --write-back`
   from a site checkout. The report gate does not read them.
+
+- 2026-09-29 — Operator decisions 17: a checklist row whose evidence is
+  `n/a` (no CMS, no form, no CI) is dropped from the client Maintenance and
+  Testing email on every render path, and a list that empties takes its heading
+  with it (#1015).
 
 - 2026-09-29 — #969: a timed-out spawn reaps the process groups its
   descendants detached into (Playwright's webServer, Chrome under
