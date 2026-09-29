@@ -2,6 +2,7 @@ import { requiresStatusChecks, rulesetGaps, type ExistingRuleset } from "../gith
 import { isBranchPattern, readRenovateBaseBranches } from "./renovate-base-branches.js";
 import type {
   BranchRequiredChecks,
+  BranchRule,
   BranchTip,
   DependencyDashboard,
   RenovateMergeWindow,
@@ -53,6 +54,12 @@ export type ProtectionCoverageRow = {
    *  it warns, it never gaps, so it can never file or hold open the tracking
    *  issue. Absent on skipped repos, which are not measured at all. */
   renovateOutcome?: RenovateOutcome;
+  /** How many distinct rulesets this row's probes read, and how many of those
+   *  came back WITHOUT a `bypass_actors` field (#981). GitHub returns the
+   *  field only to a caller with write access to the ruleset, so `unread > 0`
+   *  means this sweep's token cannot see who may bypass. A measurement like
+   *  renovateOutcome: it never gaps. Absent on skipped repos. */
+  rulesetBypass?: { read: number; unread: number };
 };
 
 /** The reads the sweep needs — a subset of the GitHub factory, injected so the
@@ -411,6 +418,17 @@ export function renovateOutcomeSummary(outcomes: RenovateOutcome[]): string {
   );
 }
 
+/** The RULESET_BYPASS summary (#981): of the distinct rulesets the sweep read,
+ *  how many came back without a `bypass_actors` field. Its own prefix, like
+ *  RENOVATE_OUTCOME, so it matches none of the lines fleet-security.yml gates
+ *  on. `unread > 0` says this token cannot see bypass lists, which the
+ *  default-branch floor then reads as empty. */
+export function rulesetBypassSummary(rows: ProtectionCoverageRow[]): string {
+  const counted = rows.map((r) => r.rulesetBypass).filter((c) => c !== undefined);
+  const sum = (k: "read" | "unread") => counted.reduce((n, c) => n + c[k], 0);
+  return `RULESET_BYPASS unread=${sum("unread")} read=${sum("read")}`;
+}
+
 /** How long a human-owned blocked branch may sit before it stops reading as
  *  in-flight work. Sized to clear a weekend plus slack: the fleet's own
  *  human-edited Renovate PRs merge in minutes, while the branches that froze
@@ -492,7 +510,10 @@ export async function resolveBlockedBranches(
  */
 export async function renovateBaseBranchVerdict(
   repo: string,
-  deps: Pick<ProtectionCoverageDeps, "repoTextFile" | "defaultBranch" | "branchRequiredChecks">,
+  deps: Pick<
+    ProtectionCoverageDeps,
+    "repoTextFile" | "defaultBranch" | "branchRequiredChecks" | "getRuleset"
+  >,
 ): Promise<{ gaps: string[]; notes: string[] }> {
   const name = repo.slice(repo.indexOf("/") + 1);
   const unverified = (what: string, why: string) =>
@@ -523,8 +544,33 @@ export async function renovateBaseBranchVerdict(
       const checks = await deps.branchRequiredChecks(repo, entry);
       if (checks === null) {
         notes.push(`renovate base ${name}:${entry} does not exist`);
-      } else if (requiresStatusChecks(checks.rules) || checks.classicContexts.length > 0) {
+      } else if (checks.classicContexts.length > 0) {
         notes.push(`renovate base ${name}:${entry} requires status checks`);
+      } else if (requiresStatusChecks(checks.rules)) {
+        const bypass = await bypassVerdict(repo, checks.rules, deps);
+        if (bypass.clean !== null) {
+          notes.push(
+            `renovate base ${name}:${entry} requires status checks no one can bypass ` +
+              `("${bypass.clean}")`,
+          );
+        } else if (bypass.unknown.length > 0) {
+          gaps.push(
+            unverified(
+              `branch ${name}:${entry}`,
+              `who can bypass its required status check is unknown: ${[
+                ...bypass.unknown,
+                ...bypass.bypassable,
+              ].join("; ")}`,
+            ),
+          );
+        } else {
+          gaps.push(
+            `renovate merges into ${name}:${entry} (${base.source}), whose required status ` +
+              `check can be bypassed: ${bypass.bypassable.join("; ")} — Renovate can merge ` +
+              `there with no CI run. Fix: empty that bypass list, or drop ${entry} from the ` +
+              `Renovate base branches.`,
+          );
+        }
       } else {
         gaps.push(
           `renovate merges into ${name}:${entry} (${base.source}), which has NO required ` +
@@ -543,6 +589,87 @@ export async function renovateBaseBranchVerdict(
     }
   }
   return { gaps, notes };
+}
+
+/**
+ * Who can bypass the rulesets that make a branch require status checks (#981).
+ *
+ * `rules/branches/{b}` names the ruleset behind each rule; that ruleset's
+ * `bypass_actors` says who may skip it. ANY actor, of any type and in any
+ * mode, makes a ruleset bypassable — the same policy as the default-branch
+ * floor (rulesetGaps) — and `pull_request` mode counts because Renovate
+ * merges through a PR. One bypass-free contributing ruleset is enough to gate
+ * the branch, so it wins over any other. A rule with no `ruleset_id`, a
+ * ruleset returned without a `bypass_actors` field (GitHub omits it for a
+ * caller without write access to the ruleset) and a read that throws are
+ * UNKNOWN: never "no bypass actors", never "no required status check".
+ */
+async function bypassVerdict(
+  repo: string,
+  rules: BranchRule[],
+  deps: Pick<ProtectionCoverageDeps, "getRuleset">,
+): Promise<{ clean: string | null; bypassable: string[]; unknown: string[] }> {
+  const bypassable: string[] = [];
+  const unknown: string[] = [];
+  const ids = new Set<number>();
+  for (const rule of rules) {
+    if (rule.type !== "required_status_checks") continue;
+    if (rule.ruleset_id === undefined) {
+      unknown.push("a required_status_checks rule carries no ruleset_id");
+    } else {
+      ids.add(rule.ruleset_id);
+    }
+  }
+  for (const id of ids) {
+    let full: ExistingRuleset;
+    try {
+      full = await deps.getRuleset(repo, id);
+    } catch (e) {
+      unknown.push(
+        `ruleset ${id} could not be read: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      continue;
+    }
+    const actors = full.bypass_actors;
+    if (!Array.isArray(actors)) {
+      unknown.push(`ruleset "${full.name}" came back with no bypass_actors field`);
+    } else if (actors.length === 0) {
+      return { clean: full.name, bypassable, unknown };
+    } else {
+      bypassable.push(`ruleset "${full.name}" has ${actors.length} bypass actor(s)`);
+    }
+  }
+  return { clean: null, bypassable, unknown };
+}
+
+/** Wrap getRuleset for ONE repo's probes: each ruleset is read once however
+ *  many surfaces ask (the default-branch floor and a base branch's join often
+ *  name the same one), and every successful read is recorded for the
+ *  `rulesetBypass` count. A failed read is not cached or counted. */
+function recordRulesetReads(getRuleset: ProtectionCoverageDeps["getRuleset"]): {
+  getRuleset: ProtectionCoverageDeps["getRuleset"];
+  counts: () => { read: number; unread: number };
+} {
+  const hits = new Map<string, Promise<ExistingRuleset>>();
+  const seen = new Map<string, boolean>();
+  return {
+    getRuleset: (repo, id) => {
+      const key = `${repo}:${id}`;
+      const cached = hits.get(key);
+      if (cached) return cached;
+      const p = getRuleset(repo, id).then((full) => {
+        seen.set(key, Array.isArray(full.bypass_actors));
+        return full;
+      });
+      hits.set(key, p);
+      p.catch(() => hits.delete(key));
+      return p;
+    },
+    counts: () => ({
+      read: seen.size,
+      unread: [...seen.values()].filter((present) => !present).length,
+    }),
+  };
 }
 
 /** Cache SUCCESSFUL text reads for one sweep: 27 repos extend the same org
@@ -600,6 +727,7 @@ export async function collectProtectionCoverage(
       });
       continue;
     }
+    const reads = recordRulesetReads(deps.getRuleset);
     try {
       const gaps: string[] = [];
       let coveredDetail = "";
@@ -607,12 +735,18 @@ export async function collectProtectionCoverage(
       if (rulesets.length === 0) {
         gaps.push("no repo rulesets at all");
       } else {
-        const judged = await Promise.all(
+        // allSettled, then rethrow: a probe-failed row still counts every
+        // sibling read that finished, rather than whichever beat the failure.
+        const settled = await Promise.allSettled(
           rulesets.map(async (rs) => {
-            const full = await deps.getRuleset(repo, rs.id);
+            const full = await reads.getRuleset(repo, rs.id);
             return { name: rs.name, full, gaps: rulesetGaps(full, null) };
           }),
         );
+        const judged = settled.map((r) => {
+          if (r.status === "rejected") throw r.reason;
+          return r.value;
+        });
         const covering = judged.find((j) => j.gaps.length === 0);
         if (covering) {
           const ciGated = requiresStatusChecks(covering.full.rules);
@@ -630,7 +764,10 @@ export async function collectProtectionCoverage(
       const dash = await deps.dependencyDashboard(repo);
       gaps.push(...dashboardVocabularyGaps(dash));
       gaps.push(...renovateBlockedGaps(await resolveBlockedBranches(repo, dash, deps, now)));
-      const base = await renovateBaseBranchVerdict(repo, baseBranchDeps);
+      const base = await renovateBaseBranchVerdict(repo, {
+        ...baseBranchDeps,
+        getRuleset: reads.getRuleset,
+      });
       gaps.push(...base.gaps);
       // MEASUREMENT, not a gap: never pushed into `gaps`, so it cannot change
       // the exit code, the PROTECTION_AUDIT counts, or the tracking issue.
@@ -644,6 +781,7 @@ export async function collectProtectionCoverage(
           status: "gap",
           detail: [...live, ...acked, ...base.notes].join(" | "),
           renovateOutcome: outcome,
+          rulesetBypass: reads.counts(),
         });
       } else if (acked.length > 0) {
         // Judged, found wanting, deliberately acked — reported as skipped
@@ -653,6 +791,7 @@ export async function collectProtectionCoverage(
           status: "skipped",
           detail: acked.join(" | "),
           renovateOutcome: outcome,
+          rulesetBypass: reads.counts(),
         });
       } else {
         rows.push({
@@ -660,6 +799,7 @@ export async function collectProtectionCoverage(
           status: "covered",
           detail: [coveredDetail, ...base.notes].join("; "),
           renovateOutcome: outcome,
+          rulesetBypass: reads.counts(),
         });
       }
     } catch (e) {
@@ -667,6 +807,7 @@ export async function collectProtectionCoverage(
         repo,
         status: "gap",
         detail: `probe failed: ${e instanceof Error ? e.message : String(e)}`,
+        rulesetBypass: reads.counts(),
       });
     }
   }
