@@ -58,6 +58,12 @@ that cannot fire makes every other item invisible when it breaks).
   `renovate-dispatch` in client repos. `fleet-smoke` is safe to dispatch
   (localhost only, Turso writes).
 
+- **Status (06:45Z).** fleet-smoke, dispatched on post-deletion `main`, went
+  green in 17 min with `FLEET_WRITE_SUMMARY wrote=14 failed=0 total=14
+mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
+  write-back path is proven; the other nightlies still have to run on their
+  own schedules.
+
 ### P0-2 · Alarms fire on a cancelled or hung run, and only for `main` 🟢
 
 - **Why.** `fleet-lighthouse` on 09-28 hung through its 75-min step timeout and
@@ -70,7 +76,7 @@ that cannot fire makes every other item invisible when it breaks).
   steps act only for runs of the default branch, every `if: always()` network
   step in a scheduled workflow has a `timeout-minutes`, and a test derived from
   `.github/workflows/*.yml` asserts all three.
-- **Status.** In progress in this session (branch `wip/alarms` → session PR).
+- **Status.** Done in #956 (`37afc4b`). What is still open: a `cancelled()` open step has not yet been seen firing after a real job timeout (the runner source and run 32233689560 say it will), and P1-14/P1-15 below.
 
 ### P0-3 · #911 — a site with no CMS reports CMS Checked as `n/a`, so LAHI's 10-05 report can send 🟡
 
@@ -87,7 +93,7 @@ that cannot fire makes every other item invisible when it breaks).
   logged send-anyway override.
 - **Deadline.** It must be on `main` before the **10-04** fleet-lighthouse run
   re-stamps LAHI. 1836dig (due 10-31) is likely the same case [I].
-- **Status.** In progress in this session (branch `wip/lahi` → session PR).
+- **Status.** Done in #957 (`e563f6e`), before the 10-04 deadline. Still the operator's: if a LAHI draft for this cycle already exists, press "refresh preview" before approving (its stored evidence predates the fix), and see the ✓-copy item under Operator decisions.
 
 ### P0-4 · Reports due in the next 14 days — operator actions 🔴
 
@@ -107,19 +113,20 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                   | Tier | Effort | Start here                                                                                            | Done when                                                                                                                                |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| P1-1  | Land `land-prs.mjs`'s REST port (#953, adopted from orphaned `claude/happy-cerf-xb0xif`) so cloud sessions can use the landing gate                                    | 🟢   | S      | `scripts/land-prs.mjs`                                                                                | Merged. The first real cloud landing (e.g. #902/#896) is logged in the journal.                                                          |
-| P1-2  | **#942**: a Search Console lookup that finds no property is recorded as `unknown`, not "fail: Not on page 1"                                                           | 🟢   | S      | `src/reports/auto-tick.ts:182-208`, `src/reports/draft.ts`, `src/reports/search/client.ts:226`        | `propertyFound:false` → `unknown` "No Search Console property matched this site"; mutation-tested both ways                              |
-| P1-3  | **#889 + #912**: one "roster fields are valid" collector — maintained site with blank repo/Netlify ID; roster URL that 404s                                            | 🟢   | S–M    | a new collector beside the cockpit's alarm context (`src/dashboard/`), with the pre-launch exclusions | Names Beachfront (blank `netlify_id` [M]) and the-pointe-burbank (URL 404 = bogus-host fingerprint [M]) today, and passes a healthy site |
-| P1-4  | **#941**: watch filter chips drop sites that also have an attention item                                                                                               | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:164-180`                                                              | A site with one attention item and one watch condition carries both tags; tier stays `attention`                                         |
-| P1-5  | Merge Renovate majors **#902** (`@types/mjml` v5: `index.d.ts` byte-identical [M]) and **#896** (upload-artifact v7: same SHA already in `daily-reports.yml` [M])      | 🟢   | S      | branches updated 2026-09-29                                                                           | Merged. Dispatch `fleet-db-backup` once and confirm the `turso-backup-<run_id>` artifact exists.                                         |
-| P1-6  | **#892**: protection-audit judges the branch Renovate merges into, not only the default branch (reddoor-website `staging` has no required check)                       | 🟢   | S–M    | `src/audits/protection*`, `tests/audits/protection-coverage.test.ts`                                  | reddoor-website's `staging` shows as a gap. Applying the staging ruleset stays 🔴.                                                       |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                    | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts`  | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                                                     |
-| P1-8  | **#907**: the prospect-audit daily cap binds before the spend                                                                                                          | 🟢   | M      | `src/db/prospect-audits.ts:27`, `src/dashboard/prospect-audit-trigger.ts`                             | N concurrent starts admit only cap − count; a crashed run frees its slot after the stale window                                          |
-| P1-10 | **#874 (docs half)**: forward pointers on the three meta-week docs that still recommend deleting `FIGMA_PAT`                                                           | 🟢   | S      | `docs/meta-week/06-priorities-system.md:630`, `01-fleet-current-state.md:1409`, `_research/inv-07-…`  | Each carries a pointer to #874                                                                                                           |
-| P1-11 | Tracking-issue bodies are never rewritten (S2 leftover): the issue body keeps the first failure's run URL forever (#895's body still named 09-21's run when it closed) | 🟢   | S      | the open steps in `.github/workflows/*.yml`                                                           | Body updated with `gh issue edit` on each failure                                                                                        |
-| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                     | 🟢   | S–M    | `.github/workflows/`                                                                                  | A weekly run posts drift to a tracking issue, with a positive control                                                                    |
+| #     | Item                                                                                                                                                                                            | Tier | Effort | Start here                                                                                            | Done when                                                                                                                                |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| P1-2  | _(in progress 09-29, `wip/sc942`)_ **#942**: a Search Console lookup that finds no property is recorded as `unknown`, not "fail: Not on page 1"                                                 | 🟢   | S      | `src/reports/auto-tick.ts:182-208`, `src/reports/draft.ts`, `src/reports/search/client.ts:226`        | `propertyFound:false` → `unknown` "No Search Console property matched this site"; mutation-tested both ways                              |
+| P1-3  | _(in progress 09-29, `wip/roster889`)_ **#889 + #912**: one "roster fields are valid" collector — maintained site with blank repo/Netlify ID; roster URL that 404s                              | 🟢   | S–M    | a new collector beside the cockpit's alarm context (`src/dashboard/`), with the pre-launch exclusions | Names Beachfront (blank `netlify_id` [M]) and the-pointe-burbank (URL 404 = bogus-host fingerprint [M]) today, and passes a healthy site |
+| P1-4  | _(in progress 09-29, `wip/chips941`)_ **#941**: watch filter chips drop sites that also have an attention item                                                                                  | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:164-180`                                                              | A site with one attention item and one watch condition carries both tags; tier stays `attention`                                         |
+| P1-6  | **#892**: protection-audit judges the branch Renovate merges into, not only the default branch (reddoor-website `staging` has no required check)                                                | 🟢   | S–M    | `src/audits/protection*`, `tests/audits/protection-coverage.test.ts`                                  | reddoor-website's `staging` shows as a gap. Applying the staging ruleset stays 🔴.                                                       |
+| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                             | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts`  | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                                                     |
+| P1-8  | **#907**: the prospect-audit daily cap binds before the spend                                                                                                                                   | 🟢   | M      | `src/db/prospect-audits.ts:27`, `src/dashboard/prospect-audit-trigger.ts`                             | N concurrent starts admit only cap − count; a crashed run frees its slot after the stale window                                          |
+| P1-10 | **#874 (docs half)**: forward pointers on the three meta-week docs that still recommend deleting `FIGMA_PAT`                                                                                    | 🟢   | S      | `docs/meta-week/06-priorities-system.md:630`, `01-fleet-current-state.md:1409`, `_research/inv-07-…`  | Each carries a pointer to #874                                                                                                           |
+| P1-11 | Tracking-issue bodies are never rewritten (S2 leftover): the issue body keeps the first failure's run URL forever (#895's body still named 09-21's run when it closed)                          | 🟢   | S      | the open steps in `.github/workflows/*.yml`                                                           | Body updated with `gh issue edit` on each failure                                                                                        |
+| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                              | 🟢   | S–M    | `.github/workflows/`                                                                                  | A weekly run posts drift to a tracking issue, with a positive control                                                                    |
+| P1-13 | `land-prs.mjs` stops on one transient proxy error (`read: connection reset by peer` on a check-runs GET, seen landing #957). Retry idempotent GETs a bounded number of times; never retry a PUT | 🟢   | S      | `scripts/land-prs.mjs` (`apiJson`), `tests/scripts/land-prs.test.ts`                                  | One reset then success lands; a persistent failure still stops with a reason; no PUT is ever retried                                     |
+| P1-14 | Add `js-yaml` as a devDependency and parse every workflow in `tests/build/tracking-issue-conditions.test.ts` (today a stopgap only catches unquoted YAML indicators in `if:`)                   | 🟢   | S      | `package.json`, `tests/build/_helpers/workflow-source.ts`                                             | An invalid workflow fails the test; all 14 load                                                                                          |
+| P1-15 | Alarms that still cannot fire: release-health hitting its 5-min job timeout, and time-travel hanging before its suite step, file nothing (#956 follow-ups)                                      | 🟢   | S      | `.github/workflows/release-health.yml`, `time-travel.yml`                                             | Each files (or its gap is written into the workflow as accepted) with a test                                                             |
 
 ### Blocked behind another PR (do not start early)
 
@@ -137,9 +144,11 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 
 Ordered by what unblocks the most. Each line is the exact ask.
 
-1. **LAHI 10-05** — approve P0-3's `n/a` semantics when its PR lands, including
-   whether a maintained site on the placeholder Prismic sentinel also counts as
-   "no CMS". Otherwise use the logged send-anyway override on 10-05.
+1. **LAHI 10-05** — #957 is merged (a no-CMS site reads CMS Checked as `n/a`).
+   Before approving, press "refresh preview" if a draft for this cycle already
+   exists, since its stored evidence predates the fix. If you disagree with the
+   semantics (e.g. a maintained site on the placeholder Prismic sentinel), say so
+   and it gets revisited; the logged send-anyway override still works either way.
 2. **29 Navy** — set `Report recipients (To)`, press "refresh preview" on
    `/s/29-navy`, then approve.
 3. **MSOT / Revogen recipients** — fix the cells before approving either report.
@@ -176,7 +185,13 @@ Ordered by what unblocks the most. Each line is the exact ask.
     identity for `release.yml`. `renovate/pnpm-12.x` is rate-limited on #490 now.
 14. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
-15. **Standing product calls** — #943 (what "Search Console set up" means),
+15. **Client email copy (#957 follow-up).** The Maintenance email draws a green
+    ✓ beside every checklist row whatever the evidence says
+    (`maintenance-email/template.ts` → `email-sections.ts`). With #957, LAHI's
+    email will say "CMS Checked ✓" for a site with no CMS, as Form Functionality
+    already does for sites without a form. Decide whether `n/a` rows render
+    differently or drop out.
+16. **Standing product calls** — #943 (what "Search Console set up" means),
     #948 (hydration signal), #690 (pnpm pin questions), #672 (cockpit design),
     #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
     #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
@@ -213,6 +228,14 @@ Ordered by what unblocks the most. Each line is the exact ask.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — `land-prs.mjs` is REST-only and proven from the cloud: it landed
+  itself (#953), then #902 and #896 through update-branch (adopted from the
+  orphaned `claude/happy-cerf-xb0xif`; review found and fixed a
+  neutral-checks gate hole and a CLOSED-reported-as-merged path).
+- 2026-09-29 — Renovate majors #902 (`@types/mjml` v5) and #896
+  (upload-artifact v7; proven by backup artifact `turso-backup-36530796403`).
+- 2026-09-29 — P0-2 alarms (#956) and P0-3 / #911 (#957).
 
 - 2026-09-29 — #895 time-travel red since 09-21: shallow checkout, not a clock
   (#951, `33c01b3`).
