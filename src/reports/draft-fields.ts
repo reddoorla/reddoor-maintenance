@@ -26,8 +26,10 @@ export type DraftInput = {
    *  for the site or the fetch failed — the operator fills the fields manually. */
   gaUsersCurrent?: number;
   gaUsersPrevious?: number;
-  /** Search-presence result. `searchFoundPage1` is written whenever the check ran (true or
-   *  false — false is the operator-only negative signal). `searchPosition` only when found. */
+  /** Search-presence result. `searchFoundPage1` is written only when a query ran against a
+   *  resolved Search Console property (true or false — false is the operator-only negative
+   *  signal); with no matching property it is omitted and the column stays NULL.
+   *  `searchPosition` only when found. */
   searchFoundPage1?: boolean;
   searchPosition?: number;
   subjectOverride?: string;
