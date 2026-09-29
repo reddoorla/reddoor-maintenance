@@ -125,7 +125,21 @@ minutes instead of 45:
 ## What the operator wants to see
 
 - Dated things first. A report due tomorrow outranks everything.
-- Exact asks. "Set `Report recipients (To)` on 29 Navy, press refresh preview,
-  approve" — not "review 29 Navy".
+- Exact asks. "Press refresh preview on `/s/29-navy`, then approve" — not
+  "review 29 Navy".
+- Nothing from "Settled answers" below, ever.
 - Evidence tags: **[M]** measured this morning, **[I]** inferred.
 - What changed since yesterday, not the whole world again.
+
+## Settled answers — never re-ask
+
+The operator has answered these, some of them more than once. Asking again
+costs trust and time. Do not put any of them in the morning report, in
+"Operator decisions", or in a question. A new fact that changes one of them
+is written up as new evidence, never as the old ask.
+
+- **Report recipients are correct as they are** (2026-09-29). This covers MSOT
+  and Revogen sharing `accounting@revogenbiologics.com`, and 29 Navy's send
+  going to MatthewB@worthe.com.
+- **No Perplexity account** (2026-09-29). `PERPLEXITY_API_KEY` is not missing
+  and is not an ask; it matters only if the audit is expanded to use it.
