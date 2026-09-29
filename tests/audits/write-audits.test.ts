@@ -37,13 +37,16 @@ const lhResult = (summary: Record<string, number>): AuditResult =>
     details: { summary },
   }) as unknown as AuditResult;
 
-const a11yResult = (totalViolations: number): AuditResult =>
+const a11yResult = (
+  totalViolations: number,
+  routes: { scanned: number; total: number } = { scanned: 1, total: 2 },
+): AuditResult =>
   ({
     audit: "a11y",
     site: "acme",
     status: totalViolations === 0 ? "pass" : "warn",
     summary: "ok",
-    details: { totalViolations, byImpact: {} },
+    details: { totalViolations, byImpact: {}, routes },
   }) as unknown as AuditResult;
 
 const depsResult = (
@@ -153,6 +156,8 @@ describe("writeBackOneSite", () => {
     expect(calls[0]!.fields).toMatchObject({
       pScore: 90,
       "A11y Violations": 3,
+      "A11y Routes Scanned": 1,
+      "A11y Routes Total": 2,
       "Deps Drifted": 4,
       "Deps Major Behind": 1,
       "Security Vulns Critical": 1,

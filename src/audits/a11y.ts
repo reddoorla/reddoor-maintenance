@@ -1298,12 +1298,16 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
         .map((note) => `; ${note}`)
         .join("");
 
+    // #910: the same two numbers the summary's count phrase prints, stored so a
+    // run that covered 1 of 2 routes is a different row from one that covered 2.
+    const routes = { scanned: axePages.length - skippedRoutes.length, total: axePages.length };
+
     return {
       audit: "a11y",
       site: label,
       status,
       summary,
-      details: artifact,
+      details: { ...artifact, routes },
     };
   } finally {
     await rm(specDir, { recursive: true, force: true });
