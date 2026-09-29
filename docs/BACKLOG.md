@@ -268,6 +268,22 @@ Ordered by what unblocks the most. Each line is the exact ask.
     at once, raises a baseline only on a send, needs a Lighthouse score to be
     more than 5 points worse than what was last mailed, and compares health
     asks by field.
+20. **P1-3 post-merge production run (#986, `e86abd72`)**: this cloud
+    session's permission classifier refused the one sanctioned production run
+    of `roster-urls --fleet --write-back` from `origin/main` ("Production
+    Deploy"). The ask: either let tonight's `fleet-lighthouse` nightly do the
+    write (its new "Probe roster urls to Turso" step is the same command), or
+    run `node dist/cli/bin.js roster-urls --fleet --write-back` once yourself
+    from a build of `main`. Then check with a SELECT: `the-pointe-burbank` should be
+    `fail` / `404 netlify-site-not-found`, the tower and vida `-rd` rows `pass`,
+    `summittrek` and `young-life-connect-compliance-site` NULL / `no url`, and
+    `url_checked_at` set on the 34 non-archived rows and on no archived row. My
+    pick is the nightly, since it is the same code with no new permission.
+21. **the-pointe-burbank url**: set its url to
+    `https://the-pointe-burbank-rd.netlify.app` on `/s/the-pointe-burbank`.
+    The probe named it on 2026-09-29 (`404 netlify-site-not-found`, and the
+    `-rd` host 200) in #986's pre-merge run. Wait until item 20's run has
+    stored the `fail`, since that row is the live positive case.
 
 ---
 
