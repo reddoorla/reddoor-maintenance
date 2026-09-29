@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   collectProtectionCoverage,
   partitionAcceptedGaps,
+  rulesetBypassSummary,
   renovateGaps,
   renovateBlockedGaps,
   dashboardVocabularyGaps,
@@ -1280,6 +1281,18 @@ describe("a Renovate base branch's required check must not be bypassable (#981)"
     expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
   });
 
+  it("PASS: a bypass-free ruleset wins over an unknown one, whichever comes first", async () => {
+    for (const staging of [gated(undefined, 2), gated(9, 2), gated(3, 2)]) {
+      const rows = await collectProtectionCoverage(
+        ORG,
+        site(staging, [ruleset(2, []), ruleset(3, undefined)]),
+        NOW,
+      );
+      expect(rows[0]!.status, JSON.stringify(staging)).toBe("covered");
+      expect(rows[0]!.detail).toContain('no one can bypass ("staging CI 2")');
+    }
+  });
+
   it("an unknown ruleset beside a KNOWN bypassable one is still unverified, not a flat gap", async () => {
     const rows = await collectProtectionCoverage(
       ORG,
@@ -1362,5 +1375,25 @@ describe("a Renovate base branch's required check must not be bypassable (#981)"
     expect(rows[0]!.status).toBe("gap");
     expect(rows[0]!.detail).toBe("probe failed: HTTP 502");
     expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
+  });
+  it("RULESET_BYPASS sums every row that carries a count, probe-failed rows included", () => {
+    expect(
+      rulesetBypassSummary([
+        {
+          repo: "reddoorla/a",
+          status: "gap",
+          detail: "probe failed: x",
+          rulesetBypass: { read: 1, unread: 1 },
+        },
+        {
+          repo: "reddoorla/b",
+          status: "covered",
+          detail: "",
+          renovateOutcome: { state: "unmeasured", reason: "x" },
+          rulesetBypass: { read: 2, unread: 0 },
+        },
+        { repo: "reddoorla/c", status: "skipped", detail: "archived" },
+      ]),
+    ).toBe("RULESET_BYPASS unread=1 read=3");
   });
 });
