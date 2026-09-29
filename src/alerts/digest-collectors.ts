@@ -8,7 +8,7 @@ import {
   type WebsiteRow,
 } from "../fleet/site-row.js";
 import type { ReportRow } from "../reports/report-fields.js";
-import { approveBlockers } from "../reports/preflight.js";
+import { approveBlockers, type PreflightFinding } from "../reports/preflight.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
 
 /** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe.
@@ -157,6 +157,66 @@ export function collectLighthouseAlerts(sites: WebsiteRow[], baseUrl: string): A
  * warning — approving it just schedules that failure. Keyed `preflight:<reportId>`.
  * PURE; same predicate the approve gate and the dashboard chip use.
  */
+function healthAsk(message: string): string {
+  const head = message.split(" — ")[0]!;
+  const failing = head.match(/^(.*): failing$/);
+  if (failing) return `${failing[1]} (failing)`;
+  const pending = head.match(/^(.*): not yet green \((.*)\)$/);
+  if (pending) return `${pending[1]} (${pending[2]})`;
+  return head;
+}
+
+export function preflightAskParts(fails: readonly PreflightFinding[]): {
+  fixes: string[];
+  health: string[];
+} {
+  const fixes: string[] = [];
+  const health: string[] = [];
+  for (const f of fails) {
+    switch (f.check) {
+      case "recipients-missing":
+        fixes.push("set Report recipients (To)");
+        break;
+      case "header-image-missing":
+        fixes.push("add a Header image");
+        break;
+      case "header-image-not-image":
+        fixes.push("replace the Header image with an image file");
+        break;
+      case "report-scores-missing":
+        fixes.push("give the report its Lighthouse scores");
+        break;
+      case "health-gate":
+        health.push(healthAsk(f.message));
+        break;
+      default:
+        fixes.push(f.message);
+    }
+  }
+  return { fixes: [...new Set(fixes)], health: [...new Set(health)] };
+}
+
+function healthField(message: string): string {
+  const head = message.split(" — ")[0]!;
+  const m = head.match(/^(.*): (?:failing|not yet green \(.*\))$/);
+  return m ? m[1]! : head;
+}
+
+export function preflightAskKeys(fails: readonly PreflightFinding[]): string[] {
+  const keys = new Set<string>();
+  for (const f of fails) {
+    if (f.check === "health-gate") keys.add(`health-gate: ${healthField(f.message)}`);
+  }
+  return [...preflightAskParts(fails).fixes, ...keys];
+}
+
+export function preflightAsks(fails: readonly PreflightFinding[]): string[] {
+  const { fixes, health } = preflightAskParts(fails);
+  return health.length > 0
+    ? [...fixes, `clear the health gate: ${health.join(", ")}, or log a send-anyway override`]
+    : fixes;
+}
+
 export function collectPreflightBlocked(
   reports: ReportRow[],
   sitesById: Map<string, WebsiteRow>,
@@ -191,6 +251,9 @@ export function collectPreflightBlocked(
     if (fails.length === 0) continue;
     const first = fails[0]!;
     const more = fails.length > 1 ? ` (+${fails.length - 1} more)` : "";
+    const slug = siteSlug(site.name);
+    const where = slug ? ` on /s/${slug}` : "";
+    const then = r.approvedToSend ? "then it sends on the next run" : "then approve";
     items.push({
       key: `preflight:${r.id}:${state}`,
       kind: "preflight",
@@ -201,6 +264,8 @@ export function collectPreflightBlocked(
       url: dashboardUrl(baseUrl, site.name),
       severity: r.approvedToSend ? "critical" : "warning",
       metric: fails.length,
+      ask: `${preflightAsks(fails).join("; ")}${where}, ${then}`,
+      askParts: preflightAskKeys(fails),
     });
   }
   return items;

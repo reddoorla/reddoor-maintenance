@@ -11,6 +11,7 @@
  */
 import type { Db } from "./client.js";
 import type { DigestSnapshot } from "../alerts/digest-state.js";
+import { coerceSendLog, EMPTY_SEND_LOG, type DigestSendLog } from "../alerts/digest-send.js";
 import type { NotifyBounceCounts } from "./submissions.js";
 
 /** The singleton row's key. A constant rather than a magic string at each call
@@ -173,6 +174,39 @@ export async function writeCockpitRollup(db: Db, rollup: CockpitRollup): Promise
     id: COCKPIT_ROLLUP_ID,
     snapshot: JSON.stringify(rollup),
     updated_at: rollup.computedAt,
+  };
+  await db
+    .insertInto("digest_state")
+    .values(row)
+    .onConflict((oc) => oc.column("id").doUpdateSet(row))
+    .execute();
+}
+
+export const DIGEST_SEND_LOG_ID = "digest_send_log";
+
+export async function readDigestSendLog(db: Db): Promise<DigestSendLog> {
+  const row = await db
+    .selectFrom("digest_state")
+    .select("snapshot")
+    .where("id", "=", DIGEST_SEND_LOG_ID)
+    .executeTakeFirst();
+  if (!row) return EMPTY_SEND_LOG;
+  try {
+    return coerceSendLog(JSON.parse(row.snapshot));
+  } catch {
+    return EMPTY_SEND_LOG;
+  }
+}
+
+export async function writeDigestSendLog(
+  db: Db,
+  log: DigestSendLog,
+  updatedAt: string = new Date().toISOString(),
+): Promise<void> {
+  const row = {
+    id: DIGEST_SEND_LOG_ID,
+    snapshot: JSON.stringify(log),
+    updated_at: updatedAt,
   };
   await db
     .insertInto("digest_state")

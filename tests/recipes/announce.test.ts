@@ -679,3 +679,108 @@ describe("announce's Turso writes on the reuse path", () => {
     });
   });
 });
+
+describe("announce — search presence with no matching Search Console property (P1-19)", () => {
+  type SearchValue = { foundOnPage1: boolean; position: number | null; propertyFound: boolean };
+
+  function searchReturns(value: SearchValue | null, softFailed = false) {
+    vi.mocked(fetchSearch).mockResolvedValue({
+      value,
+      softFailed,
+      defaultQueryMissed: false,
+      propertyMissing: value?.propertyFound === false,
+      notConfigured: false,
+    });
+  }
+
+  function site(): RawRow {
+    return {
+      id: "rec_acme",
+      fields: {
+        Name: "Acme Co",
+        url: "https://acme.example.com",
+        Status: "maintained",
+        "Report recipients (To)": "client@acme.example.com",
+        ...scoredFields(),
+      },
+    };
+  }
+
+  function existingAnnouncement(): RawRow {
+    return {
+      id: "rec_existing_announce",
+      fields: {
+        "Report ID": "Acme Co — Announcement — existing",
+        Site: ["rec_acme"],
+        "Report type": "Announcement",
+        Period: PERIOD,
+        "Search found page 1": true,
+        "Search position": 3,
+      },
+    };
+  }
+
+  function refreshPatch(): Record<string, unknown> {
+    const p = writer.patches.find(
+      (x) => x.id === "rec_existing_announce" && x.patch.lighthouse_performance !== undefined,
+    );
+    expect(p).toBeDefined();
+    return p!.patch;
+  }
+
+  it("create: writes no search fields, so the column is NULL", async () => {
+    searchReturns({ foundOnPage1: false, position: null, propertyFound: false });
+    await announce(A({ Websites: [site()], Reports: [] }));
+    const fields = writer.inserts[0]!.fields;
+    expect("Search found page 1" in fields).toBe(false);
+    expect("Search position" in fields).toBe(false);
+  });
+
+  it("create: a property-found query with no rows still stores false", async () => {
+    searchReturns({ foundOnPage1: false, position: null, propertyFound: true });
+    await announce(A({ Websites: [site()], Reports: [] }));
+    const fields = writer.inserts[0]!.fields;
+    expect(fields["Search found page 1"]).toBe(false);
+    expect("Search position" in fields).toBe(false);
+  });
+
+  it("reuse: patches search_found_page1 and search_position to explicit null over a prior page-1 result", async () => {
+    searchReturns({ foundOnPage1: false, position: null, propertyFound: false });
+    await announce(A({ Websites: [site()], Reports: [existingAnnouncement()] }));
+    const patch = refreshPatch();
+    expect("search_found_page1" in patch && patch.search_found_page1 === null).toBe(true);
+    expect("search_position" in patch && patch.search_position === null).toBe(true);
+    expect(Object.keys(patch).sort()).toEqual([
+      "completed_on",
+      "lighthouse_accessibility",
+      "lighthouse_best_practices",
+      "lighthouse_performance",
+      "lighthouse_seo",
+      "search_found_page1",
+      "search_position",
+    ]);
+  });
+
+  it("reuse: a page-1 result still patches 1 and its position", async () => {
+    searchReturns({ foundOnPage1: true, position: 4, propertyFound: true });
+    await announce(A({ Websites: [site()], Reports: [existingAnnouncement()] }));
+    const patch = refreshPatch();
+    expect(patch.search_found_page1).toBe(1);
+    expect(patch.search_position).toBe(4);
+  });
+
+  it("reuse: a property-found miss still patches 0", async () => {
+    searchReturns({ foundOnPage1: false, position: 22, propertyFound: true });
+    await announce(A({ Websites: [site()], Reports: [existingAnnouncement()] }));
+    const patch = refreshPatch();
+    expect(patch.search_found_page1).toBe(0);
+  });
+
+  it("reuse: a soft-fail patch carries no search keys, keeping the last value", async () => {
+    searchReturns(null, true);
+    await announce(A({ Websites: [site()], Reports: [existingAnnouncement()] }));
+    const patch = refreshPatch();
+    expect("search_found_page1" in patch).toBe(false);
+    expect("search_position" in patch).toBe(false);
+  });
+});

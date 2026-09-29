@@ -5,7 +5,7 @@ import { renderReportHtml } from "./render.js";
 import { analyticsHealthFields, siteSlug } from "../fleet/site-fields.js";
 import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
-import type { ReportRow } from "./report-fields.js";
+import { searchEnrichment, type ReportRow } from "./report-fields.js";
 import { createReportDraft } from "./create-report.js";
 import type { ReportMirror } from "./report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
@@ -356,10 +356,7 @@ export async function draftReportForSite(
       lighthouse: scores,
       lastTestedDate,
       ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
-      ...(search ? { searchFoundPage1: search.foundOnPage1 } : {}),
-      ...(search?.foundOnPage1 && search.position !== null
-        ? { searchPosition: search.position }
-        : {}),
+      ...searchEnrichment(search),
       checklistTicks,
       autoEvidence,
     },
