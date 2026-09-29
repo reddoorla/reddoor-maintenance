@@ -5434,16 +5434,16 @@ The Lighthouse baseline `launch` stored was 52/100/100/61, and it was wrong in k
 
 **Search Console: the instrument first.** The newly added `GA_SA_KEY_B64` and `GA_SUBJECT` resolved: `readGaConfig()` returned one subject, and the hook-written key is the `reddoor-reports@` service account. `sites.list`, called through the same JWT/DWD path as `src/reports/search/client.ts`, returned 10 properties. `sc-domain:reddoorla.com` was among them and read back 5 clicks and 473 impressions over 2026-09-21..27, so the listing was proven before anything was matched against it. `sc-domain:vidalegacy.org` is listed and reads 0/0 without error on launch day. Eight of the 13 missing sites match exactly one URL-prefix property (none has an `sc-domain:` form), and every one of them returned real rows on the same 7-day query:
 
-| Site | Clicks / impressions |
-|---|---|
-| Beachfront | 5/710 |
-| CalTex | 1/11 |
-| ERP | 19/510 |
-| Espada | 14/169 |
-| MSOT | 8/256 |
-| Revogen | 19/120 |
-| Sonder | 40/647 |
-| Vineyard | 45/104 |
+| Site       | Clicks / impressions |
+| ---------- | -------------------- |
+| Beachfront | 5/710                |
+| CalTex     | 1/11                 |
+| ERP        | 19/510               |
+| Espada     | 14/169               |
+| MSOT       | 8/256                |
+| Revogen    | 19/120               |
+| Sonder     | 40/647               |
+| Vineyard   | 45/104               |
 
 Five sites have no property the account can see, and so get none: 1836dig, 29 Navy, Data Dynamiq, LA Homelessness Initiative, and LA Homelessness Youth, which is still on netlify.app. Each needs the property added and verified in Search Console first.
 
@@ -5463,3 +5463,10 @@ Two more rows are wrong in ways this session did not fix:
 1836dig, 29 Navy, Data Dynamiq and LA Homelessness Initiative have no GA4 property visible to the account and no GA tag on their live pages.
 
 **Beliefs corrected on contact.** An empty ANALYTICS block means only that "GA returned a zero previous period", not that "credentials failed". A GA4 property id on a row does not mean that site sends data to that property; the site's live tag has to name the property's stream.
+
+**What the operator decided next, and what the rows already said.** The operator asked for three changes: clear Sonder's `ga4_property_id`, since Sonder handles its analytics in house; add Sonder's `no analytics` opt-out; and re-aim the misplaced GA4 id. Reading the rows before writing turned up two things the probe had missed:
+
+- **Sonder already carries a `no search console` opt-out** in `accepted_watch_conditions`. `searchEnrolled` returns false for it, so the matched `https://gallerysonder.com/` would be recorded but never read. It was dropped from the write set.
+- **The two LA rows are two Netlify sites serving the same "Hearts and Minds" page.** Their `netlify_id`s differ: `c4473d34…` belongs to the Initiative, which owns `www.lahomelessnessawareness.org`, and `442e3569…` to Youth, which is marked `no custom domain`. Property 500039567, although GA names it "LA Youth Homelessness", has its stream on the Initiative's domain. The id therefore moves to `la-homelessness-initiative`, and `la-homelessness-youth` becomes NULL.
+
+Neither LA site ships a GA tag today, so the move corrects the record but produces no numbers until one is installed. The classifier refused this write as well. The full write set is 7 Search Console values, Revogen 545817747, Sonder GA4 NULL plus `no analytics`, Initiative 500039567 and Youth NULL. It waits for the operator.
