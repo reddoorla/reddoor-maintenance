@@ -234,9 +234,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
     (2026-09-29): nine majors, the sixth round with majors. They ship in 0.102.0
     if that round is clean. If it is not, they come back here as a design
     decision rather than a seventh round.
-11. **#916** — still wanted: #950 removes none of what it catches, and it passes
-    roalson-interests. In a fix round for 0.102.0, with a `reddoor-starter`
-    palette fix staged beside it, because the starter's Hero would go red.
+11. **#916** — decided 2026-09-29: #950 shipped in 0.101.0, and #916 is merged
+    over it for 0.102.0, with the `reddoor-starter` palette fix staged beside
+    it. The same fix for `reddoor-starter-blux`, whose Hero also goes red, is
+    to follow. Moved to _Done_.
 12. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
@@ -324,6 +325,20 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — Operator decision 11 / #888: #916 lands over #950. main was merged
+  in, not rebased, because a text-only resolution put the detection after the
+  axe loop's `finally`. Every unit test and tsc passed on that, and every real
+  audit died on `results is not defined`. #916's findings go through #950's
+  cross-origin frame split. The "9 of 12 sampled sites red" figure came from a
+  static grep for `none`-hued tokens. Nobody measured it against the gate. Both
+  of axe's shapes occur. The whole-rule throw (`rule-errored`) that the issue
+  reported, and that the correction posted on it called impossible, is what the
+  starter's `Hero` produces: a white CTA over `bg-neutral-900`. It ships in
+  0.102.0, together with the reddoor-starter `@theme` fix that keeps the
+  starter's own gate green. reddoor-starter-blux has the same Hero and needs
+  the same 13-token block (measured: FAIL on the #916 build, then PASS with
+  66 contrast nodes). That fix is to follow.
 
 - 2026-09-29 — P1-19 / #982: a report whose site matched no Search Console
   property stores `search_found_page1` NULL, not 0, on the draft create path and
