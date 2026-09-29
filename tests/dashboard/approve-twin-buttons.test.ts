@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import { MAINTENANCE_CHECKLIST } from "../../src/reports/checklist.js";
 
 /**

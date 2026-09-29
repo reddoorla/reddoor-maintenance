@@ -1,7 +1,7 @@
 import type { SubmissionRow } from "../reports/submission-row.js";
 import { SUBMISSION_STATUSES, type SubmissionStatus } from "../reports/submission-row.js";
 import { SUBMISSION_FORM_TYPES, type FormType } from "../forms/types.js";
-import { siteSlug } from "../reports/airtable/websites.js";
+import { siteSlug } from "../fleet/site-row.js";
 import type { SubmissionFilter } from "../db/submissions.js";
 
 export const PAGE_SIZE = 50;

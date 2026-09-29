@@ -4,7 +4,7 @@ import {
   COMMENTARY_MAX_LEN,
   type ReportCommentaryDeps,
 } from "../../src/dashboard/report-commentary.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 
 /**
  * Report review, #539 Phase 4: commentary is the one part of a client report an

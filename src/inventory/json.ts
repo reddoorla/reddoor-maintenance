@@ -24,11 +24,11 @@ function validate(raw: unknown): Site[] {
     const site: Site = { path: e.path };
     if (typeof e.name === "string") site.name = e.name;
     if (typeof e.repoUrl === "string") site.repoUrl = e.repoUrl;
-    // Carry gitRepo/deployedUrl like the Airtable provider does, so a JSON
+    // Carry gitRepo/deployedUrl like the Turso provider does, so a JSON
     // inventory can drive checkout (clone-from-gitRepo) and deployed-URL audits.
     if (typeof e.gitRepo === "string") site.gitRepo = e.gitRepo;
     // Scheme-allowlist deployedUrl before it can reach Chrome/lhci (same SSRF /
-    // local-file gate as the Airtable provider). A non-http(s) value is dropped
+    // local-file gate as the Turso provider). A non-http(s) value is dropped
     // with a warning rather than trusted into the deployed audit.
     if (typeof e.deployedUrl === "string") {
       if (isHttpUrl(e.deployedUrl)) {

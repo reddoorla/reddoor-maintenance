@@ -6,7 +6,7 @@ import {
   makeNotify,
   resolveRecipients,
 } from "../../src/forms/notify.js";
-import type { NotifyRouting } from "../../src/reports/airtable/websites.js";
+import type { NotifyRouting } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { makeSubmissionRow } from "../_helpers/submission-row.js";
 

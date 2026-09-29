@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { retickEvidence } from "../../src/reports/retick.js";
 import { approveBlockers } from "../../src/reports/preflight.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
 
 const NOW = new Date("2026-09-28T12:00:00.000Z");

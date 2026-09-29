@@ -6,13 +6,13 @@ import { siteLabel } from "../util/site.js";
 import { selfUpdating } from "./self-updating/index.js";
 import { HARNESS_JSON_RELATIVE, UNGUARDED_TWIN_TELL } from "./match-harness/template.js";
 import { runAudits } from "../audits/index.js";
-import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-airtable.js";
-import { writeBackOneSite } from "../audits/write-audits-to-airtable.js";
-import { siteSlug } from "../reports/airtable/websites.js";
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-fields.js";
+import { writeBackOneSite } from "../audits/write-audits.js";
+import { siteSlug } from "../fleet/site-row.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import { createReportDraft, findReportForPeriod } from "../reports/create-report.js";
 import type { DraftInput } from "../reports/draft-fields.js";
-import type { ReportRow } from "../reports/airtable/reports.js";
+import type { ReportRow } from "../reports/report-fields.js";
 import type { ReportMirror } from "../reports/report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft } from "../reports/queue.js";
@@ -631,7 +631,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   // The launch announcement renders a numeric score per category; a metric that
   // errored this run (now null from lighthouseScoresFromResult) keeps the prior
   // 0 behavior here rather than propagating null into the launch-email path. The
-  // write-back path (write-audits-to-airtable) keeps the null → shows "—".
+  // write-back path (write-audits) keeps the null → shows "—".
   const rawScores = lighthouseScoresFromResult(lhResult);
   const scores: LighthouseScores = {
     performance: rawScores.performance ?? 0,
@@ -723,7 +723,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   });
 
   try {
-    // #539 Phase 5: mirror the first-audit write-back. Launch is the ONE path
+    // #539 Phase 5: the first-audit write-back. Launch is the ONE path
     // that writes a brand-new site's health, so without this its row reads empty
     // in the console.
     await writeBackOneSite({
@@ -755,7 +755,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
       // re-run just produced fresh audit scores AND will re-render the preview from
       // them — so refresh the row's Lighthouse cells (+ Completed on) to match,
       // otherwise the sent email (which reads the row) ships stale scores. The
-      // create path already writes fresh scores via createDraft.
+      // create path already writes fresh scores via createReportDraft.
       // The same refresh — see the announce reuse path for why.
       await deps.reportMirror.patch(existing.id, {
         lighthouse_performance: scores.performance,
@@ -776,10 +776,10 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     return stop();
   }
 
-  // Mirror draft.ts:135-154 — render → upload "Rendered HTML" preview → flip
-  // Draft ready. Without setDraftReady the draft never enters the approve queue
+  // Mirror draft.ts:135-154 — render → store the preview body → flip
+  // Draft ready. Without the ready flag the draft never enters the approve queue
   // (every pending-approval gate requires draftReady true), so it can never be
-  // approved or sent. The upload is a review convenience; the ready flag is the
+  // approved or sent. The body is a review convenience; the ready flag is the
   // critical step.
   try {
     const { html } = await renderReportHtml({
@@ -795,7 +795,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     });
     // A preview-upload hiccup must NOT fail the launch — log and continue.
     try {
-      // The console preview reads the body from Turso, not the attachment.
+      // The console preview reads the body from Turso.
       await deps.reportMirror.body(report.id, html);
     } catch (uploadErr) {
       console.warn(

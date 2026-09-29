@@ -2,10 +2,10 @@
  *
  *  ## Why a switch exists at all
  *
- *  Through Phase 5 the mirrors are best-effort by design: Airtable is
- *  authoritative, so a Turso write that fails is caught, logged and swallowed,
- *  and the hourly `fleet-db-sync` import converges whatever it missed. That is
- *  correct — right up until the freeze stops the import.
+ *  Through Phase 5 the mirrors were best-effort by design: Airtable was
+ *  authoritative, so a Turso write that failed was caught, logged and swallowed,
+ *  and the hourly `fleet-db-sync` import converged whatever it missed. That was
+ *  correct — right up until the freeze stopped the import.
  *
  *  After that, nothing converges anything. The same swallowed failure becomes
  *  permanent data loss announced only by a log line nobody is grepping. Three
@@ -49,21 +49,20 @@ export const TURSO_IS_AUTHORITATIVE = true;
 
 /**
  * Run one Turso mirror write with the error semantics the current world calls
- * for: swallowed while Airtable is authoritative, fatal once Turso is.
+ * for: swallowed while Airtable was authoritative, fatal now that Turso is.
  *
  * The mirror FACTORIES (`makeSiteMirror`, `makeReportMirror`, the health mirrors)
  * already do this internally. The Netlify request handlers do not use those
  * factories — `approve-report`, `report-commentary`, `resend-webhook` and
  * `site-details` each call `mirrorReportPatch` / `mirrorSiteField` directly,
- * wrapped in a hand-rolled `try { … } catch { console.error }`. Four independent
- * copies of the swallow, none of which consulted the switch, each carrying a
- * comment saying "the sync converges it".
+ * and each once wrapped it in a hand-rolled `try { … } catch { console.error }`:
+ * four independent copies of the swallow, none of which consulted the switch,
+ * each carrying a comment saying "the sync converges it".
  *
- * **That comment stops being true at the freeze.** With the hourly import
+ * **That comment stopped being true at the freeze.** With the hourly import
  * stopped, a swallowed mirror failure on an approve, a commentary edit, a
  * delivery-status webhook or a site-detail edit is permanent data loss whose only
- * trace is a log line nobody greps — and the Airtable write it shadows will have
- * already succeeded, so the two stores diverge silently.
+ * trace is a log line nobody greps.
  *
  * Under `strict` the failure is raised instead. The caller's own error handling
  * decides what that means for the response; what it must not mean is "logged and

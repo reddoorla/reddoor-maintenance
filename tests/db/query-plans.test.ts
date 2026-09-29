@@ -57,7 +57,7 @@ const EXEMPT_MODULES: Record<string, string> = {
   "migrate.ts": "migration runner — DDL, not a query path",
   "migrations.ts": "DDL scripts",
   "schema.ts": "types only",
-  "import-airtable.ts": "column maps + pure record mappers — no queries of its own",
+  "field-map.ts": "column maps + pure record mappers — no queries of its own",
   "dump.ts": "backup dump — full-table reads by design",
   "header-images.ts":
     "header plate store + per-site read for the CLI, drafting and send — by-PK, not request-path",
@@ -223,12 +223,11 @@ export type RequestPathGraph = {
  * request-path modules import which gated-db-module exports.
  *
  * Reads IMPORT BINDINGS, not call sites. A `grep` for `name(` matches the
- * function's own declaration, its mentions inside doc comments (there are
+ * function's own declaration and its mentions inside doc comments (there are
  * several — `fleet-cockpit.ts`, `digest-collectors.ts` and `migrations.ts` all
- * name these functions in prose), and an unrelated Airtable-layer namesake
- * (`src/reports/airtable/reports.ts` exports its own `listAllReports`). An
- * import binding has none of those ambiguities: it names the module the symbol
- * came from, so the answer is about THIS `src/db` function and nothing else.
+ * name these functions in prose). An import binding has neither ambiguity: it
+ * names the module the symbol came from, so the answer is about THIS `src/db`
+ * function and nothing else.
  */
 function requestPathGraph(): RequestPathGraph {
   const gated = new Set(Object.keys(GATED_MODULES));
@@ -534,13 +533,6 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "getSiteBySlug (form ingest / site detail lookup)",
       covers: ["getSiteBySlug"],
       run: (db) => fleetState.getSiteBySlug(db, "acme-gallery"),
-    },
-    {
-      // #645: the probe `ensure-site` uses to decide whether a site that exists
-      // in Airtable is missing from Turso. PK lookup — it must stay one.
-      name: "siteRowExists (ensure-site heal probe)",
-      covers: ["siteRowExists"],
-      run: (db) => fleetState.siteRowExists(db, "recA"),
     },
     {
       name: "getSiteById (approve-report lookup)",

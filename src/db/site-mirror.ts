@@ -1,12 +1,12 @@
-/** #539 Phase 5: the Turso write-through for the ONE-OFF Websites writers.
+/** #539 Phase 5: the Turso write for the ONE-OFF Websites writers.
  *
  *  Phase 3 mirrored the nightly sweep — the audit write-back, github-signals and
  *  the next-due dates. It did not touch the writers that run on their own
  *  schedule or on demand: the analytics soft-fail stamp, the Renovate
- *  auto-fix counter, the prismic-models verdict, `updateLaunched`, the
+ *  auto-fix counter, the prismic-models verdict, the launch stamp, the
  *  forms notify target, and the SINGLE-SITE audit write-back (only the fleet
  *  path ever passed a mirror). Each of those reached Turso solely via the hourly
- *  sync, which stops existing at the freeze.
+ *  sync, which stopped existing at the freeze.
  *
  *  It lives in `src/db` rather than a feature folder because its callers span
  *  audits, recipes, CLI commands and the send path — no one feature owns it.
@@ -19,42 +19,19 @@
  *  REPORTS, so a missing SITE_MIRROR line means the wiring is gone.
  */
 import { openDb, readDbConfig, type Db } from "./client.js";
-import {
-  mirrorHealthFields,
-  mirrorSiteFields,
-  mirrorSiteInsert,
-  siteRowExists,
-} from "./fleet-state.js";
+import { mirrorHealthFields, mirrorSiteFields } from "./fleet-state.js";
 import { TURSO_IS_AUTHORITATIVE } from "./freeze.js";
 
-/** Two ops because the Websites row is split across two Turso tables. Callers
- *  pass the EXACT FieldSet the Airtable writer returned, so the mirror can never
- *  carry a different payload than the write it shadows. */
+/** Two ops because a site row is split across two Turso tables. Callers pass a
+ *  column-named FieldSet from the pure builders in `src/fleet/site-fields.ts`. */
 export type SiteMirror = {
-  /** A row Airtable just CREATED, as Airtable echoed it back. `ensure-site` used
-   *  this until #646 step 3; it now creates sites in Turso directly
-   *  (`src/fleet/ensure-site.ts`), and neither this nor `hasRow` has a caller left
-   *  outside tests — both go with the Airtable layer in step 6.
-   *  Every other op is an UPDATE, which does nothing for a row that does not
-   *  exist yet — so without this a bootstrapped site is invisible to Turso and
-   *  every mirror the rest of the bootstrap fires reports `mirrored=missed`. */
-  created: (rec: { id: string; fields: Record<string, unknown> }) => Promise<void>;
   /** Columns that live in `site_health`. */
   health: (siteId: string, fields: Record<string, unknown>) => Promise<void>;
   /** Columns that live in `sites`. */
   site: (siteId: string, fields: Record<string, unknown>) => Promise<void>;
-  /** #645. Does Turso hold a row for this site id? A pure READ, so it is the one
-   *  op here that neither logs a SITE_MIRROR line nor throws under the freeze —
-   *  `ensure-site` uses it to decide whether to heal, and a probe that threw
-   *  would sink the very command that repairs the gap. Creds-absent answers
-   *  `true` ("assume present"), so a mirror that cannot read can never provoke
-   *  a blind insert. */
-  hasRow: (siteId: string) => Promise<boolean>;
 };
 
-/** Build the one-off writers' mirror. Never throws and never returns null:
- *  Airtable is still authoritative through Phase 5, so a mirror problem must not
- *  cost the write it shadows — the hourly sync converges whatever this misses.
+/** Build the one-off writers' mirror. Never returns null.
  *  `open` is injectable for tests. */
 export async function makeSiteMirror(
   open: () => Promise<Db> = () => openDb(readDbConfig()),
@@ -104,27 +81,7 @@ export async function makeSiteMirror(
   };
 
   return {
-    // An INSERT always lands, so it reports 1 rather than routing a row count
-    // through `missed` — there was nothing to match in the first place.
-    created: (rec) =>
-      run(rec.id, "created", async (d) => {
-        await mirrorSiteInsert(d, rec, new Date().toISOString());
-        return true;
-      }),
     health: (siteId, fields) => run(siteId, "health", (d) => mirrorHealthFields(d, siteId, fields)),
     site: (siteId, fields) => run(siteId, "site", (d) => mirrorSiteFields(d, siteId, fields)),
-    // Deliberately NOT routed through `run`: that helper logs a mirrored= line
-    // and, under strict, throws on anything but a clean write — both wrong for a
-    // read whose whole job is to answer a question. A failed probe answers
-    // "present" so the caller heals nothing it cannot see.
-    hasRow: async (siteId) => {
-      if (!db) return true;
-      try {
-        return await siteRowExists(db, siteId);
-      } catch (e) {
-        console.log(`SITE_MIRROR site=${siteId} op=hasRow unknown error=${(e as Error).message}`);
-        return true;
-      }
-    },
   };
 }

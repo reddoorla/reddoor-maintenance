@@ -44,7 +44,7 @@ export async function runMatchHarnessCommand(
   // the fix, `match-harness --ref … --fleet <inventory naming nobody>` printed
   // one empty line and exited 0.
   //
-  // An Airtable view filter, an empty JSON file, or a dynamic inventory
+  // An empty fleet roster, an empty JSON file, or a dynamic inventory
   // returning [] all produce exactly that, and none of them is a run.
   if (sites.length === 0) {
     return {

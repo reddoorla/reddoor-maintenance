@@ -11,7 +11,7 @@ import {
 } from "../../src/github/renovate-dispatch.js";
 import type { PullRequestSummary } from "../../src/github/gh.js";
 import type { RenovateDispatchResult } from "../../src/github/renovate-dispatch.js";
-import type { SecurityAdvisory } from "../../src/reports/airtable/websites.js";
+import type { SecurityAdvisory } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 /** Minimal persisted advisory; override severity/relationship per case. */

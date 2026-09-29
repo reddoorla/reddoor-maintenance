@@ -4,7 +4,7 @@
  *
  * Until now Airtable MINTED the report id: `createDraft` posted to the Reports
  * table and whatever record id came back became `reports.id` in Turso. That is why
- * a `site_<ULID>` site could not receive a report at all — Airtable has no
+ * a `site_<ULID>` site could not receive a report at all — Airtable had no
  * Websites record for the `Site` link to point at, so `createDraft` refused the
  * site by name (#646 step 3). Turso mints `report_<ULID>` here instead and owns
  * the row, exactly as `ensure-site` does for sites.

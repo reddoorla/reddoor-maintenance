@@ -5,11 +5,10 @@
  *
  *  Before this, the only report mirrors were UPDATEs on the request path
  *  (approve, override, delivery status, commentary). Everything the DRAFTING
- *  path writes — the row itself, the rendered body, the queue flag, a re-run's
- *  refreshed scores — reached Turso only via the hourly sync. Two of those are
- *  visible to the operator today: a fresh draft's row does not exist, and its
- *  preview route answers "No rendered body stored" for up to an hour. At the
- *  freeze they stop being windows.
+ *  path wrote — the row itself, the rendered body, the queue flag, a re-run's
+ *  refreshed scores — reached Turso only via the hourly sync. Two of those were
+ *  visible to the operator: a fresh draft's row did not exist, and its preview
+ *  route answered "No rendered body stored" for up to an hour.
  *
  *  Deliberately UNLIKE `makeHealthMirrorBestEffort`, this never returns null.
  *  #585 is the reason: Phase 3's next-due mirror silently no-opped in production
@@ -24,7 +23,6 @@ import {
   getReportById,
   insertReportRow,
   listReportsForSite,
-  mirrorReportInsert,
   mirrorReportPatch,
   storeRenderedHtml,
   type ReportMirrorPatch,
@@ -38,23 +36,17 @@ import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
  *  half-written state (row present, preview 404) this module exists to prevent.
  *
  *  Since #646 step 4 this is no longer only a mirror. `create` is the PRIMARY
- *  write — Turso mints the report id and owns the row, and there is no Airtable
- *  record for it to shadow (see `src/reports/create-report.ts`) — and `forSite`
- *  is a READ the drafting path used to make against Airtable, which cannot see a
- *  report for a `site_<ULID>` site. `body` and `patch` keep their older meaning:
- *  write-throughs for state whose `rec…` rows Airtable may still shadow. The name
- *  is kept because every composition root and every injection site already uses
- *  it, and a rename would churn ten files to say what this comment says. */
+ *  write — Turso mints the report id and owns the row (see
+ *  `src/reports/create-report.ts`) — and `forSite` is a READ the drafting path
+ *  used to make against Airtable, which could not see a report for a
+ *  `site_<ULID>` site. `body` and `patch` were write-throughs until #937 deleted
+ *  Airtable; now they too are the only write. The name is kept because every
+ *  composition root and every injection site already uses it, and a rename
+ *  would churn ten files to say what this comment says. */
 export type ReportMirror = {
   /** Insert a brand-new report row and return what Turso stored. Not a mirror:
    *  the row exists nowhere else. */
   create: (rec: { id: string; fields: Record<string, unknown> }) => Promise<ReportRow>;
-  /** A row AIRTABLE created, as Airtable echoed it back — the pre-step-4 shape.
-   *  NO production path calls it any more: it pairs with the legacy Airtable
-   *  `createDraft`, which nothing calls either. Both are kept rather than
-   *  deleted because deleting from the Airtable layer is step 6, and both go
-   *  together when it comes. */
-  created: (rec: { id: string; fields: Record<string, unknown> }) => Promise<void>;
   /** Every report for one site — the single-queue rule's and the period
    *  derivation's read. */
   forSite: (siteId: string) => Promise<ReportRow[]>;
@@ -64,10 +56,8 @@ export type ReportMirror = {
   patch: (reportId: string, patch: ReportMirrorPatch) => Promise<void>;
 };
 
-/** Build the drafting-path mirror. Never throws and never returns null:
- *  Airtable is still authoritative through Phase 5, so a mirror problem must
- *  not cost a draft the operator is waiting on — the hourly sync converges
- *  whatever this misses. `open` is injectable for tests. */
+/** Build the drafting-path mirror. Never returns null. `open` is injectable
+ *  for tests. */
 export async function makeReportMirror(
   open: () => Promise<Db> = () => openDb(readDbConfig()),
   /** #612. `true` = Turso is the store that must succeed, so every failure
@@ -142,7 +132,6 @@ export async function makeReportMirror(
         throw new Error(`REPORT_MIRROR report=${rec.id} op=create: row not found after insert`);
       return row;
     },
-    created: (rec) => run(rec.id, "created", (d) => mirrorReportInsert(d, rec)),
     // `async` so a missing handle REJECTS rather than throwing synchronously —
     // every caller awaits this, and a synchronous throw would escape a
     // `.catch()` written around the await.

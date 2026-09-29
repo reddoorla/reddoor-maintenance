@@ -123,7 +123,7 @@ export const MIGRATIONS: Migration[] = [
     //   site_schedule — updateNextDueDates (report cron, derived)
     //   reports       — report drafting + the operator approve flow
     // PKs are the Airtable `rec…` ids (design D1): 278+ submissions rows already
-    // reference them, and the parity harness diffs the two stores row-for-row.
+    // reference them, and the parity harness diffed the two stores row-for-row.
     //
     // Naming: snake_case throughout; Airtable's misspellings ("maintenence") and
     // display quirks die here. `sites.legacy` is a JSON object holding the 33
@@ -137,7 +137,7 @@ export const MIGRATIONS: Migration[] = [
     //
     // reports.checklist is JSON keyed by the STABLE checklist key ("deploy",
     // "cms", …, from src/reports/checklist.ts), not the Airtable column name —
-    // the importer translates, so "Test: Verified After Updates" stops leaking
+    // the importer translated, so "Test: Verified After Updates" stops leaking
     // its legacy name into a second store.
     id: "0007_fleet_state",
     sql: `
@@ -335,7 +335,7 @@ export const MIGRATIONS: Migration[] = [
   {
     // #609 (#539 Phase 5): the digest's prior-run snapshot moves off Airtable.
     // Unlike the rest of Phase 5 this is a MIGRATION, not a dual-write — there
-    // is no Airtable counterpart left afterwards, so parity does not cover it.
+    // is no Airtable counterpart left afterwards, so parity did not cover it.
     //
     // A single row holding the whole snapshot as JSON, keyed by a constant id.
     // Both readers (runDigest's diff and the fleet homepage's NEW badges) need

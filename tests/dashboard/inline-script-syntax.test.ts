@@ -5,7 +5,7 @@ import { renderSubmissionsPageHtml } from "../../src/dashboard/submissions-page-
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { gatingFields } from "../../src/reports/checklist.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { SubmissionsPageModel } from "../../src/dashboard/submissions-page.js";
 import { renderProspectAuditsPageHtml } from "../../src/dashboard/prospect-audits-render.js";
 

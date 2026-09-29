@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import type { RawRecord } from "../../src/db/import-airtable.js";
+import type { RawRecord } from "../../src/db/field-map.js";
 import { mirrorSiteFields, mirrorSiteInsert } from "../../src/db/fleet-state.js";
 
 const NOW = new Date("2026-08-25T12:00:00.000Z");

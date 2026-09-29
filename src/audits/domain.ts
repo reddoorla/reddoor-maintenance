@@ -89,7 +89,7 @@ export function defaultDomainDeps(now: Date): DomainDeps {
 /**
  * Audit a site's domain (DNS + TLS) against its deployed URL. Checkout-free — needs only
  * `site.deployedUrl`. Skips a site with no deployed URL. Writes `certDaysRemaining` + a checked-at
- * timestamp via the Airtable layer; the auto-tick rule decides pass/fail from those.
+ * timestamp via the write-back; the auto-tick rule decides pass/fail from those.
  */
 export async function domainAudit(ctx: AuditContext): Promise<AuditResult> {
   const { site } = ctx;

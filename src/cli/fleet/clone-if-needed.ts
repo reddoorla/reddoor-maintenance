@@ -68,7 +68,7 @@ async function isNonEmptyDir(path: string): Promise<boolean> {
 
 /**
  * The repo identity (`owner/repo` or a clone URL) the site is *expected* to be.
- * `gitRepo` (Airtable's `owner/repo`) is canonical; fall back to `repoUrl`.
+ * `gitRepo` (`owner/repo`) is canonical; fall back to `repoUrl`.
  * `undefined` when the inventory carries neither — there's nothing to verify
  * against, so a reused checkout can't be checked (we keep current behavior).
  */
@@ -112,7 +112,7 @@ async function assertCheckoutMatches(site: Site, path: string, spawn: SpawnFn): 
 /**
  * Resolve the URL to clone from. An explicit `repoUrl` wins; otherwise derive
  * one from `gitRepo` (`owner/repo` → `https://github.com/owner/repo.git`). The
- * Airtable inventory deliberately sets `gitRepo` and NOT `repoUrl` (a clone
+ * fleet inventory deliberately sets `gitRepo` and NOT `repoUrl` (a clone
  * source must never be the production `url`), so without this derivation every
  * checkout-based fleet recipe throws on the first site with an empty workdir.
  *

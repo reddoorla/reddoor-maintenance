@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { writeBackOneSite } from "../../src/audits/write-audits-to-airtable.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import { writeBackOneSite } from "../../src/audits/write-audits.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { AuditResult } from "../../src/types.js";
 
 const mirrorHealth = async () => true;

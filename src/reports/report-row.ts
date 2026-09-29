@@ -1,20 +1,20 @@
 /**
  * The report-row model and its pure, vendor-neutral coercers.
  *
- * `ReportRow` is what BOTH readers return — `mapRow` over an Airtable record
- * (`src/reports/airtable/reports.ts`) and the Turso report reader in
+ * `ReportRow` is what BOTH mappers return — `mapRow` over a column-named record
+ * (`src/reports/report-fields.ts`) and the Turso report reader in
  * `src/db/fleet-state.ts`. Moved out of the Airtable module in #539 Phase 6
- * step 1 (#646) so the Turso read path does not depend on the directory Phase 6
- * deletes. `src/reports/airtable/reports.ts` re-exports every name.
+ * step 1 (#646) so the Turso read path would not depend on the directory Phase 6
+ * deleted. `src/reports/report-fields.ts` re-exports every name.
  */
 import type { ReportType, LighthouseScores } from "./types.js";
 import type { EvidenceRecord } from "./auto-tick.js";
 
 const REPORT_TYPES: readonly ReportType[] = ["Maintenance", "Testing", "Launch", "Announcement"];
 
-/** Coerce the Airtable `Report type` (a single-select string) to a known
- *  ReportType. A bare `as ReportType` cast is a compile-time lie: if the
- *  single-select gains an unexpected option, the bad value flows to render.ts,
+/** Coerce the stored `Report type` string to a known ReportType. A bare
+ *  `as ReportType` cast is a compile-time lie: if the column holds an
+ *  unexpected value, the bad value flows to render.ts,
  *  where `reportType === "Launch"` silently falls through to the Maintenance
  *  template. Validate at the boundary; warn + default to "Maintenance" so an
  *  unknown type is VISIBLE in the logs rather than silently mis-templated. */

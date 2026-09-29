@@ -1,5 +1,5 @@
-import type { WebsiteRow } from "./airtable/websites.js";
-import type { ReportRow } from "./airtable/reports.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
+import type { ReportRow } from "./report-fields.js";
 import { autoTickChecklist, type EvidenceRecord } from "./auto-tick.js";
 
 const DRAFT_TIME_ONLY_FIELDS: ReadonlySet<string> = new Set(["Maint: Google Indexed"]);

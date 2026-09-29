@@ -1,7 +1,7 @@
 name: fleet-security
 
 # Nightly fleet-wide security audit against each active site, writing the vuln counts + a freshness
-# timestamp back to its Airtable row so the "Security Updates" checklist box can auto-tick.
+# timestamp back to its row so the "Security Updates" checklist box can auto-tick.
 # Repo-backed sites use GitHub Dependabot alerts (prod+dev); sites with no repo / no token fall back
 # to `pnpm/npm audit`. UNLIKE fleet-lighthouse this stays checkout-FUL — the `pnpm audit` fallback
 # reads each repo's committed lockfile, so every site is cloned. Kept a SEPARATE job from
@@ -175,7 +175,7 @@ jobs:
       # ruleset (active, EMPTY bypass list, PR-required — the layer that binds
       # admins, which classic protection's enforce_admins:false never did). The
       # self-updating recipe heals fleet sites, but it is cron-less and
-      # Airtable-scoped — exactly how six repos (one with NO protection at all)
+      # fleet-scoped — exactly how six repos (one with NO protection at all)
       # sat unprotected until the 2026-08-01 hand audit. This nightly sweep
       # enumerates the org from the API and alarms on any gap.
       #

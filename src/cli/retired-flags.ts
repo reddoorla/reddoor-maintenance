@@ -1,11 +1,11 @@
 /**
  * Retired CLI flag spellings, and the one place they are translated (#698).
  *
- * `--write-airtable` named the store the flag once wrote to. Since the #539 flip
- * Turso is authoritative and Airtable is the shadow, so the name described the
+ * `--write-airtable` named the store the flag once wrote to. After the #539 flip
+ * Turso was authoritative and Airtable only the shadow, so the name described the
  * wrong store — and agents believed it. The flag is now `--write-back`: it writes
- * the site's row, in whichever stores the write path owns, which stays true after
- * Phase 6 removes the shadow.
+ * the site's row, in whichever stores the write path owns, which stayed true when
+ * #937 removed the shadow.
  *
  * The old spelling still works, because it is typed by runbooks, shell history
  * and anything outside this repository that cannot be updated in the same commit.

@@ -6,8 +6,8 @@ import {
   ACTIVE_STATUSES,
   isPreLaunch,
   type WebsiteRow,
-} from "../reports/airtable/websites.js";
-import type { ReportRow } from "../reports/airtable/reports.js";
+} from "../fleet/site-row.js";
+import type { ReportRow } from "../reports/report-fields.js";
 import { approveBlockers } from "../reports/preflight.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
 
@@ -539,7 +539,7 @@ const PRISMIC_STALE_PASS_DAYS = 7;
  * THE SLUG CLAUSE IS NOT COSMETIC, and it was the first drift this pair produced.
  * The inventory drops an empty-slug row (`siteSlug(name) === ""`) with a warning,
  * because such a row can neither form a checkout path nor be matched back to its
- * Websites row on write-back — and `writeSweepToAirtable` joins by that same slug,
+ * Websites row on write-back — and `writeSweep` joins by that same slug,
  * so even a verdict computed for it could never land. Without this clause a live
  * site named in a script with no `[a-z0-9]` (or with an empty Name) was covered
  * here and swept nowhere: the permanent, un-ackable morning email this predicate
@@ -551,7 +551,7 @@ const PRISMIC_STALE_PASS_DAYS = 7;
  * sweep was owed. A deprecated site that left the inventory would otherwise carry
  * a frozen `pass` into the digest every morning forever — un-ackable (attention
  * items sit above the accepted-watch mute) and unfixable except by hand-clearing
- * an Airtable cell.
+ * the verdict cell.
  */
 function prismicSweepCovers(s: WebsiteRow): boolean {
   return (
@@ -587,7 +587,7 @@ function prismicSweepCovers(s: WebsiteRow): boolean {
  *     no claim to un-verify.
  *
  * A `pass` inside its window is the ONLY silent verdict. At most one item per site
- * — the Airtable cell holds one state at a time.
+ * — the verdict cell holds one state at a time.
  *
  * `warning`, not `critical`: on the cockpit ANY item already tiers the site 🔴, so
  * severity buys only (a) piercing the pre-launch mute and (b) sorting first in the

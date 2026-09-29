@@ -6,7 +6,7 @@ import {
   type NetlifyDeployDeps,
   type NetlifyDeployFetch,
 } from "../../src/audits/netlify-deploy.js";
-import { hasNetlifyDeployResult } from "../../src/audits/netlify-deploy-airtable.js";
+import { hasNetlifyDeployResult } from "../../src/audits/netlify-deploy-fields.js";
 
 const NOW = new Date("2026-06-18T00:00:00.000Z");
 

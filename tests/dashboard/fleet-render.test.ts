@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
-import { mapRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
+import { mapRow } from "../../src/fleet/site-fields.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { gatingFields } from "../../src/reports/checklist.js";
 

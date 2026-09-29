@@ -1,12 +1,8 @@
 /**
- * #646 step 4: `--fleet turso` reads the fleet roster from the database, and the
- * old `--fleet airtable` keyword is a deprecated ALIAS for it — it reads Turso too,
- * and says so on stderr every time.
- *
- * Both are driven against a temp `file:` db through the `openDb` seam. The
- * `AIRTABLE_*` variables are stubbed EMPTY: a keyword that still reached for
- * Airtable would throw "AIRTABLE_PAT not set" rather than quietly succeed, and
- * no real base is ever reachable from here.
+ * #646 step 4: `--fleet turso` reads the fleet roster from the database, driven
+ * here against a temp `file:` db through the `openDb` seam. The old
+ * `--fleet airtable` keyword was retired with the Airtable layer and is refused
+ * by name.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -74,25 +70,23 @@ describe("resolveSites --fleet turso", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("--fleet airtable is a deprecated alias: the SAME Turso roster, plus a warning naming the store read", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const viaAlias = await resolveSites({
-      fleet: "airtable",
-      workdir: "/w",
-      cwd: "/nonexistent",
-      openDb: () => openDb({ url }),
+  it("--fleet airtable is refused with exit 2, naming --fleet turso, and reads nothing", async () => {
+    let opened = false;
+    await expect(
+      resolveSites({
+        fleet: "airtable",
+        workdir: "/w",
+        cwd: "/nonexistent",
+        openDb: () => {
+          opened = true;
+          return openDb({ url });
+        },
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/--fleet airtable was removed.*--fleet turso/),
+      exitCode: 2,
     });
-    const viaTurso = await resolveSites({
-      fleet: "turso",
-      workdir: "/w",
-      cwd: "/nonexistent",
-      openDb: () => openDb({ url }),
-    });
-    expect(viaAlias).toEqual(viaTurso);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]![0])).toMatch(
-      /--fleet airtable is deprecated.*read from Turso.*--fleet turso/,
-    );
+    expect(opened).toBe(false);
   });
 
   it("still refuses a positional site combined with the keyword", async () => {

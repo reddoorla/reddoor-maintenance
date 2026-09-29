@@ -13,8 +13,6 @@ function turso(opts: { fails?: boolean } = {}): { writes: Write[]; siteMirror: S
   return {
     writes,
     siteMirror: {
-      created: async () => {},
-      hasRow: async () => true,
       health: async (id, fields) => {
         if (opts.fails) throw new Error("turso down");
         writes.push({ id, fields });
@@ -28,8 +26,6 @@ function turso(opts: { fails?: boolean } = {}): { writes: Write[]; siteMirror: S
 // the fleet-security.yml step relies on to never fail. (The dispatch happy path
 // is covered by the pure helpers in tests/github/renovate-dispatch.test.ts.)
 const unusedMirror = {
-  created: async () => {},
-  hasRow: async () => true,
   health: async () => {
     throw new Error("this path must not write");
   },

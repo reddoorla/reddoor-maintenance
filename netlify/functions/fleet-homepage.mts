@@ -41,7 +41,7 @@ function html(body: string, status: number): Response {
 }
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
-  // Authenticate BEFORE the Airtable/Turso env guards so an unauthenticated probe
+  // Authenticate BEFORE the Turso env guard so an unauthenticated probe
   // can't tell which backend env is unset (a differentiated 500 leaks config
   // state). Only the password check — unavoidable, since auth needs it — precedes.
   const auth = requireOperator(req, { wants: "redirect" });

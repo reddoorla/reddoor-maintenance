@@ -962,7 +962,7 @@ describe("runPrismicModelsCommand — fleet sweep", () => {
   });
 
   // Task 20 built `--write-back`, so the nightly's real invocation
-  // (`--fleet airtable --write-back`) must now SWEEP rather than refuse — the
+  // (`--fleet turso --write-back`) must now SWEEP rather than refuse — the
   // inverse of what this case asserted while the mode was unbuilt, and worth
   // keeping in that form: a refusal that outlives its reason is a nightly that
   // silently stops sweeping.

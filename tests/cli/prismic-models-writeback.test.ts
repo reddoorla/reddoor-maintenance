@@ -16,12 +16,12 @@ import { join } from "node:path";
 import {
   runPrismicModelsCommand,
   sweepRowWriteback,
-  writeSweepToAirtable,
+  writeSweep,
   type PrismicModelsDeps,
   type PrismicVerdictSink,
   type SweepRow,
 } from "../../src/cli/commands/prismic-models.js";
-import type { PrismicModelsWriteback } from "../../src/reports/airtable/websites.js";
+import type { PrismicModelsWriteback } from "../../src/fleet/site-fields.js";
 import type { RemoteEntry } from "../../src/prismic/models/index.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
@@ -113,10 +113,10 @@ describe("sweepRowWriteback", () => {
 // ---------------------------------------------------------------------------
 // The write itself: joining rows to records, and never losing one silently.
 // ---------------------------------------------------------------------------
-describe("writeSweepToAirtable", () => {
+describe("writeSweep", () => {
   it("writes pass with a null drift for a clean site", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable([row()], websites, update, "2026-08-12T06:00:00.000Z");
+    const res = await writeSweep([row()], websites, update, "2026-08-12T06:00:00.000Z");
     expect(written(update)).toEqual([
       "rec1",
       { verdict: "pass", checkedAt: "2026-08-12T06:00:00.000Z", detail: null },
@@ -127,12 +127,7 @@ describe("writeSweepToAirtable", () => {
 
   it("writes fail with the report as the drift detail", async () => {
     const update = recorder();
-    await writeSweepToAirtable(
-      [row({ clean: false, detail: "CHANGED  slice hero" })],
-      websites,
-      update,
-      "t",
-    );
+    await writeSweep([row({ clean: false, detail: "CHANGED  slice hero" })], websites, update, "t");
     expect(written(update)[1]).toMatchObject({ verdict: "fail", detail: "CHANGED  slice hero" });
   });
 
@@ -140,7 +135,7 @@ describe("writeSweepToAirtable", () => {
   // this file.
   it("writes unknown — not nothing — for a site whose check failed", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       [row({ status: "failed", clean: null, detail: "cannot read this checkout" })],
       websites,
       update,
@@ -156,7 +151,7 @@ describe("writeSweepToAirtable", () => {
   // `audit --write-back`.
   it("joins on the slug, not on an exact name match", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       [row({ site: "espada" })],
       [{ id: "rec1", name: "Espada" }],
       update,
@@ -168,7 +163,7 @@ describe("writeSweepToAirtable", () => {
 
   it("reports a row with no matching Websites record instead of dropping it", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable([row({ site: "Ghost" })], websites, update, "t");
+    const res = await writeSweep([row({ site: "Ghost" })], websites, update, "t");
     expect(update).not.toHaveBeenCalled();
     expect(res.failed.map((f) => f.slug)).toEqual(["ghost"]);
     expect(res.failed[0]!.error).toMatch(/no Websites row/i);
@@ -178,7 +173,7 @@ describe("writeSweepToAirtable", () => {
   // written to the wrong client's row is worse than a verdict not written.
   it("refuses to guess when two Websites rows match one site", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       [row()],
       // Two rows that differ only in case slug identically — the realistic shape
       // of a duplicated site in the Websites table.
@@ -200,7 +195,7 @@ describe("writeSweepToAirtable", () => {
     const update = vi.fn<PrismicVerdictSink["update"]>(async () => {
       throw new Error("UNKNOWN_FIELD_NAME: Prismic Models");
     });
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       [row(), row({ site: "Hedloc" })],
       [
         { id: "rec1", name: "Espada" },
@@ -221,7 +216,7 @@ describe("writeSweepToAirtable", () => {
     const update = vi.fn<PrismicVerdictSink["update"]>(async () => {
       throw "rate limited";
     });
-    const res = await writeSweepToAirtable([row()], websites, update, "t");
+    const res = await writeSweep([row()], websites, update, "t");
     expect(res.failed[0]!.error).toContain("rate limited");
   });
 
@@ -236,7 +231,7 @@ describe("writeSweepToAirtable", () => {
       row({ site: "Skipped", status: "skipped", clean: null }),
       row({ site: "Broken", status: "failed", clean: null }),
     ];
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       rows,
       [
         { id: "rec1", name: "Espada" },

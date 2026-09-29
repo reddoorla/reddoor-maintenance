@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderFleetTableHtml } from "../../src/dashboard/fleet-table-render.js";
 import { buildFleetTableModel, NO_STATUS_FILTER } from "../../src/dashboard/fleet-table.js";
 import type { FleetTableQuery, FleetTableRow } from "../../src/dashboard/fleet-table.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const DEFAULT_QUERY: FleetTableQuery = { sort: "name", dir: "asc", status: "", q: "" };

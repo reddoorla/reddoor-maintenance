@@ -120,16 +120,14 @@ export async function screenOutTotalsForSite(
   };
 }
 
-/** The ISO date (YYYY-MM-DD) `days` before `now`, for the window queries.
- *  Verbatim from the Airtable module so the windows match exactly. */
+/** The ISO date (YYYY-MM-DD) `days` before `now`, for the window queries. */
 export function screenOutsSince(now: Date, days: number): string {
   const d = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10);
 }
 
 /** Set the (site, date) bucket to exact totals. Replace-upsert (DO UPDATE SET col
- *  = excluded.col) so re-running the backfill is idempotent. The caller pre-sums
- *  duplicate same-day Airtable buckets in JS before calling this. */
+ *  = excluded.col) so re-running the backfill is idempotent. */
 export async function backfillScreenoutBucket(
   db: Db,
   b: { siteId: string; date: string; honeypot: number; tooFast: number; markedSpam: number },

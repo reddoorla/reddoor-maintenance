@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
-  writeFleetAuditsToAirtable,
+  writeFleetAudits,
   formatFleetWriteSummary,
   type FleetWriteResult,
-} from "../../src/audits/write-audits-to-airtable.js";
+} from "../../src/audits/write-audits.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import type { AuditResult } from "../../src/types.js";
 
@@ -34,7 +34,7 @@ function recordingMirror() {
   return { mirror, calls };
 }
 
-describe("writeFleetAuditsToAirtable", () => {
+describe("writeFleetAudits", () => {
   it("writes each site's lighthouse scores to its own row, grouped by result.site slug", async () => {
     const { mirror, calls } = recordingMirror();
     const results = [
@@ -46,7 +46,7 @@ describe("writeFleetAuditsToAirtable", () => {
       }),
       lhResult("beta-corp", { performance: 0.5, accessibility: 0.9, "best-practices": 1, seo: 1 }),
     ];
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
       results,
       mirror,
@@ -63,7 +63,7 @@ describe("writeFleetAuditsToAirtable", () => {
       lhResult("acme-co", { performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
       lhResult("ghost-site", { performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
     ];
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
       results,
       mirror,
@@ -108,7 +108,7 @@ describe("writeFleetAuditsToAirtable", () => {
         details: { counts: { low: 0, moderate: 0, high: 1, critical: 0 }, advisories: [] },
       } as unknown as AuditResult,
     ];
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
       results,
       mirror,
@@ -197,7 +197,7 @@ describe("the Turso mirror", () => {
 
   it("mirrors each written site's EXACT planned FieldSet", async () => {
     const { mirror, calls } = recordingMirror();
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
       mirror,
@@ -212,7 +212,7 @@ describe("the Turso mirror", () => {
   });
 
   it("files a site whose Turso write throws under failed, without failing the batch", async () => {
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
       mirror: async (siteId) => {
@@ -227,7 +227,7 @@ describe("the Turso mirror", () => {
   });
 
   it("a total Turso outage writes nothing, so the gates' wrote=0 reds the nightly", async () => {
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
       mirror: async () => {
@@ -241,7 +241,7 @@ describe("the Turso mirror", () => {
   });
 
   it("without a mirror: no counts on the result, no mirror keys on the summary line", async () => {
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
     });
@@ -267,7 +267,7 @@ describe("the Turso mirror", () => {
   });
 
   it("counts a mirror whose UPDATE matched no row as mirror_missed, and files the site as failed", async () => {
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
       results: twoSiteResults(),
       mirror: async (siteId) => siteId !== "recB",
@@ -284,7 +284,7 @@ describe("the Turso mirror", () => {
 
   it("does NOT call the mirror for a written site whose FieldSet is empty (empty-payload guard)", async () => {
     const calls: string[] = [];
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
       // lint persists nothing: the site lands in `written` with an
       // EMPTY FieldSet. Mirroring {} would count a mirror that wrote nothing.

@@ -1,4 +1,4 @@
-import type { WebsiteRow, SecurityCounts, DomainResult } from "../reports/airtable/websites.js";
+import type { WebsiteRow, SecurityCounts, DomainResult } from "../fleet/site-fields.js";
 import type { GitHubSignalsRow } from "./github-signals.js";
 import type { FleetEvent } from "../db/fleet-events.js";
 

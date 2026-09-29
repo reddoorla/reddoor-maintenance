@@ -594,7 +594,7 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       }
       // Every segment interpolates into the API path, so guard them all like the
       // other write methods do (defense in depth). `owner`/`name` are the most
-      // operator-controlled (typed into Airtable's "Git repo"); `workflow` is a
+      // operator-controlled (typed into the site's "Git repo"); `workflow` is a
       // constant today; `ref` is repo-sourced. A junk value like `repo?x=1` would
       // otherwise smuggle a query string past the bare two-part shape check.
       assertUrlSegment("path", owner);
