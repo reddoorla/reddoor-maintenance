@@ -1,5 +1,8 @@
 # Autonomy run journal
 
+> No longer kept after 2026-09-09. AUTONOMY.md's working loop now appends to
+> [`docs/workJournal.md`](workJournal.md).
+
 A rolling, reverse-chronological log of every PR the agent merged
 **autonomously** (see [`AUTONOMY.md`](../AUTONOMY.md)), so the whole arc is
 reviewable fast — and any one change is easy to find and `git revert`.
