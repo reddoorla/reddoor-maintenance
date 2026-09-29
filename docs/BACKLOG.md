@@ -296,6 +296,26 @@ Ordered by what unblocks the most. Each line is the exact ask.
     allSettled count fix, which round 2 cleared), or run a third review round
     first. Landing it is `git merge origin/main` (keep both sides of BACKLOG),
     CI green, then `node scripts/land-prs.mjs 985`.
+23. **P1-12, weekly config-drift report (#983, PR #995)**: two review rounds
+    each found real defects, so #995 is held for your call instead of going to a
+    third round. The one code defect was that `--only` without gitignore
+    skipped the fleet-mode git guard, fixed in `a304bc72`. Everything else was
+    a missing test: round 1 six (exact-title and exact-repo matching, control
+    guards, one record per line), round 2 five (drift paths checked only
+    against the dry plan itself, the open step's `drifted == 'yes'` gate,
+    three control checks, the tracked leg, the skip warning), plus the
+    runbook rows. All are fixed on the branch at `4b195009`. 37 mutation runs (the
+    brief's 8 as 11 runs, plus 26 from me and both rounds) all turn a test red. Round 2's
+    correctness lens found nothing. One design point is kept as the brief set
+    it: the finding issue closes only when every repo named in its body comes
+    back CLEAN, so a repo that leaves the roster keeps it open until closed by
+    hand, and the close step says so in a `::warning::`. The ask: land #995 as
+    it is (my pick, since the round-2 changes are tests, docs and one stricter
+    control check), or run a third round first. Landing it is
+    `git merge origin/main` (keep both sides of BACKLOG), CI green,
+    `node scripts/land-prs.mjs 995`, then dispatch `fleet-config-drift.yml` once
+    on `main` (the brief's live proof: control passes, summary total = roster
+    size, issue filed to match).
 
 ---
 
