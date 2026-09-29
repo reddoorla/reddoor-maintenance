@@ -5748,7 +5748,7 @@ Each survivor got a test, and each test was shown red under its mutation before 
 
 **Beliefs corrected on contact.** The instrument works. What it measured is that every site on the roster has drifted from the templates, with nothing clean and nothing skipped. Counting DRIFT lines per file: `.gitignore` 13 of 15 repos, `playwright.config.ts` 9, `eslint.config.js` 8, `lighthouserc.json` 7, `.prettierrc.json` 6, `netlify.toml` 4, `renovate.json` 3, `.prettierignore` 1. So the weekly report starts as a standing backlog of 15 per-repo `sync-configs` PRs, not an exception feed. Healing it is a per-repo PR each time; a fleet-wide push is 🔴 and was not attempted. Until those land, #1007 stays open every week by design.
 
-## 2026-09-29 — #674: design-review rules mined, no code (#PRNUM)
+## 2026-09-29 — #674: design-review rules mined, no code (#1012)
 
 The operator decided on 2026-09-29 that #674 should mine the rules first and write no code. This session did the mining from the cloud. The result is `docs/design-review-rules-2026-09.md`: 25 ranked rules, nine single-site clusters, eleven rules for the written guide, and a tail of rules seen once.
 
