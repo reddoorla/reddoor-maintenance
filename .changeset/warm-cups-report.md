@@ -2,73 +2,80 @@
 "@reddoorla/maintenance": minor
 ---
 
-a11y audit: contrast that was never measured is a failure, not a clean page (#888)
+a11y audit: contrast that axe never measured is now a failure, not a clean page (#888)
 
-Tailwind 4.3 defines 13 palette entries with a `none` hue: every `neutral-*`,
-`zinc-50` and `mauve-50`, e.g. `oklch(20.5% 0 none)` for `neutral-900`. Chrome
-renders them. axe-core 4.13.0, the latest release, cannot parse them. The audit
-fails only on `violations`, so when axe could not measure a colour the page
-read as clean. What happens depends on where the colour sits under the text.
-Both cases were measured in Chromium, and `scripts/probe-axe-contrast.mjs`
-re-runs them:
+The a11y gate fails only on axe's `violations`. Where axe could not measure a
+colour, a page therefore read as clean. The common cause is Tailwind 4.3's
+palette. It writes 13 entries with a `none` hue: every `neutral-*`, plus
+`zinc-50` and `mauve-50`. For example, `neutral-900` is `oklch(20.5% 0 none)`.
+Browsers render `none` as 0. axe-core 4.13.0, the latest release, cannot parse
+it.
 
-| where the colour sits                                                                      | what axe does                                                                                                                            | reported as           |
-| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| first opaque background behind the text                                                    | leaves that node `incomplete` with `messageKey: "colorParse"`; the rule runs on elsewhere                                                | `contrast-unmeasured` |
-| beneath an opaque background: a white CTA or card in the band (the starter's `Hero` slice) | **throws**; `color-contrast` is skipped for the **whole page**, as one `incomplete` entry carrying `error` and an `error-occurred` check | `rule-errored`        |
+**What now fails.** Each shape below was measured in Chromium.
+`scripts/probe-axe-contrast.mjs` re-runs the first five rows.
 
-The second case is the one #888 reported, with 0 contrast nodes on a page
-that measures 61 once the colour is removed. axe's message was:
-`Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule.`
-The correction later posted on the issue was right about the first case, but
-it called the second impossible, because its probes only put the colour
-directly behind the text. With a white
-CTA inside the band, as in the starter's `Hero`, the rule throws.
+| On an audited route                                                                                    | What axe does                                                               | Reported as           |
+| ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- | --------------------- |
+| Text on such a colour (the first opaque background behind it)                                          | leaves that node unmeasured (`colorParse`) and checks the rest              | `contrast-unmeasured` |
+| Text **coloured** with one (`text-neutral-*`)                                                          | the same                                                                    | `contrast-unmeasured` |
+| Such a colour **beneath** an opaque background: a white CTA or card in the band (the starter's `Hero`) | the color-contrast rule **throws**, and that whole document goes unmeasured | `rule-errored`        |
+| A `text-shadow` in such a colour                                                                       | color-contrast throws                                                       | `rule-errored`        |
+| A link inside a text block, coloured or bordered with one                                              | link-in-text-block throws                                                   | `rule-errored`        |
+| Any other axe rule that throws                                                                         | that rule measures nothing in that document                                 | `rule-errored`        |
 
-**Both are now violations, and so they reach the exit code:**
+Both findings are serious, so each fails the gate on its own. These pages
+were never clean, because contrast on them was never measured. The Hero shape
+is #888 as it was reported: 0 contrast nodes on a page that measures 61 once
+the colour is gone.
 
-- `contrast-unmeasured` (serious). The summary line gives the node count, the
-  colour axe rejected, and the fix:
-  `2 element(s) on a colour axe cannot parse (oklch(0.205 0 none)), so contrast was never measured there — give the oklch() token an explicit hue (identical at chroma 0)`.
-- `rule-errored` (serious), for any rule that has axe's documented
-  `incomplete[].error` field. The line gives axe's own message, and adds the
-  same fix when that message is a colour-parse failure.
+**The fix, stated in each finding.** For a colour with `none`, the summary line
+says to write 0 there, and it names the colour's own function, e.g.
+`write 0 for "none" in the oklch() token`. Because browsers already render
+`none` as 0, nothing on screen changes. The screenshots are byte-identical at
+all 11 of the palette's lightness values. For the starter's palette this is a
+13-token `@theme` override, staged in reddoor-starter. With it, the starter's
+own gate goes from `rule-errored on a11y fixtures` (0 contrast nodes measured)
+to 0 violations (64 measured).
 
-**The fix, one line per site, changes nothing on screen:** give the token an
-explicit hue. At chroma 0 the hue has no effect, and `oklch(0.205 0 none)` and
-`oklch(0.205 0 0)` render byte-identical PNGs. Only axe can tell them apart.
-The live test shows what that uncovers: with the hue given, axe measures a
-band it had skipped, and the band fails at 1.57:1 (axe's own measurement).
+**A crash is attributed to the frame it happened in.** axe runs each frame
+separately:
 
-**Not reported.** The rule's other `incomplete` reasons are properties of the
-page: `bgImage`, `bgGradient`, `imgNode`, `elmPartiallyObscured`,
-`shortTextContent`. For those, "axe cannot be sure" is the honest answer. A
-page with no text makes the rule inapplicable. An earlier cut keyed on
-"`color-contrast` missing from `passes`". It flagged both of those healthy
-pages and missed the first case.
+- A crash inside a third party's cross-origin frame is counted in
+  `frameNodesDropped` and named in the summary, never failed. This follows
+  0.101.0's rule for third-party frames.
+- A crash in the site's own document, in a same-origin frame, or with no node
+  to attribute fails as `rule-errored`, naming the rule and axe's message. Two
+  rules that threw on one route are listed separately.
 
-**How this sits with the reveal pass (#100 / #950):**
+To make that possible, the audit now reads axe's **raw** report. When a rule
+threw in any frame, axe's default report keeps only that rule's `incomplete`
+group. So a color-contrast crash inside an embed used to erase the site's own
+contrast violations and passes. The raw report keeps every group of every
+rule, and places each crash in its own frame. For a rule that did not throw,
+the report reads exactly as before, and 0.101.0's live tests pass unchanged.
 
-- Detection reads axe's results after the page has been scrolled and settled.
-  A reveal on such a colour is measured revealed and reported. Before, it
-  dropped out of the rule at `opacity: 0`.
-- Both findings go through the same cross-origin frame split as axe's own
-  violations. An unparseable colour, or a thrown rule, inside a third party's
-  frame is counted in `frameNodesDropped` and named in the summary. It is
-  never failed.
+**Not reported:** color-contrast's other `incomplete` reasons (`bgImage`,
+`bgGradient`, `imgNode`, `elmPartiallyObscured`, `shortTextContent`, and the
+rest of axe's list). Those are properties of the page, where "axe cannot be
+sure" is the honest answer.
 
-**Coverage is recorded** as `measured: [{ route, ruleNodes }]` in the
-artifact: how many nodes each rule passed on each route. It is a count, not a
-presence flag, because one passing node would satisfy a flag while sixty went
-unmeasured. It is recorded only; nothing gates on it.
+**Not caught:** a colour with `none` in its **alpha** slot (`/ none`). axe
+parses it and treats it as opaque, so text on it or in it is measured wrongly
+and passes. For example, white text on an `oklch(0.2 0 0 / none)` band reads
+18.09:1, though the band renders transparent and the text white on white.
+Nothing in axe's output tells that case apart from a real pass. Tailwind
+4.3.3's CSS never writes a `none` alpha.
 
-**New ways a site can turn red on this bump.** A site goes red when an audited
-route has text on or over a `none`-hued token. That includes the starter's
-`/dev/a11y-fixtures`, which renders the `Hero` slice (`bg-neutral-900` with a
-white CTA) wherever a site still carries it. These sites were never clean:
-contrast on those pages had not been measured.
+**Recorded, not gated:** `measured: [{ route, ruleNodes }]` in the artifact.
+It counts, per rule, the nodes axe passed on each route.
 
-`tests/audits/a11y-live-spec.test.ts` runs every shape above through the real
-audit in Chromium. The same file also holds a gradient that must not be
-reported, a reveal that must be, the explicit-hue control, and the
-third-party frame.
+`tests/audits/a11y-live-spec.test.ts` runs the table's first three rows and its
+last one through the real audit. The probe covers the `text-shadow` and link
+rows. The live test also runs:
+
+- each finding alone failing the gate;
+- a crash inside a third-party frame that leaves the site's own failure
+  standing;
+- the site's crash beside a third party's;
+- a crash in a same-origin frame;
+- a reveal on such a colour.

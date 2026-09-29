@@ -18,10 +18,10 @@
  *
  * Unit tests on a hand-built artifact could not tell any of this apart,
  * because they asserted the shape their author believed in. So this runs the
- * detection the generated spec injects (unparseableContrastNodes, from
- * src/audits/util/contrast-unmeasured.ts, serialized into the spec with
- * toString()) and the spec's `incomplete[].error` test against axe in a real
- * browser, in both directions. The same shapes, run through the real audit,
+ * detection the generated spec injects (readAxeResults over axe's raw report,
+ * then unparseableContrastNodes and the crashes it sets apart; both serialized
+ * into the spec with toString()) against axe in a real browser, in both
+ * directions. The same shapes, run through the real audit,
  * are held in CI by tests/audits/a11y-live-spec.test.ts; this is the quick
  * check to run after any change to that detection or any axe-core bump:
  *
@@ -30,7 +30,10 @@
  * Expected, axe-core 4.13.0 + Chromium:
  *     BAD  one band            -> UNMEASURED, 1 node(s)
  *     BAD  colour on body      -> UNMEASURED, 2 node(s)
- *     BAD  white CTA in band   -> RULE THREW: Unable to parse color ...
+ *     BAD  white CTA in band   -> RULE THREW: color-contrast: Unable to parse color ...
+ *     BAD  text in the colour  -> UNMEASURED, 1 node(s)
+ *     BAD  text-shadow         -> RULE THREW: color-contrast: ...
+ *     BAD  link border         -> RULE THREW: link-in-text-block: ...
  *     GOOD healthy control     -> nothing reported
  *     GOOD text on a gradient  -> nothing reported
  *     GOOD no text at all      -> nothing reported
@@ -44,12 +47,16 @@
 import { chromium } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { unparseableContrastNodes } from "../src/audits/util/contrast-unmeasured.ts";
+import { readAxeResults } from "../src/audits/util/axe-results.ts";
 
 const T = "A sentence long enough that axe will actually judge its contrast.";
 const PAGES = {
   "BAD  one band (the colour directly behind the text)": `<style>.b{background-color:oklch(0.205 0 none);color:#3a3a3a}</style><main><p class="b">${T}</p><p>${T} Plain.</p></main>`,
   "BAD  colour on body (page-wide)": `<style>body{background-color:oklch(0.205 0 none);color:#3a3a3a}</style><main><p>${T}</p><p>${T} Again.</p></main>`,
   "BAD  white CTA in the band (the starter Hero, and #888 as reported)": `<style>section{background-color:oklch(0.205 0 none);color:#fff;position:relative;isolation:isolate;padding:20px}a{display:inline-block;background:#fff;color:#000;padding:8px}</style><main><p>${T}</p><section><p>${T}</p><a href="#x">Explore</a></section></main>`,
+  "BAD  text coloured with the colour (text-neutral-*)": `<main><p style="color:oklch(0.4 0 none)">${T}</p></main>`,
+  "BAD  a text-shadow in the colour (color-contrast throws)": `<main><p style="text-shadow:0 0 2px oklch(0.2 0 none)">${T}</p></main>`,
+  "BAD  a link in a text block, bordered in the colour (link-in-text-block throws)": `<main><p>${T} <a href="#x" style="color:#111;text-decoration:none;border-bottom:1px solid oklch(0.87 0 none)">a link</a> inside it.</p></main>`,
   "GOOD healthy control": `<style>body{background:#fff;color:#111}</style><main><p>${T}</p></main>`,
   "GOOD text on a gradient": `<style>.g{background-image:linear-gradient(#000,#333);color:#eee}</style><main><p class="g">${T}</p></main>`,
   "GOOD no text at all": `<main><div style="width:9px;height:9px"></div></main>`,
@@ -65,24 +72,26 @@ for (const [label, body] of Object.entries(PAGES)) {
   await page.setContent(
     `<!doctype html><html><head><meta charset="utf-8"></head><body>${body}</body></html>`,
   );
-  // The same builder, options (preload off, set before the tags, #52) and tags
+  // The same builder, options (preload off and the raw report, set before the
+  // tags, #52 and #916) and tags
   // the audit's own spec uses, so this measures the shipped path rather than a
   // lookalike.
-  const results = await new AxeBuilder({ page })
-    .options({ preload: false })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-    .analyze();
+  const results = readAxeResults(
+    await new AxeBuilder({ page })
+      .options({ preload: false, reporter: "raw" })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze(),
+  );
   await page.close();
   const found = unparseableContrastNodes(results);
-  // The spec's other test, verbatim in substance: any incomplete rule that
-  // carries axe's documented `error` field threw and measured nothing.
-  const threw = (results.incomplete ?? []).filter((r) => r.error);
+  // The spec's other finding: every crash readAxeResults sets apart.
+  const threw = results.crashes;
   const reported = found.length > 0 || threw.length > 0;
   const expected = label.startsWith("BAD");
   if (reported !== expected) bad += 1;
   const said = [
     ...(found.length > 0 ? [`UNMEASURED, ${found.length} node(s)`] : []),
-    ...threw.map((r) => `RULE THREW: ${r.id}: ${r.error.message}`),
+    ...threw.map((c) => `RULE THREW: ${c.rule}: ${c.message}`),
   ];
   console.log(
     `${label}\n   -> ${reported ? said.join("; ") : "nothing reported"}${

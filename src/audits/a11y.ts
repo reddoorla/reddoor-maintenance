@@ -16,8 +16,10 @@ import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
 import {
   contrastUnmeasuredHelp,
   ruleErroredHelp,
+  unparseableColourRemedy,
   unparseableContrastNodes,
 } from "./util/contrast-unmeasured.js";
+import { readAxeResults } from "./util/axe-results.js";
 import {
   collectFrameErrorLogs,
   firstStackUrl,
@@ -420,6 +422,9 @@ const frameOnPathIsForeign = ${frameOnPathIsForeign.toString()};
 const unparseableContrastNodes = ${unparseableContrastNodes.toString()};
 const contrastUnmeasuredHelp = ${contrastUnmeasuredHelp.toString()};
 const ruleErroredHelp = ${ruleErroredHelp.toString()};
+const unparseableColourRemedy = ${unparseableColourRemedy.toString()};
+// Injected the same way — see src/audits/util/axe-results.ts (#916 review).
+const readAxeResults = ${readAxeResults.toString()};
 // Every read of a frame is bounded: a lazy iframe that never loaded is listed
 // with no document, and waiting on it hung the whole run (#100 review).
 const FRAME_READ_TIMEOUT_MS = 2000;
@@ -635,10 +640,20 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // .options() comes FIRST: it replaces the whole options object, and
       // withTags() writes runOnly into it. Called after, it would drop the tag
       // filter without a word and axe would run every rule it has.
-      const results = await new AxeBuilder({ page })
-        .options({ preload: false })
-        .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
-        .analyze();
+      //
+      // reporter: "raw" (#916 review). axe merges each rule's results across
+      // frames, and when the rule THREW in any frame its default report keeps
+      // only the incomplete group: a color-contrast crash inside a third
+      // party's embed erased the site's own contrast violations and passes.
+      // The raw report keeps every group and every crash node, in the frame it
+      // happened in; readAxeResults (src/audits/util/axe-results.ts) reads it
+      // back into the shape below, with the crashes set apart.
+      const results = readAxeResults(
+        await new AxeBuilder({ page })
+          .options({ preload: false, reporter: "raw" })
+          .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
+          .analyze(),
+      );
       // #888: contrast axe never measured, which an empty violations list
       // cannot tell from legible text. A colour axe cannot parse (Tailwind
       // 4.3's none-hued neutral palette, which Chrome renders fine) reaches it
@@ -646,7 +661,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // per node, as an incomplete "colorParse" entry while the rule runs on
       // (-> contrast-unmeasured, here); or, when the colour sits beneath an
       // opaque background such as a white CTA in a neutral-900 Hero, as a
-      // thrown rule that is skipped for the whole page (-> rule-errored,
+      // thrown rule that is skipped for that whole document (-> rule-errored,
       // below). The rule's other incomplete reasons (a gradient, an image, an
       // obscured box) belong to the page and are NOT reported.
       //
@@ -662,20 +677,22 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       if (unparseable.length > 0) {
         derived.push({ id: "contrast-unmeasured", impact: "serious", nodes: unparseable });
       }
-      // A rule that THREW measured nothing on this page, and axe documents a
-      // field for it (incomplete[].error). This is #888's reported shape: the
-      // colour beneath a white CTA made color-contrast throw "Unable to parse
-      // color ... Skipping color-contrast rule." and skip the whole page.
-      for (const inc of results.incomplete ?? []) {
-        if (!inc.error) continue;
+      // A rule that THREW measured nothing in the document it threw in. This
+      // is #888's reported shape: the colour beneath a white CTA made
+      // color-contrast throw "Unable to parse color ... Skipping color-contrast
+      // rule." Each crash is one node in the frame it happened in, so it goes
+      // through the frame split like everything else: a crash inside a third
+      // party's frame is counted, never failed, and one in the site's own
+      // document -- or one with no node to attribute -- fails, because the
+      // site's own results for that rule were never produced there.
+      for (const crash of results.crashes) {
         const errored = {
           id: "rule-errored",
           impact: "serious",
-          help: ruleErroredHelp(inc.id, inc.error.message),
-          helpUrl: inc.helpUrl,
-          nodes: inc.nodes ?? [],
+          help: ruleErroredHelp(crash.rule, crash.message, unparseableColourRemedy),
+          helpUrl: crash.helpUrl,
+          nodes: crash.nodes,
         };
-        // No node means nothing to attribute to a frame: it is the site's.
         if (errored.nodes.length > 0) derived.push(errored);
         else violations.push({ ...errored, route: name });
       }
@@ -716,7 +733,10 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
           // written from the nodes that were kept. It carries the count (how
           // blind was the run), the colour axe rejected (what to change) and
           // the remedy -- an alarm without a remedy just gets muted.
-          help: v.id === "contrast-unmeasured" ? contrastUnmeasuredHelp(v.nodes) : v.help,
+          help:
+            v.id === "contrast-unmeasured"
+              ? contrastUnmeasuredHelp(v.nodes, unparseableColourRemedy)
+              : v.help,
           helpUrl: v.helpUrl,
           nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
         });
@@ -810,7 +830,11 @@ export function describeViolations(violations: AxeViolation[]): string {
     // thrown outside it, so the two never fold into one entry.
     const duringReveal =
       v.id === "client-error" && (v.help ?? "").startsWith(REVEAL_PASS_ERROR_PREFIX);
-    const key = `${v.id}\u0000${v.route}\u0000${duringReveal ? "reveal" : ""}`;
+    // A rule-errored entry is only as useful as the rule it names, and two
+    // rules that threw on one route are two findings (#916 review): fold only
+    // identical messages, never a second rule under the first rule's text.
+    const ownText = v.id === "rule-errored" ? (v.help ?? "") : "";
+    const key = `${v.id}\u0000${v.route}\u0000${duringReveal ? "reveal" : ""}\u0000${ownText}`;
     const g = groups.get(key);
     if (g) g.n += 1;
     else {

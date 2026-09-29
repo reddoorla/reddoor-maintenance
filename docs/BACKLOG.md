@@ -191,8 +191,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
 8. **#918 / #920** (GA4 tag mechanism + recipe) — their author stopped after
    four dirty review rounds with "the merge is yours". #918 is 16 behind main
    and predates #936's `no analytics` opt-out.
-9. **#916 vs #950** — decided 2026-09-29: #950 first, then #916 merged over
-   it for 0.101.0. Moved to _Done_.
+9. **#916 vs #950** — decided 2026-09-29: #950 shipped in 0.101.0, and #916 is
+   merged over it for 0.102.0. Moved to _Done_.
 10. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
@@ -257,7 +257,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
   static grep for `none`-hued tokens. Nobody measured it against the gate. Both
   of axe's shapes occur. The whole-rule throw (`rule-errored`) that the issue
   reported, and that the correction posted on it called impossible, is what the
-  starter's `Hero` produces: a white CTA over `bg-neutral-900`.
+  starter's `Hero` produces: a white CTA over `bg-neutral-900`. It ships in
+  0.102.0, together with the reddoor-starter `@theme` fix that keeps the
+  starter's own gate green.
 
 - 2026-09-29 — P1-8 / #907: the prospect-audit daily cap reserves a `running`
   row before the spend, atomically, and counts finished plus non-stale running

@@ -25,15 +25,17 @@
 //      inside a `bg-neutral-900` section, which is the starter's Hero. axe
 //      finds the white first and stops looking for the background, but then
 //      builds the stacking context for the blend, parses every element in the
-//      stack without a catch, and THROWS. The whole rule is skipped for the
-//      whole page: one `incomplete` entry carrying `error` ("Unable to parse
-//      color "oklch(0.205 0 none)" Skipping color-contrast rule.") and an
-//      `error-occurred` check, and zero contrast passes anywhere on the page.
-//      This is the shape #888 reported ("0 contrast nodes where there should
-//      have been 61").
+//      stack without a catch, and THROWS. The rule is skipped for that whole
+//      document (axe runs each frame separately): one node carrying an
+//      `error-occurred` check ("Unable to parse color "oklch(0.205 0 none)"
+//      Skipping color-contrast rule."), the rule's `error` set, and zero
+//      contrast passes anywhere in that document. This is the shape #888
+//      reported ("0 contrast nodes where there should have been 61").
 //
-//      -> reported as `rule-errored`, from axe's documented `incomplete[].error`,
-//         with ruleErroredHelp naming the remedy.
+//      -> reported as `rule-errored`, attributed by the frame the crash node
+//         is in (readAxeResults, util/axe-results.ts, which also explains why
+//         the audit reads axe's raw report), with ruleErroredHelp naming the
+//         remedy. A crash inside a third party's frame is counted, not failed.
 //
 // "colorParse" is the RIGHT per-node signal precisely because it means the
 // browser understood the colour and axe did not: an instrument failure. The
@@ -73,17 +75,34 @@ export function unparseableContrastNodes<N extends AxeCheckedNode>(results: {
 }
 
 /**
+ * What to change about one colour axe could not parse, named by its colour
+ * function. For a colour with a `none` component — every one of Tailwind
+ * 4.3's none-hued palette entries — the change is to write 0 there: CSS
+ * renders `none` as 0 outside interpolation, so nothing on screen moves (the
+ * rendered PNGs of `oklch(0.205 0 none)` and `oklch(0.205 0 0)` are
+ * byte-identical; only axe can tell them apart). Any other unparseable colour
+ * gets the only advice that is true of all of them.
+ */
+export function unparseableColourRemedy(colour: string | null | undefined): string {
+  const fn = typeof colour === "string" ? /^\s*([a-z][a-z0-9-]*)\(/i.exec(colour) : null;
+  const token = fn && fn[1] ? `${fn[1].toLowerCase()}() token` : "colour token";
+  if (typeof colour === "string" && /\bnone\b/i.test(colour)) {
+    return `write 0 for "none" in the ${token} (browsers already render none as 0, so nothing on screen changes)`;
+  }
+  return `give the ${token} a value axe-core can parse`;
+}
+
+/**
  * The `contrast-unmeasured` finding's `help`, which is also its line in the CI
  * summary. One line, carrying the count (how blind the run was), the colour
- * axe rejected (what to change, up to two named) and the remedy: an alarm
- * without a remedy just gets muted.
- *
- * The remedy is the one #888 measured: give the token an explicit hue. At
- * chroma 0 the hue has no effect, and the rendered PNGs of
- * `oklch(0.205 0 none)` and `oklch(0.205 0 0)` are byte-identical; only axe can
- * tell them apart.
+ * axe rejected (what to change, up to two named) and the remedy for the first
+ * of them (`remedy` is unparseableColourRemedy, passed in so this stays
+ * self-contained): an alarm without a remedy just gets muted.
  */
-export function contrastUnmeasuredHelp(nodes: AxeCheckedNode[]): string {
+export function contrastUnmeasuredHelp(
+  nodes: AxeCheckedNode[],
+  remedy: (colour: string | null | undefined) => string,
+): string {
   const colours: string[] = [];
   for (const n of nodes) {
     for (const c of [...(n.any ?? []), ...(n.all ?? []), ...(n.none ?? [])]) {
@@ -97,20 +116,23 @@ export function contrastUnmeasuredHelp(nodes: AxeCheckedNode[]): string {
       : ` (${colours.slice(0, 2).join(", ")}${colours.length > 2 ? `, +${colours.length - 2} more` : ""})`;
   return (
     `${nodes.length} element(s) on a colour axe cannot parse${named}, so contrast was never` +
-    " measured there — give the oklch() token an explicit hue (identical at chroma 0)"
+    ` measured there — ${remedy(colours[0])}`
   );
 }
 
 /**
  * The `rule-errored` finding's `help`: the rule and axe's own message, which
  * already names what it choked on. When that is a colour it could not parse
- * (shape 2 above: the whole rule was skipped for the whole page), the line
- * also carries the remedy, for the same reason contrastUnmeasuredHelp does.
+ * (shape 2 above: the whole rule was skipped for that frame), the line also
+ * carries the remedy for that colour, for the same reason
+ * contrastUnmeasuredHelp does.
  */
-export function ruleErroredHelp(ruleId: string, message: string | undefined | null): string {
+export function ruleErroredHelp(
+  ruleId: string,
+  message: string | undefined | null,
+  remedy: (colour: string | null | undefined) => string,
+): string {
   const said = message || "no message from axe";
-  const remedy = /Unable to parse colou?r/i.test(said)
-    ? " — give the oklch() token an explicit hue (identical at chroma 0)"
-    : "";
-  return `axe could not run "${ruleId}": ${said}${remedy}`;
+  const colour = /Unable to parse colou?r "([^"]*)"/i.exec(said);
+  return `axe could not run "${ruleId}": ${said}${colour ? ` — ${remedy(colour[1])}` : ""}`;
 }
