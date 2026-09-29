@@ -223,7 +223,11 @@ export function assignTier(
   }
   // #943: a watch only when a draft's lookup ran and matched no property. A blank
   // record is not evidence either way, and a soft-fail is unknown, not a finding.
-  if (site.status === "maintained" && site.searchConsoleOutcome === "no-property") {
+  if (
+    site.status === "maintained" &&
+    site.searchConsoleOutcome === "no-property" &&
+    Number.isFinite(Date.parse(site.searchConsoleCheckedAt ?? ""))
+  ) {
     candidates.push({
       signal: "search-console-no-property",
       acceptKeys: SEARCH_CONSOLE_OPT_OUT_KEYS,

@@ -436,6 +436,17 @@ describe("assignTier", () => {
     expect(wrongKey.tier).toBe("watch");
   });
 
+  it("a no-property outcome without a readable timestamp is unknown, as on the setup line, not a watch", () => {
+    for (const searchConsoleCheckedAt of [null, "not-a-date"]) {
+      const r = assignTier(
+        site({ status: "maintained", ...NO_PROPERTY, searchConsoleCheckedAt }),
+        [],
+        NOW,
+      );
+      expect(r.watchSignals).toEqual([]);
+    }
+  });
+
   it("does not raise the no-property watch for a non-maintained site", () => {
     for (const status of ["building", "hosted-only", "external", "archived"] as const) {
       expect(assignTier(site({ status, ...NO_PROPERTY }), [], NOW).watchSignals).toEqual([]);

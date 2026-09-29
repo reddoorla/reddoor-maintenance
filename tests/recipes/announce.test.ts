@@ -838,3 +838,60 @@ describe("announce — #943: persists what the Search Console lookup resolved", 
     expect(siteHealth.some((h) => "Search Console Outcome" in h.fields)).toBe(false);
   });
 });
+
+describe("announce — #943: a soft-fail and a Search Console-only site", () => {
+  function acme(fields: Record<string, unknown>): Seed {
+    return {
+      Websites: [
+        {
+          id: "rec_acme",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintained",
+            ...fields,
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [],
+    };
+  }
+
+  it("an errored lookup writes soft-fail and clears the property, so an older resolved row cannot keep passing", async () => {
+    process.env.GA_SUBJECT = "tucker@reddoorla.com";
+    vi.mocked(fetchSearch).mockResolvedValue({
+      value: null,
+      softFailed: true,
+      defaultQueryMissed: false,
+      propertyMissing: false,
+      notConfigured: false,
+      lookup: { outcome: "soft-fail", property: null },
+    });
+    await announce(A(acme({ "GA4 property ID": "G-123" })));
+    const write = siteHealth.find((h) => "Search Console Outcome" in h.fields);
+    expect(write?.fields).toMatchObject({
+      "Search Console Outcome": "soft-fail",
+      "Search Console Resolved": null,
+      "Search Console Checked At": NOW.toISOString(),
+    });
+  });
+
+  it("persists for a site enrolled only through a recorded Search Console property", async () => {
+    process.env.GA_SUBJECT = "tucker@reddoorla.com";
+    vi.mocked(fetchSearch).mockResolvedValue({
+      value: { foundOnPage1: true, position: 2, propertyFound: true },
+      softFailed: false,
+      defaultQueryMissed: false,
+      propertyMissing: false,
+      notConfigured: false,
+      lookup: { outcome: "resolved", property: "sc-domain:acme.example.com" },
+    });
+    await announce(A(acme({ "Search Console property": "sc-domain:acme.example.com" })));
+    const write = siteHealth.find((h) => "Search Console Outcome" in h.fields);
+    expect(write?.fields).toMatchObject({
+      "Search Console Outcome": "resolved",
+      "Search Console Resolved": "sc-domain:acme.example.com",
+    });
+  });
+});

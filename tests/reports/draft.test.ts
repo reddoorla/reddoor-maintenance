@@ -1048,6 +1048,21 @@ describe("draftReportForSite → the Turso report writer", () => {
       expect(mirrored).toEqual([]);
     });
 
+    it.each<[string, Partial<WebsiteRow>]>([
+      ["a recorded property", { searchConsoleProperty: "sc-domain:acme.example.com" }],
+      ["a search query", { searchQuery: "acme" }],
+    ])("persists for a site enrolled through %s with no GA4 property", async (_, over) => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: false,
+      });
+      const { sc } = await draftWith({ ga4PropertyId: null, ...over });
+      expect(sc).toHaveLength(1);
+      expect(sc[0]!.fields).toMatchObject({ "Search Console Outcome": "no-property" });
+    });
+
     it("a failing mirror write does not fail the draft", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
       vi.mocked(fetchSearchPresence).mockResolvedValue({
