@@ -163,6 +163,9 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     prismicModelsCheckedAt: str(r.prismic_models_checked_at),
     prismicModelsDrift: str(r.prismic_models_drift),
     prismicAckUntil: str(r.prismic_ack_until),
+    urlResolves: toVerdict(r.url_resolves),
+    urlStatus: str(r.url_status),
+    urlCheckedAt: str(r.url_checked_at),
     nextMaintenanceAt: str(r.next_maintenance_at),
     nextTestingAt: str(r.next_testing_at),
   };

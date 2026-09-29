@@ -172,6 +172,9 @@ export const HEALTH_FIELDS: Record<string, keyof SiteHealthTable> = {
   "Prismic Models": "prismic_models",
   "Prismic Models Checked At": "prismic_models_checked_at",
   "Prismic Models Drift": "prismic_models_drift",
+  "URL Resolves": "url_resolves",
+  "URL Status": "url_status",
+  "URL Checked At": "url_checked_at",
 };
 
 /** Numeric health columns (everything else in HEALTH_FIELDS stores as text). */
