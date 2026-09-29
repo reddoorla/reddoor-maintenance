@@ -5760,3 +5760,8 @@ cloning fresh and running the pipeline showed it. Both are in the runbook as tra
 right parcel, not from the template: TxDOT's 2025 counts, FEMA NFHL and USGS imagery. The
 expensive part was deciding which parcel is the site. The CMS pins are often one parcel off,
 and 4 of 22 sites still have no reliable outline.
+
+A later check the same session found a third trap, now in the runbook: the tool's TxDOT and
+FEMA caches and its map-skip rule were keyed by listing id, so two sites re-pinned during QA
+shipped to Dropbox with station distances measured from the old point. The same fresh clone
+found it; both packages were replaced (roalson-interests `fb10928`).

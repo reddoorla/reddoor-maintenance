@@ -43,6 +43,12 @@ Dropbox **file request**:
   fresh clone showed it. Re-include with `!build/` in the tool's own `.gitignore`, anchor its
   other patterns with a leading `/`, and prove any "reproducible" claim by cloning fresh and
   running the pipeline.
+- **Key every cache of fetched or rendered data by its inputs, not by the listing's id.** The
+  TxDOT and FEMA caches and the "skip maps that exist" rule were all keyed by uid. Two sites were
+  re-pinned during QA and kept station distances from the old point (160 m printed for 167 m,
+  460 m for 514 m, and a changed nearest-three order) through every later build, into the
+  packages delivered to Dropbox. The fresh clone found it; the fix keys the caches by query point
+  and radius and stores each map's job spec beside it (roalson-interests `fb10928`).
 - `pkill -f <pattern>` inside a Bash tool call matches the calling shell's own command line
   and kills it (exit 144). Find the PIDs first, and exclude the shell.
 
