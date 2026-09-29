@@ -5474,3 +5474,78 @@ One finding is real and outside this change: a read that SUCCEEDS on a protected
 `pnpm verify`: typecheck, lint, the match-harness snapshot guard, build and `test:dist` pass. `test:coverage` has 24 failures, in `a11y-live-spec` and `interaction-harness`. All of them are Playwright's pinned `chromium_headless_shell-1234`, which is absent here: this clone was attached with `add_repo`, so the cloud setup hook never ran. Unmodified `main` gives the same 24.
 
 Honest accounting: a cloud `launch` still stops at `self-updating`. It now stops at the read and says why, instead of at the refused PUT. Launching from a cloud session stays blocked on bootstrap while the integration has no Administration read. I noticed one thing and did not change it: the ruleset block's comment says classic protection "keeps `enforce_admins: false`", but `protectBranch` sends `enforce_admins=true`. No PR was opened from this session; the branch is pushed for one.
+
+## 2026-09-29 — The fleet now stores whether each roster url resolves; nobody reads it yet (#986, `e86abd72`)
+
+P1-3 PR 1 of 2 (#912). Nothing checked that a roster `url` points at a deployed
+site. `the-pointe-burbank` (`building`) has pointed at a hostname Netlify does
+not serve, and a human found it by chance, as they did vida-legacy-foundation
+before it. The browser audit's `uptime_reachable` could never see it, for two
+reasons. It covers only `maintained` rows (`selectFleetSites`), and it measures
+sampled routes, never the roster url.
+
+`reddoor-maint roster-urls --fleet --write-back` sends one GET, redirects
+followed, 15 s, to every row whose status is not `archived`. That includes null
+and unrecognized statuses, `external` and `hosted-only`. It writes
+`site_health.url_resolves` / `url_status` / `url_checked_at` (migrations
+0030–0032, one column each for the reason 0015 gives). The nightly
+`fleet-lighthouse` runs it after the GitHub-signals sweep, as a
+`continue-on-error` step capped at 10 minutes.
+
+It is a standalone command, not the `--only` audit the backlog suggested. An
+audit inherits the maintained-only fleet selector, so it would have been blind
+to exactly the row it was built for. It would also have edited `src/types.ts`
+and `src/audits/index.ts`, which #918 owns. The backlog tier was 🟢; three
+migrations and a nightly Turso write make it 🟡, and the row now says so.
+
+**The fingerprint** is a 404 with `server: Netlify` and a body containing
+`site-not-found`. Netlify's unclaimed-host page is 206 bytes only because its
+request ID is fixed-length, so the length is never matched. A deployed site's
+own 404 is also `server: Netlify`, but it is 3227 bytes of HTML with no
+`site-not-found`, and it reads as plain `404`. That was measured live
+(`the-tower-burbank-rd.netlify.app/zz9q-no-such-page`).
+
+**The instrument proves itself on every run.** Before any row is read, a bogus
+host (`no-such-site-zz9q.netlify.app`) must read site-not-found and a deployed
+one (`the-tower-burbank-rd`) must pass. If either misreads, the run writes
+nothing and exits 1. A captive proxy that answers 200 to everything would
+otherwise write `pass` for the-pointe-burbank, and a dead network would write
+`fail` on 34 rows. Pre-merge, the probe alone (no database) read the four
+brief hosts exactly as the brief expected. The built CLI, run against a seeded
+scratch `file:` database, stored `fail` / `404 netlify-site-not-found`, `pass` /
+`200`, and NULL / `no url` stamped for a blank url, and left the archived row
+untouched.
+
+**Review.** One 3-lens round (Workflow `wf_81d1b943-c9a`). Correctness and
+integration found no defects, just two nits. The first was a BACKLOG conflict
+with #975. The second: a Netlify 404 whose body read fails is stored as `404`,
+not `error: …`. The verdict is still `fail`, so it stays. Test validity ran 30
+mutations of its own on top of my 17. 16 survived. None let a wrong verdict or
+a wrong-row write ship, but 15 were real gaps: the 2xx upper bound, a server
+header merely containing "netlify", a Netlify page saying "Not Found", the
+error-code precedence, the 15 s default, a known-good control answering 503,
+and the nightly step's run line, timeout and env. Most tellingly, `bin.ts`
+could pass `writeBack: undefined` and every one of 653 CLI tests stayed green.
+All of them are pinned in `6a36a3f6`, and all 14 turn red on re-run. No finding
+was major, so no skeptic stage ran, and there was no second round.
+
+Landing took two main merges (#975, then #990). Both conflicted only in the
+BACKLOG P1 table, because each of those PRs deletes its own row.
+`land-prs.mjs` then did one update-branch and merged `14b4d0d` → `e86abd72`.
+
+**Not done: the post-merge production run.** This session's permission
+classifier refused `roster-urls --fleet --write-back` against production
+("Production Deploy"), and it was not worked around. So nothing has been
+written to production yet, and `url_*` does not exist there until the first
+run migrates. That will be tonight's nightly unless the operator runs it
+first. It is Operator decisions item 20, and the the-pointe-burbank url fix is
+item 21. Beliefs corrected on contact:
+
+- A brief's "the only production run is the post-merge one" is a plan, not a
+  permission. The cloud classifier treats a production Turso write from a
+  session as a deploy, whatever the brief says. The next brief with a
+  post-merge production step should give it to the nightly, or to the
+  operator, from the start.
+- The "PR 2 after #975" dependency cleared during this session: #975 merged
+  at ~19:45Z. PR 2 (digest collector, freshness gate on `url_checked_at`,
+  accept key that mutes only `fail`) can start from `main`.
