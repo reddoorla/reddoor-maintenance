@@ -265,6 +265,13 @@ export async function draftReportForSite(
     await refreshHeaderImage(siteRow, options.refreshHeader ?? {});
   }
 
+  // Auto-tick the checklist boxes the system can prove (Phase 1: Google Indexed via the
+  // inline search signal). Fail-safe lives in autoTickChecklist: only `pass` entries are ticked;
+  // the evidence snapshot drives the dashboard's green/amber badges and drops `n/a` rows from the
+  // rendered body (decision 17). The operator's approve gate and per-box override are unchanged.
+  const evidence = autoTickChecklist(siteRow, reportType, completedOn, { search: searchResult });
+  const autoEvidence = Object.fromEntries(evidence);
+
   const cidName = `${slug}-header`;
   const { html } = await renderReportHtml({
     siteName: siteRow.name,
@@ -277,6 +284,11 @@ export async function draftReportForSite(
     searchPosition: search?.foundOnPage1 ? (search.position ?? undefined) : undefined,
     lastTestedDate,
     commentary: null,
+    // Completing a half-made row re-stores ITS body, so render with the evidence that row holds:
+    // the send re-renders from the row, and the preview must drop the rows the send will.
+    checklistEvidence: options.completeRowId
+      ? (options.existingRow?.autoEvidence ?? undefined)
+      : autoEvidence,
     copy: resolveCopy(siteRow),
     headerImageCid: cidName,
   });
@@ -342,15 +354,9 @@ export async function draftReportForSite(
     };
   }
 
-  // Auto-tick the checklist boxes the system can prove (Phase 1: Google Indexed via the
-  // inline search signal). Fail-safe lives in autoTickChecklist: only `pass` entries are ticked;
-  // the evidence snapshot drives the dashboard's green/amber badges. The operator's approve gate
-  // and per-box override are unchanged.
-  const evidence = autoTickChecklist(siteRow, reportType, completedOn, { search: searchResult });
   const checklistTicks = [...evidence.entries()]
     .filter(([, e]) => e.result === "pass")
     .map(([field]) => field);
-  const autoEvidence = Object.fromEntries(evidence);
 
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;
   // #646 step 4: the row is MINTED and written in Turso (`report_<ULID>`).
