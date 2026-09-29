@@ -92,3 +92,32 @@ export function crossOriginFrameSelectors(selectors: string[]): string[] {
     );
   });
 }
+
+/**
+ * Where an uncaught page error came from: the first `at <url>` in its stack,
+ * and whether that URL is on another origin than the page being audited.
+ *
+ * Playwright reports an exception thrown inside an out-of-process iframe as a
+ * `pageerror` on the page, so a third-party embed that throws on load — and
+ * the reveal pass is what loads it — would otherwise fail the site as a
+ * critical `client-error` it cannot fix. An error whose stack names another
+ * origin first is recorded separately and does not fail. An error whose stack
+ * names no URL at all stays the site's: conservative, because the listener
+ * exists to catch the site's own hydration crashes, and a stack-less error is
+ * not evidence that it is anyone else's.
+ */
+export function classifyPageError(
+  stack: string,
+  pageOrigin: string,
+): { source: string | null; thirdParty: boolean } {
+  const match = /^\s*at .*?(https?:\/\/[^\s)]+)/m.exec(stack);
+  if (match === null || match[1] === undefined) return { source: null, thirdParty: false };
+  const source = match[1];
+  let origin: string;
+  try {
+    origin = new URL(source).origin;
+  } catch {
+    return { source, thirdParty: false };
+  }
+  return { source, thirdParty: origin !== pageOrigin };
+}

@@ -13,7 +13,11 @@ import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
-import { crossOriginFrameSelectors, splitCrossOriginFrameNodes } from "./util/cross-origin.js";
+import {
+  classifyPageError,
+  crossOriginFrameSelectors,
+  splitCrossOriginFrameNodes,
+} from "./util/cross-origin.js";
 
 type Impact = "minor" | "moderate" | "serious" | "critical";
 
@@ -24,6 +28,9 @@ type AxeViolation = {
   help?: string;
   helpUrl?: string;
   nodes?: Array<{ html?: string; target?: string[] }>;
+  /** On a `client-error`: the first URL in the error's stack, or null when it
+   *  names none — so the artifact says where the error came from. */
+  source?: string | null;
 };
 
 /** A route the spec navigated to, found non-200, and deliberately did NOT scan
@@ -44,6 +51,10 @@ export type RevealRecord = RevealPass & { route: string };
  *  count (#100 review): how many, and under which rules. */
 export type FrameNodesDropped = { route: string; count: number; rules: string[] };
 
+/** An uncaught error whose stack starts on another origin than the page (#100
+ *  review): recorded and named, never failed. */
+export type ThirdPartyError = { route: string; source: string | null; message: string };
+
 type NormalizedA11y = {
   totalViolations: number;
   byImpact: Partial<Record<Impact, number>>;
@@ -53,6 +64,8 @@ type NormalizedA11y = {
   reveals?: RevealRecord[];
   /** Absent in an artifact written by a spec from before this field existed. */
   frameNodesDropped?: FrameNodesDropped[];
+  /** Absent in an artifact written by a spec from before this field existed. */
+  thirdPartyErrors?: ThirdPartyError[];
 };
 
 /** One route as the generated spec sees it. `placeholder404Ok` is set only on
@@ -371,6 +384,7 @@ const revealBelowFold = ${revealBelowFold.toString()};
 // Injected the same way — see src/audits/util/cross-origin.ts.
 const splitCrossOriginFrameNodes = ${splitCrossOriginFrameNodes.toString()};
 const crossOriginFrameSelectors = ${crossOriginFrameSelectors.toString()};
+const classifyPageError = ${classifyPageError.toString()};
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
 const REVEAL_PASS_ERROR_PREFIX = ${JSON.stringify(REVEAL_PASS_ERROR_PREFIX)};
@@ -390,7 +404,7 @@ const OUTPUT = process.env.REDDOOR_A11Y_OUTPUT;
 // configured route in a single test, so the budget needs to scale.
 test.setTimeout(5 * 60_000);
 
-test("a11y + hydration across configured routes", async ({ page }) => {
+test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
   const violations = [];
   // Routes navigated but deliberately not scanned. Separate from violations so
   // they cannot fail the run, and written to the artifact so they cannot vanish
@@ -402,28 +416,46 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   // One entry per scanned route: violation nodes inside cross-origin frames
   // that were not counted against the site, and under which rules.
   const frameNodesDropped = [];
+  // Uncaught errors whose stack starts on another origin -- a third-party
+  // embed's own script, which the reveal pass may be what loaded. Named in the
+  // summary, never failed: the site cannot fix them.
+  const thirdPartyErrors = [];
 
   // Capture uncaught client-side exceptions across every route we visit. A page
   // that builds + SSRs cleanly can still throw on hydrate and blank itself
   // (data-dynamiq: a Svelte 4->5 run() referenced a $state declared after it) --
   // axe never sees that, so we listen for it directly and tag the route in scope.
   let currentRoute = "";
+  // The origin of the route being visited, from the URL being navigated to
+  // (an error thrown on load arrives before goto resolves, so page.url() may
+  // still be the previous page).
+  let currentOrigin = "";
+  const originOf = (url) => new URL(url, baseURL ?? "http://localhost").origin;
   // True only while the reveal pass is scrolling this route (#100), so an
   // error one of its callbacks throws is labelled as such.
   let inRevealPass = false;
   page.on("pageerror", (err) => {
+    const message = String(err && err.message ? err.message : err);
+    const { source, thirdParty } = classifyPageError(
+      err && err.stack ? String(err.stack) : "",
+      currentOrigin,
+    );
+    if (thirdParty) {
+      thirdPartyErrors.push({ route: currentRoute, source, message });
+      return;
+    }
     violations.push({
       id: "client-error",
       impact: "critical",
       route: currentRoute,
-      help:
-        (inRevealPass ? REVEAL_PASS_ERROR_PREFIX : "") +
-        String(err && err.message ? err.message : err),
+      help: (inRevealPass ? REVEAL_PASS_ERROR_PREFIX : "") + message,
+      source,
     });
   });
 
   for (const { path, name, placeholder404Ok, sourceAbsent } of pages) {
     currentRoute = name;
+    currentOrigin = originOf(path);
     const response = await page.goto(path);
     const status = response ? response.status() : null;
     // A route that does not exist is a config problem, not a markup one. The
@@ -561,6 +593,7 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   // renders empty-but-valid won't false-fail -- only a real client crash does.
   for (const { path, name } of smokePages) {
     currentRoute = name;
+    currentOrigin = originOf(SMOKE_ORIGIN + path);
     await page.goto(SMOKE_ORIGIN + path);
     // Let hydration + first effects run so a TDZ/ReferenceError surfaces.
     await page.waitForTimeout(2000);
@@ -582,6 +615,7 @@ test("a11y + hydration across configured routes", async ({ page }) => {
           skipped,
           reveals,
           frameNodesDropped,
+          thirdPartyErrors,
         },
         null,
         2,
@@ -746,6 +780,36 @@ export function describeFrameNodesDropped(dropped: FrameNodesDropped[]): string 
   const total = hit.reduce((sum, d) => sum + d.count, 0);
   const where = hit.map((d) => `${d.route} (${d.count}: ${d.rules.join(", ")})`).join(", ");
   return `${total} violation node${total === 1 ? "" : "s"} inside cross-origin frames not counted: ${where}`;
+}
+
+/**
+ * The third-party clause of the summary: uncaught errors whose stack starts on
+ * another origin than the page, by route and origin. They do not fail the
+ * audit — a third party's embed is not the site's to fix — but they move a
+ * clean run to `warn`, because an error the site's page shows its readers is
+ * worth knowing about even when it is not the site's code. Empty when there
+ * are none.
+ */
+export function describeThirdPartyErrors(errors: ThirdPartyError[]): string {
+  if (errors.length === 0) return "";
+  const groups = new Map<string, { route: string; origin: string; n: number }>();
+  for (const e of errors) {
+    let origin = "unknown origin";
+    try {
+      if (e.source) origin = new URL(e.source).origin;
+    } catch {
+      // keep "unknown origin"
+    }
+    const key = `${e.route}\u0000${origin}`;
+    const g = groups.get(key);
+    if (g) g.n += 1;
+    else groups.set(key, { route: e.route, origin, n: 1 });
+  }
+  const where = [...groups.values()]
+    .map((g) => `${g.route} (${g.origin}${g.n > 1 ? ` ×${g.n}` : ""})`)
+    .join(", ");
+  const n = errors.length;
+  return `${n} uncaught error${n === 1 ? "" : "s"} from another origin, not counted: ${where}`;
 }
 
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
@@ -931,6 +995,9 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     const absentSkips = skippedRoutes.filter((r) => r.reason === ABSENT_FIXTURE_SKIP_REASON);
     // #100. A reveal pass that stopped short is named and warns, never fails.
     const revealNote = describeReveals(Array.isArray(artifact.reveals) ? artifact.reveals : []);
+    const thirdPartyNote = describeThirdPartyErrors(
+      Array.isArray(artifact.thirdPartyErrors) ? artifact.thirdPartyErrors : [],
+    );
     // Information only: third-party frame contents never change the status.
     const frameNote = describeFrameNodesDropped(
       Array.isArray(artifact.frameNodesDropped) ? artifact.frameNodesDropped : [],
@@ -939,7 +1006,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
       undeclaredAbsent.length > 0 && absentSkips.some((r) => undeclaredAbsent.includes(r.path));
     const status: AuditResult["status"] = hasSerious
       ? "fail"
-      : hasAny || absenceDowngrade || revealNote.length > 0
+      : hasAny || absenceDowngrade || revealNote.length > 0 || thirdPartyNote.length > 0
         ? "warn"
         : "pass";
 
@@ -997,7 +1064,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
       (status === "pass"
         ? `a11y: 0 violations across ${scanned} (${smokeNote})`
         : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`) +
-      [revealNote, frameNote]
+      [revealNote, thirdPartyNote, frameNote]
         .filter((note) => note.length > 0)
         .map((note) => `; ${note}`)
         .join("");

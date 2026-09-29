@@ -221,7 +221,32 @@ const CROSS_PAGES: Record<string, string> = {
   "/frame.html": thirdPartyPage("Embed", `<img src="/tile.png">`),
   // Something focusable, inside a frame the site gave tabindex="-1".
   "/player.html": thirdPartyPage("Player", `<button type="button">Play</button>`),
+  // A third party's script that throws as soon as it loads.
+  "/throws.html": thirdPartyPage(
+    "Widget",
+    `<p>Widget</p><script>throw new Error("fixture: a third-party embed threw");</script>`,
+  ),
 };
+
+/**
+ * A page whose only content below the fold is a lazy third-party embed, at
+ * 1000vh — 7200px in the audit's 720px viewport, beyond Chromium's lazy-frame
+ * load distance, so it does not load until the reveal pass scrolls to it. Its
+ * script throws on load. On main that embed never loaded under the gate; here
+ * it does, and its error must be named, not failed on the site.
+ */
+const THIRD_PARTY_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Embed below the fold</title>
+<style>
+  body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; }
+  main { position: relative; height: 1100vh; }
+  #widget { position: absolute; top: 1000vh; left: 0; width: 300px; height: 150px; border: 0; }
+</style></head>
+<body><main><h1>Embed below the fold</h1>
+<iframe id="widget" loading="lazy" title="Booking widget" src="CROSS_ORIGIN/throws.html"></iframe>
+</main></body>
+</html>`;
 
 /** How one throwaway site is served. */
 type SiteConfig = {
@@ -340,7 +365,9 @@ const SITE_F: SiteConfig = {
     "/dev/a11y-fixtures": FIXTURE_PAGE,
     "/dev/animate-in": plainPage("Animate-in"),
     "/": plainPage("Home"),
+    "/third-party": THIRD_PARTY_PAGE,
   },
+  a11yRoutes: ["/third-party"],
 };
 
 async function readJsonl(path: string): Promise<Array<Record<string, unknown>>> {
@@ -382,7 +409,9 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     // Not a pass condition — the precondition for the ones below. A spec that
     // crashed, a route reported missing, or a client error would each leave
     // the contrast assertions measuring nothing.
-    expect(result?.summary).toMatch(/^a11y: \d+ violations across 2 routes/);
+    expect(result?.summary).toMatch(
+      /^a11y: \d+ violations across 3 routes \(2 fixtures \+ 1 from package\.json\)/,
+    );
     const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
     expect(all.map((v) => `${v.id} on ${v.route}`).sort()).toEqual([
       "client-error on a11y fixtures",
@@ -401,7 +430,11 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
       unsettled: number;
     };
     const reveals = (result?.details as { reveals?: Reveal[] } | undefined)?.reveals ?? [];
-    expect(reveals.map((r) => r.route)).toEqual(["a11y fixtures", "animate-in demo"]);
+    expect(reveals.map((r) => r.route)).toEqual([
+      "a11y fixtures",
+      "animate-in demo",
+      "/third-party",
+    ]);
     const fixture = reveals[0];
     // 600vh in half-viewport steps is a dozen stops; 1 would mean it never scrolled.
     expect(fixture?.steps).toBeGreaterThan(1);
@@ -460,6 +493,33 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     expect(result?.summary).toContain(
       "1 violation node inside cross-origin frames not counted: a11y fixtures (1: image-alt)",
     );
+  });
+
+  it("names an error thrown inside a third-party embed, and does not fail the site on it", () => {
+    type ThirdPartyError = { route: string; source: string | null; message: string };
+    const errors =
+      (result?.details as { thirdPartyErrors?: ThirdPartyError[] } | undefined)?.thirdPartyErrors ??
+      [];
+    // Positive evidence first: the embed loaded, threw, and was recorded.
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      route: "/third-party",
+      message: "fixture: a third-party embed threw",
+    });
+    expect(errors[0]?.source).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/throws\.html/);
+    // Not a client-error on the site's route.
+    const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+    expect(all.filter((v) => v.route === "/third-party")).toEqual([]);
+    expect(result?.summary).toMatch(
+      /1 uncaught error from another origin, not counted: \/third-party \(http:\/\/127\.0\.0\.1:\d+\)/,
+    );
+  });
+
+  it("keeps the first stack URL on the site's own client error", () => {
+    const errors = violations().filter((v) => v.id === "client-error");
+    expect(errors.map((v) => (v as Violation & { source?: string }).source)).toEqual([
+      expect.stringMatching(/^http:\/\/localhost:\d+\/dev\/a11y-fixtures/),
+    ]);
   });
 
   it("still reports frame-focusable-content from inside a cross-origin frame", () => {

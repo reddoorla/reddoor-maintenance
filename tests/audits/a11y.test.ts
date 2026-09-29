@@ -9,11 +9,13 @@ import {
   describeFrameNodesDropped,
   describeReveals,
   describeSkipped,
+  describeThirdPartyErrors,
   describeViolations,
   type RevealRecord,
 } from "../../src/audits/a11y.js";
 import { revealBelowFold } from "../../src/audits/util/reveal-below-fold.js";
 import {
+  classifyPageError,
   crossOriginFrameSelectors,
   splitCrossOriginFrameNodes,
 } from "../../src/audits/util/cross-origin.js";
@@ -30,6 +32,7 @@ type A11yArtifact = {
   skipped?: Array<{ route: string; path: string; status: number | null; reason: string }>;
   reveals?: RevealRecord[];
   frameNodesDropped?: Array<{ route: string; count: number; rules: string[] }>;
+  thirdPartyErrors?: Array<{ route: string; source: string | null; message: string }>;
 };
 
 /**
@@ -1720,6 +1723,90 @@ describe("audits/a11y — nodes inside cross-origin frames are counted, not fail
     expect(result.status).toBe("pass");
     expect(result.summary).toContain(
       "; 1 violation node inside cross-origin frames not counted: a11y fixtures (1: image-alt)",
+    );
+  });
+});
+
+/**
+ * Round-2 review of #100: an error thrown inside a third-party iframe reaches
+ * `pageerror` too, and the reveal pass is what loads lazy embeds. Where an
+ * error came from is read from its stack; another origin is named, not failed.
+ */
+describe("audits/a11y — an error from another origin is named, not failed", () => {
+  const PAGE = "http://localhost:5173";
+
+  it("reads the first `at <url>` in the stack and compares its origin with the page's", () => {
+    expect(
+      classifyPageError("Error: boom\n    at http://127.0.0.1:9000/throws.html:1:20", PAGE),
+    ).toEqual({ source: "http://127.0.0.1:9000/throws.html:1:20", thirdParty: true });
+    expect(
+      classifyPageError(
+        "Error: boom\n    at IntersectionObserver.<anonymous> (http://localhost:5173/dev/a11y-fixtures:88:11)",
+        PAGE,
+      ),
+    ).toEqual({ source: "http://localhost:5173/dev/a11y-fixtures:88:11", thirdParty: false });
+  });
+
+  it("uses the FIRST frame that has a URL, skipping frames that have none", () => {
+    expect(
+      classifyPageError(
+        "TypeError: x\n    at <anonymous>:1:5\n    at https://www.youtube.com/s/player.js:9:9\n    at http://localhost:5173/app.js:1:1",
+        PAGE,
+      ),
+    ).toEqual({ source: "https://www.youtube.com/s/player.js:9:9", thirdParty: true });
+  });
+
+  it("does not read a URL out of the message line", () => {
+    expect(
+      classifyPageError(
+        "Error: failed to load https://maps.example.com/tile\n    at http://localhost:5173/map.js:3:1",
+        PAGE,
+      ).thirdParty,
+    ).toBe(false);
+  });
+
+  it("keeps a stack with no URL — or no stack — as the site's", () => {
+    expect(classifyPageError("Error: boom\n    at <anonymous>:1:1", PAGE)).toEqual({
+      source: null,
+      thirdParty: false,
+    });
+    expect(classifyPageError("", PAGE)).toEqual({ source: null, thirdParty: false });
+  });
+
+  it("the generated spec runs this exact function, and keeps the source on the site's own errors", async () => {
+    const spec = await specOf();
+    expect(spec).toContain(`const classifyPageError = ${classifyPageError.toString()};`);
+    expect(spec).toContain("thirdPartyErrors.push({ route: currentRoute, source, message });");
+    expect(spec).toMatch(/id: "client-error",[\s\S]*?source,\n/);
+  });
+
+  it("names third-party errors by route and origin, folding repeats", () => {
+    expect(describeThirdPartyErrors([])).toBe("");
+    expect(
+      describeThirdPartyErrors([
+        { route: "/", source: "https://www.youtube.com/a.js:1:1", message: "a" },
+        { route: "/", source: "https://www.youtube.com/b.js:2:2", message: "b" },
+        { route: "/contact", source: null, message: "c" },
+      ]),
+    ).toBe(
+      "3 uncaught errors from another origin, not counted: / (https://www.youtube.com ×2), /contact (unknown origin)",
+    );
+  });
+
+  it("warns — never fails — on third-party errors alone, and says where", async () => {
+    const result = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        thirdPartyErrors: [
+          { route: "/", source: "https://maps.example.com/x.js:1:1", message: "boom" },
+        ],
+      }),
+    });
+    expect(result.status).toBe("warn");
+    expect(result.summary).toContain(
+      "1 uncaught error from another origin, not counted: / (https://maps.example.com)",
     );
   });
 });
