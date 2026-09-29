@@ -1,7 +1,7 @@
 import { analyticsHealthFields, siteSlug } from "../fleet/site-fields.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { readGaConfig } from "../reports/ga/config.js";
-import type { ReportEnrichment } from "../reports/report-fields.js";
+import { searchEnrichment, type ReportEnrichment } from "../reports/report-fields.js";
 import { createReportDraft, findReportForPeriod } from "../reports/create-report.js";
 import type { DraftInput } from "../reports/draft-fields.js";
 import type { ReportMirror } from "../reports/report-mirror.js";
@@ -117,10 +117,7 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
       const search = searchResult.value;
       const enrichment: ReportEnrichment = {
         ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
-        ...(search ? { searchFoundPage1: search.foundOnPage1 } : {}),
-        ...(search?.foundOnPage1 && search.position !== null
-          ? { searchPosition: search.position }
-          : {}),
+        ...searchEnrichment(search),
       };
 
       // Record this site's GA/Search enrichment health for the per-site analytics-failure
@@ -167,6 +164,12 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
             : {}),
           ...(enrichment.searchPosition !== undefined
             ? { search_position: enrichment.searchPosition }
+            : {}),
+          // No Search Console property matched: nothing was measured, so clear any value an
+          // earlier run this period stored — the row must equal what a fresh create writes.
+          // A soft-fail (search === null) still keeps the last value.
+          ...(search?.propertyFound === false
+            ? { search_found_page1: null, search_position: null }
             : {}),
         });
         report = existing;

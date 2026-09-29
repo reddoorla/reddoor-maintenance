@@ -565,6 +565,52 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
     expect(row!.approvedBy).toBe("op");
   });
 
+  it("an explicit-null search patch clears a stored page-1 result (P1-19 announce reuse)", async () => {
+    const db = await seeded([RICH]);
+    await db
+      .insertInto("reports")
+      .values({
+        id: "recRPT9",
+        site_id: "recRICH",
+        report_id: "R9",
+        report_type: "Maintenance",
+        period: null,
+        period_start: "2026-08-01",
+        period_end: null,
+        completed_on: null,
+        lighthouse_performance: null,
+        lighthouse_accessibility: null,
+        lighthouse_best_practices: null,
+        lighthouse_seo: null,
+        ga_users_current: null,
+        ga_users_previous: null,
+        search_found_page1: 1,
+        search_position: 3,
+        last_tested_date: null,
+        commentary: null,
+        subject_override: null,
+        draft_ready: 1,
+        approved_to_send: 0,
+        approved_at: null,
+        approved_by: null,
+        send_override: 0,
+        override_reason: null,
+        override_by: null,
+        override_at: null,
+        sent_at: null,
+        delivery_status: "pending",
+        resend_message_id: null,
+        checklist: null,
+        checklist_auto_evidence: null,
+        rendered_html: null,
+      })
+      .execute();
+    await mirrorReportPatch(db, "recRPT9", { search_found_page1: null, search_position: null });
+    const [row] = await listAllReports(db);
+    expect(row!.searchFoundPage1).toBeNull();
+    expect(row!.searchPosition).toBeNull();
+  });
+
   it("an empty patch is a no-op, not invalid SQL", async () => {
     const db = await seeded([RICH]);
     // Nothing to write is not a miss: there is no row it could have failed to
