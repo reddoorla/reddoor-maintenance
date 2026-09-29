@@ -8,7 +8,13 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import yaml from "js-yaml";
 
-type Step = { name?: string; uses?: string; if?: string; with?: Record<string, unknown> };
+type Step = {
+  name?: string;
+  uses?: string;
+  if?: string;
+  with?: Record<string, unknown>;
+  "continue-on-error"?: boolean;
+};
 type Workflow = {
   on: { schedule?: unknown; workflow_dispatch?: unknown };
   concurrency: unknown;
@@ -32,6 +38,9 @@ const SWEEP = "Sweep the fleet for config drift";
 const OPEN = "Open/update the config-drift tracking issue";
 const CLOSE = "Close the config-drift issue on a clean sweep";
 const TITLE = "Fleet config drift";
+const FAIL_OPEN = "Open/update the config-drift-sweep-failing tracking issue";
+const FAIL_CLOSE = "Close the config-drift-sweep-failing issue on recovery";
+const FAIL_TITLE = "Weekly config drift sweep failing";
 
 let wf: string;
 
@@ -134,6 +143,15 @@ describe("fleet-config-drift — the shape of the job", () => {
     expect(names.indexOf(CONTROL)).toBeGreaterThanOrEqual(0);
     expect(names.indexOf(CONTROL)).toBeLessThan(names.indexOf(SWEEP));
     expect(doc.jobs.drift.steps[names.indexOf(CONTROL)]?.if).toBeUndefined();
+  });
+
+  it("lets no issue step red the run, so a gh error is never read as an outage", () => {
+    const doc = yaml.load(wf) as Workflow;
+    for (const name of [OPEN, CLOSE, FAIL_OPEN, FAIL_CLOSE]) {
+      const step = doc.jobs.drift.steps.find((s) => s.name === name);
+      expect(step, name).toBeDefined();
+      expect(step?.["continue-on-error"], name).toBe(true);
+    }
   });
 });
 
@@ -310,7 +328,7 @@ describe("fleet-config-drift — the sweep gate", () => {
   });
 });
 
-type Issue = { number: number; title: string; body: string };
+type Issue = { number: number; title: string; body: string; state?: "open" | "closed" };
 
 const GH = `#!/usr/bin/env node
 const fs = require("node:fs");
@@ -319,7 +337,9 @@ const a = process.argv.slice(2);
 const log = (s) => fs.appendFileSync(process.env.GH_LOG, s + "\\n");
 if (a[0] === "issue" && a[1] === "list") {
   const phrase = /in:title "(.*)"/.exec(a[a.indexOf("--search") + 1])[1].toLowerCase();
+  const state = a.includes("--state") ? a[a.indexOf("--state") + 1] : "open";
   const hits = corpus
+    .filter((i) => state === "all" || (i.state ?? "open") === state)
     .filter((i) => i.title.toLowerCase().includes(phrase))
     .map((i) => ({ number: i.number, title: i.title }));
   const jq = require("node:child_process").execFileSync("jq", ["-r", a[a.indexOf("--jq") + 1]], {
@@ -464,6 +484,14 @@ describe("fleet-config-drift — the finding issue", () => {
     expect(both.log.match(/(EDIT|COMMENT|CREATE) ?#?\d*/g)).toEqual(["EDIT #7", "COMMENT #7"]);
   });
 
+  it("files new drift as a new issue, never onto a closed one", async () => {
+    const r = await issueStep(OPEN, `DRIFT ${A} .gitignore\n${summary(1, 0, 0)}\n`, [
+      { number: 7, title: TITLE, body: "Recovered last week.", state: "closed" },
+    ]);
+    expect(r.log).toMatch(/^CREATE /);
+    expect(r.log).not.toMatch(/EDIT|COMMENT/);
+  });
+
   it("closes only the same-title issue whose own repos this run verified", async () => {
     const verified = await filedBody(`DRIFT ${A} .gitignore\n${summary(1, 0, 0)}\n`);
     const other = await filedBody(`DRIFT ${B} .gitignore\n${summary(1, 0, 0)}\n`);
@@ -471,11 +499,22 @@ describe("fleet-config-drift — the finding issue", () => {
       CLOSE,
       `CLEAN ${A}\nSKIPPED ${B} clone failed\n${summary(0, 1, 1)}\n`,
       [
-        { number: 7, title: TITLE, body: verified },
         { number: 8, title: TITLE, body: other },
+        { number: 7, title: TITLE, body: verified },
         { number: 9, title: "Something else", body: verified },
       ],
     );
+    expect(r.log.match(/CLOSE #\d+/g)).toEqual(["CLOSE #7"]);
+  });
+});
+
+describe("fleet-config-drift — the run-failure issue", () => {
+  it("closes only the exact-title issue on recovery", async () => {
+    const r = await issueStep(FAIL_CLOSE, "", [
+      { number: 5, title: `${FAIL_TITLE} - investigate clone timeouts`, body: "hand-written" },
+      { number: 7, title: FAIL_TITLE, body: "auto-filed" },
+      { number: 9, title: TITLE, body: "drift" },
+    ]);
     expect(r.log.match(/CLOSE #\d+/g)).toEqual(["CLOSE #7"]);
   });
 });

@@ -334,6 +334,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `node scripts/land-prs.mjs 995`, then dispatch `fleet-config-drift.yml` once
     on `main` (the brief's live proof: control passes, summary total = roster
     size, issue filed to match).
+    **Resolved 2026-09-29 ~21:45Z (PM brief: rerun round 2, land if clean):
+    the rerun found no blocker or major; its four minor test gaps are pinned
+    in #995, which lands.**
 25. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** — two
     review rounds each found a real defect, so #989 is held for your call, not a
     third round. Round 1 (on `ce4cb9db`) found a behaviour defect: the walk
