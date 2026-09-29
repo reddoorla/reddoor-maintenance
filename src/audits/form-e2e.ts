@@ -62,6 +62,7 @@ export type FormSubmitOutcome =
        *  re-filled once before the click. On a pass this is production proof the
        *  wipe happens; on a failure it says one refill wasn't enough. */
       refilled?: boolean;
+      synthesized?: string[];
       /** What the site's REAL Turnstile widget did while the probe was on the
        *  page. The probe does NOT swap the sitekey — `testSitekey` only names the
        *  fake token VALUE it injects — so the real widget renders with the real
@@ -524,9 +525,11 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     // Surfaced on a PASS too: a wiped-then-refilled run is the production
     // evidence that the re-render race exists on this site, and the nightly log
     // is where that evidence has to land for anyone to see it.
-    const refillNote = outcome.refilled
-      ? " — fields were wiped by a client re-render and re-filled once"
-      : "";
+    const refillNote =
+      (outcome.refilled ? " — fields were wiped by a client re-render and re-filled once" : "") +
+      (outcome.synthesized?.length
+        ? ` — synthesized required field(s): ${outcome.synthesized.join(", ")}`
+        : "");
     return {
       audit: "form-e2e",
       site: label,
@@ -540,6 +543,54 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     await runner.close?.();
   }
 }
+
+export const SYNTHETIC_TEXT = "Synthetic end-to-end health check — please ignore.";
+
+export const SYNTHESIZE_REQUIRED_EXPR = `
+  (function () {
+    const f = document.querySelector("form");
+    if (!f) return [];
+    const done = [];
+    const fire = (el) => {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    const skip = ["hidden", "file", "submit", "button", "reset", "image"];
+    const text = (el, type) => {
+      if (type === "email") return "monitor+e2e@reddoorla.com";
+      if (type === "tel") return "5555550123";
+      if (type === "url") return "https://reddoorla.com";
+      if (type === "number" || type === "range") return el.min || "1";
+      if (type === "date") return el.min || "2026-01-01";
+      const v = ${JSON.stringify(SYNTHETIC_TEXT)};
+      return el.maxLength > 0 ? v.slice(0, el.maxLength) : v;
+    };
+    for (const el of Array.from(f.elements)) {
+      if (!el.required || el.disabled || !el.name) continue;
+      const type = String(el.type || "").toLowerCase();
+      if (el.tagName === "SELECT") {
+        if (el.value) continue;
+        const opt = Array.from(el.options).find((o) => o.value !== "" && !o.disabled);
+        if (!opt) continue;
+        el.value = opt.value;
+      } else if (type === "checkbox") {
+        if (el.checked) continue;
+        el.checked = true;
+      } else if (type === "radio") {
+        const group = Array.from(f.elements).filter((r) => r.type === "radio" && r.name === el.name);
+        if (group.some((r) => r.checked)) continue;
+        el.checked = true;
+      } else if (skip.includes(type) || String(el.value).trim()) {
+        continue;
+      } else {
+        el.value = text(el, type);
+      }
+      fire(el);
+      if (!done.includes(el.name)) done.push(el.name);
+    }
+    return done;
+  })();
+`;
 
 /** Minimum plausible fill time the site's bot-timing screen enforces (client.ts
  *  MIN_FILL_MS = 800). A too-fast submit is silently dropped (success shown, ingest
@@ -839,10 +890,11 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           { selector: '[name="phone"]', value: "5555550123" },
           {
             selector: '[name="message"]',
-            value: "Synthetic end-to-end health check — please ignore.",
+            value: SYNTHETIC_TEXT,
           },
         ];
         const filled: { selector: string; value: string }[] = [];
+        const synthesized: string[] = [];
         const fillAll = async () => {
           for (const f of fills) {
             const landed = await page
@@ -851,6 +903,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
               .catch(() => false);
             if (landed && !filled.some((s) => s.selector === f.selector)) filled.push(f);
           }
+          const more = (await page.evaluate(SYNTHESIZE_REQUIRED_EXPR).catch(() => [])) as string[];
+          for (const name of more) if (!synthesized.includes(name)) synthesized.push(name);
           await page.evaluate(injectExpr);
         };
         await fillAll();
@@ -944,6 +998,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
             elapsedMs,
             ...(postElapsedMs !== undefined ? { postElapsedMs } : {}),
             ...(refilled ? { refilled } : {}),
+            ...(synthesized.length > 0 ? { synthesized } : {}),
             turnstile: turnstileSeen(),
             formsHealth,
           };
@@ -984,6 +1039,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           formPresent: true,
           success: false,
           ...(refilled ? { refilled } : {}),
+          ...(synthesized.length > 0 ? { synthesized } : {}),
           detail: noBannerDetail({ post, alertText, formState, hydrationMismatch, refilled }),
           turnstile: turnstileSeen(),
           formsHealth,
