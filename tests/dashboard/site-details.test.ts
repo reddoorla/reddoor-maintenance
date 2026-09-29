@@ -350,6 +350,8 @@ describe("setSiteDetail — the non-text fields", () => {
       "no custom domain",
       "no analytics",
       "no search console",
+      "no git repo",
+      "no netlify id",
     ]);
   });
 });

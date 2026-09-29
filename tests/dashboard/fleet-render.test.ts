@@ -34,6 +34,10 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     pointOfContact: "Tucker",
     ga4PropertyId: "123456789",
     searchConsoleProperty: "sc-domain:acme.example.com",
+    // The roster identities the sweeps need (#889); without them a maintained
+    // row watches for "Git repo / Netlify ID not recorded".
+    gitRepo: "reddoorla/acme",
+    netlifyId: "11111111-2222-3333-4444-555555555555",
     // Send-clean: the cockpit now runs collectPreflightBlocked, so a pending
     // report on a site missing its header image would tier the site "watch"
     // and change the verdict these tests assert.
@@ -825,6 +829,20 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toMatch(/data-signals="[^"]*search-console-unrecorded[^"]*"/);
     expect(html).toContain('data-filter="search-console-unrecorded"');
     expect(html).toContain("Search Console property not recorded");
+  });
+
+  it("tags a maintained site missing its Git repo / Netlify ID with their signals, and offers both filters (#889)", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "r", name: "NoIds", status: "maintained", gitRepo: null, netlifyId: null }),
+      ]),
+    );
+    expect(html).toMatch(/data-signals="[^"]*no-git-repo[^"]*"/);
+    expect(html).toMatch(/data-signals="[^"]*no-netlify-id[^"]*"/);
+    expect(html).toContain('data-filter="no-git-repo"');
+    expect(html).toContain('data-filter="no-netlify-id"');
+    expect(html).toContain("Git repo not recorded");
+    expect(html).toContain("Netlify ID not recorded");
   });
 
   it("tags a maintenance site still on *.netlify.app with the no-domain signal", () => {
