@@ -40,6 +40,20 @@ export async function runAnalyticsTagCommand(
     };
   }
 
+  // Required here, though the library call can derive it: this command resolves
+  // a checkout PATH, which carries no fleet row and so no deployed URL. Without
+  // it the recipe refused with a note that blamed a row it never read.
+  const productionHost = opts.productionHost?.trim() ?? "";
+  if (productionHost === "") {
+    return {
+      output:
+        "--production-host is required: the hostname the tag is gated on, e.g. " +
+        "www.example.com. A checkout path carries no deployed URL to derive it from, and the " +
+        "tag is inert on every other host.",
+      code: 2,
+    };
+  }
+
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
   const sites = await resolveSites({ ...(site !== undefined ? { site } : {}), cwd });
   if (sites.length !== 1) {
@@ -52,10 +66,7 @@ export async function runAnalyticsTagCommand(
   }
 
   const results: RecipeResult[] = [
-    await analyticsTag(sites[0]!, {
-      measurementId,
-      ...(opts.productionHost !== undefined ? { productionHost: opts.productionHost } : {}),
-    }),
+    await analyticsTag(sites[0]!, { measurementId, productionHost }),
   ];
 
   return {

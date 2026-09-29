@@ -2,12 +2,14 @@
 "@reddoorla/maintenance": minor
 ---
 
-`reddoor-maint analytics-tag` — turn GA4 on for one site, and `csp: { analytics: true }` to let the browser run it.
+`reddoor-maint analytics-tag <site> --measurement-id G-… --production-host <host>` turns GA4 on for one site, and `csp: { analytics: true }` lets the browser run it.
 
-The recipe writes `src/hooks.client.ts` rather than editing `src/routes/+layout.svelte`. No fleet site had that file as of 2026-09-22, so this is a create and never a clobber; the root layouts it would otherwise patch run from 2.7KB to 9.7KB of per-site hand-maintained markup with no common anchor. It uses SvelteKit's `init` export, verified against the installed 2.70.3, which wires `init: client_hooks.init` in `write_client_manifest.js`.
+The recipe writes `src/hooks.client.ts`, which starts `initAnalytics` from SvelteKit's `init` export (verified against `@sveltejs/kit` 2.70.3). It does not edit `src/routes/+layout.svelte`. No fleet site had a client hook on 2026-09-22, so the recipe creates a file and never overwrites one, and an existing hook is a noop. The root layouts it would otherwise patch run from 2.7KB to 9.7KB of hand-maintained markup with nothing in common to anchor an edit on. The site needs this release of `@reddoorla/maintenance` installed before the hook builds.
 
-`createSvelteConfig` gains `csp: { analytics: true }`, which folds the googletagmanager, google-analytics and beacon hosts into the policy. Applied **after** the site's own directives, so a site that overrides `script-src` wholesale still gets them. The hosts are exported as `ANALYTICS_CSP` and imported rather than transcribed, for the same reason `SVELTE_EVENT_REPLAY_HASH` is: a copied host list cannot be told apart from a stale one, and a CSP stale in the direction of a missing host fails silently.
+It runs one site at a time and needs both flags. Every site has its own GA4 web stream, so there is no fleet-wide measurement ID. A checkout path carries no deployed URL, so the production host cannot be derived.
 
-This is required, not cosmetic. The emitted policy carries no `'strict-dynamic'`, so the host allowlist governs the loader `initAnalytics` injects from bundle JS exactly as it would one typed into `app.html`.
+It refuses a site that already loads a tag and names the file. `initAnalytics` stands down only for its own measurement ID, and a site-local loader that runs later never sees it, so installing alongside would double every session. Remove the old loader in the same PR, then run the recipe.
 
-The CSP edit refuses anything it does not recognise rather than guessing, and the site still gets its hook plus a note saying what to do by hand.
+`createSvelteConfig` gains `csp: { analytics: true }`, which adds the googletagmanager, google-analytics and beacon hosts to the policy, exported as `ANALYTICS_CSP`. They are added after the site's own directives, so a site that overrides `script-src` still gets them. The emitted policy carries no `'strict-dynamic'`, so without them the browser refuses the loader and the property records nothing.
+
+The recipe edits `svelte.config.js` only where `csp` is a `createSvelteConfig` option, and refuses any shape it does not recognise. SvelteKit's own `kit.csp` rejects unknown keys and would fail the build. On the 28 fleet configs measured on 2026-09-23 the recipe edits none: 13 set SvelteKit's own `kit.csp` and are refused with the exact hosts to add by hand, and 15 have no `csp` option. A policy set outside `svelte.config.js`, such as a `netlify.toml` header, is not checked, and the recipe's note says so.

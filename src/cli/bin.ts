@@ -389,7 +389,7 @@ cli
   .option("--measurement-id <id>", "The site's GA4 web-stream ID (G-XXXXXXXXXX). Required.")
   .option(
     "--production-host <host>",
-    "Hostname the tag is gated on (default: the host of the site's deployed URL)",
+    "Hostname the tag is gated on, e.g. www.example.com. Required.",
   )
   .action(
     async (

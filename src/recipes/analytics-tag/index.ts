@@ -3,14 +3,25 @@ import { join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.js";
-import { formatWithPrettier, resolveTargetPrettier } from "../_prettier.js";
-import { defaultSpawn } from "../../audits/util/spawn.js";
+import { formatWithPrettier, resolveTargetPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
+import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
 import { HOOKS_CLIENT_RELATIVE, MEASUREMENT_ID_RE, hooksClientTemplate } from "./template.js";
 import { planCspEdit, type CspEditPlan } from "./csp-edit.js";
 import { findForeignAnalytics } from "../../audits/analytics.js";
 
 const SVELTE_CONFIG_RELATIVE = "svelte.config.js";
+
+/** Same budget as health-endpoint, smoke-suite, prismic-ci and match-harness.
+ *  Without one the default spawn never detaches and never kills. */
+const PRETTIER_TIMEOUT_MS = 60_000;
+
+export type AnalyticsTagDeps = {
+  spawn: SpawnFn;
+  /** Resolve the TARGET repo's own prettier. Injected so a test can assert the
+   *  absolute-path spawn without a populated `node_modules`. */
+  resolvePrettier?: (repoRoot: string) => Promise<string | null>;
+};
 
 export type AnalyticsTagOptions = {
   /** The GA4 web-stream measurement ID, `G-XXXXXXXXXX`. */
@@ -51,7 +62,11 @@ type Planned = {
  * and is REPORTED, because the alternative is a half-rewritten policy on a live
  * site, and the browser applies that on every request.
  */
-export async function analyticsTag(site: Site, opts: AnalyticsTagOptions): Promise<RecipeResult> {
+export async function analyticsTag(
+  site: Site,
+  opts: AnalyticsTagOptions,
+  deps: AnalyticsTagDeps = { spawn: defaultSpawn },
+): Promise<RecipeResult> {
   return withRecipe<Planned>({
     name: "analytics-tag",
     site,
@@ -71,8 +86,9 @@ export async function analyticsTag(site: Site, opts: AnalyticsTagOptions): Promi
         return {
           kind: "failed",
           notes:
-            "no production hostname: the site row has no http(s) URL and none was passed. " +
-            "initAnalytics would keep the tag off everywhere, which is a silent no-op.",
+            "no production hostname: none was passed and the site has no http(s) deployed URL " +
+            "to derive one from. initAnalytics would keep the tag off everywhere, which is a " +
+            "silent no-op.",
         };
       }
 
@@ -134,13 +150,27 @@ export async function analyticsTag(site: Site, opts: AnalyticsTagOptions): Promi
       // path is `git checkout -f`, which does NOT remove an untracked new file,
       // so a prettier throw used to leave src/hooks.client.ts on disk with
       // nothing in git — and the next run hit the "already exists" noop and
-      // reported the site as done. Swallowing here keeps the commit reachable;
-      // a formatting miss is a lint nit, and CI catches it.
-      try {
-        const bin = await resolveTargetPrettier(cwd);
-        await formatWithPrettier(defaultSpawn, cwd, written, bin ? { bin } : {});
-      } catch {
-        // fall through to the commit
+      // reported the site as done. `formatWithPrettier` never throws, and the
+      // resolver collapses every failure to null, so a formatting miss becomes
+      // the flag note rather than a stranded file.
+      //
+      // The SITE's own prettier by absolute path, or none at all — never the
+      // `pnpm exec` default. A sweep clone has no node_modules, and there
+      // `pnpm exec prettier` runs whatever prettier the ambient PATH offers
+      // (measured in a cloud container: /opt/node22/bin/prettier, which then
+      // failed on the site's plugin), or per _prettier.ts an unrequested install
+      // first. The result was ignored, so a failed format was also silent.
+      const notes: string[] = [];
+      const bin = await (deps.resolvePrettier ?? resolveTargetPrettier)(cwd);
+      if (bin === null) {
+        notes.push(PRETTIER_FLAG_NOTE);
+      } else if (
+        !(await formatWithPrettier(deps.spawn, cwd, written, {
+          bin,
+          timeoutMs: PRETTIER_TIMEOUT_MS,
+        }))
+      ) {
+        notes.push(PRETTIER_FLAG_NOTE);
       }
 
       await commit(`feat: start GA4 on the production host (${planned.productionHost})`);
@@ -162,7 +192,7 @@ export async function analyticsTag(site: Site, opts: AnalyticsTagOptions): Promi
         return { kind: "failed", notes: refusal.notes + RESTORED_NOTE };
       }
 
-      return { kind: "ok", notes: cspNote(planned.csp) };
+      return { kind: "ok", notes: [cspNote(planned.csp), ...notes].join("\n") };
     },
   });
 }
