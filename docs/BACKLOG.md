@@ -223,7 +223,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     decision rather than a seventh round.
 11. **#916** — decided 2026-09-29: #950 shipped in 0.101.0, and #916 is merged
     over it for 0.102.0, with the `reddoor-starter` palette fix staged beside
-    it. Moved to _Done_.
+    it. The same fix for `reddoor-starter-blux`, whose Hero also goes red, is
+    to follow. Moved to _Done_.
 12. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
@@ -315,7 +316,9 @@ verdict is its only input, because no client and no check sees the email.
   reported, and that the correction posted on it called impossible, is what the
   starter's `Hero` produces: a white CTA over `bg-neutral-900`. It ships in
   0.102.0, together with the reddoor-starter `@theme` fix that keeps the
-  starter's own gate green.
+  starter's own gate green. reddoor-starter-blux has the same Hero and needs
+  the same 13-token block (measured: FAIL on the #916 build, then PASS with
+  66 contrast nodes). That fix is to follow.
 
 - 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
   4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its

@@ -35,7 +35,9 @@ says to write 0 there, and it names the colour's own function, e.g.
 all 11 of the palette's lightness values. For the starter's palette this is a
 13-token `@theme` override, staged in reddoor-starter. With it, the starter's
 own gate goes from `rule-errored on a11y fixtures` (0 contrast nodes measured)
-to 0 violations (64 measured).
+to 0 violations (64 measured). The Blux-track template, reddoor-starter-blux,
+has the same Hero and goes red the same way. The same override takes it to
+0 violations (66 measured), and that fix is to follow.
 
 **A crash is attributed to the frame it happened in.** axe runs each frame
 separately:

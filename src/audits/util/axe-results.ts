@@ -62,11 +62,18 @@ export type AxeReading = {
  * into `crashes`. A crash is a node carrying axe's `error-occurred` check;
  * a rule that carries `error` with no such node is still a crash, with no
  * node. Nothing a rule produced is dropped because it also threw somewhere.
- * Anything that is not an array reads as an empty report.
+ * Anything that is not an array fails closed (#916 review): it reads as one
+ * crash with no node, which the spec fails as `rule-errored`. An empty
+ * report would read as a clean page that measured nothing, and a later
+ * `.options()` that dropped `reporter: "raw"` is exactly how one would arrive.
  */
 export function readAxeResults(raw: unknown): AxeReading {
   const reading: AxeReading = { violations: [], passes: [], incomplete: [], crashes: [] };
-  const rules = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+  if (!Array.isArray(raw)) {
+    reading.crashes.push({ rule: "axe", message: "axe returned no raw report", nodes: [] });
+    return reading;
+  }
+  const rules = raw as Array<Record<string, unknown>>;
   for (const rule of rules) {
     if (!rule || typeof rule.id !== "string") continue;
     const id = rule.id;

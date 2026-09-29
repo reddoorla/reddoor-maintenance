@@ -1541,14 +1541,80 @@ describe("audits/a11y — contrast that was never measured (#888)", () => {
     expect(r.summary).toContain('write 0 for "none" in the oklch() token');
   });
 
+  // #916 review (N23): rule-errored is serious whatever axe rates the crashed
+  // rule. A crash means the rule measured nothing there, and "normalising" it
+  // to the rule's own impact would turn a crashed moderate rule into a warn.
+  // Every live crash fixture crashes a serious rule, so this runs the spec's
+  // own crash loop, lifted verbatim from the generated text, on crashes of
+  // rules axe itself rates moderate and minor.
+  it("files every crash as serious, including a crash of a rule axe rates moderate or minor", async () => {
+    const fromAxePlaywright = createRequire(
+      createRequire(import.meta.url).resolve("@axe-core/playwright"),
+    );
+    const axe = fromAxePlaywright("axe-core") as {
+      _audit: { rules: Array<{ id: string; impact?: string }> };
+    };
+    const impactOf = (id: string) => axe._audit.rules.find((r) => r.id === id)?.impact;
+    // Not vacuous: axe really rates these below serious.
+    expect([impactOf("meta-viewport"), impactOf("aria-deprecated-role")]).toEqual([
+      "moderate",
+      "minor",
+    ]);
+
+    const sink = { spec: "" };
+    await run({ totalViolations: 0, byImpact: {} }, sink);
+    const loop = /\n( +)for \(const crash of results\.crashes\) \{\n[\s\S]*?\n\1\}\n/.exec(
+      sink.spec,
+    );
+    if (!loop) throw new Error("generated spec has no crash loop");
+    const runLoop = new Function(
+      "results",
+      "derived",
+      "violations",
+      "name",
+      "ruleErroredHelp",
+      "unparseableColourRemedy",
+      loop[0],
+    );
+    const crashNode = (target: string[], impact: string) => ({
+      html: "<x>",
+      target,
+      any: [],
+      all: [],
+      none: [{ id: "error-occurred", data: { message: "boom" } }],
+      impact,
+    });
+    const derived: Array<{ id: string; impact: string }> = [];
+    const violations: Array<{ id: string; impact: string }> = [];
+    runLoop(
+      {
+        crashes: [
+          { rule: "meta-viewport", message: "boom", nodes: [crashNode(["meta"], "moderate")] },
+          { rule: "aria-deprecated-role", message: "boom", nodes: [crashNode(["#x"], "minor")] },
+          { rule: "meta-viewport", message: "boom", nodes: [] },
+        ],
+      },
+      derived,
+      violations,
+      "/r",
+      ruleErroredHelp,
+      unparseableColourRemedy,
+    );
+    expect(derived.map((f) => [f.id, f.impact])).toEqual([
+      ["rule-errored", "serious"],
+      ["rule-errored", "serious"],
+    ]);
+    expect(violations.map((f) => [f.id, f.impact])).toEqual([["rule-errored", "serious"]]);
+  });
+
   // #916 review: two rules that threw on one route are two findings. They
   // used to fold into "rule-errored ×2" under the first rule's message.
   it("names each rule that threw on a route, and folds only identical crashes", () => {
-    const errored = (rule: string) => ({
+    const errored = (rule: string, said = "boom") => ({
       id: "rule-errored",
       impact: "serious" as const,
       route: "/two-crashes",
-      help: `axe could not run "${rule}": boom Skipping ${rule} rule.`,
+      help: `axe could not run "${rule}": ${said} Skipping ${rule} rule.`,
     });
     expect(
       describeViolations([
@@ -1559,6 +1625,18 @@ describe("audits/a11y — contrast that was never measured (#888)", () => {
     ).toBe(
       'rule-errored on /two-crashes (axe could not run "color-contrast": boom Skipping color-contrast rule.), ' +
         'rule-errored ×2 on /two-crashes (axe could not run "document-title": boom Skipping document-title rule.)',
+    );
+    // The SAME rule with different messages (the site's page and its own
+    // booking frame crashing on two different tokens) stays two entries, so
+    // the summary names both colours, not just the first (#916 review, N09).
+    expect(
+      describeViolations([
+        errored("color-contrast", 'Unable to parse color "oklch(0.205 0 none)"'),
+        errored("color-contrast", 'Unable to parse color "oklch(0.97 0 none)"'),
+      ]),
+    ).toBe(
+      'rule-errored on /two-crashes (axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule.), ' +
+        'rule-errored on /two-crashes (axe could not run "color-contrast": Unable to parse color "oklch(0.97 0 none)" Skipping color-contrast rule.)',
     );
   });
 
@@ -1864,6 +1942,7 @@ describe("audits/a11y — axe's raw report, read without losing a thrown rule's 
     ]);
     expect(reading.violations[0]).toMatchObject({
       impact: "serious",
+      help: "Elements must meet minimum color contrast ratio thresholds",
       helpUrl: "https://dequeuniversity.com/rules/axe/4.13/color-contrast",
     });
     expect(reading.violations[0]?.nodes[0]?.html).toBe('<p id="#site-faint">');
@@ -1906,13 +1985,28 @@ describe("audits/a11y — axe's raw report, read without losing a thrown rule's 
     ).toEqual([{ rule: "document-title", helpUrl: undefined, message: "boom", nodes: [] }]);
   });
 
-  it("reads anything that is not axe's raw array as an empty report", () => {
-    const empty = { violations: [], passes: [], incomplete: [], crashes: [] };
-    expect(readAxeResults(undefined)).toEqual(empty);
-    // The v1 report is an object, not the raw array: nothing is read from it,
-    // so a spec that lost `reporter: "raw"` fails every live test instead of
-    // quietly reading half a report.
-    expect(readAxeResults({ violations: [], passes: [], incomplete: [] })).toEqual(empty);
+  // #916 review: fail closed. An empty reading is a clean page that measured
+  // nothing; the v1 report (an object) is what arrives if a later .options()
+  // drops `reporter: "raw"`, and it must not read as a pass.
+  it("reads anything that is not axe's raw array as one crash with no node, never a clean page", () => {
+    const noReport = {
+      violations: [],
+      passes: [],
+      incomplete: [],
+      crashes: [{ rule: "axe", message: "axe returned no raw report", nodes: [] }],
+    };
+    expect(readAxeResults(undefined)).toEqual(noReport);
+    expect(
+      readAxeResults({
+        violations: [{ id: "image-alt", nodes: [{ target: ["img"] }] }],
+        passes: [],
+        incomplete: [],
+      }),
+    ).toEqual(noReport);
+    // A node-less crash is the site's, so the spec fails it as rule-errored.
+    expect(ruleErroredHelp("axe", "axe returned no raw report", unparseableColourRemedy)).toBe(
+      'axe could not run "axe": axe returned no raw report',
+    );
   });
 });
 
