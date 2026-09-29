@@ -181,13 +181,14 @@ Ordered by what unblocks the most. Each line is the exact ask.
    `ga4_property_id` (site editor), so its 10-05 report carries analytics (#921).
 5. **Release PR #952** (0.100.1, the #944 changeset) — merge when you want it.
    It publishes to npm.
-6. **Operating-model review** (`docs/operating-model-review-2026-09-29.md`, five
-   calls, in the order they unblock things): (a) zero-blocker Maintenance
-   reports: keep the click, auto-approve after 3 days unless a site is on hold,
-   or auto-approve for listed sites only; (b) pin the "Daily PM pass" Routine to
-   Opus (it ran on Sonnet); (c) which skills move into `.claude/skills/` for
-   cloud sessions; (d) the three cloud environment secrets (item 12 below);
-   (e) the Discord ✅ convention with Tim, Nicole and Erik.
+6. **Operating-model review — answered 2026-09-29** (`docs/operating-model-review-2026-09-29.md` §7):
+   (a) zero-blocker Maintenance reports **keep the click**; revisit only after
+   several consecutive [TEST] sends with nothing wrong (every test send so far
+   has found something); (b) PM-pass model: recommendation is Opus, waiting on
+   the operator's go-ahead to pin it; (c) evening-review is retired (the PM pass
+   replaces it); `new-site` and `markup-review` go to cloud sessions as account
+   skills; (d) the three cloud secrets: walkthrough given, the operator adds
+   them; (e) **any reaction from the operator on a Discord message closes it**.
 7. **Webflow, hard date 2026-10-19** [M, Discord #website-maintenance 09-17]:
    two sites still to convert before the license renews; Domaru must stay up
    to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19.

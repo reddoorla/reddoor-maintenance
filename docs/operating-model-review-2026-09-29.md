@@ -242,3 +242,28 @@ above). The others can stay dead.
 - None of §2 makes the agents better. Last night's sixteen PRs were fine. The
   bottleneck they exposed is the channel between the system and you, and every
   recommendation above is about that.
+
+## 7. The operator's answers (2026-09-29, same afternoon)
+
+1. **Zero-blocker Maintenance reports keep the click.** "Every time we've done a
+   test email to me I've found something wrong with it so far, I want to see
+   several in a row with no issue before fully automating it." R5 is closed
+   until that run of clean [TEST] sends exists; R2 (the exact ask in the
+   digest) is what makes the click cheap meanwhile.
+2. **The PM pass model.** Recommended: Opus. The pass is judgment (what
+   changed, what matters, what to ask for), it runs once a day, and the 09-14
+   A/B found Sonnet confirming a planted false claim that Opus refuted.
+   Pinning it waits on the operator's go-ahead.
+3. **Skills.** `evening-review` is retired; the PM pass replaces it. `new-site`
+   and `markup-review` are already in `reddoorla/claude-skills`; what keeps
+   them out of cloud sessions is that `~/.claude/skills` is laptop-only. The
+   claude.ai account's own skills already sync into every cloud session
+   (`~/.claude/skills/synced/<org>_<user>/`, measured today), so the two are
+   uploaded there as account skills. A skill linked into `~/.claude/skills`
+   mid-session was picked up without a restart [M, today], so a setup-hook
+   install is a working fallback for this repo.
+4. **Cloud secrets.** Walkthrough given in chat; the operator adds
+   `GA_SUBJECT`, `GA_SA_KEY_B64` and `PERPLEXITY_API_KEY` (and
+   `MARKUP_API_KEY` for `markup-review`) to the environment.
+5. **Discord.** Any reaction from the operator on a message closes it. The PM
+   pass reads open asks from Discord each morning (`docs/pm-pass.md` step 4b).

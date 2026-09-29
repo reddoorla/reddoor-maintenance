@@ -49,6 +49,18 @@ The prompt lives here so it can be changed by PR, like everything else.
    working (`automerge: false` on `@reddoorla/maintenance`); name the rule
    before calling it stuck.
 4. **Issues.** Everything opened, closed or commented since the last report.
+   4b. **Discord open asks.** GET only, never post: the bot token is
+   `DISCORD_BOT_KEY`, guild `1199077765144662046`, REST at
+   `https://discord.com/api/v10`. For each text channel with a message in the
+   last 14 days, read its recent messages and list every message that
+   mentions the operator (`tucksravin`, user id `214787673846579200`) or asks
+   him something by name, where he has neither replied after it in that
+   channel nor left **any reaction** on it (the operator's rule since
+   2026-09-29: any reaction from him closes the ask). List asks older than two
+   days under "Waiting on you (Discord)" in the morning report: channel, who,
+   date, and the ask in one line. Do not quote credentials, codes, addresses
+   or phone numbers that appear in messages. There are no clients in the
+   guild; everyone in it is Reddoor staff.
 5. **Backlog diff.** For each P0/P1 item: still true? done? claimed? Move done
    items to the Done section with the PR number. Add what the day's evidence
    surfaced. Re-rank. Update the "Last full re-rank" line.
