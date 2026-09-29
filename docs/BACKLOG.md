@@ -247,6 +247,31 @@ Ordered by what unblocks the most. Each line is the exact ask.
 
 ---
 
+## Clean-send streak ([TEST] report sends, operator's verdict)
+
+The operator keeps the click on zero-blocker Maintenance reports until they have
+seen several [TEST] sends in a row with nothing wrong (review §7.1). Every test
+send before 2026-09-29 had a problem. This table is the record; the operator's
+verdict is its only input, because no client and no check sees the email.
+
+- **Adding a row.** Any session that sends a [TEST] report email to the
+  operator adds a row in the same PR or session, with the verdict
+  `awaiting`. No code on `main` produces a "[TEST]" subject today: the
+  2026-09-28 one rendered the real 09-17 draft ("Completed on 09.17.2026"),
+  so it came from a session's ad-hoc render [I]; `selftest email <site>
+--type maintenance` builds from the roster with today's date and has no
+  prefix.
+- **The verdict** is `clean`, or one line saying what was wrong. The operator
+  writes it into the row (the GitHub web editor works from a phone) or says it
+  to any session, which writes it.
+- **The streak** is the number of `clean` rows counted up from the bottom,
+  stopping at the first row that is not `clean`. An `awaiting` row stops it
+  too, and becomes an ask in the morning report.
+
+| Sent (UTC)       | Site    | Report                 | Verdict  |
+| ---------------- | ------- | ---------------------- | -------- |
+| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | awaiting |
+
 ## Fleet snapshot (2026-09-29 05:36Z, live Turso, SELECT-only) [M]
 
 - 46 site rows: 14 maintained, 2 launching, 7 building, 9 external, 2

@@ -83,3 +83,4 @@ inbox; it carried a real robots.txt block this month.
 - 2026-09-29 — **B4 prepared**: `markup-review` made path-independent (claude-skills#11); both zips handed to the operator.
 - 2026-09-29 — **W6**: done by another session in #971.
 - 2026-09-29 — **W2, W3, W4** and the Monday paragraph (#973): worker rules in `CLAUDE.md`, `docs/worker-brief.md` with a checked P1-12 example, the [H] tag in BACKLOG and `pm-pass.md`, the Monday pass. W2's proof ("the next three worker sessions follow them") and W4's (an [H] item exists) are still to come.
+- 2026-09-29 — **W5** (#PR_STREAK): the record is a table in BACKLOG ("Clean-send streak"), not a Turso table, because the operator's verdict is its only input and no check can see the email; `pm-pass.md` step 6 reports "clean [TEST] sends in a row: N" and asks for each `awaiting` verdict. No code on `main` produces a "[TEST]" subject. The table starts with the 2026-09-28 29 Navy send, awaiting its verdict.
