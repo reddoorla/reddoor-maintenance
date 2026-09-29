@@ -12,12 +12,14 @@ export type Site = {
    *  absent → that audit skips. NOT derived from the URL — it's an explicit
    *  identity column on the Websites row. */
   netlifyId?: string;
-  /** GA4 NUMERIC property ID from the Websites row — what the Data API reads, and
+  /** GA4 NUMERIC property ID from the site row — what the Data API reads, and
    *  not the `G-…` measurement ID that ships in the page. The analytics audit pairs
-   *  it against the tag the live site actually loads; absent → it has only one end
-   *  of the pair and says so rather than guessing. Like `netlifyId`, an explicit
+   *  it against the tag the checkout declares. Three states, and they are not
+   *  interchangeable: a string is the row's property; `null` means a row WAS read
+   *  and carries none; absent means no row was read at all (a checkout audited by
+   *  path), so nothing is known about the property. Like `netlifyId`, an explicit
    *  operator-set column, never derived. */
-  ga4PropertyId?: string;
+  ga4PropertyId?: string | null;
   /** The row accepts `no analytics` under Accepted watch conditions (spec D8,
    *  #936): the client runs their own analytics, or none. Read through
    *  `analyticsOptedOut`, the predicate the setup check and the cockpit use, so

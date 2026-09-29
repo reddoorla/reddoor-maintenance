@@ -155,7 +155,9 @@ cockpit watch item, filterable as `no-analytics`, in the same shape as
 chip. A launching site is not asked until go-live. The opt-out is for a client
 who runs their own analytics, which is what D7 describes for `gallerysonder`.
 The audit in step 2 should skip an opted-out site; the one predicate is
-`analyticsOptedOut` in `src/dashboard/onboarding.ts`.
+`analyticsOptedOut`, in `src/fleet/opt-outs.ts` since #944 (it was in
+`src/dashboard/onboarding.ts` when this was written). The audit honours it as
+shipped: `selectFleetSites` sets `Site.analyticsOptedOut` and the audit skips.
 
 Measured on the live fleet when this landed: 11 of 16 maintained or launching
 rows carry a property. The 5 maintained sites without one (`1836dig`,
@@ -387,7 +389,7 @@ blank section in a monthly report, which is months of silence.
 
 ## Success criteria
 
-- `reddoor-maint audit analytics` is green across maintained sites.
+- `reddoor-maint audit --fleet turso --only analytics` is green across maintained sites.
 - One month on, every maintained site's monthly report carries a non-blank
   analytics section.
 - A grep for `googletagmanager` across the site repos finds the package call and

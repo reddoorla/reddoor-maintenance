@@ -6,10 +6,13 @@ import {
   analyticsAudit,
   classifyAnalytics,
   classifyPropertyError,
+  collectLoaderIds,
   defaultAnalyticsDeps,
   determineEmission,
   gtagLoaderIds,
+  probeRequested,
   readTagConfig,
+  type ProbePage,
   type AnalyticsDeps,
   type AnalyticsFacts,
 } from "../../src/audits/analytics.js";
@@ -57,12 +60,8 @@ describe("gtagLoaderIds", () => {
 
 describe("determineEmission", () => {
   it("takes the browser probe as authoritative in both directions", () => {
-    expect(determineEmission({ probe: { requestedIds: ["G-X"] }, htmlIds: null }).emitting).toBe(
-      true,
-    );
-    expect(determineEmission({ probe: { requestedIds: [] }, htmlIds: ["G-X"] }).emitting).toBe(
-      false,
-    );
+    expect(determineEmission({ probe: { loadedIds: ["G-X"] }, htmlIds: null }).emitting).toBe(true);
+    expect(determineEmission({ probe: { loadedIds: [] }, htmlIds: ["G-X"] }).emitting).toBe(false);
   });
 
   it("treats the HTML scan as positive-only, NEVER as proof of absence", () => {
@@ -78,14 +77,14 @@ describe("determineEmission", () => {
 
 describe("classifyAnalytics — the fleet states measured on 2026-09-22", () => {
   it("29 Navy: nothing at either end on a maintained site is a warn, not a fail", () => {
-    const v = classifyAnalytics(facts({ evidence: { probe: { requestedIds: [] }, htmlIds: [] } }));
+    const v = classifyAnalytics(facts({ evidence: { probe: { loadedIds: [] }, htmlIds: [] } }));
     expect(v.status).toBe("warn");
     expect(v.summary).toContain("no tag and has no GA4 property");
   });
 
   it("revogen: emitting with no property on the row fails", () => {
     const v = classifyAnalytics(
-      facts({ evidence: { probe: { requestedIds: ["G-Y0VSL1KFNT"] }, htmlIds: ["G-Y0VSL1KFNT"] } }),
+      facts({ evidence: { probe: { loadedIds: ["G-Y0VSL1KFNT"] }, htmlIds: ["G-Y0VSL1KFNT"] } }),
     );
     expect(v.status).toBe("fail");
     expect(v.summary).toContain("no GA4 property");
@@ -93,7 +92,7 @@ describe("classifyAnalytics — the fleet states measured on 2026-09-22", () => 
 
   it("la-homelessness-youth: a property with no tag fails", () => {
     const v = classifyAnalytics(
-      facts({ propertyId: "500039567", evidence: { probe: { requestedIds: [] }, htmlIds: [] } }),
+      facts({ propertyId: "500039567", evidence: { probe: { loadedIds: [] }, htmlIds: [] } }),
     );
     expect(v.status).toBe("fail");
     expect(v.summary).toContain("can only ever answer zero");
@@ -105,7 +104,7 @@ describe("classifyAnalytics — the fleet states measured on 2026-09-22", () => 
         config: { measurementId: "G-51J638HZPL", productionHost: "www.beachfrontdentistry.com" },
         siteUrl: "https://www.beachfrontdentistry.com/",
         propertyId: "551435715",
-        evidence: { probe: { requestedIds: ["G-51J638HZPL"] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: ["G-51J638HZPL"] }, htmlIds: [] },
         property: { ok: true, users: 1051 },
       }),
     );
@@ -126,24 +125,45 @@ describe("classifyAnalytics — the failures that are invisible from one end", (
         ...both,
         config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.oldbrand.com" },
         siteUrl: "https://www.example.com/",
-        evidence: { probe: { requestedIds: [] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: [] }, htmlIds: [] },
       }),
     );
     expect(v.status).toBe("fail");
     expect(v.summary).toContain("inert in production");
   });
 
-  it("catches a declared ID with no production host at all", () => {
+  it("does not call a host it could not read 'off everywhere'", () => {
+    // A static read that cannot see the host (an identifier, a dev/prod
+    // ternary, two calls) is not evidence the tag is off. It was a hard fail.
+    for (const probe of [null, { loadedIds: [] }]) {
+      const v = classifyAnalytics(
+        facts({
+          ...both,
+          config: { measurementId: "G-AAAAAAAAAA", productionHost: null },
+          evidence: { probe, htmlIds: [] },
+        }),
+      );
+      expect(v.status).toBe("warn");
+      expect(v.summary).toContain("could not be read");
+      expect(v.summary).not.toContain("off everywhere");
+      expect(v.unchecked.join(" ")).toContain("host gate");
+    }
+  });
+
+  it("lets a probe that saw the tag load stand in for the host it could not read", () => {
     const v = classifyAnalytics(
-      facts({ ...both, config: { measurementId: "G-AAAAAAAAAA", productionHost: null } }),
+      facts({
+        ...both,
+        config: { measurementId: "G-AAAAAAAAAA", productionHost: null },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: null },
+      }),
     );
-    expect(v.status).toBe("fail");
-    expect(v.summary).toContain("keeps the tag off everywhere");
+    expect(v.status).toBe("pass");
   });
 
   it("catches the live site loading a different property than the checkout declares", () => {
     const v = classifyAnalytics(
-      facts({ ...both, evidence: { probe: { requestedIds: ["G-ZZZZZZZZZZ"] }, htmlIds: [] } }),
+      facts({ ...both, evidence: { probe: { loadedIds: ["G-ZZZZZZZZZZ"] }, htmlIds: [] } }),
     );
     expect(v.status).toBe("fail");
     expect(v.summary).toContain("Traffic is going to a property nobody reads");
@@ -153,7 +173,7 @@ describe("classifyAnalytics — the failures that are invisible from one end", (
     const v = classifyAnalytics(
       facts({
         ...both,
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA", "G-AAAAAAAAAA"] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA", "G-AAAAAAAAAA"] }, htmlIds: [] },
         property: { ok: true, users: 10 },
       }),
     );
@@ -165,7 +185,7 @@ describe("classifyAnalytics — the failures that are invisible from one end", (
     const v = classifyAnalytics(
       facts({
         ...both,
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA", "G-OLDOLDOLD"] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA", "G-OLDOLDOLD"] }, htmlIds: [] },
         property: { ok: true, users: 10 },
       }),
     );
@@ -173,23 +193,29 @@ describe("classifyAnalytics — the failures that are invisible from one end", (
     expect(v.summary).toContain("different properties");
   });
 
-  it("warns on a property that answers zero — the shape of a tag that stopped", () => {
+  it("warns on a property that answers zero, and does not call a tag it saw load 'stopped'", () => {
     const v = classifyAnalytics(
       facts({
         ...both,
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
         property: { ok: true, users: 0 },
       }),
     );
     expect(v.status).toBe("warn");
-    expect(v.summary).toContain("quietly stopped firing");
+    expect(v.summary).toContain("loads on the live page");
+    expect(v.summary).not.toContain("not firing");
+    const unseen = classifyAnalytics(
+      facts({ ...both, evidence: { probe: null, htmlIds: [] }, property: { ok: true, users: 0 } }),
+    );
+    expect(unseen.status).toBe("warn");
+    expect(unseen.summary).toContain("the shape of a tag that is not firing");
   });
 
   it("fails when the Data API cannot read the property at all", () => {
     const v = classifyAnalytics(
       facts({
         ...both,
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
         property: { ok: false, kind: "denied", error: "PERMISSION_DENIED" },
       }),
     );
@@ -216,7 +242,7 @@ describe("classifyAnalytics never reports a check it did not run", () => {
       facts({
         config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
         propertyId: "111111111",
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
         property: null,
       }),
     );
@@ -229,7 +255,7 @@ describe("classifyAnalytics never reports a check it did not run", () => {
       facts({
         config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
         propertyId: undefined,
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
       }),
     );
     expect(v.status).toBe("skip");
@@ -263,7 +289,7 @@ describe("readTagConfig", () => {
   productionHost: "www.example.com",
 });`,
     });
-    expect(await readTagConfig(dir)).toEqual({
+    expect(await readTagConfig(dir)).toMatchObject({
       measurementId: "G-AAAAAAAAAA",
       productionHost: "www.example.com",
       foreignAnalytics: false,
@@ -276,7 +302,7 @@ describe("readTagConfig", () => {
         analytics: { measurementId: "G-BBBBBBBBBB", productionHost: "www.y.com" },
       }),
     });
-    expect(await readTagConfig(dir)).toEqual({
+    expect(await readTagConfig(dir)).toMatchObject({
       measurementId: "G-BBBBBBBBBB",
       productionHost: "www.y.com",
       foreignAnalytics: false,
@@ -350,11 +376,36 @@ describe("classifyPropertyError", () => {
       "7 PERMISSION_DENIED: The caller does not have permission",
       "The caller does not have permission",
       "5 NOT_FOUND: Property not found",
-      "invalid_grant",
       "Request failed with status code 403",
     ]) {
       expect(classifyPropertyError(new Error(m))).toBe("denied");
     }
+  });
+
+  it("calls the shared credentials being refused a fleet-wide fault, never this site's", () => {
+    // invalid_grant, unauthorized_client and UNAUTHENTICATED are the service
+    // account itself refused, for every site at once. Calling them `denied`
+    // reddened every row in a sweep over one expired key.
+    for (const m of [
+      "invalid_grant",
+      "invalid_grant: Invalid JWT Signature.",
+      "unauthorized_client: Client is unauthorized to retrieve access tokens",
+      "16 UNAUTHENTICATED: Request had invalid authentication credentials.",
+      "Request failed with status code 401",
+    ]) {
+      expect(classifyPropertyError(new Error(m))).toBe("credentials");
+    }
+    expect(classifyPropertyError(Object.assign(new Error("x"), { code: 16 }))).toBe("credentials");
+    expect(
+      classifyAnalytics(
+        facts({
+          config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+          propertyId: "111111111",
+          evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: null },
+          property: { ok: false, kind: "credentials", error: "invalid_grant" },
+        }),
+      ).status,
+    ).toBe("warn");
   });
 
   it("calls upstream weather unavailable, so a quota blip cannot red a site", () => {
@@ -464,7 +515,7 @@ describe("the pairing is CERTAIN and must not be softened by a missing observati
       facts({
         config: { measurementId: "G-RIGHTRIGH", productionHost: "www.example.com" },
         propertyId: "111111111",
-        evidence: { probe: { requestedIds: ["G-WRONGWRON"] }, htmlIds: null },
+        evidence: { probe: { loadedIds: ["G-WRONGWRON"] }, htmlIds: null },
       }),
     );
     expect(probed.status).toBe("fail");
@@ -474,7 +525,7 @@ describe("the pairing is CERTAIN and must not be softened by a missing observati
     const v = classifyAnalytics(
       facts({
         ...configured,
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: [] },
         property: { ok: false, kind: "unavailable", error: "503" },
       }),
     );
@@ -511,7 +562,7 @@ describe("analyticsAudit wiring", () => {
     await run(dir, "https://www.example.com/", {
       propertyId: "111111111",
       fetchHtml: async () => "<html></html>",
-      probeTag: async () => ({ requestedIds: ["G-AAAAAAAAAA"] }),
+      probeTag: async () => ({ loadedIds: ["G-AAAAAAAAAA"] }),
       readUsers: async (_id, _days, hostnames) => {
         seen.push(hostnames);
         return { ok: true, users: 7 };
@@ -581,7 +632,7 @@ export const init = () => {
     // A trailing newline is what a `gh api --jq` round-trip leaves behind, and
     // it would ride into properties/${id} and 404.
     const seen: string[] = [];
-    const dir = await siteDir(null);
+    const dir = await siteDir({});
     await run(dir, "https://www.example.com/", {
       propertyId: " 111111111\n",
       readUsers: async (id) => {
@@ -625,7 +676,7 @@ export const init = () => {
       propertyId: "111111111",
       probeTag: async () => {
         probed++;
-        return { requestedIds: [] };
+        return { loadedIds: [] };
       },
       fetchHtml: async () => "<html></html>",
     });
@@ -703,7 +754,7 @@ describe("classifyAnalytics: a verdict must not argue with itself", () => {
       facts({
         config: { measurementId: null, productionHost: null, foreignAnalytics: true },
         propertyId: "123456789",
-        evidence: { probe: { requestedIds: [] }, htmlIds: null },
+        evidence: { probe: { loadedIds: [] }, htmlIds: null },
       }),
     );
     expect(v.status).toBe("fail");
@@ -719,7 +770,7 @@ describe("classifyAnalytics: a verdict must not argue with itself", () => {
       facts({
         config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
         propertyId: "111111111",
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA", "G-AAAAAAAAAA"] }, htmlIds: null },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA", "G-AAAAAAAAAA"] }, htmlIds: null },
         property: { ok: false, kind: "denied", error: "PERMISSION_DENIED" },
       }),
     );
@@ -784,7 +835,7 @@ describe("round four: guards that had moved and reopened the same hole", () => {
     const v = classifyAnalytics(
       facts({
         propertyId: "111111111",
-        evidence: { probe: { requestedIds: [] }, htmlIds: [] },
+        evidence: { probe: { loadedIds: [] }, htmlIds: [] },
         property: { ok: false, kind: "unavailable", error: "503" },
       }),
     );
@@ -799,7 +850,7 @@ describe("round four: guards that had moved and reopened the same hole", () => {
       facts({
         config: { measurementId: null, productionHost: null, foreignAnalytics: true },
         propertyId: "111111111",
-        evidence: { probe: { requestedIds: [] }, htmlIds: null },
+        evidence: { probe: { loadedIds: [] }, htmlIds: null },
       }),
     );
     expect(v.summary).not.toContain("nothing in its checkout references one");
@@ -812,12 +863,16 @@ describe("round four: guards that had moved and reopened the same hole", () => {
     // that already exists. A permanent red with no reachable fix.
     const v = classifyAnalytics(
       facts({
-        config: { measurementId: null, productionHost: null, hookUnreadable: true },
+        config: {
+          measurementId: null,
+          productionHost: null,
+          unreadableCall: "src/hooks.client.ts",
+        },
         propertyId: "111111111",
         evidence: { probe: null, htmlIds: [] },
       }),
     );
-    expect(v.summary).toContain("no measurement ID could be read out of it");
+    expect(v.summary).toContain("no measurement ID could be read out of the checkout");
     expect(v.summary).not.toContain("Fix: run `reddoor-maint analytics-tag`");
   });
 
@@ -835,14 +890,13 @@ describe("round four: guards that had moved and reopened the same hole", () => {
     expect(v.summary).toContain("refuses while one is present");
   });
 
-  it("reads a declaration sitting next to a URL containing //", () => {
-    // A regex-only comment stripper blanked the rest of the line.
+  it("passes a declared, paired site whose probe saw its loader arrive", () => {
     expect(
       classifyAnalytics(
         facts({
           config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
           propertyId: "111111111",
-          evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: null },
+          evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: null },
         }),
       ).status,
     ).toBe("pass");
@@ -878,7 +932,7 @@ describe("integration with main: the no-analytics opt-out (#936, spec D8) and a 
         },
         probeTag: async () => {
           calls.push("probeTag");
-          return { requestedIds: [] };
+          return { loadedIds: [] };
         },
         readUsers: async () => {
           calls.push("readUsers");
@@ -892,10 +946,11 @@ describe("integration with main: the no-analytics opt-out (#936, spec D8) and a 
   });
 
   it("knows the difference between 'the row has no property' and 'no row was read'", async () => {
-    // A roster site always carries meta.siteId (selectFleetSites). A bare path
-    // (`audit --only analytics ./checkout`, init's closing audit) read no row.
+    // A roster site always carries ga4PropertyId, null when the row has none
+    // (selectFleetSites). A bare path (`audit --only analytics ./checkout`,
+    // init's closing audit) read no row, and carries nothing.
     expect((await defaultAnalyticsDeps({})).propertyId).toBeUndefined();
-    expect((await defaultAnalyticsDeps({ meta: { siteId: "rec1" } })).propertyId).toBe(null);
+    expect((await defaultAnalyticsDeps({ ga4PropertyId: null })).propertyId).toBe(null);
     expect((await defaultAnalyticsDeps({ ga4PropertyId: "111111111" })).propertyId).toBe(
       "111111111",
     );
@@ -913,7 +968,7 @@ describe("integration with main: the no-analytics opt-out (#936, spec D8) and a 
 
   it("still fails a roster site whose row really has no property", async () => {
     const res = await analyticsAudit({
-      site: { path: await hookDir(DECLARED), meta: { siteId: "rec1" } },
+      site: { path: await hookDir(DECLARED), ga4PropertyId: null },
     });
     expect(res.status).toBe("fail");
     expect(res.summary).toContain("has no GA4 property ID");
@@ -921,7 +976,11 @@ describe("integration with main: the no-analytics opt-out (#936, spec D8) and a 
 });
 
 describe("hookUnreadable reaches every branch it can land on, not only the non-emitting one", () => {
-  const unreadable = { measurementId: null, productionHost: null, hookUnreadable: true } as const;
+  const unreadable = {
+    measurementId: null,
+    productionHost: null,
+    unreadableCall: "src/hooks.client.ts",
+  } as const;
 
   it("does not tell a site to remove the package's own loader", () => {
     // A hook reading its ID from an import is ordinary. When the page loads a
@@ -931,7 +990,7 @@ describe("hookUnreadable reaches every branch it can land on, not only the non-e
       facts({
         config: unreadable,
         propertyId: "111111111",
-        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: null },
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: null },
       }),
     );
     expect(v.status).toBe("warn");
@@ -941,7 +1000,7 @@ describe("hookUnreadable reaches every branch it can land on, not only the non-e
   });
 
   it("does not say a site with a hook declares no tag", () => {
-    for (const probe of [null, { requestedIds: [] }, { requestedIds: ["G-AAAAAAAAAA"] }]) {
+    for (const probe of [null, { loadedIds: [] }, { loadedIds: ["G-AAAAAAAAAA"] }]) {
       const v = classifyAnalytics(
         facts({ config: unreadable, propertyId: null, evidence: { probe, htmlIds: null } }),
       );
@@ -973,14 +1032,18 @@ describe("readTagConfig pins the round-four reader fixes, not just the classifie
         `import { ID, HOST } from "$lib/ga";\nexport const init = () => initAnalytics({ measurementId: ID, productionHost: HOST });`,
       ),
     );
-    expect(cfg).toMatchObject({ measurementId: null, productionHost: null, hookUnreadable: true });
+    expect(cfg).toMatchObject({
+      measurementId: null,
+      productionHost: null,
+      unreadableCall: "src/hooks.client.ts",
+    });
   });
 
   it("marks a hook with only the host legible as unreadable", async () => {
     const cfg = await readTagConfig(
       await hookDir(`initAnalytics({ measurementId: ID, productionHost: "www.example.com" });`),
     );
-    expect(cfg).toMatchObject({ measurementId: null, hookUnreadable: true });
+    expect(cfg).toMatchObject({ measurementId: null, unreadableCall: "src/hooks.client.ts" });
   });
 
   it("reads a declaration on the same line as a string containing //", async () => {
@@ -992,5 +1055,312 @@ describe("readTagConfig pins the round-four reader fixes, not just the classifie
       ),
     );
     expect(cfg).toMatchObject({ measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" });
+  });
+});
+
+describe("round six: the reader sees every way a site runs the package", () => {
+  async function checkout(files: Record<string, string>): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "rd-r6-"));
+    for (const [rel, body] of Object.entries(files)) {
+      await mkdir(join(dir, rel, ".."), { recursive: true });
+      await writeFile(join(dir, rel), body);
+    }
+    return dir;
+  }
+  const CALL = `initAnalytics({ measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" });`;
+
+  it("reads a call from the root layout, where the package's own docs put it", async () => {
+    const dir = await checkout({
+      "src/routes/+layout.svelte": `<script lang="ts">\n  import { onMount } from "svelte";\n  import { initAnalytics } from "@reddoorla/maintenance/client";\n  onMount(() => ${CALL});\n</script>\n<slot />\n`,
+    });
+    expect(await readTagConfig(dir)).toMatchObject({
+      measurementId: "G-AAAAAAAAAA",
+      productionHost: "www.example.com",
+      declaredIn: "src/routes/+layout.svelte",
+    });
+  });
+
+  it("reads a hooks.client.js, and an aliased import", async () => {
+    for (const [rel, body] of [
+      [
+        "src/hooks.client.js",
+        `import { initAnalytics } from "@reddoorla/maintenance/client";\nexport const init = () => ${CALL}`,
+      ],
+      [
+        "src/hooks.client.ts",
+        `import { initAnalytics as startGA } from "@reddoorla/maintenance/client";\nexport const init = () => startGA({ measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" });`,
+      ],
+    ] as const) {
+      expect(await readTagConfig(await checkout({ [rel]: body }))).toMatchObject({
+        measurementId: "G-AAAAAAAAAA",
+        declaredIn: rel,
+      });
+    }
+  });
+
+  it("does not hard-fail a site whose layout runs the package with an imported ID", async () => {
+    // Default path: no browser, a plain GET that shows nothing (the loader is
+    // JS-injected), a property on the row. This was "can only ever answer
+    // zero", a confident fail about a site that may be working.
+    const dir = await checkout({
+      "src/routes/+layout.svelte": `<script>\n  import { initAnalytics } from "@reddoorla/maintenance/client";\n  import { GA_ID, HOST } from "$lib/ga";\n  initAnalytics({ measurementId: GA_ID, productionHost: HOST });\n</script>\n`,
+    });
+    const res = await analyticsAudit({
+      site: { path: dir, deployedUrl: "https://www.example.com/", ga4PropertyId: "111111111" },
+      analyticsDeps: { propertyId: "111111111", fetchHtml: async () => "<html></html>" },
+    });
+    expect(res.status).toBe("warn");
+    expect(res.summary).toContain("src/routes/+layout.svelte references initAnalytics");
+    expect(res.summary).not.toContain("can only ever answer zero");
+  });
+
+  it("reads a dev/prod host as unknown, and does not fail the site for it", async () => {
+    const dir = await checkout({
+      "src/hooks.client.ts": `import { dev } from "$app/environment";\ninitAnalytics({ measurementId: "G-AAAAAAAAAA", productionHost: dev ? "localhost" : "www.example.com" });`,
+    });
+    const cfg = await readTagConfig(dir);
+    expect(cfg).toMatchObject({ measurementId: "G-AAAAAAAAAA", productionHost: null });
+    const res = await analyticsAudit({
+      site: { path: dir, deployedUrl: "https://www.example.com/" },
+      analyticsDeps: { propertyId: "111111111", fetchHtml: async () => "<html></html>" },
+    });
+    expect(res.status).toBe("warn");
+    expect(res.summary).not.toContain("off everywhere");
+  });
+
+  it("calls two references that name different IDs unreadable, not a guess", async () => {
+    const cfg = await readTagConfig(
+      await checkout({
+        "src/hooks.client.ts": CALL,
+        "src/routes/+layout.svelte": `<script>initAnalytics({ measurementId: "G-BBBBBBBBBB", productionHost: "www.example.com" });</script>`,
+      }),
+    );
+    expect(cfg?.measurementId).toBeNull();
+    expect(cfg?.unreadableCall).toContain("src/hooks.client.ts");
+  });
+
+  it("does not count a hooks.client.ts that never mentions the package as analytics", async () => {
+    const cfg = await readTagConfig(
+      await checkout({ "src/hooks.client.ts": "export const handleError = () => {};\n" }),
+    );
+    expect(cfg).toMatchObject({ measurementId: null, foreignAnalytics: false });
+    expect(cfg?.unreadableCall).toBeUndefined();
+  });
+
+  it("pins every foreign-loader shape: msot's inline app.html, gtag(), dataLayer", async () => {
+    for (const [rel, body] of [
+      [
+        "src/app.html",
+        `<head>\n<!-- Google tag (gtag.js) -->\n<script async src="https://www.googletagmanager.com/gtag/js?id=G-BZ0WQMEE8L"></script>\n</head>`,
+      ],
+      ["src/lib/a.ts", "window.gtag ('config', ID);"],
+      ["src/lib/b.ts", "window.dataLayer = window.dataLayer || [];"],
+    ] as const) {
+      expect(await readTagConfig(await checkout({ [rel]: body }))).toMatchObject({
+        foreignAnalytics: true,
+        foreignFile: rel,
+      });
+    }
+  });
+
+  it("counts a loader the comment stripper would lose, so the scan fails closed", async () => {
+    // An unquoted attribute is valid HTML, and its `//` reads as a JS line
+    // comment to a stripper. The recipe's refusal to install alongside an
+    // existing loader must not depend on the stripper parsing markup.
+    const cfg = await readTagConfig(
+      await checkout({
+        "src/app.html":
+          "<head><script async src=https://www.googletagmanager.com/gtag/js?id=G-BZ0WQMEE8L></script></head>",
+      }),
+    );
+    expect(cfg).toMatchObject({ foreignAnalytics: true, foreignFile: "src/app.html" });
+  });
+
+  it("scans for a foreign loader when site-config.json declares only a host", async () => {
+    // Round three's partial-declaration guard never reached this branch.
+    const cfg = await readTagConfig(
+      await checkout({
+        "src/lib/site-config.json": JSON.stringify({ analytics: { productionHost: "x.com" } }),
+        "src/lib/components/Analytics.svelte":
+          'script.src = "https://www.googletagmanager.com/gtag/js?id=" + ID;',
+      }),
+    );
+    expect(cfg).toMatchObject({ measurementId: null, foreignAnalytics: true });
+  });
+
+  it("says so when the walk stopped at its cap, instead of reporting no loader", async () => {
+    const dir = await checkout({
+      "src/a.ts": "export {};",
+      "src/b.ts": "export {};",
+      "src/z.ts": "window.dataLayer = [];",
+    });
+    const cfg = await readTagConfig(dir, 2);
+    expect(cfg).toMatchObject({ foreignAnalytics: false, scanIncomplete: true });
+    const v = classifyAnalytics(
+      facts({ config: cfg, propertyId: "111111111", evidence: { probe: null, htmlIds: [] } }),
+    );
+    expect(v.status).toBe("warn");
+    expect(v.summary).not.toContain("nothing in its checkout references one");
+  });
+
+  it("pins beachfront's default-path warn: its own loader, a property, no browser", async () => {
+    const dir = await checkout({
+      "src/lib/components/Analytics.svelte":
+        '<script>onMount(() => { const s = document.createElement("script"); s.src = "https://www.googletagmanager.com/gtag/js?id=G-51J638HZPL"; });</script>',
+    });
+    const res = await analyticsAudit({
+      site: { path: dir, deployedUrl: "https://www.beachfrontdentistry.com/" },
+      analyticsDeps: { propertyId: "551435715", fetchHtml: async () => "<html></html>" },
+    });
+    expect(res.status).toBe("warn");
+    expect(res.summary).toContain("src/lib/components/Analytics.svelte");
+  });
+});
+
+describe("round six: the probe counts a loader that arrived, not one that was asked for", () => {
+  function fakePage() {
+    const handlers: Record<string, Array<(x: unknown) => void>> = {};
+    return {
+      on(event: string, h: (x: unknown) => void) {
+        (handlers[event] ??= []).push(h);
+      },
+      emit(event: string, x: unknown) {
+        for (const h of handlers[event] ?? []) h(x);
+      },
+    };
+  }
+  const LOADER = "https://www.googletagmanager.com/gtag/js?id=G-AAAAAAAAAA";
+
+  it("counts a 2xx response, and records a CSP-refused or failed request as failed", () => {
+    const page = fakePage();
+    const seen = collectLoaderIds(page as unknown as ProbePage);
+    page.emit("requestfailed", {
+      url: () => LOADER,
+      failure: () => ({ errorText: "net::ERR_BLOCKED_BY_CSP" }),
+    });
+    page.emit("response", { url: () => LOADER, status: () => 404, ok: () => false });
+    expect(seen.loadedIds).toEqual([]);
+    expect(seen.failed).toEqual([
+      { id: "G-AAAAAAAAAA", reason: "net::ERR_BLOCKED_BY_CSP" },
+      { id: "G-AAAAAAAAAA", reason: "HTTP 404" },
+    ]);
+    page.emit("response", { url: () => LOADER, status: () => 200, ok: () => true });
+    expect(seen.loadedIds).toEqual(["G-AAAAAAAAAA"]);
+  });
+
+  it("fails the exact CSP case the recipe exists to fix, and says it was refused", () => {
+    const v = classifyAnalytics(
+      facts({
+        config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+        propertyId: "111111111",
+        evidence: {
+          probe: {
+            loadedIds: [],
+            failed: [{ id: "G-AAAAAAAAAA", reason: "net::ERR_BLOCKED_BY_CSP" }],
+          },
+          htmlIds: null,
+        },
+      }),
+    );
+    expect(v.status).toBe("fail");
+    expect(v.summary).toContain("net::ERR_BLOCKED_BY_CSP");
+    expect(v.summary).toContain("Content-Security-Policy");
+  });
+});
+
+describe("round six: minors", () => {
+  const both = {
+    config: { measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" },
+    propertyId: "111111111",
+  };
+
+  it("counts only GA4 IDs, not Ads, Floodlight or Google-tag IDs on the same loader", () => {
+    const html = ["AW-123", "DC-456", "GT-ABC", "G-AAAAAAAAAA"]
+      .map((id) => `<script src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>`)
+      .join("");
+    expect(gtagLoaderIds(html)).toEqual(["G-AAAAAAAAAA"]);
+  });
+
+  it("keeps a successful property read when the live ID does not match", () => {
+    const v = classifyAnalytics(
+      facts({
+        ...both,
+        evidence: { probe: { loadedIds: ["G-OTHEROTHER"] }, htmlIds: null },
+        property: { ok: true, users: 42 },
+      }),
+    );
+    expect(v.status).toBe("fail");
+    expect(v.summary).toContain("recorded 42 users");
+  });
+
+  it("does not say 'emitting' in a pass that did not observe emission", () => {
+    const v = classifyAnalytics(
+      facts({ ...both, evidence: { probe: null, htmlIds: [] }, property: { ok: true, users: 9 } }),
+    );
+    expect(v.status).toBe("pass");
+    expect(v.summary).not.toContain("emitting");
+    expect(v.summary).toContain("is declared");
+  });
+
+  it("does not assert collection it never observed for a declared tag with no property", () => {
+    const v = classifyAnalytics(facts({ config: both.config, propertyId: null }));
+    expect(v.status).toBe("fail");
+    expect(v.summary).not.toContain("while the data exists");
+  });
+
+  it("names a failed property read once, and a missing row once", () => {
+    const unreachable = classifyAnalytics(
+      facts({
+        ...both,
+        evidence: { probe: { loadedIds: ["G-AAAAAAAAAA"] }, htmlIds: null },
+        property: { ok: false, kind: "unavailable", error: "503" },
+      }),
+    );
+    expect(unreachable.unchecked.filter((u) => u.startsWith("the GA4 property"))).toHaveLength(1);
+    const noRow = classifyAnalytics(facts({ ...both, propertyId: undefined }));
+    expect(noRow.unchecked.filter((u) => u.startsWith("the GA4 property"))).toHaveLength(1);
+  });
+
+  it("does not call any non-numeric property a measurement ID", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rd-mal-"));
+    await mkdir(join(dir, "src"), { recursive: true });
+    const odd = await analyticsAudit({ site: { path: dir }, analyticsDeps: { propertyId: "abc" } });
+    expect(odd.status).toBe("fail");
+    expect(odd.summary).not.toContain("G-…");
+    const g = await analyticsAudit({
+      site: { path: dir },
+      analyticsDeps: { propertyId: "G-AAAAAAAAAA" },
+    });
+    expect(g.summary).toContain("measurement ID");
+  });
+
+  it("does no IO for a verdict that needs none", async () => {
+    const calls: string[] = [];
+    const deps = {
+      fetchHtml: async () => {
+        calls.push("fetchHtml");
+        return "";
+      },
+      readUsers: async () => {
+        calls.push("readUsers");
+        return { ok: true as const, users: 1 };
+      },
+    };
+    const noSrc = await mkdtemp(join(tmpdir(), "rd-nosrc-"));
+    await analyticsAudit({
+      site: { path: noSrc, deployedUrl: "https://www.example.com/" },
+      analyticsDeps: { ...deps, propertyId: "111111111" },
+    });
+    await analyticsAudit({
+      site: { path: noSrc, deployedUrl: "https://www.example.com/" },
+      analyticsDeps: { ...deps, propertyId: "G-AAAAAAAAAA" },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("turns the probe on only for a truthy REDDOOR_ANALYTICS_PROBE", async () => {
+    for (const v of ["1", "true", "YES", "on"]) expect(probeRequested(v)).toBe(true);
+    for (const v of [undefined, "", "0", "false", "no", "off"])
+      expect(probeRequested(v)).toBe(false);
   });
 });
