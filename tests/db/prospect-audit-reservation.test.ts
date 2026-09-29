@@ -620,6 +620,22 @@ describe("failing a run that paid (P1-16)", () => {
     expect(row?.result_json).toBe('{"x":1}');
   });
 
+  it("never touches a partial report, nor re-stamps a row already failed", async () => {
+    const [partialId] = await seed(1, { status: "partial", createdAt: ago(3 * HOUR) });
+    const [failedId] = await seed(1, { status: "failed", createdAt: ago(2 * HOUR) });
+    expect(await failProspectAudit(db, partialId!, NOW)).toBeNull();
+    expect(await failProspectAudit(db, failedId!, NOW)).toBeNull();
+    const rows = await db
+      .selectFrom("prospect_audits")
+      .select(["id", "status", "created_at"])
+      .orderBy("created_at")
+      .execute();
+    expect(rows).toEqual([
+      { id: partialId, status: "partial", created_at: ago(3 * HOUR) },
+      { id: failedId, status: "failed", created_at: ago(2 * HOUR) },
+    ]);
+  });
+
   it("a row that is gone returns null", async () => {
     expect(await failProspectAudit(db, "pa_missing", NOW)).toBeNull();
   });

@@ -25,12 +25,15 @@ let script: Array<[StageName, "start" | "ok" | "fail"]> = [];
 let pipelineResolves = false;
 let renderThrows = false;
 let markFailedThrows = false;
+let releaseThrows = false;
 let clock: Date;
 let beforeStages: (() => Promise<void>) | null = null;
 
 const NOW = new Date("2026-09-29T12:00:00.000Z");
 const HOUR = 60 * 60 * 1000;
 const FAILED_AT = new Date(NOW.getTime() + HOUR);
+/** One instance, so a test can assert the CLI rethrows THIS error, not a wrapper. */
+const PIPELINE_ERROR = new Error("deterministic bug downstream");
 
 vi.mock("../../src/prospect/pipeline.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/prospect/pipeline.js")>();
@@ -41,7 +44,7 @@ vi.mock("../../src/prospect/pipeline.js", async (importOriginal) => {
       for (const [name, status] of script) deps.onStage?.(name, status);
       clock = FAILED_AT;
       if (pipelineResolves) return { url: "https://acme.example/" } as never;
-      throw new Error("deterministic bug downstream");
+      throw PIPELINE_ERROR;
     }),
   };
 });
@@ -51,7 +54,7 @@ vi.mock("../../src/prospect/render.js", async (importOriginal) => {
   return {
     ...actual,
     renderProspectReport: vi.fn((result: Parameters<typeof actual.renderProspectReport>[0]) => {
-      if (renderThrows) throw new Error("deterministic bug downstream");
+      if (renderThrows) throw PIPELINE_ERROR;
       return actual.renderProspectReport(result);
     }),
   };
@@ -65,6 +68,12 @@ vi.mock("../../src/db/prospect-audits.js", async (importOriginal) => {
       if (markFailedThrows) throw new Error("turso blip while marking");
       return actual.failProspectAudit(...args);
     }),
+    releaseProspectAuditReservation: vi.fn(
+      async (...args: Parameters<typeof actual.releaseProspectAuditReservation>) => {
+        if (releaseThrows) throw new Error("turso blip while releasing");
+        return actual.releaseProspectAuditReservation(...args);
+      },
+    ),
   };
 });
 
@@ -80,6 +89,7 @@ afterEach(() => {
   pipelineResolves = false;
   renderThrows = false;
   markFailedThrows = false;
+  releaseThrows = false;
   beforeStages = null;
   vi.restoreAllMocks();
 });
@@ -114,7 +124,7 @@ async function afterAThrow(stages: typeof script): Promise<AfterAThrow> {
       openDb: async () => db,
       now: () => clock,
     }),
-  ).rejects.toThrow("deterministic bug downstream");
+  ).rejects.toBe(PIPELINE_ERROR);
   const rows = await db
     .selectFrom("prospect_audits")
     .select(["id", "token", "status", "created_at", "result_json"])
@@ -234,6 +244,12 @@ describe("prospect-audit CLI — a kept slot is kept for the full 24h (P1-16)", 
   it("when marking the row fails, the CLI still rejects with the pipeline's own error", async () => {
     markFailedThrows = true;
     const out = await afterAThrow(PAID);
+    expect(out.rows.map((r) => r.status)).toEqual(["running"]);
+  });
+
+  it("a pre-spend throw whose release fails is never marked `failed` — it paid nothing", async () => {
+    releaseThrows = true;
+    const out = await afterAThrow([["crawl", "start"]]);
     expect(out.rows.map((r) => r.status)).toEqual(["running"]);
   });
 });
