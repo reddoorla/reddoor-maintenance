@@ -5803,6 +5803,7 @@ Both issues reproduced on `1b1c52fd` before any change, in the live-spec harness
 **The #949 fix.** The freeze sheet is now a constructed `CSSStyleSheet`, adopted after the page's own adopted sheets (`src/audits/util/freeze-motion.ts`). CSP does not govern CSSOM. `bypassCSP: true` was rejected: it would switch the site's CSP off for everything the audit measures, including #52's evidence. Mutation M4 (bypassCSP plus addStyleTag) is caught only by the live test asserting that the page's CSP still fires its `img-src` canary report.
 
 **How the live fixture proves the sheet applied.** Proof means the sheet applied, not merely that nothing threw.
+
 - A 30 s colour transition to `#aaa`.
 - A keyframe animation that holds a `#aaa` rule at `#111`; the page adopts that rule itself, the only way that CSP lets a page style anything.
 - Each fails contrast only if the freeze applied.
@@ -5810,6 +5811,7 @@ Both issues reproduced on `1b1c52fd` before any change, in the live-spec harness
 **The #905 fix.** `describeNoResults` names a missing executable, with `npx playwright install chromium`. Otherwise it gives the first stdout `Error:` line, then the stderr lines minus npm warnings.
 
 **Beliefs corrected on contact.**
+
 - **My first version let stdout's error replace stderr entirely.** Round 1 found this (major, verified twice). When the web server itself fails, stdout carries only "Process from config.webServer was not able to start", and the real cause ("Port 5173 is already in use", a failed preview build) is on stderr. The fix moved the #905 shape to a different failure, which is the #905 lesson again: a summary must not pick one channel.
 - **Round 2 found the stdout match too narrow.** A `TypeError`, or a bare test timeout, with npm-only stderr now gives no detail at all. Every such case still fails.
 
