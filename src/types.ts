@@ -12,6 +12,20 @@ export type Site = {
    *  absent → that audit skips. NOT derived from the URL — it's an explicit
    *  identity column on the Websites row. */
   netlifyId?: string;
+  /** GA4 NUMERIC property ID from the site row — what the Data API reads, and
+   *  not the `G-…` measurement ID that ships in the page. The analytics audit pairs
+   *  it against the tag the checkout declares. Three states, and they are not
+   *  interchangeable: a string is the row's property; `null` means a row WAS read
+   *  and carries none; absent means no row was read at all (a checkout audited by
+   *  path), so nothing is known about the property. Like `netlifyId`, an explicit
+   *  operator-set column, never derived. */
+  ga4PropertyId?: string | null;
+  /** The row accepts `no analytics` under Accepted watch conditions (spec D8,
+   *  #936): the client runs their own analytics, or none. Read through
+   *  `analyticsOptedOut`, the predicate the setup check and the cockpit use, so
+   *  an alias cannot mute one and not the other. The analytics audit skips such
+   *  a site. Absent = not opted out. */
+  analyticsOptedOut?: boolean;
   meta?: Record<string, unknown>;
 };
 
@@ -26,7 +40,8 @@ export type AuditName =
   | "netlify-deploy"
   | "function-health"
   | "smoke"
-  | "form-e2e";
+  | "form-e2e"
+  | "analytics";
 
 export type RecipeName =
   | "sync-configs"
