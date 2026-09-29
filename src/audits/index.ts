@@ -7,6 +7,7 @@ import { lintAudit } from "./lint.js";
 import { securityAudit } from "./security.js";
 import { lighthouseAudit } from "./lighthouse.js";
 import { a11yAudit } from "./a11y.js";
+import { analyticsAudit } from "./analytics.js";
 import { domainAudit } from "./domain.js";
 import { browserAudit } from "./browser.js";
 import { netlifyDeployAudit } from "./netlify-deploy.js";
@@ -20,6 +21,7 @@ const REGISTRY: Record<AuditName, (ctx: AuditContext) => Promise<AuditResult>> =
   security: securityAudit,
   lighthouse: lighthouseAudit,
   a11y: a11yAudit,
+  analytics: analyticsAudit,
   domain: domainAudit,
   browser: browserAudit,
   "netlify-deploy": netlifyDeployAudit,
@@ -74,4 +76,4 @@ export async function runAuditsAcross(sites: Site[], which?: AuditName[]): Promi
   return all.flat();
 }
 
-export { depsAudit, lintAudit, securityAudit, lighthouseAudit, a11yAudit };
+export { depsAudit, lintAudit, securityAudit, lighthouseAudit, a11yAudit, analyticsAudit };

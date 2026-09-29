@@ -129,7 +129,6 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 | #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                  | Done when                                                                                                  |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | P1-3  | **#912**: PR 1 (#986) stores the verdict nightly (`roster-urls` → `site_health.url_resolves`/`url_status`/`url_checked_at`); remains: the surface (PR 2; #975 merged, so it can start). #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                                                                                                                                                                                                                                                                                              | 🟡   | M      | see "P1-3 start here" below this table                                                      | PR 2: a `fail` row reaches the digest, a stale `url_checked_at` is caught, an accept key mutes only `fail` |
-| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                        | A weekly run posts drift to a tracking issue, with a positive control                                      |
 | P1-22 | Read `RULESET_BYPASS` from the first scheduled fleet-security run after #985, and settle P1-17's measurement fork. `unread` > 0 means the reddoor-renovate App token gets no `bypass_actors`, so the default-branch floor (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night: write an Operator decisions line with the run URL and both numbers, asking which credential lets `protection-audit` see bypass lists — (a) Administration read/write on reddoor-renovate, (b) a dedicated audit-only App or token, (c) accept "unverified" fleet-wide (all 🔴). `unread=0` closes the fork. Do NOT dispatch `fleet-security.yml` to get the number (P0-1) | 🟢   | S      | the `RULESET_BYPASS unread=N read=M` line in the protection-audit step of the scheduled run | An Operator decisions line with the run URL and numbers, or a Done line saying `unread=0`                  |
 
 ### P1-3 start here (#912)
@@ -183,11 +182,6 @@ owned it, merged 2026-09-29, so PR 2 can start):
   the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
   holds zombies past ~4 s (the test then fails its assertion cleanly). The flake
   itself is fixed; see _Done_.
-- **#969**: a11y audit's `SpawnTimeoutError` kills Playwright's process group
-  but orphans its `webServer` (the site's dev server). Filed from #950's review
-  by the same session; its fix touches `src/audits/util/spawn.ts`. #972 (#960's
-  flake fix) changed only `tests/audits/util/spawn.test.ts`, so the two no
-  longer collide beyond that test file.
 
 ---
 
@@ -334,7 +328,11 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `node scripts/land-prs.mjs 995`, then dispatch `fleet-config-drift.yml` once
     on `main` (the brief's live proof: control passes, summary total = roster
     size, issue filed to match).
-25. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** — two
+    **Resolved 2026-09-29 ~21:45Z (PM brief: rerun round 2, land if clean):
+    the rerun found no blocker or major; its four minor test gaps are pinned
+    in #995, which lands.**
+25. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** —
+    answered 2026-09-29: land as it is, no third round; #989 lands with this line. Two
     review rounds each found a real defect, so #989 is held for your call, not a
     third round. Round 1 (on `ce4cb9db`) found a behaviour defect: the walk
     trusted `child.pid` after an early-exiting wrapper could have been reaped,
@@ -421,11 +419,26 @@ verdict is its only input, because no client and no check sees the email.
   a11y audit, so the columns fill only when someone runs `audit --write-back`
   from a site checkout. The report gate does not read them.
 
+- 2026-09-29 — #969: a timed-out spawn reaps the process groups its
+  descendants detached into (Playwright's webServer, Chrome under
+  chrome-launcher), found from a `ps -A -o pid=,ppid=,pgid=` snapshot taken
+  before the first SIGTERM (#989). The Verify probe went from
+  `Sl; accepting=true` 7 s after the timeout to `gone; accepting=false`.
+
 - 2026-09-29 — P1-17 / #981: `protection-audit` joins each
   `required_status_checks` rule on a non-default Renovate base branch to its
   ruleset's `bypass_actors`; a branch every one of whose gating rulesets can be
   bypassed is a gap, and a ruleset read without the field is unverified (#985).
   The new `RULESET_BYPASS` line's first live number is P1-22.
+
+- 2026-09-29 — P1-12 / #983: `fleet-config-drift.yml` runs
+  `sync-configs --fleet turso --dry` every Sunday at 07:23 UTC behind a
+  three-fixture positive control, and files "Fleet config drift" with the DRIFT
+  and SKIPPED lines (#995). It closes only when every repo in the issue's
+  own body comes back CLEAN. `--dry` now reports a tracked `build/` file as
+  `.gitignore` drift, as the real run already committed it. The Verify line held:
+  no workflow ran `sync-configs`, and the probe printed `no changes needed`
+  against the real run's `applied: 1 commit(s)` on `e2d4aa67`.
 
 - 2026-09-29 — P1-16 / #980: a prospect audit that throws after a paid stage
   (or in its render) marks its row `failed`, re-stamped to the failure, which

@@ -169,13 +169,16 @@ function canonicalIgnoreEntries(templateContents: string): string[] {
     .filter((l) => l !== "" && !l.startsWith("#"));
 }
 
-type GitignorePlan =
+export type GitignorePlan =
   { kind: "noop" } | { kind: "apply"; content: string; toUntrack: string[]; added: string[] };
 
-async function planGitignore(cwd: string): Promise<GitignorePlan> {
+export async function planGitignore(
+  cwd: string,
+  tracked?: readonly string[],
+): Promise<GitignorePlan> {
   const existing = await readMaybe(join(cwd, ".gitignore"));
   const merge = mergeGitignore(existing, CANONICAL_GITIGNORE_ENTRIES);
-  const tracked = await listTrackedFiles(cwd);
+  tracked ??= await listTrackedFiles(cwd);
   const toUntrack = findTrackedArtifacts(tracked, CANONICAL_GITIGNORE_ENTRIES);
   if (merge.added.length === 0 && toUntrack.length === 0) return { kind: "noop" };
   return { kind: "apply", content: merge.content, toUntrack, added: merge.added };
