@@ -344,6 +344,12 @@ Ordered by what unblocks the most. Each line is the exact ask.
     unreviewed.
     **Answered 2026-09-29 ~20:50Z: ship 0.102.0; vida's call (exempt the
     blend-mode crash, or change the design) stays open.**
+    **Answered later on 2026-09-29: do both.** The design fix is open for
+    review as [vida-legacy-foundation#86](https://github.com/reddoorla/vida-legacy-foundation/pull/86)
+    (`text-red-700`, 5.93:1 on beige, CI green; not to be merged by an agent).
+    The gate exemption is [#1014](https://github.com/reddoorla/reddoor-maintenance/pull/1014),
+    held after two review rounds: see item 29. Vida's gate is green only
+    with #1014, #86 **and** the 13 palette lines, which no PR carries yet.
 
 24. **P1-12, weekly config-drift report (#983, PR #995)**: two review rounds
     each found real defects, so #995 is held for your call instead of going to a
@@ -447,6 +453,39 @@ Ordered by what unblocks the most. Each line is the exact ask.
     it is `git merge origin/main` (#1005 also adds migrations, 0033/0034, so
     keep both sides of the migration id lists), CI green, then
     `node scripts/land-prs.mjs 1016`, then close #943.
+29. **#1014, axe's plus-lighter crash is "not measured" (vida, item 23)**:
+    two review rounds each found a real defect, so #1014 is held for your
+    call instead of going to a third round.
+    - **The design.** When axe files `blendFunctions[blendMode] is not a
+function` on a top-level element, the spec re-runs that rule with the
+      element excluded and its children included again, until the crash
+      stops (25 runs at most). It counts each excluded element as not
+      measured and warns. Every other crash, and every crash inside a frame,
+      still fails.
+    - **Round 1.** Major: axe's exclude dropped the crashed node's whole
+      subtree, so a faint paragraph inside a crashed wrapper, 200px from the
+      grain, went unmeasured and the page warned instead of failing. Minor:
+      a third party's grain frame moved the site to warn. Also test gaps. All
+      fixed in `1d2eefae`, with 10 mutations that each turn a test red.
+    - **Round 2.** Major, reproduced live: a crash filed on a **shadow host**
+      (slotted light text over the grain) excludes the whole shadow tree.
+      Children are re-included from the light DOM only, so a 2.32:1 paragraph
+      in the shadow root was dropped and the page warned. Minor test gaps:
+      the wrapper fixture has one child, so `:nth-of-type` or "first child
+      only" would pass, and the blend-mode name is only ever plus-lighter.
+      Integration was clean: 7991 tests passed, no `__name` in `dist`.
+    - **The ask:** authorise one narrow fix and land. The fix: a crash whose
+      element has a `shadowRoot` is not excludable, so it fails as
+      `rule-errored` as today. Add a live shadow-host fixture and a
+      two-child wrapper. That fix only narrows the exemption, and vida has no
+      shadow DOM (measured on the packed build: exit 0, `/` and `/es` 24
+      contrast nodes each). The alternative is a third full review round.
+    - **Landing it:** make the fix on `claude/a11y-blend-mode-unmeasured`,
+      `git merge origin/main` (keep both sides of BACKLOG and the journal),
+      CI green, then `node scripts/land-prs.mjs 1014`.
+    - **Vida separately:** vida's gate also needs its 13 palette lines
+      (`--color-neutral-*: oklch(… 0 0)` in `@theme`, as in 29-navy#58).
+      With #1014 packed, #86 and those lines applied locally, its gate exits 0. Without the palette lines it fails `rule-errored on a11y fixtures`.
 
 ---
 

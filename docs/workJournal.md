@@ -5949,3 +5949,58 @@ The check reads the evidence through one function, `searchConsoleEvidence`, whic
 **Measured.** 19 mutations were named before the behaviour code, and every one went red. The 3-lens review ran 18 more. Four survived, and three of those mattered: announce skipping the soft-fail write (which would let an old `resolved` keep passing), and the draft or announce write gate narrowed to a GA4 property (which would leave a site enrolled only through its Search Console property with no evidence, ever). Both were test gaps, not code defects, and three new tests kill all three. The fourth was a one-millisecond `>`/`>=` boundary. The cockpit now also requires a readable timestamp before it raises the watch, so it agrees with the setup line's `unknown`. Full suite after merging `main`: 8098 passed, 5 skipped. Lint and typecheck clean. No Turso writes, no dispatches.
 
 **Honest accounting.** Nothing is backfilled. Until each site's next draft, every site reads "no report lookup on record", including the seven properties today's session verified by hand. #943's third point (should a recorded property fall back to the by-host candidates when it returns no rows?) was not in the brief and is untouched. The fleet card still judges setup at wall clock, not the model's `now`. That makes no difference in production, and `CockpitModel` carries no `now` to thread through. The 2026-09-22 fleet-analytics spec still names the old signal.
+
+## 2026-09-29 — axe's plus-lighter crash made "not measured", held after two review rounds (#1014); vida's error red darkened (vida#86)
+
+A worker session on the operator's decision for vida (BACKLOG item 23): fix
+the design and exempt the blend-mode crash. Both PRs exist; neither has landed.
+#1014 is BACKLOG item 29, and vida#86 is open for review.
+
+**What axe actually does.** axe-core 4.13 composites a text node's backdrop
+through a table of blend functions keyed by computed `mix-blend-mode`. The
+table has no `plus-lighter`, so the lookup yields undefined and the call throws
+`blendFunctions[blendMode] is not a function`. The throw is filed on the one
+element being checked, but it **skips the rule for the whole document**. On
+origin/main a fixture with two paragraphs over a grain measured 0 contrast
+nodes on the page. vida's `/` and `/es` measured 0; with #1014 they measure 24
+each, and one element each (`span[aria-current="true"]`) is not measured.
+`link-in-text-block` throws the same way on a link over the grain.
+
+**Belief corrected twice, by review.** The first design excluded each crashed
+element with axe's `exclude`. That takes the element's whole subtree, and
+the element a crash is filed on can be a wrapper with text of its own. Round 1
+proved a faint paragraph inside such a wrapper, 200px from the grain, went
+unmeasured, and the page warned instead of failing. The fix includes the
+children again. A generic `> *` include failed: on a tie between an include
+and an exclude of the same element, axe keeps the include, so a crashed child
+was never excluded. The children are therefore listed by `:nth-child`, minus
+the excluded ones. Round 2 then found the same hole one level down: a crash
+filed on a shadow host drops its shadow tree, which the light-DOM child list
+cannot reach. That is the second dirty round, so the PR stops there. The
+narrow fix (a host with a `shadowRoot` is not excludable) is written into
+item 29 for the operator to authorise.
+
+**The live instrument caught what mutations did not.** The first lookup for
+the blend mode's name used `elementsFromPoint`. It returned nothing on vida,
+because vida's grain is `pointer-events-none`, which `elementsFromPoint`
+skips. The fixture was synthetic and did not have that. Now it does; it went
+red on the old lookup and green on an overlap scan. 21 mutations across two
+rounds were run against the tests. Four survived at first, and each survivor
+was a real test gap, closed before the next push.
+
+**vida.** `text-red-600` is 4.41:1 on the `#fdf5e8` beige, just under AA for
+`text-sm`, and `text-red-700` is 5.93:1. That is one class, in vida#86, for
+review. Measured with vida's own `pnpm test:a11y` on a packed build of #1014,
+with the 13 palette lines applied locally only:
+
+- red-600, the control: fails `color-contrast` on `#s13-error` and `#s14-error`.
+- red-700: exits 0.
+- Without the palette lines, vida still fails `rule-errored` on its fixtures.
+  No PR carries those lines yet.
+
+**Honest accounting.** vida's first gate run wrote no results at all: its
+Playwright 1.63 wanted browser revision 1243, and the container had 1234.
+That is #905's shape exactly, and `npx playwright install chromium` cleared
+it. The container also restarted mid-review; round 2 was resumed from the
+workflow journal. No Turso writes, no workflow dispatches, and no live
+client-site audits beyond vida's local dev server.
