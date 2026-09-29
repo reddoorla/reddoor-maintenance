@@ -25,7 +25,8 @@ export function protectionAuditExitCode(gaps: number): number {
 
 /** `protection-audit --org <org>`: verify every public repo in the org carries
  *  a sound branch ruleset, live secret scanning + push protection, a renovate
- *  workflow that actually runs (see collectProtectionCoverage for the
+ *  workflow that actually runs, a required status check on every non-default
+ *  branch Renovate merges into (see collectProtectionCoverage for the
  *  verdicts), and a pnpm `packageManager` pin that matches the fleet's (see
  *  collectPackageManagerPins). Emits one line per repo + a machine-readable
  *  PROTECTION_AUDIT summary the nightly workflow gates its tracking issue on.

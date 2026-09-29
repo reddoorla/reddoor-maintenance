@@ -26,7 +26,8 @@
     // Nothing imports this one (vitest loads it by path), so without an explicit entry it
     // sits outside the program and a type error in it ships green — only detonating in the
     // weekly time-travel run, where it fails all 360 files under a misleading banner.
-    "vitest.time-travel-setup.ts"
+    "vitest.time-travel-setup.ts",
+    "vitest.no-credentials-setup.ts"
   ],
   "exclude": ["dist", "node_modules", "tests/fixtures"]
 }

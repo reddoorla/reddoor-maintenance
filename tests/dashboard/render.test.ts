@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { SubmissionRow } from "../../src/reports/submission-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import {
@@ -31,6 +31,8 @@ const healthCleanEvidence = (type: ReportRow["reportType"]): Record<string, Evid
 
 function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
+    ga4PropertyId: "123456789",
+    searchConsoleProperty: "sc-domain:acme.example.com",
     maintenanceFreq: "Monthly",
     testingFreq: "Quarterly",
     maintenanceDay: "2026-05-01",
@@ -72,7 +74,7 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     sentAt: "2026-05-02T09:00:00Z",
     deliveryStatus: "delivered",
     renderedHtmlAttachment: {
-      url: "https://airtable.example/attach/rep_001.html",
+      url: "https://files.example/attach/rep_001.html",
       filename: "rep_001.html",
     },
     resendMessageId: "msg_001",
@@ -160,7 +162,7 @@ describe("renderSiteDashboardHtml", () => {
         reportId: "rep_002",
         completedOn: "2026-04-01",
         renderedHtmlAttachment: {
-          url: "https://airtable.example/attach/rep_002.html",
+          url: "https://files.example/attach/rep_002.html",
           filename: "rep_002.html",
         },
       }),
@@ -168,12 +170,11 @@ describe("renderSiteDashboardHtml", () => {
     expect(html).toContain("rep_001");
     expect(html).toContain("rep_002");
     // The link is the dashboard's OWN preview route, keyed on the report's rec
-    // id. It used to be the Airtable attachment href — a signed URL that
-    // expires; the attachment's presence still gates whether a link renders at
-    // all, it just no longer supplies the destination.
+    // id; the attachment's presence still gates whether a link renders at all,
+    // but never supplies the destination.
     expect(html).toContain('href="/api/reports/recREP1/preview"');
     expect(html).toContain('href="/api/reports/recREP2/preview"');
-    expect(html).not.toContain("airtable.example/attach");
+    expect(html).not.toContain("files.example/attach");
   });
 
   it("renders a placeholder when there are no reports", () => {
@@ -189,7 +190,7 @@ describe("renderSiteDashboardHtml", () => {
     expect(html.match(/href="[^"]*\.html"/g) ?? []).toEqual([]);
   });
 
-  it("escapes HTML in the site name and URL so untrusted Airtable values cannot inject markup", () => {
+  it("escapes HTML in the site name and URL so untrusted stored values cannot inject markup", () => {
     const html = renderSiteDashboardHtml(
       siteRow({ name: "<script>alert(1)</script>", url: "javascript:alert(1)" }),
       [],
@@ -540,7 +541,7 @@ describe("renderSiteDashboardHtml — setup status", () => {
       }),
       [],
     );
-    expect(html).toMatch(/Setup 2\/4/);
+    expect(html).toMatch(/Setup 4\/6/);
     expect(html).toContain("First audit");
     expect(html).toContain("Report recipients");
     // The satisfied checks are not listed as missing.
@@ -557,7 +558,7 @@ describe("renderSiteDashboardHtml — setup status", () => {
       }),
       [],
     );
-    expect(html).toMatch(/Setup 4\/4/);
+    expect(html).toMatch(/Setup 6\/6/);
     expect(html).toMatch(/complete/i);
   });
 });
@@ -770,7 +771,7 @@ describe("renderSiteDashboardHtml — approve button", () => {
 
   it("renders an Approve button that POSTs to the approve endpoint for a pending report", () => {
     const html = renderSiteDashboardHtml(siteRow(), [pending()]);
-    // The button carries the Airtable record id (recREP1) so the inline fetch
+    // The button carries the record id (recREP1) so the inline fetch
     // can target /api/reports/:id/approve.
     expect(html).toMatch(/data-report-id="recREP1"/);
     expect(html).toContain("/api/reports/recREP1/approve");
@@ -791,7 +792,7 @@ describe("renderSiteDashboardHtml — approve button", () => {
     expect(html).not.toMatch(/\/api\/reports\/[^/]+\/approve/);
   });
 
-  it("escapes the record id in the approve URL/attribute (no markup injection from Airtable ids)", () => {
+  it("escapes the record id in the approve URL/attribute (no markup injection from stored ids)", () => {
     const html = renderSiteDashboardHtml(siteRow(), [
       pending(),
       reportRow({ id: 'rec"><img src=x>', reportId: "rep_x", approvedToSend: false, sentAt: null }),
@@ -1200,17 +1201,17 @@ describe("renderSiteDashboardHtml — editable site details", () => {
 
   it("preselects the Status select from the RAW cell, so a 'legacy' site shows the placeholder", () => {
     // The entire reason `WebsiteRow.statusRaw` exists. This select's options ARE
-    // Airtable cell values, and "legacy" is not one of them — it canonicalizes to
+    // cell values, and "legacy" is not one of them — it canonicalizes to
     // `archived`. Preselecting `site.status` would silently show a legacy site as
     // an option it does not hold and POST that on the next save, rewriting a real
     // cell nobody edited. The correct render is the disabled "— select —"
     // placeholder: the operator must actively pick.
     //
-    // "legacy" stays a REAL case until stage 3 deletes the old options: a human
-    // can still pick it in the Airtable UI, so reads must keep tolerating it.
+    // "legacy" stays a REAL case: `sites.status` is free text, so a stored
+    // pre-migration name can still reach a read, and reads must keep tolerating it.
     //
     // Post-stage-2 the leaked value would be the CANONICAL name, not "deprecated"
-    // — `toAirtableStatus("archived")` is now "archived", which IS an offered
+    // — status is stored verbatim, so it would be "archived", which IS an offered
     // option. So the assertion that bites is `archived`-selected, not
     // `deprecated`-selected; the old "deprecated" assertions became unfalsifiable
     // the moment that option left the dropdown and were replaced, not dropped.
@@ -1364,7 +1365,7 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
       siteRow(),
       [
         pendingReport({
-          renderedHtmlAttachment: { url: "https://dl.airtable.com/x.html", filename: "x.html" },
+          renderedHtmlAttachment: { url: "https://files.example/dl/x.html", filename: "x.html" },
         }),
       ],
       [],
@@ -1372,10 +1373,10 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
       NOW,
     );
     const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
-    // Was the signed Airtable URL; now the dashboard's own route, which does not
-    // expire out from under a tab left open.
+    // The dashboard's own route, which does not expire out from under a tab
+    // left open.
     expect(pending).toContain("/preview");
-    expect(pending).not.toContain("dl.airtable.com");
+    expect(pending).not.toContain("files.example/dl");
     expect(pending).toContain("draft preview");
     expect(pending).toContain("rendered at draft time");
   });
@@ -1429,7 +1430,7 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
     expect(pending).toContain("~19h");
   });
 
-  it("escapes recipient addresses sourced from Airtable", () => {
+  it("escapes recipient addresses sourced from the site record", () => {
     const html = renderSiteDashboardHtml(
       siteRow({ pointOfContact: "<img src=x onerror=alert(1)>@evil.com" }),
       [pendingReport()],
@@ -1561,19 +1562,16 @@ describe("report preview links point at the dashboard's own route", () => {
     approvedToSend: false,
     sentAt: null,
     renderedHtmlAttachment: {
-      url: "https://airtable.example/signed/abc?exp=123",
+      url: "https://files.example/signed/abc?exp=123",
       filename: "r.html",
     },
   } as const;
 
-  it("the pending row links to /api/reports/:id/preview, not the signed Airtable URL", () => {
-    // Airtable attachment URLs are SIGNED and expire, so a dashboard tab left
-    // open 404s — which is exactly why the Turso-backed preview route was built
-    // in Phase 2. It just was never linked to, so the expiring URL stayed in
-    // front of the operator.
+  it("the pending row links to /api/reports/:id/preview, not the signed attachment URL", () => {
+    // Signed attachment URLs expire, so a dashboard tab left open would 404.
     const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [reportRow(withAttachment)]);
     expect(html).toContain("/api/reports/recREP1/preview");
-    expect(html).not.toContain("airtable.example/signed");
+    expect(html).not.toContain("files.example/signed");
   });
 
   it("the history row links there too", () => {
@@ -1586,7 +1584,7 @@ describe("report preview links point at the dashboard's own route", () => {
       }),
     ]);
     expect(html).toContain("/api/reports/recOLD/preview");
-    expect(html).not.toContain("airtable.example/signed");
+    expect(html).not.toContain("files.example/signed");
   });
 
   it("still says so when no rendered body exists", () => {

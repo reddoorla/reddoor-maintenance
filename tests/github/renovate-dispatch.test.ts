@@ -11,7 +11,7 @@ import {
 } from "../../src/github/renovate-dispatch.js";
 import type { PullRequestSummary } from "../../src/github/gh.js";
 import type { RenovateDispatchResult } from "../../src/github/renovate-dispatch.js";
-import type { SecurityAdvisory } from "../../src/reports/airtable/websites.js";
+import type { SecurityAdvisory } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 /** Minimal persisted advisory; override severity/relationship per case. */
@@ -145,7 +145,7 @@ describe("selectRenovateTargets", () => {
     expect(selectRenovateTargets([site])).toEqual([]);
   });
 
-  it("trims the repo so a padded Airtable value still dispatches cleanly", () => {
+  it("trims the repo so a padded value still dispatches cleanly", () => {
     const site = makeWebsiteRow({
       name: "pad",
       status: "maintained",

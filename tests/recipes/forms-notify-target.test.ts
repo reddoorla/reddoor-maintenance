@@ -4,19 +4,16 @@ import {
   formatNotifyTarget,
   runFormsNotifyTargetCommand,
 } from "../../src/cli/commands/forms-notify-target.js";
-import type { AirtableBase } from "../../src/reports/airtable/client.js";
-import type { Status, WebsiteRow } from "../../src/reports/airtable/websites.js";
-import { canonicalizeStatus, toAirtableStatus } from "../../src/reports/airtable/site-status.js";
+import type { Status, WebsiteRow } from "../../src/fleet/site-row.js";
+import { canonicalizeStatus } from "../../src/fleet/site-status.js";
 
-/** Stands in for the Airtable base. `writesLand` is the knob that matters:
- *  with it off, `updateSiteField` succeeds and the row does NOT change — the
+/** Stands in for the Turso fleet. `writesLand` is the knob that matters:
+ *  with it off, the Status write succeeds and the row does NOT change — the
  *  exact 2026-08-03 shape, where the flip was believed to have happened. */
 const fake = vi.hoisted(() => ({
   rows: [] as WebsiteRow[],
   /** Every Status cell written to TURSO — the store the read-back confirms. */
   updates: [] as string[],
-  /** Every Status cell written to the Airtable SHADOW. */
-  airtableUpdates: [] as string[],
   writesLand: true,
   /** Store a DIFFERENT cell than the one written. Null = store what was sent.
    *  This used to model the shape a canonical-only read-back guard could not
@@ -51,37 +48,15 @@ function applyStatus(
 // freeze constant refuses to build without libSQL creds. Mocked so the flip
 // stays a one-line change rather than a change plus a sweep of test files.
 vi.mock("../../src/db/site-mirror.js", async () => {
-  const { canonicalizeStatus: canon } = await import("../../src/reports/airtable/site-status.js");
+  const { canonicalizeStatus: canon } = await import("../../src/fleet/site-status.js");
   return {
     makeSiteMirror: async () => ({
-      created: async () => {},
-      hasRow: async () => true,
       health: async () => {},
       // #646 step 4: this is the write that decides, so the CLI path must land it
       // in the fake fleet the read-back reads.
       site: async (id: string, fields: Record<string, unknown>) =>
         applyStatus(canon, id, String(fields.Status ?? "")),
     }),
-  };
-});
-vi.mock("../../src/reports/airtable/client.js", async (orig) => {
-  const actual = await orig<typeof import("../../src/reports/airtable/client.js")>();
-  return { ...actual, readAirtableConfig: () => ({}), openBase: () => ({}) };
-});
-
-// The Airtable SHADOW write. Since #646 step 4 it no longer feeds the read-back:
-// the cell that decides who a submission emails is the TURSO one (form ingest
-// reads `getSiteBySlug`), so the fleet below is what the mirror writes into.
-vi.mock("../../src/reports/airtable/websites.js", async (orig) => {
-  const actual = await orig<typeof import("../../src/reports/airtable/websites.js")>();
-  return {
-    ...actual,
-    updateSiteField: async (_b: unknown, id: string, column: string, value: string) => {
-      // The real writer skips a non-`rec` id (#646 step 3); the fake keeps that
-      // rule so a `site_<ULID>` case here behaves as production does.
-      if (!id.startsWith("rec")) return;
-      fake.airtableUpdates.push(`${id}.${column}=${value}`);
-    },
   };
 });
 // The CLI composition root reads the roster from Turso; this is that read.
@@ -98,26 +73,20 @@ function row(status: Status | null, statusRaw?: string | null): WebsiteRow {
     // that is the same string, so the default suffices for every canonical
     // value; callers exercising a cell the code does not recognize pass it
     // explicitly.
-    statusRaw:
-      statusRaw !== undefined ? statusRaw : status === null ? null : toAirtableStatus(status),
+    statusRaw: statusRaw !== undefined ? statusRaw : status,
     pointOfContact: "owner@client.com",
     notifyRouting: null,
     reportRecipientsTo: null,
   } as unknown as WebsiteRow;
 }
 
-const base = {} as AirtableBase;
-
 /** The Turso half of the recipe's deps: the fleet read, and the Status write the
  *  read-back confirms. `writesLand` off is the 2026-08-03 shape — the write call
  *  returns and the cell never changes. */
 function D(over: Partial<Parameters<typeof formsNotifyTarget>[0]> & { site: string }) {
   return {
-    base,
     roster: async () => fake.rows.map((r) => ({ ...r })),
     siteMirror: {
-      created: async () => {},
-      hasRow: async () => true,
       health: async () => {},
       site: async (id: string, fields: Record<string, unknown>) =>
         applyStatus(canonicalizeStatus, id, String(fields.Status ?? "")),
@@ -129,7 +98,6 @@ function D(over: Partial<Parameters<typeof formsNotifyTarget>[0]> & { site: stri
 function setup(status: Status | null, writesLand = true, id = "recSite") {
   fake.rows = [{ ...row(status), id } as WebsiteRow];
   fake.updates = [];
-  fake.airtableUpdates = [];
   fake.writesLand = writesLand;
   fake.substituteWrite = null;
 }
@@ -143,7 +111,7 @@ describe("formsNotifyTarget", () => {
     expect(r.flip).toBeUndefined();
   });
 
-  it("accepts the slug or the Airtable name", async () => {
+  it("accepts the slug or the stored name", async () => {
     setup("maintained");
     for (const s of ["1836dig", "1836DIG"]) {
       expect((await formsNotifyTarget(D({ site: s }))).site).toBe("1836dig");
@@ -154,7 +122,7 @@ describe("formsNotifyTarget", () => {
     setup("maintained");
     const r = await formsNotifyTarget(D({ site: "1836dig", set: "on" }));
     // A LITERAL, not `${VERIFY_STATUS}`: this pins the exact cell value the write
-    // puts in Airtable, which since the stage-2 flip is the NEW option name.
+    // stores, which since the stage-2 flip is the NEW option name.
     // Interpolating the canonical constant would track whatever the code emits and
     // stop pinning anything — it must keep failing if the emitted value drifts.
     expect(fake.updates).toEqual(["recSite.Status=launching"]);
@@ -162,10 +130,9 @@ describe("formsNotifyTarget", () => {
     expect(r.target.audience).toBe("operator");
   });
 
-  it("writes the SAME cell to Turso and to the Airtable shadow (#539 Phase 5)", async () => {
+  it("writes the Status cell to Turso through siteMirror.site", async () => {
     // Turso is what `/api/forms/:slug` reads to decide who a submission emails,
-    // and what the console shows; the Airtable cell is the shadow, compared
-    // raw-to-raw by parity, so the two must carry the identical string.
+    // and what the console shows.
     setup("maintained");
     const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
 
@@ -174,8 +141,6 @@ describe("formsNotifyTarget", () => {
         site: "1836dig",
         set: "on",
         siteMirror: {
-          created: async () => {},
-          hasRow: async () => true,
           health: async () => {},
           site: async (id: string, fields: Record<string, unknown>) => {
             mirrored.push({ id, fields });
@@ -185,19 +150,15 @@ describe("formsNotifyTarget", () => {
     );
 
     expect(mirrored).toEqual([{ id: "recSite", fields: { Status: "launching" } }]);
-    expect(fake.airtableUpdates).toEqual(["recSite.Status=launching"]);
   });
 
-  it("flips a Turso-only `site_<ULID>` site, whose Airtable shadow writes nothing", async () => {
-    // The case an Airtable roster could not even find (#646 steps 3–4): the site
-    // has no Websites record, so the shadow skips and the guard lives in Turso
-    // alone — which is exactly the cell form ingest reads.
+  it("flips a Turso-native `site_<ULID>` site", async () => {
+    // The guard lives in Turso — which is exactly the cell form ingest reads.
     setup("maintained", true, "site_01ARYZ6S41TSV4RRFFQ69G5FAV");
     const r = await formsNotifyTarget(D({ site: "1836dig", set: "on" }));
     expect(r.flip).toMatchObject({ from: "maintained", to: VERIFY_STATUS, confirmed: true });
     expect(r.target.audience).toBe("operator");
     expect(fake.updates).toEqual(["site_01ARYZ6S41TSV4RRFFQ69G5FAV.Status=launching"]);
-    expect(fake.airtableUpdates).toEqual([]);
   });
 
   it("REGRESSION: a flip that does NOT land is reported unconfirmed, never as success", async () => {
@@ -244,17 +205,9 @@ describe("formsNotifyTarget", () => {
   });
 
   it("writes a RETIRED name verbatim — stale operator input must not be silently fixed", async () => {
-    // This test's original point was that operator free text must never be
-    // routed through the canonical→Airtable map, because that map was
-    // many-to-one: `--restore legacy` would have landed "deprecated", rewriting
-    // a real cell to a value nobody asked for, and unlike every other change in
-    // this rename `git revert` cannot undo a rewritten cell.
-    //
-    // Stage 3 deleted that map, so the specific hazard is gone — but the
-    // property matters MORE now, not less. "legacy" is no longer an option in
-    // the Airtable field at all, so the only two possible behaviours are: write
-    // it verbatim and let Airtable reject an option that does not exist, or
-    // quietly translate it into one that does. The first tells the operator
+    // "legacy" is no longer a status at all, so the only two possible
+    // behaviours are: write it verbatim, or quietly translate it into one that
+    // exists. The first tells the operator
     // their input is stale; the second hands them a status they never typed.
     setup(VERIFY_STATUS);
     const r = await formsNotifyTarget(D({ site: "1836dig", set: "off", restore: "legacy" }));
@@ -327,7 +280,7 @@ describe("runFormsNotifyTargetCommand", () => {
     expect((await runFormsNotifyTargetCommand("1836dig", { set: "on" })).code).toBe(0);
   });
 
-  it("rejects a missing site and a bad --set without touching Airtable", async () => {
+  it("rejects a missing site and a bad --set without writing", async () => {
     setup("maintained");
     expect((await runFormsNotifyTargetCommand(undefined, {})).code).toBe(2);
     expect((await runFormsNotifyTargetCommand("1836dig", { set: "maybe" })).code).toBe(2);

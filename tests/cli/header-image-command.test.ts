@@ -1,9 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
-
-// The dual-write tests drive the writeBack branch — stub the real upload.
-vi.mock("../../src/reports/airtable/attachments.js", () => ({
-  uploadAttachment: vi.fn(async () => undefined),
-}));
+import { describe, it, expect } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +8,8 @@ import {
   generateForTargets,
   parseSettleMs,
 } from "../../src/cli/commands/header-image.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
+import type { StoredHeaderImage } from "../../src/db/header-images.js";
 
 function row(over: Partial<WebsiteRow>): WebsiteRow {
   return {
@@ -96,34 +92,41 @@ describe("cli/header-image generateForTargets", () => {
   });
 });
 
-describe("cli/header-image dual-write (#539 D5)", () => {
+describe("cli/header-image --write-back stores the plate in Turso (#539 D5)", () => {
+  const BYTES = new Uint8Array([9, 9, 9]);
   const gen = async () => ({
-    bytes: new Uint8Array([9, 9, 9]),
+    bytes: BYTES,
     domain: "acme.com",
     filename: "acmeHeader.jpg",
     contentType: "image/jpeg" as const,
   });
 
-  it("writeBack also lands the bytes in the injected Turso store, stamped as a generation", async () => {
-    const stores: Array<{ siteId: string; filename: string; generatedAt: string | null }> = [];
+  it("writeBack lands the bytes in the injected Turso store, stamped as a generation", async () => {
+    const stores: Array<{ siteId: string; img: StoredHeaderImage }> = [];
     const res = await generateForTargets(
       [row({ name: "Acme" })],
       {
         writeBack: true,
         storeDb: async (siteId, img) => {
-          stores.push({ siteId, filename: img.filename, generatedAt: img.generatedAt });
+          stores.push({ siteId, img });
         },
       },
       gen,
     );
     expect(res.code).toBe(0);
     expect(stores).toHaveLength(1);
-    expect(stores[0]!.filename).toBe("acmeHeader.jpg");
-    expect(stores[0]!.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(res.output).toContain("+ turso");
+    expect(stores[0]!.siteId).toBe("rec1");
+    expect(stores[0]!.img).toMatchObject({
+      bytes: BYTES,
+      filename: "acmeHeader.jpg",
+      contentType: "image/jpeg",
+    });
+    expect(stores[0]!.img.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(res.output).toContain("✔ Acme — stored acmeHeader.jpg (0.00 MB) in turso");
+    expect(res.output).toContain("1/1 generated.");
   });
 
-  it("a Turso store failure is VISIBLE but does not void the Airtable upload", async () => {
+  it("a Turso store failure reds the run: Turso is the store the send reads", async () => {
     const res = await generateForTargets(
       [row({ name: "Acme" })],
       {
@@ -134,7 +137,17 @@ describe("cli/header-image dual-write (#539 D5)", () => {
       },
       gen,
     );
-    expect(res.code).toBe(0); // the Airtable upload succeeded
-    expect(res.output).toContain("turso store FAILED: turso down");
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("✖ Acme — turso down");
+    expect(res.output).not.toContain("✔ Acme");
+    expect(res.output).toContain("0/1 generated.");
+  });
+
+  it("a --write-back with no Turso store fails the site instead of writing nowhere", async () => {
+    const res = await generateForTargets([row({ name: "Acme" })], { writeBack: true }, gen);
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("✖ Acme — --write-back has no Turso store to write to");
+    expect(res.output).not.toContain("✔ Acme");
+    expect(res.output).toContain("0/1 generated.");
   });
 });

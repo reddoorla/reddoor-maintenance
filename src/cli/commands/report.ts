@@ -1,9 +1,8 @@
-import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import type { Db } from "../../db/client.js";
-import { siteSlug, updateNextDueDates, type WebsiteRow } from "../../reports/airtable/websites.js";
-import type { ReportRow } from "../../reports/airtable/reports.js";
+import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../fleet/site-fields.js";
+import type { ReportRow } from "../../reports/report-fields.js";
 import { findDueReports, nextDueDate, reportPeriodKey } from "../../reports/due.js";
-import { draftReportForSite } from "../../reports/draft.js";
+import { analyticsEnrolled, draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
 import { readGaConfig } from "../../reports/ga/config.js";
 import {
@@ -32,7 +31,7 @@ export type ReportCommandOptions = {
  * Summary line for a drafted report, reflecting the single-queue outcome. `queued === false`
  * means a higher-or-equal-tier report was already pending for the site, so this draft was
  * created but deliberately left OUT of the approve queue. A non-empty `supersededIds` means it
- * un-queued that many lower-tier drafts. `null` is the previewOnly path (no Airtable queue).
+ * un-queued that many lower-tier drafts. `null` is the previewOnly path (no queue).
  */
 function draftLine(
   reportId: string | undefined,
@@ -109,9 +108,8 @@ export async function runReportCommand(
     const { runDigest } = await import("../../reports/digest.js");
     // #646 step 4: the digest's two datasets come from Turso. ONE connection for
     // both reads, opened here (the command is the composition root) and closed
-    // when the run is done — Airtable is left holding only the digest-state
-    // shadow write. Opened LAZILY, on the first read: a run that never reads
-    // (a routing test, a caller that fails earlier) must not need a database.
+    // when the run is done. Opened LAZILY, on the first read: a run that never
+    // reads (a routing test, a caller that fails earlier) must not need a database.
     const { listSites, listAllReports } = await import("../../db/fleet-state.js");
     const fleetDb = lazyFleetDb();
     try {
@@ -131,15 +129,14 @@ export async function runReportCommand(
     // Websites row; #643 retired the hourly sync, so these mirrors are the ONLY
     // way either write reaches Turso.
     const { makeSiteMirror } = await import("../../db/site-mirror.js");
-    const { mirrorWrite } = await import("../../db/freeze.js");
+    const { mirrorWrite } = await import("../../db/mirror-write.js");
     const { openDb, readDbConfig } = await import("../../db/client.js");
     const { mirrorReportPatch, listSendableReports, listSites } =
       await import("../../db/fleet-state.js");
     const { loadHeaderImage } = await import("../../db/header-images.js");
     // #646 step 4: the queue, the roster and the header plate all come from Turso,
     // over ONE connection opened on the first of those reads and closed when the
-    // run ends. The Airtable calls left on this path are writes (`stampSent`,
-    // `updateLaunched`) plus the one-site header fallback inside the orchestrator.
+    // run ends.
     type FleetDb = Awaited<ReturnType<typeof openDb>>;
     // Held in an object rather than a `let`: the only assignment happens inside the
     // closure below, and TypeScript's flow analysis then narrows the variable to
@@ -153,12 +150,11 @@ export async function runReportCommand(
         loadHeaderPlate: async (siteId) =>
           (await loadHeaderImage(await getFleetDb(), siteId))?.bytes ?? null,
         siteMirror: await makeSiteMirror(),
-        // stampSent's Turso shadow, routed through mirrorWrite so the freeze
-        // switch owns the semantics: strict rethrows and the send loop reds the
-        // run. Mirrors stampSent exactly — the 409 replay path leaves Airtable's
-        // `Resend message ID` untouched, so the shadow omits it there too. The
-        // row count is handed through (#647): a stamp for a report row Turso
-        // never held is `missed`, not a green no-op.
+        // The sent stamp, routed through mirrorWrite: a failed write throws and
+        // the send loop reds the run. The 409
+        // replay path has no message id, so the stamp omits it there. The row
+        // count is handed through (#647): a stamp for a report row Turso never
+        // held is `missed`, not a green no-op.
         reportSentMirror: (reportId, sentAt, messageId) =>
           mirrorWrite(`stamp-sent ${reportId}`, async () => {
             const db = await openDb(readDbConfig());
@@ -180,19 +176,20 @@ export async function runReportCommand(
     const { rerenderReport, formatRerenderResult } = await import("../../reports/send/rerender.js");
     const { renderReportFromRow } = await import("../../reports/send/render-from-row.js");
     const { openDb, readDbConfig } = await import("../../db/client.js");
-    const { getReportById, getSiteById, storeRenderedHtml } =
+    const { getReportById, getSiteById, storeRenderedHtml, storeChecklistEvidence } =
       await import("../../db/fleet-state.js");
     const { loadHeaderImage } = await import("../../db/header-images.js");
-    const { fetchAttachmentBytes } = await import("../../reports/airtable/attachments.js");
     const db = await openDb(readDbConfig());
     const result = await rerenderReport(
       {
         getReport: (id) => getReportById(db, id),
         getSite: (id) => getSiteById(db, id),
         loadHeaderPlate: async (id) => (await loadHeaderImage(db, id))?.bytes ?? null,
-        fetchAirtableHeader: async (url) => (await fetchAttachmentBytes(url)).bytes,
         render: (site, report, plate) => renderReportFromRow(site, report, plate),
         store: (id, html) => storeRenderedHtml(db, id, html),
+        storeEvidence: (id, checklist, autoEvidence) =>
+          storeChecklistEvidence(db, id, checklist, autoEvidence),
+        now: () => new Date(),
       },
       opts.rerender,
     );
@@ -206,7 +203,7 @@ export async function runReportCommand(
   }
 
   if (slug) {
-    // Validate the type BEFORE any Airtable access so a bad --type fails fast (and
+    // Validate the type BEFORE any store access so a bad --type fails fast (and
     // without needing credentials).
     const reportType = parseSingleSiteReportType(opts.type);
     return runSingleSiteDraft(slug, {
@@ -227,27 +224,24 @@ export async function runReportCommand(
 }
 
 async function runDueDraft(): Promise<{ output: string; code: number }> {
-  const base = openBase(readAirtableConfig());
-  // Phase 3 dual-write (#539): mirror real next-due writes into site_schedule.
-  // Null when libSQL creds are absent — the Airtable path is unchanged.
-  const { makeScheduleMirrorBestEffort } = await import("../../audits/health-mirror.js");
-  // Phase 5 dual-write (#539): mirror this batch's report writes — the created
+  // Phase 3 (#539): next-due writes land in site_schedule. Null when libSQL
+  // creds are absent, reported as `mirror=absent` on the NEXT_DUE_WRITE line.
+  const { makeScheduleMirror } = await import("../../audits/health-mirror.js");
+  // Phase 5 (#539): mirror this batch's report writes — the created
   // rows, their bodies, and the queue flags. Unlike the schedule mirror this is
   // never null — creds-absent is reported on the REPORT_MIRROR line rather than
   // being indistinguishable from success, the failure mode that hid #585.
   const { makeReportMirror } = await import("../../reports/report-mirror.js");
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
   // #646 step 4: the roster and every report come from Turso, over ONE connection
-  // opened on the first read and closed when the run ends. The Airtable calls left
-  // on this path are shadow writes (next-due dates, the rendered-body attachment,
-  // the queue flag), each skipping a row Airtable cannot hold.
+  // opened on the first read and closed when the run ends.
   const { listSites, listAllReports } = await import("../../db/fleet-state.js");
   const fleetDb = lazyFleetDb();
   try {
-    const result = await draftDueReports(base, new Date(), {
+    const result = await draftDueReports(new Date(), {
       roster: async () => listSites(await fleetDb.get()),
       allReports: async () => listAllReports(await fleetDb.get()),
-      scheduleMirror: await makeScheduleMirrorBestEffort(),
+      scheduleMirror: await makeScheduleMirror(),
       reportMirror: await makeReportMirror(),
       siteMirror: await makeSiteMirror(),
     });
@@ -283,24 +277,22 @@ async function alertOnFleetAnalyticsFailure(health: AnalyticsRunHealth): Promise
 }
 
 /**
- * Write each site's code-computed next-maintenance / next-testing date back to Airtable
- * (date-only, or null when there's no schedule), so the "next" dates shown there derive
- * from the SAME `nextDueDate` the scheduler uses — replacing the old Airtable formula +
- * automation. Best-effort and per-site isolated: a missing `Next … at` column or one bad
- * row warns and is skipped, never aborting the nightly draft run.
+ * Write each site's code-computed next-maintenance / next-testing date into
+ * site_schedule (date-only, or null when there's no schedule), so the "next" dates
+ * the console shows derive from the SAME `nextDueDate` the scheduler uses.
+ * Best-effort and per-site isolated: one bad row warns and is skipped, never
+ * aborting the nightly draft run.
  *
  * The diff-guard (#539 Phase 3): a site whose computed dates equal what its row
  * already holds is SKIPPED — before it, every one of the 44 sites got a nightly
  * write while only the handful whose schedule actually moved needed one (a
  * never-maintained site re-wrote null over null forever). This also scopes the
  * write to maintained sites by construction: no schedule → computed null →
- * equal to the stored null → skipped. Each real write dual-writes through
- * `scheduleMirror` into site_schedule (null mirror = Turso creds absent; the
- * hourly sync converges either way). The NEXT_DUE_WRITE line is observability,
- * not a CI gate — nothing greps it yet.
+ * equal to the stored null → skipped. Each real write goes through
+ * `scheduleMirror` into site_schedule (null mirror = Turso creds absent). The
+ * NEXT_DUE_WRITE line is observability, not a CI gate — nothing greps it yet.
  */
 export async function writeNextDueDates(
-  base: AirtableBase,
   websites: WebsiteRow[],
   reports: ReportRow[],
   today: Date,
@@ -323,14 +315,15 @@ export async function writeNextDueDates(
         skipped++;
         continue;
       }
-      const fields = await updateNextDueDates(base, site.id, { maintenanceAt, testingAt });
-      wrote++;
+      const dates = { maintenanceAt, testingAt };
       if (scheduleMirror) {
         try {
-          // false = the UPDATE matched no site_schedule row (site created in
-          // Airtable since the last hourly import) — missed, not mirrored.
-          if (await scheduleMirror(site.id, fields, today.toISOString())) mirrored++;
-          else mirrorMissed++;
+          const fields = nextDueDatesFields(dates);
+          // false = the UPDATE matched no site_schedule row — missed, not mirrored.
+          if (await scheduleMirror(site.id, fields, today.toISOString())) {
+            mirrored++;
+            wrote++;
+          } else mirrorMissed++;
         } catch (e) {
           mirrorFailed++;
           console.warn(`⚠ [schedule-mirror] ${site.name}: ${(e as Error).message}`);
@@ -360,13 +353,9 @@ export async function writeNextDueDates(
  *  #646 step 4: `roster` and `allReports` READ FROM TURSO. They are required
  *  rather than defaulted for the reason every other step-4 reader is — this
  *  function is called directly by tests, and a default would let a unit suite
- *  open a real store. They also had to move together with report creation: a
- *  report row now exists only in Turso, so an Airtable `listAllReports` would
- *  stop seeing last night's drafts and the period guard would re-draft every
- *  site every night. */
+ *  open a real store. */
 export type DraftDueDeps = {
-  /** Every site in the fleet — `site_<ULID>` sites included, which an Airtable
-   *  roster cannot see at all. */
+  /** Every site in the fleet — `site_<ULID>` sites included. */
   roster: () => Promise<WebsiteRow[]>;
   /** Every report, unfiltered: the period/idempotency guard and `findDueReports`
    *  both match on siteId in memory. */
@@ -382,7 +371,6 @@ export type DraftDueDeps = {
 };
 
 export async function draftDueReports(
-  base: AirtableBase,
   today: Date,
   deps: DraftDueDeps,
 ): Promise<{ output: string; code: number; health: AnalyticsRunHealth }> {
@@ -396,20 +384,17 @@ export async function draftDueReports(
 
   // Refresh every site's code-owned next-due dates first, so they stay current even on
   // a run where nothing is due (the early return below).
-  await writeNextDueDates(base, websites, reports, today, scheduleMirror);
+  await writeNextDueDates(websites, reports, today, scheduleMirror);
 
   const due = findDueReports(websites, reports, today);
 
   // GA/Search enrichment is configured globally (the impersonation subject) AND
-  // per-site (a GA4 property or a search query). `gaConfigured` is the global half;
-  // the per-site half is checked as each draft runs, to build the fleet-wide
-  // analytics-failure alert's denominator (see alertOnFleetAnalyticsFailure).
+  // per-site (`analyticsEnrolled`). `gaConfigured` is the global half; the per-site
+  // half is checked as each draft runs, to build the fleet-wide analytics-failure
+  // alert's denominator (see alertOnFleetAnalyticsFailure). The per-site half is the
+  // SAME predicate the draft's own enrichment gate reads, so the two cannot drift.
   const gaConfigured = readGaConfig() !== null;
-  // Truthy (not `!== null`) to mirror fetchGaUsers/fetchSearch's own gate exactly
-  // (`!siteRow.ga4PropertyId`), so an empty-string cell counts as not-configured in
-  // BOTH places and can't inflate the alert denominator.
-  const isAnalyticsConfigured = (s: WebsiteRow): boolean =>
-    gaConfigured && Boolean(s.ga4PropertyId || s.searchQuery);
+  const isAnalyticsConfigured = (s: WebsiteRow): boolean => gaConfigured && analyticsEnrolled(s);
 
   if (due.length === 0) {
     return {
@@ -436,20 +421,20 @@ export async function draftDueReports(
 
     // A row already exists for THIS period. Two cases:
     //   - Draft ready → truly done, skip (the idempotent re-run path).
-    //   - NOT ready → a crash between createDraft and setDraftReady wedged it: the
+    //   - NOT ready → a crash between the create and the queue flag wedged it: the
     //     row exists (so we never re-draft) yet it's never sendable (listSendable
     //     needs Draft ready). COMPLETE it in place instead of skipping forever —
-    //     re-render → re-upload the HTML → flip Draft ready on the EXISTING row.
+    //     re-render → re-store the HTML → flip Draft ready on the EXISTING row.
     if (existing) {
       if (existing.draftReady) {
         skipped++;
         lines.push(`• skipped (already drafted ${period}): ${item.site.name} ${item.reportType}`);
         continue;
       }
-      // A not-ready row is normally a crash between createDraft and setDraftReady — re-complete
+      // A not-ready row is normally a crash between the create and the queue flag — re-complete
       // it in place. BUT queueDraft also clears Draft ready on rows it supersedes/blocks, and
-      // those must NOT be re-completed: doing so would re-render and APPEND a duplicate HTML
-      // attachment every nightly run, only to be re-blocked. Distinguish the two: if a
+      // those must NOT be re-completed: doing so would re-render every nightly run, only to
+      // be re-blocked. Distinguish the two: if a
       // higher-or-equal-tier report is still pending for this site, this row was intentionally
       // un-queued (not crashed) — skip it until the blocker is sent/approved or the month rolls.
       const blockedByPending = reports.some(
@@ -468,7 +453,7 @@ export async function draftDueReports(
         continue;
       }
       try {
-        const result = await draftReportForSite(base, item.site, item.reportType, {
+        const result = await draftReportForSite(item.site, item.reportType, {
           period,
           completeRowId: existing.id,
           existingRow: existing,
@@ -524,7 +509,7 @@ export async function draftDueReports(
       // Pass the SAME key the guard searches by, so the stamped Period always
       // matches a future run's reportPeriodKey(dueDate) — even if this run lags
       // into a later month than the dueDate.
-      const result = await draftReportForSite(base, item.site, item.reportType, {
+      const result = await draftReportForSite(item.site, item.reportType, {
         period,
         ...mirrorOpt,
       });
@@ -553,7 +538,7 @@ export async function draftDueReports(
   }
   if (searchDefaultMisses > 0) {
     lines.push(
-      `⚑ ${searchDefaultMisses} site${searchDefaultMisses === 1 ? "" : "s"} returned no Search Console data for their name — set an explicit "Search query" in Airtable to track brand presence.`,
+      `⚑ ${searchDefaultMisses} site${searchDefaultMisses === 1 ? "" : "s"} returned no Search Console data for their name — set an explicit search query on the site to track brand presence.`,
     );
   }
   if (searchPropertiesMissing > 0) {
@@ -572,32 +557,24 @@ async function runSingleSiteDraft(
   slug: string,
   opts: { previewOnly: boolean; enrich: boolean; reportType: ReportType },
 ): Promise<{ output: string; code: number }> {
-  // Airtable is still opened here: drafting keeps its Airtable SHADOW writes
-  // (the rendered-body attachment, the analytics-health stamp, the queue flag),
-  // each of which skips a row Airtable cannot hold. What moved in #646 step 4 is
-  // the roster READ — an Airtable roster cannot see a `site_<ULID>` site, so this
-  // command answered "No Websites row matched" for every site created since step 3.
-  const base = openBase(readAirtableConfig());
   const { readFleetRoster } = await import("../../fleet/roster.js");
   const websites = await readFleetRoster();
   const site = websites.find((w) => siteSlug(w.name) === slug);
   if (!site) {
     throw Object.assign(new Error(`No site matched slug "${slug}"`), { exitCode: 2 });
   }
-  // Phase 5 dual-write (#539) — but only on the path that actually creates a
-  // row. A preview writes nothing to Airtable, so opening a libSQL handle for
-  // it would be pure cost (and `report --preview` is the one draft path that
-  // deliberately does no store IO at all).
+  // Only the path that actually creates a row opens a store: `report --preview`
+  // is the one draft path that deliberately does no store IO at all.
   const reportMirror = opts.previewOnly
     ? null
     : await (await import("../../reports/report-mirror.js")).makeReportMirror();
   const siteMirror = opts.previewOnly
     ? null
     : await (await import("../../db/site-mirror.js")).makeSiteMirror();
-  const result = await draftReportForSite(opts.previewOnly ? null : base, site, opts.reportType, {
+  const result = await draftReportForSite(site, opts.reportType, {
     previewOnly: opts.previewOnly,
     // Only forced on. Left undefined, draftReportForSite keeps its default
-    // (enrich iff there is a base), so the real drafting path is untouched.
+    // (enrich iff not a preview), so the real drafting path is untouched.
     ...(opts.enrich ? { enrich: true } : {}),
     ...(reportMirror ? { reportMirror } : {}),
     ...(siteMirror ? { siteMirror } : {}),

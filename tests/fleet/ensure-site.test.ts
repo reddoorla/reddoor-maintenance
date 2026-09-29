@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, type Db } from "../../src/db/client.js";
 import { makeSiteStore } from "../../src/db/site-create.js";
-import { ensureSite, type LegacyAirtableSites } from "../../src/fleet/ensure-site.js";
+import { ensureSite } from "../../src/fleet/ensure-site.js";
 import { isMintedSiteId } from "../../src/fleet/site-id.js";
 
 let dir: string;
@@ -39,41 +39,14 @@ async function rowsFor(id: string) {
   return { site, health, schedule };
 }
 
-/** A legacy-Airtable double that records every call. `findBySlug` answers from `records`. */
-function airtableDouble(records: Array<{ id: string; fields: Record<string, unknown> }> = []) {
-  const calls: string[] = [];
-  const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
-  const legacy: LegacyAirtableSites = {
-    findBySlug: async (slug) => {
-      calls.push(`findBySlug:${slug}`);
-      return (
-        records.find((r) => String(r.fields.Name).toLowerCase().replace(/\s+/g, "-") === slug) ??
-        null
-      );
-    },
-    adopt: async (rec) => {
-      calls.push(`adopt:${rec.id}`);
-      const { mirrorSiteInsert } = await import("../../src/db/fleet-state.js");
-      await mirrorSiteInsert(db, rec, "2026-09-17T00:00:00.000Z");
-    },
-    update: async (id, patch) => {
-      calls.push(`update:${id}`);
-      updates.push({ id, patch });
-    },
-  };
-  return { legacy, calls, updates };
-}
-
 describe("ensureSite — create (Turso is the source of truth)", () => {
-  it("(a) creates a site with NO Airtable wired: a site_ id and all three Turso rows, in one go", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  it("(a) creates a site: a site_ id and all three Turso rows, in one go", async () => {
     const result = await ensureSite(
       { slug: "Roalson", url: "https://roalson.netlify.app", pointOfContact: "owner@roalson.com" },
       { store: makeSiteStore(db) },
     );
     expect(result.status).toBe("created");
     expect(isMintedSiteId(result.siteId)).toBe(true);
-    expect(result.airtableShadow).toBe("skipped");
 
     const { site, health, schedule } = await rowsFor(result.siteId);
     expect(site).toHaveLength(1);
@@ -89,9 +62,6 @@ describe("ensureSite — create (Turso is the source of truth)", () => {
     });
     expect(health).toHaveLength(1);
     expect(schedule).toHaveLength(1);
-    expect(log).toHaveBeenCalledWith(
-      `AIRTABLE_SHADOW skipped=non-rec-id writer=ensureSite.create id=${result.siteId}`,
-    );
   });
 
   it("the new site reads back through the same lookup form-ingest uses", async () => {
@@ -120,18 +90,6 @@ describe("ensureSite — create (Turso is the source of truth)", () => {
     expect(mintId).toHaveBeenCalledTimes(1);
     const count = await db.selectFrom("sites").select(db.fn.countAll().as("n")).executeTakeFirst();
     expect(Number(count?.n)).toBe(1);
-  });
-
-  it("with Airtable wired, a new slug still mints site_ and never creates an Airtable record", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const { legacy, calls } = airtableDouble([]);
-    const result = await ensureSite(
-      { slug: "roalson" },
-      { store: makeSiteStore(db), airtable: legacy },
-    );
-    expect(isMintedSiteId(result.siteId)).toBe(true);
-    // The only Airtable touch is the duplicate-identity read — no create, no update.
-    expect(calls).toEqual(["findBySlug:roalson"]);
   });
 
   it("the three rows are ATOMIC: a failure on the last insert leaves no sites row behind", async () => {
@@ -221,21 +179,6 @@ describe("ensureSite — exists path (fill blanks, --name)", () => {
     const { site } = await rowsFor(created.siteId);
     expect(site[0]).toMatchObject({ name: "acme-co", slug: "acme-co" });
   });
-
-  it("a site_ site's fill never reaches the Airtable shadow — it logs the skip", async () => {
-    const created = await seed();
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const { legacy, calls } = airtableDouble([]);
-    const result = await ensureSite(
-      { slug: "acme-co", url: "https://acme.example.com" },
-      { store: makeSiteStore(db), airtable: legacy },
-    );
-    expect(result.airtableShadow).toBe("skipped");
-    expect(calls).toEqual([]);
-    expect(log).toHaveBeenCalledWith(
-      `AIRTABLE_SHADOW skipped=non-rec-id writer=ensureSite.update id=${created.siteId}`,
-    );
-  });
 });
 
 describe("ensureSite — pre-existing rec sites (both id shapes coexist)", () => {
@@ -244,50 +187,20 @@ describe("ensureSite — pre-existing rec sites (both id shapes coexist)", () =>
     fields: { Name: "Acme Co", Status: "maintained", url: "https://acme.example.com" },
   };
 
-  it("a rec site already in Turso keeps its rec id, and its fill is shadowed to Airtable", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
+  it("a rec site already in Turso keeps its rec id, and its fill lands in Turso", async () => {
     const { mirrorSiteInsert } = await import("../../src/db/fleet-state.js");
     await mirrorSiteInsert(db, legacyRec, "2026-09-17T00:00:00.000Z");
-    const { legacy, calls, updates } = airtableDouble([legacyRec]);
     const result = await ensureSite(
       { slug: "acme-co", pointOfContact: "owner@acme.example.com" },
-      { store: makeSiteStore(db), airtable: legacy },
+      { store: makeSiteStore(db) },
     );
-    expect(result).toMatchObject({ status: "exists", siteId: "recEXIST", healedDbRow: false });
-    expect(result.airtableShadow).toBe("written");
-    expect(calls).toEqual(["update:recEXIST"]);
-    expect(updates[0]?.patch).toEqual({ pointOfContact: "owner@acme.example.com" });
+    expect(result).toEqual({
+      status: "exists",
+      siteId: "recEXIST",
+      updatedFields: ["pointOfContact"],
+      skippedMismatches: [],
+    });
     const { site } = await rowsFor("recEXIST");
     expect(site[0]?.point_of_contact).toBe("owner@acme.example.com");
-  });
-
-  it("#645 heal survives: Airtable has the slug, Turso does not → adopt the rec id, mint nothing", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const { legacy, calls } = airtableDouble([legacyRec]);
-    const mintId = vi.fn(() => "site_01ARYZ6S41TSV4RRFFQ69G5FAV");
-    const result = await ensureSite(
-      { slug: "acme-co" },
-      { store: makeSiteStore(db), airtable: legacy, mintId },
-    );
-    expect(result).toMatchObject({ status: "exists", siteId: "recEXIST", healedDbRow: true });
-    expect(mintId).not.toHaveBeenCalled();
-    expect(calls).toEqual(["findBySlug:acme-co", "adopt:recEXIST"]);
-    const { site, health, schedule } = await rowsFor("recEXIST");
-    expect([site.length, health.length, schedule.length]).toEqual([1, 1, 1]);
-  });
-
-  it("a failed legacy lookup REFUSES to mint (it cannot rule out a duplicate identity)", async () => {
-    const legacy: LegacyAirtableSites = {
-      findBySlug: async () => {
-        throw new Error("AIRTABLE 503");
-      },
-      adopt: async () => {},
-      update: async () => {},
-    };
-    await expect(
-      ensureSite({ slug: "roalson" }, { store: makeSiteStore(db), airtable: legacy }),
-    ).rejects.toThrow(/AIRTABLE 503/);
-    const count = await db.selectFrom("sites").select(db.fn.countAll().as("n")).executeTakeFirst();
-    expect(Number(count?.n)).toBe(0);
   });
 });

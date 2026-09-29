@@ -1,16 +1,9 @@
-import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
-import type { AirtableBase } from "../reports/airtable/client.js";
 import type { SiteMirror } from "../db/site-mirror.js";
-import {
-  siteSlug,
-  updateSiteField,
-  type Status,
-  type WebsiteRow,
-} from "../reports/airtable/websites.js";
-import { canonicalizeStatus, toAirtableStatus } from "../reports/airtable/site-status.js";
+import { siteSlug, type Status, type WebsiteRow } from "../fleet/site-row.js";
+import { canonicalizeStatus } from "../fleet/site-status.js";
 import { describeNotifyTarget, type NotifyTarget } from "../forms/notify.js";
 
-/** The Airtable column the pre-launch guard actually lives in. */
+/** The column the pre-launch guard lives in. */
 export const STATUS_COLUMN = "Status";
 
 /** The two ends of the verify flip. Deliberately the ONLY transition this
@@ -21,16 +14,13 @@ export const LIVE_STATUS: Status = "maintained";
 export const VERIFY_STATUS: Status = "launching";
 
 export type FormsNotifyTargetDeps = {
-  base?: AirtableBase;
   /** Every site in the fleet, read from TURSO (#646 step 4). Required, not
    *  defaulted: the unit suite drives this with a fake fleet, and a default would
    *  open a real libSQL handle from inside it. The CLI wires `readFleetRoster`.
    *
    *  It is called TWICE on a flip — once to find the site, once to read the cell
    *  back — and both reads matter: Turso is what `/api/forms/:slug` consults to
-   *  decide who a submission emails (`getSiteBySlug`, #643), so confirming the
-   *  Airtable cell would confirm the wrong store, and an Airtable roster cannot
-   *  see a `site_<ULID>` site at all. */
+   *  decide who a submission emails (`getSiteBySlug`, #643). */
   roster: () => Promise<WebsiteRow[]>;
   /** Site slug or the stored site NAME (both accepted). */
   site: string;
@@ -39,9 +29,8 @@ export type FormsNotifyTargetDeps = {
   /** Status to restore with `--set off`. Required, never inferred. */
   restore?: string;
   /** The Status write itself (#646 step 4): Turso is the store the form ingest
-   *  reads, so this is the write the read-back below confirms — the Airtable
-   *  `updateSiteField` beside it is the shadow, and it skips a `site_` id.
-   *  Required, and injected at the CLI root for the same reason `roster` is. */
+   *  reads, so this is the write the read-back below confirms. Required, and
+   *  injected at the CLI root for the same reason `roster` is. */
   siteMirror: SiteMirror;
 };
 
@@ -54,36 +43,6 @@ export type FormsNotifyTargetResult = {
   flip?: { from: Status | null; to: Status; confirmed: boolean };
 };
 
-/**
- * The exact Airtable cell to write for an operator-supplied `--restore` value:
- * the operator's own string, verbatim.
- *
- * This is the ONE non-revertible surface in the #539 Phase 4 stage-1 rename —
- * every other change is code, and `git revert` undoes code. It cannot undo a
- * rewritten Airtable cell. So the rule here is stricter than everywhere else:
- * substitute only when the substitution is provably lossless, i.e. when
- * canonicalizing and mapping back ROUND-TRIPS to the operator's own string.
- *
- * That condition is, today, never false in a way that changes the answer — which
- * is the point. `toAirtableStatus(canonicalizeStatus(raw))` either equals `raw`
- * (so writing it is writing `raw`) or it does not (so we must write `raw`). The
- * function therefore reduces to "write raw", and it is written this way so the
- * reduction is visible rather than assumed. The case that made it matter:
- * `--restore legacy` canonicalizes to `archived`, which maps back to
- * "deprecated" — a different, real, operator-visible Airtable option that nobody
- * asked for. `hosting` → `hosted-only` → "hosting" round-trips and is safe.
- *
- * Airtable, not this module, is the authority on which option strings the
- * "Status" single-select accepts. Writing verbatim delegates to it: a typo is
- * rejected loudly at the API, exactly as it was before the rename.
- */
-export function restoreCell(raw: string): string {
-  const canonical = canonicalizeStatus(raw);
-  if (canonical === null) return raw;
-  const roundTripped = toAirtableStatus(canonical);
-  return roundTripped === raw ? roundTripped : raw;
-}
-
 function findSite(rows: WebsiteRow[], site: string): WebsiteRow | undefined {
   const wanted = site.trim().toLowerCase();
   return rows.find(
@@ -95,7 +54,7 @@ function findSite(rows: WebsiteRow[], site: string): WebsiteRow | undefined {
  * Answer "who would a form submission on this site email?" — and optionally
  * flip the pre-launch guard, confirming the flip by reading it back.
  *
- * The guard is a single Airtable `Status` cell. Nothing between "I intended to
+ * The guard is a single `Status` cell. Nothing between "I intended to
  * flip it" and "the client received a test lead" reported the current state, so
  * on 2026-08-03 a flip that never landed sent a real client a test submission.
  * The fix is not a better intention, it is feedback: this reads the row back
@@ -104,13 +63,12 @@ function findSite(rows: WebsiteRow[], site: string): WebsiteRow | undefined {
 export async function formsNotifyTarget(
   deps: FormsNotifyTargetDeps,
 ): Promise<FormsNotifyTargetResult> {
-  const base = deps.base ?? openBase(readAirtableConfig());
   const rows = await deps.roster();
   const row = findSite(rows, deps.site);
   if (!row) {
     // The Websites NAME is not the repo slug ("Sonder", not "gallerysonder"),
     // and that mismatch has cost time before — so name the near misses rather
-    // than making the operator go read Airtable to find the spelling.
+    // than making the operator go look up the spelling.
     const needle = siteSlug(deps.site);
     const near = rows
       .map((r) => r.name)
@@ -131,7 +89,7 @@ export async function formsNotifyTarget(
 
   // `--restore` is operator free text. It is canonicalized for what this command
   // REPORTS (`flip.to`, and the predicates downstream), but NEVER for what it
-  // WRITES — see `restoreCell` below.
+  // WRITES — it writes the operator's string verbatim.
   const restoreRaw = deps.restore?.trim();
   const to = deps.set === "on" ? VERIFY_STATUS : (canonicalizeStatus(restoreRaw) ?? undefined);
   if (deps.set === "off" && !to) {
@@ -159,13 +117,10 @@ export async function formsNotifyTarget(
     );
   }
 
-  // `--set on` writes a status this MODULE owns (VERIFY_STATUS), so mapping it to
-  // the current Airtable vocabulary is correct. `--set off` writes the operator's
-  // own string — see restoreCell.
-  const cell = deps.set === "on" ? toAirtableStatus(VERIFY_STATUS) : restoreCell(restoreRaw!);
-  // The Airtable shadow first, still allowed to fail loudly while it is kept
-  // trustworthy; it skips a site id Airtable cannot hold (#646 step 3).
-  await updateSiteField(base, row.id, STATUS_COLUMN, cell);
+  // `--set on` writes a status this MODULE owns (VERIFY_STATUS). `--set off`
+  // writes the operator's own `--restore` string verbatim, never a canonicalized
+  // stand-in: `--restore legacy` must not quietly become `archived`.
+  const cell = deps.set === "on" ? VERIFY_STATUS : restoreRaw!;
   // The write that DECIDES: `/api/forms/:slug` reads this cell from Turso, and
   // the console reads it there too.
   await deps.siteMirror.site(row.id, { [STATUS_COLUMN]: cell });

@@ -1,7 +1,7 @@
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import { isOwnerRepo } from "../util/git.js";
 
-/** Injected IO — the `.mts` binds these to a live Airtable base + makeGitHubRest; tests bind fakes. */
+/** Injected IO — the `.mts` binds these to Turso + makeGitHubRest; tests bind fakes. */
 export type TriggerRenovateDeps = {
   getSite: (slug: string) => Promise<WebsiteRow | null>;
   /** Dispatch the repo's renovate.yml (the adapter resolves the default branch). */
@@ -30,7 +30,7 @@ export async function triggerRenovateForSite(
   // Legacy rows hold free-text `Git repo` values (site-details validates only
   // NEW edits) — gate on the same owner/repo shape so a malformed cell maps to
   // a clean no-repo instead of a doomed dispatch call. `isOwnerRepo` is the ONE
-  // validator for this concept (#724); this path stays Airtable-only and never
+  // validator for this concept (#724); this path reads only the stored cell and never
   // derives from origin, so it wants the shape check, not `resolveOwnerRepo`.
   const repo = site.gitRepo?.trim();
   if (!repo || !isOwnerRepo(repo)) return { status: "no-repo", slug };

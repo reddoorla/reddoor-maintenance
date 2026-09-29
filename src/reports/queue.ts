@@ -1,6 +1,5 @@
 import type { ReportType } from "./types.js";
-import type { AirtableBase } from "./airtable/client.js";
-import { isPendingApproval, setDraftReady } from "./airtable/reports.js";
+import { isPendingApproval } from "./report-row.js";
 import type { ReportMirror } from "./report-mirror.js";
 
 /**
@@ -39,48 +38,49 @@ export type QueueOutcome = {
  * - Otherwise the new report is strictly the highest → un-queue every (strictly lower) pending
  *   report for the site (superseded, not deleted — the row is kept) and queue the new one.
  *
- * Returns what happened so the caller can surface it. PURE side effects are all `setDraftReady`.
+ * Returns what happened so the caller can surface it.
  *
- * #539 Phase 5: each flag is mirrored into Turso. The SUPERSEDED rows matter as
+ * #539 Phase 5: each flag is written to Turso. The SUPERSEDED rows matter as
  * much as the new one — un-queueing them is the whole point of this function, so
- * a mirror covering only `report.id` would leave the console showing a site with
- * two queued reports until the next hourly sync.
+ * a write covering only `report.id` would leave the console showing a site with
+ * two queued reports.
  *
  * #646 step 4: the site's other reports are READ from Turso (`mirror.forSite`),
- * which is why `mirror` is no longer optional. The Airtable read this replaces
- * could not see a report drafted for a `site_<ULID>` site — and an empty answer
- * does not fail, it silently queues a second report for a site that already had
- * one. The Airtable `setDraftReady` stays as the shadow; it skips a report id
- * Airtable cannot hold.
+ * which is why `mirror` is required: an empty answer does not fail, it silently
+ * queues a second report for a site that already had one.
  */
 export async function queueDraft(
-  base: AirtableBase,
   report: { id: string; siteId: string; reportType: ReportType },
   mirror: ReportMirror,
 ): Promise<QueueOutcome> {
-  const setReady = async (id: string, ready: boolean): Promise<void> => {
-    await setDraftReady(base, id, ready);
-    await mirror.patch(id, { draft_ready: ready ? 1 : 0 });
-  };
-  const newTier = reportTier(report.reportType);
   const others = (await mirror.forSite(report.siteId))
     .filter(isPendingApproval)
     .filter((r) => r.id !== report.id);
+  const plan = planQueue(report, others);
+  for (const [id, ready] of plan.flags) await mirror.patch(id, { draft_ready: ready ? 1 : 0 });
+  return plan.outcome;
+}
 
+type QueuePlan = { outcome: QueueOutcome; flags: Array<[id: string, ready: boolean]> };
+
+function planQueue(
+  report: { id: string; reportType: ReportType },
+  others: Array<{ id: string; reportType: ReportType }>,
+): QueuePlan {
+  const newTier = reportTier(report.reportType);
   const blocker = others.find((r) => reportTier(r.reportType) >= newTier);
   if (blocker) {
     // A queued report already covers this one. Make sure the new draft is NOT queued (the reuse
     // path may hand us a row that was Draft-ready from a prior run) and stand down.
-    await setReady(report.id, false);
-    return { queued: false, blockedBy: blocker.reportType, supersededIds: [] };
+    return {
+      outcome: { queued: false, blockedBy: blocker.reportType, supersededIds: [] },
+      flags: [[report.id, false]],
+    };
   }
 
   // The new report is strictly the highest-tier pending — supersede the rest (un-queue), keep it.
-  const supersededIds: string[] = [];
-  for (const r of others) {
-    await setReady(r.id, false);
-    supersededIds.push(r.id);
-  }
-  await setReady(report.id, true);
-  return { queued: true, supersededIds };
+  return {
+    outcome: { queued: true, supersededIds: others.map((r) => r.id) },
+    flags: [...others.map((r): [string, boolean] => [r.id, false]), [report.id, true]],
+  };
 }

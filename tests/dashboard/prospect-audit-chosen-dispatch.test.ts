@@ -25,6 +25,8 @@ function harness(over: { recent?: unknown[] } = {}) {
   const calls: Dispatched[] = [];
   const deps = {
     listRecent: vi.fn().mockResolvedValue(over.recent ?? []),
+    reserve: vi.fn(async () => ({ kind: "reserved" as const, id: "pa_1", token: "T".repeat(22) })),
+    release: vi.fn(async () => {}),
     dispatch: vi.fn(async (target: Dispatched) => {
       calls.push(target);
       return { ok: true as const };

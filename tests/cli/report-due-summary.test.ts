@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// runDueDraft wires together Airtable reads + per-site drafting. Mock the whole
+// runDueDraft wires together Turso reads + per-site drafting. Mock the whole
 // data layer so we can drive the *summary* behavior: a fleet-wide GA/Search
 // outage must be visible in the batch summary, not buried in per-site warnings.
 // #612: the composition roots build real mirror factories, which under the
@@ -9,12 +9,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // which side of the freeze the constant currently points at — the flip must be
 // a one-line change, not a change plus eleven test files.
 vi.mock("../../src/audits/health-mirror.js", () => ({
-  makeHealthMirrorBestEffort: async () => null,
-  makeScheduleMirrorBestEffort: async () => null,
+  makeHealthMirror: async () => null,
+  makeScheduleMirror: async () => null,
 }));
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({
-    created: async () => {},
     health: async () => {},
     site: async () => {},
   }),
@@ -22,16 +21,15 @@ vi.mock("../../src/db/site-mirror.js", () => ({
 vi.mock("../../src/reports/report-mirror.js", () => ({
   makeReportMirror: async () => ({
     create: async (rec: { id: string }) => ({ id: rec.id }),
-    created: async () => {},
     forSite: async () => [],
     body: async () => {},
     patch: async () => {},
   }),
 }));
 // #646 step 4: the batch's roster and report list are TURSO reads, opened over
-// one connection by this very composition root. Mocked at the db boundary — not
-// swapped for an Airtable read — so this suite keeps proving the wiring reaches
-// the store the nightly run actually uses, without opening one.
+// one connection by this very composition root. Mocked at the db boundary, so
+// this suite keeps proving the wiring reaches the store the nightly run actually
+// uses, without opening one.
 vi.mock("../../src/db/client.js", () => ({
   readDbConfig: () => ({ url: "file::memory:" }),
   openDb: async () => ({ destroy: async () => {} }),
@@ -43,18 +41,8 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   ],
   listAllReports: async () => [],
 }));
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  readAirtableConfig: () => ({ pat: "pat", baseId: "base" }),
-  openBase: () => ({}),
-}));
-vi.mock("../../src/reports/airtable/websites.js", () => ({
-  // Still the Airtable SHADOW's next-due write-back; the roster itself comes
-  // from the mocked Turso read above.
-  updateNextDueDates: async () => ({}),
+vi.mock("../../src/fleet/site-fields.js", () => ({
   siteSlug: (n: string) => n,
-}));
-vi.mock("../../src/reports/airtable/reports.js", () => ({
-  listAllReports: async () => [],
 }));
 vi.mock("../../src/reports/due.js", () => ({
   findDueReports: () => [

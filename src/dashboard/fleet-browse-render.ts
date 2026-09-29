@@ -1,5 +1,5 @@
-import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { siteSlug } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
+import { siteSlug } from "../fleet/site-row.js";
 import type { CockpitModel, SiteCard, Tier } from "./fleet-cockpit.js";
 import { isReadyDeployStatus, isFailedDeployStatus } from "./fleet-cockpit.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
@@ -117,7 +117,7 @@ function deployBadge(site: WebsiteRow): string {
   const label = escapeHtml(`${state}${when !== DASH ? ` · ${when}` : ""}`);
   // Only link when we have a real http(s) URL — scheme-allowlist it via safeUrl (which
   // returns "#" for anything non-http), since deployLogUrl is data that flowed in from
-  // the Netlify API via Airtable. A "#" fallback would be a dead link, so drop it.
+  // the Netlify API via the fleet store. A "#" fallback would be a dead link, so drop it.
   const url = site.deployLogUrl ? safeUrl(site.deployLogUrl) : "#";
   if (url !== "#") {
     return `<a class="metric ${cls}" href="${escapeHtml(url)}" target="_blank" rel="noopener">${label}</a>`;
@@ -225,6 +225,10 @@ const FLEET_FILTERS = [
   "auto-fix-failed",
   "stale",
   "no-domain",
+  "no-analytics",
+  "search-console-unrecorded",
+  "no-git-repo",
+  "no-netlify-id",
 ] as const;
 
 /** The fleet browser: one collapsed <details> holding the filter chips and a single flat

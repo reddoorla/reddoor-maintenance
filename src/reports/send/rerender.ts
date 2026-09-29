@@ -1,5 +1,7 @@
-import type { WebsiteRow } from "../airtable/websites.js";
-import type { ReportRow } from "../airtable/reports.js";
+import type { WebsiteRow } from "../../fleet/site-row.js";
+import type { ReportRow } from "../report-fields.js";
+import type { EvidenceRecord } from "../auto-tick.js";
+import { retickEvidence } from "../retick.js";
 
 /**
  * Refresh a report's stored HTML body on demand (#539 Phase 4 report review).
@@ -15,7 +17,7 @@ import type { ReportRow } from "../airtable/reports.js";
  * header geometry to avoid sharp — trades away exactly the fidelity a preview
  * exists to provide.
  *
- * IO is injected so the decision logic is testable without sharp, Airtable or a
+ * IO is injected so the decision logic is testable without sharp or a
  * database; the CLI binds the real implementations.
  */
 export type RerenderDeps = {
@@ -23,21 +25,33 @@ export type RerenderDeps = {
   getSite: (siteId: string) => Promise<WebsiteRow | null>;
   /** The clean header plate from Turso (design D5), or null when unstored. */
   loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>;
-  /** Fallback: the site's Airtable header attachment. */
-  fetchAirtableHeader: (url: string) => Promise<Uint8Array>;
   render: (
     site: WebsiteRow,
     report: ReportRow,
     headerPlate: Uint8Array,
   ) => Promise<{ html: string }>;
   store: (reportId: string, html: string) => Promise<void>;
+  storeEvidence: (
+    reportId: string,
+    checklist: Record<string, boolean>,
+    autoEvidence: Record<string, EvidenceRecord>,
+  ) => Promise<boolean>;
+  now: () => Date;
 };
 
+export type EvidenceStatus = "reticked" | "unchanged" | "locked" | "not-written";
+
 export type RerenderResult =
-  | { status: "rendered"; reportId: string; bytes: number; headerSource: "turso" | "airtable" }
+  | {
+      status: "rendered";
+      reportId: string;
+      bytes: number;
+      headerSource: "turso";
+      evidence: EvidenceStatus;
+    }
   /** Already sent: its stored body is the record of what the client received. */
   | { status: "already-sent"; reportId: string }
-  | { status: "no-header"; reportId: string }
+  | { status: "no-header"; reportId: string; evidence: EvidenceStatus }
   | { status: "not-found"; reportId: string };
 
 export async function rerenderReport(
@@ -56,33 +70,40 @@ export async function rerenderReport(
   const site = await deps.getSite(report.siteId);
   if (!site) return { status: "not-found", reportId };
 
-  // Turso first: the bytes are already local, and the Airtable attachment URL is
-  // signed and expiring, so fetching it when we hold the same image is pure
-  // latency plus a dependency on a URL that may already be dead.
-  const stored = await deps.loadHeaderPlate(site.id);
-  let plate: Uint8Array;
-  let headerSource: "turso" | "airtable";
-  if (stored) {
-    plate = stored;
-    headerSource = "turso";
-  } else if (site.headerImage) {
-    plate = await deps.fetchAirtableHeader(site.headerImage.url);
-    headerSource = "airtable";
+  let current = report;
+  let evidence: EvidenceStatus;
+  const retick = retickEvidence(site, report, deps.now());
+  if (retick.status === "reticked") {
+    const written = await deps.storeEvidence(reportId, retick.checklist, retick.autoEvidence);
+    if (written) {
+      current = { ...report, checklist: retick.checklist, autoEvidence: retick.autoEvidence };
+      evidence = "reticked";
+    } else {
+      evidence = "not-written";
+    }
   } else {
-    // Named, not rendered around: a report with no header is already blocked at
-    // approve, and a preview that quietly omitted it would disagree with both
-    // the email and that block.
-    return { status: "no-header", reportId };
+    evidence = retick.status;
   }
 
-  const { html } = await deps.render(site, report, plate);
+  const plate = await deps.loadHeaderPlate(site.id);
+  // Named, not rendered around: a report with no header is already blocked at
+  // approve, and a preview that quietly omitted it would disagree with both
+  // the email and that block.
+  if (!plate) return { status: "no-header", reportId, evidence };
+
+  const { html } = await deps.render(site, current, plate);
   await deps.store(reportId, html);
-  return { status: "rendered", reportId, bytes: html.length, headerSource };
+  return { status: "rendered", reportId, bytes: html.length, headerSource: "turso", evidence };
 }
 
 /** One line per run, machine-greppable, emitted for every outcome — an absent
  *  line means the job never ran, never that it ran and did nothing. */
 export function formatRerenderResult(r: RerenderResult): string {
-  const suffix = r.status === "rendered" ? ` bytes=${r.bytes} header=${r.headerSource}` : "";
+  const suffix =
+    r.status === "rendered"
+      ? ` bytes=${r.bytes} header=${r.headerSource} evidence=${r.evidence}`
+      : r.status === "no-header"
+        ? ` evidence=${r.evidence}`
+        : "";
   return `REPORT_RERENDER report=${r.reportId} status=${r.status}${suffix}`;
 }

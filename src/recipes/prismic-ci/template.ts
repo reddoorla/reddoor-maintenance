@@ -77,10 +77,10 @@ export const UNRESOLVED_PIN_SHA = "UNRESOLVED-publish-and-tag-reddoorla-dot-gith
  * HAND across 21 repos that day (beachfront-dentistry#36). Treat propagation
  * as three steps to run, not a guarantee: (1) re-resolve this constant,
  * (2) release @reddoorla/maintenance, (3) `reddoor-maint prismic-ci --fleet
- * airtable` — the already-delivered gate content-compares the installed file
+ * turso` — the already-delivered gate content-compares the installed file
  * and opens a corrective PR per stale repo — plus ONE POSITIONAL RUN PER
- * PRE-LAUNCH SITE, which the Airtable inventory excludes
- * (`src/inventory/airtable.ts:50` filters `building`/`launching`).
+ * PRE-LAUNCH SITE, which the fleet inventory excludes (`selectFleetSites` in
+ * src/inventory/select.ts filters `building`/`launching`).
  */
 export const REUSABLE_WORKFLOW_PIN: ReusableWorkflowPin = {
   sha: "558395431ddcb481ecba3dd84b78b38c338cfa03",

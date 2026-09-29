@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { approveReport, type ApproveDeps } from "../../src/dashboard/approve.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import { MAINTENANCE_CHECKLIST } from "../../src/reports/checklist.js";
 
 /** A complete Maintenance checklist — all 6 maintenance cells true. */

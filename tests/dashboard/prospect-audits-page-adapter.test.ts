@@ -1,14 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import type { Context } from "@netlify/functions";
 
-// Airtable client is mocked so importing the handler (via src/dashboard/index.js,
-// which re-exports the whole dashboard module graph) never reaches a live base —
-// same defensive convention as fleet-table-adapter.test.ts / fleet-homepage-adapter.test.ts.
-// This page never calls it; the mock only guards against an accidental future call.
-vi.mock("../../src/reports/airtable/client.js", () => ({
-  openBase: vi.fn(() => ({}) as unknown),
-}));
-
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import type { Db } from "../../src/db/client.js";
 import { createProspectAudit } from "../../src/db/prospect-audits.js";

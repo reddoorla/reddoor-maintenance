@@ -1,8 +1,8 @@
 import { renderAuthChrome } from "./auth/render.js";
-import type { WebsiteRow, SecurityAdvisory } from "../reports/airtable/websites.js";
-import { SEVERITY_RANK, siteSlug } from "../reports/airtable/websites.js";
-import type { ReportRow } from "../reports/airtable/reports.js";
-import { isPendingApproval } from "../reports/airtable/reports.js";
+import type { WebsiteRow, SecurityAdvisory } from "../fleet/site-row.js";
+import { SEVERITY_RANK, siteSlug } from "../fleet/site-row.js";
+import type { ReportRow } from "../reports/report-fields.js";
+import { isPendingApproval } from "../reports/report-fields.js";
 import type { EvidenceResult } from "../reports/auto-tick.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
 import type { ScreenOutTotals } from "../db/screenouts.js";
@@ -68,7 +68,7 @@ function securitySub(site: WebsiteRow): string | null {
 }
 
 /** One advisory line: a severity pill, the vulnerable module, the advisory title, any CVEs,
- *  and a link to the advisory when present. All Airtable-sourced text is escaped. */
+ *  and a link to the advisory when present. All stored text is escaped. */
 function advisoryRow(a: SecurityAdvisory): string {
   const sev = escapeHtml(a.severity);
   const module = escapeHtml(a.module);
@@ -237,7 +237,7 @@ function sendTimingLine(now: Date): string {
 function recipientsLine(site: WebsiteRow): string {
   const to = parseAddresses(site.reportRecipientsTo) ?? parseAddresses(site.pointOfContact) ?? [];
   if (to.length === 0) {
-    return `<span class="recipients recipients-missing">recipients: none resolve — set point of contact in Airtable</span>`;
+    return `<span class="recipients recipients-missing">recipients: none resolve — set the point of contact in the site's details</span>`;
   }
   const cc = withGlobalCc(parseAddresses(site.reportRecipientsCc), to);
   const ccPart = cc.length > 0 ? ` · CC ${cc.map(escapeHtml).join(", ")}` : "";
@@ -251,11 +251,10 @@ function recipientsLine(site: WebsiteRow): string {
 function rerenderButton(r: ReportRow): string {
   if (r.sentAt !== null) return "";
   const url = `/api/reports/${encodeURIComponent(r.id)}/rerender`;
-  return `<button class="rerender" data-rerender-url="${escapeHtml(url)}" title="Re-render this report from its current row (runs in Actions; takes a minute or two)">refresh preview</button>`;
+  return `<button class="rerender" data-rerender-url="${escapeHtml(url)}" title="Re-render this report from its current row and, until it is approved, re-check its health evidence against the latest site audits (runs in Actions; takes a minute or two)">refresh preview</button>`;
 }
 
-/** The dashboard's own preview route for a report body (served from Turso).
- *  Never the Airtable attachment URL — that one is signed and expires. */
+/** The dashboard's own preview route for a report body (served from Turso). */
 function reportPreviewUrl(reportId: string): string {
   return `/api/reports/${encodeURIComponent(reportId)}/preview`;
 }
@@ -281,12 +280,9 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
   const findings = approveBlockers(site, r);
   const blocked = findings.some((f) => f.level === "fail");
   // Draft-time render: sendOne re-renders at send with current Commentary /
-  // subject override, so this is the DRAFT preview, labeled as such.
-  // The dashboard's OWN route, not the Airtable attachment URL. Those are signed
-  // and expire, so a tab left open 404s — the reason `/api/reports/:id/preview`
-  // was built in Phase 2 to serve the body from Turso. It was never linked to,
-  // so the expiring URL stayed in front of the operator. `renderedHtmlAttachment`
-  // still gates the link: it is how we know a body was ever rendered at all.
+  // subject override, so this is the DRAFT preview, labeled as such, served by
+  // the dashboard's own `/api/reports/:id/preview` route. `renderedHtmlAttachment`
+  // gates the link: it is how we know a body was ever rendered at all.
   const preview = r.renderedHtmlAttachment
     ? `<a href="${escapeHtml(reportPreviewUrl(r.id))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
@@ -305,7 +301,7 @@ function pendingSection(reports: ReportRow[], site: WebsiteRow, now: Date): stri
 
 /** The GA "Users" cell for a report row: current count plus the signed delta vs
  *  the previous period when both are known. Renders "—" when there's no current
- *  count (GA not configured / fetch failed → blank in Airtable). */
+ *  count (GA not configured / fetch failed → blank cell). */
 function gaUsersCell(r: ReportRow): string {
   if (r.gaUsersCurrent === null) return DASH;
   const current = String(r.gaUsersCurrent);
@@ -417,7 +413,7 @@ function spamScreenSection(
   </div>`;
 }
 
-/** Setup (N/4) status near the page header. Lists the missing onboarding items
+/** Setup (N/total) status near the page header. Lists the missing onboarding items
  *  visibly (the cockpit chip only hovers them) so the operator sees what's left
  *  to wire up without leaving the page. */
 function setupSection(site: WebsiteRow): string {
@@ -489,7 +485,7 @@ function selectRow(
     )
     .join("");
   // When the stored value isn't one of the offered options (e.g. a null cadence,
-  // or an Airtable-only "legacy" status), show a disabled placeholder selected
+  // or a non-canonical "legacy" status), show a disabled placeholder selected
   // first so the operator must actively pick — never silently overwrites.
   const placeholder = inList ? "" : `<option value="" disabled selected hidden>— select —</option>`;
   return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><select id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${placeholder}${opts}</select>${savedSpan(field)}</dd></div>`;
@@ -529,7 +525,7 @@ export const DETAIL_VALUE_FN = `function detailValue(el) {
  * **The resync on line `el.defaultValue = el.value` is load-bearing.** The blur
  * listener fires on `value !== defaultValue`, and this function used not to touch
  * `defaultValue` at all — so after one successful edit the two stayed different
- * forever and every later focus+blur of that field posted another Airtable write,
+ * forever and every later focus+blur of that field posted another write,
  * until the page was reloaded. The commentary handler 40 lines below always did
  * this correctly, which is what marks the omission as an oversight rather than a
  * decision.
@@ -537,9 +533,7 @@ export const DETAIL_VALUE_FN = `function detailValue(el) {
  * The worst case is the `secret` kind, which deliberately emits no `value`
  * attribute so an existing credential is never echoed into the HTML: its
  * `defaultValue` is permanently `""`, so every blur after typing re-POSTed the
- * credential. And one Airtable quota exhaustion has already reddened six
- * workflows fleet-wide (2026-08-17), so a tab-through of this form was a cheap
- * way to burn the fleet's write budget.
+ * credential.
  *
  * Only on `r.ok`: a failed save must stay dirty so the next blur retries it.
  * Guarded by an `in` check because `select` elements have no `defaultValue`.
@@ -569,10 +563,9 @@ export const SAVE_DETAIL_FN = `function saveDetail(el, root) {
  * deliberate clear. `maintenance day` / `testing day` drive the code-owned
  * next-due schedule, so the site would silently reschedule.
  *
- * Dormant while those Airtable columns stay date-only; it goes live the moment
- * anyone ticks "include time" on the field. Truncating to the date part here
- * removes the mismatch at the source (the script's gesture guard is the second
- * line of defence).
+ * Dormant while those columns hold date-only values. Truncating to the date
+ * part here removes the mismatch at the source (the script's gesture guard is
+ * the second line of defence).
  */
 function toDateInputValue(value: string | null): string {
   return (value ?? "").slice(0, 10);
@@ -591,9 +584,7 @@ function checkboxRow(label: string, field: string, checked: boolean, url: string
   return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="checkbox" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}"${checked ? " checked" : ""} />${savedSpan(field)}</dd></div>`;
 }
 
-/** Editable multi-select row. Options come from WATCH_CONDITION_OPTIONS — the
- *  live Airtable choices — because the API cannot create a missing one, so an
- *  option offered here that the field lacks would produce a rejected write. */
+/** Editable multi-select row. Options come from WATCH_CONDITION_OPTIONS. */
 function multiSelectRow(
   label: string,
   field: string,
@@ -636,7 +627,7 @@ function siteDetailsSection(site: WebsiteRow): string {
   const url = `/api/sites/${escapeHtml(siteSlug(site.name))}/details`;
   const lastCommit = site.lastCommitAt ? `${relativeTimeFromNow(site.lastCommitAt)}` : null;
   const rows = [
-    // `statusRaw`, not `status`: this select's options ARE the Airtable cell
+    // `statusRaw`, not `status`: this select's options ARE the stored cell
     // values (see SITE_STATUS_OPTIONS), so it must preselect against the raw cell.
     // Comparing the canonical value would mis-preselect every site, and would show
     // a "legacy" site as "deprecated" instead of the placeholder.
@@ -842,7 +833,7 @@ button.trigger-renovate:disabled { opacity: 0.6; cursor: default; }
 
 /**
  * Render the per-site dashboard as a single HTML document. Pure function:
- * no Airtable access, no env reads, no I/O. The Netlify function handler
+ * no store access, no env reads, no I/O. The Netlify function handler
  * fetches data, then hands it here. Easier to unit-test, easier to render
  * a static preview from CLI later.
  */

@@ -5,7 +5,7 @@ name: fleet-smoke
 # clone-based: it clones each active site and runs the site's OWN `pnpm test:smoke`
 # (which boots a local vite dev server on an audit-allocated REDDOOR_SMOKE_PORT and
 # runs Playwright/chromium smoke specs against localhost), writing Smoke OK +
-# Last Smoke At back to its Airtable row. This repo is the central scheduler (it's
+# Last Smoke At back to its row. This repo is the central scheduler (it's
 # active, so GitHub's 60-day cron-disable never fires). Sequential (--concurrency 1):
 # each site boots its own dev server + browser, so parallelism would thrash a
 # 2-core runner. A separate file from fleet-lighthouse so this slow producer never
@@ -45,7 +45,7 @@ jobs:
       # the runner level or the browser launch fails on a bare ubuntu runner.
       - run: pnpm exec playwright install --with-deps chromium
 
-      - name: Fleet smoke suite + Airtable write-back
+      - name: Fleet smoke suite + write-back
         # Clone + install + chromium + vite boot + specs, ~13 sites sequential — the
         # heaviest nightly leg. Backstop a wedged run so it can't pin the runner and
         # (via concurrency.cancel-in-progress=false) block the next night too.
@@ -59,8 +59,6 @@ jobs:
         # missing-line branch of the gate reds the run anyway, which is correct.
         timeout-minutes: 120
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
@@ -82,7 +80,7 @@ jobs:
           # substitution would abort the step before the diagnostic below runs.
           summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
           if [ -z "$summary" ]; then
-            echo "::error::fleet smoke printed no write summary — the run crashed before write-back (check Airtable creds / API)."
+            echo "::error::fleet smoke printed no write summary — the run crashed before write-back (check the Turso creds / API)."
             exit 1
           fi
           wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
@@ -97,7 +95,7 @@ jobs:
           fi
 
           # A site that couldn't be prepared (bad URL/repo) is dropped from the run
-          # rather than crashing it; raise it so the misconfigured Airtable row is fixed.
+          # rather than crashing it; raise it so the misconfigured site row is fixed.
           skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet smoke: $skipped"
@@ -105,7 +103,7 @@ jobs:
 
           # Total write-back failure: nothing landed at all (creds/API/inventory).
           if [ "$wrote" -eq 0 ]; then
-            echo "::error::fleet smoke wrote 0 of $total site(s) — total write-back failure (check Airtable creds / API)."
+            echo "::error::fleet smoke wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
             exit 1
           fi
 
@@ -118,7 +116,7 @@ jobs:
           # "Never measured" gate. Distinct from every check above, which ask whether a
           # row was WRITTEN. A site whose `test:smoke` exceeds its budget produces no
           # verdict at all: it still counts as written (it writes nothing new), and the
-          # Airtable writer deliberately preserves the prior value rather than record a
+          # write-back deliberately preserves the prior value rather than record a
           # false fail — so the row keeps serving its last GREEN result. reddoor and
           # beachfront-dentistry sat like that for four nights while this workflow
           # reported success every morning. Only a suite that RAN and failed is data;
@@ -143,25 +141,41 @@ jobs:
       # and auto-close it once the run goes green again. continue-on-error so the alert
       # machinery can NEVER turn a run's status red.
       - name: Open/update the nightly-smoke-failure tracking issue
-        if: failure()
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
+          JOB_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Nightly fleet smoke failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body=$(printf 'The nightly **fleet-smoke** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
           fi
 
       - name: Close the nightly-smoke-failure issue on recovery
-        if: success()
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

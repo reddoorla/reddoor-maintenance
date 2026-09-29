@@ -2,7 +2,7 @@ import type { Site } from "../types.js";
 import type { CiState, PullRequestSummary } from "../github/gh.js";
 import { isFailingRenovatePR } from "../alerts/renovate.js";
 
-/** One swept row, ready for the Airtable writer (slug-keyed by `site`). */
+/** One swept row, ready for the writer (slug-keyed by `site`). */
 export type GitHubSignalsRow = {
   site: string; // the site name/slug the writer matches on
   repo: string; // owner/repo

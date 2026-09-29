@@ -44,11 +44,11 @@ const deps = (
   // Only `--pull` ever reaches for this, and nothing in this file asks for it —
   // a call would be the in-repo check shelling out, which it must never do.
   spawn: vi.fn<SpawnFn>(async () => ({ code: 0, stdout: "", stderr: "" })),
-  // No test in this file writes to Airtable. Required (not optional) on the deps
+  // No test here writes to the fleet store. Required (not optional) on the deps
   // type precisely so that stays true by construction: a stub that throws is the
   // only way this path can be reached from here.
   openVerdictSink: async () => {
-    throw new Error("this test never opens Airtable");
+    throw new Error("this test never opens the fleet store");
   },
 });
 
@@ -356,7 +356,7 @@ describe("runPrismicModelsCommand — in-repo", () => {
     expect(r.output).not.toContain("match Prismic");
   });
 
-  // The nightly's real invocation, `--fleet airtable --write-back`, was
+  // The nightly's real invocation, `--fleet turso --write-back`, was
   // refused outright until Task 20 and now runs. That case moved to the suites
   // that own fleet fixtures — prismic-models-fleet.test.ts (the sweep still
   // happens) and prismic-models-writeback.test.ts (the verdicts land) — rather
@@ -560,8 +560,8 @@ describe("checkOneSite", () => {
   });
 
   // Zero models on BOTH sides is a misconfiguration wearing a clean run, and the
-  // renderer says so in words. The machine-readable verdict that reaches Airtable
-  // and the cockpit must not disagree with the report printed above it.
+  // renderer says so in words. The machine-readable verdict the cockpit shows
+  // must not disagree with the report printed above it.
   it("does not report clean when nothing was found on either side", async () => {
     await site();
     const r = await checkOneSite(dir, deps([]), { apply: false, allowGenericToken: true });

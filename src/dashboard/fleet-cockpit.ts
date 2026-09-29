@@ -1,14 +1,14 @@
 // src/dashboard/fleet-cockpit.ts
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import {
   siteSlug,
   isDashboardVisible,
   isArchivedStatus,
   isUnrecognizedStatus,
-} from "../reports/airtable/websites.js";
+} from "../fleet/site-row.js";
 import type { AttentionItem } from "../alerts/attention.js";
-import { isPendingApproval } from "../reports/airtable/reports.js";
-import type { ReportRow } from "../reports/airtable/reports.js";
+import { isPendingApproval } from "../reports/report-fields.js";
+import type { ReportRow } from "../reports/report-fields.js";
 import type { ReportType } from "../reports/types.js";
 import type { SubmissionRow, FormType } from "../reports/submission-row.js";
 import { isLeadFormType } from "../forms/types.js";
@@ -31,6 +31,7 @@ import {
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { isNetlifyAppUrl } from "../util/url.js";
+import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../fleet/opt-outs.js";
 
 export type Tier = "attention" | "watch" | "healthy" | "pre-launch";
 
@@ -70,8 +71,10 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * the M5 thresholds, so a sub-75 Lighthouse score arrives here as an item and never
  * needs the watch band). A FAILED latest production deploy (`deployStatus === "failed"`/
  * "error") is the same severity → 🔴 attention. Otherwise 🟡 watch when a Lighthouse
- * category sits in [75,85), the last commit to `main` is older than 30 days, or a
- * maintenance site is still on `*.netlify.app`. Else 🟢 healthy.
+ * category sits in [75,85), the last commit to `main` is older than 30 days, a
+ * maintained site is on `*.netlify.app`, records no GA4 / Search Console property, no Git
+ * repo or Netlify ID (#889), or requires Turnstile without a browser-verified widget.
+ * Else 🟢 healthy.
  *
  * Each active watch condition is a structured candidate with a set of accept keys
  * (aliases — e.g. the Netlify/no-custom-domain condition accepts "no custom domain",
@@ -87,7 +90,10 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * `watchReasons` are the human labels for the card; `watchAcceptKeys` is the primary/
  * canonical accept token per un-accepted reason (index-aligned — surfaced on the card so
  * the operator can see the exact string that would mute it); `watchSignals` are the
- * STRUCTURED filter tags ("lighthouse" / "stale") the client filter keys off.
+ * STRUCTURED filter tags (one `WatchCandidate.signal` each) the client filter keys off.
+ * `tier` says which band a site is in; `watchSignals` says which watch conditions it
+ * has. They differ on an attention site: its un-accepted watch conditions are still
+ * tagged (#941), but its tier and the Watch-card fields stay those of attention.
  */
 /** One detected watch condition, before acceptance is applied. `signal` is the
  *  client-filter tag; `acceptKeys` is every string the operator can type to mute it,
@@ -137,11 +143,12 @@ export function assignTier(
   // to 🔴 attention through the normal machinery. (Only "launching" reaches
   // the cockpit — isDashboardVisible = {maintained, launching}.)
   if (site.status === "launching") {
-    // Genuine alarms pierce the mute; this attention return sits ABOVE the
+    // Genuine alarms pierce the mute; this attention verdict is decided before the
     // accepted-watch loop, so an operator ack can never silence a pierced alarm —
-    // the same invariant the live-site items short-circuit keeps. Everything else
+    // the same invariant the live-site `broken` flag below keeps. Everything else
     // (incl. a failed deploy, checked further below only for live sites) stays
-    // muted as expected pre-launch conditions.
+    // muted as expected pre-launch conditions, and a pre-launch site carries no
+    // watch tags either: muted means muted.
     if (items.some(piercesPreLaunchMute))
       return {
         tier: "attention",
@@ -158,24 +165,12 @@ export function assignTier(
       acceptedReasons: [],
     };
   }
-  if (items.length > 0)
-    return {
-      tier: "attention",
-      watchReasons: [],
-      watchAcceptKeys: [],
-      watchSignals: [],
-      acceptedReasons: [],
-    };
-  // A failed latest production deploy is an active break — tier it 🔴 attention, the
-  // same severity a sub-floor Lighthouse score gets (which arrives as an item above).
-  if (isFailedDeployStatus(site.deployStatus))
-    return {
-      tier: "attention",
-      watchReasons: [],
-      watchAcceptKeys: [],
-      watchSignals: [],
-      acceptedReasons: [],
-    };
+  // Any attention item is 🔴 attention. So is a failed latest production deploy: an
+  // active break, the same severity a sub-floor Lighthouse score gets (which arrives
+  // as an item). The tier is fixed HERE, before acceptance is read, so no accept key
+  // can ever move a broken site; the watch conditions below are still collected for
+  // it, but only as filter tags (#941).
+  const broken = items.length > 0 || isFailedDeployStatus(site.deployStatus);
 
   // Conditions the operator has reviewed and accepted (case-insensitive). An accepted
   // watch reason is routed to acceptedReasons instead of raising the watch band.
@@ -217,14 +212,59 @@ export function assignTier(
       reason: "on *.netlify.app (no custom domain)",
     });
   }
+  if (site.status === "maintained" && !site.ga4PropertyId?.trim()) {
+    candidates.push({
+      signal: "no-analytics",
+      acceptKeys: ANALYTICS_OPT_OUT_KEYS,
+      reason: "GA4 property not recorded (reports carry no analytics)",
+    });
+  }
+  if (site.status === "maintained" && !site.searchConsoleProperty?.trim()) {
+    candidates.push({
+      signal: "search-console-unrecorded",
+      acceptKeys: SEARCH_CONSOLE_OPT_OUT_KEYS,
+      reason: "Search Console property not recorded",
+    });
+  }
+  // #889. The roster identities the nightly sweeps need. A `maintained` site is
+  // exactly the set `selectFleetSites` sweeps, and every sweep that lacks the
+  // identity it needs SKIPS the site while the run still concludes success: the
+  // checkout sweeps (smoke / security / prismic-drift) cannot clone without
+  // `gitRepo`, and `netlify-deploy` skips "no netlify id". The site's report then
+  // blocks on checklist items nothing will ever measure (29 Navy, 2026-09-17;
+  // beachfront-dentistry, 2026-09-29). Only `maintained`: `hosted-only` is
+  // report-eligible but no sweep covers it and the cockpit shows no card for it,
+  // so filling these cells would not get it measured. Watch, not an attention
+  // item, because "not on Netlify" is a legitimate state the operator must be
+  // able to accept. The Netlify keys deliberately avoid the no-custom-domain
+  // keys ("netlify", "on netlify", …), which would otherwise mute both at once.
+  // The reasons say what cannot happen, not which code path runs: a blank repo
+  // skips at prepare ("no repoUrl or gitRepo"), a whitespace one throws there
+  // ("unsafe gitRepo") — both unmeasured. Both readers trim `netlify_id` to null,
+  // so the deploy audit skips; were a raw " " ever to reach it, the API read
+  // would fail and write nothing, which "cannot read" still describes.
+  if (site.status === "maintained" && !site.gitRepo?.trim()) {
+    candidates.push({
+      signal: "no-git-repo",
+      acceptKeys: ["no git repo", "no-git-repo", "no repo", "git repo"],
+      reason: "Git repo not recorded (checkout sweeps cannot clone this site)",
+    });
+  }
+  if (site.status === "maintained" && !site.netlifyId?.trim()) {
+    candidates.push({
+      signal: "no-netlify-id",
+      acceptKeys: ["no netlify id", "no-netlify-id", "not on netlify", "netlify id"],
+      reason: "Netlify ID not recorded (the deploy check cannot read this site)",
+    });
+  }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less
   // submissions, so a gated site whose widget state ISN'T positively confirmed
-  // deserves a nag. A fresh confirmed "fail" never reaches here — that is a CRITICAL
-  // AttentionItem (collectTurnstileGuardrailAlerts) caught by the items short-circuit
-  // ABOVE the accept loop, so an accept key can mute this "can't verify" watch but
-  // can never silence the confirmed-missing alarm. `!== "pass"` covers both null
-  // (older package /health without a forms block, or the sweep never ran) and a
-  // stale "fail" the collector downgraded.
+  // deserves a nag. A fresh confirmed "fail" is a CRITICAL AttentionItem
+  // (collectTurnstileGuardrailAlerts) that sets `broken` BEFORE the accept loop, so it
+  // reaches here only to tag its 🔴 card `turnstile-unverified` (#941): an accept key
+  // mutes this "can't verify" watch, never the confirmed-missing alarm. `!== "pass"`
+  // covers both null (older package /health without a forms block, or the sweep never
+  // ran) and a stale "fail" the collector downgraded.
   if (site.requireTurnstile && site.turnstileWidget !== "pass") {
     candidates.push({
       signal: "turnstile-unverified",
@@ -249,6 +289,21 @@ export function assignTier(
       signals.add(cand.signal);
     }
   }
+  // A broken site keeps its tier and stays out of the watch band: watchReasons,
+  // watchAcceptKeys and acceptedReasons are Watch-card content (the Needs-you feed,
+  // the verdict and the chips all read them), so they stay empty here. Only the
+  // un-accepted watch TAGS ride along, so the card still answers the watch filter
+  // chips (`no-analytics`, `stale`, …) it belongs under. Before #941 this was an
+  // early return with no tags, and every such chip undercounted exactly the sites
+  // that were also broken.
+  if (broken)
+    return {
+      tier: "attention",
+      watchReasons: [],
+      watchAcceptKeys: [],
+      watchSignals: [...signals],
+      acceptedReasons: [],
+    };
   // A Prismic divergence the operator accepted stays VISIBLE, as a muted chip. The
   // item itself was suppressed upstream (`collectPrismicDriftAlerts`), so without
   // this the site would read as plainly healthy and the acceptance would be
@@ -283,7 +338,9 @@ export type SiteCard = {
    *  exact string the operator can add to Accepted Watch Conditions to mute it. Optional
    *  for back-compat with hand-built card fixtures; the renderer falls back to no hint. */
   watchAcceptKeys?: string[];
-  /** Structured watch tags ("lighthouse" / "stale") for the client filter. */
+  /** Structured watch tags (`WatchCandidate.signal` values) for the client filter.
+   *  Tag membership, not tier membership: an attention card carries them too (#941),
+   *  so never count Watch-tier sites by this field — use `tier`. */
   watchSignals: string[];
   /** Watch reasons the operator has accepted: suppressed from the band, shown as a
    *  muted chip. Populated whenever the underlying condition is currently active. */
@@ -352,8 +409,8 @@ export type RecentEntry = {
 /** A Websites row surfaced OUTSIDE the fleet cards: archived (legacy/deprecated)
  *  or holding an unrecognized Status cell.
  *
- *  `status` is the RAW Airtable cell, not the canonical status (#539 Phase 4).
- *  These two lanes exist to mirror what Airtable holds so a row can never
+ *  `status` is the RAW stored cell, not the canonical status (#539 Phase 4).
+ *  These two lanes exist to mirror what the store holds so a row can never
  *  silently vanish, and both of them survive on the distinction the canonical
  *  vocabulary erases: `legacy` and `deprecated` both canonicalize to `archived`,
  *  so labelling the lane canonically would render 12 live rows identically and
@@ -496,7 +553,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   for (const u of model.unrecognizedStatus ?? []) {
     const a = get(u.name);
     a.reasons.push(
-      `Status "${u.status}" is not a recognized value — fix it in Airtable (site is invisible to fleet ops)`,
+      `Status "${u.status}" is not a recognized value — fix it in the site's details (site is invisible to fleet ops)`,
     );
     a.watch = true;
   }
@@ -619,7 +676,7 @@ export function buildSiteAlarmContext(
 }
 
 /**
- * Assemble the render-ready cockpit model from already-fetched Airtable rows. PURE
+ * Assemble the render-ready cockpit model from already-fetched fleet rows. PURE
  * (`now` injected). Filters to dashboard-visible sites (maintenance or launch period),
  * runs the M5 collectors
  * over them, tags NEW/WORSE via diffAttention against the prior digest snapshot
@@ -662,7 +719,7 @@ export function buildCockpitModel(
   // read-only surfacing — neither joins `visible`, so no fleet op gains a site.
   //
   // Membership is decided on the CANONICAL status; the label is the RAW cell.
-  // These lanes are the fleet's mirror of Airtable, and `legacy`/`deprecated` are
+  // These lanes are the fleet's mirror of the store, and `legacy`/`deprecated` are
   // the one pair the canonical vocabulary merges — labelling them `archived`
   // would collapse 12 distinguishable live rows into one indistinguishable
   // label and disagree with the cell it mirrors.
@@ -765,7 +822,7 @@ export function buildCockpitModel(
   });
 
   const pending: PendingEntry[] = [];
-  // Mirror listPendingApproval's predicate. Resolve against ALL websites (a pending
+  // Mirror isPendingApproval's predicate. Resolve against ALL websites (a pending
   // approval is never dropped just because the site is hidden from the fleet view).
   const allById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
   for (const r of reports) {

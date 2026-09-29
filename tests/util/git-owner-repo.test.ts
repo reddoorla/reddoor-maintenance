@@ -318,7 +318,7 @@ describe("resolveOwnerRepo", () => {
   });
 
   it("trims an explicit gitRepo, and treats a blank cell as unset", async () => {
-    // A hand-typed Airtable cell with a trailing space used to fail closed with
+    // A hand-typed cell with a trailing space used to fail closed with
     // an alarming "refusing to act on malformed repo identity".
     expect(await resolveOwnerRepo({ path: dir, gitRepo: "  reddoorla/espada  " })).toBe(
       "reddoorla/espada",

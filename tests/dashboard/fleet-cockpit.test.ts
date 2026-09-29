@@ -11,11 +11,11 @@ import type {
   CockpitSummary,
   PendingEntry,
 } from "../../src/dashboard/fleet-cockpit.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
-import { siteSlug } from "../../src/reports/airtable/websites.js";
+import { siteSlug } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
@@ -23,6 +23,12 @@ const NOW = new Date("2026-06-11T12:00:00Z");
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     pointOfContact: "Tucker",
+    ga4PropertyId: "123456789",
+    searchConsoleProperty: "sc-domain:acme.example.com",
+    // The two roster identities the nightly sweeps need (#889): a healthy
+    // maintained fixture carries both, so it reads healthy.
+    gitRepo: "reddoorla/acme",
+    netlifyId: "11111111-2222-3333-4444-555555555555",
     maintenanceFreq: "Monthly",
     reportRecipientsTo: "t@x.com",
     pScore: 95,
@@ -253,7 +259,7 @@ describe("assignTier", () => {
   // An accepted Prismic divergence must not simply VANISH. The item is suppressed
   // upstream so the site stops nagging, and the card then has to say that a finding
   // exists and when the acceptance runs out — otherwise the operator sees a plain
-  // green site and the only record of the decision is an Airtable cell nobody opens.
+  // green site and the only record of the decision is a cell nobody opens.
   it("shows an accepted Prismic divergence as a dated chip, not silence", () => {
     const r = assignTier(
       site({ prismicModels: "fail", prismicAckUntil: "2026-06-20T00:00:00Z" }),
@@ -327,6 +333,96 @@ describe("assignTier", () => {
     );
     expect(r.tier).toBe("healthy");
     expect(r.acceptedReasons).toContain("on *.netlify.app (no custom domain)");
+  });
+
+  it("watches a maintained site with no GA4 property, and names the key that opts it out", () => {
+    const r = assignTier(site({ status: "maintained", ga4PropertyId: null }), [], NOW);
+    expect(r.tier).toBe("watch");
+    expect(r.watchReasons).toEqual(["GA4 property not recorded (reports carry no analytics)"]);
+    expect(r.watchAcceptKeys).toEqual(["no analytics"]);
+    expect(r.watchSignals).toEqual(["no-analytics"]);
+  });
+
+  it("treats a blank GA4 property as missing", () => {
+    expect(assignTier(site({ status: "maintained", ga4PropertyId: "  " }), [], NOW).tier).toBe(
+      "watch",
+    );
+  });
+
+  it("an explicit 'no analytics' opt-out leaves the band but stays visible as a muted chip", () => {
+    const r = assignTier(
+      site({
+        status: "maintained",
+        ga4PropertyId: null,
+        acceptedWatchConditions: ["no analytics"],
+      }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons).toEqual(["GA4 property not recorded (reports carry no analytics)"]);
+  });
+
+  it.each(["building", "hosted-only", "external", "archived"] as const)(
+    "does not ask a %s site for GA4 or Search Console",
+    (status) => {
+      const r = assignTier(
+        site({ status, ga4PropertyId: null, searchConsoleProperty: null }),
+        [],
+        NOW,
+      );
+      expect(r.watchSignals).toEqual([]);
+      expect(r.acceptedReasons).toEqual([]);
+      expect(r.tier).toBe("healthy");
+    },
+  );
+
+  it("watches a maintained site that records no Search Console property, says only that, and names the opt-out key", () => {
+    const r = assignTier(site({ status: "maintained", searchConsoleProperty: null }), [], NOW);
+    expect(r.tier).toBe("watch");
+    expect(r.watchReasons).toEqual(["Search Console property not recorded"]);
+    expect(r.watchAcceptKeys).toEqual(["no search console"]);
+    expect(r.watchSignals).toEqual(["search-console-unrecorded"]);
+  });
+
+  it("an explicit 'no search console' opt-out leaves the band as a muted chip, and does not opt out of GA4", () => {
+    const optedOut = assignTier(
+      site({
+        status: "maintained",
+        searchConsoleProperty: null,
+        acceptedWatchConditions: ["no search console"],
+      }),
+      [],
+      NOW,
+    );
+    expect(optedOut.tier).toBe("healthy");
+    expect(optedOut.acceptedReasons).toEqual(["Search Console property not recorded"]);
+    const wrongKey = assignTier(
+      site({
+        status: "maintained",
+        searchConsoleProperty: null,
+        acceptedWatchConditions: ["no analytics"],
+      }),
+      [],
+      NOW,
+    );
+    expect(wrongKey.tier).toBe("watch");
+  });
+
+  it("treats a blank Search Console property as missing", () => {
+    expect(
+      assignTier(site({ status: "maintained", searchConsoleProperty: "  " }), [], NOW).tier,
+    ).toBe("watch");
+  });
+
+  it("does not ask a launching site for GA4 or Search Console before go-live", () => {
+    expect(
+      assignTier(
+        site({ status: "launching", ga4PropertyId: null, searchConsoleProperty: null }),
+        [],
+        NOW,
+      ).tier,
+    ).toBe("pre-launch");
   });
 
   it("matches accepted conditions case-insensitively", () => {
@@ -492,7 +588,7 @@ describe("buildCockpitModel", () => {
     );
     expect(m.cards.map((c) => c.site.name)).toEqual(["Maintained"]);
     // `status` on an OffFleetSiteEntry is the RAW cell: the lane mirrors the
-    // Airtable column, and `legacy`/`deprecated` are the one pair the canonical
+    // column, and `legacy`/`deprecated` are the one pair the canonical
     // vocabulary merges. Reporting both as "archived" would make the fleet's 7
     // legacy and 5 deprecated rows indistinguishable from each other.
     expect(m.archived).toEqual([
@@ -810,7 +906,7 @@ describe("assignTier — structured watchSignals", () => {
     expect(both.watchSignals).toContain("stale");
   });
 
-  it("is empty for attention and healthy sites", () => {
+  it("is empty for attention and healthy sites with no watch condition", () => {
     expect(assignTier(site(), [item()], NOW).watchSignals).toEqual([]);
     expect(assignTier(site(), [], NOW).watchSignals).toEqual([]);
   });
@@ -834,6 +930,91 @@ describe("assignTier — structured watchSignals", () => {
   it("does NOT flag a launch-period site on *.netlify.app (no domain is expected pre-launch)", () => {
     const r = assignTier(site({ status: "launching", url: "https://espada.netlify.app" }), [], NOW);
     expect(r.watchSignals).not.toContain("no-domain");
+  });
+});
+
+// #941. The watch filter chips key off `watchSignals`, and the attention short-circuit
+// used to return it empty, so a broken site dropped out of every launch-completeness
+// chip it belonged under. Every earlier filter test built a site whose only condition
+// was the one under test, so no test mixed tiers.
+describe("assignTier — an attention site still carries its watch tags (#941)", () => {
+  it("an attention item keeps tier 'attention' and tags the watch condition", () => {
+    const r = assignTier(site({ status: "maintained", ga4PropertyId: null }), [item()], NOW);
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual(["no-analytics"]);
+    // Tier-scoped fields stay empty: the card is not on Watch, and nothing that
+    // reads watchReasons (Needs-you feed, verdict, chips) may treat it as if it were.
+    expect(r.watchReasons).toEqual([]);
+    expect(r.watchAcceptKeys).toEqual([]);
+    expect(r.acceptedReasons).toEqual([]);
+  });
+
+  it("an attention item keeps tier 'attention' and tags a stale repo", () => {
+    const r = assignTier(site({ lastCommitAt: "2026-04-01T00:00:00Z" }), [item()], NOW);
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual(["stale"]);
+    expect(r.watchReasons).toEqual([]);
+  });
+
+  it("a confirmed Turnstile fail keeps tier 'attention' and tags turnstile-unverified", () => {
+    // The fresh "fail" arrives as a CRITICAL item; the watch candidate still sees the
+    // flag + "fail" widget and contributes its tag, never a watch reason.
+    const r = assignTier(
+      site({ requireTurnstile: true, turnstileWidget: "fail" }),
+      [item({ key: "turnstile:recSITE", kind: "turnstile" })],
+      NOW,
+    );
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual(["turnstile-unverified"]);
+    expect(r.watchReasons).toEqual([]);
+  });
+
+  it("a failed deploy keeps tier 'attention' and tags the watch condition", () => {
+    const r = assignTier(
+      site({ status: "maintained", url: "https://acme.netlify.app", deployStatus: "error" }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual(["no-domain"]);
+    expect(r.watchReasons).toEqual([]);
+  });
+
+  it("an accepted watch condition is not tagged on an attention site either", () => {
+    const r = assignTier(
+      site({
+        status: "maintained",
+        ga4PropertyId: null,
+        acceptedWatchConditions: ["no analytics"],
+      }),
+      [item()],
+      NOW,
+    );
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual([]);
+  });
+
+  it("buildCockpitModel: the attention site is tagged but counted only as attention", () => {
+    const m = buildCockpitModel(
+      [
+        // Reddoor's shape: a genuine break plus a launch-completeness gap.
+        site({ id: "r", name: "Broken", defaultBranchCi: "failing", searchConsoleProperty: null }),
+        site({ id: "h", name: "Fine" }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    const broken = m.cards.find((c) => c.site.name === "Broken")!;
+    expect(broken.tier).toBe("attention");
+    expect(broken.watchSignals).toContain("search-console-unrecorded");
+    expect(broken.watchReasons).toEqual([]);
+    expect(m.summary).toMatchObject({ attention: 1, watch: 0, healthy: 1 });
+    const feed = buildNeedsYouFeed(m);
+    expect(feed).toHaveLength(1);
+    expect(feed[0]!.group).toBe("broken");
+    expect(feed[0]!.reasons).not.toContain("Search Console property not recorded");
   });
 });
 

@@ -2,7 +2,7 @@ name: fleet-prismic-drift
 
 # Nightly: does every fleet repo's content model still match the models REGISTERED
 # in its Prismic repository? This is the instrument the whole Prismic alerting path
-# describes — the Airtable verdict columns, the cockpit tier and the digest's three
+# describes — the verdict columns, the cockpit tier and the digest's three
 # attention items all report what THIS run found. It is the detector for out-of-band
 # cloud edits (Type Builder, a hand-edit in the dashboard, a stray Slice Machine
 # push), and the only thing that can catch the silent-field-drop class: a unit test
@@ -31,7 +31,7 @@ on:
   workflow_dispatch: {} # manual run from the Actions tab
 
 # Never overlap a manual run with the scheduled one: two sweeps would write verdicts
-# into one Airtable base and share one clone workdir. A queued run is not cancelled —
+# into one database and share one clone workdir. A queued run is not cancelled —
 # a skipped night is a night with no verdict.
 concurrency:
   group: fleet-prismic-drift
@@ -60,7 +60,7 @@ jobs:
       # NO GitHub App token is minted here, unlike fleet-security and
       # fleet-lighthouse, and that is deliberate rather than an omission. This sweep
       # makes no GitHub API call at all: `cloneIfNeeded` builds an unauthenticated
-      # `https://github.com/<owner>/<repo>.git` from the Airtable `Git repo` column
+      # `https://github.com/<owner>/<repo>.git` from the `Git repo` column
       # and the fleet is public. Minting an org-wide installation token for a job
       # that never presents one is unnecessary privilege plus an extra way for a
       # read-only nightly to go red (a rotated App key would fail the mint step).
@@ -107,8 +107,6 @@ jobs:
       - name: Sweep the fleet for Prismic model drift
         timeout-minutes: 30
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           # #643 (the freeze): openVerdictSink builds a site mirror, and post-flip
           # the factory REFUSES TO BUILD without Turso creds — the whole sweep
           # would exit 1 as an outage before checking a single site.
@@ -140,7 +138,7 @@ jobs:
           # THIS SWEEP'S EXIT CODE IS A REAL SIGNAL, and that is the opposite of
           # fleet-security and fleet-smoke, which tolerate a non-zero CLI exit because
           # a vulnerable or failing site reds them BY DESIGN. Drift never reds this
-          # one: a site whose models diverge is a finding written to its Airtable row.
+          # one: a site whose models diverge is a finding written to its row.
           # A non-zero exit here means the fleet could not be established — a majority
           # of repos unreadable, two repos claiming one Prismic repository, two
           # repositories deriving one token secret, an inventory that resolved no
@@ -207,7 +205,7 @@ jobs:
           # report a clean night. This is the check `fleet-smoke.yml` did not have when
           # it stayed green through nine of eleven sites failing.
           if [ "$wrote" -eq 0 ]; then
-            echo "::error::fleet prismic drift wrote 0 of $total verdict(s) — total write-back failure (check the Airtable PAT / base id / the three Prismic columns). Every verdict this run computed is unrecorded."
+            echo "::error::fleet prismic drift wrote 0 of $total verdict(s) — total write-back failure (check the Turso creds / the three Prismic columns in site_health). Every verdict this run computed is unrecorded."
             exit 1
           fi
 
@@ -225,25 +223,41 @@ jobs:
       # every other nightly's, so two workflows never comment on or close each other's
       # issue.
       - name: Open/update the nightly-failure tracking issue
-        if: failure()
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
+          JOB_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Nightly Prismic model drift sweep failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The nightly **fleet-prismic-drift** sweep failed, so the fleet has NO fresh model verdict tonight.\n\nThis is an outage in the check, not model drift — drift is written to each site row and never reds this run. Likely causes: a majority of repos unreadable, two repos claiming one Prismic repository, two repositories deriving one token secret, an inventory that resolved no sites, or an Airtable write-back that could not open.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The nightly **fleet-prismic-drift** sweep failed, so the fleet has NO fresh model verdict tonight.\n\nThis is an outage in the check, not model drift — drift is written to each site row and never reds this run. Likely causes: a majority of repos unreadable, two repos claiming one Prismic repository, two repositories deriving one token secret, an inventory that resolved no sites, or a Turso write-back that could not open.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
           fi
 
       - name: Close the nightly-failure issue on recovery
-        if: success()
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

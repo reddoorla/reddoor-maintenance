@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { join } from "node:path";
-import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
+import { stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -173,6 +173,12 @@ describe("release-health — a close needs positive evidence, not the absence of
   it("writes no healthy marker when the latest decisive run FAILED", async () => {
     const check = await runStep(RELSTATE_STEP, { GH_API_OUT: decisiveRun("failure") });
     expect(check.out).toContain("::error::");
+    // A FINDING, not a crash: the step exits 0 and hands `red=yes` on. The
+    // run-failure pair keys on `failure()` ahead of "Fail when unhealthy", which
+    // is only "the checker broke" while a finding exits 0. An `exit 1` here
+    // would skip the release-failing issue and file "check failing" instead.
+    expect(check.code).toBe(0);
+    expect(await readFile(join(check.dir, "github_output"), "utf-8")).toContain("red=yes\n");
 
     const close = await runStep(RELSTATE_CLOSE, { GH_ISSUES: "42" }, check.dir);
     expect(close.out).not.toContain("CLOSED");
@@ -200,8 +206,39 @@ describe("release-health — a close needs positive evidence, not the absence of
   it("writes no drift marker while npm is behind main", async () => {
     const check = await runStep(DRIFT_STEP, { NPM_VERSION: "1.2.2" });
     expect(check.out).toContain("::error::");
+    // Same invariant as guard 2 above: a finding exits 0 and sets `behind=yes`,
+    // so the npm-drift issue files and the run-failure issue does not.
+    expect(check.code).toBe(0);
+    expect(await readFile(join(check.dir, "github_output"), "utf-8")).toContain("behind=yes\n");
 
     const close = await runStep(DRIFT_CLOSE, { GH_ISSUES: "7" }, check.dir);
     expect(close.out).not.toContain("CLOSED");
+  });
+});
+
+describe("release-health — its own run failing files an issue, and a finding does not", () => {
+  // A hang to the 5-minute job timeout used to file nothing: every open step
+  // keyed on a finding, and a cancelled run is not a finding (P1-15). The
+  // run-failure pair now fires on the checker itself going red or being
+  // cancelled. It must sit AHEAD of "Fail when unhealthy": that step is what
+  // turns a finding into a red run, and a run-failure step behind it would file
+  // "the check is failing" on top of every npm-drift or release-failing issue.
+  const OPEN = "Open/update the release-health-run-failing tracking issue";
+  const CLOSE = "Close the release-health-run-failing issue on recovery";
+  const FAIL = "Fail when unhealthy";
+
+  it("has the pair, ahead of the step that reds the run on a finding", () => {
+    const labels = workflowSteps(wf).map((s) => s.label);
+    expect(labels).toContain(OPEN);
+    expect(labels).toContain(CLOSE);
+    expect(labels).toContain(FAIL);
+    expect(labels.indexOf(OPEN)).toBeLessThan(labels.indexOf(FAIL));
+    expect(labels.indexOf(CLOSE)).toBeLessThan(labels.indexOf(FAIL));
+  });
+
+  it("files under its own title, distinct from both finding issues", () => {
+    const script = stepRunScript(wf, OPEN);
+    expect(script).toContain('title="Daily release-health check failing"');
+    expect(stepRunScript(wf, CLOSE)).toContain('title="Daily release-health check failing"');
   });
 });

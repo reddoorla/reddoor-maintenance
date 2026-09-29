@@ -57,15 +57,14 @@ const EXEMPT_MODULES: Record<string, string> = {
   "migrate.ts": "migration runner — DDL, not a query path",
   "migrations.ts": "DDL scripts",
   "schema.ts": "types only",
-  "import-airtable.ts": "one-shot bulk importer — full-table upserts by design, not request-path",
-  "parity.ts": "parity harness — full-table comparison is the whole point",
+  "field-map.ts": "column maps + pure record mappers — no queries of its own",
   "dump.ts": "backup dump — full-table reads by design",
-  "sync.ts": "orchestrates importer + parity (both exempt) — no queries of its own",
-  "header-images.ts": "one-shot backfill + CLI dual-write — bulk by-PK writes, not request-path",
+  "header-images.ts":
+    "header plate store + per-site read for the CLI, drafting and send — by-PK, not request-path",
   "site-mirror.ts":
-    "best-effort write-through wrapper — issues no SQL of its own, delegates to " +
+    "write wrapper — issues no SQL of its own, delegates to " +
     "fleet-state's mirrorHealthFields/mirrorSiteFields, which are gated below",
-  "freeze.ts": "a single exported constant — no queries, no runtime behaviour of its own",
+  "mirror-write.ts": "error policy around a caller-supplied write — issues no SQL of its own",
   "site-create.ts":
     "#646 step 3 transaction wrapper — issues no SQL of its own: it runs fleet-state's " +
     "insertSiteRows inside one transaction and delegates to updateSiteIdentity/getSiteBySlug, " +
@@ -224,12 +223,11 @@ export type RequestPathGraph = {
  * request-path modules import which gated-db-module exports.
  *
  * Reads IMPORT BINDINGS, not call sites. A `grep` for `name(` matches the
- * function's own declaration, its mentions inside doc comments (there are
+ * function's own declaration and its mentions inside doc comments (there are
  * several — `fleet-cockpit.ts`, `digest-collectors.ts` and `migrations.ts` all
- * name these functions in prose), and an unrelated Airtable-layer namesake
- * (`src/reports/airtable/reports.ts` exports its own `listAllReports`). An
- * import binding has none of those ambiguities: it names the module the symbol
- * came from, so the answer is about THIS `src/db` function and nothing else.
+ * name these functions in prose). An import binding has neither ambiguity: it
+ * names the module the symbol came from, so the answer is about THIS `src/db`
+ * function and nothing else.
  */
 function requestPathGraph(): RequestPathGraph {
   const gated = new Set(Object.keys(GATED_MODULES));
@@ -342,7 +340,7 @@ const LONG_MESSAGE =
   "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike " +
   "november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu";
 
-function scenarios(state: { createdId: string }): Scenario[] {
+function scenarios(state: { createdId: string; reservedId: string }): Scenario[] {
   let prospectToken = "";
   return [
     {
@@ -537,13 +535,6 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.getSiteBySlug(db, "acme-gallery"),
     },
     {
-      // #645: the probe `ensure-site` uses to decide whether a site that exists
-      // in Airtable is missing from Turso. PK lookup — it must stay one.
-      name: "siteRowExists (ensure-site heal probe)",
-      covers: ["siteRowExists"],
-      run: (db) => fleetState.siteRowExists(db, "recA"),
-    },
-    {
       name: "getSiteById (approve-report lookup)",
       covers: ["getSiteById"],
       run: (db) => fleetState.getSiteById(db, "recA"),
@@ -559,8 +550,6 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.listAllReports(db),
     },
     {
-      // #646 step 4: the nightly send's queue read, moved off Airtable (where the
-      // same three-part predicate was a filterByFormula).
       name: "listSendableReports (the send queue)",
       covers: ["listSendableReports"],
       run: (db) => fleetState.listSendableReports(db),
@@ -576,8 +565,8 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.getReportById(db, "recA"),
     },
     {
-      // #646 (Phase 6 step 2): the resend-webhook's report lookup, moved off
-      // Airtable. Runs on every Resend delivery/bounce event for a report, so
+      // #646 (Phase 6 step 2): the resend-webhook's report lookup. Runs on
+      // every Resend delivery/bounce event for a report, so
       // the plan must land on idx_reports_resend_message (0027), not a scan of
       // the HTML-bearing reports table.
       name: "findReportByMessageId (resend-webhook report lookup)",
@@ -720,6 +709,11 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.storeRenderedHtml(db, "recA", "<html>x</html>"),
     },
     {
+      name: "storeChecklistEvidence (preview refresh re-checks an unsent draft)",
+      covers: ["storeChecklistEvidence"],
+      run: (db) => fleetState.storeChecklistEvidence(db, "recA", {}, {}),
+    },
+    {
       name: "mirrorHealthFields (nightly audit write-through)",
       covers: ["mirrorHealthFields"],
       run: (db) => fleetState.mirrorHealthFields(db, "recA", { "Smoke OK": "pass" }),
@@ -856,6 +850,57 @@ function scenarios(state: { createdId: string }): Scenario[] {
       covers: ["touchProspectAuditOpened"],
       run: (db) => prospectAudits.touchProspectAuditOpened(db, prospectToken),
     },
+    {
+      // #907: the cap's count runs INSIDE the reservation's INSERT, so its plan
+      // is on every start of an audit — cockpit and CLI alike.
+      name: "countProspectAuditsTowardCap (daily-cap refusal message)",
+      covers: ["countProspectAuditsTowardCap"],
+      run: (db) => prospectAudits.countProspectAuditsTowardCap(db, new Date()),
+    },
+    {
+      name: "reserveProspectAudit (cockpit dispatch / CLI start: conditional INSERT)",
+      covers: ["reserveProspectAudit"],
+      run: async (db) => {
+        await prospectAudits.reserveProspectAudit(db, {
+          url: "https://reserved.example.com",
+          business: null,
+          claimed: false,
+        });
+      },
+    },
+    {
+      name: "claimProspectAuditReservation (dispatched CLI adopts the cockpit's row)",
+      covers: ["claimProspectAuditReservation"],
+      run: async (db) => {
+        const claimed = await prospectAudits.claimProspectAuditReservation(
+          db,
+          "https://reserved.example.com",
+          new Date(),
+        );
+        if (!claimed) throw new Error("claim scenario found nothing to claim");
+        state.reservedId = claimed.id;
+      },
+    },
+    {
+      name: "finishProspectAudit (CLI completes its reserved row)",
+      covers: ["finishProspectAudit"],
+      run: async (db) => {
+        await prospectAudits.finishProspectAudit(db, state.reservedId, {
+          url: "https://reserved.example.com",
+          business: null,
+          status: "complete",
+          resultJson: "{}",
+        });
+      },
+    },
+    {
+      name: "releaseProspectAuditReservation (failed dispatch gives its slot back)",
+      covers: ["releaseProspectAuditReservation"],
+      run: (db) =>
+        prospectAudits.releaseProspectAuditReservation(db, state.reservedId, {
+          onlyIfUnclaimed: true,
+        }),
+    },
   ];
 }
 
@@ -871,7 +916,9 @@ describe("EXPLAIN-query-plan gate", () => {
   });
 
   it("every exported query function of a gated module is exercised by a scenario", () => {
-    const exercised = new Set(scenarios({ createdId: "" }).flatMap((s) => s.covers));
+    const exercised = new Set(
+      scenarios({ createdId: "", reservedId: "" }).flatMap((s) => s.covers),
+    );
     const missing: string[] = [];
     for (const [file, mod] of Object.entries(GATED_MODULES)) {
       for (const [name, value] of Object.entries(mod)) {
@@ -911,7 +958,7 @@ describe("EXPLAIN-query-plan gate", () => {
   it("no query a gated module executes raw-scans a table", async () => {
     const h = await openCapturingDb();
     const tables = await schemaTables(h.client);
-    const state = { createdId: "" };
+    const state = { createdId: "", reservedId: "" };
     const violations: Array<{ scenario: string; table: string; detail: string; sql: string }> = [];
     const observed = new Set<string>();
     let statementCount = 0;
@@ -1022,7 +1069,7 @@ describe("EXPLAIN-query-plan gate", () => {
 
   // ————— MED-11: the allowlist's stated reason, checked against the code —————
   //
-  // `mirror-write-freeze.test.ts` has a "no exemption is stale" test; the check
+  // `mirror-write.test.ts` has a "no exemption is stale" test; the check
   // below is its equivalent here, and it is stricter in one way that matters:
   // that one asks whether an exemption still names a real FILE, this one asks
   // whether an exemption's stated REASON is still true. The 08-26 brief named
@@ -1051,7 +1098,9 @@ describe("EXPLAIN-query-plan gate", () => {
 
   it("every ALLOWED_RAW_SCANS requestPath claim matches the import graph", () => {
     const { importers } = requestPathGraph();
-    const covers = new Map(scenarios({ createdId: "" }).map((s) => [s.name, s.covers]));
+    const covers = new Map(
+      scenarios({ createdId: "", reservedId: "" }).map((s) => [s.name, s.covers]),
+    );
     const wrong: string[] = [];
     for (const entry of ALLOWED_RAW_SCANS) {
       const fns = covers.get(entry.scenario);

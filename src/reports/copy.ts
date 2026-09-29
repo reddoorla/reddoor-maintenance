@@ -1,4 +1,4 @@
-import type { WebsiteRow } from "./airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 
 export type ResolvedCopy = {
   maintenanceIntro: string;
@@ -86,7 +86,7 @@ function override(v: string | null): string | null {
  * everything else is the shared default. PURE.
  */
 /** Split an operator override into lines: tolerate CRLF, drop blank lines (a stray
- *  blank in the Airtable cell shouldn't render an empty address row). */
+ *  blank in the stored cell shouldn't render an empty address row). */
 function splitLines(s: string): string[] {
   return s.split(/\r?\n/).filter((l) => l.trim().length > 0);
 }

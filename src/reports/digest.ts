@@ -1,7 +1,5 @@
 // src/reports/digest.ts
-import { openBase, readAirtableConfig, type AirtableBase } from "./airtable/client.js";
-import { listAllReports, isPendingApproval } from "./airtable/reports.js";
-import type { ReportRow } from "./airtable/reports.js";
+import { isPendingApproval, type ReportRow } from "./report-row.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
 import { siteSlug, type WebsiteRow } from "../fleet/site-row.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
@@ -20,11 +18,7 @@ import {
   collectPrismicDriftAlerts,
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
-import { diffAttention } from "../alerts/digest-state.js";
-import {
-  writeDigestState as writeAirtableDigestState,
-  type DigestSnapshot,
-} from "../alerts/digest-state.js";
+import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { escapeHtml as esc } from "../util/html.js";
 import { operatorEmail } from "../util/operator.js";
 import type {
@@ -176,21 +170,6 @@ function digestDateKey(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * The gate for "Ready for your yes": Draft ready ∧ ¬Approved to send ∧ Sent at BLANK.
- *
- * Implemented as `listAllReports(base).filter(...)` (the authorized deviation from the plan's
- * draft, which pre-dated Slice 1's merged fix): `listAllReports` already calls `mapRow`, which
- * handles `Period` correctly, so no local `rawToReportRow` duplicate is needed. The JS filter
- * does real work — the test fake does NOT evaluate `filterByFormula` — so correctness is
- * test-provable here.
- *
- * Exported: the fleet homepage (Task 3.5b) reuses it for the pending-approval count.
- */
-export async function listPendingApproval(base: AirtableBase): Promise<ReportRow[]> {
-  return (await listAllReports(base)).filter(isPendingApproval);
-}
-
 // ── collectAttention (IO wrapper, sibling to runDigest) ──────────────────────
 
 export type CollectAttentionDeps = {
@@ -266,8 +245,7 @@ async function fetchDeadLetterCounts(): Promise<ReadonlyMap<string, number>> {
  *  consuming fleet sites do not install, so a static import would crash their
  *  CLI at require time.
  *
- *  NOT defensive, deliberately — the Airtable read it replaces was not either.
- *  Swallowing a failure here would silently badge every item NEW, which reads
+ *  NOT defensive, deliberately. Swallowing a failure here would silently badge every item NEW, which reads
  *  as "the whole fleet degraded overnight" in the operator's inbox. A thrown
  *  error is the honest outcome. */
 async function readDigestStateFromDb(): Promise<DigestSnapshot> {
@@ -357,37 +335,26 @@ async function writeCockpitRollupToDb(now: Date): Promise<"written" | "absent"> 
   return "written";
 }
 
-/** Persist the next snapshot to BOTH stores (#609 dual-write).
+/** Persist the next snapshot to Turso, the side the next run reads (#609).
  *
- *  Turso is the read side, so a failure there is the one that actually costs
- *  correct NEW badges tomorrow — but Airtable keeps being written so the move
- *  stays reversible while Phase 5 is in flight. Both are best-effort: the
- *  digest has already been sent (or deliberately skipped) by the time this
- *  runs, and a snapshot write failure re-news at worst.
+ *  Best-effort: the digest has already been sent (or deliberately skipped) by
+ *  the time this runs, and a snapshot write failure re-news at worst.
  *
- *  The DIGEST_STATE_WRITE line exists because of #585: a dual-write that
- *  silently stopped running looked identical to a healthy one for weeks. One
- *  line, always emitted, naming both halves. */
+ *  The DIGEST_STATE_WRITE line exists because of #585: a write that silently
+ *  stopped running looked identical to a healthy one for weeks. One line,
+ *  always emitted. */
 async function persistDigestState(
-  base: AirtableBase,
   next: DigestSnapshot,
   writeState?: (snap: DigestSnapshot) => Promise<void>,
   writeRollup?: () => Promise<"written" | "absent">,
 ): Promise<void> {
   let turso = 0;
-  let airtable = 0;
   let rollup: "1" | "0" | "absent" = "0";
   try {
     await (writeState ?? writeDigestStateToDb)(next);
     turso = 1;
   } catch (e) {
     console.warn(`⚠ digest state write failed (turso): ${(e as Error).message}`);
-  }
-  try {
-    await writeAirtableDigestState(base, next);
-    airtable = 1;
-  } catch (e) {
-    console.warn(`⚠ digest state write failed (airtable): ${(e as Error).message}`);
   }
   // The cockpit roll-up rides the same "already sent, best-effort" contract, and
   // gets its own counter on the line for the #585 reason: a dual-write that
@@ -401,7 +368,7 @@ async function persistDigestState(
       console.warn(`⚠ cockpit rollup write failed: ${(e as Error).message}`);
     }
   }
-  console.log(`DIGEST_STATE_WRITE turso=${turso} airtable=${airtable} rollup=${rollup}`);
+  console.log(`DIGEST_STATE_WRITE turso=${turso} rollup=${rollup}`);
 }
 
 /** The "Submissions (24h)" telemetry window — a precise 24h ISO-timestamp compare
@@ -530,8 +497,7 @@ export type DigestRunOptions = {
   baseUrl: string;
   /**
    * The run's two datasets. Since #646 step 4 they come from TURSO, read by the
-   * command that calls this (one connection, both reads) — Airtable cannot see a
-   * `site_<ULID>` site at all, so a digest built from it is silently short.
+   * command that calls this (one connection, both reads).
    *
    * Functions rather than arrays, and required rather than defaulted: a read
    * failure must still be able to red the run (it is caught below and reported as
@@ -540,12 +506,6 @@ export type DigestRunOptions = {
    */
   roster: () => Promise<WebsiteRow[]>;
   allReports: () => Promise<ReportRow[]>;
-  /**
-   * Inject a pre-opened Airtable base (tests, server handlers) for the digest-state
-   * SHADOW write — the only Airtable call left in this run. When omitted,
-   * `openBase(readAirtableConfig())` is called from the environment.
-   */
-  base?: AirtableBase;
   /** Per-site submission counts for the "Submissions (24h)" section. undefined =
    *  fetch from libSQL; null = simulate unavailable (section omitted); a Map =
    *  injected (tests). */
@@ -593,12 +553,9 @@ export async function runDigest(
   // Capture clock BEFORE any await so the idempotency key can't roll past midnight mid-run.
   const today = options.now ?? new Date();
   try {
-    // Airtable is opened for ONE thing now: the digest-state shadow write at the
-    // end of the run (#646 step 4 moved both reads to Turso).
-    const base = options.base ?? openBase(readAirtableConfig());
     // Read each dataset ONCE for the whole run, then thread the arrays into
     // collectAttention so it doesn't re-fetch. Pending is derived in-line with
-    // listPendingApproval's exact predicate.
+    // isPendingApproval.
     const reports = await options.allReports();
     const websites = await options.roster();
     const sites = new Map(websites.map((w) => [w.id, w]));
@@ -610,7 +567,7 @@ export async function runDigest(
     for (const r of pending) {
       const site = sites.get(r.siteId);
       if (!site) continue; // orphan report → skip rather than render a broken link
-      // An empty Name slugs to "" → `/s/` is a dead link (getWebsiteBySlug can't
+      // An empty Name slugs to "" → `/s/` is a dead link (the site route can't
       // match it). Fall back to the fleet homepage so the operator still lands
       // somewhere usable instead of a 404.
       const slug = siteSlug(site.name);
@@ -632,9 +589,7 @@ export async function runDigest(
       reports,
       now: today,
     });
-    // #609: Turso is the read side now. Airtable keeps being WRITTEN below
-    // (dual-write, Phase 5's pattern everywhere else) so the move stays
-    // reversible, but nothing reads it any more.
+    // #609: the prior snapshot is Turso's digest_state row.
     const prior = await (options.digestState?.read ?? readDigestStateFromDb)();
     const { tagged, next } = diffAttention(collected, prior, digestDateKey(today));
     // The operator only HEARS about a vuln once Renovate's auto-fix is exhausted
@@ -654,7 +609,7 @@ export async function runDigest(
       // with muted pre-exhaustion vulns collected — their keys keep snapshotting so
       // the eventual exhausted-flip diffs as WORSE. Wrapped: a write failure can't
       // fail the skip.
-      await persistDigestState(base, next, options.digestState?.write, () =>
+      await persistDigestState(next, options.digestState?.write, () =>
         writeRollupOnce(options, today),
       );
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
@@ -712,7 +667,7 @@ export async function runDigest(
     // logged: the digest already went out, tomorrow re-news at worst. (The send-FAILURE
     // path never reaches here — the outer catch returns code 1 with no write, preserving
     // the NEW badge for the retry.)
-    await persistDigestState(base, next, options.digestState?.write, () =>
+    await persistDigestState(next, options.digestState?.write, () =>
       writeRollupOnce(options, today),
     );
     return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };

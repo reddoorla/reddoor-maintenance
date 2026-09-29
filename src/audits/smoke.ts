@@ -39,7 +39,7 @@ export const SMOKE_UNMEASURED_PREFIX = "smoke: NOT MEASURED";
 /** True when a smoke audit never reached a verdict (timed out mid-suite).
  *
  *  Deliberately distinct from {@link hasSmokeResult}: an unmeasured run carries no
- *  `details`, so the Airtable writer already preserves the prior verdict rather than
+ *  `details`, so the write-back already preserves the prior verdict rather than
  *  recording a false fail. That is correct — and it is also why nothing surfaced it.
  *  This predicate is what makes it visible to CI. */
 export function isUnmeasuredSmoke(result: { audit: string; summary: string }): boolean {
@@ -79,7 +79,7 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
  * carries dev-server/npm noise (e.g. `[WebServer] npm warn …`). So summarize stdout
  * first (which test, and why) and fall back to stderr only when stdout yielded
  * nothing useful (a crash before the reporter ran). Capped so a runaway report
- * can't bloat the CLI/Airtable summary.
+ * can't bloat the CLI summary.
  */
 export function summarizeSmokeFailure(stdout: string, stderr: string): string {
   const lines = stdout
@@ -150,11 +150,11 @@ async function hasNodeModules(sitePath: string): Promise<boolean> {
  * A site that hasn't adopted `test:smoke` yet (no script, or no package.json) →
  * skip (R3.2), same bucket as `pnpm` itself being unavailable. exit 0 → pass;
  * non-zero → fail (only reached once the suite is known to exist). A skip never
- * carries details, so the Airtable writer preserves the prior verdict.
+ * carries details, so the write-back preserves the prior verdict.
  *
  * A suite that exceeds the budget is a THIRD outcome: it produced no verdict at all,
  * so it is reported as {@link SMOKE_UNMEASURED_PREFIX} and likewise carries no details.
- * That keeps Airtable on the prior value (right — nothing was learned) while letting
+ * That keeps the prior value (right — nothing was learned) while letting
  * fleet-smoke.yml red the run, which is what the write-back gate alone cannot do.
  */
 export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
@@ -178,7 +178,7 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
   // PATH yet — without this, `pnpm test:smoke` exits non-zero and we'd persist a
   // FALSE Smoke OK=fail. Install only when node_modules is absent (a local
   // already-installed checkout is untouched). Any install failure → skip (NO
-  // details), so the Airtable writer preserves the prior verdict rather than
+  // details), so the write-back preserves the prior verdict rather than
   // recording a false fail. Mirrors deps-outdated.ts.
   if (!(await hasNodeModules(site.path))) {
     let install;
@@ -255,7 +255,7 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
     }
     // A timeout is not a verdict. Rethrowing sent it to runOneAudit's catch-all,
     // which stringified it into `smoke: unexpected error — Error: spawn timeout…`:
-    // technically a `fail`, carrying no details, so Airtable correctly preserved the
+    // technically a `fail`, carrying no details, so the write-back preserved the
     // prior verdict — and therefore kept showing GREEN for a site that had not been
     // measured in days, while the workflow (gated on write-back) exited 0. Name it
     // instead, and leave `details` unset so the write-back behavior is unchanged.
@@ -265,7 +265,7 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "smoke",
         site: label,
         status: "fail",
-        summary: `${SMOKE_UNMEASURED_PREFIX} — \`pnpm test:smoke\` exceeded its ${minutes}m budget; no verdict, prior Airtable value preserved`,
+        summary: `${SMOKE_UNMEASURED_PREFIX} — \`pnpm test:smoke\` exceeded its ${minutes}m budget; no verdict, prior stored value preserved`,
       };
     }
     throw err;

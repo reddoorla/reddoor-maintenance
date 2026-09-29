@@ -3,14 +3,11 @@ import { siteSlug, ACTIVE_STATUSES, isPreLaunch, type WebsiteRow } from "../flee
 import { isHttpUrl } from "../util/url.js";
 
 /**
- * THE fleet-sweep selection rule, over rows from either store (#646 step 4).
+ * THE fleet-sweep selection rule (#646 step 4).
  *
  * Every `--fleet` sweep — the four nightly audits, the Prismic drift sweep,
  * `prismic-ci`, `init`, `sync-configs` and the rest — visits exactly the sites this
- * returns. It lived inside `fromAirtableBase` until step 4 moved the roster to
- * Turso; it is shared rather than copied so the Airtable and Turso providers
- * cannot drift, and `tests/inventory/selection-parity.test.ts` proves that the
- * two stores, fed the same rows, hand it identical input.
+ * returns.
  *
  * Only LIVE `maintained` sites that have a `url` are included — pre-launch
  * stages ("launching" / "building", via isPreLaunch) are excluded so a

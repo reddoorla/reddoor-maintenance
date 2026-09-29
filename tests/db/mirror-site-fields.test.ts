@@ -1,21 +1,21 @@
 /**
  * #539 Phase 5: the multi-column twin of `mirrorSiteField`, for writers that
- * touch more than one `sites` cell in a single Airtable update.
+ * touch more than one `sites` cell in a single update.
  *
  * `updateLaunched` is the reason it exists — it flips `Status` AND stamps
  * `Launched at` in one write, and mirroring those as two separate UPDATEs would
  * leave a window where Turso says a site is maintained but never launched.
  *
  * Same contract as `mirrorHealthFields`, deliberately: it takes the EXACT
- * FieldSet just written to Airtable (the writers return it), resolves columns
+ * FieldSet the writers return, resolves columns
  * through the importer's own `SITE_FIELDS` + `siteValueFor`, and reports whether
  * a row matched so a caller can count a not-yet-imported site honestly instead
  * of claiming it mirrored.
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
-import { mirrorSiteFields } from "../../src/db/fleet-state.js";
+import type { RawRecord } from "../../src/db/field-map.js";
+import { mirrorSiteFields, mirrorSiteInsert } from "../../src/db/fleet-state.js";
 
 const NOW = new Date("2026-08-25T12:00:00.000Z");
 const SITE: RawRecord = {
@@ -23,16 +23,9 @@ const SITE: RawRecord = {
   fields: { Name: "Acme Gallery", Status: "launching", "Launched at": null },
 };
 
-const io = (records: RawRecord[]): ImportIo => ({
-  listWebsiteRecords: async () => records,
-  listReportRecords: async () => [],
-  fetchAttachment: async () => null,
-  now: () => NOW,
-});
-
 async function dbWithSite() {
   const db = await openDb({ url: ":memory:" });
-  await importFleetState(db, io([SITE]));
+  await mirrorSiteInsert(db, SITE, NOW.toISOString());
   return db;
 }
 
@@ -44,7 +37,7 @@ const stored = async (db: Awaited<ReturnType<typeof openDb>>) =>
     .executeTakeFirst();
 
 describe("mirrorSiteFields", () => {
-  it("writes every column of one Airtable update in a single UPDATE", async () => {
+  it("writes every column of one field set in a single UPDATE", async () => {
     const db = await dbWithSite();
 
     const matched = await mirrorSiteFields(db, "recSITE", {
@@ -59,10 +52,8 @@ describe("mirrorSiteFields", () => {
     });
   });
 
-  it("delegates coercion to the importer, so parity stays raw-to-raw", async () => {
-    // The whole risk of a mirror is coercing differently from the importer:
-    // parity compares raw-to-raw, so storing "true" where the importer stores 1
-    // reds every hourly run until the next import papers over it.
+  it("delegates coercion to the importer", async () => {
+    // The whole risk of a mirror is coercing differently from the importer.
     const db = await dbWithSite();
 
     await mirrorSiteFields(db, "recSITE", {

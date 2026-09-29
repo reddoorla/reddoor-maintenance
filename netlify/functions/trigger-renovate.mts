@@ -35,8 +35,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         status: "ok",
         service: "reddoor-trigger-renovate",
         env: {
-          AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
-          AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
+          TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
           DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
           GH_TOKEN: typeof process.env.GH_TOKEN === "string",
         },

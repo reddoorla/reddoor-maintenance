@@ -87,7 +87,7 @@ export type CanonicalBase = {
 
 /**
  * Resolve the audit's effective base URL by following the configured URL's own redirect ONCE.
- * WHY (2026-07-17, Vineyard): an apex-configured Airtable url (vineyardconstruction.com) that
+ * WHY (2026-07-17, Vineyard): an apex-configured site url (vineyardconstruction.com) that
  * 301s to www adds a redirect hop to EVERY probed route; under the audit's own probe burst that
  * hop tipped two heavy gallery pages over the nav timeout → "no response" false alarms on a
  * perfectly healthy site. Probing the canonical host removes the hop at the source, so the class
@@ -564,7 +564,7 @@ export function summarizeBrowser(
  * Deployed-URL browser audit: discovers a representative route set (incl. CMS templates), probes
  * each across desktop engines + mobile devices, and checks internal links — all against the LIVE
  * url (checkout-free). Skips a site with no deployed URL. Produces ONE AuditResult whose details
- * carry the three verdicts (Crossbrowser / Mobile / Links); the Airtable layer fans them out and
+ * carry the three verdicts (Crossbrowser / Mobile / Links); the write-back fans them out and
  * the auto-tick rule gates each on freshness.
  */
 export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {

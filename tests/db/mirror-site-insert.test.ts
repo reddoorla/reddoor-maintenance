@@ -5,24 +5,20 @@
  * 09:20 sync, and every mirror the bootstrap fired afterwards reported
  * `mirrored=missed` because there was no row to update.
  *
- * The instrument is EQUIVALENCE WITH THE IMPORTER, the same one
- * `mirrorReportInsert` uses: parity diffs Turso against `mapWebsiteRecord(rec)`,
- * so the only mirror that cannot red the hourly run is one that stores exactly
- * what the importer would store for the same record.
+ * The instrument is EQUIVALENCE WITH `mapWebsiteRecord(rec)`, the same one
+ * `mirrorReportInsert` uses.
  *
- * All THREE rows go in, not just `sites`. Parity reverse-checks `site_health`
- * and `site_schedule` per site and reports a missing one as `(row) ABSENT`, and
- * a later `mirrorHealthFields` would return `missed` forever with nothing to
- * update.
+ * All THREE rows go in, not just `sites`: a later `mirrorHealthFields` would
+ * return `missed` forever with nothing to update.
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
+import { mapWebsiteRecord, type RawRecord } from "../../src/db/field-map.js";
 import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
 
 const NOW = "2026-08-25T12:00:00.000Z";
 
-/** The shape Airtable's create response hands back for `ensure-site`. */
+/** The record `ensure-site` creates. */
 const CREATED: RawRecord = {
   id: "recNEWSITE",
   fields: {
@@ -36,13 +32,6 @@ const CREATED: RawRecord = {
 
 /** Name only — every default has to be stored, not omitted from the INSERT. */
 const SPARSE: RawRecord = { id: "recBARE", fields: { Name: "Bare Site" } };
-
-const io = (records: RawRecord[]): ImportIo => ({
-  listWebsiteRecords: async () => records,
-  listReportRecords: async () => [],
-  fetchAttachment: async () => null,
-  now: () => new Date(NOW),
-});
 
 async function rowsOf(db: Awaited<ReturnType<typeof openDb>>, id: string) {
   return {
@@ -60,18 +49,24 @@ async function rowsOf(db: Awaited<ReturnType<typeof openDb>>, id: string) {
   };
 }
 
-/** Mirror the record into one db, import the same record into another, and
- *  demand the stored rows be identical across all three tables. */
 async function expectEquivalent(rec: RawRecord) {
   const mirrored = await openDb({ url: ":memory:" });
   await mirrorSiteInsert(mirrored, rec, NOW);
 
-  const imported = await openDb({ url: ":memory:" });
-  await importFleetState(imported, io([rec]));
-
   const got = await rowsOf(mirrored, rec.id);
   expect(got.site).toBeDefined();
-  expect(got).toEqual(await rowsOf(imported, rec.id));
+  const mapped = mapWebsiteRecord(rec, NOW);
+  expect(got).toEqual({
+    site: {
+      ...mapped.site,
+      header_image: null,
+      header_image_filename: null,
+      header_image_type: null,
+      header_image_generated_at: null,
+    },
+    health: mapped.health,
+    schedule: mapped.schedule,
+  });
 }
 
 describe("mirrorSiteInsert ≡ the importer (the Phase 5 site-create instrument)", () => {
@@ -84,9 +79,7 @@ describe("mirrorSiteInsert ≡ the importer (the Phase 5 site-create instrument)
   });
 
   it("writes site_health and site_schedule rows, not just sites", async () => {
-    // Stated as its own case because the equivalence check would still pass if
-    // BOTH sides omitted them. Parity reports a missing row as `(row) ABSENT`,
-    // and mirrorHealthFields would report `missed` forever with nothing to hit.
+    // mirrorHealthFields would report `missed` forever with nothing to hit.
     const db = await openDb({ url: ":memory:" });
     await mirrorSiteInsert(db, CREATED, NOW);
     const rows = await rowsOf(db, CREATED.id);

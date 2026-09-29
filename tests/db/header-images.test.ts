@@ -1,38 +1,23 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
-import {
-  storeHeaderImage,
-  loadHeaderImage,
-  backfillHeaderImages,
-  formatBackfillResult,
-  headerImageAttachment,
-} from "../../src/db/header-images.js";
-import { getSiteBySlug } from "../../src/db/fleet-state.js";
+import type { RawRecord } from "../../src/db/field-map.js";
+import { storeHeaderImage, loadHeaderImage } from "../../src/db/header-images.js";
+import { getSiteBySlug, mirrorSiteInsert } from "../../src/db/fleet-state.js";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 
-const site = (id: string, name: string, attachment?: unknown): RawRecord => ({
-  id,
-  fields: { Name: name, ...(attachment !== undefined ? { "Header image": attachment } : {}) },
-});
+const site = (id: string, name: string): RawRecord => ({ id, fields: { Name: name } });
 
-const ATT = [
-  { url: "https://airtable.example/signed/img1", filename: "acme.jpg", type: "image/jpeg" },
-];
-
-const io = (records: RawRecord[]): ImportIo => ({
-  listWebsiteRecords: async () => records,
-  listReportRecords: async () => [],
-  fetchAttachment: async () => null,
-  now: () => NOW,
-});
+async function seeded(rec: RawRecord) {
+  const db = await openDb({ url: ":memory:" });
+  await mirrorSiteInsert(db, rec, NOW.toISOString());
+  return db;
+}
 
 describe("storeHeaderImage + the read layer", () => {
   it("a stored image reads back through headerImage (filename + type; url is the row itself)", async () => {
-    const db = await openDb({ url: ":memory:" });
-    await importFleetState(db, io([site("recA", "Acme")]));
+    const db = await seeded(site("recA", "Acme"));
     await storeHeaderImage(db, "recA", {
       bytes: PNG,
       filename: "acme.jpg",
@@ -45,107 +30,21 @@ describe("storeHeaderImage + the read layer", () => {
     expect(new Uint8Array(stored!.header_image as Uint8Array)).toEqual(PNG);
   });
 
-  it("a re-import never wipes the stored image (D5 held end-to-end)", async () => {
-    const db = await openDb({ url: ":memory:" });
-    await importFleetState(db, io([site("recA", "Acme")]));
+  it("a re-mirror never wipes the stored image (D5 held end-to-end)", async () => {
+    const db = await seeded(site("recA", "Acme"));
     await storeHeaderImage(db, "recA", {
       bytes: PNG,
       filename: "acme.jpg",
       contentType: "image/jpeg",
       generatedAt: null,
     });
-    await importFleetState(db, io([site("recA", "Acme")]));
+    await mirrorSiteInsert(db, site("recA", "Acme"), NOW.toISOString());
     expect((await getSiteBySlug(db, "acme"))?.headerImage).not.toBeNull();
   });
 });
 
-describe("backfillHeaderImages", () => {
-  it("stores where absent, skips populated, counts attachment-less, names failures — and the line is always emitted", async () => {
-    const db = await openDb({ url: ":memory:" });
-    await importFleetState(
-      db,
-      io([
-        site("recA", "Acme", ATT), // fetchable → stored
-        site("recB", "Bravo", ATT), // BLOB pre-populated → skipped, NOT overwritten
-        site("recC", "Charlie"), // no attachment → absent
-        site("recD", "Delta", [
-          { url: "https://airtable.example/dead", filename: "d.jpg", type: "image/jpeg" },
-        ]), // fetch fails → named
-      ]),
-    );
-    await storeHeaderImage(db, "recB", {
-      bytes: new Uint8Array([1, 2, 3]),
-      filename: "fresh.jpg",
-      contentType: "image/jpeg",
-      generatedAt: "2026-08-24T00:00:00.000Z",
-    });
-
-    const result = await backfillHeaderImages(db, {
-      listWebsiteRecords: async () => [
-        site("recA", "Acme", ATT),
-        site("recB", "Bravo", ATT),
-        site("recC", "Charlie"),
-        site("recD", "Delta", [
-          { url: "https://airtable.example/dead", filename: "d.jpg", type: "image/jpeg" },
-        ]),
-      ],
-      fetchBytes: async (url) => (url.includes("dead") ? null : PNG),
-    });
-
-    expect(result).toEqual({ stored: 1, skipped: 1, absent: 1, failed: ["recD"] });
-    expect(formatBackfillResult(result)).toContain(
-      "HEADER_IMAGE_BACKFILL stored=1 skipped=1 absent=1 failed=1",
-    );
-    // The populated BLOB survived untouched.
-    const b = await db
-      .selectFrom("sites")
-      .select(["header_image_filename"])
-      .where("id", "=", "recB")
-      .executeTakeFirst();
-    expect(b?.header_image_filename).toBe("fresh.jpg");
-    // A backfilled copy carries NO generator stamp.
-    const a = await db
-      .selectFrom("sites")
-      .select(["header_image_generated_at", "header_image_filename"])
-      .where("id", "=", "recA")
-      .executeTakeFirst();
-    expect(a).toEqual({ header_image_generated_at: null, header_image_filename: "acme.jpg" });
-  });
-
-  it("a clean no-op run still emits the machine line", () => {
-    expect(formatBackfillResult({ stored: 0, skipped: 0, absent: 0, failed: [] })).toBe(
-      "HEADER_IMAGE_BACKFILL stored=0 skipped=0 absent=0 failed=0",
-    );
-  });
-
-  // REGRESSION (2026-08-24): Airtable's uploadAttachment APPENDS, so a stacked field's
-  // NEWEST file is the tail. Reading [0] served the oldest forever — how a pre-clean-plate
-  // header reached a live announcement (#574/#577). Must stay in step with the mapping in
-  // reports/airtable/websites.ts, or the Turso mirror and the send path disagree.
-  it("headerImageAttachment takes the NEWEST attachment, not the oldest", () => {
-    const stacked = [
-      { url: "https://airtable.example/signed/old", filename: "old.jpg", type: "image/jpeg" },
-      { url: "https://airtable.example/signed/new", filename: "new.jpg", type: "image/jpeg" },
-    ];
-    expect(headerImageAttachment(site("recX", "X", stacked))?.filename).toBe("new.jpg");
-  });
-
-  it("headerImageAttachment tolerates malformed attachment cells", () => {
-    expect(headerImageAttachment(site("recX", "X", "not an array"))).toBeNull();
-    expect(headerImageAttachment(site("recX", "X", [{}]))).toBeNull();
-    expect(headerImageAttachment(site("recX", "X", [{ url: "https://a/b" }]))).toEqual({
-      url: "https://a/b",
-      filename: "header-image",
-      type: "application/octet-stream",
-    });
-  });
-});
-
 /**
- * The reader half of D5. `storeHeaderImage` has been dual-writing since the
- * header-image CLI landed — 12 of the 13 maintained sites carry a BLOB in
- * production — but nothing could READ the bytes back, so every consumer still
- * fetched Airtable's signed attachment URL. That is the gap this closes.
+ * The reader half of D5: reading back the BLOB `storeHeaderImage` writes.
  *
  * Deliberately a separate query from the site read: `getSiteBySlug` excludes the
  * BLOB on purpose (it is 0.6–0.8 MB per site in production, and a selectAll
@@ -154,8 +53,7 @@ describe("backfillHeaderImages", () => {
  */
 describe("loadHeaderImage", () => {
   it("reads back exactly what storeHeaderImage wrote", async () => {
-    const db = await openDb({ url: ":memory:" });
-    await importFleetState(db, io([site("recA", "Acme")]));
+    const db = await seeded(site("recA", "Acme"));
     await storeHeaderImage(db, "recA", {
       bytes: PNG,
       filename: "acme.jpg",
@@ -171,14 +69,12 @@ describe("loadHeaderImage", () => {
   });
 
   it("returns null for a site with no stored image", async () => {
-    const db = await openDb({ url: ":memory:" });
-    await importFleetState(db, io([site("recA", "Acme")]));
+    const db = await seeded(site("recA", "Acme"));
     expect(await loadHeaderImage(db, "recA")).toBeNull();
   });
 
   it("returns null for an unknown site id rather than throwing", async () => {
-    const db = await openDb({ url: ":memory:" });
-    await importFleetState(db, io([site("recA", "Acme")]));
+    const db = await seeded(site("recA", "Acme"));
     expect(await loadHeaderImage(db, "recNOPE")).toBeNull();
   });
 
@@ -187,8 +83,7 @@ describe("loadHeaderImage", () => {
     // one of them is a NULL. A failed or truncated store leaves an empty buffer,
     // which `!bytes` does not catch — mutation-testing the null check is what
     // surfaced that the sibling test below never exercised this branch.
-    const db = await openDb({ url: ":memory:" });
-    await importFleetState(db, io([site("recA", "Acme")]));
+    const db = await seeded(site("recA", "Acme"));
     await storeHeaderImage(db, "recA", {
       bytes: new Uint8Array([]),
       filename: "acme.jpg",
@@ -202,8 +97,7 @@ describe("loadHeaderImage", () => {
     // A half-written row must not read as usable: handing a consumer an empty
     // buffer with a filename would produce a report with a broken header rather
     // than a loud "no header image" failure.
-    const db = await openDb({ url: ":memory:" });
-    await importFleetState(db, io([site("recA", "Acme")]));
+    const db = await seeded(site("recA", "Acme"));
     await db
       .updateTable("sites")
       .set({ header_image_filename: "acme.jpg", header_image_type: "image/jpeg" })

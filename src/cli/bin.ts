@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import { cac } from "cac";
 import type { AuditName, RecipeName } from "../types.js";
 import { loadCredentialsIntoEnv } from "../util/credentials.js";
-import { rewriteRetiredFlags } from "./retired-flags.js";
 import { resolvePackageVersion } from "./version.js";
 
 // Command modules are loaded LAZILY (dynamic `import()` inside each `.action()`),
@@ -20,7 +19,7 @@ import { resolvePackageVersion } from "./version.js";
 // smoke-dist gate asserts bin.js's STATIC import closure stays free of them.
 
 // Load credentials from ~/.config/reddoor-maint/credentials.env before any
-// command runs, so AIRTABLE_PAT/AIRTABLE_BASE_ID/RESEND_API_KEY/etc. are
+// command runs, so TURSO_DATABASE_URL/RESEND_API_KEY/etc. are
 // available from any cwd. Shell-exported env vars still win. Silent on
 // missing file — commands that need the credentials will fail with their
 // own clear error.
@@ -122,7 +121,7 @@ cli
   .option("--json", "Machine-readable JSON output")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .option(
@@ -166,7 +165,7 @@ cli
   .option("--dry", "Print diff without writing")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -192,7 +191,7 @@ cli
   .option("--group <group>", "patch | minor | major", { default: "minor" })
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -220,7 +219,7 @@ cli
   .option("--dry", "List what would be enabled without writing or opening PRs")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -253,7 +252,7 @@ cli
   .option("--dry", "List the sites that would be offered the workflow, without opening any PR")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -293,7 +292,7 @@ cli
   .option("--tokens", "Print the per-site write-token doctor: which env var, present?, reads?")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" ("airtable" is a deprecated alias). Read-only.',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database. Read-only.',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .option("--write-back", "Fleet mode: persist each site's verdict to its Websites row")
@@ -328,7 +327,7 @@ cli
   .example("reddoor-maint upgrade svelte-4-to-5 ./my-site")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -350,7 +349,7 @@ cli
   )
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -366,7 +365,7 @@ cli
   .command("svelte-codemods [site]", "Apply Svelte 5 gotcha codemods to an already-migrated site.")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -385,7 +384,7 @@ cli
   )
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -407,7 +406,7 @@ cli
   .option("--matrix <list>", "Breakpoint matrix, comma-separated (default 1440,834,390)")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -437,7 +436,7 @@ cli
   )
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -456,7 +455,7 @@ cli
   .option("--audits <names>", "Comma-separated audit subset: lighthouse,a11y (default: both)")
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -483,7 +482,7 @@ cli
   )
   .option(
     "--fleet <inventory>",
-    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database ("airtable" is a deprecated alias)',
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
   )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
@@ -507,7 +506,10 @@ cli
   .command("header-image [site]", "Generate a site's report header image from its live homepage.")
   .option("--all", "Every live site with no Header image yet (backfill)")
   .option("--force", "With --all, regenerate sites that already have one")
-  .option("--write-back", "Upload to the Websites row instead of writing a local file")
+  .option(
+    "--write-back",
+    "Store it as the site's header plate in Turso instead of writing a local file",
+  )
   .option("--out-dir <path>", "Directory for local output (default: reports/)")
   .option("--settle-ms <ms>", "Override the post-load settle delay for slow/animated homepages")
   .option(
@@ -704,7 +706,7 @@ cli
   .option("--type <type>", "Single-site draft report type: Maintenance (default) or Testing.")
   .option(
     "--preview",
-    "Single-site dry run; writes reports/<slug>/draft.html, never touches Airtable.",
+    "Single-site dry run; writes reports/<slug>/draft.html, never touches the store.",
   )
   .option(
     "--enrich",
@@ -748,7 +750,7 @@ cli
     "github-signals",
     "Sweep the fleet for GitHub signals (Renovate-failing/CI/last-commit) and write each site's row.",
   )
-  .option("--fleet", "Run across every site in the Airtable inventory.")
+  .option("--fleet", "Run across every site in the fleet roster.")
   .option("--write-back", "Write each site's signals back to its Websites row.")
   .action(async (opts: { fleet?: boolean; writeBack?: boolean; cwd?: string; verbose?: boolean }) =>
     runOrExit(
@@ -780,7 +782,7 @@ cli
 cli
   .command(
     "db <action>",
-    "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity | sync | backfill-header-images | backfill-digest-state | dump | verify-dump | restore | usage).",
+    "Operate the libSQL store (migrate | replay-deadletters | dump | verify-dump | restore | usage).",
   )
   .option("--file <path>", "verify-dump / restore: the dump file to load")
   .option(
@@ -792,12 +794,6 @@ cli
     "restore: the TARGET database to load into. Required, never defaulted — a restore " +
       "that could fall back to the ambient TURSO_DATABASE_URL is one keystroke from " +
       "overwriting production.",
-  )
-  .option(
-    "--force",
-    "import-airtable / sync: run despite the freeze (#643) — a deliberate rollback-window " +
-      "converge from the frozen Airtable shadow. Without it both refuse while Turso is " +
-      "authoritative, because an import overwrites authoritative rows.",
   )
   .option(
     "--abandon <slug-or-id>",
@@ -819,7 +815,6 @@ cli
         file?: string;
         url?: string;
         org?: string;
-        force?: boolean;
         cwd?: string;
         verbose?: boolean;
       },
@@ -852,7 +847,7 @@ cli
     "renovate-dispatch",
     "Trigger Renovate on fleet sites the security sweep flagged with critical/high vulns.",
   )
-  .option("--fleet", "Run across every active, repo-backed site in the Airtable inventory.")
+  .option("--fleet", "Run across every active, repo-backed site in the fleet roster.")
   .action(async (opts: { fleet?: boolean; cwd?: string; verbose?: boolean }) =>
     runOrExit(
       async () =>
@@ -953,6 +948,4 @@ cli.on("command:*", () => {
   process.exit(1);
 });
 
-// Retired flag spellings (`--write-airtable` → `--write-back`, #698) are rewritten
-// before cac sees them, so the old names keep working without appearing in --help.
-cli.parse(rewriteRetiredFlags(process.argv));
+cli.parse();

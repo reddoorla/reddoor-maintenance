@@ -74,7 +74,7 @@ describe("cli: audit command", () => {
     // site's slug comes from the inventory — the combination is ambiguous, so we
     // refuse fast (before reading the inventory or running any audit). Boolean
     // --write-back + --fleet IS allowed: fleet write-back routes each
-    // result to its own row by slug (see writeFleetAuditsToAirtable).
+    // result to its own row by slug (see writeFleetAudits).
     const { stdout, status } = runCli(
       [
         "audit",

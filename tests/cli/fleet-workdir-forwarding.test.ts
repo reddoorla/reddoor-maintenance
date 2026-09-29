@@ -16,7 +16,7 @@ import { runSyncConfigsCommand } from "../../src/cli/commands/sync-configs.js";
 import { runUpgradeCommand } from "../../src/cli/commands/upgrade.js";
 import { runMatchHarnessCommand } from "../../src/cli/commands/match-harness.js";
 
-const OPTS = { fleet: "airtable", workdir: "/custom/workdir" } as const;
+const OPTS = { fleet: "turso", workdir: "/custom/workdir" } as const;
 
 // Each fleet command's invocation with an explicit --workdir. upgrade takes a
 // leading upgradeName; the rest take (site, opts).
@@ -32,25 +32,25 @@ const commands: Array<[string, () => Promise<unknown>]> = [
   ["match-harness", () => runMatchHarnessCommand(undefined, { ...OPTS, ref: "https://ref.test" })],
 ];
 
-describe("fleet recipe commands forward --workdir to resolveSites (--fleet airtable)", () => {
+describe("fleet recipe commands forward --workdir to resolveSites (--fleet turso)", () => {
   beforeEach(() => {
     vi.mocked(resolveSites).mockReset();
     vi.mocked(resolveSites).mockResolvedValue([]); // empty inventory → no clone/recipe/git
   });
 
   for (const [name, run] of commands) {
-    it(`${name}: passes workdir through so airtable can compute {workdir}/{slug}`, async () => {
+    it(`${name}: passes workdir through so the roster can compute {workdir}/{slug}`, async () => {
       await run();
       expect(vi.mocked(resolveSites)).toHaveBeenCalledWith(
-        expect.objectContaining({ fleet: "airtable", workdir: "/custom/workdir" }),
+        expect.objectContaining({ fleet: "turso", workdir: "/custom/workdir" }),
       );
     });
   }
 
   it("omits workdir entirely when --workdir is not supplied (conditional spread)", async () => {
-    await runHealthEndpointCommand(undefined, { fleet: "airtable" });
+    await runHealthEndpointCommand(undefined, { fleet: "turso" });
     const arg = vi.mocked(resolveSites).mock.calls[0]?.[0] ?? {};
     expect(arg).not.toHaveProperty("workdir");
-    expect(arg).toMatchObject({ fleet: "airtable" });
+    expect(arg).toMatchObject({ fleet: "turso" });
   });
 });
