@@ -282,9 +282,9 @@ verdict is its only input, because no client and no check sees the email.
   stopping at the first row that is not `clean`. An `awaiting` row stops it
   too, and becomes an ask in the morning report.
 
-| Sent (UTC)       | Site    | Report                 | Verdict  |
-| ---------------- | ------- | ---------------------- | -------- |
-| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | awaiting |
+| Sent (UTC)       | Site    | Report                 | Verdict |
+| ---------------- | ------- | ---------------------- | ------- |
+| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | clean   |
 
 ## Fleet snapshot (2026-09-29 05:36Z, live Turso, SELECT-only) [M]
 
