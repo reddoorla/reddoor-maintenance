@@ -79,6 +79,16 @@ describe("renderProspectAuditsPageHtml", () => {
     expect(html).not.toContain(`/r/${"A".repeat(22)}`);
   });
 
+  it("P1-16: a failed audit reads as failed, with no report link", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({ audits: [item({ status: "failed", created_at: "2026-08-25T12:05:00.000Z" })] }),
+    );
+    expect(html).toContain(">Failed<");
+    expect(html).not.toContain(">Partial<");
+    expect(html).not.toContain(`/r/${"A".repeat(22)}`);
+    expect(html).not.toContain("View report");
+  });
+
   it("a run the cockpit dispatched long ago but a job claimed recently reads as running (review P3)", () => {
     const html = renderProspectAuditsPageHtml(
       model({

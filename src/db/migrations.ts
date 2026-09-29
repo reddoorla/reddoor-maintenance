@@ -554,4 +554,22 @@ export const MIGRATIONS: Migration[] = [
     id: "0029_prospect_audits_claimed_at",
     sql: `ALTER TABLE prospect_audits ADD COLUMN claimed_at TEXT;`,
   },
+  {
+    // #912: does the roster `url` resolve? Written nightly by `roster-urls` for
+    // every non-archived site — `pass` / `fail`, or NULL for a blank url. One
+    // column per migration, for the same reason as 0015 above.
+    id: "0030_site_health_url_resolves",
+    sql: `ALTER TABLE site_health ADD COLUMN url_resolves TEXT;`,
+  },
+  {
+    // #912: what the probe saw — the status code, `404 netlify-site-not-found`,
+    // `error: <code>`, `not an http(s) url` or `no url`.
+    id: "0031_site_health_url_status",
+    sql: `ALTER TABLE site_health ADD COLUMN url_status TEXT;`,
+  },
+  {
+    // #912: when `roster-urls` last probed the row, stamped on every outcome.
+    id: "0032_site_health_url_checked_at",
+    sql: `ALTER TABLE site_health ADD COLUMN url_checked_at TEXT;`,
+  },
 ];

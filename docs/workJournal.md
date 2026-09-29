@@ -5356,6 +5356,8 @@ re-measure it.
 
 ## 2026-09-29 — The morning loop's worker rules, brief and streak land; the digest fix parks after two dirty rounds (#973, #974, #975)
 
+> Superseded in part by 2026-09-29 (evening) — The digest sends on news, after two sessions built the same "go".
+
 This session was split off the afternoon PM session to build the agent side of the new operating model before the operator leaves for a month. Two of its three PRs landed. The third is the first PR to go through the rule the first one wrote.
 
 #973 (`071e804`) puts the worker rules into `CLAUDE.md`. A worker that reaches a stop condition writes the question under "Operator decisions" and ends. Two dirty review rounds send a PR there instead of into a third. A brief names its mutations before any code is written. It also adds `docs/worker-brief.md`, with a P1-12 example whose _Verify_ command was run first (`grep -rl sync-configs .github/workflows/` exits 1), the [H] tag, and a Monday paragraph in `pm-pass.md`. It also stopped `pm-pass.md` and the rollout plan from assuming the operator's pronouns. The fresh-branch rule the rollout plan asked for named `git ls-remote --heads origin 'refs/heads/claude/*' 'refs/heads/fix/*'`. Run, that prints 32 SHAs with no dates, most of them months-old `fix/*` branches, so "under a day old" cannot be read from it. The rule now fetches those refs and sorts them with `for-each-ref --sort=-committerdate`. The same read showed that `pm-pass.md` said "every weekday" of a Routine whose cron is `48 4 * * *`.
@@ -5391,3 +5393,185 @@ Beliefs corrected on contact:
 - The brief's "at most 5 sends" for the jitter replay holds only when the day-1 send is at the band's worst value. Under free jitter from day 1 (six items uniform over 30–34, seeds 1, 2, 3 and 975), the exact rule sends 8, 9, 9 and 9 times in 28 days. That is 5–7 "worse" days per seed, all before day 16 as each item finds its floor, plus the heartbeats. Round 2 counted 20 of 28 on the old rule. So `f6d5ee8c`'s tolerance buys something real on a noisy band, at the price of a quiet 1–4 point slide. The replay test pins both cases, and the free-jitter one pins the invariant (a send exactly on each new-high day) rather than a count.
 
 Not done: the third review round (neither version has had one), `land-prs`, and moving P1-20 to Done. All three wait on the operator's pick.
+
+## 2026-09-29 (evening) — The digest sends on news, after two sessions built the same "go" (#975, #978)
+
+The operator answered "Operator decisions" item 19 with "go", and the 29 Navy [TEST] email of 09-28 with "clean". #978 recorded the verdict, so the clean-send streak stands at 1.
+
+**The collision.** A worker session was started from item 19. It claimed #975 in a PR comment at 18:47Z, then built the operator's rule exactly on `claude/digest-send-exact-rule` (`7925133d`). This session pushed its own version, `f6d5ee8c`, to #975 at 18:54Z without re-reading the PR's comments. That is the rule #973 wrote into `CLAUDE.md` that morning, broken by the session that wrote it. The worker stood down at 18:57Z with a side-by-side table and reopened item 19. That table is what turned the collision into a decision. The operator picked this session's version ("do yours"); `7925133d` did not land.
+
+**What the rule became, and what each round found.** Every round was a day-by-day replay of the real functions, not a unit test. Each simpler rule fixed one direction by breaking the other:
+
+- **Compare with yesterday** (round 1): a one-point Lighthouse dip read as WORSE.
+- **Compare with the last send** (round 2): every send reset every baseline, and six jittering scores sent on 20 of 28 days. A fixed item that recurred was silent until the heartbeat.
+- **Prune, high-water, 5-point tolerance** (the "go"): the final review found a dead letter back after one clean run silent for 6 days, and a score sliding 4 points a night never mailed.
+- **One more review on the chosen version** found that a score hovering at the 75 floor was forgotten after two runs above it and re-mailed as "added" on each dip. A simulated year with four such scores gave 168 mails.
+
+What landed:
+
+- A Lighthouse item is remembered 28 days after it clears, and is judged against a 5-point tolerance.
+- A warning is forgotten after two absent runs.
+- A critical item gets no grace, and its baseline follows its count down between sends.
+- A health ask is compared by field, not by failing/unknown.
+
+In a simulated year (359 days, per-night score N(mean, 3)), sends were 52 to 55 in every scenario tried (floor-centred, 3 above, 5 below), against 52 for the weekly heartbeat alone. The full suite passed in a fresh worktree (7630 passed). Each rule has a test that goes red when the rule is removed: 12 mutations over the last two commits, all killed.
+
+Beliefs corrected on contact:
+
+- "Send on change" sounded like one rule. It needed five parameters: memory per kind, tolerance per kind, grace per severity, baseline direction, heartbeat. Each came from a replay, not from reading the code.
+- The two-dirty-rounds rule worked as written: it put a real design fork in front of the operator. What it did not prevent was two sessions answering the same "go". The claim check has to be re-run after every pause, including the author's own pause while waiting for the operator.
+
+## 2026-09-29 — A report with no matching Search Console property stores `search_found_page1` NULL, not 0 (P1-19, #990)
+
+Since #959 the checklist evidence called the no-property case `unknown`, but both producers (the `draftReportForSite` draft path and announce) still wrote the stored column as 0, which means "not on page 1". The two disagreed about a site where nothing was measured. They now agree: a lookup that returns `propertyFound === false` leaves the column NULL on create. The announce reuse path patches `search_found_page1` and `search_position` to an explicit null. If it omitted the keys instead, an earlier run's `1` / `#3` in the same period would survive, and the sent email would show a rank nobody measured this time. A property-found miss still stores 0, because that is a real measurement. Soft-fail (`search === null`) still keeps the last value on reuse, which is a separate policy and left alone.
+
+The rule lives in one helper, `searchEnrichment()` in `report-fields.ts`, which both producers call. It tests `propertyFound === false`, the same test auto-tick uses. The reuse patch is the only place that writes an explicit null. The fake report writer could not prove that null reaches libSQL, so a real-DB test in `tests/db/fleet-state.test.ts` seeds `1` / `3`, patches nulls and reads both back NULL. It went red when the patch was `{}`, so the instrument was shown to fail before it was trusted.
+
+Measured: live Turso had 16 NULL and 4 = 1, and no 0 rows. Nothing was backfilled. No reader renders NULL and 0 differently (the table is in #990's body), so nothing visible changed.
+
+Mutations: all six from the brief went red. Of my three extras, two went red. The third (`!== true` for `=== false`) is an equivalent mutant, because `propertyFound` is typed `boolean`. The review's test lens ran eight more mutations, and one survived: the no-property reuse patch could also null `ga_users_current` and every test stayed green, because the reuse test checked only its own two keys. The test now pins the patch's full key set. The review found nothing serious, so the skeptic stage never fired. One honest note from that lens: its first mutation script piped the script into `python3 -`, applied nothing, and reported every mutant as surviving. It caught this only because no diff was printed, then added a known-red control mutant. That is "prove the instrument" applied to the reviewer's own harness.
+
+## 2026-09-29 — A protection read that failed can no longer become a protection write (`claude/awesome-maxwell-79q59o`, `58b8d3c`)
+
+`branchProtectionContexts` ran `gh api repos/{repo}/branches/{branch}/protection` and answered `[]` for every non-zero exit, under a comment reading "404 = no protection configured". So a 403, a 5xx, a rate limit or a network failure all read as "this branch is unprotected". `self-updating` then saw `ci / ci` missing from `[]` and called `protectBranch` with `[ci / ci]`. That call is a PUT, and it replaces the whole protection object: the contexts become that one check, `required_pull_request_reviews` and `restrictions` become null, and `enforce_admins` becomes true. The "union with existing contexts" logic that follows the read cannot help when the read returned nothing.
+
+It was seen, not reasoned out. Earlier on 2026-09-29, a cloud session running `reddoor-maint launch vida-legacy-foundation` got 403 "Resource not accessible by integration" on the read and went straight to the PUT. The proxy refused the PUT ("Write access to this GitHub API path is not permitted through this proxy"), so nothing changed. Only the proxy stood between that run and the write. A token that can write but whose read fails once could have silently weakened `main`: any classic protection holding more than `ci / ci`, or requiring reviews, would have been replaced.
+
+The reader now returns `[]` only when stderr carries `Branch not protected (HTTP 404)`. Anything else throws, and `self-updating` fails with "could not read branch protection on main, so it was not written: …" plus the gh error, before any PUT. It matches the message and not only the status because this endpoint gives three different 404s: "Branch not protected", "Branch not found", and "Not Found", which is what GitHub answers for a repo the token cannot see. Only the first means unprotected.
+
+**GitHub's 404 message is not measured from this session; gh's stderr shape is.** This container's integration answers every protection read with 403 "Resource not accessible by integration". That happened on reddoor-maintenance `main`, on vida-legacy-foundation `main`, and on a branch that does not exist, so the unprotected-branch 404 cannot be produced from here. What was measured, with gh 2.101.0 and the reader's own `--jq` flag: the protection read printed `gh: Resource not accessible by integration (HTTP 403)` to stderr, `branches/no-such-branch-xyz` printed `gh: Branch not found (HTTP 404)`, and a missing file under `contents/` printed `gh: Not Found (HTTP 404)`. In each case the raw JSON body went to stdout. So stderr is `gh: <the body's message> (HTTP <status>)` whether or not `--jq` is set, which a reviewer also confirmed from gh's `api.go`. The body's message for an unprotected branch, "Branch not protected", comes from `docs/meta-week/_research/inv-09-open-loops-and-backlog.md`, which recorded `404 Branch not protected` from `gh api` on every fleet repo. If that wording is wrong, every run against an unprotected branch fails and names the stderr. That is the loud direction, and no protection is written. The first laptop run of `self-updating` against an unprotected branch is this instrument's first known-good pass. Until then it is an unproven instrument.
+
+The brief asked for other `code !== 0 → empty` reads that feed a write. There were three, and they got the same treatment:
+
+- `fileContentsOnBranch` answered null ("absent") for any failure. In `self-updating`, that marks both Renovate configs as drifted and opens a PR that writes the templates. For `renovate.yml`, `withRenovatePinsFrom(template, null)` then writes the template's older action pins, which is the #651 downgrade by another road. `prismic-ci`'s own comment admitted the collapse and relied on the open-PR check as the backstop. That check only stops the second PR, not the first. Now only a 404 is null, and `prismic-ci` fails with the read's error. A 404 still covers a hidden repo, because the contents endpoint says "Not Found" for both cases and the message cannot separate them. `openPullRequest` fails on such a repo anyway.
+- `self-updating` wrapped the read as `defaultBranch(repo).catch(() => "main")`. A failed read therefore aimed the protection PUT, the PR base and the ruleset's evidence read (`checkContextObserved`) at a branch nobody had confirmed. `prismic-ci` already refused to guess, and its step-5 comment says why. `self-updating` now fails before its first write.
+- `branchRequiredChecks` already threw on anything but a 404, and it only feeds `protection-coverage`, which writes nothing. It was left alone. `checkContextObserved` collapses every failure to false. It was left alone too, because false means "require no new check", and `healRuleset` never removes a required context. `filesOnBranch` and `repoExists` collapse every failure, but nothing in `src/`, `scripts/` or `netlify/` calls them. They were noted and left.
+
+Belief corrected on contact: the brief listed "a timeout" among the failures read as unprotected. The spawn wrapper's own 60 s timeout rejects with `SpawnTimeoutError`, and that already propagated out of the reader. What did collapse is gh's own network failure: it exits non-zero with "error connecting to api.github.com", and that is the case the tests carry.
+
+The instrument was proven first. 17 new tests were written against `e2d4aa6` before any fix. 16 went red for the right reason: the recipe tests got `applied` where they expected `failed`, meaning the PUT or the PR happened, and `prismic-ci` rejected uncaught. The 17th, "404 Branch not protected → protection applied", passes on both sides. That is the known-good input. The four protection-read recipe tests and the two config-read tests (`self-updating`, and `prismic-ci` after review) are REST-shaped: they plug the real `gh.ts` reader, over a fake `gh` exit, into the recipe's fake GitHub, so each exercises stderr → reader → recipe. The default-branch test injects a throwing `defaultBranch` shaped like the `gh()` helper's error, because that reader already threw. Then the fix got these mutations:
+
+| Mutation                                                        | New tests red                                           |
+| --------------------------------------------------------------- | ------------------------------------------------------- |
+| Any 404 reads as unprotected                                    | 3 (hidden repo, missing branch, recipe "404 Not Found") |
+| Any failure reads as unprotected (the original code)            | 10                                                      |
+| `self-updating` guesses `main` again                            | 1                                                       |
+| Any contents failure reads as absent                            | 5                                                       |
+| `prismic-ci` catches the read failure as null                   | 1                                                       |
+| `self-updating` swallows the protection-read failure as `[]`    | 3                                                       |
+| A failed read answered as `[ci / ci]`, so the ruleset step runs | 3                                                       |
+
+My first version of the `prismic-ci` mutation survived, and that was the mutation's fault, not the test's: as written it still returned `failed`. Rewritten as `.catch(() => null)`, it goes red.
+
+Three adversarial reviews (correctness, test validity, accuracy of this prose) found no blocking defect in the code. They found these, and they were folded in before merge:
+
+- The `prismic-ci` test injected a throwing reader, so it could not see the `gh.ts` fix: with the pre-fix reader all 38 of its tests passed. It now runs the real reader over a 403, and the contents-mutation row went from 4 to 5.
+- Nothing asserted that the ruleset step is skipped after a failed read. A mutation that answered the failure with `[ci / ci]` passed every new test. The failure cases now assert `repoVisibility` is never called, and that mutation goes red (the last row).
+- The changeset said "nothing is written". That was false for the whole run: block A (the Renovate config PR) and the auto-merge PATCH run before the protection read. What holds is that no protection and no ruleset is written.
+
+One finding is real and outside this change: a read that SUCCEEDS on a protected branch lacking `ci / ci` still sends `protectBranch`'s full-replacement PUT, which sets `required_pull_request_reviews` and `restrictions` to null. So does a branch whose protection has `required_status_checks: null`, because the reader's `[]?` prints nothing there. This PR stops a failed read from becoming a write. It does not stop a successful read from weakening protection, and it should not be read as that.
+
+`pnpm verify`: typecheck, lint, the match-harness snapshot guard, build and `test:dist` pass. `test:coverage` has 24 failures, in `a11y-live-spec` and `interaction-harness`. All of them are Playwright's pinned `chromium_headless_shell-1234`, which is absent here: this clone was attached with `add_repo`, so the cloud setup hook never ran. Unmodified `main` gives the same 24.
+
+Honest accounting: a cloud `launch` still stops at `self-updating`. It now stops at the read and says why, instead of at the refused PUT. Launching from a cloud session stays blocked on bootstrap while the integration has no Administration read. I noticed one thing and did not change it: the ruleset block's comment says classic protection "keeps `enforce_admins: false`", but `protectBranch` sends `enforce_admins=true`. No PR was opened from this session; the branch is pushed for one.
+
+## 2026-09-29 — The fleet now stores whether each roster url resolves; nobody reads it yet (#986, `e86abd72`)
+
+P1-3 PR 1 of 2 (#912). Nothing checked that a roster `url` points at a deployed
+site. `the-pointe-burbank` (`building`) has pointed at a hostname Netlify does
+not serve, and a human found it by chance, as they did vida-legacy-foundation
+before it. The browser audit's `uptime_reachable` could never see it, for two
+reasons. It covers only `maintained` rows (`selectFleetSites`), and it measures
+sampled routes, never the roster url.
+
+`reddoor-maint roster-urls --fleet --write-back` sends one GET, redirects
+followed, 15 s, to every row whose status is not `archived`. That includes null
+and unrecognized statuses, `external` and `hosted-only`. It writes
+`site_health.url_resolves` / `url_status` / `url_checked_at` (migrations
+0030–0032, one column each for the reason 0015 gives). The nightly
+`fleet-lighthouse` runs it after the GitHub-signals sweep, as a
+`continue-on-error` step capped at 10 minutes.
+
+It is a standalone command, not the `--only` audit the backlog suggested. An
+audit inherits the maintained-only fleet selector, so it would have been blind
+to exactly the row it was built for. It would also have edited `src/types.ts`
+and `src/audits/index.ts`, which #918 owns. The backlog tier was 🟢; three
+migrations and a nightly Turso write make it 🟡, and the row now says so.
+
+**The fingerprint** is a 404 with `server: Netlify` and a body containing
+`site-not-found`. Netlify's unclaimed-host page is 206 bytes only because its
+request ID is fixed-length, so the length is never matched. A deployed site's
+own 404 is also `server: Netlify`, but it is 3227 bytes of HTML with no
+`site-not-found`, and it reads as plain `404`. That was measured live
+(`the-tower-burbank-rd.netlify.app/zz9q-no-such-page`).
+
+**The instrument proves itself on every run.** Before any row is read, a bogus
+host (`no-such-site-zz9q.netlify.app`) must read site-not-found and a deployed
+one (`the-tower-burbank-rd`) must pass. If either misreads, the run writes
+nothing and exits 1. A captive proxy that answers 200 to everything would
+otherwise write `pass` for the-pointe-burbank, and a dead network would write
+`fail` on 34 rows. Pre-merge, the probe alone (no database) read the four
+brief hosts exactly as the brief expected. The built CLI, run against a seeded
+scratch `file:` database, stored `fail` / `404 netlify-site-not-found`, `pass` /
+`200`, and NULL / `no url` stamped for a blank url, and left the archived row
+untouched.
+
+**Review.** One 3-lens round (Workflow `wf_81d1b943-c9a`). Correctness and
+integration found no defects, just two nits. The first was a BACKLOG conflict
+with #975. The second: a Netlify 404 whose body read fails is stored as `404`,
+not `error: …`. The verdict is still `fail`, so it stays. Test validity ran 30
+mutations of its own on top of my 17. 16 survived. None let a wrong verdict or
+a wrong-row write ship, but 15 were real gaps: the 2xx upper bound, a server
+header merely containing "netlify", a Netlify page saying "Not Found", the
+error-code precedence, the 15 s default, a known-good control answering 503,
+and the nightly step's run line, timeout and env. Most tellingly, `bin.ts`
+could pass `writeBack: undefined` and every one of 653 CLI tests stayed green.
+All of them are pinned in `6a36a3f6`, and all 14 turn red on re-run. No finding
+was major, so no skeptic stage ran, and there was no second round.
+
+Landing took two main merges (#975, then #990). Both conflicted only in the
+BACKLOG P1 table, because each of those PRs deletes its own row.
+`land-prs.mjs` then did one update-branch and merged `14b4d0d` → `e86abd72`.
+
+**Not done: the post-merge production run.** This session's permission
+classifier refused `roster-urls --fleet --write-back` against production
+("Production Deploy"), and it was not worked around. So nothing has been
+written to production yet, and `url_*` does not exist there until the first
+run migrates. That will be tonight's nightly unless the operator runs it
+first. It is Operator decisions item 20, and the the-pointe-burbank url fix is
+item 21. Beliefs corrected on contact:
+
+- A brief's "the only production run is the post-merge one" is a plan, not a
+  permission. The cloud classifier treats a production Turso write from a
+  session as a deploy, whatever the brief says. The next brief with a
+  post-merge production step should give it to the nightly, or to the
+  operator, from the start.
+- The "PR 2 after #975" dependency cleared during this session: #975 merged
+  at ~19:45Z. PR 2 (digest collector, freshness gate on `url_checked_at`,
+  accept key that mutes only `fail`) can start from `main`.
+
+## 2026-09-29 — A Renovate base branch's required check counts only if no one can bypass it; held after two review rounds (P1-17, #981, PR #985 not landed)
+
+`protection-audit` counted a non-default Renovate base branch as gated as soon as any `required_status_checks` rule applied to it. It never asked who could bypass the ruleset behind that rule, because `branchRequiredChecks` kept only each rule's `type` from `rules/branches/{b}`. The fleet preset's invariant (3) (.github#35) says Renovate waits for CI only where the base "has a required check that the App cannot bypass", and it names this sweep as its instrument. The hole is latent today: the one such branch, `reddoor-website:staging`, has no required check at all. It opens the day #545 gives `staging` one.
+
+The join is GitHub's own. The jq now prints `type<TAB>ruleset_id` for each rule, which was proven live on `main` (16762724, `bypass_actors: []`), and the verdict fetches each contributing ruleset with `getRuleset`. A classic required context still covers the branch without any read. One contributing ruleset whose `bypass_actors` is present and empty also covers it, whatever the others allow. Failing that, a missing field, a rule with no `ruleset_id` or a read that throws makes the branch `(unverified, not clean)`, never covered and never "NO required status check". Only when every contributing ruleset has an actor (any type, any mode, `pull_request` included, because Renovate merges through a PR) is it a gap, and that gap line carries a Fix clause. No local ref matching was needed.
+
+The new `RULESET_BYPASS unread=N read=M` line is the instrument for the brief's open question. GitHub's docs say `bypass_actors` is returned only to a caller with write access to the ruleset, and the nightly runs under the reddoor-renovate App, whose Administration permission is Read-only. If that token gets no field, then the default-branch floor's `bypass_actors ?? []` (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night. The line is proven on fixtures both ways (0/2 with the field, 2/2 without), and the `PROTECTION_AUDIT` line is byte-identical across the two. **The live number is still pending.** It comes from the first scheduled fleet-security run after #985 lands, which is P1-22 in the PR's BACKLOG. Nobody dispatches the workflow to get it early (P0-1).
+
+Review went two rounds, and each found a real defect, so under "Two dirty review rounds, then stop" #985 is Operator decisions 22 rather than merged. Both defects were missing tests; neither was a wrong verdict. Round 1 showed that counting a failed read as read, or as unread, and dropping the count from acked rows, all stayed green. It also found that a probe-failed row lost any sibling read that finished after the failure, so the floor now uses `allSettled` and then rethrows. Round 2 showed that nothing pinned "a clean ruleset beats an unknown one". Each fix went in with the mutation that proves it: the brief's 7 mutations, 22 more in round 1 and 14 in round 2. Every mutation that changes behaviour turns a test red; the survivors are equivalent on real data. The full suite passed at `e20b7041` (7606 tests), as did lint, typecheck, build and `test:dist`.
+
+Belief corrected on contact: the brief's own seven mutations all went red on the first try, and that still left five regressions untested. The count line had no known-good proof for its failure paths until the reviewers wrote mutations the brief had not thought of.
+
+## 2026-09-29 — A prospect audit that throws after it paid is marked `failed` and holds its slot for 24 h (P1-16, #980, #992, `9351410a`)
+
+Since #968 the prospect-audit CLI reserves a `running` row before it spends anything, and the cap stops counting a `running` row 2 h after its claim. When the pipeline threw after a paid stage (`analyze`, `probes` or `accuracy`) had started, the CLI correctly kept the row but left it `running`. A bug that threw after every paid run was therefore held to about 25 runs per 2 h, roughly 300 paid runs a day, not 25. Measured with the new test's harness on `main` before the fix: after a throw with `analyze` started, the count read 0 at failure +3 h. That 0 was the first red test. After the fix the row is `failed`, with `created_at` re-stamped to the failure the way `finishProspectAudit` re-stamps a finish. It counts 1 at +3 h and at +23 h 59 m, and 0 at +24 h 01 m. A throw before any paid stage still deletes the row.
+
+`renderProspectReport` used to run outside the handled region, so a render bug also left the row `running`. It now runs inside the try. Marking the row is best effort, like the release: a failed mark is logged, and the CLI rethrows the pipeline's own error. The readers that must not serve a placeholder `{}` as a report are the by-token read (and so `/api/audit-report/:token` and `setProspectAuditOverrides`), the `/audits` link, the cockpit's duplicate 409 and `replay-checks`. They take `running` and `failed` from one exported deny-list, `NO_REPORT_STATUSES`, so a legacy status nobody listed is still served; a positive-control test pins that. `countedTowardCap` needed no change, because it already counted every status other than `running` for 24 h. A test now pins that instead of assuming it. There was no migration and no Turso write. Existing production `running` rows were left alone, because they cannot be told apart from runs the runner killed.
+
+The brief's nine mutations all went red, and one of them only after a correction. The first form of M7, `if (false)` in the trigger, went "red" because narrowing broke the TypeScript build during vitest's setup `pnpm build`, and no assertion ran at all. Re-run in a type-safe form, a real assertion went red (`reportUrl` present). A reviewer made the same mistake independently (its mutation D), so the trap is worth naming: in this repo a mutation that fails the type check reads as red. Check for a named `×` assertion before counting one.
+
+The review had three lenses: correctness, test validity with 20 mutations of the reviewer's own, and integration with a frozen install in a fresh worktree. Round 1 found one gap, confirmed 3/3 by skeptics. The code rethrew the original error (`throw err`), but every test matched only the message as a substring, so a wrapping `new Error("prospect audit failed: …")` stayed green. The tests now throw one module-level instance and assert `.rejects.toBe(PIPELINE_ERROR)`. Two minor gaps were fixed in the same commit: a pre-spend throw whose release also fails must not be marked `failed`, and `failProspectAudit` must not touch a `partial` row or re-stamp an already-`failed` one. Round 2 was clean, with five more mutations, all red.
+
+Landing took three merges of `main`, each conflicting only in `docs/BACKLOG.md`. Removing P1-16's row re-pads the whole P1 table under Prettier, so every other session's edit to any P1 row conflicts with it; land-prs.mjs's update-branch was overtaken once, by #993. The full suite passed on each merged head (7744 tests on the last one that brought in code), and CI passed on the landed head `a16069e`.
+
+Belief corrected on contact: the brief expected the `failed` → 404 behaviour to need a test only for the public route. It also fixes `setProspectAuditOverrides` and `touchProspectAuditOpened` for free, because both act only after `getProspectAuditByToken` succeeds. The overrides half is pinned by a test.

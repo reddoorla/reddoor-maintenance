@@ -126,32 +126,44 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                       | Tier | Effort | Start here                                                                                           | Done when                                                                                        |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                                                                                                                                                              | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts     |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                                                                                                                                                        | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso             |
-| P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review)                                                                                                                                        | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested |
-| P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                                                                                                                                                                     | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap              |
-| P1-19 | `search_found_page1 = 0` is still stored when no Search Console property matched (`src/reports/draft.ts:359`, `src/recipes/announce.ts:120`), while the evidence now says `unknown` (#959). Pairs with #943                                                                                                                                                                                                                | 🟢   | S      | as named                                                                                             | A no-property result stores NULL, not 0                                                          |
-| P1-20 | Digest: a day whose pending set is unchanged still sends (`src/reports/digest.ts:563-660` skips only empty days and same-day duplicates); 09-18→09-28 repeated the same "29 Navy … health-gate (+4 more)" line for 11 days [M, mailbox]. Send on change (or weekly heartbeat), carry the age of a repeated item, and carry the exact ask ("set `Report recipients (To)` on `/s/29-navy`, then approve") linked to the cell | 🟢   | S–M    | `src/reports/digest.ts`, `tests/reports/digest*`                                                     | An unchanged pending set sends nothing; a repeated item shows its age and the concrete action    |
+| #     | Item                                                                                                                                                                                                                                                                              | Tier | Effort | Start here                                                                                           | Done when                                                                                                  |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| P1-3  | **#912**: PR 1 (#986) stores the verdict nightly (`roster-urls` → `site_health.url_resolves`/`url_status`/`url_checked_at`); remains: the surface (PR 2; #975 merged, so it can start). #889 (blank repo / Netlify ID) is done in #962                                            | 🟡   | M      | see "P1-3 start here" below this table                                                               | PR 2: a `fail` row reaches the digest, a stale `url_checked_at` is caught, an accept key mutes only `fail` |
+| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                               | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                       |
+| P1-17 | **#981**, built in PR #985, held at Operator decisions 22. Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review) | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap                        |
 
 ### P1-3 start here (#912)
 
-The data is not stored. The browser audit's `uptime_reachable` covers
-`maintained` sites only (`selectFleetSites`) and measures sampled routes, not
-the roster URL, so it can never see a `building` site like the-pointe-burbank.
+Tier corrected to 🟡 on 2026-09-29: PR 1 added three migrations, a CLI command
+and a nightly Turso write, which `AUTONOMY.md` puts behind the 3-lens review.
 
-1. **A roster-URL pass over every non-archived row**, not `selectFleetSites`:
-   for example a new `--only` audit in the `fleet-lighthouse` nightly.
-2. **The next migration** (0029 is taken by #968's `claimed_at`) adding `url_resolves` (pass/fail), `url_status` and
-   `url_checked_at`, plus `schema.ts`, `field-map.ts`, `fleet-state.ts` and the
-   `WebsiteRow` fields.
-3. **The Netlify 404 fingerprint**: status 404 with `server: Netlify`, proven
-   against a bogus-host control (`no-such-site-zz9q.netlify.app` returns the
-   same 206-byte page) and a known-good one (`the-tower-burbank-rd.netlify.app`).
-4. **A surface for building sites.** They get no cockpit card
-   (`isDashboardVisible`), so use a digest collector or an off-fleet lane, with
-   an "expected, not deployed yet" accept key so the check stays two-sided.
+**PR 1 (#986) is the store.** `reddoor-maint roster-urls --fleet --write-back`
+GETs every non-archived roster `url` (every status, including `building`,
+`external` and `hosted-only`) and writes `url_resolves` (`pass` = final 2xx,
+`fail`, NULL for a blank url), `url_status` (the code, `404
+netlify-site-not-found`, `error: <code>`, `not an http(s) url`, `no url`) and
+`url_checked_at` (every outcome) through migrations 0030–0032. Two run-level
+controls (`no-such-site-zz9q.netlify.app` must read site-not-found,
+`the-tower-burbank-rd.netlify.app` must pass) gate every write. The nightly
+`fleet-lighthouse` runs it after the GitHub-signals sweep.
+
+It is a standalone command, not the `--only` audit this section used to
+suggest: every `audit --fleet turso` visits `selectFleetSites`, which is
+`maintained` rows only, so an audit would never see a `building` row like
+the-pointe-burbank; and a new audit name edits `src/types.ts` and
+`src/audits/index.ts`, which #918 owns.
+
+**PR 2, the surface** (needs `src/alerts/digest-collectors.ts`; #975, which
+owned it, merged 2026-09-29, so PR 2 can start):
+
+1. A digest collector over every non-archived row with `url_resolves = 'fail'`.
+   Building sites get no cockpit card (`isDashboardVisible`), so the digest is
+   where they surface.
+2. A freshness gate on `url_checked_at`: a control that misreads writes nothing
+   and the step is `continue-on-error`, so a stale stamp is the only trace.
+3. An `Accepted Watch Conditions` key (e.g. `url not deployed`) that mutes only
+   `fail`, so the check stays two-sided.
+4. Optionally, a cockpit watch candidate in `assignTier` for `maintained` rows.
 
 ### Blocked behind another PR (do not start early)
 
@@ -220,9 +232,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
     (2026-09-29): nine majors, the sixth round with majors. They ship in 0.102.0
     if that round is clean. If it is not, they come back here as a design
     decision rather than a seventh round.
-11. **#916** — still wanted: #950 removes none of what it catches, and it passes
-    roalson-interests. In a fix round for 0.102.0, with a `reddoor-starter`
-    palette fix staged beside it, because the starter's Hero would go red.
+11. **#916** — decided 2026-09-29: #950 shipped in 0.101.0, and #916 is merged
+    over it for 0.102.0, with the `reddoor-starter` palette fix staged beside
+    it. The same fix for `reddoor-starter-blux`, whose Hero also goes red, is
+    to follow. Moved to _Done_.
 12. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
@@ -246,36 +259,42 @@ Ordered by what unblocks the most. Each line is the exact ask.
     #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
     #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
     #773 (local-only git objects).
-19. **P1-20, the digest (#975, parked after two dirty review rounds)** — pick
-    how the digest decides what is news. It is green and full-suite clean, but
-    round 2 found (a) an item that was mailed, fixed and then recurs stays
-    silent until the weekly heartbeat, and (b) every send resets every item's
-    baseline, so six jittering Lighthouse items sent on 20 of 28 simulated
-    days. **My pick:** on every run, forget keys and ask parts no longer
-    present, so a recurrence re-sends; keep a high-water baseline for keys
-    that persist; compare health asks by field, not by status. That is about
-    30 lines plus tests on `claude/digest-send-on-change`. Say "go" and a
-    worker finishes it, or name another rule (e.g. "send on any NEW badge,
-    ignore metric changes"). **Answered 2026-09-29 ~19:00Z: "go"** on that
-    pick; a worker finishes #975 with a third review round, which the answer
-    sanctions.
-    **Reopened 2026-09-29 19:10Z — which implementation lands?** Two sessions
-    built the "go" in parallel. On #975's branch, `f6d5ee8c` (the session
-    that opened it) forgets a key only after **two** absent runs and adds a
-    **5-point Lighthouse tolerance**. On `claude/digest-send-exact-rule`,
-    `7925133d` (the worker) prunes on every run and has no tolerance. Measured
-    with the same `runDigest` replays: both send on a bounce back after two
-    empty days, and both send 4 times in 28 days for six Lighthouse items
-    jittering 30–34 after a send at 30. `f6d5ee8c` stays silent until the
-    heartbeat for a bounce gone **one** run and back, and for a genuine new
-    low of 1–4 points. The tolerance has a real upside: under free jitter from
-    day 1, the exact rule sends 8–9 times in 28 days (four seeds, 5–7 "worse"
-    days, all before day 16), against 20 of 28 on the old rule. **My pick:** the exact rule, because it is what "go"
-    approved and a one-day fix-and-recur is the same silence round 2
-    objected to. The Lighthouse tolerance is a separate call, and I would
-    take it as its own small PR. No third review round has run on either version. Say "exact"
-    and a worker moves `7925133d` onto #975, or "as is" and #975 lands
-    `f6d5ee8c` after its review. Evidence: #975's comment of 19:05Z.
+19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
+    rule, then, after two sessions built it in parallel (`f6d5ee8c` on #975,
+    `7925133d` on `claude/digest-send-exact-rule`), "do yours": #975 lands
+    `784c2bda`. It forgets a warning after two absent runs and a critical item
+    at once, raises a baseline only on a send, needs a Lighthouse score to be
+    more than 5 points worse than what was last mailed, and compares health
+    asks by field.
+20. **P1-3 post-merge production run (#986, `e86abd72`)**: this cloud
+    session's permission classifier refused the one sanctioned production run
+    of `roster-urls --fleet --write-back` from `origin/main` ("Production
+    Deploy"). The ask: either let tonight's `fleet-lighthouse` nightly do the
+    write (its new "Probe roster urls to Turso" step is the same command), or
+    run `node dist/cli/bin.js roster-urls --fleet --write-back` once yourself
+    from a build of `main`. Then check with a SELECT: `the-pointe-burbank` should be
+    `fail` / `404 netlify-site-not-found`, the tower and vida `-rd` rows `pass`,
+    `summittrek` and `young-life-connect-compliance-site` NULL / `no url`, and
+    `url_checked_at` set on the 34 non-archived rows and on no archived row. My
+    pick is the nightly, since it is the same code with no new permission.
+21. **the-pointe-burbank url**: set its url to
+    `https://the-pointe-burbank-rd.netlify.app` on `/s/the-pointe-burbank`.
+    The probe named it on 2026-09-29 (`404 netlify-site-not-found`, and the
+    `-rd` host 200) in #986's pre-merge run. Wait until item 20's run has
+    stored the `fail`, since that row is the live positive case.
+22. **P1-17, bypass actors on a Renovate base branch (#981, PR #985)** — two
+    review rounds each found a real defect, so #985 is held for your call, not a
+    third round. Both defects were missing TESTS, and both are now fixed on the
+    branch; no verdict bug was found. Round 1 (on `1c5810eb`): nothing pinned
+    that a failed ruleset read is left out of `RULESET_BYPASS`, or that acked
+    rows carry their count. Fixed in `e20b7041`, which also makes a probe-failed
+    row wait for its sibling reads. Round 2 (on `e20b7041`): nothing pinned that
+    a bypass-free ruleset wins over an unknown one. Fixed in `280ef2e2`. Every mutation that changes behaviour, from the brief and both rounds, now turns a test red; the two that survive (`isSafeInteger` → `!isNaN`, a Set of ids → an array) are equivalent on real GitHub data. The full suite, lint, typecheck and build pass at `e20b7041`. The only merge
+    conflict with `main` is `docs/BACKLOG.md`. The ask: land #985 as it is
+    (my pick, because the code has not changed since round 1 except the
+    allSettled count fix, which round 2 cleared), or run a third review round
+    first. Landing it is `git merge origin/main` (keep both sides of BACKLOG),
+    CI green, then `node scripts/land-prs.mjs 985`.
 
 ---
 
@@ -342,6 +361,36 @@ verdict is its only input, because no client and no check sees the email.
   `.gitignore` drift, as the real run already committed it. The Verify line held:
   no workflow ran `sync-configs`, and the probe printed `no changes needed`
   against the real run's `applied: 1 commit(s)` on `e2d4aa67`.
+- 2026-09-29 — P1-16 / #980: a prospect audit that throws after a paid stage
+  (or in its render) marks its row `failed`, re-stamped to the failure, which
+  counts toward the cap for the full 24 h; a pre-spend throw still releases
+  (#992). Readers take the no-report statuses from one deny-list,
+  `NO_REPORT_STATUSES`. Measured before: 0 at failure +3 h; after: 1 at +3 h
+  and +23 h 59 m, 0 at +24 h 01 m.
+
+- 2026-09-29 — Operator decision 11 / #888: #916 lands over #950. main was merged
+  in, not rebased, because a text-only resolution put the detection after the
+  axe loop's `finally`. Every unit test and tsc passed on that, and every real
+  audit died on `results is not defined`. #916's findings go through #950's
+  cross-origin frame split. The "9 of 12 sampled sites red" figure came from a
+  static grep for `none`-hued tokens. Nobody measured it against the gate. Both
+  of axe's shapes occur. The whole-rule throw (`rule-errored`) that the issue
+  reported, and that the correction posted on it called impossible, is what the
+  starter's `Hero` produces: a white CTA over `bg-neutral-900`. It ships in
+  0.102.0, together with the reddoor-starter `@theme` fix that keeps the
+  starter's own gate green. reddoor-starter-blux has the same Hero and needs
+  the same 13-token block (measured: FAIL on the #916 build, then PASS with
+  66 contrast nodes). That fix is to follow.
+
+- 2026-09-29 — P1-19 / #982: a report whose site matched no Search Console
+  property stores `search_found_page1` NULL, not 0, on the draft create path and
+  the announce create and reuse paths (#990). A property-found miss still
+  stores 0; soft-fail keeps the last value. No reader renders the two differently.
+- 2026-09-29 — P1-20: the digest sends only when an item or ask part the
+  record does not hold appears, a metric beats its high-water baseline (a
+  Lighthouse score by more than 5 points), or weekly; what is gone two runs is
+  forgotten so a recurrence re-sends. Repeated items carry their age and a
+  blocked draft carries the exact ask with its `/s/<slug>` path (#975).
 
 - 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
   4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its

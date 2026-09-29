@@ -285,6 +285,15 @@ export type WebsiteRow = {
    * exists this reads null and nothing is acked, which is the safe direction.
    */
   prismicAckUntil: string | null;
+  /** Does the roster `url` resolve (`roster-urls`, #912)? `pass` = a final 2xx;
+   *  `fail` = anything else; null = blank url or never probed. Every
+   *  non-archived row is probed, whatever its status. */
+  urlResolves: "pass" | "fail" | null;
+  /** What the probe saw: the code, `404 netlify-site-not-found`, `error: <code>`,
+   *  `not an http(s) url`, or `no url`. */
+  urlStatus: string | null;
+  /** When `roster-urls` last probed this row — stamped on every outcome. */
+  urlCheckedAt: string | null;
   notifyRouting: NotifyRouting | null;
   /** The RAW `Notify Routing` cell, verbatim. Same reason `statusRaw` exists: the
    *  dashboard editor round-trips this JSON, and re-serializing the PARSED object

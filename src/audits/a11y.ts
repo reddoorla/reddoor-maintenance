@@ -14,6 +14,13 @@ import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
 import {
+  contrastUnmeasuredHelp,
+  ruleErroredHelp,
+  unparseableColourRemedy,
+  unparseableContrastNodes,
+} from "./util/contrast-unmeasured.js";
+import { readAxeResults } from "./util/axe-results.js";
+import {
   collectFrameErrorLogs,
   firstStackUrl,
   frameOnPathIsForeign,
@@ -66,6 +73,13 @@ export type ThirdPartyError = {
   message: string;
 };
 
+/** How many nodes each axe rule actually passed on one route (#888).
+ *
+ *  A COUNT, not a presence flag. The unit that matters is nodes — the incident
+ *  this exists for is "0 contrast nodes where there should have been 61" — and
+ *  a boolean is satisfied by one passing node while sixty go unmeasured. */
+export type MeasuredRoute = { route: string; ruleNodes: Record<string, number> };
+
 type NormalizedA11y = {
   totalViolations: number;
   byImpact: Partial<Record<Impact, number>>;
@@ -77,6 +91,8 @@ type NormalizedA11y = {
   frameNodesDropped?: FrameNodesDropped[];
   /** Absent in an artifact written by a spec from before this field existed. */
   thirdPartyErrors?: ThirdPartyError[];
+  /** Absent in an artifact written by a spec from before this field existed. */
+  measured?: MeasuredRoute[];
 };
 
 /** One route as the generated spec sees it. `placeholder404Ok` is set only on
@@ -402,6 +418,13 @@ const splitThirdPartyErrors = ${splitThirdPartyErrors.toString()};
 const firstStackUrl = ${firstStackUrl.toString()};
 const collectFrameErrorLogs = ${collectFrameErrorLogs.toString()};
 const frameOnPathIsForeign = ${frameOnPathIsForeign.toString()};
+// Injected the same way — see src/audits/util/contrast-unmeasured.ts (#888).
+const unparseableContrastNodes = ${unparseableContrastNodes.toString()};
+const contrastUnmeasuredHelp = ${contrastUnmeasuredHelp.toString()};
+const ruleErroredHelp = ${ruleErroredHelp.toString()};
+const unparseableColourRemedy = ${unparseableColourRemedy.toString()};
+// Injected the same way — see src/audits/util/axe-results.ts (#916 review).
+const readAxeResults = ${readAxeResults.toString()};
 // Every read of a frame is bounded: a lazy iframe that never loaded is listed
 // with no document, and waiting on it hung the whole run (#100 review).
 const FRAME_READ_TIMEOUT_MS = 2000;
@@ -437,6 +460,8 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
   // they cannot fail the run, and written to the artifact so they cannot vanish
   // from the summary either.
   const skipped = [];
+  // Which rules produced positive evidence on each route (#888).
+  const measured = [];
   // One entry per scanned route: what the reveal pass did there. Written to
   // the artifact so a pass that stopped short can be named, not assumed.
   const reveals = [];
@@ -615,10 +640,63 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // .options() comes FIRST: it replaces the whole options object, and
       // withTags() writes runOnly into it. Called after, it would drop the tag
       // filter without a word and axe would run every rule it has.
-      const results = await new AxeBuilder({ page })
-        .options({ preload: false })
-        .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
-        .analyze();
+      //
+      // reporter: "raw" (#916 review). axe merges each rule's results across
+      // frames, and when the rule THREW in any frame its default report keeps
+      // only the incomplete group: a color-contrast crash inside a third
+      // party's embed erased the site's own contrast violations and passes.
+      // The raw report keeps every group and every crash node, in the frame it
+      // happened in; readAxeResults (src/audits/util/axe-results.ts) reads it
+      // back into the shape below, with the crashes set apart.
+      const results = readAxeResults(
+        await new AxeBuilder({ page })
+          .options({ preload: false, reporter: "raw" })
+          .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
+          .analyze(),
+      );
+      // #888: contrast axe never measured, which an empty violations list
+      // cannot tell from legible text. A colour axe cannot parse (Tailwind
+      // 4.3's none-hued neutral palette, which Chrome renders fine) reaches it
+      // in two shapes, both measured -- see src/audits/util/contrast-unmeasured.ts:
+      // per node, as an incomplete "colorParse" entry while the rule runs on
+      // (-> contrast-unmeasured, here); or, when the colour sits beneath an
+      // opaque background such as a white CTA in a neutral-900 Hero, as a
+      // thrown rule that is skipped for that whole document (-> rule-errored,
+      // below). The rule's other incomplete reasons (a gradient, an image, an
+      // obscured box) belong to the page and are NOT reported.
+      //
+      // Read after the reveal pass above, like every other result: a node the
+      // pass reveals is measured revealed, so a reveal on such a colour lands
+      // here instead of dropping out of the rule at opacity 0.
+      const unparseable = unparseableContrastNodes(results);
+      // Findings derived from axe's incomplete results. They are the site's on
+      // the same terms as axe's own violations, so they go through the same
+      // cross-origin frame split below: a colour axe cannot parse inside a third
+      // party's document is not the site's to fix either.
+      const derived = [];
+      if (unparseable.length > 0) {
+        derived.push({ id: "contrast-unmeasured", impact: "serious", nodes: unparseable });
+      }
+      // A rule that THREW measured nothing in the document it threw in. This
+      // is #888's reported shape: the colour beneath a white CTA made
+      // color-contrast throw "Unable to parse color ... Skipping color-contrast
+      // rule." Each crash is one node in the frame it happened in, so it goes
+      // through the frame split like everything else: a crash inside a third
+      // party's frame is counted, never failed, and one in the site's own
+      // document -- or one with no node to attribute -- fails, because the
+      // site's own results for that rule were never produced there.
+      for (const crash of results.crashes) {
+        const errored = {
+          id: "rule-errored",
+          impact: "serious",
+          help: ruleErroredHelp(crash.rule, crash.message, unparseableColourRemedy),
+          helpUrl: crash.helpUrl,
+          nodes: crash.nodes,
+        };
+        if (errored.nodes.length > 0) derived.push(errored);
+        else violations.push({ ...errored, route: name });
+      }
+      const candidates = [...results.violations, ...derived];
       // Cross-origin frame CONTENTS do not count against the site. The reveal
       // pass brings lazy third-party iframes (a Google Maps footer, a YouTube
       // player) into load range; their documents' violations are not the
@@ -634,7 +712,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // splitCrossOriginFrameNodes keeps every frame-focusable-content node.
       const foreignPaths = [];
       const checkedPaths = [];
-      for (const v of results.violations) {
+      for (const v of candidates) {
         for (const n of v.nodes) {
           const t = n.target;
           if (!Array.isArray(t) || t.length < 2) continue;
@@ -644,18 +722,32 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
           if (await pathIsForeign(t.slice(0, -1))) foreignPaths.push(key);
         }
       }
-      const split = splitCrossOriginFrameNodes(results.violations, foreignPaths);
+      const split = splitCrossOriginFrameNodes(candidates, foreignPaths);
       frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });
       for (const v of split.kept) {
         violations.push({
           id: v.id,
           impact: v.impact ?? "moderate",
           route: name,
-          help: v.help,
+          // contrast-unmeasured's help IS its summary line in CI, so it is
+          // written from the nodes that were kept. It carries the count (how
+          // blind was the run), the colour axe rejected (what to change) and
+          // the remedy -- an alarm without a remedy just gets muted.
+          help:
+            v.id === "contrast-unmeasured"
+              ? contrastUnmeasuredHelp(v.nodes, unparseableColourRemedy)
+              : v.help,
           helpUrl: v.helpUrl,
           nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
         });
       }
+      // Coverage as a NUMBER, not a boolean. The unit that matters is nodes --
+      // "0 where it should have been 61" -- and a presence flag is satisfied by
+      // one passing node while sixty go unmeasured, which is the very failure
+      // above.
+      const counts = {};
+      for (const r of results.passes ?? []) counts[r.id] = (r.nodes ?? []).length;
+      measured.push({ route: name, ruleNodes: counts });
     } finally {
       // Say whose this route's errors were while its frames can still be read,
       // then end on about:blank, so an error that route A's timers or pending
@@ -701,6 +793,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
           reveals,
           frameNodesDropped,
           thirdPartyErrors,
+          measured,
         },
         null,
         2,
@@ -721,9 +814,11 @@ const NAMED_VIOLATIONS_MAX = 6;
  * One line naming each violation as `<rule> on <route>`, identical pairs folded
  * into `<rule> ×N on <route>`. A `route-missing` entry appends its help, which
  * is where the path and HTTP status live -- the id and route alone do not say
- * what went wrong there. A `client-error` thrown while the reveal pass ran is
- * marked `(while the reveal pass ran)` — a time window, not a cause — and never
- * folded into one thrown outside it (#100). Empty for no violations.
+ * what went wrong there; so do `rule-errored` and `contrast-unmeasured` (#888),
+ * whose help is axe's message or the unparsed colour and its remedy. A
+ * `client-error` thrown while the reveal pass ran is marked `(while the reveal
+ * pass ran)` — a time window, not a cause — and never folded into one thrown
+ * outside it (#100). Empty for no violations.
  */
 export function describeViolations(violations: AxeViolation[]): string {
   const groups = new Map<
@@ -735,7 +830,11 @@ export function describeViolations(violations: AxeViolation[]): string {
     // thrown outside it, so the two never fold into one entry.
     const duringReveal =
       v.id === "client-error" && (v.help ?? "").startsWith(REVEAL_PASS_ERROR_PREFIX);
-    const key = `${v.id}\u0000${v.route}\u0000${duringReveal ? "reveal" : ""}`;
+    // A rule-errored entry is only as useful as the rule it names, and two
+    // rules that threw on one route are two findings (#916 review): fold only
+    // identical messages, never a second rule under the first rule's text.
+    const ownText = v.id === "rule-errored" ? (v.help ?? "") : "";
+    const key = `${v.id}\u0000${v.route}\u0000${duringReveal ? "reveal" : ""}\u0000${ownText}`;
     const g = groups.get(key);
     if (g) g.n += 1;
     else {
@@ -751,8 +850,16 @@ export function describeViolations(violations: AxeViolation[]): string {
   const entries = [...groups.values()];
   const shown = entries.slice(0, NAMED_VIOLATIONS_MAX).map((g) => {
     const count = g.n > 1 ? ` ×${g.n}` : "";
+    // `route-missing`, `rule-errored` and `contrast-unmeasured` (#888) carry
+    // their diagnostic in `help`, and for each of them that sentence IS the
+    // finding — "rule-errored on a11y fixtures" tells an operator nothing,
+    // while axe's own message, or the colour it could not parse and the
+    // remedy, tells them exactly what to change. Every other rule's help is
+    // generic advice the helpUrl repeats.
+    const carriesItsOwnDiagnostic =
+      g.id === "route-missing" || g.id === "rule-errored" || g.id === "contrast-unmeasured";
     const detail =
-      g.id === "route-missing" && g.help
+      carriesItsOwnDiagnostic && g.help
         ? ` (${g.help})`
         : g.duringReveal
           ? " (while the reveal pass ran)"
