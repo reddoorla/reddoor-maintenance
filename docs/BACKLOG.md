@@ -168,11 +168,6 @@ owned it, merged 2026-09-29, so PR 2 can start):
 
 ### Blocked behind another PR (do not start early)
 
-- **#905, #949** (a11y spec: missing-browser message, `addStyleTag` under strict
-  CSP): **unblocked**. #950 (another session) merged 2026-09-29 12:39Z and
-  rewrote the spec both edit, so start from `main` after it, not from either
-  issue's line numbers. Claim on the issue first; the session that filed #949
-  may pick it up.
 - **#947 (recipe half)**: `src/recipes/smoke-suite/template.ts:32` scaffolds
   `hydrationMarker: "footer"`, which cannot prove hydration. It is agent-ready,
   but pairs with #948's hydration-signal decision.
@@ -410,6 +405,15 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — #905, #949: the a11y spec's motion-freezing sheet is adopted
+  through CSSOM (`freezeMotion`), so a CSP without `'unsafe-inline'` in
+  `style-src` no longer fails the audit, and the page's CSP stays enforced
+  (`bypassCSP` would have switched it off). A spec that writes no results is
+  summarised from Playwright's stdout, where the line reporter prints the
+  error; a missing browser gets its own line naming the absent executable and
+  `npx playwright install chromium`. Both reproduced on `1b1c52fd` first: each
+  summary read "no results written (exit 1) — [WebServer] npm warn …".
 
 - 2026-09-29 — P1-17 / #981: `protection-audit` joins each
   `required_status_checks` rule on a non-default Renovate base branch to its

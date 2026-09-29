@@ -471,6 +471,8 @@ type SiteConfig = {
   delaysMs?: Record<string, number>;
   /** 302 targets by path. `CROSS_ORIGIN` is replaced. */
   redirects?: Record<string, string>;
+  /** The CSP's style-src sources. Default: 'self', 'unsafe-inline' and the cross origin. */
+  styleSrc?: string;
 };
 
 const serverSource = (config: SiteConfig): string => `
@@ -500,7 +502,7 @@ const crossOrigin = "http://127.0.0.1:" + cross.address().port;
 const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' " + crossOrigin,
-  "style-src 'self' 'unsafe-inline' " + crossOrigin,
+  "style-src " + (${JSON.stringify(config.styleSrc ?? null)} ?? "'self' 'unsafe-inline' " + crossOrigin),
   "img-src 'self'",
   "frame-src 'self' " + crossOrigin,
   "connect-src 'self'",
@@ -1344,5 +1346,116 @@ describe("audits/a11y — each #888 finding fails the audit on its own (#916 rev
     expect(errored?.summary).toContain(
       'rule-errored on /two-crashes (axe could not run "document-title"',
     );
+  });
+});
+
+/**
+ * #949. A CSP whose style-src has no 'unsafe-inline' refuses a <style> element,
+ * and the spec used to inject its motion-freezing sheet as one: the injection
+ * threw and the whole audit failed with no results. The page here has that
+ * CSP and one transition, started on load, from #111 to #aaa over 30 s:
+ *
+ *   - frozen, the transition jumps to #aaa (2.32:1 on white), so a
+ *     color-contrast violation on `#fade` is positive evidence the sheet
+ *     applied under this CSP, not merely that nothing threw;
+ *   - left running, the reveal pass would wait its 5 s on it and report it
+ *     unsettled.
+ *
+ * The canary image, blocked by img-src, proves the report channel is live, so
+ * "no style-src report" is a measurement and not silence.
+ */
+const STRICT_STYLE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Strict styles</title></head>
+<body><main><h1>Strict styles</h1><p id="fade">${"Text that transitions to a pale grey. ".repeat(3)}</p>
+<img src="CROSS_ORIGIN/canary.png" alt=""></main>
+<script>
+const p = document.getElementById("fade");
+p.style.transition = "color 30s linear";
+p.style.color = "#111";
+requestAnimationFrame(() => requestAnimationFrame(() => { p.style.color = "#aaa"; }));
+</script></body></html>`;
+const SITE_S: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/strict-styles": STRICT_STYLE_PAGE,
+  },
+  a11yRoutes: ["/strict-styles"],
+  styleSrc: "'self'",
+};
+
+describe("audits/a11y — a CSP without 'unsafe-inline' in style-src (#949)", () => {
+  let site = "";
+  let result: AuditResult | undefined;
+
+  beforeAll(async () => {
+    site = await makeFixtureSite(SITE_S);
+    result = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
+  }, 180_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+  });
+
+  const all = (): Violation[] =>
+    (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+
+  it("runs axe on every route instead of failing with no results", () => {
+    expect(result?.summary).toMatch(
+      /^a11y: 1 violations? across 3 routes \(2 fixtures \+ 1 from package\.json\)/,
+    );
+  });
+
+  it("still freezes a running transition, so it is measured at its end state", () => {
+    expect(all().map((v) => `${v.id} on ${v.route}`)).toEqual(["color-contrast on /strict-styles"]);
+    expect(all()[0]?.nodes?.map((n) => (n.target ?? []).join(" "))).toEqual(["#fade"]);
+    type Reveal = { route: string; unsettled?: number };
+    const reveals = (result?.details as { reveals?: Reveal[] } | undefined)?.reveals ?? [];
+    expect(reveals.find((r) => r.route === "/strict-styles")?.unsettled).toBe(0);
+  });
+
+  it("injects nothing the page's CSP refuses, and leaves that CSP enforced", async () => {
+    const reports = await readJsonl(join(site, "csp-reports.jsonl"));
+    const directives = reports.map((r) => String(r.directive).split(" ")[0] ?? "");
+    expect(directives).toContain("img-src");
+    expect(directives.filter((d) => d.startsWith("style-src"))).toEqual([]);
+  });
+});
+
+/**
+ * #905. After a Renovate bump carries a newer Playwright, the browsers on disk
+ * are the old revision and every launch fails with "Executable doesn't exist".
+ * Playwright prints that to stdout, and the audit summarised only stderr, which
+ * held an npm warning: the operator read "no results written" and a warning
+ * that had nothing to do with it. An empty PLAYWRIGHT_BROWSERS_PATH is exactly
+ * that state.
+ */
+describe("audits/a11y — Playwright's browser is not installed (#905)", () => {
+  let site = "";
+  let browsers = "";
+  let result: AuditResult | undefined;
+
+  beforeAll(async () => {
+    site = await makeFixtureSite(SITE_W);
+    browsers = await mkdtemp(join(tmpdir(), "reddoor-a11y-no-browsers-"));
+    const withoutBrowsers: SpawnFn = (cmd, args, opts) =>
+      livePlaywright(cmd, args, {
+        ...opts,
+        env: { ...opts?.env, PLAYWRIGHT_BROWSERS_PATH: browsers },
+      });
+    result = await a11yAudit({ site: { path: site }, spawn: withoutBrowsers });
+  }, 180_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+    if (browsers) await rm(browsers, { recursive: true, force: true });
+  });
+
+  it("fails, naming the missing executable and the command that installs it", () => {
+    expect(result?.status).toBe("fail");
+    expect(result?.summary).toContain("Playwright's browser is not installed");
+    expect(result?.summary).toContain(`${browsers}/chromium`);
+    expect(result?.summary).toContain("npx playwright install chromium");
+    expect(result?.summary).not.toContain("npm warn");
   });
 });

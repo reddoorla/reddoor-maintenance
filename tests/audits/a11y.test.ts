@@ -147,6 +147,81 @@ describe("audits/a11y", () => {
     expect(result.summary).toMatch(/no results|spec failed/i);
   });
 
+  // Verbatim from a run with an empty PLAYWRIGHT_BROWSERS_PATH (#905): the
+  // line reporter prints the test's error to stdout, and stderr holds only
+  // what the web server said.
+  const NPM_WARN =
+    '[WebServer] npm warn Unknown env config "manage-package-manager-versions". This will stop working in the next major version of npm.';
+  const lineReporterFailure = (error: string): string =>
+    [
+      "",
+      "Running 1 test using 1 worker",
+      "",
+      "[1/1] .reddoor-a11y-spec-i1jgmc/a11y.spec.ts:384:1 › a11y + hydration across configured routes",
+      "  1) .reddoor-a11y-spec-i1jgmc/a11y.spec.ts:384:1 › a11y + hydration across configured routes ──────",
+      "",
+      `    Error: ${error}`,
+      "    ╔════════════════════════════════════════════════════════════╗",
+      "    ║ Looks like Playwright was just installed or updated.       ║",
+      "    ╚════════════════════════════════════════════════════════════╝",
+      "",
+      "  1 failed",
+    ].join("\n");
+
+  it("names the missing browser and the command that installs it, not stderr's npm warning (#905)", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: lineReporterFailure(
+          "browserType.launch: Executable doesn't exist at /home/op/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell",
+        ),
+        stderr: NPM_WARN,
+      }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "a11y: Playwright's browser is not installed (no /home/op/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell) — run `npx playwright install chromium` in the site",
+    );
+  });
+
+  it("reads the missing browser through the colours a FORCE_COLOR terminal adds", async () => {
+    const cwd = await tmpSite();
+    const esc = String.fromCharCode(27);
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: lineReporterFailure(
+          `browserType.launch: Executable doesn't exist at ${esc}[2m/cache/chromium_headless_shell-1243/chrome-headless-shell${esc}[22m${esc}[39m`,
+        ),
+        stderr: "",
+      }),
+    });
+    expect(result.summary).toContain(
+      "(no /cache/chromium_headless_shell-1243/chrome-headless-shell)",
+    );
+  });
+
+  it("names the spec's own error from stdout when no results were written", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: lineReporterFailure(
+          "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/",
+        ),
+        stderr: NPM_WARN,
+      }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "a11y: no results written (exit 1) — page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/",
+    );
+  });
+
   it("skips when playwright is missing", async () => {
     const cwd = await tmpSite();
     const result = await a11yAudit({
@@ -2049,7 +2124,7 @@ describe("audits/a11y — the page is scrolled through before axe runs (#100)", 
     const loopAt = spec.indexOf(
       "for (const { path, name, placeholder404Ok, sourceAbsent } of pages)",
     );
-    const snapAt = spec.indexOf("await page.addStyleTag(", loopAt);
+    const snapAt = spec.indexOf("await page.evaluate(freezeMotion);", loopAt);
     const revealAt = spec.indexOf("await page.evaluate(revealBelowFold);", loopAt);
     const axeAt = spec.indexOf("new AxeBuilder({ page })", loopAt);
     expect(loopAt).toBeGreaterThan(-1);
