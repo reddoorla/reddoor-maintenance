@@ -1346,3 +1346,103 @@ describe("audits/a11y — each #888 finding fails the audit on its own (#916 rev
     );
   });
 });
+
+/**
+ * A blend mode axe has no function for (vida-legacy-foundation's grain
+ * overlays, `mix-blend-plus-lighter`). axe's color-contrast throws
+ * `blendFunctions[blendMode] is not a function` on the first text node whose
+ * backdrop carries it, and the throw skips the rule for the whole document.
+ *
+ *   - SITE_B: `/grain` holds two paragraphs over a plus-lighter grain and one
+ *     plain paragraph beside it. The grain's text is not measured, and says
+ *     so; the plain paragraph and the h1 still are. Nothing else is wrong
+ *     with the page, so it must not fail.
+ *   - SITE_BF: the same grain beside `#faint` (#aaa on white). The page's own
+ *     contrast failure must still be found, which a rule skipped for the whole
+ *     document never would.
+ */
+const GRAIN_BAND = `<section id="grain-band" style="position: relative; background: #172303; color: #fff; padding: 24px"><div class="grain" style="pointer-events: none; position: absolute; inset: 0; opacity: 0.2; mix-blend-mode: plus-lighter; background: #888"></div><p id="over-grain" style="position: relative">${T}</p><p id="over-grain-2" style="position: relative">${T}</p></section>`;
+const SITE_B: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/grain": sitePage("Grain", `<p id="plain">${T}</p>${GRAIN_BAND}`),
+  },
+  a11yRoutes: ["/grain"],
+};
+const SITE_BF: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/grain-faint": sitePage(
+      "Grain beside faint text",
+      `<p id="faint" style="color: #aaa">${T}</p>${GRAIN_BAND}`,
+    ),
+  },
+  a11yRoutes: ["/grain-faint"],
+};
+
+describe("audits/a11y — a blend mode axe cannot compute is not measured, not a failure", () => {
+  let siteB = "";
+  let siteBF = "";
+  let grain: AuditResult | undefined;
+  let grainFaint: AuditResult | undefined;
+
+  beforeAll(async () => {
+    siteB = await makeFixtureSite(SITE_B);
+    siteBF = await makeFixtureSite(SITE_BF);
+    grain = await a11yAudit({ site: { path: siteB }, spawn: livePlaywright });
+    grainFaint = await a11yAudit({ site: { path: siteBF }, spawn: livePlaywright });
+  }, 240_000);
+
+  afterAll(async () => {
+    if (siteB) await rm(siteB, { recursive: true, force: true });
+    if (siteBF) await rm(siteBF, { recursive: true, force: true });
+  });
+
+  type BlendRecord = { route: string; rule: string; blendMode: string | null; target: unknown };
+  type Measured = { route: string; ruleNodes: Record<string, number> };
+  const violationsOf = (r: AuditResult | undefined): Violation[] =>
+    (r?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+  const blendOf = (r: AuditResult | undefined): BlendRecord[] =>
+    (r?.details as { blendUnmeasured?: BlendRecord[] } | undefined)?.blendUnmeasured ?? [];
+
+  it("does not fail a page whose only problem is the blend mode, and warns instead", () => {
+    expect(violationsOf(grain)).toEqual([]);
+    expect(grain?.status).toBe("warn");
+  });
+
+  it("records each element it could not measure, with the rule and the blend mode", () => {
+    expect(
+      blendOf(grain)
+        .map((b) => `${b.rule} ${JSON.stringify(b.target)} ${b.blendMode}`)
+        .sort(),
+    ).toEqual([
+      'color-contrast ["#over-grain"] plus-lighter',
+      'color-contrast ["#over-grain-2"] plus-lighter',
+    ]);
+    expect(blendOf(grain).every((b) => b.route === "/grain")).toBe(true);
+  });
+
+  it("names the count, the rule, the blend mode and the route on the summary line", () => {
+    expect(grain?.summary).toContain(
+      '2 element(s) not measured for color-contrast — axe has no "plus-lighter" blend mode: /grain (2)',
+    );
+  });
+
+  it("still measures the rest of the page's contrast", () => {
+    const measured = (grain?.details as { measured?: Measured[] } | undefined)?.measured ?? [];
+    expect(
+      measured.find((m) => m.route === "/grain")?.ruleNodes["color-contrast"],
+    ).toBeGreaterThanOrEqual(2);
+    expect(violationsOf(grainFaint).map((v) => `${v.id} on ${v.route}`)).toEqual([
+      "color-contrast on /grain-faint",
+    ]);
+    expect(
+      violationsOf(grainFaint).flatMap((v) => (v.nodes ?? []).map((n) => n.target?.join(" "))),
+    ).toEqual(["#faint"]);
+    expect(grainFaint?.status).toBe("fail");
+  });
+});
