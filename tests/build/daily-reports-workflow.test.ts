@@ -4,7 +4,7 @@ import { stepEnv, workflowPath } from "./_helpers/workflow-source.js";
 
 /**
  * `report --due` is a Phase 3 dual-writer: `writeNextDueDates` mirrors every
- * next-due write into `site_schedule` through `makeScheduleMirrorBestEffort`,
+ * next-due write into `site_schedule` through `makeScheduleMirror`,
  * which resolves its connection from TURSO_DATABASE_URL / TURSO_AUTH_TOKEN.
  *
  * "Best effort" means it returns null when those are absent, and a null mirror

@@ -118,7 +118,6 @@ describe("the audit fleet write-back, driven by the Turso roster", () => {
           return true;
         },
         recordEvents: async () => {},
-        strict: true,
       },
     });
     expect(res.anyFailed).toBe(false);
@@ -136,7 +135,6 @@ describe("the audit fleet write-back, driven by the Turso roster", () => {
         roster: async () => (await roster()).filter((r) => r.id.startsWith("rec")),
         makeMirror: async () => async () => true,
         recordEvents: async () => {},
-        strict: true,
       },
     });
     expect(res.anyFailed).toBe(true);

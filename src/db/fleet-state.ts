@@ -382,8 +382,8 @@ export type NewSiteRow = {
  *  create.ts` runs this inside one transaction (a Kysely `Transaction` is a
  *  `Db`), so a failure on the third insert leaves none of the three behind.
  *  Why all three: every reader LEFT JOINs the companions, but the nightly health
- *  and schedule writers are UPDATEs, and under the freeze an UPDATE that matches
- *  no row throws (`mirrored=missed`). */
+ *  and schedule writers are UPDATEs, and an UPDATE that matches no row throws
+ *  (`mirrored=missed`). */
 export async function insertSiteRows(db: Db, site: NewSiteRow, computedAt: string): Promise<void> {
   await db
     .insertInto("sites")
@@ -724,17 +724,16 @@ export type ReportMirrorPatch = Partial<
 
 /** Write a report patch into Turso so the page re-render after an
  *  approve/override/bounce shows the new state immediately. Callers route
- *  failures through `mirrorWrite`, which decides fatal vs swallowed by the
- *  freeze switch; an empty patch is a no-op, never invalid SQL.
+ *  failures through `mirrorWrite`, which throws on a failure or a missed row;
+ *  an empty patch is a no-op, never invalid SQL.
  *
  *  Returns whether the UPDATE matched a row (#647). Same contract as
  *  `mirrorSiteFields`: this module has no error policy of its own, so the
  *  count is REPORTED and the boundary (`mirrorWrite`, `makeReportMirror`)
- *  decides what a miss means — logged before the freeze, fatal after it, when
- *  no importer exists to converge a row that was never inserted. Discarding
- *  the count is what let a stamp for a row Turso never held mirror
- *  "successfully". An empty patch reports `true`: nothing to write is not a
- *  miss. */
+ *  makes a miss fatal, because no importer exists to converge a row that was
+ *  never inserted. Discarding the count is what let a stamp for a row Turso
+ *  never held mirror "successfully". An empty patch reports `true`: nothing to
+ *  write is not a miss. */
 export async function mirrorReportPatch(
   db: Db,
   reportId: string,

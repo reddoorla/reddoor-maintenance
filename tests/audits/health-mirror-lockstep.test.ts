@@ -12,10 +12,7 @@ import {
   nextDueDatesFields,
 } from "../../src/fleet/site-fields.js";
 import { healthColumnFor, scheduleColumnFor } from "../../src/db/field-map.js";
-import {
-  makeHealthMirrorBestEffort,
-  makeScheduleMirrorBestEffort,
-} from "../../src/audits/health-mirror.js";
+import { makeHealthMirror, makeScheduleMirror } from "../../src/audits/health-mirror.js";
 import { openDb, type Db } from "../../src/db/client.js";
 import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
 
@@ -95,22 +92,19 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
   });
 });
 
-describe("makeHealthMirrorBestEffort", () => {
-  it("returns null (and does not throw) when libSQL cannot open", async () => {
-    // `false` pinned explicitly, not inherited from the shipped constant:
-    // these assert the PRE-freeze contract, so the freeze commit must not turn
-    // them red for a reason unrelated to what they claim (#612).
-    const mirror = await makeHealthMirrorBestEffort(async () => {
-      throw new Error("no creds");
-    }, false);
-    expect(mirror).toBeNull();
+describe("makeHealthMirror", () => {
+  it("throws when libSQL cannot open", async () => {
+    await expect(
+      makeHealthMirror(async () => {
+        throw new Error("no creds");
+      }),
+    ).rejects.toThrow(/health-mirror unavailable.*no creds/);
   });
 
   it("mirrors into the opened db end-to-end", async () => {
     const db = await seededDb();
-    const mirror = await makeHealthMirrorBestEffort(async () => db);
-    expect(mirror).not.toBeNull();
-    await mirror!("recA", { "Smoke OK": "pass" });
+    const mirror = await makeHealthMirror(async () => db);
+    await mirror("recA", { "Smoke OK": "pass" });
     const row = await db
       .selectFrom("site_health")
       .select("smoke_ok")
@@ -119,15 +113,15 @@ describe("makeHealthMirrorBestEffort", () => {
     expect(row.smoke_ok).toBe("pass");
   });
 
-  it("the schedule twin: null without creds, mirrors end-to-end with one", async () => {
-    expect(
-      await makeScheduleMirrorBestEffort(async () => {
+  it("the schedule twin: throws without creds, mirrors end-to-end with one", async () => {
+    await expect(
+      makeScheduleMirror(async () => {
         throw new Error("no creds");
-      }, false),
-    ).toBeNull();
+      }),
+    ).rejects.toThrow(/schedule-mirror unavailable.*no creds/);
     const db = await seededDb();
-    const mirror = await makeScheduleMirrorBestEffort(async () => db);
-    await mirror!("recA", { "Next maintenance at": "2026-09-01" }, "2026-08-24T09:23:00.000Z");
+    const mirror = await makeScheduleMirror(async () => db);
+    await mirror("recA", { "Next maintenance at": "2026-09-01" }, "2026-08-24T09:23:00.000Z");
     const row = await db
       .selectFrom("site_schedule")
       .selectAll()
