@@ -242,6 +242,20 @@ const CROSS_PAGES: Record<string, string> = {
   "/frame.html": thirdPartyPage("Embed", `<img src="/tile.png">`),
   // Something focusable, inside a frame the site gave tabindex="-1".
   "/player.html": thirdPartyPage("Player", `<button type="button">Play</button>`),
+  // Text on a colour axe cannot parse (#888), inside a third party's document:
+  // not the site's to fix, so it must be counted, not failed.
+  "/unparseable.html": thirdPartyPage(
+    "Widget",
+    `<p style="background-color: oklch(0.205 0 none); color: #3a3a3a">A sentence long enough that axe will actually judge its contrast.</p>`,
+  ),
+  // A third party's document on which axe's color-contrast rule THROWS (#888's
+  // whole-page shape, inside the embed): a white button in a band of a colour
+  // axe cannot parse. The crash is the third party's, so it is counted, and
+  // it must not cost the site the contrast results axe produced for it.
+  "/crash.html": thirdPartyPage(
+    "Booking widget",
+    `<section style="position: relative; isolation: isolate; padding: 16px; background-color: oklch(0.205 0 none); color: #fff"><p>Widget copy long enough that axe will actually judge its contrast.</p><a href="#book" style="display: inline-block; padding: 8px; background: #fff; color: #000">Book</a></section>`,
+  ),
   // A third party's script that throws as soon as it loads.
   "/throws.html": thirdPartyPage(
     "Widget",
@@ -611,6 +625,176 @@ const SITE_H: SiteConfig = {
   a11yRoutes: ["/hidden-lazy"],
 };
 
+/**
+ * #888, run for real: text on a colour axe cannot parse. Chrome resolves
+ * `oklch(0.205 0 none)` and paints it; axe-core 4.13 cannot parse it, and
+ * leaves each such node `incomplete` with `messageKey: "colorParse"` while the
+ * rule runs on everywhere else. Every sentence is long enough to be judged (a
+ * one-character node comes back `shortTextContent` instead).
+ *
+ *   - `#band-text`: #3a3a3a on that colour, 1.57:1 once measured — a real
+ *     failure that axe never measures. It must be reported as unmeasured.
+ *   - `#fg-text`: text COLOURED with a none-hued token (`text-neutral-*`) on
+ *     white. axe cannot parse the foreground either: unmeasured.
+ *   - `#hued-text`: the same two colours with an explicit hue, which renders
+ *     identically. It must come back as the `color-contrast` violation the
+ *     band hides — the remedy turns the measurement on.
+ *   - `#revealed-text`: the band's colour on a reveal at 150vh, at opacity 0
+ *     until first seen. Only the reveal pass (#100) brings it into the rule, so
+ *     its presence proves the detection reads what the pass revealed.
+ *   - `#gradient-text`: text on a gradient, which axe leaves `incomplete` as
+ *     `bgGradient`. A property of the page, not an instrument failure: it must
+ *     NOT be reported.
+ *   - `#plain-text`: a healthy control.
+ *   - `#xo-unparseable`: a cross-origin frame whose own text sits on the
+ *     unparseable colour. The third party's, so it is counted as a dropped
+ *     frame node, never failed (#100's positive-evidence rule).
+ */
+const UNMEASURED_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Unmeasured contrast</title>
+<style>
+  body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; }
+  main { position: relative; height: 300vh; }
+  .band { background-color: oklch(0.205 0 none); color: #3a3a3a; }
+  .hued { background-color: oklch(0.205 0 0); color: #3a3a3a; }
+  .gradient { background-image: linear-gradient(#000, #333); color: #eee; }
+  #reveal { position: absolute; top: 150vh; left: 0; right: 0; }
+  iframe { width: 300px; height: 150px; border: 0; }
+</style></head>
+<body><main><h1>Unmeasured contrast</h1>
+<p id="plain-text">A sentence long enough that axe will actually judge its contrast.</p>
+<p id="band-text" class="band">A sentence long enough that axe will actually judge its contrast.</p>
+<p id="fg-text" style="color: oklch(0.4 0 none)">A sentence long enough that axe will actually judge its contrast.</p>
+<p id="hued-text" class="hued">A sentence long enough that axe will actually judge its contrast.</p>
+<p id="gradient-text" class="gradient">A sentence long enough that axe will actually judge its contrast.</p>
+<iframe id="xo-unparseable" title="Widget" src="CROSS_ORIGIN/unparseable.html"></iframe>
+<div id="reveal"><p id="revealed-text" class="band">A sentence long enough that axe will actually judge its contrast.</p></div>
+</main>
+<script>
+  const el = document.getElementById("reveal");
+  el.style.opacity = "0";
+  el.style.transition = "opacity 600ms";
+  new IntersectionObserver((entries, observer) => {
+    if (entries[0].isIntersecting) {
+      el.style.opacity = "1";
+      observer.disconnect();
+    }
+  }, { threshold: 0 }).observe(el);
+</script>
+</body>
+</html>`;
+
+/**
+ * #888's reported shape: the starter's Hero. The band is the unparseable
+ * colour and the CTA inside it is white, so axe finds the CTA's white first,
+ * then parses every element under it for the stacking context and THROWS on
+ * the band. The whole rule is skipped for the whole page — including
+ * `#above`, legible text on white that has nothing to do with the band.
+ */
+const HERO_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Hero</title>
+<style>
+  body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; }
+  .hero { position: relative; isolation: isolate; padding: 24px; background-color: oklch(0.205 0 none); color: #fff; }
+  .cta { display: inline-block; padding: 8px 16px; background: #fff; color: #000; }
+</style></head>
+<body><main><h1>Hero</h1>
+<p id="above">A sentence long enough that axe will actually judge its contrast.</p>
+<section class="hero"><h2>Hero slice</h2><p>Hero body copy over a dark backdrop, long enough to judge.</p><a class="cta" href="#explore">Explore</a></section>
+</main></body>
+</html>`;
+
+/** The Hero's band and CTA, as a fragment other pages embed. */
+const HERO_SECTION = `<section style="position: relative; isolation: isolate; padding: 24px; background-color: oklch(0.205 0 none); color: #fff"><h2>Hero slice</h2><p>Hero body copy over a dark backdrop, long enough to judge.</p><a href="#explore" style="display: inline-block; padding: 8px 16px; background: #fff; color: #000">Explore</a></section>`;
+
+/** A page of the site's own, with the given body. */
+function sitePage(title: string, body: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><style>body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; } iframe { width: 300px; height: 200px; border: 0; }</style></head><body><main><h1>${title}</h1>${body}</main></body></html>`;
+}
+
+const T = "A sentence long enough that axe will actually judge its contrast.";
+
+/**
+ * Where a THROWN rule is attributed (#916 review). axe merges every frame's
+ * result for a rule, and when any frame's run threw, its default report keeps
+ * only the rule's `incomplete` group: the site's own violations and passes
+ * for that rule are dropped. The audit therefore reads axe's raw report and
+ * attributes each crash by the frame it happened in:
+ *
+ *   - `/xo-crash`: the crash is inside a cross-origin frame. It is counted,
+ *     not failed, and the site's own contrast results stand — `#site-faint`
+ *     (#aaa on white) is still a `color-contrast` violation, and the site's
+ *     gradient text is still nobody's crash.
+ *   - `/both-crash`: the site's own Hero crashes too. That crash is the site's,
+ *     so the route fails `rule-errored`; the frame's crash is still counted.
+ *   - `/so-crash`: the crash is inside a SAME-origin frame, the site's own.
+ *     Not positive evidence of a third party, so it fails.
+ */
+const XO_CRASH_PAGE = sitePage(
+  "Third-party crash",
+  `<p id="site-plain">${T}</p><p id="site-faint" style="color: #aaa">${T}</p><p id="site-gradient" style="background-image: linear-gradient(#000, #333); color: #eee">${T}</p><iframe id="xo-crash" title="Booking" src="CROSS_ORIGIN/crash.html"></iframe>`,
+);
+const BOTH_CRASH_PAGE = sitePage(
+  "Both crash",
+  `<p id="site-plain">${T}</p>${HERO_SECTION}<iframe id="xo-crash" title="Booking" src="CROSS_ORIGIN/crash.html"></iframe>`,
+);
+const SO_CRASH_PAGE = sitePage(
+  "Own frame crash",
+  `<p id="site-plain">${T}</p><iframe id="so-crash" title="Our booking page" src="/own-crash"></iframe>`,
+);
+
+/** The #888 site: the unmeasured-contrast page on the fixtures route, the Hero, and where a crash is attributed. */
+const SITE_C: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": UNMEASURED_PAGE,
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/hero": HERO_PAGE,
+    "/xo-crash": XO_CRASH_PAGE,
+    "/both-crash": BOTH_CRASH_PAGE,
+    "/so-crash": SO_CRASH_PAGE,
+    "/own-crash": sitePage("Own booking page", HERO_SECTION),
+  },
+  a11yRoutes: ["/hero", "/xo-crash", "/both-crash", "/so-crash"],
+};
+
+/**
+ * Each #888 finding ALONE must fail the audit (#916 review): on SITE_C the
+ * fail is also carried by an ordinary `color-contrast` violation, so a finding
+ * that stopped counting would not change its status.
+ *
+ *   - SITE_U: the only finding is `contrast-unmeasured`, and it is on the
+ *     SECOND fixture route, so a detection that ran on the first route only
+ *     would find nothing.
+ *   - SITE_E: the only findings are `rule-errored`, for a rule that is not
+ *     color-contrast. `document.title` is made to throw, so axe's
+ *     document-title rule crashes on `/title-throws`; `/two-crashes` crashes
+ *     that rule AND color-contrast, and the summary must name both.
+ */
+const SITE_U: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": sitePage(
+      "Animate-in",
+      `<p id="late-band" style="background-color: oklch(0.205 0 none); color: #fff">${T}</p>`,
+    ),
+    "/": plainPage("Home"),
+  },
+};
+const TITLE_THROWS = `<script>Object.defineProperty(document, "title", { configurable: true, get() { throw new Error("fixture: document.title threw"); } });</script>`;
+const SITE_E: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/title-throws": sitePage("Title throws", `<p>${T}</p>${TITLE_THROWS}`),
+    "/two-crashes": sitePage("Two crashes", `${HERO_SECTION}${TITLE_THROWS}`),
+  },
+  a11yRoutes: ["/title-throws", "/two-crashes"],
+};
+
 /** A site with nothing to fail and one route whose reveal pass cannot finish. */
 const SITE_W: SiteConfig = {
   pages: {
@@ -970,5 +1154,195 @@ describe("audits/a11y — a frame that never loads cannot stall the run (#100 re
       [];
     expect(errors.map((e) => e.route).sort()).toEqual(["/hidden-lazy", "home"]);
     for (const e of errors) expect(e.frame).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/throws\.html$/);
+  });
+});
+
+describe("audits/a11y — contrast that was never measured, run for real (#888)", () => {
+  let site = "";
+  let result: AuditResult | undefined;
+
+  beforeAll(async () => {
+    site = await makeFixtureSite(SITE_C);
+    result = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
+  }, 180_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+  });
+
+  const all = (): Violation[] =>
+    (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+  const targetsOf = (id: string): string[] =>
+    all()
+      .filter((v) => v.id === id)
+      .flatMap((v) => (v.nodes ?? []).map((n) => (n.target ?? []).join(" ")));
+
+  it("fails on the unmeasured nodes, and on the failure the explicit hue lets axe see", () => {
+    expect(result?.status).toBe("fail");
+    expect(
+      all()
+        .map((v) => `${v.id} on ${v.route}`)
+        .sort(),
+    ).toEqual([
+      "color-contrast on /xo-crash",
+      "color-contrast on a11y fixtures",
+      "contrast-unmeasured on a11y fixtures",
+      "rule-errored on /both-crash",
+      "rule-errored on /hero",
+      "rule-errored on /so-crash",
+    ]);
+    // The band axe could not parse, text coloured with it, and the same band
+    // revealed by the pass.
+    expect(targetsOf("contrast-unmeasured").sort()).toEqual([
+      "#band-text",
+      "#fg-text",
+      "#revealed-text",
+    ]);
+    // Identical pixels with an explicit hue: now measured, and failing. And
+    // the site's own failure beside a third party's crash.
+    expect(targetsOf("color-contrast").sort()).toEqual(["#hued-text", "#site-faint"]);
+  });
+
+  it("names the count, the colour axe rejected and the remedy on the summary line", () => {
+    expect(result?.summary).toContain(
+      'contrast-unmeasured on a11y fixtures (3 element(s) on a colour axe cannot parse (oklch(0.205 0 none), oklch(0.4 0 none)), so contrast was never measured there — write 0 for "none" in the oklch() token (browsers already render none as 0, so nothing on screen changes))',
+    );
+  });
+
+  it("does not report text axe is merely unsure of: a gradient", () => {
+    expect(targetsOf("contrast-unmeasured")).not.toContain("#gradient-text");
+    expect(targetsOf("color-contrast")).not.toContain("#gradient-text");
+  });
+
+  it("counts the unparseable colour inside a cross-origin frame, and does not fail on it", () => {
+    type Dropped = { route: string; count: number; rules: string[] };
+    const dropped =
+      (result?.details as { frameNodesDropped?: Dropped[] } | undefined)?.frameNodesDropped ?? [];
+    expect(dropped.find((d) => d.route === "a11y fixtures")).toEqual({
+      route: "a11y fixtures",
+      count: 1,
+      rules: ["contrast-unmeasured"],
+    });
+    expect(targetsOf("contrast-unmeasured").some((t) => t.startsWith("#xo-unparseable"))).toBe(
+      false,
+    );
+  });
+
+  it("fails the Hero shape — a white CTA over the colour — as a thrown rule, with axe's message and the remedy", () => {
+    const hero = all().filter((v) => v.route === "/hero");
+    expect(hero.map((v) => v.id)).toEqual(["rule-errored"]);
+    expect(hero[0]?.help).toBe(
+      'axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule. — write 0 for "none" in the oklch() token (browsers already render none as 0, so nothing on screen changes)',
+    );
+    expect(result?.summary).toContain(
+      'rule-errored on /hero (axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)"',
+    );
+  });
+
+  it("records how many nodes each rule measured, per route — none for contrast where the rule threw", () => {
+    type Measured = { route: string; ruleNodes: Record<string, number> };
+    const measured = (result?.details as { measured?: Measured[] } | undefined)?.measured ?? [];
+    expect(measured.map((m) => m.route)).toEqual([
+      "a11y fixtures",
+      "animate-in demo",
+      "/hero",
+      "/xo-crash",
+      "/both-crash",
+      "/so-crash",
+    ]);
+    // #plain-text and the h1 at least; the band, the reveal and the gradient
+    // are not passes.
+    expect(measured[0]?.ruleNodes["color-contrast"]).toBeGreaterThanOrEqual(2);
+    // The thrown rule measured nothing on the whole page, #above included.
+    expect(measured[2]?.ruleNodes["color-contrast"] ?? 0).toBe(0);
+    // A crash inside a third party's frame costs the site none of its own:
+    // the h1 and #site-plain were measured and passed.
+    expect(measured[3]?.ruleNodes["color-contrast"]).toBeGreaterThanOrEqual(2);
+  });
+
+  it("counts a rule that threw inside a third party's frame, and keeps the site's own results for that rule", () => {
+    const xo = all().filter((v) => v.route === "/xo-crash");
+    expect(xo.map((v) => v.id)).toEqual(["color-contrast"]);
+    expect(targetsOf("color-contrast")).toContain("#site-faint");
+    // The site's gradient text is uncertain, not crashed: nobody's finding.
+    expect(
+      all().some((v) => (v.nodes ?? []).some((n) => (n.target ?? []).includes("#site-gradient"))),
+    ).toBe(false);
+    type Dropped = { route: string; count: number; rules: string[] };
+    const dropped =
+      (result?.details as { frameNodesDropped?: Dropped[] } | undefined)?.frameNodesDropped ?? [];
+    expect(dropped.find((d) => d.route === "/xo-crash")).toEqual({
+      route: "/xo-crash",
+      count: 1,
+      rules: ["rule-errored"],
+    });
+  });
+
+  it("fails the site's own crash even beside a third party's, and a crash in its own same-origin frame", () => {
+    const both = all().filter((v) => v.route === "/both-crash");
+    expect(both.map((v) => v.id)).toEqual(["rule-errored"]);
+    // The site's crash node, not the frame's.
+    expect(both[0]?.nodes?.map((n) => n.target?.length)).toEqual([1]);
+    type Dropped = { route: string; count: number; rules: string[] };
+    const dropped =
+      (result?.details as { frameNodesDropped?: Dropped[] } | undefined)?.frameNodesDropped ?? [];
+    expect(dropped.find((d) => d.route === "/both-crash")).toEqual({
+      route: "/both-crash",
+      count: 1,
+      rules: ["rule-errored"],
+    });
+    const own = all().filter((v) => v.route === "/so-crash");
+    expect(own.map((v) => v.id)).toEqual(["rule-errored"]);
+    expect(own[0]?.nodes?.[0]?.target?.[0]).toBe("#so-crash");
+  });
+});
+
+describe("audits/a11y — each #888 finding fails the audit on its own (#916 review)", () => {
+  let siteU = "";
+  let siteE = "";
+  let unmeasured: AuditResult | undefined;
+  let errored: AuditResult | undefined;
+
+  beforeAll(async () => {
+    siteU = await makeFixtureSite(SITE_U);
+    siteE = await makeFixtureSite(SITE_E);
+    unmeasured = await a11yAudit({ site: { path: siteU }, spawn: livePlaywright });
+    errored = await a11yAudit({ site: { path: siteE }, spawn: livePlaywright });
+  }, 240_000);
+
+  afterAll(async () => {
+    if (siteU) await rm(siteU, { recursive: true, force: true });
+    if (siteE) await rm(siteE, { recursive: true, force: true });
+  });
+
+  const violationsOf = (r: AuditResult | undefined): Violation[] =>
+    (r?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+
+  it("fails on contrast-unmeasured alone, found on a route other than the first", () => {
+    expect(violationsOf(unmeasured).map((v) => `${v.id} on ${v.route}`)).toEqual([
+      "contrast-unmeasured on animate-in demo",
+    ]);
+    expect(unmeasured?.status).toBe("fail");
+    expect((unmeasured?.details as { byImpact?: unknown } | undefined)?.byImpact).toEqual({
+      serious: 1,
+    });
+  });
+
+  it("fails on rule-errored alone, for a rule that is not color-contrast, and names each rule that threw", () => {
+    const found = violationsOf(errored);
+    expect(found.map((v) => `${v.id} on ${v.route}: ${v.help ?? ""}`).sort()).toEqual([
+      'rule-errored on /title-throws: axe could not run "document-title": fixture: document.title threw Skipping document-title rule.',
+      'rule-errored on /two-crashes: axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule. — write 0 for "none" in the oklch() token (browsers already render none as 0, so nothing on screen changes)',
+      'rule-errored on /two-crashes: axe could not run "document-title": fixture: document.title threw Skipping document-title rule.',
+    ]);
+    expect(errored?.status).toBe("fail");
+    // Two different rules on one route are two entries in the summary, not
+    // one folded under the first rule's message.
+    expect(errored?.summary).toContain(
+      'rule-errored on /two-crashes (axe could not run "color-contrast"',
+    );
+    expect(errored?.summary).toContain(
+      'rule-errored on /two-crashes (axe could not run "document-title"',
+    );
   });
 });

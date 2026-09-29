@@ -5356,6 +5356,8 @@ re-measure it.
 
 ## 2026-09-29 — The morning loop's worker rules, brief and streak land; the digest fix parks after two dirty rounds (#973, #974, #975)
 
+> Superseded in part by 2026-09-29 (evening) — The digest sends on news, after two sessions built the same "go".
+
 This session was split off the afternoon PM session to build the agent side of the new operating model before the operator leaves for a month. Two of its three PRs landed. The third is the first PR to go through the rule the first one wrote.
 
 #973 (`071e804`) puts the worker rules into `CLAUDE.md`. A worker that reaches a stop condition writes the question under "Operator decisions" and ends. Two dirty review rounds send a PR there instead of into a third. A brief names its mutations before any code is written. It also adds `docs/worker-brief.md`, with a P1-12 example whose _Verify_ command was run first (`grep -rl sync-configs .github/workflows/` exits 1), the [H] tag, and a Monday paragraph in `pm-pass.md`. It also stopped `pm-pass.md` and the rollout plan from assuming the operator's pronouns. The fresh-branch rule the rollout plan asked for named `git ls-remote --heads origin 'refs/heads/claude/*' 'refs/heads/fix/*'`. Run, that prints 32 SHAs with no dates, most of them months-old `fix/*` branches, so "under a day old" cannot be read from it. The rule now fetches those refs and sorts them with `for-each-ref --sort=-committerdate`. The same read showed that `pm-pass.md` said "every weekday" of a Routine whose cron is `48 4 * * *`.
@@ -5374,3 +5376,101 @@ Beliefs corrected on contact:
 - Targeted test runs are not the suite. Both round-1 suite failures were in files the diff never touched.
 
 Also this session: a wake is set for 2026-09-30 12:40Z (`trig_01Sg6T3amEZ1a9KjHet5ayNr`) to read the first real Daily PM pass and fix whatever it trips on (B10). The Routine's model is unchanged; pinning it waits on the operator.
+
+## 2026-09-29 — P1-20's "go" was built twice, in parallel; the fork goes back to the operator (`claude/digest-send-exact-rule`, `7925133d`)
+
+A worker session was started from a PM brief to implement the operator's "go" on #975's round-2 rule. The rule has three parts: prune the send log to the keys and ask parts present on every run, keep a high-water baseline per key that resets only when the key drops out, and compare health-gate asks by field. The brief said the session that opened #975 was idle and had handed it off. That belief was wrong, and it is the reason nothing landed.
+
+The work itself went as briefed. The worker claimed #975 at 18:47Z on head `14a906d0` (a main merge over the brief's `e818f0bc`, nothing else). It wrote six run-level tests through `runDigest` with in-memory stores, and all six failed on that head. The worst was the band replay: six Lighthouse items sent at score 30, then jittering 30–34, sent on 22 of 28 days (day 0, then every day from 7 on). A heartbeat reset every baseline to that day's values, and each dip after it read as worse. The fix is one pure function, `nextSendLog`, called on the empty, skip and send paths alike. The record keeps the shape #975 already had, with `sent[key].metric` now read as the high-water. After the fix the band replay sends on days 0, 7, 14 and 21. Across four seeds of free jitter, a send happens exactly on the days some item reaches a genuine new high. All six of the brief's mutations turn a test red; the one that drops the ask-part prune reds three. The suite in `tests/alerts/` plus the digest run and state tests went from 140 to 230, all passing, with lint and typecheck clean.
+
+The rule forced one round-1 test to be inverted, not kept. "An item already sent that leaves and comes back is not news" pins exactly what (a) reverses. The brief also asked that every round-1 test still pass, and it could not have both.
+
+At push time the branch had moved. At 18:54Z, seven minutes after the claim, the originating session pushed `f6d5ee8c`, its own version of the same "go". It flattens ask parts into keys, forgets a key only after two absent runs, and adds a 5-point Lighthouse tolerance. The worker did not force-push and did not merge over a live session. It ran its own run-level tests unchanged on `f6d5ee8c`. Both versions send on the round-2 recurrence (gone two empty days) and send 4 times on the band replay, and both keep a failing↔unknown health flip quiet. `f6d5ee8c` stays silent until the heartbeat when a bounce is gone for **one** run and returns, and when a Lighthouse item reaches a genuine new low of 1–4 points. Neither behaviour is in the rule the operator approved. The worker's version went to its own branch, the measured table to #975's comments, and the question to "Operator decisions" item 19.
+
+Beliefs corrected on contact:
+
+- "The other session is idle" came from the brief, and the brief was an hour old. The branch check in `CLAUDE.md` ran at the start and showed nothing new. The collision happened after the claim, so a claim comment does not stop a session that never reads the comments. The only thing that caught it was the push being refused as non-fast-forward. Force-pushing past that refusal would have destroyed the other session's commit.
+- The brief's "at most 5 sends" for the jitter replay holds only when the day-1 send is at the band's worst value. Under free jitter from day 1 (six items uniform over 30–34, seeds 1, 2, 3 and 975), the exact rule sends 8, 9, 9 and 9 times in 28 days. That is 5–7 "worse" days per seed, all before day 16 as each item finds its floor, plus the heartbeats. Round 2 counted 20 of 28 on the old rule. So `f6d5ee8c`'s tolerance buys something real on a noisy band, at the price of a quiet 1–4 point slide. The replay test pins both cases, and the free-jitter one pins the invariant (a send exactly on each new-high day) rather than a count.
+
+Not done: the third review round (neither version has had one), `land-prs`, and moving P1-20 to Done. All three wait on the operator's pick.
+
+## 2026-09-29 (evening) — The digest sends on news, after two sessions built the same "go" (#975, #978)
+
+The operator answered "Operator decisions" item 19 with "go", and the 29 Navy [TEST] email of 09-28 with "clean". #978 recorded the verdict, so the clean-send streak stands at 1.
+
+**The collision.** A worker session was started from item 19. It claimed #975 in a PR comment at 18:47Z, then built the operator's rule exactly on `claude/digest-send-exact-rule` (`7925133d`). This session pushed its own version, `f6d5ee8c`, to #975 at 18:54Z without re-reading the PR's comments. That is the rule #973 wrote into `CLAUDE.md` that morning, broken by the session that wrote it. The worker stood down at 18:57Z with a side-by-side table and reopened item 19. That table is what turned the collision into a decision. The operator picked this session's version ("do yours"); `7925133d` did not land.
+
+**What the rule became, and what each round found.** Every round was a day-by-day replay of the real functions, not a unit test. Each simpler rule fixed one direction by breaking the other:
+
+- **Compare with yesterday** (round 1): a one-point Lighthouse dip read as WORSE.
+- **Compare with the last send** (round 2): every send reset every baseline, and six jittering scores sent on 20 of 28 days. A fixed item that recurred was silent until the heartbeat.
+- **Prune, high-water, 5-point tolerance** (the "go"): the final review found a dead letter back after one clean run silent for 6 days, and a score sliding 4 points a night never mailed.
+- **One more review on the chosen version** found that a score hovering at the 75 floor was forgotten after two runs above it and re-mailed as "added" on each dip. A simulated year with four such scores gave 168 mails.
+
+What landed:
+
+- A Lighthouse item is remembered 28 days after it clears, and is judged against a 5-point tolerance.
+- A warning is forgotten after two absent runs.
+- A critical item gets no grace, and its baseline follows its count down between sends.
+- A health ask is compared by field, not by failing/unknown.
+
+In a simulated year (359 days, per-night score N(mean, 3)), sends were 52 to 55 in every scenario tried (floor-centred, 3 above, 5 below), against 52 for the weekly heartbeat alone. The full suite passed in a fresh worktree (7630 passed). Each rule has a test that goes red when the rule is removed: 12 mutations over the last two commits, all killed.
+
+Beliefs corrected on contact:
+
+- "Send on change" sounded like one rule. It needed five parameters: memory per kind, tolerance per kind, grace per severity, baseline direction, heartbeat. Each came from a replay, not from reading the code.
+- The two-dirty-rounds rule worked as written: it put a real design fork in front of the operator. What it did not prevent was two sessions answering the same "go". The claim check has to be re-run after every pause, including the author's own pause while waiting for the operator.
+
+## 2026-09-29 — A report with no matching Search Console property stores `search_found_page1` NULL, not 0 (P1-19, #990)
+
+Since #959 the checklist evidence called the no-property case `unknown`, but both producers (the `draftReportForSite` draft path and announce) still wrote the stored column as 0, which means "not on page 1". The two disagreed about a site where nothing was measured. They now agree: a lookup that returns `propertyFound === false` leaves the column NULL on create. The announce reuse path patches `search_found_page1` and `search_position` to an explicit null. If it omitted the keys instead, an earlier run's `1` / `#3` in the same period would survive, and the sent email would show a rank nobody measured this time. A property-found miss still stores 0, because that is a real measurement. Soft-fail (`search === null`) still keeps the last value on reuse, which is a separate policy and left alone.
+
+The rule lives in one helper, `searchEnrichment()` in `report-fields.ts`, which both producers call. It tests `propertyFound === false`, the same test auto-tick uses. The reuse patch is the only place that writes an explicit null. The fake report writer could not prove that null reaches libSQL, so a real-DB test in `tests/db/fleet-state.test.ts` seeds `1` / `3`, patches nulls and reads both back NULL. It went red when the patch was `{}`, so the instrument was shown to fail before it was trusted.
+
+Measured: live Turso had 16 NULL and 4 = 1, and no 0 rows. Nothing was backfilled. No reader renders NULL and 0 differently (the table is in #990's body), so nothing visible changed.
+
+Mutations: all six from the brief went red. Of my three extras, two went red. The third (`!== true` for `=== false`) is an equivalent mutant, because `propertyFound` is typed `boolean`. The review's test lens ran eight more mutations, and one survived: the no-property reuse patch could also null `ga_users_current` and every test stayed green, because the reuse test checked only its own two keys. The test now pins the patch's full key set. The review found nothing serious, so the skeptic stage never fired. One honest note from that lens: its first mutation script piped the script into `python3 -`, applied nothing, and reported every mutant as surviving. It caught this only because no diff was printed, then added a known-red control mutant. That is "prove the instrument" applied to the reviewer's own harness.
+
+## 2026-09-29 — A protection read that failed can no longer become a protection write (`claude/awesome-maxwell-79q59o`, `58b8d3c`)
+
+`branchProtectionContexts` ran `gh api repos/{repo}/branches/{branch}/protection` and answered `[]` for every non-zero exit, under a comment reading "404 = no protection configured". So a 403, a 5xx, a rate limit or a network failure all read as "this branch is unprotected". `self-updating` then saw `ci / ci` missing from `[]` and called `protectBranch` with `[ci / ci]`. That call is a PUT, and it replaces the whole protection object: the contexts become that one check, `required_pull_request_reviews` and `restrictions` become null, and `enforce_admins` becomes true. The "union with existing contexts" logic that follows the read cannot help when the read returned nothing.
+
+It was seen, not reasoned out. Earlier on 2026-09-29, a cloud session running `reddoor-maint launch vida-legacy-foundation` got 403 "Resource not accessible by integration" on the read and went straight to the PUT. The proxy refused the PUT ("Write access to this GitHub API path is not permitted through this proxy"), so nothing changed. Only the proxy stood between that run and the write. A token that can write but whose read fails once could have silently weakened `main`: any classic protection holding more than `ci / ci`, or requiring reviews, would have been replaced.
+
+The reader now returns `[]` only when stderr carries `Branch not protected (HTTP 404)`. Anything else throws, and `self-updating` fails with "could not read branch protection on main, so it was not written: …" plus the gh error, before any PUT. It matches the message and not only the status because this endpoint gives three different 404s: "Branch not protected", "Branch not found", and "Not Found", which is what GitHub answers for a repo the token cannot see. Only the first means unprotected.
+
+**GitHub's 404 message is not measured from this session; gh's stderr shape is.** This container's integration answers every protection read with 403 "Resource not accessible by integration". That happened on reddoor-maintenance `main`, on vida-legacy-foundation `main`, and on a branch that does not exist, so the unprotected-branch 404 cannot be produced from here. What was measured, with gh 2.101.0 and the reader's own `--jq` flag: the protection read printed `gh: Resource not accessible by integration (HTTP 403)` to stderr, `branches/no-such-branch-xyz` printed `gh: Branch not found (HTTP 404)`, and a missing file under `contents/` printed `gh: Not Found (HTTP 404)`. In each case the raw JSON body went to stdout. So stderr is `gh: <the body's message> (HTTP <status>)` whether or not `--jq` is set, which a reviewer also confirmed from gh's `api.go`. The body's message for an unprotected branch, "Branch not protected", comes from `docs/meta-week/_research/inv-09-open-loops-and-backlog.md`, which recorded `404 Branch not protected` from `gh api` on every fleet repo. If that wording is wrong, every run against an unprotected branch fails and names the stderr. That is the loud direction, and no protection is written. The first laptop run of `self-updating` against an unprotected branch is this instrument's first known-good pass. Until then it is an unproven instrument.
+
+The brief asked for other `code !== 0 → empty` reads that feed a write. There were three, and they got the same treatment:
+
+- `fileContentsOnBranch` answered null ("absent") for any failure. In `self-updating`, that marks both Renovate configs as drifted and opens a PR that writes the templates. For `renovate.yml`, `withRenovatePinsFrom(template, null)` then writes the template's older action pins, which is the #651 downgrade by another road. `prismic-ci`'s own comment admitted the collapse and relied on the open-PR check as the backstop. That check only stops the second PR, not the first. Now only a 404 is null, and `prismic-ci` fails with the read's error. A 404 still covers a hidden repo, because the contents endpoint says "Not Found" for both cases and the message cannot separate them. `openPullRequest` fails on such a repo anyway.
+- `self-updating` wrapped the read as `defaultBranch(repo).catch(() => "main")`. A failed read therefore aimed the protection PUT, the PR base and the ruleset's evidence read (`checkContextObserved`) at a branch nobody had confirmed. `prismic-ci` already refused to guess, and its step-5 comment says why. `self-updating` now fails before its first write.
+- `branchRequiredChecks` already threw on anything but a 404, and it only feeds `protection-coverage`, which writes nothing. It was left alone. `checkContextObserved` collapses every failure to false. It was left alone too, because false means "require no new check", and `healRuleset` never removes a required context. `filesOnBranch` and `repoExists` collapse every failure, but nothing in `src/`, `scripts/` or `netlify/` calls them. They were noted and left.
+
+Belief corrected on contact: the brief listed "a timeout" among the failures read as unprotected. The spawn wrapper's own 60 s timeout rejects with `SpawnTimeoutError`, and that already propagated out of the reader. What did collapse is gh's own network failure: it exits non-zero with "error connecting to api.github.com", and that is the case the tests carry.
+
+The instrument was proven first. 17 new tests were written against `e2d4aa6` before any fix. 16 went red for the right reason: the recipe tests got `applied` where they expected `failed`, meaning the PUT or the PR happened, and `prismic-ci` rejected uncaught. The 17th, "404 Branch not protected → protection applied", passes on both sides. That is the known-good input. The four protection-read recipe tests and the two config-read tests (`self-updating`, and `prismic-ci` after review) are REST-shaped: they plug the real `gh.ts` reader, over a fake `gh` exit, into the recipe's fake GitHub, so each exercises stderr → reader → recipe. The default-branch test injects a throwing `defaultBranch` shaped like the `gh()` helper's error, because that reader already threw. Then the fix got these mutations:
+
+| Mutation                                                        | New tests red                                           |
+| --------------------------------------------------------------- | ------------------------------------------------------- |
+| Any 404 reads as unprotected                                    | 3 (hidden repo, missing branch, recipe "404 Not Found") |
+| Any failure reads as unprotected (the original code)            | 10                                                      |
+| `self-updating` guesses `main` again                            | 1                                                       |
+| Any contents failure reads as absent                            | 5                                                       |
+| `prismic-ci` catches the read failure as null                   | 1                                                       |
+| `self-updating` swallows the protection-read failure as `[]`    | 3                                                       |
+| A failed read answered as `[ci / ci]`, so the ruleset step runs | 3                                                       |
+
+My first version of the `prismic-ci` mutation survived, and that was the mutation's fault, not the test's: as written it still returned `failed`. Rewritten as `.catch(() => null)`, it goes red.
+
+Three adversarial reviews (correctness, test validity, accuracy of this prose) found no blocking defect in the code. They found these, and they were folded in before merge:
+
+- The `prismic-ci` test injected a throwing reader, so it could not see the `gh.ts` fix: with the pre-fix reader all 38 of its tests passed. It now runs the real reader over a 403, and the contents-mutation row went from 4 to 5.
+- Nothing asserted that the ruleset step is skipped after a failed read. A mutation that answered the failure with `[ci / ci]` passed every new test. The failure cases now assert `repoVisibility` is never called, and that mutation goes red (the last row).
+- The changeset said "nothing is written". That was false for the whole run: block A (the Renovate config PR) and the auto-merge PATCH run before the protection read. What holds is that no protection and no ruleset is written.
+
+One finding is real and outside this change: a read that SUCCEEDS on a protected branch lacking `ci / ci` still sends `protectBranch`'s full-replacement PUT, which sets `required_pull_request_reviews` and `restrictions` to null. So does a branch whose protection has `required_status_checks: null`, because the reader's `[]?` prints nothing there. This PR stops a failed read from becoming a write. It does not stop a successful read from weakening protection, and it should not be read as that.
+
+`pnpm verify`: typecheck, lint, the match-harness snapshot guard, build and `test:dist` pass. `test:coverage` has 24 failures, in `a11y-live-spec` and `interaction-harness`. All of them are Playwright's pinned `chromium_headless_shell-1234`, which is absent here: this clone was attached with `add_repo`, so the cloud setup hook never ran. Unmodified `main` gives the same 24.
+
+Honest accounting: a cloud `launch` still stops at `self-updating`. It now stops at the read and says why, instead of at the refused PUT. Launching from a cloud session stays blocked on bootstrap while the integration has no Administration read. I noticed one thing and did not change it: the ruleset block's comment says classic protection "keeps `enforce_admins: false`", but `protectBranch` sends `enforce_admins=true`. No PR was opened from this session; the branch is pushed for one.

@@ -663,6 +663,57 @@ describe("collectPreflightBlocked", () => {
     expect(approved[0]!.key).not.toBe(pending[0]!.key);
   });
 
+  it("carries the exact ask with the site path, not only the category (P1-20)", () => {
+    const sitesById = new Map([["recS1", site({ name: "29 Navy", pointOfContact: null })]]);
+    const [pending] = collectPreflightBlocked([draft()], sitesById, "https://d");
+    expect(pending!.ask).toBe("set Report recipients (To) on /s/29-navy, then approve");
+    const [approved] = collectPreflightBlocked(
+      [draft({ approvedToSend: true })],
+      sitesById,
+      "https://d",
+    );
+    expect(approved!.ask).toBe(
+      "set Report recipients (To) on /s/29-navy, then it sends on the next run",
+    );
+  });
+
+  it("names every health-gate field in one ask, beside the other fixes", () => {
+    const sitesById = new Map([["recS1", site({ name: "29 Navy", headerImage: null })]]);
+    const [it0] = collectPreflightBlocked(
+      [draft({ reportType: "Maintenance", autoEvidence: {} })],
+      sitesById,
+      "https://d",
+    );
+    expect(it0!.ask).toBe(
+      "add a Header image; clear the health gate: Maint: Deploy & Function Health (unknown), " +
+        "Maint: CMS Checked (unknown), Maint: Domain, DNS & SSL (unknown), " +
+        "Maint: Security Updates (unknown), Maint: Uptime Checked (unknown), " +
+        "or log a send-anyway override on /s/29-navy, then approve",
+    );
+    const [failing] = collectPreflightBlocked(
+      [
+        draft({
+          reportType: "Maintenance",
+          autoEvidence: {
+            "Maint: CMS Checked": {
+              result: "fail",
+              checkedAt: "2026-09-28",
+              note: "500 on /admin",
+            },
+          },
+        } as Partial<ReportRow>),
+      ],
+      new Map([["recS1", site({ name: "29 Navy" })]]),
+      "https://d",
+    );
+    expect(failing!.ask).toContain("Maint: CMS Checked (failing)");
+    expect(failing!.askParts).toContain("health-gate: Maint: CMS Checked");
+    expect(failing!.askParts!.join()).not.toMatch(/failing|unknown/);
+    expect(it0!.askParts).toContain("health-gate: Maint: CMS Checked");
+    expect(it0!.askParts).toContain("add a Header image");
+    expect(failing!.ask).not.toContain("500 on /admin");
+  });
+
   it("skips sent reports", () => {
     const sitesById = new Map([["recS1", site({ pointOfContact: null })]]);
     expect(
