@@ -1609,3 +1609,69 @@ describe("round seven: a probe whose page did not answer 2xx checked nothing", (
     expect(res.summary).toContain("Not checked: whether the tag fires");
   });
 });
+
+describe("round seven, check: a recorded refusal is an observation, and an HTML mismatch is not a pass", () => {
+  const A = "G-AAAAAAAAAA";
+  const B = "G-BBBBBBBBBB";
+
+  it("keeps a CSP-refused loader named in the HTML as emitting: false", () => {
+    const e = determineEmission({
+      probe: { loadedIds: [], failed: [{ id: A, reason: "net::ERR_BLOCKED_BY_CSP" }] },
+      htmlIds: [A],
+    });
+    expect(e.emitting).toBe(false);
+    expect(e.authoritative).toBe(true);
+  });
+
+  it("case L: hook plus a same-ID snippet, the loader CSP-refused, HTML naming it — not a pass", async () => {
+    const d = await mkdtemp(join(tmpdir(), "rd-caseL-"));
+    await mkdir(join(d, "src"), { recursive: true });
+    await writeFile(
+      join(d, "src", "hooks.client.ts"),
+      `initAnalytics({ measurementId: "${A}", productionHost: "www.example.com" });`,
+    );
+    const html = `<script async src="https://www.googletagmanager.com/gtag/js?id=${A}"></script>`;
+    await writeFile(join(d, "src", "app.html"), html);
+    const res = await analyticsAudit({
+      site: { path: d, deployedUrl: "https://www.example.com/" },
+      analyticsDeps: {
+        propertyId: "111111111",
+        probeTag: async () => ({
+          loadedIds: [],
+          failed: [{ id: A, reason: "net::ERR_BLOCKED_BY_CSP" }],
+        }),
+        fetchHtml: async () => html,
+      },
+    });
+    expect(res.status).not.toBe("pass");
+    expect(res.summary).toContain("net::ERR_BLOCKED_BY_CSP");
+    expect(res.summary).toContain("Content-Security-Policy");
+  });
+
+  it("case H: hook G-A, a probe that saw nothing, HTML naming G-B — warns with the mismatch", () => {
+    const v = classifyAnalytics(
+      facts({
+        config: { measurementId: A, productionHost: "www.example.com" },
+        propertyId: "111111111",
+        evidence: { probe: { loadedIds: [] }, htmlIds: [B] },
+      }),
+    );
+    expect(v.status).toBe("warn");
+    expect(v.summary).toContain(`the live site loads ${B} but the checkout declares ${A}`);
+  });
+
+  it("turns a thrown null or undefined into a warn, not a crash", async () => {
+    for (const thrown of [null, undefined]) {
+      const res = await analyticsAudit({
+        site: { path: "/nonexistent" },
+        analyticsDeps: {
+          get propertyId(): string {
+            throw thrown;
+          },
+        },
+      });
+      expect(res.status).toBe("warn");
+      expect(res.summary).toContain(`could not complete (${String(thrown)})`);
+    }
+  });
+});
