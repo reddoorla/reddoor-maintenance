@@ -39,6 +39,12 @@ function validate(raw: unknown): Site[] {
         );
       }
     }
+    // The row's GA4 property, for the analytics audit. A string or an explicit
+    // null ("the row has none") is carried; absent stays absent, which the
+    // audit reads as "no row", never as "no property".
+    if (typeof e.ga4PropertyId === "string" || e.ga4PropertyId === null) {
+      site.ga4PropertyId = e.ga4PropertyId;
+    }
     if (typeof e.meta === "object" && e.meta !== null) {
       site.meta = e.meta as Record<string, unknown>;
     }

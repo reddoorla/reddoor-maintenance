@@ -73,7 +73,9 @@ export async function fetchPeriodUsers(
   const lengthDays = Math.round((periodEnd.getTime() - periodStart.getTime()) / MS_PER_DAY);
   const prevEnd = new Date(periodStart.getTime() - MS_PER_DAY);
   const prevStart = new Date(prevEnd.getTime() - lengthDays * MS_PER_DAY);
-  const property = `properties/${query.propertyId}`;
+  // Trimmed: a trailing newline from a paste or a `--jq` round-trip would ride
+  // into the resource name and 404, which the analytics audit already guards.
+  const property = `properties/${query.propertyId.trim()}`;
 
   return withSubjectFailover(query.subjects, "GA", async (subject) => {
     const authClient = new JWT({

@@ -23,6 +23,21 @@ describe("inventory/fromJsonFile", () => {
     expect(sites[1]?.repoUrl).toBe("git@github.com:o/b.git");
   });
 
+  it("carries a GA4 property, an explicit null, or nothing, and never conflates them", async () => {
+    // The analytics audit reads absent as "no row read" and null as "the row
+    // has none". A JSON inventory used to drop the field, so every JSON site
+    // looked like a checkout with no row.
+    const path = await withJsonFile([
+      { path: "/abs/a", ga4PropertyId: "111111111" },
+      { path: "/abs/b", ga4PropertyId: null },
+      { path: "/abs/c", meta: { siteId: "rec1" } },
+    ]);
+    const [a, b, c] = await fromJsonFile(path)();
+    expect(a?.ga4PropertyId).toBe("111111111");
+    expect(b?.ga4PropertyId).toBeNull();
+    expect(c).not.toHaveProperty("ga4PropertyId");
+  });
+
   it("rejects with a clear message when the file isn't an array", async () => {
     const path = await withJsonFile({ name: "a", path: "/x" });
     await expect(fromJsonFile(path)()).rejects.toThrow(/array/i);
