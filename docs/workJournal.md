@@ -4902,6 +4902,7 @@ This is the follow-up the 09-28 entry listed as C2, plus #646 step 6's last clau
 
 - "The other 13 maintained sites' last sent reports carry no search result" should be 12. Sonder is one of the 13 without a property, and it had one. Three of those 12 (1836dig, 29 Navy, LA Homelessness Youth) have no sent report at all.
 - "The launching sites are untouched" is true of the tier only. The setup score ignores status, so a launching site's card also shows Setup n/6.
+- The #939 changeset's closing sentence ("reports still resolve one automatically when the row is blank") holds only for a site with a GA4 property or a search query. This branch corrected it, but the release PR (#930) published it as 0.100.0 first and consumed the file, so the released CHANGELOG keeps the overstatement. The correction reaches the next release through this PR's own changeset.
 - "I checked those by hand" missed one. `continuity.md`'s citation of the Needs-you feed started 11 lines early and had drifted before #936. #939 shifted it and kept the error. It now reads `fleet-cockpit.ts:419–442`.
 
 **Proof.** Nine mutations, each failing a test: the report run ignoring the opt-out; a recorded property not enrolling; `analyticsEnrolled` dropping GA4; setup matching only the exact spelling; each `maintained` guard removed (GA4 and Search Console); the editor back to free text; the normaliser dropping the trailing slash; the old reason text.

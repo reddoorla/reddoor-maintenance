@@ -1,5 +1,108 @@
 # @reddoorla/maintenance
 
+## 0.100.0
+
+### Minor Changes
+
+- 274d10f: The Airtable layer is deleted (#646 steps 6–8)
+
+  Turso has been the only authoritative store since 2026-08-31. This removes the
+  code that still talked to Airtable, and the `airtable` devDependency. Every
+  write that used to go to Airtable, or to Airtable and then Turso, now goes to
+  Turso only.
+
+  Breaking for library consumers:
+
+  - `fromAirtableBase` and `AirtableInventoryOptions` are no longer exported.
+  - `draftReportForSite(siteRow, reportType, options)` no longer takes a leading
+    `base`. Enrichment defaults to on unless `previewOnly`, and the header refresh
+    runs unless `previewOnly` or `refreshHeader: false`.
+
+  Breaking for the CLI:
+
+  - `db import-airtable`, `db parity`, `db sync`, `db backfill-header-images` and
+    `db backfill-digest-state` are removed, and so is `db --force`.
+  - `header-image --write-back` stores the plate in Turso only, and refuses to
+    run when no Turso store is configured.
+  - `AIRTABLE_PAT` and `AIRTABLE_BASE_ID` are no longer read by any command,
+    workflow or Netlify function. The Netlify GET health checks report
+    `TURSO_DATABASE_URL` in their place.
+  - The fleet audit write-back files a site under `failed` when its Turso write
+    throws, matches no row, or has no store, so the nightly gates red on a total
+    store outage (`wrote=0`) and warn on a single failure.
+  - `sendApprovedReports` requires `reportSentMirror` and `siteMirror`: they are
+    the only sent stamp and the only Launch flip.
+
+  Behaviour:
+
+  - The send has no Airtable header fallback. A site with no Turso plate fails its
+    report by name, with the `header-image --write-back` command that fixes it.
+  - The report re-render has no Airtable header fallback either, and reports
+    `no-header` instead.
+  - `selftest email` reads the Turso roster and header plate.
+  - `github-signals --fleet --write-back` exits 1 when any Turso write fails,
+    misses or has no store configured, the same strict rule as the audit
+    write-back. Turso is now the only place a signal lands.
+  - Messages that told the operator to fix a value in Airtable now point at the
+    site's details in the console.
+  - `DIGEST_STATE_WRITE` no longer carries an `airtable=` counter.
+  - When Lighthouse returns no scores, the site's other audit values still reach
+    Turso, and the site is still reported as failed.
+  - The audit and GitHub-signals write-back summaries read
+    `→ wrote N site(s)`.
+
+- 33745e8: `ensure-site` no longer consults Airtable
+
+  `ensureSite` drops its legacy Airtable dependency:
+
+  - The #645 heal lookup is gone. It looked up a slug in Airtable when Turso had none.
+  - So is its adopt step.
+  - So is the shadow copy of a `rec` site's filled fields.
+
+  A new slug is created straight in Turso. Before, the lookup ran whenever Airtable
+  credentials existed and refused the create when Airtable failed, so onboarding
+  was blocked while the Airtable API quota was exhausted.
+
+  Airtable has received no writes since 2026-08-31's freeze plus the shadow switch.
+  Every Airtable site was imported then (`FLEET_PARITY sites=44`), so no site can
+  exist only in Airtable. `EnsureSiteDeps.airtable`, `LegacyAirtableSites`,
+  `EnsureSiteResult.healedDbRow` and `EnsureSiteResult.airtableShadow` are removed.
+  The CLI's stale "invisible to Airtable-enumerated batch jobs" note goes too:
+  every batch job has enumerated from Turso since 09-17.
+
+- 5270521: GA4 is now part of fleet setup. The setup score gains a fifth check, "GA4 property (or a "no analytics" opt-out)", satisfied by a `ga4PropertyId` on the site row or by accepting `no analytics` under Accepted watch conditions. A maintained site with neither is a cockpit watch item ("no GA4 property"), filterable as `no-analytics`. Accepting `no analytics` is the explicit opt-out for a client who runs their own analytics: the site leaves the watch band and the opt-out stays visible as a muted chip. Launching sites are not asked until go-live. `no analytics` is the first accepted-condition option added since Airtable stopped receiving writes, so it is stored in Turso only.
+- 84e6d2e: `report --rerender` (the dashboard's "refresh preview") now re-checks an unsent, unapproved report's health evidence against the site's latest audits before it renders, and stores the result. A draft made before its site was ever measured used to read "Not yet measured" on every gating item forever, so it could never be approved without deleting it or overriding the gate (#890). Approved and sent reports keep the evidence they were approved against, the draft-time Google Indexed result is kept as it was, and a box is only ever ticked, never unticked. The machine line gains `evidence=reticked|unchanged|locked|not-written`.
+- 668940c: `--fleet airtable` is retired
+
+  The keyword has read the Turso roster, with a deprecation warning, since #646
+  step 4. It is now refused with exit 2 and a message naming `--fleet turso`,
+  instead of being read as an inventory file called "airtable".
+
+  Internal only, no API change: the remaining Airtable-named modules moved to
+  `src/fleet/site-fields.ts`, `src/reports/report-fields.ts`,
+  `src/db/field-map.ts` and `src/audits/*-fields.ts`, and the unused
+  `created`/`hasRow` mirror operations are gone.
+
+- f64544f: Search Console is now part of site launch, alongside GA4. The setup score gains a sixth check, "Search Console property (or a "no search console" opt-out)", satisfied by a `searchConsoleProperty` on the site row or by accepting `no search console` under Accepted watch conditions. A maintained site with neither is a cockpit watch item ("no Search Console property"), filterable as `no-search-console`, and launching sites are not asked. The opt-out is independent of `no analytics`. The check asks whether the row records a property, not whether Search Console verifies it; reports still resolve one automatically when the row is blank.
+
+### Patch Changes
+
+- 148293f: The draft-time header refresh reaches the client again
+
+  `refreshHeaderImage` runs on every real draft and on `announce`. It captured a
+  fresh homepage screenshot and uploaded it only to Airtable's `Header image`
+  attachment. Since #864 (2026-09-17) the send reads the site's header plate from
+  Turso, and every site has one, so the refreshed screenshot never reached a
+  client email. Since #933 turned the Airtable shadow off, it went nowhere at all,
+  while the function still reported success.
+
+  It now writes the plate into Turso `sites.header_image`, through the same
+  `storeHeaderImage` path as `header-image --write-back`, using the same
+  `generateHeaderImage` clean plate. It is still best-effort: a failed capture or
+  store warns and returns false without failing the draft, and that includes
+  running with no Turso configured. `RefreshHeaderDeps.upload` is replaced by
+  `store`.
+
 ## 0.99.0
 
 ### Minor Changes
