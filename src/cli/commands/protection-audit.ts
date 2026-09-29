@@ -2,6 +2,7 @@ import {
   collectProtectionCoverage,
   renovateOutcomeLine,
   renovateOutcomeSummary,
+  rulesetBypassSummary,
   type ProtectionCoverageDeps,
 } from "../../audits/protection-coverage.js";
 import {
@@ -89,6 +90,7 @@ export async function runProtectionAuditCommand(
     for (const note of p.accepted) lines.push(`WARN    ${p.repo} — ${note}`);
   }
   lines.push(renovateOutcomeSummary(measured));
+  lines.push(rulesetBypassSummary(rows));
   lines.push(packageManagerPinSummary(pinRows));
   lines.push(
     `PROTECTION_AUDIT gaps=${gaps.length} covered=${covered.length} skipped=${skipped.length} total=${rows.length}`,

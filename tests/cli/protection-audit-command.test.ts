@@ -231,4 +231,68 @@ describe("runProtectionAuditCommand", () => {
     expect(r.output).toMatch(/^COVERED reddoorla\/espada/m);
     expect(r.output).toContain("PROTECTION_AUDIT gaps=1 covered=1 skipped=0 total=2");
   });
+  /**
+   * #981's instrument, proven before any live number is trusted: the same
+   * sweep driven once where every ruleset carries `bypass_actors` and once
+   * where none does. Only the RULESET_BYPASS line may differ, and it must
+   * match none of the patterns fleet-security.yml gates on.
+   */
+  it("RULESET_BYPASS counts rulesets read without bypass_actors, and never touches the gating lines", async () => {
+    const deps = (withField: boolean): ProtectionAuditDeps => ({
+      listOrgRepos: async () => [
+        { name: "espada", ...PUBLIC_CLEAN },
+        { name: "naked", ...PUBLIC_CLEAN },
+        { name: "the-tower", visibility: "private", archived: false, ...SEC_ON },
+      ],
+      listRepoRulesets: async (repo) =>
+        repo === "reddoorla/espada"
+          ? [
+              { id: 1, name: FLEET_RULESET_NAME },
+              { id: 2, name: "tags" },
+            ]
+          : [],
+      getRuleset: async (_repo, id) => {
+        const { bypass_actors, ...rest } = { ...desiredRuleset("ci / ci"), id };
+        return withField ? { ...rest, bypass_actors } : rest;
+      },
+      workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH }),
+      dependencyDashboard: async () => ({
+        present: true,
+        blockedBranches: [],
+        unknownSections: [],
+      }),
+      branchTip: async () => null,
+      openSecretAlerts: async () => 0,
+      renovateMergeWindow: async () => ({ merges: [], truncated: false }),
+      repoTextFile: async () => null,
+      listWorkflowPaths: async () => [],
+      defaultBranch: async () => "main",
+      branchRequiredChecks: async () => null,
+    });
+    const present = await runProtectionAuditCommand({ org: "reddoorla" }, deps(true));
+    const missing = await runProtectionAuditCommand({ org: "reddoorla" }, deps(false));
+
+    expect(present.output).toMatch(/^RULESET_BYPASS unread=0 read=2$/m);
+    expect(missing.output).toMatch(/^RULESET_BYPASS unread=2 read=2$/m);
+
+    const audit = /^PROTECTION_AUDIT .*$/m;
+    expect(present.output.match(audit)![0]).toBe(
+      "PROTECTION_AUDIT gaps=1 covered=1 skipped=1 total=3",
+    );
+    expect(missing.output.match(audit)![0]).toBe(present.output.match(audit)![0]);
+    const without = (o: string) =>
+      o
+        .split("\n")
+        .filter((l) => !l.startsWith("RULESET_BYPASS "))
+        .join("\n");
+    expect(without(missing.output)).toBe(without(present.output));
+
+    for (const out of [present.output, missing.output]) {
+      const line = out.split("\n").find((l) => l.startsWith("RULESET_BYPASS "))!;
+      expect(line).not.toMatch(/^GAP/);
+      expect(line).not.toMatch(/^COVERED/);
+      expect(line).not.toContain("PROTECTION_AUDIT gaps=0 ");
+      expect(line).not.toContain("PROTECTION_AUDIT");
+    }
+  });
 });

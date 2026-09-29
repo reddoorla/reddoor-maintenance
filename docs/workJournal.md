@@ -5575,3 +5575,75 @@ The review had three lenses: correctness, test validity with 20 mutations of the
 Landing took three merges of `main`, each conflicting only in `docs/BACKLOG.md`. Removing P1-16's row re-pads the whole P1 table under Prettier, so every other session's edit to any P1 row conflicts with it; land-prs.mjs's update-branch was overtaken once, by #993. The full suite passed on each merged head (7744 tests on the last one that brought in code), and CI passed on the landed head `a16069e`.
 
 Belief corrected on contact: the brief expected the `failed` → 404 behaviour to need a test only for the public route. It also fixes `setProspectAuditOverrides` and `touchProspectAuditOpened` for free, because both act only after `getProspectAuditByToken` succeeds. The overrides half is pinned by a test.
+
+## 2026-09-29 — The palette fix #916 needs goes to two repos, not nine; vida is red for other reasons (29-navy#58, reddoor-starter-blux#36)
+
+#916 makes an unmeasured contrast check fail the a11y gate. Before the
+operator clicks 0.102.0, every maintained site was measured with the #916
+build to find the ones whose Renovate PR would go red, and to stage the
+palette fix in each. The roster was re-derived from Turso: 15 maintained
+rows, not the brief's 14 (`vida-legacy-foundation` is new), plus
+`reddoor-starter-blux`. Each site ran its own CI gate three ways: control
+on its locked version (0.90.1–0.97.0), #916 packed from `origin/main` @
+`c1410fa` in a scratch copy, and #916 plus the fix.
+
+**Measured: 16 of 16 controls green. On #916, 3 red and 13 green.** Two are
+fixed by the palette alone: 29-navy and reddoor-starter-blux, both through
+the starter-lineage Hero (`bg-neutral-900 text-white`). Each goes from
+`rule-errored on a11y fixtures` with 0 contrast nodes on that route to a
+pass with 68 and 66. The third, vida-legacy-foundation, carries the same
+Hero, but it was also **hidden-red twice over**. `mix-blend-plus-lighter`
+makes axe throw `blendFunctions[blendMode] is not a function` on `/` and
+`/es`, since axe has no plus-lighter. With the palette fixed, the fixtures'
+`text-red-600` form errors fail contrast for real. Neither is a palette
+line, so no vida PR was opened. It is Operator decisions 23, with the table
+in `docs/palette-rollout-2026-09-29.md`.
+
+**Belief corrected: "9 of 12 sampled sites red" did not hold.** It came from
+a static grep for none-hued tokens in `theme.css`, and every site installs
+that file, since all 16 are on Tailwind 4.3.3 with the same 13 tokens.
+Tailwind emits only the tokens a site uses. The instrument that predicted
+the gate was the site's _built_ CSS: 4 of 16 emit a none-hued variable.
+Three of those went red, and the fourth (beachfront, `neutral-100` on a map
+placeholder) is not on any gate route. Twelve sites use none of the
+tokens at all.
+
+The brief's reference commit was not there. `f34eed2` and
+`claude/lucid-wozniak-wj8gaj` do not exist on `reddoorla/reddoor-starter`
+(422, no ref), and no starter PR carries them. The block was generated
+instead from each repo's own `node_modules/tailwindcss/theme.css` (L and C
+kept, `none` → `0`). On the starter it proved the instrument: `origin/main`
+
+- #916 → exit 1 `rule-errored on a11y fixtures`; + block → exit 0, 64
+  fixture nodes.
+
+Two instruments nearly lied. The gate first reported
+`no results written`, which was the environment's fault, not the site's:
+the sites pin Playwright 1.63.0, whose `chromium_headless_shell-1243` was
+not in `/opt/pw-browsers`, and installing it fixed that. The first
+render-identity check shot the production preview, where every route is a
+404, and reported 6/6 identical. Only the status log showed it. It now
+runs on the dev server the gate scans and fails on any non-200. It was
+proven both ways: A/A gave 0 differing bytes, and `neutral-900` at chroma
+0.08 gave 359,643 and 837,179. A mutation that removed only the
+`neutral-900` line from 29-navy's fix put its gate back to the same
+`rule-errored`.
+
+One PASS is worth distrusting: erp-industrial's fixtures measure **0**
+contrast nodes, and it passes. #916 catches colours axe cannot parse, not
+a route where the rule found nothing. That is not a palette matter and is
+not in this change.
+
+## 2026-09-29 — `sync-configs --dry` becomes an instrument and gets a weekly workflow; held after two review rounds (P1-12, #983, PR #995 not landed)
+
+Nothing ran `sync-configs --dry`, and it could not have been trusted if anything had. The brief's probe reproduced exactly on `e2d4aa67`. `sync-clean` plus one force-added `build/app.js` printed `no changes needed` under `--dry`, and the real run printed `applied: 1 commit(s)` with `chore: sync gitignore`. The dry path had its own merge-only copy of the gitignore planner, which never asked which canonically ignored paths are tracked. The fix follows the same principle as the template half of the dry plan: `planGitignore` is exported with an optional `tracked` list, and `--dry` calls it. A plain directory that is not a git repo passes `[]` and still works. A fleet checkout that is not a git work tree is `SKIPPED`, never read as clean.
+
+The dry run now ends with machine lines: `DRIFT <repo> <path>`, `CLEAN <repo>`, `SKIPPED <repo> <reason>` and one `SYNC_CONFIGS_DRIFT drifted= clean= skipped= total=`. Every line names `site.gitRepo`, because five roster slugs differ from their repo, and `SkippedSite` gained an optional `repo` so prep-skipped sites are named the same way. A dry plan that throws for one site becomes that site's SKIPPED line, never a CLEAN one, and never aborts the fleet.
+
+`fleet-config-drift.yml` runs Sundays at 07:23 UTC. It first runs a positive control on three git-init'd fixture copies: drift, clean, and clean plus a tracked `build/app.js`, which must read as exactly `DRIFT tracked .gitignore`. Then it sweeps `--fleet turso --dry` with unauthenticated clones and no App token. The run goes red on a failed control, a CLI exit, a missing summary, `total=0` or more than half skipped; drift never reds it. The finding issue "Fleet config drift" closes only when the summary says `drifted=0 ` and every repo in its own body comes back CLEAN, matched exactly. The executing tests run the control against the real CLI and fixtures, and they run the issue steps against a `gh` stub that does GitHub's substring title search and applies the step's own `--jq` through real `jq`. The first stub filtered titles exactly, so a test of "a near-title issue is never closed" passed because of the stub, not the step. Round 1 caught that.
+
+The review went two rounds, and each found real gaps, so under "Two dirty review rounds, then stop" #995 is Operator decisions 24 rather than merged. Round 1 found one code defect: `--only` without gitignore skipped the fleet git guard. It also found six untested guards: exact-title and exact-repo matching, the control's contradiction checks, and one record per line. Round 2's correctness lens found nothing. Its test lens found five more: the expected DRIFT paths were derived from the dry plan itself, so they could not catch it dropping a file; the open step's `drifted == 'yes'` gate; three control checks; the tracked leg, which would pass if built from the drift fixture; and the skip warning's repo list. Its integration lens found the runbook tables missing the workflow. All are fixed on the branch with the mutation that proves each one: 37 mutation runs, every one red. One design point is kept as the brief set it: a repo that leaves the roster keeps the finding issue open until someone closes it by hand, and the close step now says so in a `::warning::` rather than an echo.
+
+The live proof (dispatch once on `main`: control passes, total equals the roster, issue filed to match) waits for the merge. It belongs in the entry that lands #995.
+
+Belief corrected on contact: a mutation harness that rewrites files is itself something to verify. Killing a run mid-mutation left mutation 1 (a skipped site printed as `CLEAN`) applied in the worktree, and only a diff before committing caught it.
