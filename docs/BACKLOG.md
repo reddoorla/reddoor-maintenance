@@ -265,7 +265,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
     checklist is unchanged, since it is not evidence and not named here.
 18. **Standing product calls** — answered 2026-09-29, except #773:
     - #943 (what "Search Console set up" means): evidence-based. Built in
-      #1016, which waits on the freshness window in item 26.
+      #1016, which waits on the freshness window in item 27.
     - #948 (hydration signal): audit the built preview (`vite preview`), not
       the dev server; queued until the a11y PRs in flight land.
     - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
@@ -388,7 +388,34 @@ Ordered by what unblocks the most. Each line is the exact ask.
     tests were added), or run a third review round first. Landing it is
     `git merge origin/main` (keep both sides of BACKLOG and the journal), CI
     green, then `node scripts/land-prs.mjs 989`.
-26. **#943, the Search Console freshness window (PR #1016)**: how long does a
+26. **P1-3 PR 2, the roster-url surface (#912, PR #1004)**: two review rounds
+    each found a real defect, so #1004 is held for your call, not a third
+    round. It adds a digest item `url-unresolved:<siteId>` for a fresh `fail` on
+    any non-archived row (it names the url and status), one fleet item
+    `url-probe-stale` (metric = count) for stale stamps, and `url not deployed`
+    in Accepted Watch Conditions, which mutes only `fail`. Maintained rows also
+    watch on the cockpit, with a filter chip. Round 1 (on `5471c319`) found that
+    a never-stamped row read "not checked in 3 days", plus four missing tests
+    (a null verdict on the cockpit, a future stamp, the alias, `now` wiring).
+    All were fixed in `6400ea42`. Round 2 (on `6400ea42`) found one behaviour
+    defect: a site added between the day's probe and the 09:23 digest (runs
+    start late, so the probe can land after lunch PT) mailed "the probe is
+    behind, check the step" about a step that is working. It also found four
+    test gaps. Fixed in `490e6be2`. **The product fork, and my pick:** a
+    never-stamped row now counts only while no row in the fleet is fresh. A
+    probe that never ran or has stopped leaves no fresh row, so it is still
+    caught. The cost is that one row the probe keeps failing to stamp while it
+    stamps the rest is not caught. Round 2's correctness lens found no path that
+    creates such a row (every insert creates its `site_health` row). The other
+    choice is to alarm on it anyway and accept one false mail per new site.
+    All 32 mutations (the brief's 12 plus both rounds' survivors) turn a test
+    red. The full suite passes (8061), and lint and typecheck are clean. The
+    ask: land #1004 as it is (my pick), or pick the other never-stamped rule,
+    or run a third round first. Landing it is `git merge origin/main` (keep
+    both sides of BACKLOG), CI green, `node scripts/land-prs.mjs 1004`. The
+    first stamp comes from tonight's nightly (item 20). Item 21's url fix
+    clears the-pointe-burbank's item.
+27. **#943, the Search Console freshness window (PR #1016)**: how long does a
     resolved Search Console lookup count as evidence for the launch check?
     #943 says "N days" and leaves N open. My pick: the site's shorter report
     cadence plus 14 days, which is 45 days for monthly, 106 for quarterly and
