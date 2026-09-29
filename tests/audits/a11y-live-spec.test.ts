@@ -99,6 +99,12 @@ function plainPage(title: string): string {
  *     first time it is seen, and shows `#grown` at 560vh, itself a reveal. A
  *     pass that read the height once would stop near 400vh and never see it.
  *
+ * `#xo-frame` is a lazy, title-less iframe from the second origin, at 330vh:
+ * the shape of a Google Maps footer embed that the pass now brings into load
+ * range. Its document has an `<img>` with no `alt`. The `<iframe>` element must
+ * still fail `frame-title` in the top document; the frame's own contents are a
+ * third party's and must not be audited.
+ *
  * `#outside-landmarks` fails axe's `region` rule, which is tagged
  * `best-practice` only. The gate asks for WCAG tags, so it must never appear;
  * if it does, the tag filter was lost. `AxeBuilder.options()` REPLACES the
@@ -123,6 +129,7 @@ const FIXTURE_PAGE = `<!doctype html>
   #delayed { top: 380vh; }
   #grow { top: 390vh; height: 1px; }
   #grown { top: 560vh; }
+  #xo-frame { position: absolute; top: 330vh; left: 0; width: 300px; height: 150px; border: 0; }
   #bar { position: fixed; right: 0; bottom: 0; background: #fff; padding: 4px; }
   #bar-text { color: #aaa; margin: 0; }
   #bar.scrolled #bar-text { color: #111; }
@@ -138,6 +145,7 @@ const FIXTURE_PAGE = `<!doctype html>
   <div class="reveal" id="delayed"><p id="delayed-text">Starts fading only after a placeholder animation</p></div>
   <div class="reveal" id="grow"></div>
   <div class="reveal" id="grown" hidden><p class="faint" id="grown-text">Only exists once the page has grown</p></div>
+  <iframe id="xo-frame" loading="lazy" src="CROSS_ORIGIN/frame.html"></iframe>
   <div id="bar"><p id="bar-text">Legible only while scrolled</p></div>
 </main>
 <div id="outside-landmarks">Outside every landmark</div>
@@ -186,6 +194,9 @@ const FIXTURE_PAGE = `<!doctype html>
 </body>
 </html>`;
 
+/** The third-party frame's document: one `image-alt` failure, not the site's. */
+const FRAME_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embed</title></head><body><main><img src="/tile.png"></main></body></html>`;
+
 const SERVER = `
 import { createServer } from "node:http";
 import { appendFileSync } from "node:fs";
@@ -195,6 +206,11 @@ const log = (file, entry) => appendFileSync(file, JSON.stringify(entry) + "\\n")
 
 const cross = createServer((req, res) => {
   log("cross-origin.jsonl", { url: req.url, mode: req.headers["sec-fetch-mode"] ?? null });
+  if (req.url === "/frame.html") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(${JSON.stringify(FRAME_PAGE)});
+    return;
+  }
   res.writeHead(200, { "content-type": "text/css", "cache-control": "no-store" });
   res.end("body { font-family: Georgia, serif; }");
 });
@@ -206,6 +222,7 @@ const csp = [
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline' " + crossOrigin,
   "img-src 'self'",
+  "frame-src 'self' " + crossOrigin,
   "connect-src 'self'",
   "report-uri /csp-report",
 ].join("; ");
@@ -313,7 +330,10 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     // the contrast assertions measuring nothing.
     expect(result?.summary).toMatch(/^a11y: \d+ violations across 2 routes/);
     const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
-    expect(all.map((v) => `${v.id} on ${v.route}`)).toEqual(["color-contrast on a11y fixtures"]);
+    expect(all.map((v) => `${v.id} on ${v.route}`).sort()).toEqual([
+      "color-contrast on a11y fixtures",
+      "frame-title on a11y fixtures",
+    ]);
   });
 
   it("records a complete reveal pass for every scanned route", () => {
@@ -355,6 +375,17 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
 
   it("follows a page that a reveal lengthens", () => {
     expect(contrastTargets()).toContain("#grown-text");
+  });
+
+  it("audits a third-party iframe element, but not the third party's document", async () => {
+    // The frame really loaded, so its image-alt failure was there to be found.
+    const hits = await readJsonl(join(site, "cross-origin.jsonl"));
+    expect(hits.map((h) => h.url)).toContain("/frame.html");
+    const frameTitle = violations().filter((v) => v.id === "frame-title");
+    expect(frameTitle.flatMap((v) => (v.nodes ?? []).map((n) => n.target))).toEqual([
+      ["#xo-frame"],
+    ]);
+    expect(violations().map((v) => v.id)).not.toContain("image-alt");
   });
 
   it("does not re-fetch the page's cross-origin stylesheet, so the site's CSP is not tripped (#52)", async () => {

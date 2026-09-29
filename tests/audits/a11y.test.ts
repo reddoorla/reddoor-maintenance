@@ -1463,6 +1463,14 @@ describe("audits/a11y — axe runs without its CSSOM preload (#52)", () => {
 
   // AxeBuilder.options() REPLACES the options object that withTags() writes
   // runOnly into. After withTags(), it would drop the WCAG filter silently.
+  // Frame contents from another origin are not the site's (review of #100):
+  // legacy mode is the one switch @axe-core/playwright 4.13 honours for that —
+  // `{ iframes: false }` in options is ignored by its default mode. What it
+  // does in a browser is held by a11y-live-spec.test.ts.
+  it("runs in legacy mode, so cross-origin frame contents are not audited", async () => {
+    expect(axeChain(await specOf())).toContain(".setLegacyMode()");
+  });
+
   it("sets the options before the tags, so the tag filter survives", async () => {
     const chain = axeChain(await specOf());
     expect(chain.indexOf(".options(")).toBeGreaterThan(-1);

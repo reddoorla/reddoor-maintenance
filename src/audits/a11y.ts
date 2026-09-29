@@ -472,9 +472,24 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     // .options() comes FIRST: it replaces the whole options object, and
     // withTags() writes runOnly into it. Called after, it would drop the tag
     // filter without a word and axe would run every rule it has.
+    //
+    // setLegacyMode(): cross-origin frame CONTENTS are not audited. The reveal
+    // pass brings lazy third-party iframes (a Google Maps footer, a YouTube
+    // embed) into load range, and their documents' violations are not the
+    // site's to fix -- and whether they were audited at all depended on
+    // whether axe could be injected into them inside a 1 s window. The
+    // <iframe> element itself is still audited here in the top document
+    // (frame-title and the rest), and same-origin frames are still audited
+    // inside. This is the only switch that does it in @axe-core/playwright
+    // 4.13: its default mode lists frames with getFrameContexts(context)
+    // without the run options, so { iframes: false } is ignored there, and it
+    // has no per-frame opt-out. Legacy mode runs axe.run() with allowedOrigins
+    // <same_origin>, so a cross-origin frame never answers axe's ping and is
+    // skipped after 500 ms.
     const results = await new AxeBuilder({ page })
       .options({ preload: false })
       .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
+      .setLegacyMode()
       .analyze();
     for (const v of results.violations) {
       violations.push({
