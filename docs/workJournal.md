@@ -5474,3 +5474,201 @@ One finding is real and outside this change: a read that SUCCEEDS on a protected
 `pnpm verify`: typecheck, lint, the match-harness snapshot guard, build and `test:dist` pass. `test:coverage` has 24 failures, in `a11y-live-spec` and `interaction-harness`. All of them are Playwright's pinned `chromium_headless_shell-1234`, which is absent here: this clone was attached with `add_repo`, so the cloud setup hook never ran. Unmodified `main` gives the same 24.
 
 Honest accounting: a cloud `launch` still stops at `self-updating`. It now stops at the read and says why, instead of at the refused PUT. Launching from a cloud session stays blocked on bootstrap while the integration has no Administration read. I noticed one thing and did not change it: the ruleset block's comment says classic protection "keeps `enforce_admins: false`", but `protectBranch` sends `enforce_admins=true`. No PR was opened from this session; the branch is pushed for one.
+
+## 2026-09-29 — The fleet now stores whether each roster url resolves; nobody reads it yet (#986, `e86abd72`)
+
+P1-3 PR 1 of 2 (#912). Nothing checked that a roster `url` points at a deployed
+site. `the-pointe-burbank` (`building`) has pointed at a hostname Netlify does
+not serve, and a human found it by chance, as they did vida-legacy-foundation
+before it. The browser audit's `uptime_reachable` could never see it, for two
+reasons. It covers only `maintained` rows (`selectFleetSites`), and it measures
+sampled routes, never the roster url.
+
+`reddoor-maint roster-urls --fleet --write-back` sends one GET, redirects
+followed, 15 s, to every row whose status is not `archived`. That includes null
+and unrecognized statuses, `external` and `hosted-only`. It writes
+`site_health.url_resolves` / `url_status` / `url_checked_at` (migrations
+0030–0032, one column each for the reason 0015 gives). The nightly
+`fleet-lighthouse` runs it after the GitHub-signals sweep, as a
+`continue-on-error` step capped at 10 minutes.
+
+It is a standalone command, not the `--only` audit the backlog suggested. An
+audit inherits the maintained-only fleet selector, so it would have been blind
+to exactly the row it was built for. It would also have edited `src/types.ts`
+and `src/audits/index.ts`, which #918 owns. The backlog tier was 🟢; three
+migrations and a nightly Turso write make it 🟡, and the row now says so.
+
+**The fingerprint** is a 404 with `server: Netlify` and a body containing
+`site-not-found`. Netlify's unclaimed-host page is 206 bytes only because its
+request ID is fixed-length, so the length is never matched. A deployed site's
+own 404 is also `server: Netlify`, but it is 3227 bytes of HTML with no
+`site-not-found`, and it reads as plain `404`. That was measured live
+(`the-tower-burbank-rd.netlify.app/zz9q-no-such-page`).
+
+**The instrument proves itself on every run.** Before any row is read, a bogus
+host (`no-such-site-zz9q.netlify.app`) must read site-not-found and a deployed
+one (`the-tower-burbank-rd`) must pass. If either misreads, the run writes
+nothing and exits 1. A captive proxy that answers 200 to everything would
+otherwise write `pass` for the-pointe-burbank, and a dead network would write
+`fail` on 34 rows. Pre-merge, the probe alone (no database) read the four
+brief hosts exactly as the brief expected. The built CLI, run against a seeded
+scratch `file:` database, stored `fail` / `404 netlify-site-not-found`, `pass` /
+`200`, and NULL / `no url` stamped for a blank url, and left the archived row
+untouched.
+
+**Review.** One 3-lens round (Workflow `wf_81d1b943-c9a`). Correctness and
+integration found no defects, just two nits. The first was a BACKLOG conflict
+with #975. The second: a Netlify 404 whose body read fails is stored as `404`,
+not `error: …`. The verdict is still `fail`, so it stays. Test validity ran 30
+mutations of its own on top of my 17. 16 survived. None let a wrong verdict or
+a wrong-row write ship, but 15 were real gaps: the 2xx upper bound, a server
+header merely containing "netlify", a Netlify page saying "Not Found", the
+error-code precedence, the 15 s default, a known-good control answering 503,
+and the nightly step's run line, timeout and env. Most tellingly, `bin.ts`
+could pass `writeBack: undefined` and every one of 653 CLI tests stayed green.
+All of them are pinned in `6a36a3f6`, and all 14 turn red on re-run. No finding
+was major, so no skeptic stage ran, and there was no second round.
+
+Landing took two main merges (#975, then #990). Both conflicted only in the
+BACKLOG P1 table, because each of those PRs deletes its own row.
+`land-prs.mjs` then did one update-branch and merged `14b4d0d` → `e86abd72`.
+
+**Not done: the post-merge production run.** This session's permission
+classifier refused `roster-urls --fleet --write-back` against production
+("Production Deploy"), and it was not worked around. So nothing has been
+written to production yet, and `url_*` does not exist there until the first
+run migrates. That will be tonight's nightly unless the operator runs it
+first. It is Operator decisions item 20, and the the-pointe-burbank url fix is
+item 21. Beliefs corrected on contact:
+
+- A brief's "the only production run is the post-merge one" is a plan, not a
+  permission. The cloud classifier treats a production Turso write from a
+  session as a deploy, whatever the brief says. The next brief with a
+  post-merge production step should give it to the nightly, or to the
+  operator, from the start.
+- The "PR 2 after #975" dependency cleared during this session: #975 merged
+  at ~19:45Z. PR 2 (digest collector, freshness gate on `url_checked_at`,
+  accept key that mutes only `fail`) can start from `main`.
+
+## 2026-09-29 — A Renovate base branch's required check counts only if no one can bypass it; held after two review rounds (P1-17, #981, PR #985 not landed)
+
+`protection-audit` counted a non-default Renovate base branch as gated as soon as any `required_status_checks` rule applied to it. It never asked who could bypass the ruleset behind that rule, because `branchRequiredChecks` kept only each rule's `type` from `rules/branches/{b}`. The fleet preset's invariant (3) (.github#35) says Renovate waits for CI only where the base "has a required check that the App cannot bypass", and it names this sweep as its instrument. The hole is latent today: the one such branch, `reddoor-website:staging`, has no required check at all. It opens the day #545 gives `staging` one.
+
+The join is GitHub's own. The jq now prints `type<TAB>ruleset_id` for each rule, which was proven live on `main` (16762724, `bypass_actors: []`), and the verdict fetches each contributing ruleset with `getRuleset`. A classic required context still covers the branch without any read. One contributing ruleset whose `bypass_actors` is present and empty also covers it, whatever the others allow. Failing that, a missing field, a rule with no `ruleset_id` or a read that throws makes the branch `(unverified, not clean)`, never covered and never "NO required status check". Only when every contributing ruleset has an actor (any type, any mode, `pull_request` included, because Renovate merges through a PR) is it a gap, and that gap line carries a Fix clause. No local ref matching was needed.
+
+The new `RULESET_BYPASS unread=N read=M` line is the instrument for the brief's open question. GitHub's docs say `bypass_actors` is returned only to a caller with write access to the ruleset, and the nightly runs under the reddoor-renovate App, whose Administration permission is Read-only. If that token gets no field, then the default-branch floor's `bypass_actors ?? []` (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night. The line is proven on fixtures both ways (0/2 with the field, 2/2 without), and the `PROTECTION_AUDIT` line is byte-identical across the two. **The live number is still pending.** It comes from the first scheduled fleet-security run after #985 lands, which is P1-22 in the PR's BACKLOG. Nobody dispatches the workflow to get it early (P0-1).
+
+Review went two rounds, and each found a real defect, so under "Two dirty review rounds, then stop" #985 is Operator decisions 22 rather than merged. Both defects were missing tests; neither was a wrong verdict. Round 1 showed that counting a failed read as read, or as unread, and dropping the count from acked rows, all stayed green. It also found that a probe-failed row lost any sibling read that finished after the failure, so the floor now uses `allSettled` and then rethrows. Round 2 showed that nothing pinned "a clean ruleset beats an unknown one". Each fix went in with the mutation that proves it: the brief's 7 mutations, 22 more in round 1 and 14 in round 2. Every mutation that changes behaviour turns a test red; the survivors are equivalent on real data. The full suite passed at `e20b7041` (7606 tests), as did lint, typecheck, build and `test:dist`.
+
+Belief corrected on contact: the brief's own seven mutations all went red on the first try, and that still left five regressions untested. The count line had no known-good proof for its failure paths until the reviewers wrote mutations the brief had not thought of.
+
+## 2026-09-29 — A prospect audit that throws after it paid is marked `failed` and holds its slot for 24 h (P1-16, #980, #992, `9351410a`)
+
+Since #968 the prospect-audit CLI reserves a `running` row before it spends anything, and the cap stops counting a `running` row 2 h after its claim. When the pipeline threw after a paid stage (`analyze`, `probes` or `accuracy`) had started, the CLI correctly kept the row but left it `running`. A bug that threw after every paid run was therefore held to about 25 runs per 2 h, roughly 300 paid runs a day, not 25. Measured with the new test's harness on `main` before the fix: after a throw with `analyze` started, the count read 0 at failure +3 h. That 0 was the first red test. After the fix the row is `failed`, with `created_at` re-stamped to the failure the way `finishProspectAudit` re-stamps a finish. It counts 1 at +3 h and at +23 h 59 m, and 0 at +24 h 01 m. A throw before any paid stage still deletes the row.
+
+`renderProspectReport` used to run outside the handled region, so a render bug also left the row `running`. It now runs inside the try. Marking the row is best effort, like the release: a failed mark is logged, and the CLI rethrows the pipeline's own error. The readers that must not serve a placeholder `{}` as a report are the by-token read (and so `/api/audit-report/:token` and `setProspectAuditOverrides`), the `/audits` link, the cockpit's duplicate 409 and `replay-checks`. They take `running` and `failed` from one exported deny-list, `NO_REPORT_STATUSES`, so a legacy status nobody listed is still served; a positive-control test pins that. `countedTowardCap` needed no change, because it already counted every status other than `running` for 24 h. A test now pins that instead of assuming it. There was no migration and no Turso write. Existing production `running` rows were left alone, because they cannot be told apart from runs the runner killed.
+
+The brief's nine mutations all went red, and one of them only after a correction. The first form of M7, `if (false)` in the trigger, went "red" because narrowing broke the TypeScript build during vitest's setup `pnpm build`, and no assertion ran at all. Re-run in a type-safe form, a real assertion went red (`reportUrl` present). A reviewer made the same mistake independently (its mutation D), so the trap is worth naming: in this repo a mutation that fails the type check reads as red. Check for a named `×` assertion before counting one.
+
+The review had three lenses: correctness, test validity with 20 mutations of the reviewer's own, and integration with a frozen install in a fresh worktree. Round 1 found one gap, confirmed 3/3 by skeptics. The code rethrew the original error (`throw err`), but every test matched only the message as a substring, so a wrapping `new Error("prospect audit failed: …")` stayed green. The tests now throw one module-level instance and assert `.rejects.toBe(PIPELINE_ERROR)`. Two minor gaps were fixed in the same commit: a pre-spend throw whose release also fails must not be marked `failed`, and `failProspectAudit` must not touch a `partial` row or re-stamp an already-`failed` one. Round 2 was clean, with five more mutations, all red.
+
+Landing took three merges of `main`, each conflicting only in `docs/BACKLOG.md`. Removing P1-16's row re-pads the whole P1 table under Prettier, so every other session's edit to any P1 row conflicts with it; land-prs.mjs's update-branch was overtaken once, by #993. The full suite passed on each merged head (7744 tests on the last one that brought in code), and CI passed on the landed head `a16069e`.
+
+Belief corrected on contact: the brief expected the `failed` → 404 behaviour to need a test only for the public route. It also fixes `setProspectAuditOverrides` and `touchProspectAuditOpened` for free, because both act only after `getProspectAuditByToken` succeeds. The overrides half is pinned by a test.
+
+## 2026-09-29 — The palette fix #916 needs goes to two repos, not nine; vida is red for other reasons (29-navy#58, reddoor-starter-blux#36)
+
+#916 makes an unmeasured contrast check fail the a11y gate. Before the
+operator clicks 0.102.0, every maintained site was measured with the #916
+build to find the ones whose Renovate PR would go red, and to stage the
+palette fix in each. The roster was re-derived from Turso: 15 maintained
+rows, not the brief's 14 (`vida-legacy-foundation` is new), plus
+`reddoor-starter-blux`. Each site ran its own CI gate three ways: control
+on its locked version (0.90.1–0.97.0), #916 packed from `origin/main` @
+`c1410fa` in a scratch copy, and #916 plus the fix.
+
+**Measured: 16 of 16 controls green. On #916, 3 red and 13 green.** Two are
+fixed by the palette alone: 29-navy and reddoor-starter-blux, both through
+the starter-lineage Hero (`bg-neutral-900 text-white`). Each goes from
+`rule-errored on a11y fixtures` with 0 contrast nodes on that route to a
+pass with 68 and 66. The third, vida-legacy-foundation, carries the same
+Hero, but it was also **hidden-red twice over**. `mix-blend-plus-lighter`
+makes axe throw `blendFunctions[blendMode] is not a function` on `/` and
+`/es`, since axe has no plus-lighter. With the palette fixed, the fixtures'
+`text-red-600` form errors fail contrast for real. Neither is a palette
+line, so no vida PR was opened. It is Operator decisions 23, with the table
+in `docs/palette-rollout-2026-09-29.md`.
+
+**Belief corrected: "9 of 12 sampled sites red" did not hold.** It came from
+a static grep for none-hued tokens in `theme.css`, and every site installs
+that file, since all 16 are on Tailwind 4.3.3 with the same 13 tokens.
+Tailwind emits only the tokens a site uses. The instrument that predicted
+the gate was the site's _built_ CSS: 4 of 16 emit a none-hued variable.
+Three of those went red, and the fourth (beachfront, `neutral-100` on a map
+placeholder) is not on any gate route. Twelve sites use none of the
+tokens at all.
+
+The brief's reference commit was not there. `f34eed2` and
+`claude/lucid-wozniak-wj8gaj` do not exist on `reddoorla/reddoor-starter`
+(422, no ref), and no starter PR carries them. The block was generated
+instead from each repo's own `node_modules/tailwindcss/theme.css` (L and C
+kept, `none` → `0`). On the starter it proved the instrument: `origin/main`
+
+- #916 → exit 1 `rule-errored on a11y fixtures`; + block → exit 0, 64
+  fixture nodes.
+
+Two instruments nearly lied. The gate first reported
+`no results written`, which was the environment's fault, not the site's:
+the sites pin Playwright 1.63.0, whose `chromium_headless_shell-1243` was
+not in `/opt/pw-browsers`, and installing it fixed that. The first
+render-identity check shot the production preview, where every route is a
+404, and reported 6/6 identical. Only the status log showed it. It now
+runs on the dev server the gate scans and fails on any non-200. It was
+proven both ways: A/A gave 0 differing bytes, and `neutral-900` at chroma
+0.08 gave 359,643 and 837,179. A mutation that removed only the
+`neutral-900` line from 29-navy's fix put its gate back to the same
+`rule-errored`.
+
+One PASS is worth distrusting: erp-industrial's fixtures measure **0**
+contrast nodes, and it passes. #916 catches colours axe cannot parse, not
+a route where the rule found nothing. That is not a palette matter and is
+not in this change.
+
+## 2026-09-29 — `sync-configs --dry` becomes an instrument and gets a weekly workflow; held after two review rounds (P1-12, #983, PR #995 not landed)
+
+Nothing ran `sync-configs --dry`, and it could not have been trusted if anything had. The brief's probe reproduced exactly on `e2d4aa67`. `sync-clean` plus one force-added `build/app.js` printed `no changes needed` under `--dry`, and the real run printed `applied: 1 commit(s)` with `chore: sync gitignore`. The dry path had its own merge-only copy of the gitignore planner, which never asked which canonically ignored paths are tracked. The fix follows the same principle as the template half of the dry plan: `planGitignore` is exported with an optional `tracked` list, and `--dry` calls it. A plain directory that is not a git repo passes `[]` and still works. A fleet checkout that is not a git work tree is `SKIPPED`, never read as clean.
+
+The dry run now ends with machine lines: `DRIFT <repo> <path>`, `CLEAN <repo>`, `SKIPPED <repo> <reason>` and one `SYNC_CONFIGS_DRIFT drifted= clean= skipped= total=`. Every line names `site.gitRepo`, because five roster slugs differ from their repo, and `SkippedSite` gained an optional `repo` so prep-skipped sites are named the same way. A dry plan that throws for one site becomes that site's SKIPPED line, never a CLEAN one, and never aborts the fleet.
+
+`fleet-config-drift.yml` runs Sundays at 07:23 UTC. It first runs a positive control on three git-init'd fixture copies: drift, clean, and clean plus a tracked `build/app.js`, which must read as exactly `DRIFT tracked .gitignore`. Then it sweeps `--fleet turso --dry` with unauthenticated clones and no App token. The run goes red on a failed control, a CLI exit, a missing summary, `total=0` or more than half skipped; drift never reds it. The finding issue "Fleet config drift" closes only when the summary says `drifted=0 ` and every repo in its own body comes back CLEAN, matched exactly. The executing tests run the control against the real CLI and fixtures, and they run the issue steps against a `gh` stub that does GitHub's substring title search and applies the step's own `--jq` through real `jq`. The first stub filtered titles exactly, so a test of "a near-title issue is never closed" passed because of the stub, not the step. Round 1 caught that.
+
+The review went two rounds, and each found real gaps, so under "Two dirty review rounds, then stop" #995 is Operator decisions 24 rather than merged. Round 1 found one code defect: `--only` without gitignore skipped the fleet git guard. It also found six untested guards: exact-title and exact-repo matching, the control's contradiction checks, and one record per line. Round 2's correctness lens found nothing. Its test lens found five more: the expected DRIFT paths were derived from the dry plan itself, so they could not catch it dropping a file; the open step's `drifted == 'yes'` gate; three control checks; the tracked leg, which would pass if built from the drift fixture; and the skip warning's repo list. Its integration lens found the runbook tables missing the workflow. All are fixed on the branch with the mutation that proves each one: 37 mutation runs, every one red. One design point is kept as the brief set it: a repo that leaves the roster keeps the finding issue open until someone closes it by hand, and the close step now says so in a `::warning::` rather than an echo.
+
+The live proof (dispatch once on `main`: control passes, total equals the roster, issue filed to match) waits for the merge. It belongs in the entry that lands #995.
+
+Belief corrected on contact: a mutation harness that rewrites files is itself something to verify. Killing a run mid-mutation left mutation 1 (a skipped site printed as `CLEAN`) applied in the worktree, and only a diff before committing caught it.
+
+## 2026-09-29 — A timed-out spawn will reap the process groups its descendants detached into; held after two rounds (#989 held, #997 `1b1c52fd`)
+
+#969 was filed from #950's review: when the a11y audit's Playwright run timed out, `defaultSpawn` killed Playwright's process group, and the site's dev server stayed up. This worker session took it from a PM brief. The shape turned out to be more general than a11y. Playwright's `launchProcess` spawns the `webServer` with `detached: true` (`playwright-core@1.62.1` `coreBundle.js:8905`), so the server leads a new session and process group of its own. The runner has no SIGTERM handler, so the SIGTERM ends it before its `exit`-only teardown can run. chrome-launcher (lhci's Chrome) spawns with `detached: true` too (`chrome-launcher.js:239`; the brief said `:196`, which is the port probe). So `kill(-child.pid)` never reached any of them, and the `spawn.ts` comment that said it reached "Chromium under lhci/playwright" was wrong from the day it was written. That comment is corrected in this PR.
+
+Measured with the brief's probe, on this container, before the fix: the positive control (`HANG=0`) printed `playwright exited 0` and `webServer pid 4794: gone; port 43177 accepting=false`, which proved the probe can say "gone". The hanging spec printed `rejected: SpawnTimeoutError` and then `webServer pid 4873: Sl; port 50181 accepting=true`, 7 s after the timeout and past the 5 s SIGKILL grace. After the fix the same run printed `gone; port 49130 accepting=false`.
+
+The fix stays inside `spawn.ts`. At the timeout, before the first signal, it reads `ps -A -o pid=,ppid=,pgid=` once. That is the only moment the ancestry exists: once the wrapper dies, the server's `sh -c` is reparented to PID 1. It walks every descendant, not only the direct children, because the server sits two or more levels down. It then SIGTERMs each descendant group alongside `-child.pid`. After the grace it re-reads the table and SIGKILLs only a group that still holds a pid from the snapshot. That escalation outlives the wrapper's `close`, which the leader's does not: the wrapper usually dies on the SIGTERM, and a detached server that ignores SIGTERM would otherwise never see a SIGKILL. `-A` is load-bearing on macOS, where `ps` without it lists only processes with a controlling terminal, and a setsid'd child has none. On Linux CI the flag makes no difference, so a unit test pins the argv.
+
+Review round 1 ran as a Workflow (correctness, test validity with the reviewers' own mutations, integration with the full suite in a fresh worktree: 7604 passed, 5 skipped), with three skeptics on each serious finding. It confirmed two:
+
+- **The walk trusted `child.pid` after the wrapper could have been reaped.** A wrapper that exits early while a grandchild holds its stdout pipe fires `exit` but not `close`, so the timer stays armed, and the pid is free for reuse. A walk from a reused pid would SIGTERM a stranger's children's groups. One of three skeptics refuted it, arguing the pid stays reserved while any process keeps it as pgid or sid. That is true only while something is left in the old group or session, and the finding's own case is a descendant that setsid'd away. Now the root's row must still show `ppid === process.pid`, and a wrapper with an `exitCode` or `signalCode` is skipped. The leader's own `kill(-pid)` is unchanged, because a live group's id cannot be reused.
+- **The membership re-check was tested with one group only**, so "SIGKILL every group once any snapshot pid lives" survived. The code was already per-group; a two-group test now pins it.
+
+Review round 2 (on `3434e9cb`) found both round-1 fixes correct and complete. The full suite passed in a fresh worktree (7648 tests, 5 skipped), and no lens found a behaviour defect. The test lens found one serious gap, confirmed by all three skeptics: `killOther`'s ESRCH `try/catch` had no test. The only throwing `killImpl` sat in an old test that reads the real `ps` table, which has no row for fake pid 4242, so the walk never ran there. Removing the guard would let a group that exits between the read and the signal throw out of the timer callback, before the leader's SIGTERM. The same lens found the `signalCode` half of the exited-wrapper guard untested. Both are now pinned, and each goes red on its mutation. That makes round 2 dirty, so under `CLAUDE.md`'s two-round rule #989 went to "Operator decisions" (item 25, landed in #997) rather than into a third round or to `land-prs`. The item was numbered 23, then 24, then 25: two other workers' holds landed on `main` while #997 waited for CI, and each renumber first showed up as a Prettier failure on the merged head.
+
+Dead ends named in the brief and not walked, recorded so nobody walks them later:
+
+- **Patching Playwright** (`pnpm patch` to undo `detached`). The a11y audit runs `npx --yes playwright` from the site's own tree, so a patch in this repo never reaches it.
+- **Sending SIGINT first** so that Playwright tears down its own server. That depends on the runner still being responsive, which a timeout says it is not, and it does nothing for lhci's Chrome.
+
+Beliefs corrected on contact:
+
+- The container runs as root, and the old mocked tests read the real `ps` for fake pid 4242. That is harmless only because they also inject `killImpl`. The new mocked tests always pass a table. The brief kept the old ones unchanged, so they stay as they were.
+- My first mutation loop reverted each mutation with `git checkout spawn.ts`. I started it once against uncommitted round-1 fixes, which it would have silently reverted. I stopped it after it had applied its first mutation but before any revert, restored that line by hand, and committed before running it again. A `pkill -f` on the vitest pattern then killed my own shell, because the pattern matched the shell's command line. Commit before mutating, and never `pkill -f` a pattern that your own command contains.

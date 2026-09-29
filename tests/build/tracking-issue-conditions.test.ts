@@ -327,6 +327,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "daily-reports.yml › Upload the rendered preview",
       "fleet-lighthouse.yml › id: app-token",
       "fleet-lighthouse.yml › Sweep GitHub signals to Turso",
+      "fleet-lighthouse.yml › Probe roster urls to Turso",
     ]);
   });
 });
@@ -573,6 +574,10 @@ const CONTINUE_ON_ERROR_ALLOWED = new Map<string, string>([
   [
     "fleet-lighthouse.yml › Sweep GitHub signals to Turso",
     "a sweep-only hang deliberately ends green so the run keeps the AUDIT's verdict (see the step's comment)",
+  ],
+  [
+    "fleet-lighthouse.yml › Probe roster urls to Turso",
+    "#912: a url that does not resolve is a stored finding, not the run's failure; a misread control writes nothing, and its ::error:: plus the stale url_checked_at are the trace, so the run keeps the AUDIT's verdict",
   ],
   [
     "fleet-security.yml › Protection coverage audit (org-wide)",

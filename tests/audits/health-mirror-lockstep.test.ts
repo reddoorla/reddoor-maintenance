@@ -10,6 +10,7 @@ import {
   auditFields,
   gitHubSignalsFields,
   nextDueDatesFields,
+  rosterUrlFields,
 } from "../../src/fleet/site-fields.js";
 import { healthColumnFor, scheduleColumnFor } from "../../src/db/field-map.js";
 import { makeHealthMirror, makeScheduleMirror } from "../../src/audits/health-mirror.js";
@@ -80,6 +81,18 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
     }
   });
 
+  it("rosterUrlFields emits only claimed keys", () => {
+    const fields = rosterUrlFields({
+      resolves: "fail",
+      status: "404 netlify-site-not-found",
+      checkedAt: "2026-09-29T20:00:00.000Z",
+    });
+    expect(Object.keys(fields)).toHaveLength(3);
+    for (const key of Object.keys(fields)) {
+      expect(healthColumnFor(key), `unclaimed roster-urls column '${key}'`).not.toBeNull();
+    }
+  });
+
   it("nextDueDatesFields emits only schedule-claimed keys", () => {
     const fields = nextDueDatesFields({
       maintenanceAt: "2026-09-01",
@@ -111,6 +124,36 @@ describe("makeHealthMirror", () => {
       .where("site_id", "=", "recA")
       .executeTakeFirstOrThrow();
     expect(row.smoke_ok).toBe("pass");
+  });
+
+  it("a roster-urls verdict round-trips through site_health, and a blank url clears it to NULL", async () => {
+    const db = await seededDb();
+    const mirror = await makeHealthMirror(async () => db);
+    const { getSiteById } = await import("../../src/db/fleet-state.js");
+    await mirror(
+      "recA",
+      rosterUrlFields({
+        resolves: "fail",
+        status: "404 netlify-site-not-found",
+        checkedAt: "2026-09-29T20:00:00.000Z",
+      }),
+    );
+    let row = await getSiteById(db, "recA");
+    expect([row?.urlResolves, row?.urlStatus, row?.urlCheckedAt]).toEqual([
+      "fail",
+      "404 netlify-site-not-found",
+      "2026-09-29T20:00:00.000Z",
+    ]);
+    await mirror(
+      "recA",
+      rosterUrlFields({ resolves: null, status: "no url", checkedAt: "2026-09-30T20:00:00.000Z" }),
+    );
+    row = await getSiteById(db, "recA");
+    expect([row?.urlResolves, row?.urlStatus, row?.urlCheckedAt]).toEqual([
+      null,
+      "no url",
+      "2026-09-30T20:00:00.000Z",
+    ]);
   });
 
   it("the schedule twin: throws without creds, mirrors end-to-end with one", async () => {

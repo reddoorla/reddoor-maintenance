@@ -33,7 +33,25 @@ export type FinishedProspectAuditStatus = "complete" | "partial";
  *  that serves a report may serve it (see `getProspectAuditByToken`). A
  *  `running` row older than `PROSPECT_AUDIT_STALE_AFTER_MS` is a run that
  *  never finished; the cap stops counting it and the /audits list says so. */
-export type ProspectAuditStatus = FinishedProspectAuditStatus | "running";
+export type ProspectAuditStatus = FinishedProspectAuditStatus | "running" | "failed";
+
+/** P1-16. `failed` is a run that threw after a paid stage had started: the
+ *  money is spent, so its slot stays held for the full 24h window
+ *  (`failProspectAudit`), but there is no report behind it — `result_json`
+ *  still holds the `{}` placeholder. Terminal: nothing finishes or claims it.
+ *
+ *  The statuses with no report behind them, which every reader that serves,
+ *  links to or parses a report excludes. A deny-list, so a report carrying
+ *  any other status, however old, is never hidden. */
+export const NO_REPORT_STATUSES = [
+  "running",
+  "failed",
+] as const satisfies readonly ProspectAuditStatus[];
+
+/** Whether a row's status says there is no report behind its token. */
+export function hasNoReport(status: string): boolean {
+  return (NO_REPORT_STATUSES as readonly string[]).includes(status);
+}
 
 /**
  * The lineage handle for a site: one key for every way of writing its address.
@@ -169,8 +187,9 @@ export async function getProspectAuditByToken(
     // blank report (it types the payload with a cast and does not validate
     // it), and the editor would accept overrides against nothing. Its token is
     // never handed out before the run finishes, so treating it as absent costs
-    // no legitimate reader anything.
-    .where("status", "!=", "running")
+    // no legitimate reader anything. A `failed` row (P1-16) keeps the same
+    // placeholder and its token was never handed out either.
+    .where("status", "not in", NO_REPORT_STATUSES)
     .executeTakeFirst();
   return row ?? null;
 }
@@ -535,6 +554,40 @@ export async function finishProspectAudit(
       chosen_terms: jsonListOrNull(audit.chosenTerms),
       chosen_questions: jsonListOrNull(audit.chosenQuestions),
     })
+    .where("id", "=", id)
+    .where("status", "=", "running")
+    .returning(["id", "token"])
+    .executeTakeFirst();
+  return row ?? null;
+}
+
+/**
+ * Mark a `running` reservation `failed`, in place, for a run that threw after
+ * a paid stage started (P1-16). The money is spent, so the slot must stay held
+ * for the full 24h window; left `running`, it would stop counting after the
+ * 2h stale window, and a run that pays and then throws every time would be
+ * held to about 25 per 2 hours instead of 25 a day.
+ *
+ * `created_at` is re-stamped to the failure, as `finishProspectAudit` does to
+ * the finish: the slot then counts for 24h from the failure, later than the
+ * start by the run's length, so never looser. The cockpit's 10-minute
+ * duplicate check reads the same column.
+ *
+ * Nothing else changes. `result_json` keeps its `{}` placeholder and the error
+ * is not stored (it goes to stderr): a report reader that parsed an error as a
+ * report would break, so `NO_REPORT_STATUSES` keeps every reader away instead.
+ *
+ * Only a `running` row can be marked: a finished report is never touched.
+ * Null when there was none with that id.
+ */
+export async function failProspectAudit(
+  db: Db,
+  id: string,
+  now: Date = new Date(),
+): Promise<{ id: string; token: string } | null> {
+  const row = await db
+    .updateTable("prospect_audits")
+    .set({ status: "failed", created_at: now.toISOString() })
     .where("id", "=", id)
     .where("status", "=", "running")
     .returning(["id", "token"])
