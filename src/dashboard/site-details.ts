@@ -30,7 +30,8 @@ export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
  *
  * `no analytics` is the explicit opt-out from the GA4 setup requirement
  * (`src/dashboard/onboarding.ts`); `no search console` is the same for the
- * Search Console requirement.
+ * Search Console requirement. `no git repo` / `no netlify id` accept a
+ * maintained site that genuinely has no repo or is not on Netlify (#889).
  *
  * KNOWN GAP, operator-owned: `fleet-cockpit.ts` also supports a
  * `turnstile-unverified` accept key, and this field has no option for it — so
@@ -46,6 +47,8 @@ export const WATCH_CONDITION_OPTIONS: readonly string[] = [
   "no custom domain",
   "no analytics",
   "no search console",
+  "no git repo",
+  "no netlify id",
 ] as const;
 
 type FieldKind =
