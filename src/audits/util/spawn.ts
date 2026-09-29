@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
 export type SpawnResult = { code: number; stdout: string; stderr: string };
@@ -52,11 +52,71 @@ export type SpawnFn = (
 
 type KillFn = (pid: number, signal: NodeJS.Signals | number) => void;
 
+/** One row of the process table: the three columns the timeout's reap needs. */
+export type ProcessRow = { pid: number; ppid: number; pgid: number };
+
+/** Reads every process on the machine through `ps -A -o pid=,ppid=,pgid=`.
+ *  POSIX options, so it answers the same on macOS and Linux procps. */
+export function readProcessTable(): ProcessRow[] {
+  const out = execFileSync("ps", ["-A", "-o", "pid=,ppid=,pgid="], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: 2000,
+  });
+  const rows: ProcessRow[] = [];
+  for (const line of out.split("\n")) {
+    const [pid, ppid, pgid] = line.trim().split(/\s+/).map(Number);
+    if (Number.isInteger(pid) && Number.isInteger(ppid) && Number.isInteger(pgid)) {
+      rows.push({ pid, ppid, pgid } as ProcessRow);
+    }
+  }
+  return rows;
+}
+
+/** The process groups, other than the leader's own, that `root`'s descendants
+ *  sit in, plus the descendant pids seen. A descendant that detaches (Playwright's
+ *  webServer, chrome-launcher's Chrome) leads a group of its own, out of reach
+ *  of `kill(-root)`. Never returns pgid <= 1 (`kill(-1)` is every process we may
+ *  signal) or this process's own group; with no row for this process the own
+ *  group is unknown, so nothing is returned. */
+export function descendantGroups(
+  table: readonly ProcessRow[],
+  root: number,
+  self: number = process.pid,
+): { groups: Set<number>; pids: Set<number> } {
+  const groups = new Set<number>();
+  const pids = new Set<number>();
+  const own = table.find((r) => r.pid === self);
+  if (own === undefined) return { groups, pids };
+  const children = new Map<number, ProcessRow[]>();
+  for (const r of table) {
+    const list = children.get(r.ppid);
+    if (list) list.push(r);
+    else children.set(r.ppid, [r]);
+  }
+  const queue = [root];
+  while (queue.length > 0) {
+    const parent = queue.shift() as number;
+    for (const r of children.get(parent) ?? []) {
+      if (r.pid === root || pids.has(r.pid)) continue;
+      pids.add(r.pid);
+      queue.push(r.pid);
+      if (r.pgid > 1 && r.pgid !== root && r.pgid !== own.pgid && r.pgid !== self) {
+        groups.add(r.pgid);
+      }
+    }
+  }
+  return { groups, pids };
+}
+
 /** Construction-time knobs, separated from per-call {@link SpawnOptions} mainly
  *  so tests can inject deterministic `spawnImpl`/`killImpl` and a tiny grace. */
 export type SpawnInternals = {
   spawnImpl?: typeof spawn;
   killImpl?: KillFn;
+  /** Process-table reader for the timeout's descendant-group reap. Tests pass a
+   *  fixed table; the default runs `ps`. */
+  readProcessTable?: () => ProcessRow[];
   /** Delay after SIGTERM before escalating to SIGKILL on a timeout (default 5s). */
   killGraceMs?: number;
   /** Cap on captured stdout/stderr length so a runaway child can't OOM the CLI. */
@@ -68,6 +128,7 @@ const TRUNCATION_MARKER = "\n…[output truncated]";
 export function makeSpawn(internals: SpawnInternals = {}): SpawnFn {
   const spawnImpl = internals.spawnImpl ?? spawn;
   const killImpl: KillFn = internals.killImpl ?? ((pid, sig) => process.kill(pid, sig));
+  const readTable = internals.readProcessTable ?? readProcessTable;
   const killGraceMs = internals.killGraceMs ?? 5000;
   const maxOutputBytes = internals.maxOutputBytes ?? 10 * 1024 * 1024;
 
@@ -79,10 +140,14 @@ export function makeSpawn(internals: SpawnInternals = {}): SpawnFn {
         env: opts.env ?? process.env,
         stdio: streaming ? ["ignore", "inherit", "inherit"] : ["ignore", "pipe", "pipe"],
         // Detach ONLY when a timeout can fire: the child then leads its own
-        // process group, so the timeout can kill the WHOLE tree (vite, and
-        // Chromium under lhci/playwright) via process.kill(-pid), not just the
-        // npx/pnpm wrapper. Without it, killing the wrapper orphaned the
-        // grandchildren — a zombie vite squatting its port, Chrome left running.
+        // process group, so the timeout reaches every descendant that stays in
+        // it (vite under npx/pnpm) via process.kill(-pid), not just the wrapper.
+        // Without it, killing the wrapper orphaned the grandchildren — a zombie
+        // vite squatting its port. That group does NOT reach a descendant that
+        // detaches into a group of its own: Playwright's webServer and its
+        // headless shell, and Chrome under lhci's chrome-launcher, all spawn
+        // with `detached: true`. Those groups are found from a process-table
+        // snapshot at the timeout and signalled alongside (#969).
         // We do NOT detach timeout-less streaming calls (pnpm install/up):
         // detaching gains nothing there (no timeout → no group-kill) and would
         // break terminal Ctrl-C, which only reaches the foreground group — i.e.
@@ -132,9 +197,51 @@ export function makeSpawn(internals: SpawnInternals = {}): SpawnFn {
         }
       };
 
+      /** Signal one snapshotted descendant group; ignore if it's already gone. */
+      const killOther = (pgid: number, sig: NodeJS.Signals): void => {
+        try {
+          killImpl(-pgid, sig);
+        } catch {
+          // ESRCH: the group exited on its own.
+        }
+      };
+
+      /** Reads the table, swallowing any failure: a missing or failing `ps`
+       *  must not throw out of a timer callback, where it would be uncaught. */
+      const safeTable = (): ProcessRow[] | undefined => {
+        try {
+          return readTable();
+        } catch {
+          return undefined;
+        }
+      };
+
+      /** SIGTERM the descendant groups found before the leader is signalled
+       *  (once the wrapper dies its descendants are reparented and the ancestry
+       *  is gone), then SIGKILL, after the grace, each group that still holds a
+       *  pid from the snapshot. That escalation outlives the wrapper's `close`:
+       *  a detached server that ignores SIGTERM outlives the wrapper too. The
+       *  re-check stops a SIGKILL to a group id reused after its group died. */
+      const reapDetachedGroups = (): void => {
+        if (child.pid === undefined) return;
+        const table = safeTable();
+        if (table === undefined) return;
+        const { groups, pids } = descendantGroups(table, child.pid);
+        if (groups.size === 0) return;
+        for (const g of groups) killOther(g, "SIGTERM");
+        const escalate = setTimeout(() => {
+          const now = safeTable();
+          if (now === undefined) return;
+          const live = new Set(now.filter((r) => pids.has(r.pid)).map((r) => r.pgid));
+          for (const g of groups) if (live.has(g)) killOther(g, "SIGKILL");
+        }, killGraceMs);
+        escalate.unref();
+      };
+
       let killTimer: ReturnType<typeof setTimeout> | undefined;
       const timer = opts.timeoutMs
         ? setTimeout(() => {
+            reapDetachedGroups();
             killGroup("SIGTERM");
             // Escalate if SIGTERM is ignored (a wedged Chrome can swallow it).
             killTimer = setTimeout(() => killGroup("SIGKILL"), killGraceMs);

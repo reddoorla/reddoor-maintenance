@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,7 +8,10 @@ import {
   defaultSpawn,
   SpawnTimeoutError,
   isSpawnTimeout,
+  type ProcessRow,
 } from "../../../src/audits/util/spawn.js";
+import { findFreePort } from "../../../src/util/free-port.js";
+import { killLeftover, reapedWithin, waitForPid } from "./orphan-probe.js";
 
 /** Minimal stand-in for a ChildProcess: an EventEmitter with a pid and
  *  stdout/stderr emitters. Kills are recorded via the injected killImpl, not
@@ -132,6 +135,129 @@ describe("defaultSpawn process-group kill", () => {
     expect(kills).toHaveLength(0);
     vi.useRealTimers();
     await expect(p).resolves.toEqual({ code: 0, stdout: "hi", stderr: "" });
+  });
+});
+
+// The descendant-group reap (#969) against a fixed process table. The fake
+// child is pid 4242; OWN is this process's group. Nothing here reads the real
+// table: 4242 can be a live pid in a container that runs as root.
+describe("defaultSpawn detached descendant groups (mocked table)", () => {
+  const OWN = 7777;
+  const self: ProcessRow = { pid: process.pid, ppid: 1, pgid: OWN };
+  const leader: ProcessRow = { pid: 4242, ppid: process.pid, pgid: 4242 };
+
+  function start(tables: Array<ProcessRow[] | Error>) {
+    let reads = 0;
+    const readProcessTable = (): ProcessRow[] => {
+      const t = tables[Math.min(reads++, tables.length - 1)] as ProcessRow[] | Error;
+      if (t instanceof Error) throw t;
+      return t;
+    };
+    const s = makeSpawn({ spawnImpl, killImpl, readProcessTable, killGraceMs: 1000 });
+    const p = s("slow", [], { timeoutMs: 500 });
+    const seen = p.catch((e: unknown) => e);
+    return { seen, reads: () => reads };
+  }
+
+  it("SIGTERMs a detached group two levels down, alongside the leader's group", async () => {
+    vi.useFakeTimers();
+    const table = [
+      self,
+      leader,
+      { pid: 5001, ppid: 4242, pgid: 4242 },
+      { pid: 5002, ppid: 5001, pgid: 5002 },
+      { pid: 5003, ppid: 5002, pgid: 5002 },
+      { pid: 6000, ppid: 1, pgid: 6000 },
+    ];
+    const { seen } = start([table]);
+    vi.advanceTimersByTime(500);
+    expect(kills).toContainEqual({ pid: -4242, sig: "SIGTERM" });
+    expect(kills).toContainEqual({ pid: -5002, sig: "SIGTERM" });
+    expect(kills).not.toContainEqual({ pid: -6000, sig: "SIGTERM" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("still SIGTERMs the leader's group and rejects when the table reader throws", async () => {
+    vi.useFakeTimers();
+    const { seen, reads } = start([new Error("spawnSync ps ENOENT")]);
+    expect(() => vi.advanceTimersByTime(500)).not.toThrow();
+    expect(kills).toEqual([{ pid: -4242, sig: "SIGTERM" }]);
+    expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    expect(kills).toContainEqual({ pid: -4242, sig: "SIGKILL" });
+    expect(reads()).toBeGreaterThan(0);
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("never signals pgid 0 or 1, this process's own group, or this process's pid as a group", async () => {
+    vi.useFakeTimers();
+    const table = [
+      self,
+      leader,
+      { pid: 5010, ppid: 4242, pgid: 1 },
+      { pid: 5011, ppid: 4242, pgid: 0 },
+      { pid: 5012, ppid: 4242, pgid: OWN },
+      { pid: 5013, ppid: 4242, pgid: process.pid },
+      { pid: 5014, ppid: 4242, pgid: 5014 },
+    ];
+    const { seen } = start([table]);
+    vi.advanceTimersByTime(1500);
+    const targets = kills.map((k) => k.pid);
+    for (const bad of [-1, 0, -0, 1, -OWN, -process.pid]) expect(targets).not.toContain(bad);
+    expect(kills).toContainEqual({ pid: -5014, sig: "SIGTERM" });
+    expect(kills).toContainEqual({ pid: -5014, sig: "SIGKILL" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("signals no descendant group when this process is missing from the table", async () => {
+    vi.useFakeTimers();
+    const { seen } = start([[leader, { pid: 5020, ppid: 4242, pgid: 5020 }]]);
+    vi.advanceTimersByTime(1500);
+    expect(kills.map((k) => k.pid)).not.toContain(-5020);
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("SIGKILLs a snapshotted group after the wrapper has closed, while it still holds a snapshot pid", async () => {
+    vi.useFakeTimers();
+    const before = [self, leader, { pid: 5030, ppid: 4242, pgid: 5030 }];
+    const after = [self, { pid: 5030, ppid: 1, pgid: 5030 }];
+    const { seen } = start([before, after]);
+    vi.advanceTimersByTime(500);
+    child.emit("close", 143);
+    vi.advanceTimersByTime(1000);
+    expect(kills).toContainEqual({ pid: -5030, sig: "SIGKILL" });
+    expect(kills).not.toContainEqual({ pid: -4242, sig: "SIGKILL" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("does not SIGKILL a group id that now holds only pids the snapshot never saw", async () => {
+    vi.useFakeTimers();
+    const before = [self, leader, { pid: 5040, ppid: 4242, pgid: 5040 }];
+    const reused = [self, leader, { pid: 9999, ppid: 1, pgid: 5040 }];
+    const { seen } = start([before, reused]);
+    vi.advanceTimersByTime(500);
+    expect(kills).toContainEqual({ pid: -5040, sig: "SIGTERM" });
+    vi.advanceTimersByTime(1000);
+    expect(kills).not.toContainEqual({ pid: -5040, sig: "SIGKILL" });
+    expect(kills).toContainEqual({ pid: -4242, sig: "SIGKILL" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("skips the escalation quietly when the re-read throws", async () => {
+    vi.useFakeTimers();
+    const before = [self, leader, { pid: 5050, ppid: 4242, pgid: 5050 }];
+    const { seen } = start([before, new Error("ps exited 1")]);
+    vi.advanceTimersByTime(500);
+    expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    expect(kills).not.toContainEqual({ pid: -5050, sig: "SIGKILL" });
+    expect(kills).toContainEqual({ pid: -4242, sig: "SIGKILL" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
   });
 });
 
@@ -276,6 +402,87 @@ describe("defaultSpawn real process-group reap (integration)", () => {
       }
     }
     expect(alive).toBe(false);
+  });
+});
+
+// A descendant that detaches into a process group of its own is out of reach of
+// process.kill(-child.pid). Playwright's webServer and chrome-launcher's Chrome
+// both do this (#969). The server here sits two levels below the group leader:
+// `sh` (kept from exec'ing node by the trailing `; :`) → middle node → server,
+// spawned detached exactly as Playwright's launchProcess does.
+describe("defaultSpawn reap of detached descendant groups (integration)", () => {
+  const SERVER = `
+import http from "node:http";
+import { writeFileSync } from "node:fs";
+if (process.env.IGNORE_TERM === "1") process.on("SIGTERM", () => {});
+const [port, pidFile] = process.argv.slice(2);
+http.createServer((_q, r) => r.end("ok")).listen(Number(port), "127.0.0.1", () =>
+  writeFileSync(pidFile, String(process.pid)),
+);
+`;
+  const MIDDLE = `
+import { spawn } from "node:child_process";
+const [server, port, pidFile] = process.argv.slice(2);
+spawn(process.execPath, [server, port, pidFile], { detached: true, stdio: "ignore", env: process.env });
+setInterval(() => {}, 1 << 30);
+`;
+
+  async function runDetachedServer(opts: {
+    spawnFn: typeof defaultSpawn;
+    timeoutMs: number;
+    env?: NodeJS.ProcessEnv;
+  }): Promise<{ port: number; serverPid: number | undefined; err: unknown; dir: string }> {
+    const dir = await mkdtemp(join(tmpdir(), "reddoor-spawn-detached-"));
+    const server = join(dir, "server.mjs");
+    const middle = join(dir, "middle.mjs");
+    const pidFile = join(dir, "server.pid");
+    await writeFile(server, SERVER);
+    await writeFile(middle, MIDDLE);
+    const port = await findFreePort();
+    const q = JSON.stringify;
+    const script = `${q(process.execPath)} ${q(middle)} ${q(server)} ${port} ${q(pidFile)}; :`;
+    let settled = false;
+    const outcome = opts
+      .spawnFn("sh", ["-c", script], {
+        timeoutMs: opts.timeoutMs,
+        ...(opts.env ? { env: opts.env } : {}),
+      })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+    void outcome.finally(() => (settled = true));
+    const serverPid = await waitForPid(pidFile, () => settled);
+    const err = await outcome;
+    return { port, serverPid, err, dir };
+  }
+
+  it("kills a detached grandchild's group with the SIGTERM, inside the grace window", async () => {
+    const r = await runDetachedServer({ spawnFn: defaultSpawn, timeoutMs: 4000 });
+    try {
+      expect(r.serverPid, "fixture broken: the server was not up before the timeout").toBeDefined();
+      expect(r.err).toBeInstanceOf(SpawnTimeoutError);
+      expect(await reapedWithin(r.port, r.serverPid as number, 4000)).toBe(true);
+    } finally {
+      killLeftover(r.serverPid);
+      await rm(r.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("SIGKILLs a detached group that ignores SIGTERM, after the wrapper has already exited", async () => {
+    const r = await runDetachedServer({
+      spawnFn: makeSpawn({ killGraceMs: 300 }),
+      timeoutMs: 4000,
+      env: { ...process.env, IGNORE_TERM: "1" },
+    });
+    try {
+      expect(r.serverPid, "fixture broken: the server was not up before the timeout").toBeDefined();
+      expect(r.err).toBeInstanceOf(SpawnTimeoutError);
+      expect(await reapedWithin(r.port, r.serverPid as number, 3000)).toBe(true);
+    } finally {
+      killLeftover(r.serverPid);
+      await rm(r.dir, { recursive: true, force: true });
+    }
   });
 });
 
