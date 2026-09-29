@@ -31,7 +31,7 @@ import {
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { isNetlifyAppUrl } from "../util/url.js";
-import { NO_ANALYTICS } from "./onboarding.js";
+import { NO_ANALYTICS, NO_SEARCH_CONSOLE } from "./onboarding.js";
 
 export type Tier = "attention" | "watch" | "healthy" | "pre-launch";
 
@@ -223,6 +223,13 @@ export function assignTier(
       signal: "no-analytics",
       acceptKeys: [NO_ANALYTICS, "no-analytics", "analytics", "ga4"],
       reason: "no GA4 property (analytics not set up)",
+    });
+  }
+  if (site.status === "maintained" && !site.searchConsoleProperty?.trim()) {
+    candidates.push({
+      signal: "no-search-console",
+      acceptKeys: [NO_SEARCH_CONSOLE, "no-search-console", "search console", "gsc"],
+      reason: "no Search Console property",
     });
   }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less

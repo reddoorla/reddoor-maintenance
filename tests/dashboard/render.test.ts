@@ -32,6 +32,7 @@ const healthCleanEvidence = (type: ReportRow["reportType"]): Record<string, Evid
 function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     ga4PropertyId: "123456789",
+    searchConsoleProperty: "sc-domain:acme.example.com",
     maintenanceFreq: "Monthly",
     testingFreq: "Quarterly",
     maintenanceDay: "2026-05-01",
@@ -541,7 +542,7 @@ describe("renderSiteDashboardHtml — setup status", () => {
       }),
       [],
     );
-    expect(html).toMatch(/Setup 3\/5/);
+    expect(html).toMatch(/Setup 4\/6/);
     expect(html).toContain("First audit");
     expect(html).toContain("Report recipients");
     // The satisfied checks are not listed as missing.
@@ -558,7 +559,7 @@ describe("renderSiteDashboardHtml — setup status", () => {
       }),
       [],
     );
-    expect(html).toMatch(/Setup 5\/5/);
+    expect(html).toMatch(/Setup 6\/6/);
     expect(html).toMatch(/complete/i);
   });
 });

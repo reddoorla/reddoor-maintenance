@@ -31,7 +31,11 @@ import {
 } from "../../src/db/fleet-state.js";
 import { openCapturingDb } from "./query-plan-harness.js";
 import { EDITABLE_SITE_FIELDS, setSiteDetail } from "../../src/dashboard/site-details.js";
-import { analyticsOptedOut, onboardingStatus } from "../../src/dashboard/onboarding.js";
+import {
+  analyticsOptedOut,
+  onboardingStatus,
+  searchConsoleOptedOut,
+} from "../../src/dashboard/onboarding.js";
 import type { AirtableCellValue } from "../../src/reports/airtable/websites.js";
 import {
   SITE_FIELDS,
@@ -252,7 +256,7 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
     expect(mirrored?.status).toBe("archived");
   });
 
-  it("an editor 'no analytics' opt-out lands in Turso and satisfies the GA4 setup check", async () => {
+  it("editor 'no analytics' and 'no search console' opt-outs land in Turso and satisfy both setup checks", async () => {
     const db = await seeded([RICH]);
     const deps = {
       getSite: (slug: string) => getSiteBySlug(db, slug),
@@ -260,12 +264,26 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
         mirrorSiteField(db, id, col, val),
     };
     expect(
-      (await setSiteDetail(deps, "acme-gallery", "acceptedWatchConditions", "no analytics")).status,
+      (
+        await setSiteDetail(
+          deps,
+          "acme-gallery",
+          "acceptedWatchConditions",
+          "no analytics, no search console",
+        )
+      ).status,
     ).toBe("updated");
     const after = (await getSiteBySlug(db, "acme-gallery"))!;
-    expect(after.acceptedWatchConditions).toEqual(["no analytics"]);
+    expect(after.acceptedWatchConditions).toEqual(["no analytics", "no search console"]);
     expect(analyticsOptedOut(after)).toBe(true);
-    expect(onboardingStatus({ ...after, ga4PropertyId: null }).checks.analytics).toBe(true);
+    expect(searchConsoleOptedOut(after)).toBe(true);
+    const checks = onboardingStatus({
+      ...after,
+      ga4PropertyId: null,
+      searchConsoleProperty: null,
+    }).checks;
+    expect(checks.analytics).toBe(true);
+    expect(checks.searchConsole).toBe(true);
   });
 
   it("mirrors a value the code does NOT recognize, rather than normalizing it away", async () => {

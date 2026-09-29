@@ -73,7 +73,8 @@ stops being true.
 - **Search Console is a separate axis.** Report enrichment reads either a GA4
   property _or_ a `searchQuery`, and the two are configured independently. This
   spec covers the GA4 half only; verifying each domain in Search Console and
-  filling `searchQuery` is its own pass, on its own schedule.
+  filling `searchQuery` is its own pass, on its own schedule. (D9 makes
+  recording the property part of setup; verifying it is still that pass.)
 
 ## Decisions
 
@@ -162,6 +163,23 @@ rows carry a property. The 5 maintained sites without one (`1836dig`,
 watch until they get a property or an opt-out. `sonder` passes on the empty
 property D7 describes, so recording its opt-out is an operator choice, and so
 is clearing that property.
+
+**D9 — Search Console is part of site launch too** (operator, 2026-09-29).
+It follows the D8 shape exactly: a sixth setup check, satisfied by a
+`search_console_property` on the row or by accepting `no search console`; a
+maintained site with neither is a cockpit watch item, filterable as
+`no-search-console`; launching sites are not asked. The two opt-outs are
+independent, so declining GA4 does not decline Search Console. The check asks
+whether the row records a property. It does not ask whether the property is
+verified. The report still resolves one automatically when the row is blank,
+and Sonder's last report found the site on page 1 that way. Recording it makes
+the setup visible and pins the report's lookup. Proving the property answers
+belongs to an audit, as it does for GA4.
+
+Measured on the live fleet when this landed: of 16 maintained or launching
+rows, only `reddoor` records a property, and only `reddoor` and `sonder` had a
+search result in their last sent report. So 13 maintained sites move to watch
+until each gets a property or an opt-out.
 
 ## D2, measured
 
