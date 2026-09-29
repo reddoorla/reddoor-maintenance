@@ -166,14 +166,17 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
   but pairs with #948's hydration-signal decision.
 - **#921 persistence**: do it the #910 way once #918 merges.
 
-### Watching, owned elsewhere
+### Watching (owned elsewhere, or parked)
 
-- **#960**: the `spawn.test` zombie flake (`kill ESRCH`, about 1 in 180 cloud
-  runs). Another session filed it and has a tested patch.
+- **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
+  the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
+  holds zombies past ~4 s (the test then fails its assertion cleanly). The flake
+  itself is fixed; see _Done_.
 - **#969**: a11y audit's `SpawnTimeoutError` kills Playwright's process group
   but orphans its `webServer` (the site's dev server). Filed from #950's review
-  by the same session; its fix touches `src/audits/util/spawn.ts`, as #960 does,
-  so the two should not be worked in parallel.
+  by the same session; its fix touches `src/audits/util/spawn.ts`. #972 (#960's
+  flake fix) changed only `tests/audits/util/spawn.test.ts`, so the two no
+  longer collide beyond that test file.
 
 ---
 
@@ -277,6 +280,11 @@ Ordered by what unblocks the most. Each line is the exact ask.
 
 ## Done (move items here when they land)
 
+- 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
+  4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its
+  final wait, counts only ESRCH as reaped, and its cleanup kill ignores `ESRCH`
+  (#972). The test only; `spawn.ts` is unchanged. #960 stays open for its first
+  suggestion, counting a zombie as dead via `ps` (see _Watching_).
 - 2026-09-29 — P1-18: #967 proven live. fleet-security run 36564241156
   rewrote #754's body to name that run, including the new
   `reddoor-website:staging` gap from #966, which also proves #966 live.
