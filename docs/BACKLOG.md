@@ -312,7 +312,7 @@ verdict is its only input, because no client and no check sees the email.
 
 - 2026-09-29 — P1-19 / #982: a report whose site matched no Search Console
   property stores `search_found_page1` NULL, not 0, on the draft create path and
-  the announce create and reuse paths (#PRNUM). A property-found miss still
+  the announce create and reuse paths (#990). A property-found miss still
   stores 0; soft-fail keeps the last value. No reader renders the two differently.
 - 2026-09-29 — P1-20: the digest sends only when an item or ask part the
   record does not hold appears, a metric beats its high-water baseline (a
