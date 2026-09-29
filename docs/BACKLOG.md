@@ -246,9 +246,13 @@ Ordered by what unblocks the most. Each line is the exact ask.
     #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
     #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
     #773 (local-only git objects).
-19. **P1-20, the digest (#975)** — answered 2026-09-29: "go". The proposed
-    rule landed in #975 (forget what is gone two runs, high-water baselines, a
-    5-point Lighthouse tolerance, health asks compared by field).
+19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
+    rule, then, after two sessions built it in parallel (`f6d5ee8c` on #975,
+    `7925133d` on `claude/digest-send-exact-rule`), "do yours": #975 lands
+    `784c2bda`. It forgets a warning after two absent runs and a critical item
+    at once, raises a baseline only on a send, needs a Lighthouse score to be
+    more than 5 points worse than what was last mailed, and compares health
+    asks by field.
 
 ---
 
@@ -273,9 +277,9 @@ verdict is its only input, because no client and no check sees the email.
   stopping at the first row that is not `clean`. An `awaiting` row stops it
   too, and becomes an ask in the morning report.
 
-| Sent (UTC)       | Site    | Report                 | Verdict  |
-| ---------------- | ------- | ---------------------- | -------- |
-| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | awaiting |
+| Sent (UTC)       | Site    | Report                 | Verdict |
+| ---------------- | ------- | ---------------------- | ------- |
+| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | clean   |
 
 ## Fleet snapshot (2026-09-29 05:36Z, live Turso, SELECT-only) [M]
 
