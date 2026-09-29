@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { describe, it, expect } from "vitest";
 import { makeGitHub } from "../../src/github/gh.js";
 import type { SpawnFn, SpawnResult, SpawnOptions } from "../../src/audits/util/spawn.js";
@@ -726,16 +727,24 @@ describe("makeGitHub.branchRequiredChecks (#892: what requires CI on a Renovate 
   it("reads GitHub's own per-branch rule evaluation plus classic protection", async () => {
     // Live shape, reddoor-maintenance `main`, 2026-09-29: a ruleset-only branch
     // reports classic protection `enabled: false`, enforcement "off".
+    // Rules: every entry carries the ruleset_id that contributes it (#981),
+    // printed by the jq below as "<type>\t<ruleset_id>".
     const { spawn, calls } = routed({
       branch: { stdout: `${classicOff}\n` },
-      rules: { stdout: "deletion\nnon_fast_forward\nrequired_status_checks\n" },
+      rules: {
+        stdout:
+          "deletion\t16762724\nnon_fast_forward\t16762724\nrequired_linear_history\t16762724\n" +
+          "pull_request\t16762724\nrequired_status_checks\t16762724\n",
+      },
     });
     const out = await makeGitHub({ token: "T", spawn }).branchRequiredChecks("o/r", "staging");
     expect(out).toEqual({
       rules: [
-        { type: "deletion" },
-        { type: "non_fast_forward" },
-        { type: "required_status_checks" },
+        { type: "deletion", ruleset_id: 16762724 },
+        { type: "non_fast_forward", ruleset_id: 16762724 },
+        { type: "required_linear_history", ruleset_id: 16762724 },
+        { type: "pull_request", ruleset_id: 16762724 },
+        { type: "required_status_checks", ruleset_id: 16762724 },
       ],
       classicContexts: [],
     });
@@ -745,9 +754,67 @@ describe("makeGitHub.branchRequiredChecks (#892: what requires CI on a Renovate 
       "--paginate",
       "repos/o/r/rules/branches/staging?per_page=100",
       "--jq",
-      ".[].type",
+      '.[] | "\\(.type)\\t\\(.ruleset_id // "")"',
     ]);
   });
+
+  it("a rule with no ruleset_id is kept WITHOUT one — never dropped, never given a made-up id", async () => {
+    const { spawn } = routed({
+      branch: { stdout: classicOff },
+      rules: {
+        stdout:
+          "required_status_checks\t\ndeletion\t7\nnon_fast_forward\tnot-a-number\npull_request\t0\nrequired_linear_history\t-3\n",
+      },
+    });
+    const out = await makeGitHub({ token: "T", spawn }).branchRequiredChecks("o/r", "staging");
+    expect(out).toEqual({
+      rules: [
+        { type: "required_status_checks" },
+        { type: "deletion", ruleset_id: 7 },
+        { type: "non_fast_forward" },
+        { type: "pull_request" },
+        { type: "required_linear_history" },
+      ],
+      classicContexts: [],
+    });
+  });
+
+  it.skipIf(spawnSync("jq", ["--version"]).status !== 0)(
+    "the jq's output is exactly what the parser reads (run through real jq on the live shape)",
+    async () => {
+      const live = JSON.stringify([
+        {
+          type: "deletion",
+          ruleset_source_type: "Repository",
+          ruleset_source: "o/r",
+          ruleset_id: 16762724,
+        },
+        {
+          type: "required_status_checks",
+          ruleset_source_type: "Repository",
+          ruleset_source: "o/r",
+          ruleset_id: 16762724,
+          parameters: { required_status_checks: [{ context: "ci / ci" }] },
+        },
+        { type: "non_fast_forward" },
+      ]);
+      const probe = routed({ branch: { stdout: classicOff }, rules: { stdout: "" } });
+      await makeGitHub({ token: "T", spawn: probe.spawn }).branchRequiredChecks("o/r", "staging");
+      const filter = probe.calls[1]![4]!;
+      const printed = spawnSync("jq", ["-r", filter], { input: live, encoding: "utf8" }).stdout;
+      const { spawn } = routed({ branch: { stdout: classicOff }, rules: { stdout: printed } });
+      expect(
+        await makeGitHub({ token: "T", spawn }).branchRequiredChecks("o/r", "staging"),
+      ).toEqual({
+        rules: [
+          { type: "deletion", ruleset_id: 16762724 },
+          { type: "required_status_checks", ruleset_id: 16762724 },
+          { type: "non_fast_forward" },
+        ],
+        classicContexts: [],
+      });
+    },
+  );
 
   it("classic protection's contexts AND checks count, unless enforcement is off", async () => {
     const on = JSON.stringify({
@@ -781,10 +848,10 @@ describe("makeGitHub.branchRequiredChecks (#892: what requires CI on a Renovate 
       ),
     ).toEqual({ rules: [], classicContexts: [] });
 
-    const off = routed({ branch: { stdout: classicOff }, rules: { stdout: "deletion\n" } });
+    const off = routed({ branch: { stdout: classicOff }, rules: { stdout: "deletion\t3\n" } });
     expect(
       await makeGitHub({ token: "T", spawn: off.spawn }).branchRequiredChecks("o/r", "staging"),
-    ).toEqual({ rules: [{ type: "deletion" }], classicContexts: [] });
+    ).toEqual({ rules: [{ type: "deletion", ruleset_id: 3 }], classicContexts: [] });
   });
 
   it("a 404 branch is the ANSWER null; a refusal or a missing protection object THROWS", async () => {
