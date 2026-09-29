@@ -17,9 +17,12 @@
 
 /**
  * A crash the spec may re-run around: axe's missing-blend-function TypeError
- * and no other message, filed on a node it can exclude. A crash with no node, or filed on the root element,
- * is not one: excluding the root would exclude the whole document, and the
- * page would pass having measured nothing.
+ * and no other message, filed on a node of the page's own top-level document
+ * that it can exclude. Not one: a crash with no node; one filed on the root
+ * element (excluding the root would exclude the whole document, and the page
+ * would pass having measured nothing); one inside a frame or a shadow root (a
+ * target of more than one step), whose children reincludedChildren cannot
+ * address. Those stay crashes, and the frame split decides them as before.
  */
 export function isExcludableBlendCrash(crash: {
   message: string | null;
@@ -30,16 +33,44 @@ export function isExcludableBlendCrash(crash: {
     typeof crash.message === "string" &&
     /\bblendFunctions\[[^\]]*\] is not a function/.test(crash.message) &&
     Array.isArray(target) &&
-    target.length > 0 &&
-    target[target.length - 1] !== "html"
+    target.length === 1 &&
+    typeof target[0] === "string" &&
+    target[0] !== "html"
   );
+}
+
+/**
+ * The element children of each excluded node, as selectors axe can include,
+ * minus any child that is itself excluded.
+ *
+ * axe's exclude takes a node's whole subtree, and the node a crash is filed
+ * on can be a wrapper with text of its own (a section, a div, the body), so
+ * the text inside it would go unmeasured with no word. Including the children
+ * again brings them back: in axe's context the deeper of an include and an
+ * exclude wins. On a tie, the same element both included and excluded, the
+ * include wins, which is why an excluded child is left out here rather than
+ * excluded over a generic `> *`.
+ *
+ * Runs IN THE PAGE, on the top-level document.
+ */
+export function reincludedChildren(excluded: string[]): string[] {
+  const hidden = excluded.map((selector) => document.querySelector(selector));
+  const children: string[] = [];
+  for (const selector of excluded) {
+    const element = document.querySelector(selector);
+    if (!element) continue;
+    const kids = Array.from(element.children);
+    for (let i = 0; i < kids.length; i++) {
+      if (!hidden.includes(kids[i] ?? null)) children.push(`${selector} > :nth-child(${i + 1})`);
+    }
+  }
+  return children;
 }
 
 /**
  * The first `mix-blend-mode` axe-core 4.13 has no blend function for, on the
  * element, its ancestors, or any element whose box overlaps its box. Null when none
- * is found (a node inside a frame is not looked up), which the summary words
- * as "no function for this blend mode".
+ * is found, which the summary words as "no function for this blend mode".
  *
  * Runs IN THE PAGE, on the element resolveTargetElement found.
  */

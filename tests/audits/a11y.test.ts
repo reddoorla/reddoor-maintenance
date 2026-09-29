@@ -34,6 +34,7 @@ import { readAxeResults } from "../../src/audits/util/axe-results.js";
 import {
   describeBlendUnmeasured,
   isExcludableBlendCrash,
+  reincludedChildren,
   unsupportedBlendModeAt,
 } from "../../src/audits/util/blend-mode.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
@@ -2650,7 +2651,6 @@ describe("audits/a11y — an unsupported blend mode is not measured, not a failu
     expect(on("blendFunctions[blendMode] is not a function Skipping color-contrast rule.")).toBe(
       true,
     );
-    expect(on("blendFunctions[blendMode] is not a function", ["iframe", "#x"])).toBe(true);
     for (const other of [
       null,
       "",
@@ -2665,7 +2665,7 @@ describe("audits/a11y — an unsupported blend mode is not measured, not a failu
     }
   });
 
-  it("does not re-run around a blend crash it cannot exclude: no node, or the root element", () => {
+  it("does not re-run around a blend crash it cannot exclude: no node, the root, a frame, a shadow root", () => {
     const message = "blendFunctions[blendMode] is not a function";
     expect(isExcludableBlendCrash({ message, nodes: [] })).toBe(false);
     expect(isExcludableBlendCrash({ message, nodes: [{ target: ["html"] }] })).toBe(false);
@@ -2673,6 +2673,9 @@ describe("audits/a11y — an unsupported blend mode is not measured, not a failu
       false,
     );
     expect(isExcludableBlendCrash({ message, nodes: [{ target: [] }] })).toBe(false);
+    expect(isExcludableBlendCrash({ message, nodes: [{ target: ["iframe", "#x"] }] })).toBe(false);
+    expect(isExcludableBlendCrash({ message, nodes: [{ target: [["#host", "p"]] }] })).toBe(false);
+    expect(isExcludableBlendCrash({ message, nodes: [{ target: ["#x"] }] })).toBe(true);
     expect(isExcludableBlendCrash({ message, nodes: [{}] })).toBe(false);
   });
 
@@ -2718,7 +2721,7 @@ describe("audits/a11y — an unsupported blend mode is not measured, not a failu
 
   it("the generated spec runs these exact functions, and re-runs only the crashed rule", async () => {
     const spec = await specOf();
-    for (const fn of [isExcludableBlendCrash, unsupportedBlendModeAt]) {
+    for (const fn of [isExcludableBlendCrash, unsupportedBlendModeAt, reincludedChildren]) {
       expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
     }
     expect(spec).toContain("rerun = await runAxe([rule], excluded);");

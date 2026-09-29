@@ -23,6 +23,7 @@ import { readAxeResults } from "./util/axe-results.js";
 import {
   describeBlendUnmeasured,
   isExcludableBlendCrash,
+  reincludedChildren,
   unsupportedBlendModeAt,
   type BlendUnmeasured,
 } from "./util/blend-mode.js";
@@ -436,6 +437,7 @@ const readAxeResults = ${readAxeResults.toString()};
 // Injected the same way — see src/audits/util/blend-mode.ts.
 const isExcludableBlendCrash = ${isExcludableBlendCrash.toString()};
 const unsupportedBlendModeAt = ${unsupportedBlendModeAt.toString()};
+const reincludedChildren = ${reincludedChildren.toString()};
 // How many times one rule is re-run on one route, each time excluding the
 // nodes the last run crashed on for a blend mode. One band of text over a
 // grain crashes once per text node; a page that still crashes after this many
@@ -672,7 +674,15 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
         builder = rules
           ? builder.withRules(rules)
           : builder.withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"]);
-        for (const target of excluded) builder = builder.exclude(target);
+        // Each excluded node's children are included again, so only the
+        // crashed node's own text goes unmeasured -- see reincludedChildren.
+        if (excluded.length > 0) {
+          builder = builder.include("html");
+          for (const selector of excluded) builder = builder.exclude(selector);
+          for (const child of await page.evaluate(reincludedChildren, excluded)) {
+            builder = builder.include(child);
+          }
+        }
         return readAxeResults(
           await builder.analyze(),
         );
@@ -682,33 +692,36 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // rule and skips it for the whole document -- see
       // src/audits/util/blend-mode.ts. Re-run that rule alone with each node
       // it crashed on excluded, until it stops crashing, so the rest of the
-      // page is measured; each excluded node is recorded as not measured. The
-      // crash must carry a node to exclude, and anything still crashing after
-      // BLEND_RERUN_MAX runs stays a crash and fails below.
-      for (const rule of [...new Set(results.crashes.filter(isExcludableBlendCrash).map((c) => c.rule))]) {
+      // page is measured; each excluded node is recorded as not measured. Only
+      // a crash in the site's top-level document is re-run around, and
+      // anything still crashing after BLEND_RERUN_MAX runs stays a crash and
+      // fails below. A crash inside a frame stays a crash too, and the frame
+      // split below decides it as it always has.
+      const blendRules = [
+        ...new Set(results.crashes.filter(isExcludableBlendCrash).map((c) => c.rule)),
+      ];
+      for (const rule of blendRules) {
         const excluded = [];
         let rerun = { violations: [], passes: [], incomplete: [], crashes: results.crashes.filter((c) => c.rule === rule) };
         for (let round = 0; round < BLEND_RERUN_MAX; round++) {
           const crashing = rerun.crashes.filter(isExcludableBlendCrash);
           if (crashing.length === 0) break;
-          for (const c of crashing) excluded.push(c.nodes[0].target);
+          for (const c of crashing) excluded.push(c.nodes[0].target[0]);
           rerun = await runAxe([rule], excluded);
         }
         for (const group of ["violations", "passes", "incomplete"]) {
           results[group] = results[group].filter((r) => r.id !== rule).concat(rerun[group]);
         }
         results.crashes = results.crashes.filter((c) => c.rule !== rule).concat(rerun.crashes);
-        for (const target of excluded) {
+        for (const selector of excluded) {
           let blendMode = null;
-          if (target.length === 1) {
-            try {
-              const handle = await page.evaluateHandle(resolveTargetElement, target[0]);
-              blendMode = await handle.evaluate(unsupportedBlendModeAt);
-            } catch {
-              blendMode = null;
-            }
+          try {
+            const handle = await page.evaluateHandle(resolveTargetElement, selector);
+            blendMode = await handle.evaluate(unsupportedBlendModeAt);
+          } catch {
+            blendMode = null;
           }
-          blendSkipped.push({ route: name, rule, blendMode, target });
+          blendSkipped.push({ route: name, rule, blendMode, target: [selector] });
         }
       }
       // #888: contrast axe never measured, which an empty violations list
