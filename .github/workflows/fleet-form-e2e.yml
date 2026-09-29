@@ -144,7 +144,7 @@ jobs:
           fi
 
           # Total write-back failure: nothing landed at all (creds/API/inventory).
-          # Byte-for-byte the check fleet-lighthouse.yml:106 has carried for
+          # Byte-for-byte the check fleet-lighthouse.yml:109 has carried for
           # months, and this was the only fleet nightly without it.
           #
           # The mass-flake gate below is NOT a substitute, and the gap is narrow
