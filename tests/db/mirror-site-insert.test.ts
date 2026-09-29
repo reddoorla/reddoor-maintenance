@@ -18,7 +18,7 @@ import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
 
 const NOW = "2026-08-25T12:00:00.000Z";
 
-/** The shape Airtable's create response hands back for `ensure-site`. */
+/** The record `ensure-site` creates. */
 const CREATED: RawRecord = {
   id: "recNEWSITE",
   fields: {

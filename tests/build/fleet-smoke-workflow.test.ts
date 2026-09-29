@@ -18,10 +18,10 @@ const execFileAsync = promisify(execFile);
  * fleet-prismic-drift-workflow.test.ts's header.
  *
  * It got worse than "a failing suite goes unnoticed". When a suite exceeds its
- * budget it produces no verdict at all, and the Airtable writer then deliberately
+ * budget it produces no verdict at all, and the writer then deliberately
  * PRESERVES THE PRIOR VALUE rather than record a false fail. So the row kept
  * serving its last green tick. reddoor and beachfront-dentistry sat that way for
- * four consecutive nights — Airtable green, workflow green, nothing measured.
+ * four consecutive nights — row green, workflow green, nothing measured.
  *
  * So this file does not grep the YAML for reassuring words. It EXTRACTS the step's
  * shell script and EXECUTES it against a stubbed CLI, once per way the sweep can
@@ -96,7 +96,7 @@ describe("fleet-smoke — the gate cannot go green having measured nothing", () 
     expect(r.out).toContain("all 13 site(s) measured");
   });
 
-  // A failing suite is a finding ABOUT THE SITE, recorded on its Airtable row. Reddening
+  // A failing suite is a finding ABOUT THE SITE, recorded on its row. Reddening
   // the nightly for it would make the alarm meaningless the first time a spec broke — and
   // the CLI exits non-zero for it BY DESIGN, which is why the gate cannot key on $?.
   it("stays green when suites FAIL but every site was measured", async () => {

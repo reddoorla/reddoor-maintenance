@@ -1,19 +1,14 @@
 /**
  * #609 (#539 Phase 5): digest state moves to Turso.
  *
- * Unlike every other Phase 5 slice this is a MIGRATION, not a mirror — there was
- * no Turso table to dual-write into, so these functions REPLACE the Airtable
- * pair rather than shadowing them.
- *
  * Stored as a single-row JSON blob, deliberately. Both readers
  * (`runDigest`'s diff and the fleet homepage's NEW badges) need the WHOLE map,
  * so a keyed table would buy nothing on reads and would need a justified
  * full-scan entry in the EXPLAIN gate's allowlist. One row fetched by primary
  * key needs neither.
  *
- * The contract is the Airtable version's, verbatim: a missing row and a
- * malformed blob both read as `{}` so the digest degrades to "nothing is NEW"
- * instead of crashing.
+ * The contract: a missing row and a malformed blob both read as `{}` so the
+ * digest degrades to "nothing is NEW" instead of crashing.
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
@@ -33,9 +28,8 @@ describe("digest state on Turso", () => {
   });
 
   it("reads {} when nothing has been written yet", async () => {
-    // The very first run after the migration, before any backfill. It must
-    // behave exactly like the Airtable empty-table case: everything standing,
-    // nothing badged NEW, no crash.
+    // The very first run, before any write: everything standing, nothing
+    // badged NEW, no crash.
     const db = await openDb({ url: ":memory:" });
     expect(await readDigestState(db)).toEqual({});
   });
@@ -57,9 +51,8 @@ describe("digest state on Turso", () => {
   });
 
   it("reads {} from a malformed blob rather than throwing", async () => {
-    // Same defensive contract as the Airtable reader. The digest runs unattended
-    // on a cron; a bad blob must cost accurate NEW badges for one run, never the
-    // whole send.
+    // The digest runs unattended on a cron; a bad blob must cost accurate NEW
+    // badges for one run, never the whole send.
     const db = await openDb({ url: ":memory:" });
     await writeDigestState(db, SNAP, "2026-08-26T00:00:00.000Z");
     await db.updateTable("digest_state").set({ snapshot: "{not json" }).execute();

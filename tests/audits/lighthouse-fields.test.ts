@@ -30,7 +30,7 @@ describe("lighthouseScoresFromResult", () => {
   it("leaves missing categories null (write path clears the cell → dashboard '—')", () => {
     // A metric absent from the summary (e.g. NO_LCP nulls performance) must NOT
     // become a misleading 0 — it's unknown, not catastrophic. The write path
-    // persists null to clear the Airtable cell.
+    // persists null to clear the cell.
     const s = lighthouseScoresFromResult(lhResult({ performance: 0.5 }));
     expect(s).toEqual({ performance: 50, accessibility: null, bestPractices: null, seo: null });
   });
@@ -103,7 +103,7 @@ describe("hasRealScores", () => {
 
 describe("resolveSlugFromCwd", () => {
   it("slugifies package.json#name", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "lh-airtable-"));
+    const dir = await mkdtemp(join(tmpdir(), "lh-slug-"));
     await writeFile(join(dir, "package.json"), JSON.stringify({ name: "Med Solutions of Texas" }));
     expect(await resolveSlugFromCwd(dir)).toBe("med-solutions-of-texas");
     await rm(dir, { recursive: true });
@@ -116,7 +116,7 @@ describe("resolveSlugFromCwd", () => {
   });
 
   it("throws on package.json with no name field", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "lh-airtable-"));
+    const dir = await mkdtemp(join(tmpdir(), "lh-slug-"));
     await writeFile(join(dir, "package.json"), JSON.stringify({ version: "1.0.0" }));
     await expect(resolveSlugFromCwd(dir)).rejects.toThrow(/Pass --write-back=<slug>/);
     await rm(dir, { recursive: true });

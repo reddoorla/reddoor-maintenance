@@ -1,12 +1,12 @@
 /**
- * Report ids after Airtable (#646 step 4, operator decision 2026-09-17).
+ * Report ids (#646 step 4, operator decision 2026-09-17).
  *
- * The site decision (`site-id.ts`), applied to the other table Airtable used to
- * mint for us. Two shapes coexist PERMANENTLY:
+ * The site decision (`site-id.ts`), applied to reports. Two shapes coexist
+ * PERMANENTLY:
  *
- *   - `rec…`            every report drafted before this. Airtable's record id
- *                       became the Turso primary key at import (design D1) and is
- *                       never rewritten — `reports.id` is what the approve route,
+ *   - `rec…`            every report drafted before this. The imported record id
+ *                       is the primary key (design D1) and is never rewritten —
+ *                       `reports.id` is what the approve route,
  *                       the preview url, the re-render and the send all address.
  *   - `report_<ULID>`   every report drafted since, minted here.
  *

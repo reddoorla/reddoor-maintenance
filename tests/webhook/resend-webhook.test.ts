@@ -119,8 +119,6 @@ describe("Resend webhook GET health check", () => {
 
   beforeEach(() => {
     delete process.env.RESEND_WEBHOOK_SECRET;
-    delete process.env.AIRTABLE_PAT;
-    delete process.env.AIRTABLE_BASE_ID;
     delete process.env.TURSO_DATABASE_URL;
   });
 
@@ -151,8 +149,6 @@ describe("Resend webhook GET health check", () => {
 
   it("reports each env var as present once it's set, but never the value", async () => {
     process.env.RESEND_WEBHOOK_SECRET = "whsec_top_secret_should_not_leak";
-    process.env.AIRTABLE_PAT = "pat_should_not_leak";
-    process.env.AIRTABLE_BASE_ID = "appXXXXXXXXX";
     process.env.TURSO_DATABASE_URL = "libsql://secret-db-should-not-leak.turso.io";
     // @ts-expect-error — Netlify Context is unused for GET
     const res = await resendWebhook(new Request("https://x/", { method: "GET" }), {});
@@ -166,8 +162,6 @@ describe("Resend webhook GET health check", () => {
     // accidentally via a typo on the key name. Operators may share the curl
     // output in a support ticket.
     expect(raw).not.toContain("whsec_top_secret_should_not_leak");
-    expect(raw).not.toContain("pat_should_not_leak");
-    expect(raw).not.toContain("appXXXXXXXXX");
     expect(raw).not.toContain("secret-db-should-not-leak");
   });
 
@@ -458,10 +452,8 @@ describe("Resend webhook signed-POST path", () => {
   });
 
   it("fails CLOSED when libSQL is down: 500 so Resend redelivers", async () => {
-    // Pre-freeze this test proved the opposite — a Turso outage fell through
-    // and the Airtable write alone counted as success. With Turso
-    // authoritative (#612), a status that never reached the real store is NOT
-    // recorded: the handler must 500 so Resend retries the event. The
+    // A status that never reached the store is NOT recorded: the handler must
+    // 500 so Resend retries the event. The
     // monotonic guard makes the redelivery idempotent, and the bounce lookup's
     // own fall-through (submissions → report path) still happens first.
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
