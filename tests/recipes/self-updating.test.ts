@@ -721,12 +721,17 @@ describe("selfUpdating: a protection read that failed never becomes a protection
   }
 
   function wiredExceptProtection(protectionRead: Partial<SpawnResult>) {
-    return fakeGitHub({
-      fileContentsOnBranch: upToDate,
-      autoMergeEnabled: async () => false,
-      branchProtectionContexts: ghAnswering(protectionRead).branchProtectionContexts,
-      ...WIRED_RULESET,
-    });
+    const repoVisibility = vi.fn(async () => "public");
+    return {
+      ...fakeGitHub({
+        fileContentsOnBranch: upToDate,
+        autoMergeEnabled: async () => false,
+        branchProtectionContexts: ghAnswering(protectionRead).branchProtectionContexts,
+        repoVisibility,
+        ...WIRED_RULESET,
+      }),
+      repoVisibility,
+    };
   }
 
   it("404 Branch not protected: protection is applied", async () => {
@@ -751,7 +756,7 @@ describe("selfUpdating: a protection read that failed never becomes a protection
   ])("%s: failed, and protectBranch is never called", async (_, stderr) => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
-    const { gh, calls } = wiredExceptProtection({ code: 1, stderr });
+    const { gh, calls, repoVisibility } = wiredExceptProtection({ code: 1, stderr });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
       { github: gh, pushBranch: vi.fn(async () => {}) },
@@ -760,6 +765,7 @@ describe("selfUpdating: a protection read that failed never becomes a protection
     expect(r.notes).toContain(stderr);
     expect(r.notes).toMatch(/could not read branch protection on main/);
     expect(calls.filter((c) => c.startsWith("protect:"))).toEqual([]);
+    expect(repoVisibility).not.toHaveBeenCalled();
   });
 
   it("an unreadable default branch fails instead of protecting a guessed 'main'", async () => {

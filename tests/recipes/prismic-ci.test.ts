@@ -18,7 +18,7 @@ import {
   type ReusableWorkflowPin,
 } from "../../src/recipes/prismic-ci/template.js";
 import { withoutComments, workflowUses } from "../build/_helpers/workflow-source.js";
-import type { PullRequestSummary } from "../../src/github/gh.js";
+import { makeGitHub, type PullRequestSummary } from "../../src/github/gh.js";
 
 /** A pin that LOOKS exactly like a real one, so template assertions exercise the
  *  shipped renderer rather than a special case. Deliberately not the shipped pin:
@@ -521,11 +521,14 @@ describe("prismicCi", () => {
   it("does not read a refused workflow read as 'absent' and propose over it", async () => {
     await prismicSite();
     const { d, pushed } = deps();
-    d.github!.fileContentsOnBranch = vi.fn(async () => {
-      throw new Error(
-        "fileContentsOnBranch(o/r/.github/workflows/prismic.yml) failed: gh: Resource not accessible by integration (HTTP 403)",
-      );
-    });
+    d.github!.fileContentsOnBranch = makeGitHub({
+      token: "T",
+      spawn: async () => ({
+        code: 1,
+        stdout: "",
+        stderr: "gh: Resource not accessible by integration (HTTP 403)",
+      }),
+    }).fileContentsOnBranch;
     const r = await prismicCi(site(), d);
     expect(r.status).toBe("failed");
     expect(r.notes).toContain("HTTP 403");
