@@ -43,14 +43,14 @@ the evidence, in the PR or session that did it.
   issue list and the fleet state, and a `refute-claims` run over the week's
   morning reports. This is a paragraph in `pm-pass.md`, not a second Routine.
 - **10-14, two-week check** (the PM pass writes it into that morning's report):
-  - minutes the operator spent per morning (ask him);
+  - minutes the operator spent per morning (ask the operator);
   - Discord asks older than two days, per day;
   - days a zero-blocker report waited for its click;
   - PRs that needed a third review round;
   - duplicate-work incidents.
     Keep what moved, cut what did not.
 - **Auto-approve for zero-blocker Maintenance reports** comes back to the
-  operator only when the clean-send streak (W5) reaches the number he names.
+  operator only when the clean-send streak (W5) reaches the number the operator names.
   Until then the click stays.
 - **10-19**: Reddoor's Webflow licence lapses. The two remaining Webflow sites
   are converted or the renewal is decided before then (BACKLOG operator item 7).
@@ -74,7 +74,7 @@ inbox; it carried a real robots.txt block this month.
 - `from:(harvestapp.com) subject:("no hours" OR reminder)`
 - `from:(forms@reddoorla.com) cc:(tucker@reddoorla.com)`: form relays
   addressed to a client, where the operator is only cc'd. Check the first
-  week's matches: a lead addressed to the operator himself must not match.
+  week's matches: a lead addressed to the operator directly must not match.
 
 ## Done
 
@@ -82,3 +82,5 @@ inbox; it carried a real robots.txt block this month.
 - 2026-09-29 — **B3**: roalson-interests#196 (`8ecd279`) is on `^0.101.0`; its a11y gate passed with 0 violations across 5 routes. roalson-interests#100 closed.
 - 2026-09-29 — **B4 prepared**: `markup-review` made path-independent (claude-skills#11); both zips handed to the operator.
 - 2026-09-29 — **W6**: done by another session in #971.
+- 2026-09-29 — **W2, W3, W4** and the Monday paragraph (#973): worker rules in `CLAUDE.md`, `docs/worker-brief.md` with a checked P1-12 example, the [H] tag in BACKLOG and `pm-pass.md`, the Monday pass. W2's proof ("the next three worker sessions follow them") and W4's (an [H] item exists) are still to come.
+- 2026-09-29 — **W5** (#974): the record is a table in BACKLOG ("Clean-send streak"), not a Turso table, because the operator's verdict is its only input and no check can see the email; `pm-pass.md` step 6 reports "clean [TEST] sends in a row: N" and asks for each `awaiting` verdict. No code on `main` produces a "[TEST]" subject. The table starts with the 2026-09-28 29 Navy send, awaiting its verdict.

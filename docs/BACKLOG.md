@@ -25,6 +25,15 @@ Tags: **[M]** measured that morning (query, probe, log line or file:line),
    was ranked where is the point.
 5. **Re-rank** when a hard date passes, a P0 lands, or the operator answers an
    _Operator decisions_ item. Say so in the header line above.
+6. **[H] means the operator builds it by hand.** The operator tags an item
+   **[H]** (after its ID) when they want to write that code themselves. It is
+   ranked like any other item, but the PM pass lists it separately, never
+   recommends a worker for it and never writes a brief for it, and no agent
+   starts it. Only the operator adds or removes the tag.
+7. **Workers never ask mid-flight.** A worker that reaches a stop condition
+   adds one line under _Operator decisions_ (the exact ask, its own pick, the
+   branch or PR) and ends; see `CLAUDE.md` → "Worker sessions never ask
+   mid-flight". Briefs for starting a worker are in `docs/worker-brief.md`.
 
 Ranking is (client impact × confidence) ÷ effort, with two overrides: an
 **external date** the fleet does not control, and **alarm integrity** (an alarm
@@ -156,14 +165,17 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
   but pairs with #948's hydration-signal decision.
 - **#921 persistence**: do it the #910 way once #918 merges.
 
-### Watching, owned elsewhere
+### Watching (owned elsewhere, or parked)
 
-- **#960**: the `spawn.test` zombie flake (`kill ESRCH`, about 1 in 180 cloud
-  runs). Another session filed it and has a tested patch.
+- **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
+  the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
+  holds zombies past ~4 s (the test then fails its assertion cleanly). The flake
+  itself is fixed; see _Done_.
 - **#969**: a11y audit's `SpawnTimeoutError` kills Playwright's process group
   but orphans its `webServer` (the site's dev server). Filed from #950's review
-  by the same session; its fix touches `src/audits/util/spawn.ts`, as #960 does,
-  so the two should not be worked in parallel.
+  by the same session; its fix touches `src/audits/util/spawn.ts`. #972 (#960's
+  flake fix) changed only `tests/audits/util/spawn.test.ts`, so the two no
+  longer collide beyond that test file.
 
 ---
 
@@ -237,6 +249,31 @@ Ordered by what unblocks the most. Each line is the exact ask.
 
 ---
 
+## Clean-send streak ([TEST] report sends, operator's verdict)
+
+The operator keeps the click on zero-blocker Maintenance reports until they have
+seen several [TEST] sends in a row with nothing wrong (review §7.1). Every test
+send before 2026-09-29 had a problem. This table is the record; the operator's
+verdict is its only input, because no client and no check sees the email.
+
+- **Adding a row.** Any session that sends a [TEST] report email to the
+  operator adds a row in the same PR or session, with the verdict
+  `awaiting`. No code on `main` produces a "[TEST]" subject today: the
+  2026-09-28 one rendered the real 09-17 draft ("Completed on 09.17.2026"),
+  so it came from a session's ad-hoc render [I]; `selftest email <site>
+--type maintenance` builds from the roster with today's date and has no
+  prefix.
+- **The verdict** is `clean`, or one line saying what was wrong. The operator
+  writes it into the row (the GitHub web editor works from a phone) or says it
+  to any session, which writes it.
+- **The streak** is the number of `clean` rows counted up from the bottom,
+  stopping at the first row that is not `clean`. An `awaiting` row stops it
+  too, and becomes an ask in the morning report.
+
+| Sent (UTC)       | Site    | Report                 | Verdict  |
+| ---------------- | ------- | ---------------------- | -------- |
+| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | awaiting |
+
 ## Fleet snapshot (2026-09-29 05:36Z, live Turso, SELECT-only) [M]
 
 - 46 site rows: 14 maintained, 2 launching, 7 building, 9 external, 2
@@ -272,6 +309,11 @@ Ordered by what unblocks the most. Each line is the exact ask.
   part, or weekly; repeated items carry their age and a blocked draft carries
   the exact ask with its `/s/<slug>` path (#PR_DIGEST).
 
+- 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
+  4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its
+  final wait, counts only ESRCH as reaped, and its cleanup kill ignores `ESRCH`
+  (#972). The test only; `spawn.ts` is unchanged. #960 stays open for its first
+  suggestion, counting a zombie as dead via `ps` (see _Watching_).
 - 2026-09-29 — P1-18: #967 proven live. fleet-security run 36564241156
   rewrote #754's body to name that run, including the new
   `reddoor-website:staging` gap from #966, which also proves #966 live.
