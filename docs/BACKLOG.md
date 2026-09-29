@@ -268,7 +268,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
       building it.
     - #948 (hydration signal): audit the built preview (`vite preview`), not
       the dev server; queued until the a11y PRs in flight land.
-    - #728 (beachfront `matching/`): delete; a worker is doing it.
+    - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
+      101 self- or dead-host comparers removed, #728 closed.
     - #776: closed as done.
     - #711: closed into `CLAUDE.md` ("Prove the instrument", the paragraph on
       a derived view read as the state).

@@ -5816,6 +5816,39 @@ Discord, Figma comments and the MarkUp boards could not be reached from a cloud 
 
 **Honest accounting.** The rule counts are distinct instances as the miners reported them, not a deduplicated census. One fix PR, its journal entry and its commit subject can describe the same event, and some rules count all three. The ranking is frequency × testability, judged per rule, and is not a formula. Nothing here has been run against a page. Every "check" line is a proposal until a fixture shows it passing on a known-good page and failing on the real past defect it cites.
 
+## 2026-09-29 — Beachfront's self-comparing matching scripts deleted: 101, not 33 (#728, beachfront#69 `e3547dfe`)
+
+The operator's call on #728 was to delete, not to route through the read
+layer. The issue's premise had moved since it was filed: beachfront#54 deleted
+the 16 `sweep*.sh`, and beachfront#65 put 17 probes behind `assertRef`,
+which is fail-closed, so those now refuse where they used to match. Re-measured
+on beachfront `5221c02`, 147 tracked top-level scripts hard-code
+`https://[www.]beachfrontdentistry.com` or `beachfront-dentistry.webflow.io`.
+The 101 deleted were the ones that also load a candidate, carry no guard, and
+are named nowhere but LEDGER. The guard grep was first shown to hit on
+`probe-cut.mjs`, a known-guarded probe. #728's 33 does not reproduce from any
+grep shape tried, so the shape is recorded in beachfront's journal, not the
+number.
+
+**The brief was wrong about `gate.sh`, and the brief's own keep rule caught
+it.** #728 described gate.sh's REF as the dead webflow host. It now reads REF
+from harness.json and refuses through `--check-ref`. Beachfront is also the
+source `gen-match-harness-template.mjs` cuts the recipe from (`SRC` defaults to
+the laptop's beachfront checkout), so deleting gate.sh there would have left the
+next template regeneration without its upstream. Also kept: the recipe harness,
+the 17 guarded probes, config-driven tools, 37 reference-only measurement
+scripts (they compare nothing), 7 scripts cited from `src/` or `SPEC.md`, and
+`probe-markup-i2-z3`/`-z4`/`-z5` (localhost only), which the brief's
+`probe-markup-i2-z*` glob would otherwise have swept in.
+
+Re-probed: webflow.io 404 (906 bytes). `www.` 301 to the apex. The apex is 200
+and carries `candMark` 29 times, which proves by fingerprint that it is our
+build. Beachfront lint, check, 812/812 unit tests and build were green. The
+manual `node --test matching/probe-ref.test.mjs` is 24/25 on both the branch and
+`main`; the failure is `probe-footer-chrome.mjs` exiting 1 where 2 is expected.
+It predates the change and is not in CI, and it is left for whoever next touches
+beachfront matching.
+
 ## 2026-09-29 — The client email drops checklist rows whose evidence is n/a (#1015)
 
 This is Operator decisions 17, the #957 follow-up. The operator decided that a row whose evidence is `n/a` is left out of the client email, neither drawn with a ✓ nor shown as "N/A". Before this, `checklistRowsSection` drew a green check beside every label in `copy.maintenanceChecks` and `copy.testingChecklist`, and the template never saw the evidence at all. `ReportData` had no field for it. The gate read `autoEvidence`, but the email did not. So once #957 made a CMS-less site's "CMS Checked" `n/a`, LAHI's email would have said "CMS Checked ✓". "Form Functionality ✓" and "Tested After Updates ✓" had already been saying it for sites with no form or no CI since #370.
