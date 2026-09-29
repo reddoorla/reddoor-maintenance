@@ -162,6 +162,9 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     prismicModelsCheckedAt: (f["Prismic Models Checked At"] as string | undefined) ?? null,
     prismicModelsDrift: (f["Prismic Models Drift"] as string | undefined) ?? null,
     prismicAckUntil: (f["Prismic Ack Until"] as string | undefined) ?? null,
+    urlResolves: toVerdict(f["URL Resolves"]),
+    urlStatus: (f["URL Status"] as string | undefined) ?? null,
+    urlCheckedAt: (f["URL Checked At"] as string | undefined) ?? null,
     nextMaintenanceAt: (f["Next maintenance at"] as string | undefined) ?? null,
     nextTestingAt: (f["Next testing at"] as string | undefined) ?? null,
   };
@@ -478,6 +481,23 @@ export function gitHubSignalsFields(signals: GitHubSignalsWriteback): FieldSet {
     fields["Last Commit At"] = signals.lastCommitAt;
   }
   return fields;
+}
+
+/** The `roster-urls` sweep's FieldSet for one site (#912). All three are
+ *  written every time — a null verdict (blank url) clears yesterday's, and the
+ *  timestamp is the age of the answer whatever it was. */
+export type RosterUrlWriteback = {
+  resolves: "pass" | "fail" | null;
+  status: string;
+  checkedAt: string;
+};
+
+export function rosterUrlFields(probe: RosterUrlWriteback): FieldSet {
+  return {
+    "URL Resolves": probe.resolves,
+    "URL Status": probe.status,
+    "URL Checked At": probe.checkedAt,
+  };
 }
 
 /** One site's Prismic model verdict, as the sweep hands it to the record.
