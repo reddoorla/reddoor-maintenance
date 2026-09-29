@@ -5,6 +5,7 @@ import { resolveCopy } from "./copy.js";
 import { fetchGaUsers, fetchSearch } from "./draft.js";
 import { announcementSiteExtras } from "./announcement-email/template.js";
 import type { PreparedHeader } from "./send/render-email.js";
+import { autoTickChecklist } from "./auto-tick.js";
 
 /** The traffic/search lookback window (days) used for report-email previews. */
 const PREVIEW_WINDOW_DAYS = 30;
@@ -65,7 +66,8 @@ export async function buildReportDataForSite(
 
   const periodStart = new Date(now.getTime() - PREVIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const gaUsers = (await fetchGaUsers(site, periodStart, now)).value;
-  const search = (await fetchSearch(site, periodStart, now)).value;
+  const searchResult = await fetchSearch(site, periodStart, now);
+  const search = searchResult.value;
 
   const withAnalytics: ReportData = {
     ...base,
@@ -79,5 +81,8 @@ export async function buildReportDataForSite(
   if (type === "Announcement") {
     return { ...withAnalytics, ...announcementSiteExtras(site) };
   }
-  return withAnalytics; // Maintenance / Testing
+  // The checklist rows a real draft would drop (decision 17): the same evidence, from the same
+  // site row, so a selftest preview cannot show a row the client's email would not.
+  const evidence = autoTickChecklist(site, type, now, { search: searchResult });
+  return { ...withAnalytics, checklistEvidence: Object.fromEntries(evidence) }; // Maintenance / Testing
 }

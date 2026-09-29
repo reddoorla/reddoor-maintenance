@@ -155,6 +155,70 @@ describe("draftReportForSite", () => {
     }
   });
 
+  describe("checklist rows whose evidence is n/a are dropped from the rendered body (decision 17)", () => {
+    const recent = () => new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const noCms = () =>
+      siteFixture({
+        functionHealthCheckedAt: recent(),
+        cmsReachable: null,
+        prismicModels: null,
+        prismicModelsCheckedAt: recent(),
+      });
+
+    it("the stored draft body (the dashboard preview) has no CMS row for a site with no CMS", async () => {
+      const result = await draftReportForSite(noCms(), "Maintenance", NO_HEADER);
+      const stored = mapRow(writer.inserts[0]!);
+      expect(stored.autoEvidence?.["Maint: CMS Checked"]?.result).toBe("n/a");
+      expect(result.html).not.toContain("CMS Checked");
+      expect(result.html).toContain("Uptime Checked");
+    });
+
+    it("the local --preview render drops it too", async () => {
+      const { mkdtemp, rm } = await import("node:fs/promises");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const dir = await mkdtemp(join(tmpdir(), "draft-na-"));
+      try {
+        const result = await draftReportForSite(noCms(), "Maintenance", {
+          previewOnly: true,
+          previewPath: join(dir, "p.html"),
+        });
+        expect(result.html).not.toContain("CMS Checked");
+        expect(result.html).toContain("Uptime Checked");
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("completing a half-made row renders with the evidence that row holds, not fresh evidence", async () => {
+      const at = recent();
+      const result = await draftReportForSite(noCms(), "Maintenance", {
+        ...NO_HEADER,
+        period: "2026-05",
+        completeRowId: "rec_halfmade",
+        existingRow: {
+          id: "rec_halfmade",
+          reportId: "Acme Co — Maintenance — 2026-05-26",
+          autoEvidence: {
+            "Maint: CMS Checked": { result: "pass", checkedAt: at, note: "reachable" },
+            "Maint: Uptime Checked": { result: "n/a", checkedAt: at, note: "fixture" },
+          },
+        } as never,
+      });
+      expect(result.html).toContain("CMS Checked");
+      expect(result.html).not.toContain("Uptime Checked");
+    });
+
+    it("a site with a reachable CMS keeps the row", async () => {
+      const result = await draftReportForSite(
+        siteFixture({ functionHealthCheckedAt: recent(), cmsReachable: "pass" }),
+        "Maintenance",
+        NO_HEADER,
+      );
+      expect(result.html).toContain("CMS Checked");
+    });
+  });
+
   // `base === null` used to mean BOTH "never write" and "do no IO at all",
   // so a preview could never contain an ANALYTICS section however good the credentials
   // were. A CI job built to prove the GA secrets on top of `--preview` therefore failed

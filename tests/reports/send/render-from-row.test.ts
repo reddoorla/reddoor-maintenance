@@ -31,6 +31,7 @@ vi.mock("../../../src/reports/header-image/index.js", () => ({
 }));
 
 const { renderReportFromRow } = await import("../../../src/reports/send/render-from-row.js");
+const { rerenderReport } = await import("../../../src/reports/send/rerender.js");
 
 const PLATE = new Uint8Array([1, 2, 3]);
 
@@ -119,5 +120,66 @@ describe("renderReportFromRow", () => {
     // template references it as `cid:acme-co-header`.
     expect(r.attachments.some((a) => a.inlineContentId === "acme-co-header")).toBe(true);
     expect(r.html).toContain("cid:acme-co-header");
+  });
+
+  it("drops a checklist row whose stored evidence is n/a (decision 17), keeping the rest", async () => {
+    const r = await renderReportFromRow(
+      site(),
+      report({
+        autoEvidence: {
+          "Maint: CMS Checked": {
+            result: "n/a",
+            checkedAt: "2026-08-31T00:00:00Z",
+            note: "no CMS",
+          },
+          "Maint: Uptime Checked": {
+            result: "pass",
+            checkedAt: "2026-08-31T00:00:00Z",
+            note: "ok",
+          },
+        },
+      }),
+      PLATE,
+    );
+    expect(r.html).not.toContain("CMS Checked");
+    expect(r.html).toContain("Uptime Checked");
+    expect(r.html).toContain("Deploy &amp; Function Health");
+  });
+
+  it("a row with no stored evidence still renders", async () => {
+    const r = await renderReportFromRow(site(), report({ autoEvidence: null }), PLATE);
+    expect(r.html).toContain("CMS Checked");
+  });
+});
+
+describe("refresh preview (rerender through renderReportFromRow)", () => {
+  it("stores a body without the row the reticked evidence now calls n/a", async () => {
+    const NOW = new Date("2026-09-28T12:00:00Z");
+    const stamp = "2026-09-28T06:00:00Z";
+    const noCms = site({
+      functionHealthCheckedAt: stamp,
+      cmsReachable: null,
+      prismicModels: null,
+      prismicModelsCheckedAt: stamp,
+    });
+    const stored: string[] = [];
+    const r = await rerenderReport(
+      {
+        getReport: async () => report(),
+        getSite: async () => noCms,
+        loadHeaderPlate: async () => PLATE,
+        render: (s, rep, plate) => renderReportFromRow(s, rep, plate),
+        store: async (_id, html) => {
+          stored.push(html);
+        },
+        storeEvidence: async () => true,
+        now: () => NOW,
+      },
+      "recREP",
+    );
+    expect(r.status).toBe("rendered");
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).not.toContain("CMS Checked");
+    expect(stored[0]).toContain("Uptime Checked");
   });
 });
