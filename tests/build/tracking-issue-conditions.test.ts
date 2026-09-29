@@ -263,6 +263,7 @@ const closes = (all: Found[]) => all.filter((s) => /\bgh issue close\b/.test(s.s
  * accident.
  */
 const FINDING_KEYED = new Set([
+  "fleet-config-drift.yml › Open/update the config-drift tracking issue",
   "fleet-security.yml › Open/update the protection-gap tracking issue",
   "release-health.yml › Open/update the npm-drift tracking issue",
   "release-health.yml › Open/update the release-failing tracking issue",
@@ -287,6 +288,8 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
   it("finds every tracking-issue open and close step in .github/workflows", () => {
     expect(opens(all).map(id)).toEqual([
       "daily-reports.yml › Open/update the daily-reports-failing tracking issue",
+      "fleet-config-drift.yml › Open/update the config-drift tracking issue",
+      "fleet-config-drift.yml › Open/update the config-drift-sweep-failing tracking issue",
       "fleet-db-backup.yml › Open/update the backup-failure tracking issue",
       "fleet-db-backup.yml › Open/update the quota tracking issue",
       "fleet-form-e2e.yml › Open/update the nightly-form-e2e-failure tracking issue",
@@ -304,6 +307,8 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
     ]);
     expect(closes(all).map(id)).toEqual([
       "daily-reports.yml › Close the daily-reports-failing issue on recovery",
+      "fleet-config-drift.yml › Close the config-drift issue on a clean sweep",
+      "fleet-config-drift.yml › Close the config-drift-sweep-failing issue on recovery",
       "fleet-db-backup.yml › Close the backup-failure issue on recovery",
       "fleet-db-backup.yml › Close the quota issue on recovery",
       "fleet-form-e2e.yml › Close the nightly-form-e2e-failure issue on recovery",
@@ -685,11 +690,14 @@ exit 1
   /** A protection-audit output carrying one GAP line, so fleet-security's
    *  protection-gap step builds a body its close step can gate on. */
   const PROTECTION_OUT = "GAP     reddoorla/example — no branch ruleset\nPROTECTION_AUDIT gaps=1\n";
+  /** A sweep output carrying one DRIFT line, for fleet-config-drift's finding step. */
+  const CONFIG_DRIFT_OUT =
+    "DRIFT reddoorla/example .gitignore\nSYNC_CONFIGS_DRIFT drifted=1 clean=0 skipped=0 total=1\n";
 
   async function ghCalls(
     step: Found,
     env: Record<string, string>,
-    opts: { protectionOut?: string } = {},
+    opts: { protectionOut?: string; configDriftOut?: string } = {},
   ): Promise<string[][]> {
     const wf = await readFile(workflowPath(step.file), "utf-8");
     const script = stepRunScript(wf, step.label).replace(/\$\{\{[^}]*\}\}/g, "STUB_EXPR");
@@ -699,6 +707,10 @@ exit 1
     await chmod(join(dir, "bin", "gh"), 0o755);
     const protectionOut = opts.protectionOut ?? PROTECTION_OUT;
     if (protectionOut !== "") await writeFile(join(dir, "protection.out"), protectionOut, "utf-8");
+    const configDriftOut = opts.configDriftOut ?? CONFIG_DRIFT_OUT;
+    if (configDriftOut !== "") {
+      await writeFile(join(dir, "config-drift.out"), configDriftOut, "utf-8");
+    }
     const log = join(dir, "gh.log");
     await writeFile(log, "", "utf-8");
     // `bash -e`: Actions' default `run:` shell. A step that exits non-zero is
@@ -727,8 +739,8 @@ exit 1
 
   // The population this block judges. The list above pins the names; this pins
   // that the block itself saw all of them, so a filter here cannot shrink it.
-  it("finds all 15 open steps", () => {
-    expect(opens(all)).toHaveLength(15);
+  it("finds all 17 open steps", () => {
+    expect(opens(all)).toHaveLength(17);
   });
 
   // POSITIVE CONTROL first: with no existing issue each step creates one with a
@@ -798,6 +810,16 @@ exit 1
       (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
     )!;
     const got = await ghCalls(s, { GH_EXISTING: EXISTING }, { protectionOut: "" });
+    expect(calls(got, "edit")).toEqual([]);
+    expect(calls(got, "comment").map((c) => c[2])).toEqual([EXISTING]);
+    expect(bodyArg(calls(got, "comment")[0]!)).toContain("see run output");
+  });
+
+  it("config-drift keeps a DRIFT-bearing body when this run printed no DRIFT line, and still comments", async () => {
+    const s = opens(all).find(
+      (o) => id(o) === "fleet-config-drift.yml › Open/update the config-drift tracking issue",
+    )!;
+    const got = await ghCalls(s, { GH_EXISTING: EXISTING }, { configDriftOut: "" });
     expect(calls(got, "edit")).toEqual([]);
     expect(calls(got, "comment").map((c) => c[2])).toEqual([EXISTING]);
     expect(bodyArg(calls(got, "comment")[0]!)).toContain("see run output");
@@ -970,10 +992,11 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
     expect(extractedRows(misread)).not.toEqual(parsedRows(misread));
   });
 
-  it("finds all fourteen workflows", async () => {
+  it("finds all fifteen workflows", async () => {
     expect((await readdir(workflowPath("."))).filter((f) => f.endsWith(".yml")).sort()).toEqual([
       "ci.yml",
       "daily-reports.yml",
+      "fleet-config-drift.yml",
       "fleet-db-backup.yml",
       "fleet-form-e2e.yml",
       "fleet-lighthouse.yml",
