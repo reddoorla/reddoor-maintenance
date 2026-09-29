@@ -32,6 +32,9 @@ type DispatchInputs = { url: string; business: string; requested_by: string };
 type DispatchCall = { repo: string; workflowFile: string; inputs: DispatchInputs };
 let dispatchCalls: DispatchCall[] = [];
 let dispatchResult: { ok: true } | { ok: false; error: string } = { ok: true };
+/** Runs inside the fake dispatch, before its result returns — the window in
+ *  which a dispatch GitHub accepted can already have a job claiming its row. */
+let duringDispatch: ((target: DispatchCall) => Promise<void>) | null = null;
 vi.mock("../../src/dashboard/prospect-audit-trigger.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../src/dashboard/prospect-audit-trigger.js")>();
@@ -39,13 +42,17 @@ vi.mock("../../src/dashboard/prospect-audit-trigger.js", async (importOriginal) 
     ...actual,
     makeWorkflowDispatchDispatcher: vi.fn(() => async (target: DispatchCall) => {
       dispatchCalls.push(target);
+      if (duringDispatch) await duringDispatch(target);
       return dispatchResult;
     }),
   };
 });
 
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { createProspectAudit } from "../../src/db/prospect-audits.js";
+import {
+  claimProspectAuditReservation,
+  createProspectAudit,
+} from "../../src/db/prospect-audits.js";
 import prospectAuditRun, { config } from "../../netlify/functions/prospect-audit-run.mjs";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -53,6 +60,7 @@ const ORIGINAL_ENV = { ...process.env };
 beforeEach(() => {
   dispatchCalls = [];
   dispatchResult = { ok: true };
+  duringDispatch = null;
 });
 
 afterEach(() => {
@@ -260,6 +268,20 @@ describe("prospect-audit-run adapter — a good request", () => {
     });
   });
 
+  it("#907: writes a `running` row BEFORE the dispatch, so the next click's cap counts it", async () => {
+    configureEnv();
+    const res = await prospectAuditRun(post(GOOD_BODY, authHeader("tucker", "s3cret")), ctx);
+    expect(res.status).toBe(202);
+    const db = await openDb(readDbConfig());
+    const rows = await db
+      .selectFrom("prospect_audits")
+      .select(["url", "status", "business"])
+      .execute();
+    expect(rows).toEqual([
+      { url: "https://prospect.example/", status: "running", business: "Prospect Co" },
+    ]);
+  });
+
   it("records the signed-in operator's verified address as requested_by", async () => {
     // The point of the whole exercise: with a real session the audit log names
     // a person Google verified, not a string someone typed into a password box.
@@ -292,7 +314,15 @@ describe("prospect-audit-run adapter — a good request", () => {
     expect(dispatchCalls[0]?.inputs.requested_by).toBe("cockpit");
 
     dispatchCalls.length = 0;
-    await prospectAuditRun(post(GOOD_BODY, authHeader("definitely-erik", "s3cret")), ctx);
+    // A different url: since #907 the first POST's `running` row makes a
+    // second POST of the SAME url a duplicate, which is the guard working.
+    await prospectAuditRun(
+      post(
+        { ...GOOD_BODY, url: "https://another-prospect.example/" },
+        authHeader("definitely-erik", "s3cret"),
+      ),
+      ctx,
+    );
     expect(dispatchCalls[0]?.inputs.requested_by).toBe("cockpit");
   });
 
@@ -312,6 +342,31 @@ describe("prospect-audit-run adapter — a good request", () => {
     expect(res.status).toBeGreaterThanOrEqual(500);
     const body = (await res.json()) as { message: string };
     expect(body.message).toContain("403 no actions:write");
+    // Nothing will ever run to finish that reservation, so it is given back.
+    const db = await openDb(readDbConfig());
+    expect(await db.selectFrom("prospect_audits").select("id").execute()).toEqual([]);
+  });
+
+  it("#907 review P4: a dispatch reported as failed does NOT free a row its job already claimed", async () => {
+    // GitHub can accept a dispatch and still answer the cockpit with an error
+    // (a timeout reading the response). If the job has claimed the row by the
+    // time the cockpit releases, that row belongs to a run that may be
+    // spending. This drives the REAL handler's `release` wiring — the only
+    // `onlyIfUnclaimed: true` in the codebase — not a test-built adapter.
+    configureEnv();
+    dispatchResult = { ok: false, error: "timeout reading the dispatch response" };
+    duringDispatch = async (target) => {
+      const db = await openDb(readDbConfig());
+      const claimed = await claimProspectAuditReservation(db, target.inputs.url, new Date());
+      if (!claimed) throw new Error("positive control: the job must find the cockpit's row");
+    };
+    const res = await prospectAuditRun(post(GOOD_BODY, authHeader("tucker", "s3cret")), ctx);
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    const db = await openDb(readDbConfig());
+    const rows = await db.selectFrom("prospect_audits").select(["status", "claimed_at"]).execute();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("running");
+    expect(rows[0]!.claimed_at).not.toBeNull();
   });
 });
 

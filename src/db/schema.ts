@@ -258,6 +258,12 @@ export interface ProspectAuditsTable {
    *  from your site" are different claims the report has to be able to make. */
   chosen_terms: string | null;
   chosen_questions: string | null;
+  /** #907 (migration 0029). ISO-8601 of when the process that spends — the
+   *  CLI — took ownership of a `running` reservation. NULL on a reservation the
+   *  cockpit made at dispatch and no job has picked up yet, which is what lets
+   *  that job claim it instead of reserving a second slot for the same audit.
+   *  NULL on every row written before the column existed. */
+  claimed_at: string | null;
 }
 
 /** The digest's prior-run snapshot (migration 0011). One row, `id` = the

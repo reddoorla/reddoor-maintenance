@@ -255,6 +255,7 @@ describe("dashboard inline <script> blocks parse", () => {
             edited_at: null,
             opened_at: null,
             chosen_terms: null,
+            claimed_at: null,
           },
         ],
         now: NOW,
