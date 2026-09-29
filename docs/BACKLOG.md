@@ -250,7 +250,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
     already does for sites without a form. Decide whether `n/a` rows render
     differently or drop out.
 18. **Standing product calls** — #943 (what "Search Console set up" means),
-    #948 (hydration signal), #690 (pnpm pin questions), #672 (cockpit design),
+    #948 (hydration signal), #690 (pnpm pin questions), #672 (cockpit design:
+    brief written, awaiting the operator's markup —
+    [`docs/cockpit-design-brief-2026-09.md`](cockpit-design-brief-2026-09.md)),
     #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
     #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
     #773 (local-only git objects).
