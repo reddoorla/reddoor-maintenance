@@ -163,6 +163,30 @@ describe("fleet-config-drift — the positive control", () => {
       { ...GOOD, clean: `DRIFT clean .gitignore\n${summary(1, 0, 0)}` },
     ],
     [
+      "the drift fixture's lines say CLEAN under a drift summary",
+      { ...GOOD, drift: `DRIFT drift x\nCLEAN drift\n${summary(1, 0, 0)}` },
+    ],
+    [
+      "the drift fixture has a drift summary and no DRIFT line",
+      { ...GOOD, drift: summary(1, 0, 0) },
+    ],
+    [
+      "the clean fixture's lines say DRIFT under a clean summary",
+      { ...GOOD, clean: `CLEAN clean\nDRIFT clean x\n${summary(0, 1, 0)}` },
+    ],
+    [
+      "the tracked-artifact fixture drifts on another file only",
+      { ...GOOD, tracked: `DRIFT tracked eslint.config.js\n${summary(1, 0, 0)}` },
+    ],
+    [
+      "the tracked-artifact fixture also says CLEAN",
+      { ...GOOD, tracked: `DRIFT tracked .gitignore\nCLEAN tracked\n${summary(1, 0, 0)}` },
+    ],
+    [
+      "the tracked-artifact fixture has no summary",
+      { ...GOOD, tracked: "DRIFT tracked .gitignore" },
+    ],
+    [
       "the tracked-artifact fixture reads as clean",
       { ...GOOD, tracked: `CLEAN tracked\n${summary(0, 1, 0)}` },
     ],
@@ -260,8 +284,14 @@ const corpus = JSON.parse(fs.readFileSync(process.env.GH_CORPUS, "utf-8"));
 const a = process.argv.slice(2);
 const log = (s) => fs.appendFileSync(process.env.GH_LOG, s + "\\n");
 if (a[0] === "issue" && a[1] === "list") {
-  const title = /in:title "(.*)"/.exec(a[a.indexOf("--search") + 1])[1];
-  for (const i of corpus.filter((i) => i.title === title)) console.log(i.number);
+  const phrase = /in:title "(.*)"/.exec(a[a.indexOf("--search") + 1])[1].toLowerCase();
+  const hits = corpus
+    .filter((i) => i.title.toLowerCase().includes(phrase))
+    .map((i) => ({ number: i.number, title: i.title }));
+  const jq = require("node:child_process").execFileSync("jq", ["-r", a[a.indexOf("--jq") + 1]], {
+    input: JSON.stringify(hits),
+  });
+  process.stdout.write(jq);
   process.exit(0);
 }
 if (a[0] === "issue" && a[1] === "view") {
@@ -270,8 +300,8 @@ if (a[0] === "issue" && a[1] === "view") {
 }
 if (a[0] === "issue" && a[1] === "close") { log("CLOSE #" + a[2]); process.exit(0); }
 if (a[0] === "issue" && a[1] === "create") { log("CREATE " + a[a.indexOf("--body") + 1]); process.exit(0); }
-if (a[0] === "issue" && a[1] === "edit") { log("EDIT"); process.exit(0); }
-if (a[0] === "issue" && a[1] === "comment") { log("COMMENT"); process.exit(0); }
+if (a[0] === "issue" && a[1] === "edit") { log("EDIT #" + a[2]); process.exit(0); }
+if (a[0] === "issue" && a[1] === "comment") { log("COMMENT #" + a[2]); process.exit(0); }
 process.exit(1);
 `;
 
@@ -364,6 +394,40 @@ describe("fleet-config-drift — the finding issue", () => {
       { number: 7, title: TITLE, body: "Filed by hand: configs look off somewhere." },
     ]);
     expect(r.log).not.toContain("CLOSE");
+  });
+
+  it("never closes an issue whose title only contains the tracking title", async () => {
+    const body = await filedBody(`DRIFT ${A} .gitignore\n${summary(1, 0, 0)}\n`);
+    const r = await issueStep(CLOSE, `CLEAN ${A}\n${summary(0, 1, 0)}\n`, [
+      { number: 5, title: `${TITLE} - sonder follow-up`, body },
+      { number: 7, title: TITLE, body },
+    ]);
+    expect(r.log.match(/CLOSE #\d+/g)).toEqual(["CLOSE #7"]);
+  });
+
+  it("does not count a CLEAN repo whose name only contains the named repo", async () => {
+    const body = await filedBody(`DRIFT reddoorla/sonder .gitignore\n${summary(1, 0, 0)}\n`);
+    const r = await issueStep(
+      CLOSE,
+      `SKIPPED reddoorla/sonder clone failed\nCLEAN reddoorla/sonder-landing\nCLEAN reddoorla/gallerysonder\n${summary(0, 2, 1)}\n`,
+      [{ number: 7, title: TITLE, body }],
+    );
+    expect(r.log).not.toContain("CLOSE");
+    expect(r.out).toMatch(/::warning::not closing #7.*reddoorla\/sonder/);
+  });
+
+  it("updates the exact-title issue, not one whose title only contains it", async () => {
+    const out = `DRIFT ${A} .gitignore\n${summary(1, 0, 0)}\n`;
+    const near = await issueStep(OPEN, out, [
+      { number: 5, title: `${TITLE} - sonder follow-up`, body: "hand-written" },
+    ]);
+    expect(near.log).toMatch(/^CREATE /);
+    expect(near.log).not.toMatch(/EDIT|COMMENT/);
+    const both = await issueStep(OPEN, out, [
+      { number: 5, title: `${TITLE} - sonder follow-up`, body: "hand-written" },
+      { number: 7, title: TITLE, body: "old" },
+    ]);
+    expect(both.log.match(/(EDIT|COMMENT|CREATE) ?#?\d*/g)).toEqual(["EDIT #7", "COMMENT #7"]);
   });
 
   it("closes only the same-title issue whose own repos this run verified", async () => {

@@ -64,7 +64,9 @@ jobs:
           grep -qx "SYNC_CONFIGS_DRIFT drifted=0 clean=1 skipped=0 total=1" "$root/clean.out" || bad="$bad clean-summary"
           grep -qx "CLEAN clean" "$root/clean.out" || bad="$bad clean-line"
           grep -q "^DRIFT " "$root/clean.out" && bad="$bad clean-says-drift"
+          grep -qx "SYNC_CONFIGS_DRIFT drifted=1 clean=0 skipped=0 total=1" "$root/tracked.out" || bad="$bad tracked-summary"
           grep -qx "DRIFT tracked .gitignore" "$root/tracked.out" || bad="$bad tracked-artifact"
+          grep -q "^CLEAN " "$root/tracked.out" && bad="$bad tracked-says-clean"
           if [ -n "$bad" ]; then
             echo "::error::the sync-configs --dry positive control failed:$bad. The instrument is broken, so this run cannot say whether the fleet drifts."
             exit 1
@@ -174,7 +176,7 @@ jobs:
               echo "$clean" | grep -qxF "$repo" || unverified="$unverified $repo"
             done
             if [ -n "$unverified" ]; then
-              echo "not closing #$n; this sweep did not find these CLEAN:$unverified"
+              echo "::warning::not closing #$n; this sweep did not find these CLEAN:$unverified. A repo that left the roster or can never be cloned keeps it open until someone closes it by hand."
               continue
             fi
             list=$(echo "$named" | tr '\n' ' ')

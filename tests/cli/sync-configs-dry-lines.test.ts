@@ -76,6 +76,10 @@ describe("sync-configs --dry machine lines", () => {
     const skipped = lines.filter((l) => l.startsWith("SKIPPED "));
     expect(skipped).toHaveLength(1);
     expect(skipped[0]).toMatch(/^SKIPPED reddoorla\/repo-d \S/);
+    expect(skipped[0]).toMatch(/fatal:.*fatal:/);
+    const all = output.split("\n");
+    const first = all.findIndex((l) => /^(DRIFT|CLEAN|SKIPPED|SYNC_CONFIGS_DRIFT) /.test(l));
+    expect(all.slice(first)).toEqual(lines);
     expect(lines.some((l) => /^(DRIFT|CLEAN) reddoorla\/repo-d\b/.test(l))).toBe(false);
     const named = lines
       .filter((l) => !l.startsWith("SYNC_CONFIGS_DRIFT "))
@@ -105,6 +109,22 @@ describe("sync-configs --dry machine lines", () => {
     ]);
     expect(lines).toContain("CLEAN reddoorla/repo-y");
     expect(lines.at(-1)).toBe("SYNC_CONFIGS_DRIFT drifted=0 clean=1 skipped=1 total=2");
+  });
+
+  it("in fleet mode, --only without gitignore still skips a checkout that is not a git repo", async () => {
+    const notGit = await mkdtemp(join(tmpdir(), "sync-dry-notgit-"));
+    await cp(clean, notGit, { recursive: true });
+    const fleet = await inventory([{ path: notGit, name: "slug-x", gitRepo: "reddoorla/repo-x" }]);
+    const { output } = await runSyncConfigsCommand(undefined, {
+      dry: true,
+      fleet,
+      only: "eslint",
+      workdir: await mkdtemp(join(tmpdir(), "sync-dry-wd-")),
+    });
+    expect(machine(output)).toEqual([
+      expect.stringMatching(/^SKIPPED reddoorla\/repo-x dry plan failed: /),
+      "SYNC_CONFIGS_DRIFT drifted=0 clean=0 skipped=1 total=1",
+    ]);
   });
 
   it("reports .gitignore drift for a tracked build artifact, matching the real run", async () => {

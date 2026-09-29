@@ -39,9 +39,7 @@ function parseOnly(value?: string): ConfigName[] | undefined {
 
 type DryChange = { path: string; text: string };
 
-async function dryPlanGitignore(cwd: string, requireGit: boolean): Promise<DryChange | null> {
-  const isRepo = await isGitWorkTree(cwd);
-  if (!isRepo && requireGit) throw new Error(`not a git work tree: ${cwd}`);
+async function dryPlanGitignore(cwd: string, isRepo: boolean): Promise<DryChange | null> {
   const plan = await planGitignore(cwd, isRepo ? undefined : []);
   if (plan.kind === "noop") return null;
   const parts: string[] = [];
@@ -62,6 +60,8 @@ async function dryPlan(
   which: ConfigName[] | undefined,
   requireGit: boolean,
 ): Promise<DryChange[]> {
+  const isRepo = await isGitWorkTree(cwd);
+  if (!isRepo && requireGit) throw new Error(`not a git work tree: ${cwd}`);
   const includeGitignore = which ? which.includes("gitignore") : true;
   const templateTargets = which
     ? templatesByName(which.filter((c): c is ConfigName => c !== "gitignore"))
@@ -77,7 +77,7 @@ async function dryPlan(
     text: `would update ${t.path} (config: ${t.config})`,
   }));
   if (includeGitignore) {
-    const gi = await dryPlanGitignore(cwd, requireGit);
+    const gi = await dryPlanGitignore(cwd, isRepo);
     if (gi) changes.push(gi);
   }
   return changes;
