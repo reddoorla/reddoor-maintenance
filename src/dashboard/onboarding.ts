@@ -1,4 +1,12 @@
 import type { WebsiteRow } from "../fleet/site-row.js";
+import { analyticsOptedOut, searchConsoleOptedOut } from "../fleet/opt-outs.js";
+
+export {
+  NO_ANALYTICS,
+  NO_SEARCH_CONSOLE,
+  analyticsOptedOut,
+  searchConsoleOptedOut,
+} from "../fleet/opt-outs.js";
 
 export type OnboardingStatus = {
   score: number;
@@ -13,30 +21,17 @@ export type OnboardingStatus = {
   };
 };
 
-export const NO_ANALYTICS = "no analytics";
-export const NO_SEARCH_CONSOLE = "no search console";
-
 function isNonEmpty(s: string | null | undefined): boolean {
   return typeof s === "string" && s.trim().length > 0;
-}
-
-function accepted(row: WebsiteRow, key: string): boolean {
-  return row.acceptedWatchConditions.some((c) => c.trim().toLowerCase() === key);
-}
-
-export function analyticsOptedOut(row: WebsiteRow): boolean {
-  return accepted(row, NO_ANALYTICS);
-}
-
-export function searchConsoleOptedOut(row: WebsiteRow): boolean {
-  return accepted(row, NO_SEARCH_CONSOLE);
 }
 
 /** Six-point onboarding signal for the fleet card. A site is "fully onboarded"
  *  when it has been audited at least once, has a To-recipient for monthly
  *  reports, has a maintenance schedule that isn't "None", has a named POC, has
  *  a GA4 property on its row or an explicit "no analytics" opt-out, and has a
- *  Search Console property on its row or an explicit "no search console" opt-out. */
+ *  Search Console property RECORDED on its row or an explicit "no search console"
+ *  opt-out. A blank Search Console property is not proof the site has none (a report
+ *  run resolves one by host), so this check observes the record, not Search Console. */
 export function onboardingStatus(row: WebsiteRow): OnboardingStatus {
   const checks = {
     firstAudit: isNonEmpty(row.lastLighthouseAuditAt),
@@ -59,7 +54,7 @@ export const ONBOARDING_LABELS: Record<keyof OnboardingStatus["checks"], string>
   schedule: "Maintenance schedule",
   poc: "Point of contact",
   analytics: 'GA4 property (or a "no analytics" opt-out)',
-  searchConsole: 'Search Console property (or a "no search console" opt-out)',
+  searchConsole: 'Search Console property recorded (or a "no search console" opt-out)',
 };
 
 /** The labels of the onboarding checks this site has NOT satisfied, in check
