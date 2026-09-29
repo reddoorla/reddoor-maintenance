@@ -25,6 +25,15 @@ Tags: **[M]** measured that morning (query, probe, log line or file:line),
    was ranked where is the point.
 5. **Re-rank** when a hard date passes, a P0 lands, or the operator answers an
    _Operator decisions_ item. Say so in the header line above.
+6. **[H] means the operator builds it by hand.** The operator tags an item
+   **[H]** (after its ID) when they want to write that code themselves. It is
+   ranked like any other item, but the PM pass lists it separately, never
+   recommends a worker for it and never writes a brief for it, and no agent
+   starts it. Only the operator adds or removes the tag.
+7. **Workers never ask mid-flight.** A worker that reaches a stop condition
+   adds one line under _Operator decisions_ (the exact ask, its own pick, the
+   branch or PR) and ends; see `CLAUDE.md` → "Worker sessions never ask
+   mid-flight". Briefs for starting a worker are in `docs/worker-brief.md`.
 
 Ranking is (client impact × confidence) ÷ effort, with two overrides: an
 **external date** the fleet does not control, and **alarm integrity** (an alarm

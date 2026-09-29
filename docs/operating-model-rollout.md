@@ -43,14 +43,14 @@ the evidence, in the PR or session that did it.
   issue list and the fleet state, and a `refute-claims` run over the week's
   morning reports. This is a paragraph in `pm-pass.md`, not a second Routine.
 - **10-14, two-week check** (the PM pass writes it into that morning's report):
-  - minutes the operator spent per morning (ask him);
+  - minutes the operator spent per morning (ask the operator);
   - Discord asks older than two days, per day;
   - days a zero-blocker report waited for its click;
   - PRs that needed a third review round;
   - duplicate-work incidents.
     Keep what moved, cut what did not.
 - **Auto-approve for zero-blocker Maintenance reports** comes back to the
-  operator only when the clean-send streak (W5) reaches the number he names.
+  operator only when the clean-send streak (W5) reaches the number the operator names.
   Until then the click stays.
 - **10-19**: Reddoor's Webflow licence lapses. The two remaining Webflow sites
   are converted or the renewal is decided before then (BACKLOG operator item 7).
@@ -74,7 +74,7 @@ inbox; it carried a real robots.txt block this month.
 - `from:(harvestapp.com) subject:("no hours" OR reminder)`
 - `from:(forms@reddoorla.com) cc:(tucker@reddoorla.com)`: form relays
   addressed to a client, where the operator is only cc'd. Check the first
-  week's matches: a lead addressed to the operator himself must not match.
+  week's matches: a lead addressed to the operator directly must not match.
 
 ## Done
 
