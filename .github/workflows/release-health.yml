@@ -18,6 +18,7 @@ name: release-health
 #    check looks at the release workflow's own most recent decisive run on main.
 #
 # Each guard reds the run and files its own deduped tracking issue, auto-closed once it recovers.
+# A third issue covers the checker itself failing or hanging, when neither guard got to judge.
 on:
   schedule:
     - cron: "30 14 * * *" # 14:30 UTC daily — clear of the 06:00/08:00/09:23 nightly churn
@@ -225,6 +226,56 @@ jobs:
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
             gh issue close "$n" --comment "The release workflow is green on main again. Closing." && echo "closed #$n"
+          done
+
+      # The CHECKER itself going red. Both issues above key on a finding, and a cancelled or
+      # crashed run is not one, so a hung `npm view` that hit the 5-minute job timeout used to
+      # file nothing at all (P1-15). This pair covers that, and nothing else: it sits AHEAD of
+      # "Fail when unhealthy", so `failure()` here means checkout, setup-node or one of the two
+      # check steps broke, never that a guard found something. A guard's finding reds the run
+      # below and files only its own issue. An empty guard-2 query still stays silent — the
+      # step swallows it (`|| true`), so it is not a failure here either.
+      - name: Open/update the release-health-run-failing tracking issue
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Daily release-health check failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The daily **release-health** check could not finish, so neither of its guards (npm drift, release-workflow redness) was judged this run. This is the checker failing, not a finding about releases: open the run and read the step that broke.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next run whose checks complete._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the release-health-run-failing issue on recovery
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        # Ahead of "Fail when unhealthy", so success() is "both checks ran to the end" — a
+        # run that completes and finds drift has still proved the checker works.
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Daily release-health check failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the release-health checks ran to completion again." && echo "closed #$n"
           done
 
       # Red the run on either signal (after both issues are filed) so it surfaces beyond the issues.

@@ -61,6 +61,9 @@ interface Scenario {
   outcome: string;
   /** What every `steps.<id>.outputs.<x>` reads as. */
   output: string;
+  /** Per-step overrides of `outcome`, by step id — a red run where one step
+   *  failed and the one an `if:` names was skipped or green. */
+  outcomes?: Record<string, string>;
 }
 
 type Value = string | boolean;
@@ -98,7 +101,8 @@ function evaluate(expr: string, s: Scenario): boolean {
   const resolve = (path: string): Value => {
     if (path === "github.ref") return s.ref;
     if (/^inputs\.[\w-]+$/.test(path)) return ""; // scheduled runs carry no inputs
-    if (/^steps\.[\w-]+\.(outcome|conclusion)$/.test(path)) return s.outcome;
+    const step = /^steps\.([\w-]+)\.(outcome|conclusion)$/.exec(path);
+    if (step) return s.outcomes?.[step[1]!] ?? s.outcome;
     if (/^steps\.[\w-]+\.outputs\.[\w-]+$/.test(path)) return s.output;
     throw new Error(`context ${path} is not modelled — extend the evaluator, do not guess`);
   };
@@ -221,6 +225,15 @@ describe("the expression evaluator reads conditions the way Actions does", () =>
     ).toBe(false);
   });
 
+  it("reads a per-step outcome where the scenario names one", () => {
+    const setupBroke = { ...MAIN_FAILED, outcomes: { suite: "skipped" } };
+    // `failure() &&` because the run is red: without a status function the
+    // implicit success() would make all three false.
+    expect(evaluate("failure() && steps.suite.outcome == 'skipped'", setupBroke)).toBe(true);
+    expect(evaluate("failure() && steps.suite.outcome == 'failure'", setupBroke)).toBe(false);
+    expect(evaluate("failure() && steps.other.outcome == 'failure'", setupBroke)).toBe(true);
+  });
+
   it("refuses a context it does not model rather than reading it as empty", () => {
     expect(() => evaluate("github.event_name == 'schedule'", MAIN_GREEN)).toThrow(/not modelled/);
   });
@@ -243,9 +256,11 @@ const closes = (all: Found[]) => all.filter((s) => /\bgh issue close\b/.test(s.s
  * step output or a continue-on-error step's outcome, so the job's status is
  * irrelevant to them and a cancelled run is not a finding — filing "protection
  * gap" or "npm is behind" because a step hung would assert a diagnosis nobody
- * made. The workflow's run-failure issue (fleet-security) or the job timeout
- * (release-health, 5 min) covers the hang. Named here, not inferred, so a new
- * run-failure step cannot opt out of the cancellation rule by accident.
+ * made. The workflow's own run-failure issue covers the hang (fleet-security's
+ * nightly-failure issue; release-health's run-failing issue since P1-15, which
+ * is what fires when its 5-minute job timeout cancels the run). Named here, not
+ * inferred, so a new run-failure step cannot opt out of the cancellation rule by
+ * accident.
  */
 const FINDING_KEYED = new Set([
   "fleet-security.yml › Open/update the protection-gap tracking issue",
@@ -283,6 +298,8 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "forms-deadletter-replay.yml › Open/update the replay-failure tracking issue",
       "release-health.yml › Open/update the npm-drift tracking issue",
       "release-health.yml › Open/update the release-failing tracking issue",
+      "release-health.yml › Open/update the release-health-run-failing tracking issue",
+      "time-travel.yml › Open/update the outside-the-suite tracking issue",
       "time-travel.yml › Open/update the time-travel tracking issue",
     ]);
     expect(closes(all).map(id)).toEqual([
@@ -298,7 +315,9 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "forms-deadletter-replay.yml › Close the replay-failure issue on recovery",
       "release-health.yml › Close the drift issue once npm catches up",
       "release-health.yml › Close the release-failing issue once it goes green",
+      "release-health.yml › Close the release-health-run-failing issue on recovery",
       "time-travel.yml › Close the time-travel issue on recovery",
+      "time-travel.yml › Close the outside-the-suite issue on recovery",
     ]);
     for (const name of FINDING_KEYED) expect(opens(all).map(id)).toContain(name);
   });
@@ -340,17 +359,32 @@ function offenders(steps: Found[], checks: Array<{ scenario: Scenario; want: boo
 }
 
 describe("tracking-issue conditions — a red run on main always files, and only main's runs speak", () => {
-  it("every run-failure open step fires on a failed OR cancelled run on main, and never on a branch", () => {
-    const steps = opens(all).filter((s) => !FINDING_KEYED.has(id(s)));
-    expect(
-      offenders(steps, [
-        { scenario: MAIN_FAILED, want: true },
-        { scenario: MAIN_CANCELLED, want: true },
-        { scenario: MAIN_GREEN, want: false },
-        { scenario: BRANCH_FAILED, want: false },
-        { scenario: BRANCH_CANCELLED, want: false },
-      ]),
-    ).toEqual([]);
+  // Judged over every outcome of the steps a condition names: time-travel's two
+  // run-failure steps split on the suite step's outcome, so each alone fires on
+  // only some red runs. That each red run files SOMETHING is the per-job rule
+  // below; this one keeps each step cancel-aware and silent off main.
+  it("every run-failure open step can fire on a failed AND a cancelled run on main, and never on a green run or a branch", () => {
+    const wrong: string[] = [];
+    for (const s of opens(all).filter((o) => !FINDING_KEYED.has(id(o)))) {
+      const combos = outcomeCombos(stepIds(s));
+      for (const [base, want] of [
+        [MAIN_FAILED, true],
+        [MAIN_CANCELLED, true],
+        [MAIN_GREEN, false],
+        [BRANCH_FAILED, false],
+        [BRANCH_CANCELLED, false],
+      ] as const) {
+        const fires = combos.some((outcomes) =>
+          evaluate(s.if ?? "success()", { ...base, outcomes }),
+        );
+        if (fires !== want) {
+          wrong.push(
+            `${id(s)}: \`if: ${s.if ?? "(none)"}\` ${fires ? "can fire" : "never fires"} when the run is ${base.name}`,
+          );
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 
   it("every finding-keyed open step fires on its finding on main, and never on a branch", () => {
@@ -371,6 +405,120 @@ describe("tracking-issue conditions — a red run on main always files, and only
         { scenario: MAIN_CANCELLED, want: false },
       ]),
     ).toEqual([]);
+  });
+});
+
+/** The `title="…"` a tracking-issue step files or closes under. */
+const titleOf = (s: Found): string | undefined => /\btitle="([^"]+)"/.exec(s.source)?.[1];
+
+/** The step ids whose `outcome`/`conclusion` a step's `if:` reads. */
+function stepIds(s: Found): string[] {
+  const ids = [...(s.if ?? "").matchAll(/\bsteps\.([\w-]+)\.(?:outcome|conclusion)\b/g)];
+  return [...new Set(ids.map((m) => m[1]!))].sort();
+}
+
+/** Every assignment of `outcomes` to the listed step ids. */
+function outcomeCombos(ids: string[]): Array<Record<string, string>> {
+  const values = ["success", "failure", "cancelled", "skipped"];
+  let combos: Array<Record<string, string>> = [{}];
+  for (const i of ids) combos = combos.flatMap((c) => values.map((v) => ({ ...c, [i]: v })));
+  return combos;
+}
+
+/**
+ * Scheduled workflows that file ONLY finding-keyed issues and deliberately
+ * file nothing when the run itself fails or hangs. Each entry must be written
+ * into its workflow as an accepted gap. Empty since release-health gained a
+ * run-failure issue (P1-15).
+ */
+const ACCEPTED_NO_RUN_FAILURE_ISSUE = new Set<string>([]);
+
+describe("tracking-issue conditions — every way a run on main goes red files something", () => {
+  // The rules above judge each open step on its own, under a scenario where
+  // every step's outcome matches the run's. Two alarms passed them and still
+  // could not fire (P1-15): release-health has only finding-keyed issues, so a
+  // hang to its 5-minute job timeout filed nothing, and time-travel files only
+  // when its SUITE step failed or was cancelled, so a hang in install or the
+  // browser install filed nothing. These rules ask per workflow and per job.
+
+  it("every scheduled workflow that files an issue has a run-failure open step", () => {
+    const filing = [
+      ...new Set(
+        opens(all)
+          .filter((s) => s.scheduled)
+          .map((s) => s.file),
+      ),
+    ];
+    const missing = filing.filter(
+      (f) =>
+        !ACCEPTED_NO_RUN_FAILURE_ISSUE.has(f) &&
+        !opens(all).some((s) => s.file === f && !FINDING_KEYED.has(id(s))),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it("a failed or cancelled run on main files, whichever step went red", () => {
+    const runFailure = opens(all).filter((s) => !FINDING_KEYED.has(id(s)));
+    const jobs = [...new Set(runFailure.map((s) => `${s.file} › ${s.job}`))];
+    expect(jobs.length).toBeGreaterThan(0);
+    const silent: string[] = [];
+    for (const job of jobs) {
+      const steps = runFailure.filter((s) => `${s.file} › ${s.job}` === job);
+      const ids = [...new Set(steps.flatMap(stepIds))].sort();
+      for (const base of [MAIN_FAILED, MAIN_CANCELLED]) {
+        for (const outcomes of outcomeCombos(ids)) {
+          const scenario = { ...base, outcomes };
+          if (!steps.some((s) => evaluate(s.if ?? "success()", scenario))) {
+            silent.push(
+              `${job}: nothing files when the run is ${base.name}, ${JSON.stringify(outcomes)}`,
+            );
+          }
+        }
+      }
+    }
+    expect(silent).toEqual([]);
+  });
+
+  it("every open step's title has a close step with the same title in the same workflow", () => {
+    const unclosed: string[] = [];
+    for (const o of opens(all)) {
+      const title = titleOf(o);
+      if (title === undefined) {
+        unclosed.push(`${id(o)}: no title="…" found`);
+        continue;
+      }
+      if (!closes(all).some((c) => c.file === o.file && titleOf(c) === title)) {
+        unclosed.push(`${id(o)}: nothing closes "${title}"`);
+      }
+    }
+    expect(unclosed).toEqual([]);
+  });
+});
+
+describe("time-travel — a red run files exactly one issue, and only the suite names a clock", () => {
+  // The suite-scoped condition exists so a lockfile break or a failed browser
+  // install never files an issue asserting a wall-clock diagnosis. That stays:
+  // a run that goes red OUTSIDE the suite files its own, differently titled
+  // issue, and never the wall-clock one.
+  const tt = () => opens(all).filter((s) => s.file === "time-travel.yml");
+  const SUITE = "Time-travel suite failing";
+
+  it("files the wall-clock issue only when the suite step failed or was cancelled", () => {
+    const wrong: string[] = [];
+    for (const base of [MAIN_FAILED, MAIN_CANCELLED]) {
+      for (const suite of ["failure", "cancelled", "skipped", "success"]) {
+        const scenario = { ...base, outcomes: { suite } };
+        const firing = tt().filter((s) => evaluate(s.if ?? "success()", scenario));
+        const titles = firing.map(titleOf);
+        const suiteRed = suite === "failure" || suite === "cancelled";
+        if (firing.length !== 1 || titles.includes(SUITE) !== suiteRed) {
+          wrong.push(
+            `${base.name}, suite ${suite}: files ${JSON.stringify(titles)} (want exactly one, ${suiteRed ? "" : "not "}"${SUITE}")`,
+          );
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 });
 

@@ -126,7 +126,7 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 | P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                          | 🟢   | S–M    | `.github/workflows/`                                                                                  | A weekly run posts drift to a tracking issue, with a positive control                                                                    |
 | P1-13 | `land-prs.mjs` stops on one transient proxy error (`read: connection reset by peer` on a check-runs GET, seen landing #957). Retry idempotent GETs a bounded number of times; never retry a PUT             | 🟢   | S      | `scripts/land-prs.mjs` (`apiJson`), `tests/scripts/land-prs.test.ts`                                  | One reset then success lands; a persistent failure still stops with a reason; no PUT is ever retried                                     |
 | P1-14 | _(done 09-29, `wip/alarms2`)_ Add `js-yaml` as a devDependency and parse every workflow in `tests/build/tracking-issue-conditions.test.ts` (today a stopgap only catches unquoted YAML indicators in `if:`) | 🟢   | S      | `package.json`, `tests/build/_helpers/workflow-source.ts`                                             | An invalid workflow fails the test; all 14 load                                                                                          |
-| P1-15 | Alarms that still cannot fire: release-health hitting its 5-min job timeout, and time-travel hanging before its suite step, file nothing (#956 follow-ups)                                                  | 🟢   | S      | `.github/workflows/release-health.yml`, `time-travel.yml`                                             | Each files (or its gap is written into the workflow as accepted) with a test                                                             |
+| P1-15 | _(done 09-29, `wip/alarms2`)_ Alarms that still cannot fire: release-health hitting its 5-min job timeout, and time-travel hanging before its suite step, file nothing (#956 follow-ups)                    | 🟢   | S      | `.github/workflows/release-health.yml`, `time-travel.yml`                                             | Each files (or its gap is written into the workflow as accepted) with a test                                                             |
 
 ### Blocked behind another PR (do not start early)
 
@@ -238,6 +238,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
 - 2026-09-29 — P0-2 alarms (#956) and P0-3 / #911 (#957).
 - 2026-09-29 — P1-14: `js-yaml` is a devDependency and all 14 workflows are
   parsed, with `workflowSteps` cross-checked against the parse (`wip/alarms2`).
+- 2026-09-29 — P1-15: release-health files "Daily release-health check failing"
+  when the checker itself fails or hangs, and time-travel files "Time-travel run
+  failing outside the suite" for a red run whose suite step did not fail
+  (`wip/alarms2`).
 
 - 2026-09-29 — #895 time-travel red since 09-21: shallow checkout, not a clock
   (#951, `33c01b3`).
