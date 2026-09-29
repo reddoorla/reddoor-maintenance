@@ -25,6 +25,7 @@ import {
   listRecentProspectAudits,
   releaseProspectAuditReservation,
   reserveProspectAudit,
+  siteKey,
 } from "../../src/db/prospect-audits.js";
 import {
   PROSPECT_AUDIT_DAILY_CAP,
@@ -50,22 +51,37 @@ beforeEach(async () => {
  *  and in any state without going through the code under test. */
 async function seed(
   n: number,
-  over: { status?: string; createdAt?: string; url?: (i: number) => string } = {},
-): Promise<void> {
+  over: {
+    status?: string;
+    createdAt?: string;
+    claimedAt?: string | null;
+    url?: (i: number) => string;
+  } = {},
+): Promise<string[]> {
+  const ids: string[] = [];
   for (let i = 0; i < n; i++) {
+    const id = `seed_${over.status ?? "complete"}_${i}_${Math.random().toString(36).slice(2)}`;
+    const url = over.url ? over.url(i) : `https://seeded-${i}.example/`;
     await db
       .insertInto("prospect_audits")
       .values({
-        id: `seed_${over.status ?? "complete"}_${i}_${Math.random().toString(36).slice(2)}`,
+        id,
         token: generateToken(),
-        url: over.url ? over.url(i) : `https://seeded-${i}.example/`,
+        url,
+        // Set, as every real writer sets it. Left NULL, the claim could never
+        // match a seeded row, and a claim test would pass for that reason
+        // instead of the one it names (review of c538d9c9).
+        site_key: siteKey(url),
         business: null,
         created_at: over.createdAt ?? ago(3 * HOUR),
         status: over.status ?? "complete",
         result_json: "{}",
+        claimed_at: over.claimedAt ?? null,
       })
       .execute();
+    ids.push(id);
   }
+  return ids;
 }
 
 function start(i: number): { url: string; business: null; claimed: true } {
@@ -118,6 +134,7 @@ describe("what the cap counts", () => {
     const r = await reserveProspectAudit(db, start(0), { now: NOW, cap: 1 });
     if (r.kind !== "reserved") throw new Error("positive control: the first start must reserve");
     const done = await finishProspectAudit(db, r.id, {
+      url: start(0).url,
       business: "Acme",
       status: "complete",
       resultJson: '{"ok":true}',
@@ -144,6 +161,28 @@ describe("what the cap counts", () => {
     await seed(1, { status: "running", createdAt: ago(PROSPECT_AUDIT_STALE_AFTER_MS + MIN) });
     expect(await countProspectAuditsTowardCap(db, NOW)).toBe(0);
     expect((await reserveProspectAudit(db, start(0), { now: NOW, cap: 1 })).kind).toBe("reserved");
+  });
+
+  it("a run CLAIMED recently still counts, however long ago the cockpit dispatched it (review P3)", async () => {
+    // Dispatched 125 min ago, so past the stale window by its creation time;
+    // picked up by its job 10 min ago, so it is spending right now. Judged by
+    // `created_at` it would free its slot mid-spend.
+    await seed(1, {
+      status: "running",
+      createdAt: ago(125 * MIN),
+      claimedAt: ago(10 * MIN),
+    });
+    expect(await countProspectAuditsTowardCap(db, NOW)).toBe(1);
+    expect((await reserveProspectAudit(db, start(0), { now: NOW, cap: 1 })).kind).toBe("capped");
+  });
+
+  it("a claimed run goes stale from its CLAIM, not before", async () => {
+    await seed(1, {
+      status: "running",
+      createdAt: ago(PROSPECT_AUDIT_STALE_AFTER_MS + 2 * HOUR),
+      claimedAt: ago(PROSPECT_AUDIT_STALE_AFTER_MS + MIN),
+    });
+    expect(await countProspectAuditsTowardCap(db, NOW)).toBe(0);
   });
 
   it("a FINISHED row older than the stale window still counts — staleness is for `running` only", async () => {
@@ -338,6 +377,30 @@ describe("the cockpit → runner handoff: one audit, one row", () => {
     expect(await claimProspectAuditReservation(db, "https://acme.example/", NOW)).toBeNull();
   });
 
+  it("claims the UNCLAIMED reservation when an older CLAIMED one exists for the same site (review M1)", async () => {
+    // A direct CLI run of acme took the older row; the cockpit then dispatched
+    // acme again. The dispatched job must find the second row. Were the
+    // subquery to pick the oldest running row regardless of claim, the outer
+    // `claimed_at IS NULL` re-check would reject it, the claim would return
+    // null, and the job would reserve a second slot for one audit.
+    await seed(1, {
+      status: "running",
+      createdAt: ago(20 * MIN),
+      claimedAt: ago(20 * MIN),
+      url: () => "https://acme.example/",
+    });
+    const cockpit = await reserveProspectAudit(
+      db,
+      { url: "https://acme.example/", business: null, claimed: false },
+      { now: NOW },
+    );
+    if (cockpit.kind !== "reserved") throw new Error("positive control");
+    expect(await claimProspectAuditReservation(db, "https://acme.example/", NOW)).toEqual({
+      id: cockpit.id,
+      token: cockpit.token,
+    });
+  });
+
   it("claims across spellings of the same site — a reshaped url must not cost a second slot", async () => {
     const cockpit = await reserveProspectAudit(
       db,
@@ -367,6 +430,7 @@ describe("finishing and releasing", () => {
     if (r.kind !== "reserved") throw new Error("positive control");
     expect(await getProspectAuditByToken(db, r.token)).toBeNull(); // running: not servable
     await finishProspectAudit(db, r.id, {
+      url: start(0).url,
       business: "Acme",
       status: "partial",
       resultJson: '{"x":1}',
@@ -380,9 +444,73 @@ describe("finishing and releasing", () => {
     expect(await db.selectFrom("prospect_audits").select("id").execute()).toHaveLength(1);
   });
 
+  it("finishing records the url the RUN audited, and its site, not the reservation's (review P2)", async () => {
+    const cockpit = await reserveProspectAudit(
+      db,
+      { url: "https://acme.example/", business: null, claimed: false },
+      { now: NOW },
+    );
+    if (cockpit.kind !== "reserved") throw new Error("positive control");
+    const claimed = await claimProspectAuditReservation(db, "https://www.acme.example/", NOW);
+    expect(claimed?.id).toBe(cockpit.id);
+    await finishProspectAudit(db, cockpit.id, {
+      url: "https://www.acme.example/",
+      business: null,
+      status: "complete",
+      resultJson: "{}",
+    });
+    const row = await db
+      .selectFrom("prospect_audits")
+      .select(["url", "site_key"])
+      .where("id", "=", cockpit.id)
+      .executeTakeFirstOrThrow();
+    expect(row).toEqual({ url: "https://www.acme.example/", site_key: "acme.example" });
+  });
+
+  it("finishing re-stamps created_at to the finish, which is what it meant before #907 (review P6)", async () => {
+    const r = await reserveProspectAudit(db, start(0), { now: new Date(ago(20 * MIN)) });
+    if (r.kind !== "reserved") throw new Error("positive control");
+    await finishProspectAudit(
+      db,
+      r.id,
+      { url: start(0).url, business: null, status: "complete", resultJson: "{}" },
+      new Date(ago(5 * MIN)),
+    );
+    const row = await db
+      .selectFrom("prospect_audits")
+      .select("created_at")
+      .where("id", "=", r.id)
+      .executeTakeFirstOrThrow();
+    expect(row.created_at).toBe(ago(5 * MIN));
+  });
+
+  it("the cockpit's release never deletes a row a job has already claimed (review P4)", async () => {
+    const cockpit = await reserveProspectAudit(
+      db,
+      { url: "https://acme.example/", business: null, claimed: false },
+      { now: NOW },
+    );
+    if (cockpit.kind !== "reserved") throw new Error("positive control");
+    await claimProspectAuditReservation(db, "https://acme.example/", NOW);
+    await releaseProspectAuditReservation(db, cockpit.id, { onlyIfUnclaimed: true });
+    expect(await countProspectAuditsTowardCap(db, NOW)).toBe(1);
+  });
+
+  it("the cockpit's release still frees a reservation no job has claimed", async () => {
+    const cockpit = await reserveProspectAudit(
+      db,
+      { url: "https://acme.example/", business: null, claimed: false },
+      { now: NOW },
+    );
+    if (cockpit.kind !== "reserved") throw new Error("positive control");
+    await releaseProspectAuditReservation(db, cockpit.id, { onlyIfUnclaimed: true });
+    expect(await countProspectAuditsTowardCap(db, NOW)).toBe(0);
+  });
+
   it("finishing a row that is gone returns null, so the caller can insert instead", async () => {
     expect(
       await finishProspectAudit(db, "pa_missing", {
+        url: "https://gone.example/",
         business: null,
         status: "complete",
         resultJson: "{}",
@@ -393,15 +521,20 @@ describe("finishing and releasing", () => {
   it("releasing a reservation gives its slot back", async () => {
     const r = await reserveProspectAudit(db, start(0), { now: NOW, cap: 1 });
     if (r.kind !== "reserved") throw new Error("positive control");
-    await releaseProspectAuditReservation(db, r.id);
+    await releaseProspectAuditReservation(db, r.id, { onlyIfUnclaimed: false });
     expect((await reserveProspectAudit(db, start(1), { now: NOW, cap: 1 })).kind).toBe("reserved");
   });
 
   it("releasing never deletes a finished report", async () => {
     const r = await reserveProspectAudit(db, start(0), { now: NOW });
     if (r.kind !== "reserved") throw new Error("positive control");
-    await finishProspectAudit(db, r.id, { business: null, status: "complete", resultJson: "{}" });
-    await releaseProspectAuditReservation(db, r.id);
+    await finishProspectAudit(db, r.id, {
+      url: start(0).url,
+      business: null,
+      status: "complete",
+      resultJson: "{}",
+    });
+    await releaseProspectAuditReservation(db, r.id, { onlyIfUnclaimed: false });
     expect(await getProspectAuditByToken(db, r.token)).not.toBeNull();
   });
 });

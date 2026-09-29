@@ -189,6 +189,14 @@ type DailyCapCheck =
    *  must see, because a guard that quietly abstains is worse than none. */
   | { kind: "unchecked"; warning: string };
 
+/** The stages that pay a third party per call: `analyze` (the model),
+ *  `probes` (the answer engines) and `accuracy` (the model again). Everything
+ *  before them — the crawl, the local checks, the HTTP and DNS probes of the
+ *  prospect's own site, Lighthouse — costs runner time only. `analyze` alone
+ *  would not do as the line: a failed checks stage skips it, and `probes`
+ *  still runs and pays. */
+const PAID_STAGES: ReadonlySet<StageName> = new Set<StageName>(["analyze", "probes", "accuracy"]);
+
 const NO_DB_CAP_WARNING =
   "No TURSO_DATABASE_URL, so prior audits cannot be counted — the 24h runaway brake " +
   `(cap ${PROSPECT_AUDIT_DAILY_CAP}) is NOT protecting this run.`;
@@ -345,7 +353,15 @@ export async function runProspectAuditCommand(
   }
   const reservation = cap.kind === "reserved" ? cap : null;
 
+  // Whether a paid stage has STARTED. The release below keys on this, not on
+  // "the pipeline threw", because the pipeline still runs unwrapped code after
+  // the paid stages (goal checklist, fix merging and reconciling, scoring): a
+  // deterministic bug there throws after every run has paid, and releasing on
+  // it would leave the cap unable to bind on exactly that runaway (review of
+  // #907). A call that fails can still bill, so "start" is the line, not "ok".
+  let spendStarted = false;
   const onStage = (name: StageName, status: "start" | "ok" | "fail", detail?: string): void => {
+    if (status === "start" && PAID_STAGES.has(name)) spendStarted = true;
     if (status === "start") console.error(`… ${name}`);
     else if (status === "ok") console.error(`✓ ${name}`);
     else console.error(`! ${name} — ${detail ?? "failed"}`);
@@ -377,14 +393,18 @@ export async function runProspectAuditCommand(
       { ...(opts.deps ?? {}), onStage },
     );
   } catch (err) {
-    // The pipeline throws only before it spends: an unresolvable
-    // PROSPECT_LLM_AUTH, or a failed crawl — its one fatal stage, which runs
-    // before every model call. Nothing was bought, so the slot goes back.
-    // Best effort: a failed release is held only until the stale window.
-    if (reservation) {
+    // Before any paid stage started — an unresolvable PROSPECT_LLM_AUTH, a
+    // failed crawl (the pipeline's one fatal stage) — nothing was bought, so
+    // the slot goes back. After one started, the run paid and its slot stays
+    // held: the row is left `running` and counts until the stale window.
+    // Best effort: a failed release is held only until the stale window too.
+    if (reservation && !spendStarted) {
       try {
         const { releaseProspectAuditReservation } = await import("../../db/prospect-audits.js");
-        await releaseProspectAuditReservation(reservation.db, reservation.id);
+        // This run's own row (claimed by it, or reserved already claimed).
+        await releaseProspectAuditReservation(reservation.db, reservation.id, {
+          onlyIfUnclaimed: false,
+        });
       } catch (releaseErr) {
         console.error(`! Could not release the reserved slot: ${errorMessage(releaseErr)}`);
       }
@@ -429,9 +449,16 @@ export async function runProspectAuditCommand(
       // #907: finish the reserved row in place, so the slot it held becomes
       // this report. With no reservation (the brake could not be applied), or
       // one that vanished, insert — a paid report must land somewhere.
+      const finishedAt = (opts.now ?? (() => new Date()))();
       const created =
-        (reservation ? await finishProspectAudit(db, reservation.id, finished) : null) ??
-        (await createProspectAudit(db, { url: result.url, ...finished }));
+        (reservation
+          ? await finishProspectAudit(
+              db,
+              reservation.id,
+              { url: result.url, ...finished },
+              finishedAt,
+            )
+          : null) ?? (await createProspectAudit(db, { url: result.url, ...finished }));
       auditId = created.id;
       token = created.token;
       link = reportUrl(token);

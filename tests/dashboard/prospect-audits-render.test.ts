@@ -16,6 +16,7 @@ function item(over: Partial<ProspectAuditListItem> = {}): ProspectAuditListItem 
     edited_at: null,
     opened_at: null,
     chosen_terms: null,
+    claimed_at: null,
     ...over,
   };
 }
@@ -76,6 +77,22 @@ describe("renderProspectAuditsPageHtml", () => {
     expect(html).toContain(">Did not finish<");
     expect(html).not.toContain(">Running<");
     expect(html).not.toContain(`/r/${"A".repeat(22)}`);
+  });
+
+  it("a run the cockpit dispatched long ago but a job claimed recently reads as running (review P3)", () => {
+    const html = renderProspectAuditsPageHtml(
+      model({
+        audits: [
+          item({
+            status: "running",
+            created_at: "2026-08-25T09:00:00.000Z",
+            claimed_at: "2026-08-25T12:00:00.000Z",
+          }),
+        ],
+      }),
+    );
+    expect(html).toContain(">Running<");
+    expect(html).not.toContain(">Did not finish<");
   });
 
   it("escapes a hostile business name instead of injecting it", () => {

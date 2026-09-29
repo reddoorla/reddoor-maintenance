@@ -886,6 +886,7 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       covers: ["finishProspectAudit"],
       run: async (db) => {
         await prospectAudits.finishProspectAudit(db, state.reservedId, {
+          url: "https://reserved.example.com",
           business: null,
           status: "complete",
           resultJson: "{}",
@@ -895,7 +896,10 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
     {
       name: "releaseProspectAuditReservation (failed dispatch gives its slot back)",
       covers: ["releaseProspectAuditReservation"],
-      run: (db) => prospectAudits.releaseProspectAuditReservation(db, state.reservedId),
+      run: (db) =>
+        prospectAudits.releaseProspectAuditReservation(db, state.reservedId, {
+          onlyIfUnclaimed: true,
+        }),
     },
   ];
 }

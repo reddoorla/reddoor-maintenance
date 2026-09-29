@@ -137,7 +137,9 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         listRecent: (limit) => listRecentProspectAudits(db, limit),
         // #907: the cap is a `running` row written before the dispatch.
         reserve: (req, now) => reserveProspectAudit(db, req, { now }),
-        release: (id) => releaseProspectAuditReservation(db, id),
+        // Only a row no job has claimed: a "failed" dispatch GitHub in fact
+        // accepted may already have a run spending on it.
+        release: (id) => releaseProspectAuditReservation(db, id, { onlyIfUnclaimed: true }),
         dispatch: makeWorkflowDispatchDispatcher({ token }),
       },
       { repo, workflowFile },

@@ -119,7 +119,6 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 | P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done, #962 `wip/roster889`                                                                                 | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts                |
 | P1-4  | _(in progress 09-29, `wip/chips941`)_ **#941**: watch filter chips drop sites that also have an attention item                                                                                              | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:164-180`                                                             | A site with one attention item and one watch condition carries both tags; tier stays `attention`            |
 | P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                         | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                        |
-| P1-8  | **#907**: the prospect-audit daily cap binds before the spend                                                                                                                                               | 🟢   | M      | `src/db/prospect-audits.ts:27`, `src/dashboard/prospect-audit-trigger.ts`                            | N concurrent starts admit only cap − count; a crashed run frees its slot after the stale window             |
 | P1-11 | Tracking-issue bodies are never rewritten (S2 leftover): the issue body keeps the first failure's run URL forever (#895's body still named 09-21's run when it closed)                                      | 🟢   | S      | the open steps in `.github/workflows/*.yml`                                                          | Body updated with `gh issue edit` on each failure                                                           |
 | P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                          | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                       |
 | P1-13 | `land-prs.mjs` stops on one transient proxy error (`read: connection reset by peer` on a check-runs GET, seen landing #957). Retry idempotent GETs a bounded number of times; never retry a PUT             | 🟢   | S      | `scripts/land-prs.mjs` (`apiJson`), `tests/scripts/land-prs.test.ts`                                 | One reset then success lands; a persistent failure still stops with a reason; no PUT is ever retried        |
@@ -249,6 +248,12 @@ Ordered by what unblocks the most. Each line is the exact ask.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — P1-8 / #907: the prospect-audit daily cap reserves a `running`
+  row before the spend, atomically, and counts finished plus non-stale running
+  rows (#TBD, `wip/cap907`). The row cited `src/db/prospect-audits.ts:27`, the
+  old two-state union. That union is now `FinishedProspectAuditStatus` at `:28`,
+  and `ProspectAuditStatus` (with `running`) is at `:36`.
 
 - 2026-09-29 — P1-6 / #892: `protection-audit` judges every branch Renovate
   merges into, not only the default branch (#966).

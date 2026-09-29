@@ -194,6 +194,10 @@ export type ProspectAuditListItem = {
   /** #676. Present so the listing can mark which audits used chosen terms
    *  WITHOUT reading `result_json`, which it deliberately never selects. */
   chosen_terms: string | null;
+  /** #907. When a job took a `running` reservation. The stale window runs
+   *  from here (or from `created_at` while unclaimed), so the listing needs it
+   *  to tell "Running" from "Did not finish" the way the cap's count does. */
+  claimed_at: string | null;
 };
 
 /** Ceiling on `listRecentProspectAudits`' `limit`, enforced defensively (a
@@ -229,6 +233,7 @@ export async function listRecentProspectAudits(
       "edited_at",
       "opened_at",
       "chosen_terms",
+      "claimed_at",
     ])
     .orderBy("created_at", "desc")
     .limit(clampLimit(limit))
@@ -264,14 +269,26 @@ const RESERVATION_PLACEHOLDER_JSON = "{}";
 
 /** The rows that count against the cap, as a WHERE on `prospect_audits`: made
  *  inside the 24h window, and either finished or not yet stale. Shared by the
- *  reservation and the refusal count so the two cannot disagree. */
+ *  reservation and the refusal count so the two cannot disagree.
+ *
+ *  Staleness runs from the CLAIM — `COALESCE(claimed_at, created_at)` — not
+ *  from creation. A cockpit row is created at dispatch; if its job starts late
+ *  (queued behind a same-URL run), judging it by creation would free its slot
+ *  while the run it now belongs to is still spending (review of #907, P3).
+ *  The COALESCE sits in the residual filter only: the 24h range on
+ *  `created_at` is still what `idx_prospect_audits_created` seeks on. */
 function countedTowardCap(db: Db, now: Date) {
   const { windowStart, staleBefore } = capBounds(now);
   return db
     .selectFrom("prospect_audits")
     .select((eb) => eb.fn.countAll<number>().as("n"))
     .where("created_at", ">=", windowStart)
-    .where((eb) => eb.or([eb("status", "!=", "running"), eb("created_at", ">=", staleBefore)]));
+    .where((eb) =>
+      eb.or([
+        eb("status", "!=", "running"),
+        eb(eb.fn.coalesce("claimed_at", "created_at"), ">=", staleBefore),
+      ]),
+    );
 }
 
 /** Attempts `retryOnBusy` makes before letting SQLITE_BUSY through. */
@@ -420,8 +437,18 @@ export async function reserveProspectAudit(
  * reshaped character — a trailing slash, a scheme — would make an exact match
  * miss and charge one audit two slots. Matching by site can at worst hand one
  * job another job's reservation for the same site, which still leaves one slot
- * per spend; a finished run overwrites everything on the row but its id, token
- * and start time, and no one has seen a reservation's token.
+ * per spend. A finished run rewrites the row's url, site, business, status,
+ * report, chosen lists and `created_at` (`finishProspectAudit`), so what is
+ * left of the reservation is its id and its token — and no one has seen a
+ * reservation's token.
+ *
+ * Only UNCLAIMED rows are candidates, and that filter has to be in the
+ * subquery, not only in the outer re-check: with an older claimed row and a
+ * newer unclaimed one for the same site, a subquery that picked the oldest
+ * running row would hand the outer check a claimed row, the claim would come
+ * back empty, and the job would reserve a second slot (review of #907, M1).
+ * The subquery's staleness test reads `created_at` because every candidate is
+ * unclaimed, where that equals `COALESCE(claimed_at, created_at)`.
  *
  * One statement, so two claimants cannot both win: the UPDATE re-checks
  * `claimed_at IS NULL` on the row it writes, and `site_key` is served by its
@@ -459,6 +486,11 @@ export async function claimProspectAuditReservation(
 
 /** What a finished run writes over its reservation. */
 export type FinishedProspectAudit = {
+  /** The url the run actually audited. The claim matches by site, so the job
+   *  may have taken a reservation written under another spelling (`www.`, a
+   *  scheme); the finished row must record what was audited, and the
+   *  cockpit's url-keyed duplicate check must see it (review of #907, P2). */
+  url: string;
   business: string | null;
   status: FinishedProspectAuditStatus;
   resultJson: string;
@@ -467,24 +499,36 @@ export type FinishedProspectAudit = {
 };
 
 /**
- * Turn a `running` reservation into the finished report, in place: same id,
- * same token, same `created_at` (the cap's window runs from when the run
- * STARTED, which is when it began to spend).
+ * Turn a `running` reservation into the finished report, in place: same id and
+ * same token.
+ *
+ * `created_at` is RE-STAMPED to the finish, which is what it meant for every
+ * finished row before #907 — the row used to be born at the finish. Two
+ * readers depend on that: the cockpit's 10-minute duplicate guard, which must
+ * refuse a re-click within 10 minutes of the report being emailed rather than
+ * 10 minutes of the run starting (review of #907, P6), and the /audits
+ * listing's "when it ran". For the cap, a finished row now counts for 24h from
+ * its finish rather than its start — later by the run's length, so never a gap
+ * and never looser.
  *
  * Null when there is no `running` row with that id — the caller then inserts
- * the report with `createProspectAudit` rather than losing it. That happens
- * only if the reservation was released out from under a live run, which the
- * cockpit's release after a failed dispatch could in principle do; a paid
+ * the report with `createProspectAudit` rather than losing it. Nothing in this
+ * code deletes a claimed row any more (the cockpit's release is
+ * `onlyIfUnclaimed`), so that is a belt for a row removed by hand; a paid
  * report must land somewhere either way.
  */
 export async function finishProspectAudit(
   db: Db,
   id: string,
   audit: FinishedProspectAudit,
+  now: Date = new Date(),
 ): Promise<{ id: string; token: string } | null> {
   const row = await db
     .updateTable("prospect_audits")
     .set({
+      url: audit.url,
+      site_key: siteKey(audit.url),
+      created_at: now.toISOString(),
       business: audit.business,
       status: audit.status,
       result_json: audit.resultJson,
@@ -501,18 +545,27 @@ export async function finishProspectAudit(
 /**
  * Give a reservation's slot back, for a start that ended before it spent
  * anything: a cockpit dispatch GitHub refused, or a CLI run whose pipeline
- * threw at its one fatal stage (the crawl, which precedes every model call).
+ * threw before its first paid stage started.
  *
  * Deletes, rather than marking, because the row never had a report and never
  * will. Only a `running` row can go: whatever else a bad id reaches, a
  * finished report is never deleted here.
+ *
+ * `onlyIfUnclaimed` is the cockpit's form and it is required, not defaulted,
+ * so every caller states whose row it is releasing. A dispatch GitHub reported
+ * as failed may still have been accepted; if its job has already claimed the
+ * row, that row now belongs to a run that may be spending, and deleting it
+ * would free its slot mid-spend (review of #907, P4). The runner releases its
+ * own claimed row, so it passes `false`.
  */
-export async function releaseProspectAuditReservation(db: Db, id: string): Promise<void> {
-  await db
-    .deleteFrom("prospect_audits")
-    .where("id", "=", id)
-    .where("status", "=", "running")
-    .execute();
+export async function releaseProspectAuditReservation(
+  db: Db,
+  id: string,
+  opts: { onlyIfUnclaimed: boolean },
+): Promise<void> {
+  let q = db.deleteFrom("prospect_audits").where("id", "=", id).where("status", "=", "running");
+  if (opts.onlyIfUnclaimed) q = q.where("claimed_at", "is", null);
+  await q.execute();
 }
 
 /** One replaced string and the generated text it replaced. */

@@ -52,13 +52,16 @@ export const DAILY_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
  * per-call ones (`ANALYZE_TIMEOUT_MS` 10 min and `PROBE_TIMEOUT_MS` 4 min in
  * src/prospect/claude-code.ts), which is why the step backstop exists.
  *
- * A cockpit reservation is written at DISPATCH, before the job is even queued,
- * so its clock also covers queueing, the job's setup (checkout, `pnpm install`,
- * build, a Playwright install) and — because the workflow's concurrency group
- * is per-URL with `cancel-in-progress: false` — waiting behind at most one
- * earlier run of the same URL (the cockpit refuses a second within 10
- * minutes). Worst legitimate case: roughly 30 + setup + 30 + setup, about 70
- * minutes. Two hours covers that with margin.
+ * The clock starts at the CLAIM, when the process that spends took the row
+ * (`claimed_at`), and at creation only for a row nobody has claimed yet.
+ * Judged from creation alone, a cockpit row dispatched long ago and picked up
+ * recently would stop counting while its run was still spending (review of
+ * #907, probe P3). An unclaimed cockpit reservation's clock covers queueing,
+ * the job's setup (checkout, `pnpm install`, build, a Playwright install) and —
+ * because the workflow's concurrency group is per-URL with
+ * `cancel-in-progress: false` — waiting behind at most one earlier run of the
+ * same URL: roughly 30 + setup + setup, about 40 minutes, before the claim
+ * restarts it for the run's own 30. Two hours covers either with margin.
  *
  * Getting this wrong in either direction is bounded. Too short: a slow but
  * live run stops counting until it finishes, when its row counts again. Too
@@ -69,9 +72,9 @@ export const DAILY_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const PROSPECT_AUDIT_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 /** The two lower bounds the cap's count is taken over, as the ISO-8601 strings
- *  `created_at` is stored as (fixed-width UTC, so they compare as strings):
+ *  the timestamps are stored as (fixed-width UTC, so they compare as strings):
  *  a row counts when it was created at or after `windowStart` AND is either
- *  finished or was created at or after `staleBefore`. */
+ *  finished or was claimed (or, unclaimed, created) at or after `staleBefore`. */
 export function capBounds(now: Date): { windowStart: string; staleBefore: string } {
   return {
     windowStart: new Date(now.getTime() - DAILY_CAP_WINDOW_MS).toISOString(),
@@ -80,9 +83,15 @@ export function capBounds(now: Date): { windowStart: string; staleBefore: string
 }
 
 /** Whether a `running` row has outlived the stale window — for display. The
- *  count applies the same rule in SQL, from `capBounds`. */
-export function isStaleRunning(row: { status: string; created_at: string }, now: Date): boolean {
-  return row.status === "running" && row.created_at < capBounds(now).staleBefore;
+ *  count applies the same rule in SQL (`COALESCE(claimed_at, created_at)`),
+ *  from `capBounds`. */
+export function isStaleRunning(
+  row: { status: string; created_at: string; claimed_at?: string | null },
+  now: Date,
+): boolean {
+  return (
+    row.status === "running" && (row.claimed_at ?? row.created_at) < capBounds(now).staleBefore
+  );
 }
 
 /** The refusal, worded once so the dashboard's 429 body and the CLI's stderr

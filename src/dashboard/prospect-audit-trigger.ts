@@ -168,7 +168,9 @@ export type ProspectAuditTriggerDeps = {
    *  not optional: a brake a caller can leave out is one that eventually is. */
   reserve: (req: ProspectAuditReservationRequest, now: Date) => Promise<ProspectAuditReservation>;
   /** Give a slot back when the dispatch that would have used it failed —
-   *  `releaseProspectAuditReservation`. */
+   *  `releaseProspectAuditReservation(…, { onlyIfUnclaimed: true })`, so a
+   *  dispatch reported as failed that GitHub in fact accepted cannot free the
+   *  slot of a run already spending on it. */
   release: (id: string) => Promise<void>;
   dispatch: ProspectAuditDispatcher;
   /** Injectable clock for the duplicate-window check; defaults to `Date.now`. */

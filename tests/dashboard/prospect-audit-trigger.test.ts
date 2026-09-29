@@ -13,6 +13,8 @@ import {
   PROSPECT_AUDIT_DAILY_CAP,
 } from "../../src/dashboard/prospect-audit-trigger.js";
 import {
+  claimProspectAuditReservation,
+  finishProspectAudit,
   generateToken,
   listRecentProspectAudits,
   releaseProspectAuditReservation,
@@ -32,6 +34,7 @@ function recentItem(over: Partial<ProspectAuditListItem> = {}): ProspectAuditLis
     edited_at: null,
     opened_at: null,
     chosen_terms: null,
+    claimed_at: null,
     ...over,
   };
 }
@@ -551,7 +554,7 @@ describe("the 24h daily cap — a burst against the real reservation (#907)", ()
     return {
       listRecent: (limit) => listRecentProspectAudits(db, limit),
       reserve: (req, now) => reserveProspectAudit(db, req, { now }),
-      release: (id) => releaseProspectAuditReservation(db, id),
+      release: (id) => releaseProspectAuditReservation(db, id, { onlyIfUnclaimed: true }),
       dispatch: async (t) => {
         dispatched.push(t.inputs.url);
         return { ok: true };
@@ -577,6 +580,42 @@ describe("the 24h daily cap — a burst against the real reservation (#907)", ()
     );
     expect(dispatched).toHaveLength(4);
     expect(results.filter((r) => r.status === "daily-cap")).toHaveLength(N - 4);
+  });
+
+  it("a re-click within 10 minutes of the run FINISHING is still a duplicate, as before #907 (review P6)", async () => {
+    // Started 20 minutes ago, finished (and emailed) 5 minutes ago. Before
+    // #907 the row was born at the finish, so the 10-minute guard ran from
+    // there; measured from the start it would let this click spend again.
+    const db = await seeded(0);
+    const dispatched: string[] = [];
+    const input = {
+      url: "https://acme.example/",
+      business: null,
+      requestedBy: "op@reddoorla.com",
+      goal: "enquire",
+    };
+    const started = new Date(NOW.getTime() - 20 * 60 * 1000);
+    const finished = new Date(NOW.getTime() - 5 * 60 * 1000);
+    expect(
+      (
+        await triggerProspectAudit(
+          { ...sqlDeps(db, dispatched), now: () => started },
+          TARGET,
+          input,
+        )
+      ).status,
+    ).toBe("dispatched");
+    const claimed = await claimProspectAuditReservation(db, input.url, started);
+    if (!claimed) throw new Error("positive control: the job claims the cockpit's row");
+    await finishProspectAudit(
+      db,
+      claimed.id,
+      { url: input.url, business: null, status: "complete", resultJson: "{}" },
+      finished,
+    );
+    const again = await triggerProspectAudit(sqlDeps(db, dispatched), TARGET, input);
+    expect(again.status).toBe("duplicate");
+    expect(dispatched).toHaveLength(1);
   });
 
   it("a click on a url whose run is still going is a duplicate with NO report link", async () => {
