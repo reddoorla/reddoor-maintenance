@@ -19,6 +19,7 @@ export type ReadyItem = {
   period: string;
   /** Absolute URL to /s/<slug> on the dashboard. */
   dashboardUrl: string;
+  ageDays?: number;
 };
 
 /** Severity of a "Needs attention" entry. `critical` sorts above `warning`. */
@@ -74,6 +75,8 @@ export type AttentionItem = {
    *  exhaustion threshold without clearing the vuln. Drives a distinct "auto-fix
    *  failed" chip + filter token; absent on every other item and flavor. */
   autoFixExhausted?: boolean;
+  ask?: string;
+  ageDays?: number;
 };
 
 /** The digest "Submissions (24h)" telemetry block. bySite lists only sites with

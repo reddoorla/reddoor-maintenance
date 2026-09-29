@@ -19,6 +19,15 @@ import {
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
+import {
+  ageLabel,
+  daysBetween,
+  decideDigestSend,
+  nextReadySince,
+  EMPTY_SEND_LOG,
+  DIGEST_HEARTBEAT_DAYS,
+  type DigestSendLog,
+} from "../alerts/digest-send.js";
 import { escapeHtml as esc } from "../util/html.js";
 import { operatorEmail } from "../util/operator.js";
 import type {
@@ -64,11 +73,13 @@ function readySection(items: ReadyItem[]): string {
       const link = safeUrl
         ? `<a href="${esc(safeUrl)}" style="${ANCHOR_STYLE}">review &amp; approve</a>`
         : `review &amp; approve`;
+      const age = ageLabel(it.ageDays);
+      const ageHtml = age ? ` <span style="color:${GREY}">(waiting ${esc(age)})</span>` : "";
       return `
       <tr>
         <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">
           <strong style="color:#222">${esc(it.siteName)}</strong> — ${esc(it.reportType)} (${esc(it.period)})
-          — ${link}
+          — ${link}${ageHtml}
         </td>
       </tr>`;
     })
@@ -113,9 +124,12 @@ function attentionSection(items: AttentionItem[]): string {
           const titleHtml = safeUrl
             ? `<a href="${esc(safeUrl)}" style="${ANCHOR_STYLE}">${esc(it.title)}</a>`
             : esc(it.title);
+          const age = ageLabel(it.ageDays);
+          const ageHtml = age ? ` <span style="color:${GREY}">(${esc(age)})</span>` : "";
+          const askHtml = it.ask ? `<br><span style="color:#222">→ ${esc(it.ask)}</span>` : "";
           return `
           <tr>
-            <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">${attentionBadge(it.status)}${titleHtml}</td>
+            <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">${attentionBadge(it.status)}${titleHtml}${ageHtml}${askHtml}</td>
           </tr>`;
         })
         .join("");
@@ -267,6 +281,46 @@ async function writeRollupOnce(
     return "written";
   }
   return writeCockpitRollupToDb(now);
+}
+
+async function readSendLogFromDb(): Promise<DigestSendLog> {
+  const [{ openDb, readDbConfig }, { readDigestSendLog }] = await Promise.all([
+    import("../db/client.js"),
+    import("../db/digest-state.js"),
+  ]);
+  return readDigestSendLog(await openDb(readDbConfig()));
+}
+
+async function writeSendLogToDb(log: DigestSendLog): Promise<void> {
+  const [{ openDb, readDbConfig }, { writeDigestSendLog }] = await Promise.all([
+    import("../db/client.js"),
+    import("../db/digest-state.js"),
+  ]);
+  await writeDigestSendLog(await openDb(readDbConfig()), log);
+}
+
+async function readSendLogSafely(options: DigestRunOptions): Promise<DigestSendLog> {
+  try {
+    return await (options.sendLog?.read ?? readSendLogFromDb)();
+  } catch (e) {
+    console.warn(`⚠ digest send log unavailable, sending: ${(e as Error).message}`);
+    return EMPTY_SEND_LOG;
+  }
+}
+
+async function writeSendLogSafely(
+  options: DigestRunOptions,
+  log: DigestSendLog,
+  decision: string,
+): Promise<void> {
+  let ok = 0;
+  try {
+    await (options.sendLog?.write ?? writeSendLogToDb)(log);
+    ok = 1;
+  } catch (e) {
+    console.warn(`⚠ digest send log write failed: ${(e as Error).message}`);
+  }
+  console.log(`DIGEST_SEND_LOG write=${ok} decision=${decision}`);
 }
 
 /** The write half of {@link readDigestStateFromDb}, same lazy-import rule. */
@@ -533,6 +587,10 @@ export type DigestRunOptions = {
    * is the #585 shape the counter on the log line exists to expose.
    */
   cockpitRollup?: { write: (now: Date) => Promise<void> };
+  sendLog?: {
+    read: () => Promise<DigestSendLog>;
+    write: (log: DigestSendLog) => Promise<void>;
+  };
   /**
    * The run clock. Production omits it and gets `new Date()`.
    *
@@ -563,6 +621,7 @@ export async function runDigest(
     const pending = reports.filter(isPendingApproval);
 
     const readyForYourYes: ReadyItem[] = [];
+    const readyKeys: string[] = [];
     const baseUrl = options.baseUrl.replace(/\/$/, "");
     for (const r of pending) {
       const site = sites.get(r.siteId);
@@ -571,6 +630,7 @@ export async function runDigest(
       // match it). Fall back to the fleet homepage so the operator still lands
       // somewhere usable instead of a 404.
       const slug = siteSlug(site.name);
+      readyKeys.push(`ready:${r.id}`);
       readyForYourYes.push({
         siteName: site.name,
         reportType: r.reportType,
@@ -591,16 +651,28 @@ export async function runDigest(
     });
     // #609: the prior snapshot is Turso's digest_state row.
     const prior = await (options.digestState?.read ?? readDigestStateFromDb)();
-    const { tagged, next } = diffAttention(collected, prior, digestDateKey(today));
+    const dayKey = digestDateKey(today);
+    const { tagged, next } = diffAttention(collected, prior, dayKey);
     // The operator only HEARS about a vuln once Renovate's auto-fix is exhausted
     // (tried and failed a couple of nightly cycles) — before that the fleet is
     // still self-patching and the cockpit's amber Watch band is the only surface.
     // Filter the EMAIL list only: `next` (written below) must keep every vuln key
     // so the cockpit's diff against this same snapshot stays consistent, and so
     // the exhausted-flip diffs as WORSE instead of arriving pre-badged-away.
-    const needsAttention = tagged.filter(
-      (it) => it.kind !== "vuln" || it.autoFixExhausted === true,
-    );
+    const needsAttention = tagged
+      .filter((it) => it.kind !== "vuln" || it.autoFixExhausted === true)
+      .map((it) => {
+        const since = next[it.key]?.firstFlaggedAt;
+        return since ? { ...it, ageDays: daysBetween(since, dayKey) } : it;
+      });
+
+    const sendLog = await readSendLogSafely(options);
+    const readySince = nextReadySince(readyKeys, sendLog.readySince, dayKey);
+    readyForYourYes.forEach((it, i) => {
+      const since = readySince[readyKeys[i]!];
+      if (since) it.ageDays = daysBetween(since, dayKey);
+    });
+    const digestKeys = [...readyKeys, ...needsAttention.map((it) => it.key)];
 
     // No-noise default: skip entirely when there's nothing to report.
     if (readyForYourYes.length === 0 && needsAttention.length === 0) {
@@ -612,7 +684,21 @@ export async function runDigest(
       await persistDigestState(next, options.digestState?.write, () =>
         writeRollupOnce(options, today),
       );
+      await writeSendLogSafely(options, { ...sendLog, keys: [], readySince }, "empty");
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
+    }
+
+    const decision = decideDigestSend(digestKeys, needsAttention, sendLog, dayKey);
+    if (!decision.send) {
+      await persistDigestState(next, options.digestState?.write, () =>
+        writeRollupOnce(options, today),
+      );
+      await writeSendLogSafely(options, { ...sendLog, readySince }, decision.reason);
+      const last = sendLog.sentOn ?? "never";
+      return {
+        output: `Digest skipped (unchanged since ${last}; ${digestKeys.length} items, heartbeat after ${DIGEST_HEARTBEAT_DAYS} days).`,
+        code: 0,
+      };
     }
 
     // Submissions telemetry rides only on a digest that is ALREADY sending — the
@@ -670,7 +756,15 @@ export async function runDigest(
     await persistDigestState(next, options.digestState?.write, () =>
       writeRollupOnce(options, today),
     );
-    return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };
+    await writeSendLogSafely(
+      options,
+      { sentOn: dayKey, keys: digestKeys, readySince },
+      decision.reason,
+    );
+    return {
+      output: `Digest sent (${decision.reason}) to ${to.join(", ")} (${result.messageId})`,
+      code: 0,
+    };
   } catch (err) {
     // Re-throw config errors (exitCode=2: missing env vars, bad config) so runOrExit
     // surfaces them with the correct process exit code rather than collapsing to 1.

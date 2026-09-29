@@ -12,7 +12,12 @@
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { readDigestState, writeDigestState } from "../../src/db/digest-state.js";
+import {
+  readDigestSendLog,
+  readDigestState,
+  writeDigestSendLog,
+  writeDigestState,
+} from "../../src/db/digest-state.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
 
 const SNAP: DigestSnapshot = {
@@ -76,5 +81,31 @@ describe("digest state on Turso", () => {
     await writeDigestState(db, {}, "2026-08-26T00:00:00.000Z");
     expect(await db.selectFrom("digest_state").selectAll().execute()).toHaveLength(1);
     expect(await readDigestState(db)).toEqual({});
+  });
+});
+
+describe("digest send log on Turso (P1-20)", () => {
+  const LOG = {
+    sentOn: "2026-09-28",
+    keys: ["ready:r1", "preflight:r2:pending"],
+    readySince: { "ready:r1": "2026-09-18" },
+  };
+
+  it("round-trips, and lives beside the snapshot without touching it", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await writeDigestState(db, SNAP, "2026-08-26T00:00:00.000Z");
+    await writeDigestSendLog(db, LOG, "2026-09-28T00:00:00.000Z");
+    expect(await readDigestSendLog(db)).toEqual(LOG);
+    expect(await readDigestState(db)).toEqual(SNAP);
+  });
+
+  it("reads as never sent when absent or malformed", async () => {
+    const db = await openDb({ url: ":memory:" });
+    expect((await readDigestSendLog(db)).sentOn).toBeNull();
+    await db
+      .insertInto("digest_state")
+      .values({ id: "digest_send_log", snapshot: "{nope", updated_at: null })
+      .execute();
+    expect(await readDigestSendLog(db)).toEqual({ sentOn: null, keys: [], readySince: {} });
   });
 });

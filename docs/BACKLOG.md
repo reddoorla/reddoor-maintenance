@@ -268,6 +268,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
 
 ## Done (move items here when they land)
 
+- 2026-09-29 — P1-20: the digest sends only when its item set changes, an item
+  is NEW or WORSE, or weekly; repeated items carry their age and a blocked draft
+  carries the exact ask with its `/s/<slug>` path (#PR_DIGEST).
+
 - 2026-09-29 — P1-18: #967 proven live. fleet-security run 36564241156
   rewrote #754's body to name that run, including the new
   `reddoor-website:staging` gap from #966, which also proves #966 live.

@@ -1,0 +1,5 @@
+---
+"@reddoorla/maintenance": patch
+---
+
+The operator digest sends only when its items change, or once a week as a heartbeat (P1-20). From 2026-09-18 to 09-28 it repeated "29 Navy Maintenance draft can't be approved — health-gate (+4 more)" eleven days running, because the only skips were an empty day and a same-day resend. A new `digest_send_log` row in `digest_state` (no migration; the table already holds one row per purpose) records the day and the item keys of the last send, and the first-seen day of each report waiting for approval. The digest sends when an item joins or leaves the set, when an item is badged NEW or WORSE, when seven days have passed since the last send, or when that record cannot be read (fail open, as before). A repeated item shows its age, "(3 days)", and a report waiting for approval reads "(waiting 3 days)". A blocked draft now carries the exact ask under its title, e.g. "set Report recipients (To) on /s/29-navy, then approve", with every failing health-gate field named. The run prints `DIGEST_SEND_LOG write=1|0 decision=<reason>`, and `daily-reports` fails when that line is missing or reads `write=0`.
