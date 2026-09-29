@@ -10,9 +10,12 @@ import {
   defaultAnalyticsDeps,
   determineEmission,
   gtagLoaderIds,
+  probePage,
   probeRequested,
   readTagConfig,
+  type EmissionEvidence,
   type ProbePage,
+  type TagConfig,
   type AnalyticsDeps,
   type AnalyticsFacts,
 } from "../../src/audits/analytics.js";
@@ -61,7 +64,17 @@ describe("gtagLoaderIds", () => {
 describe("determineEmission", () => {
   it("takes the browser probe as authoritative in both directions", () => {
     expect(determineEmission({ probe: { loadedIds: ["G-X"] }, htmlIds: null }).emitting).toBe(true);
-    expect(determineEmission({ probe: { loadedIds: [] }, htmlIds: ["G-X"] }).emitting).toBe(false);
+    expect(determineEmission({ probe: { loadedIds: [] }, htmlIds: null }).emitting).toBe(false);
+    expect(determineEmission({ probe: { loadedIds: [] }, htmlIds: [] }).emitting).toBe(false);
+  });
+
+  it("calls a probe that saw nothing, beside HTML that names a loader, conflicting — not absent", () => {
+    // reddoor's loader waits for the first interaction, which a probe never
+    // makes. The served HTML names it. That is not an observed absence.
+    const e = determineEmission({ probe: { loadedIds: [] }, htmlIds: ["G-REDDOOR001"] });
+    expect(e.emitting).toBeNull();
+    expect(e.authoritative).toBe(false);
+    expect(e.source).toContain("conflicting evidence");
   });
 
   it("treats the HTML scan as positive-only, NEVER as proof of absence", () => {
@@ -609,7 +622,7 @@ export const init = () => {
       propertyId: null,
       fetchHtml: async () => "<html></html>",
     });
-    expect(res.status).toBe("fail");
+    expect(res.status).toBe("warn"); // advisory: the audit never fails a site (round seven);
   });
 
   it("does not read the property at all when there are no hostnames to filter by", async () => {
@@ -648,7 +661,7 @@ export const init = () => {
     // would otherwise read as a configured property that went unmeasured.
     const dir = await siteDir(null);
     const res = await run(dir, "https://www.example.com/", { propertyId: "G-AAAAAAAAAA" });
-    expect(res.status).toBe("fail");
+    expect(res.status).toBe("warn"); // advisory: the audit never fails a site (round seven);
     expect(res.summary).toContain("not a numeric");
   });
 
@@ -973,7 +986,7 @@ describe("integration with main: the no-analytics opt-out (#936, spec D8) and a 
     const res = await analyticsAudit({
       site: { path: await hookDir(DECLARED), ga4PropertyId: null },
     });
-    expect(res.status).toBe("fail");
+    expect(res.status).toBe("warn"); // advisory: the audit never fails a site (round seven);
     expect(res.summary).toContain("has no GA4 property ID");
   });
 });
@@ -1292,8 +1305,11 @@ describe("round six: minors", () => {
         property: { ok: true, users: 42 },
       }),
     );
-    expect(v.status).toBe("fail");
+    // 42 users contradicts "the configured one reads zero": a conflict, named.
+    expect(v.status).toBe("warn");
     expect(v.summary).toContain("recorded 42 users");
+    expect(v.summary).toContain("the evidence conflicts");
+    expect(v.summary).not.toContain("reads zero");
   });
 
   it("does not say 'emitting' in a pass that did not observe emission", () => {
@@ -1328,7 +1344,7 @@ describe("round six: minors", () => {
     const dir = await mkdtemp(join(tmpdir(), "rd-mal-"));
     await mkdir(join(dir, "src"), { recursive: true });
     const odd = await analyticsAudit({ site: { path: dir }, analyticsDeps: { propertyId: "abc" } });
-    expect(odd.status).toBe("fail");
+    expect(odd.status).toBe("warn"); // advisory: the audit never fails a site (round seven);
     expect(odd.summary).not.toContain("G-…");
     const g = await analyticsAudit({
       site: { path: dir },
@@ -1365,5 +1381,231 @@ describe("round six: minors", () => {
     for (const v of ["1", "true", "YES", "on"]) expect(probeRequested(v)).toBe(true);
     for (const v of [undefined, "", "0", "false", "no", "off"])
       expect(probeRequested(v)).toBe(false);
+  });
+});
+
+describe("round seven: the audit is advisory — it warns, and never fails a site", () => {
+  async function dir(files: Record<string, string> | null): Promise<string> {
+    const d = await mkdtemp(join(tmpdir(), "rd-r7-"));
+    if (files === null) return d; // no src/ at all
+    await mkdir(join(d, "src"), { recursive: true });
+    for (const [rel, body] of Object.entries(files)) {
+      await mkdir(join(d, rel, ".."), { recursive: true });
+      await writeFile(join(d, rel), body);
+    }
+    return d;
+  }
+  const ID = "G-AAAAAAAAAA";
+  const OTHER = "G-BBBBBBBBBB";
+  const loader = (id: string) => `https://www.googletagmanager.com/gtag/js?id=${id}`;
+  const hook = (host: string) =>
+    `import { initAnalytics } from "@reddoorla/maintenance/client";\nexport const init = () => initAnalytics({ measurementId: "${ID}", productionHost: "${host}" });\n`;
+
+  it("returns no `fail` anywhere in the full verdict table (row × declared × evidence × GA read)", async () => {
+    const checkouts: Array<[string, string]> = [
+      ["no src/", await dir(null)],
+      ["declares nothing", await dir({ "src/lib/x.ts": "export {};" })],
+      ["literal hook", await dir({ "src/hooks.client.ts": hook("www.example.com") })],
+      ["literal hook, wrong host", await dir({ "src/hooks.client.ts": hook("other.example.org") })],
+      [
+        "unreadable call",
+        await dir({
+          "src/routes/+layout.svelte": `<script>import { initAnalytics } from "@reddoorla/maintenance/client"; initAnalytics({ measurementId: GA_ID, productionHost: HOST });</script>`,
+        }),
+      ],
+      [
+        "foreign loader",
+        await dir({ "src/app.html": `<script async src="${loader(ID)}"></script>` }),
+      ],
+      [
+        "hook plus foreign",
+        await dir({
+          "src/hooks.client.ts": hook("www.example.com"),
+          "src/app.html": `<script async src="${loader(OTHER)}"></script>`,
+        }),
+      ],
+      [
+        "site-config.json",
+        await dir({
+          "src/lib/site-config.json": JSON.stringify({
+            analytics: { measurementId: ID, productionHost: "www.example.com" },
+          }),
+        }),
+      ],
+    ];
+    const rows: Array<string | null | undefined> = [undefined, null, "123456789", ID, "abc"];
+    const probes: Array<AnalyticsDeps["probeTag"]> = [
+      undefined,
+      async () => ({ loadedIds: [ID] }),
+      async () => ({ loadedIds: [OTHER] }),
+      async () => ({ loadedIds: [ID, ID] }),
+      async () => ({ loadedIds: [] }),
+      async () => ({ loadedIds: [], failed: [{ id: ID, reason: "csp" }] }),
+      async () => {
+        throw new Error("navigation answered HTTP 503");
+      },
+    ];
+    const pages: Array<AnalyticsDeps["fetchHtml"]> = [
+      undefined,
+      async () => "<html></html>",
+      async () => `<script async src="${loader(ID)}"></script>`,
+      async () => `<script async src="${loader(OTHER)}"></script>`,
+      async () => {
+        throw new Error("GET → 401");
+      },
+    ];
+    const reads: Array<AnalyticsDeps["readUsers"]> = [
+      undefined,
+      async () => ({ ok: true, users: 0 }),
+      async () => ({ ok: true, users: 92 }),
+      async () => ({ ok: false, kind: "denied", error: "5 NOT_FOUND" }),
+      async () => ({ ok: false, kind: "unavailable", error: "503" }),
+      async () => ({ ok: false, kind: "credentials", error: "invalid_grant" }),
+    ];
+    const fails: string[] = [];
+    const seen = new Set<string>();
+    let n = 0;
+    for (const [label, path] of checkouts)
+      for (const propertyId of rows)
+        for (const [pi, probeTag] of probes.entries())
+          for (const [hi, fetchHtml] of pages.entries())
+            for (const [ri, readUsers] of reads.entries()) {
+              const res = await analyticsAudit({
+                site: { path, deployedUrl: "https://www.example.com/" },
+                analyticsDeps: { propertyId, probeTag, fetchHtml, readUsers },
+              });
+              n++;
+              seen.add(res.status);
+              if (res.status === "fail") {
+                fails.push(`${label} row=${String(propertyId)} probe=${pi} html=${hi} ga=${ri}`);
+              }
+            }
+    expect(n).toBe(8 * 5 * 7 * 5 * 6);
+    expect(fails).toEqual([]);
+    expect([...seen].sort()).toEqual(["pass", "skip", "warn"]);
+  }, 120_000);
+
+  it("turns an unexpected throw inside the audit into a warn, not a fail", async () => {
+    const res = await analyticsAudit({
+      site: { path: await dir({}) },
+      analyticsDeps: {
+        get propertyId(): string {
+          throw new Error("boom");
+        },
+      },
+    });
+    expect(res.status).toBe("warn");
+    expect(res.summary).toContain("could not complete (boom)");
+  });
+
+  it("reddoor's shape: an interaction-gated loader, HTML naming the ID, 92 users — a named conflict", async () => {
+    // Round seven, 3/3: the probe never interacts, so the loader never came,
+    // and the verdict was a confident "blocked or dead legacy snippet" FAIL
+    // that threw away both the HTML hit and 92 real users.
+    const gated = `<script>
+  addEventListener("pointerdown", () => {
+    const s = document.createElement("script");
+    s.src = "https://www.googletagmanager.com/gtag/js?id=G-REDDOOR001";
+    document.head.appendChild(s);
+  }, { once: true });
+</script>`;
+    const path = await dir({ "src/app.html": gated });
+    for (const fetchHtml of [async () => gated, async () => "<html></html>"]) {
+      const res = await analyticsAudit({
+        site: { path, deployedUrl: "https://reddoorla.com/" },
+        analyticsDeps: {
+          propertyId: "471936475",
+          probeTag: async () => ({ loadedIds: [] }),
+          fetchHtml,
+          readUsers: async () => ({ ok: true, users: 92 }),
+        },
+      });
+      expect(res.status).toBe("warn");
+      expect(res.summary).toContain("the evidence conflicts");
+      expect(res.summary).toContain("recorded 92 users");
+      expect(res.summary).toContain("the probe saw no gtag loader arrive");
+      expect(res.summary).not.toMatch(/zero|not firing|\bdead\b|recording nothing/i);
+    }
+  });
+
+  it("never claims zero, not firing, dead or recording nothing beside a GA read of users > 0", () => {
+    const configs: TagConfig[] = [
+      { measurementId: null, productionHost: null },
+      {
+        measurementId: null,
+        productionHost: null,
+        foreignAnalytics: true,
+        foreignFile: "src/app.html",
+      },
+      { measurementId: ID, productionHost: "www.example.com" },
+      { measurementId: ID, productionHost: "other.example.org" },
+    ];
+    const evidence: EmissionEvidence[] = [
+      { probe: null, htmlIds: null },
+      { probe: null, htmlIds: [] },
+      { probe: { loadedIds: [] }, htmlIds: null },
+      { probe: { loadedIds: [] }, htmlIds: [ID] },
+      { probe: { loadedIds: [OTHER] }, htmlIds: null },
+      { probe: { loadedIds: [], failed: [{ id: ID, reason: "csp" }] }, htmlIds: null },
+    ];
+    for (const config of configs)
+      for (const ev of evidence) {
+        const v = classifyAnalytics(
+          facts({
+            config,
+            propertyId: "111111111",
+            evidence: ev,
+            property: { ok: true, users: 92 },
+          }),
+        );
+        expect(v.summary).not.toMatch(/zero|not firing|\bdead\b|recording nothing/i);
+      }
+  });
+});
+
+describe("round seven: a probe whose page did not answer 2xx checked nothing", () => {
+  function page(nav: { ok(): boolean; status(): number } | null) {
+    const waits: number[] = [];
+    return {
+      waits,
+      on: () => undefined,
+      goto: async () => nav,
+      waitForTimeout: async (ms: number) => {
+        waits.push(ms);
+      },
+    };
+  }
+
+  it("throws on a 503, a 401, or no response, and settles only after a 2xx", async () => {
+    for (const status of [503, 401]) {
+      await expect(
+        probePage(page({ ok: () => false, status: () => status }), "https://x.example/", 10),
+      ).rejects.toThrow(`HTTP ${status}`);
+    }
+    await expect(probePage(page(null), "https://x.example/", 10)).rejects.toThrow("nothing");
+    const ok = page({ ok: () => true, status: () => 200 });
+    await expect(probePage(ok, "https://x.example/", 10)).resolves.toEqual({
+      loadedIds: [],
+      failed: [],
+    });
+    expect(ok.waits).toEqual([10]);
+  });
+
+  it("lists 'whether the tag fires' as not checked when the probe threw", async () => {
+    const d = await mkdtemp(join(tmpdir(), "rd-r7p-"));
+    await mkdir(join(d, "src"), { recursive: true });
+    await writeFile(
+      join(d, "src", "hooks.client.ts"),
+      `initAnalytics({ measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" });`,
+    );
+    const res = await analyticsAudit({
+      site: { path: d, deployedUrl: "https://www.example.com/" },
+      analyticsDeps: {
+        propertyId: "111111111",
+        probeTag: () =>
+          probePage(page({ ok: () => false, status: () => 503 }), "https://www.example.com/", 10),
+      },
+    });
+    expect(res.summary).toContain("Not checked: whether the tag fires");
   });
 });

@@ -46,7 +46,7 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   "form-e2e":
     "Submit the real production contact form in test-mode against the deployed URL (checkout-free).",
   analytics:
-    "Pair the site's GA4 tag against the property ID on its fleet row, and check the live site actually loads it.",
+    "Pair the site's GA4 tag against the property ID on its fleet row, and check the live site actually loads it. Advisory: it warns, never fails.",
 };
 
 const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {

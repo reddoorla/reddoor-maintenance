@@ -203,6 +203,16 @@ handed to the API verbatim with no by-host fallback. Proving the property
 answers is still an audit's job; the evidence-based version of this check is
 tracked separately.
 
+**D10 — The audit ships advisory** (operator, 2026-09-29). In the release that
+first carries it, `reddoor-maint audit --only analytics` returns `warn`, never
+`fail`, so it cannot redden a site's CI. The seventh review round found the
+browser probe failing `reddoor`, a working site with 92 real users, as "blocked
+or dead": its loader waits for the first interaction, which the probe never
+makes. The cap is applied once, where the audit returns. The classifier still
+says `fail` where a case would fail, so a week of fleet data can show which
+cases are safe to make hard again. The probe stays passive. No synthetic
+interaction is added.
+
 ## D2, measured
 
 Built `reddoor-starter` with probe scripts at three positions (above
