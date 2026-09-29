@@ -81,7 +81,7 @@ Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`),
    signal — the `if: failure()` step is `continue-on-error`, so the alert machinery can never
    turn a green run red. Start here: `gh issue list --repo reddoorla/reddoor-maintenance`.
 2. **A best-effort GitHub email to the last pusher.** That is you only if you pushed last. Do
-   not rely on it (`.github/workflows/fleet-lighthouse.yml:158`).
+   not rely on it (`.github/workflows/fleet-lighthouse.yml:183`).
 3. **The daily digest email** from the `daily-reports` run at 09:23 UTC. It goes to
    `OPERATOR_EMAIL` (a GitHub Actions repo variable), falling back to `tucker@reddoorla.com` —
    deliberately the operator's monitored personal inbox, **never** `info@reddoorla.com`, which
@@ -94,10 +94,10 @@ tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-co
 worst-band-wins, with the watch band being the soft zone beneath the alert floor (a Lighthouse
 score in [75, 85), a check stale past 30 days). A watch reason the operator has explicitly
 accepted is routed to `acceptedReasons` and leaves the band rather than raising it
-(`fleet-cockpit.ts:184`, `:331–333`).
+(`fleet-cockpit.ts:176`, `:340–342`).
 
 **The "Needs you" feed** is real and is the thing to read first
-(`src/dashboard/fleet-cockpit.ts:445–468`, rendered by `renderNeedsYouFeed`,
+(`src/dashboard/fleet-cockpit.ts:454–477`, rendered by `renderNeedsYouFeed`,
 `src/dashboard/fleet-render.ts:209–228`).
 One row per site, every reason combined, ordered `broken` → `watch` → `approval`, critical-first
 within `broken`. A vuln the fleet is still auto-patching is amber `watch`; a vuln whose
@@ -233,7 +233,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
 pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
-`.github/workflows/fleet-db-backup.yml:160`).
+`.github/workflows/fleet-db-backup.yml:170`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
 needs attention"** if it does not return `verdict=ok`. Treat that issue as urgent — it is the

@@ -91,6 +91,9 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * canonical accept token per un-accepted reason (index-aligned — surfaced on the card so
  * the operator can see the exact string that would mute it); `watchSignals` are the
  * STRUCTURED filter tags (one `WatchCandidate.signal` each) the client filter keys off.
+ * `tier` says which band a site is in; `watchSignals` says which watch conditions it
+ * has. They differ on an attention site: its un-accepted watch conditions are still
+ * tagged (#941), but its tier and the Watch-card fields stay those of attention.
  */
 /** One detected watch condition, before acceptance is applied. `signal` is the
  *  client-filter tag; `acceptKeys` is every string the operator can type to mute it,
@@ -140,11 +143,12 @@ export function assignTier(
   // to 🔴 attention through the normal machinery. (Only "launching" reaches
   // the cockpit — isDashboardVisible = {maintained, launching}.)
   if (site.status === "launching") {
-    // Genuine alarms pierce the mute; this attention return sits ABOVE the
+    // Genuine alarms pierce the mute; this attention verdict is decided before the
     // accepted-watch loop, so an operator ack can never silence a pierced alarm —
-    // the same invariant the live-site items short-circuit keeps. Everything else
+    // the same invariant the live-site `broken` flag below keeps. Everything else
     // (incl. a failed deploy, checked further below only for live sites) stays
-    // muted as expected pre-launch conditions.
+    // muted as expected pre-launch conditions, and a pre-launch site carries no
+    // watch tags either: muted means muted.
     if (items.some(piercesPreLaunchMute))
       return {
         tier: "attention",
@@ -161,24 +165,12 @@ export function assignTier(
       acceptedReasons: [],
     };
   }
-  if (items.length > 0)
-    return {
-      tier: "attention",
-      watchReasons: [],
-      watchAcceptKeys: [],
-      watchSignals: [],
-      acceptedReasons: [],
-    };
-  // A failed latest production deploy is an active break — tier it 🔴 attention, the
-  // same severity a sub-floor Lighthouse score gets (which arrives as an item above).
-  if (isFailedDeployStatus(site.deployStatus))
-    return {
-      tier: "attention",
-      watchReasons: [],
-      watchAcceptKeys: [],
-      watchSignals: [],
-      acceptedReasons: [],
-    };
+  // Any attention item is 🔴 attention. So is a failed latest production deploy: an
+  // active break, the same severity a sub-floor Lighthouse score gets (which arrives
+  // as an item). The tier is fixed HERE, before acceptance is read, so no accept key
+  // can ever move a broken site; the watch conditions below are still collected for
+  // it, but only as filter tags (#941).
+  const broken = items.length > 0 || isFailedDeployStatus(site.deployStatus);
 
   // Conditions the operator has reviewed and accepted (case-insensitive). An accepted
   // watch reason is routed to acceptedReasons instead of raising the watch band.
@@ -262,12 +254,12 @@ export function assignTier(
   }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less
   // submissions, so a gated site whose widget state ISN'T positively confirmed
-  // deserves a nag. A fresh confirmed "fail" never reaches here — that is a CRITICAL
-  // AttentionItem (collectTurnstileGuardrailAlerts) caught by the items short-circuit
-  // ABOVE the accept loop, so an accept key can mute this "can't verify" watch but
-  // can never silence the confirmed-missing alarm. `!== "pass"` covers both null
-  // (older package /health without a forms block, or the sweep never ran) and a
-  // stale "fail" the collector downgraded.
+  // deserves a nag. A fresh confirmed "fail" is a CRITICAL AttentionItem
+  // (collectTurnstileGuardrailAlerts) that sets `broken` BEFORE the accept loop, so it
+  // reaches here only to tag its 🔴 card `turnstile-unverified` (#941): an accept key
+  // mutes this "can't verify" watch, never the confirmed-missing alarm. `!== "pass"`
+  // covers both null (older package /health without a forms block, or the sweep never
+  // ran) and a stale "fail" the collector downgraded.
   if (site.requireTurnstile && site.turnstileWidget !== "pass") {
     candidates.push({
       signal: "turnstile-unverified",
@@ -292,6 +284,21 @@ export function assignTier(
       signals.add(cand.signal);
     }
   }
+  // A broken site keeps its tier and stays out of the watch band: watchReasons,
+  // watchAcceptKeys and acceptedReasons are Watch-card content (the Needs-you feed,
+  // the verdict and the chips all read them), so they stay empty here. Only the
+  // un-accepted watch TAGS ride along, so the card still answers the watch filter
+  // chips (`no-analytics`, `stale`, …) it belongs under. Before #941 this was an
+  // early return with no tags, and every such chip undercounted exactly the sites
+  // that were also broken.
+  if (broken)
+    return {
+      tier: "attention",
+      watchReasons: [],
+      watchAcceptKeys: [],
+      watchSignals: [...signals],
+      acceptedReasons: [],
+    };
   // A Prismic divergence the operator accepted stays VISIBLE, as a muted chip. The
   // item itself was suppressed upstream (`collectPrismicDriftAlerts`), so without
   // this the site would read as plainly healthy and the acceptance would be
@@ -326,7 +333,9 @@ export type SiteCard = {
    *  exact string the operator can add to Accepted Watch Conditions to mute it. Optional
    *  for back-compat with hand-built card fixtures; the renderer falls back to no hint. */
   watchAcceptKeys?: string[];
-  /** Structured watch tags (`WatchCandidate.signal` values) for the client filter. */
+  /** Structured watch tags (`WatchCandidate.signal` values) for the client filter.
+   *  Tag membership, not tier membership: an attention card carries them too (#941),
+   *  so never count Watch-tier sites by this field — use `tier`. */
   watchSignals: string[];
   /** Watch reasons the operator has accepted: suppressed from the band, shown as a
    *  muted chip. Populated whenever the underlying condition is currently active. */
