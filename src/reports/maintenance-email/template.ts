@@ -8,6 +8,7 @@ import {
   RED,
   GREY,
 } from "../email-sections.js";
+import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST, type ChecklistItem } from "../checklist.js";
 import { escapeHtml } from "../../util/html.js";
 import { isHttpUrl } from "../../util/url.js";
 
@@ -48,21 +49,54 @@ export function fmtDate(d: Date | null): string {
   return `${mm}.${dd}.${yyyy}`;
 }
 
-function maintenanceChecksSection(copy: ResolvedCopy, searchPosition?: number): string {
+/**
+ * The labels a checklist shows the client: each item's copy label, minus every item whose
+ * evidence is `n/a` (BACKLOG Operator decision 17). A row that does not apply to the site
+ * (no CMS, no form, no CI) is left out rather than drawn with a check. `pass`, `fail`,
+ * `unknown` and a missing record all still render; the pre-send gate owns those. PURE.
+ */
+export function shownChecklistLabels(
+  items: ChecklistItem[],
+  labels: string[],
+  evidence: ReportData["checklistEvidence"],
+): string[] {
+  return labels.filter((_, i) => {
+    const field = items[i]?.field;
+    return field === undefined || evidence?.[field]?.result !== "n/a";
+  });
+}
+
+function maintenanceCheckLabels(data: ReportData, copy: ResolvedCopy): string[] {
   // The Google row shows the live search position when available, else the plain label.
   const googleLabel =
-    searchPosition !== undefined
-      ? `Page 1 Google Result (#${searchPosition})`
+    data.searchPosition !== undefined
+      ? `Page 1 Google Result (#${data.searchPosition})`
       : (copy.maintenanceChecks[3] ?? "");
-  const rows = copy.maintenanceChecks.map((label, i) => (i === 3 ? googleLabel : label));
+  const labels = copy.maintenanceChecks.map((label, i) => (i === 3 ? googleLabel : label));
+  return shownChecklistLabels(MAINTENANCE_CHECKLIST, labels, data.checklistEvidence);
+}
+
+function maintenanceHeadingBlock(copy: ResolvedCopy): string {
+  return `
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">MAINTENANCE CHECKS</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.maintenanceIntro)}</mj-text>`;
+}
+
+function maintenanceChecksSection(rows: string[]): string {
   return checklistRowsSection(rows, { background: "white", lastPaddingBottom: "36px" });
 }
 
-function testingChecklistSection(copy: ResolvedCopy): string {
-  return checklistRowsSection(copy.testingChecklist, {
-    background: "#F4F4F4",
-    lastPaddingBottom: "60px",
-  });
+function testingSections(data: ReportData, copy: ResolvedCopy): string {
+  const rows = shownChecklistLabels(
+    TESTING_CHECKLIST,
+    copy.testingChecklist,
+    data.checklistEvidence,
+  );
+  if (rows.length === 0) return "";
+  return (
+    testingIntroSection(copy) +
+    checklistRowsSection(rows, { background: "#F4F4F4", lastPaddingBottom: "60px" })
+  );
 }
 
 function maintenanceTestingPlaceholder(): string {
@@ -133,6 +167,7 @@ export function buildMjml(data: ReportData): string {
   const copy = data.copy ?? DEFAULT_COPY;
   const isTesting = data.reportType === "Testing";
   const previewText = `Checked up on ${escapeXml(data.siteName)}`;
+  const maintenanceRows = maintenanceCheckLabels(data, copy);
 
   return `<mjml>
   <mj-head>
@@ -153,12 +188,10 @@ export function buildMjml(data: ReportData): string {
     <mj-section background-color="white">
       <mj-column>
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">COMPLETED ON</mj-text>
-        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtDate(data.completedOn)}</mj-text>
-        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">MAINTENANCE CHECKS</mj-text>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.maintenanceIntro)}</mj-text>
+        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtDate(data.completedOn)}</mj-text>${maintenanceRows.length > 0 ? maintenanceHeadingBlock(copy) : ""}
       </mj-column>
     </mj-section>
-    ${maintenanceChecksSection(copy, data.searchPosition)}
+    ${maintenanceChecksSection(maintenanceRows)}
     ${lighthouseScoresSection(data.lighthouse)}
     ${analyticsSection({
       current: data.gaUsersCurrent,
@@ -167,7 +200,7 @@ export function buildMjml(data: ReportData): string {
       background: "white",
       footnoteLines: [escapeXml(copy.seoCta)],
     })}
-    ${isTesting ? testingIntroSection(copy) + testingChecklistSection(copy) : maintenanceTestingPlaceholder()}
+    ${isTesting ? testingSections(data, copy) : maintenanceTestingPlaceholder()}
     ${data.commentary ? commentarySection(data.commentary, copy) : ""}
     <mj-section background-color="white">
       <mj-column padding-top="36px">

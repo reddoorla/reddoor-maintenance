@@ -63,6 +63,10 @@ export type ReportData = {
   /** Announcement-only: the client's go-forward pace, baked into each section's intro copy
    *  ("We do this every month."). A "None" pace omits that check section; undefined → neither. */
   cadence?: ReportCadence;
+  /** The report's checklist evidence, keyed by checklist field. A row whose evidence is `n/a`
+   *  is dropped from the client email (BACKLOG Operator decision 17). Omitted → every row
+   *  renders. `| undefined` for exactOptionalPropertyTypes. */
+  checklistEvidence?: Record<string, import("./auto-tick.js").EvidenceRecord> | undefined;
   /** Resolved per-site copy (M6a). Omitted → the template falls back to DEFAULT_COPY. */
   copy?: import("./copy.js").ResolvedCopy;
   /** Used in the header `mj-image src`; the email attaches the bytes with this CID. */

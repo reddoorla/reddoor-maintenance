@@ -252,13 +252,19 @@ Ordered by what unblocks the most. Each line is the exact ask.
     (`maintenance-email/template.ts` → `email-sections.ts`). With #957, LAHI's
     email will say "CMS Checked ✓" for a site with no CMS, as Form Functionality
     already does for sites without a form. Decide whether `n/a` rows render
-    differently or drop out.
+    differently or drop out. **Answered 2026-09-29: they drop out**, neither ✓
+    nor "N/A". Done in #1015, on every render path (send, refresh preview,
+    stored draft body, `report --preview`, `selftest email`). A draft stored
+    before that release keeps its old body until "refresh preview". The next
+    [TEST] send is the change's first real check. The Announcement email's
+    checklist is unchanged, since it is not evidence and not named here.
 18. **Standing product calls** — answered 2026-09-29, except #773:
     - #943 (what "Search Console set up" means): evidence-based; a worker is
       building it.
     - #948 (hydration signal): audit the built preview (`vite preview`), not
       the dev server; queued until the a11y PRs in flight land.
-    - #728 (beachfront `matching/`): delete; a worker is doing it.
+    - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
+      101 self- or dead-host comparers removed, #728 closed.
     - #776: closed as done.
     - #711: closed into `CLAUDE.md` ("Prove the instrument", the paragraph on
       a derived view read as the state).
@@ -270,8 +276,15 @@ Ordered by what unblocks the most. Each line is the exact ask.
       each list "update pnpm to v12" under Awaiting Schedule on their
       Dependency Dashboard; `.github` has no `package.json`. Closed with the
       table.
-    - #672 (cockpit design): design brief first.
-    - #674 (design-review tool): mine the rules only.
+    - #672 (cockpit design): design brief first. Brief written, awaiting the
+      operator's markup:
+      [`docs/cockpit-design-brief-2026-09.md`](cockpit-design-brief-2026-09.md).
+    - #674 (design-review tool): mine the rules only. Rules mined in
+      `docs/design-review-rules-2026-09.md` (#1012). Answered 2026-09-29:
+      rule 23 became a flag, six single-site rules and five seen-once rules
+      kept, and the full-bleed opt-in is `data-bleed`. The second pass (Discord,
+      Figma, MarkUp) waits on credentials, Figma team or project IDs, and a
+      private home for the corpus; the file's last section lists them.
     - Still open, on the laptop: #773 (local-only git objects).
 19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
     rule, then, after two sessions built it in parallel (`f6d5ee8c` on #975,
@@ -370,6 +383,33 @@ Ordered by what unblocks the most. Each line is the exact ask.
     tests were added), or run a third review round first. Landing it is
     `git merge origin/main` (keep both sides of BACKLOG and the journal), CI
     green, then `node scripts/land-prs.mjs 989`.
+26. **P1-3 PR 2, the roster-url surface (#912, PR #1004)**: two review rounds
+    each found a real defect, so #1004 is held for your call, not a third
+    round. It adds a digest item `url-unresolved:<siteId>` for a fresh `fail` on
+    any non-archived row (it names the url and status), one fleet item
+    `url-probe-stale` (metric = count) for stale stamps, and `url not deployed`
+    in Accepted Watch Conditions, which mutes only `fail`. Maintained rows also
+    watch on the cockpit, with a filter chip. Round 1 (on `5471c319`) found that
+    a never-stamped row read "not checked in 3 days", plus four missing tests
+    (a null verdict on the cockpit, a future stamp, the alias, `now` wiring).
+    All were fixed in `6400ea42`. Round 2 (on `6400ea42`) found one behaviour
+    defect: a site added between the day's probe and the 09:23 digest (runs
+    start late, so the probe can land after lunch PT) mailed "the probe is
+    behind, check the step" about a step that is working. It also found four
+    test gaps. Fixed in `490e6be2`. **The product fork, and my pick:** a
+    never-stamped row now counts only while no row in the fleet is fresh. A
+    probe that never ran or has stopped leaves no fresh row, so it is still
+    caught. The cost is that one row the probe keeps failing to stamp while it
+    stamps the rest is not caught. Round 2's correctness lens found no path that
+    creates such a row (every insert creates its `site_health` row). The other
+    choice is to alarm on it anyway and accept one false mail per new site.
+    All 32 mutations (the brief's 12 plus both rounds' survivors) turn a test
+    red. The full suite passes (8061), and lint and typecheck are clean. The
+    ask: land #1004 as it is (my pick), or pick the other never-stamped rule,
+    or run a third round first. Landing it is `git merge origin/main` (keep
+    both sides of BACKLOG), CI green, `node scripts/land-prs.mjs 1004`. The
+    first stamp comes from tonight's nightly (item 20). Item 21's url fix
+    clears the-pointe-burbank's item.
 
 ---
 
@@ -437,6 +477,11 @@ verdict is its only input, because no client and no check sees the email.
   browser gets its own line naming the absent executable and
   `npx playwright install chromium`. Both reproduced on `1b1c52fd` first: each
   summary read "no results written (exit 1) — [WebServer] npm warn …".
+
+- 2026-09-29 — Operator decisions 17: a checklist row whose evidence is
+  `n/a` (no CMS, no form, no CI) is dropped from the client Maintenance and
+  Testing email on every render path, and a list that empties takes its heading
+  with it (#1015).
 
 - 2026-09-29 — #969: a timed-out spawn reaps the process groups its
   descendants detached into (Playwright's webServer, Chrome under
