@@ -238,18 +238,23 @@ export function assignTier(
   // item, because "not on Netlify" is a legitimate state the operator must be
   // able to accept. The Netlify keys deliberately avoid the no-custom-domain
   // keys ("netlify", "on netlify", …), which would otherwise mute both at once.
+  // The reasons say what cannot happen, not which code path runs: a blank repo
+  // skips at prepare ("no repoUrl or gitRepo"), a whitespace one throws there
+  // ("unsafe gitRepo") — both unmeasured. Both readers trim `netlify_id` to null,
+  // so the deploy audit skips; were a raw " " ever to reach it, the API read
+  // would fail and write nothing, which "cannot read" still describes.
   if (site.status === "maintained" && !site.gitRepo?.trim()) {
     candidates.push({
       signal: "no-git-repo",
       acceptKeys: ["no git repo", "no-git-repo", "no repo", "git repo"],
-      reason: "Git repo not recorded (checkout sweeps skip this site)",
+      reason: "Git repo not recorded (checkout sweeps cannot clone this site)",
     });
   }
   if (site.status === "maintained" && !site.netlifyId?.trim()) {
     candidates.push({
       signal: "no-netlify-id",
       acceptKeys: ["no netlify id", "no-netlify-id", "not on netlify", "netlify id"],
-      reason: "Netlify ID not recorded (deploy check skips this site)",
+      reason: "Netlify ID not recorded (the deploy check cannot read this site)",
     });
   }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less

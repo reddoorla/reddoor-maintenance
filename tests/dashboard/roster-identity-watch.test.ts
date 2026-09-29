@@ -16,15 +16,16 @@ import {
   buildNeedsYouFeed,
   buildSiteAlarmContext,
 } from "../../src/dashboard/fleet-cockpit.js";
-import type { WebsiteRow } from "../../src/fleet/site-row.js";
+import type { Status, WebsiteRow } from "../../src/fleet/site-row.js";
+import type { AttentionItem } from "../../src/alerts/attention.js";
 import { WATCH_CONDITION_OPTIONS } from "../../src/dashboard/site-details.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-09-29T12:00:00Z");
 const BASE_URL = "https://dash.example.com";
 
-const REPO_REASON = "Git repo not recorded (checkout sweeps skip this site)";
-const NETLIFY_REASON = "Netlify ID not recorded (deploy check skips this site)";
+const REPO_REASON = "Git repo not recorded (checkout sweeps cannot clone this site)";
+const NETLIFY_REASON = "Netlify ID not recorded (the deploy check cannot read this site)";
 
 /** A maintained site with nothing else to watch: every OTHER watch condition is
  *  satisfied, so the only thing that can move its tier is the roster identity. */
@@ -89,7 +90,18 @@ describe("assignTier — roster identity a sweep needs (#889)", () => {
     expect(r.watchSignals).toEqual(["no-git-repo", "no-netlify-id"]);
   });
 
-  it.each(["building", "launching", "hosted-only", "external", "archived"] as const)(
+  // `null` and a retired/typo'd cell are here because the rule is an ALLOW-list
+  // (`=== "maintained"`): a deny-list of the other canonical statuses would admit
+  // both, and neither is swept (`selectFleetSites` requires a known active status).
+  it.each([
+    "building",
+    "launching",
+    "hosted-only",
+    "external",
+    "archived",
+    null,
+    "maintenance" as Status,
+  ] satisfies (Status | null)[])(
     "does not ask a %s site for a Git repo or a Netlify ID (no sweep owes it a measurement)",
     (status) => {
       const r = assignTier(healthy({ status, gitRepo: null, netlifyId: null }), [], NOW);
@@ -120,6 +132,59 @@ describe("assignTier — roster identity a sweep needs (#889)", () => {
     );
     expect(r.tier).toBe("healthy");
     expect(r.acceptedReasons).toEqual([REPO_REASON]);
+  });
+
+  it.each(["no git repo", "no-git-repo", "no repo", "git repo", " No Repo "])(
+    "accepts the missing-repo condition via %j, and that alias leaves the Netlify condition alone",
+    (key) => {
+      const r = assignTier(
+        healthy({ gitRepo: null, netlifyId: null, acceptedWatchConditions: [key] }),
+        [],
+        NOW,
+      );
+      expect(r.acceptedReasons).toEqual([REPO_REASON]);
+      expect(r.watchReasons).toEqual([NETLIFY_REASON]);
+    },
+  );
+
+  it.each(["no netlify id", "no-netlify-id", "not on netlify", "netlify id", "NETLIFY ID"])(
+    "accepts the missing-Netlify-ID condition via %j, and that alias leaves the repo condition alone",
+    (key) => {
+      const r = assignTier(
+        healthy({ gitRepo: null, netlifyId: null, acceptedWatchConditions: [key] }),
+        [],
+        NOW,
+      );
+      expect(r.acceptedReasons).toEqual([NETLIFY_REASON]);
+      expect(r.watchReasons).toEqual([REPO_REASON]);
+    },
+  );
+
+  it("on a broken site both conditions are filter tags only: the tier stays attention and no accept key moves it (#941)", () => {
+    const ci: AttentionItem = {
+      key: "ci:recBEACH",
+      kind: "ci",
+      siteName: "Beachfront Dentistry",
+      title: "Default-branch CI failing",
+      severity: "warning",
+      metric: 1,
+    };
+    const r = assignTier(beachfrontShape({ gitRepo: null }), [ci], NOW);
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual(["no-git-repo", "no-netlify-id"]);
+    expect(r.watchReasons).toEqual([]);
+    expect(r.watchAcceptKeys).toEqual([]);
+    expect(r.acceptedReasons).toEqual([]);
+
+    // An accepted condition drops its tag, and the tier still does not move.
+    const acked = assignTier(
+      beachfrontShape({ gitRepo: null, acceptedWatchConditions: ["no netlify id"] }),
+      [ci],
+      NOW,
+    );
+    expect(acked.tier).toBe("attention");
+    expect(acked.watchSignals).toEqual(["no-git-repo"]);
+    expect(acked.acceptedReasons).toEqual([]);
   });
 
   it("the key each card names to mute it is one the site editor will actually accept", () => {
