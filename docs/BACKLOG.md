@@ -278,6 +278,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `summittrek` and `young-life-connect-compliance-site` NULL / `no url`, and
     `url_checked_at` set on the 34 non-archived rows and on no archived row. My
     pick is the nightly, since it is the same code with no new permission.
+    **Answered 2026-09-29 ~20:50Z: tonight's nightly.**
 21. **the-pointe-burbank url**: set its url to
     `https://the-pointe-burbank-rd.netlify.app` on `/s/the-pointe-burbank`.
     The probe named it on 2026-09-29 (`404 netlify-site-not-found`, and the
@@ -297,6 +298,22 @@ Ordered by what unblocks the most. Each line is the exact ask.
     first. Landing it is `git merge origin/main` (keep both sides of BACKLOG),
     CI green, then `node scripts/land-prs.mjs 985`.
     **Answered 2026-09-29 ~20:50Z: land as is.** Landed by the PM session.
+23. **0.102.0 release gate: these palette PRs to merge first** — measured
+    2026-09-29 with #916's build on all 15 maintained sites plus
+    `reddoor-starter-blux` (table: `docs/palette-rollout-2026-09-29.md`).
+    The palette PRs are done: [29-navy#58](https://github.com/reddoorla/29-navy/pull/58)
+    and [reddoor-starter-blux#36](https://github.com/reddoorla/reddoor-starter-blux/pull/36)
+    (13 lines in `@theme`, render byte-identical, gate green on #916), merged
+    by the PM session at ~20:50Z on the operator's go, after green CI. The
+    `reddoor-starter` fix merged as reddoor-starter#162. 13 sites already pass on #916. **Vida
+    stays red after the palette** and needs your call. axe throws on
+    `mix-blend-plus-lighter` on `/` and `/es`: do we exempt it in the gate, or
+    change the design? Measured, its fixtures' `text-red-600` form errors fail
+    contrast. No vida PR is open. My pick: ship 0.102.0 and let vida's Renovate
+    PR sit red until that is decided, since nothing reaches vida's `main`
+    unreviewed.
+    **Answered 2026-09-29 ~20:50Z: ship 0.102.0; vida's call (exempt the
+    blend-mode crash, or change the design) stays open.**
 
 ---
 
