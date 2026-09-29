@@ -64,6 +64,9 @@ describe("openDb", () => {
       "0027_reports_resend_message_index",
       "0028_deadletter_slug_unreplayed_index",
       "0029_prospect_audits_claimed_at",
+      "0030_site_health_url_resolves",
+      "0031_site_health_url_status",
+      "0032_site_health_url_checked_at",
     ]);
     await db.destroy();
   });

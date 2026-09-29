@@ -14,6 +14,7 @@ import {
 } from "../../src/dashboard/prospect-audit-trigger.js";
 import {
   claimProspectAuditReservation,
+  failProspectAudit,
   finishProspectAudit,
   generateToken,
   listRecentProspectAudits,
@@ -636,6 +637,40 @@ describe("the 24h daily cap — a burst against the real reservation (#907)", ()
     // The row has no report yet, so a link would open a 404.
     expect(body.reportUrl).toBeUndefined();
     expect(String(body.message)).toMatch(/still running/i);
+    expect(dispatched).toHaveLength(1);
+  });
+
+  it("P1-16: a click on a url whose run just failed is a duplicate with NO report link, and says it failed", async () => {
+    const db = await seeded(0);
+    const dispatched: string[] = [];
+    const input = {
+      url: "https://acme.example/",
+      business: null,
+      requestedBy: "op@reddoorla.com",
+      goal: "enquire",
+    };
+    const started = new Date(NOW.getTime() - 5 * 60 * 1000);
+    const failed = new Date(NOW.getTime() - 2 * 60 * 1000);
+    expect(
+      (
+        await triggerProspectAudit(
+          { ...sqlDeps(db, dispatched), now: () => started },
+          TARGET,
+          input,
+        )
+      ).status,
+    ).toBe("dispatched");
+    const claimed = await claimProspectAuditReservation(db, input.url, started);
+    if (!claimed) throw new Error("positive control: the job claims the cockpit's row");
+    if (!(await failProspectAudit(db, claimed.id, failed))) {
+      throw new Error("positive control: marked failed");
+    }
+    const again = await triggerProspectAudit(sqlDeps(db, dispatched), TARGET, input);
+    expect(again.status).toBe("duplicate");
+    const body = respondToProspectAuditTrigger(again, { recipientsLabel: "x" }).body;
+    expect(body.reportUrl).toBeUndefined();
+    expect(String(body.message)).toMatch(/failed/i);
+    expect(String(body.message)).not.toMatch(/already audited|still running/i);
     expect(dispatched).toHaveLength(1);
   });
 });

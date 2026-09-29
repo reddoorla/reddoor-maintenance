@@ -2,7 +2,7 @@ import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
 import { renderAuthChrome } from "./auth/render.js";
 import { relativeTimeFromNow } from "./relative-time.js";
-import { isValidToken, type ProspectAuditListItem } from "../db/prospect-audits.js";
+import { hasNoReport, isValidToken, type ProspectAuditListItem } from "../db/prospect-audits.js";
 import { isStaleRunning } from "../prospect/daily-cap.js";
 
 /** Model for the `GET /audits` cockpit page. Pure-render input — the
@@ -84,8 +84,8 @@ h2 { font-size: 1.1rem; margin: 1.75rem 0 0.75rem; }
 .pill.complete { background: #e8f5e9; color: #1b7a2f; }
 .pill.partial { background: #fff4e5; color: #a65a00; }
 .pill.running { background: #e8f0fe; color: #1a4fa0; }
-.pill.unfinished { background: #fdecea; color: #b3261e; }
-@media (prefers-color-scheme: dark) { .pill.complete { background: #10240f; color: #7fce85; } .pill.partial { background: #2a2410; color: #ffd454; } .pill.running { background: #10213a; color: #8ab4f8; } .pill.unfinished { background: #2a1210; color: #ff9a9a; } }
+.pill.unfinished, .pill.failed { background: #fdecea; color: #b3261e; }
+@media (prefers-color-scheme: dark) { .pill.complete { background: #10240f; color: #7fce85; } .pill.partial { background: #2a2410; color: #ffd454; } .pill.running { background: #10213a; color: #8ab4f8; } .pill.unfinished, .pill.failed { background: #2a1210; color: #ff9a9a; } }
 `;
 
 // Vanilla JS, string-concat only (no template literals / backticks) — this
@@ -156,8 +156,10 @@ const RUN_SCRIPT = `<script>
 /** #907: a `running` row is a reservation the cap counts — a run that has
  *  started and not finished. Past the stale window it is a run that never
  *  will (the cap has stopped counting it), and it says so rather than reading
- *  as still in progress forever. */
+ *  as still in progress forever. P1-16: a `failed` row is a run that threw
+ *  after it paid; it has no report. */
 function statusPill(a: ProspectAuditListItem, now: Date): string {
+  if (a.status === "failed") return `<span class="pill failed">Failed</span>`;
   if (a.status === "running") {
     return isStaleRunning(a, now)
       ? `<span class="pill unfinished">Did not finish</span>`
@@ -217,14 +219,16 @@ function auditRow(a: ProspectAuditListItem, now: Date): string {
     href === "#"
       ? `<div class="audit-url">${escapeHtml(a.url)}</div>`
       : `<div class="audit-url"><a href="${href}">${escapeHtml(a.url)}</a></div>`;
-  // A running row has no report behind its token yet (#907) — the link would
-  // open a 404 — so it gets none until the run finishes.
+  // A running row has no report behind its token yet (#907), and a failed one
+  // never will (P1-16) — the link would open a 404 — so neither gets one.
   const reportLink =
     a.status === "running"
       ? `<span class="muted">No report yet</span>`
-      : isValidToken(a.token)
-        ? `<a href="/r/${escapeHtml(a.token)}">View report →</a>`
-        : `<span class="muted">Report unavailable</span>`;
+      : hasNoReport(a.status)
+        ? `<span class="muted">No report</span>`
+        : isValidToken(a.token)
+          ? `<a href="/r/${escapeHtml(a.token)}">View report →</a>`
+          : `<span class="muted">Report unavailable</span>`;
   return `<div class="audit-row">
     <div class="audit-row-head">
       ${business}

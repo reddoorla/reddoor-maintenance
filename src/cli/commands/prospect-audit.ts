@@ -386,11 +386,10 @@ export async function runProspectAuditCommand(
   // it would hand every slot straight back (review of #907). A call that fails
   // can still bill, so "start" is the line, not "ok".
   //
-  // What NOT releasing buys is a bound, not the daily cap: the row is left
-  // `running` and stops counting after PROSPECT_AUDIT_STALE_AFTER_MS (2h), so
-  // a run that pays and then throws every time is held to about 25 per 2 hours
-  // — roughly 300 a day, not 25. A terminal `failed` status that keeps
-  // counting for the full window would close that; it is a separate change.
+  // A run that throws after that is marked `failed` (P1-16), which counts for
+  // the full 24h from the failure. Left `running`, it would stop counting
+  // after PROSPECT_AUDIT_STALE_AFTER_MS (2h), and a run that pays and then
+  // throws every time would be held to about 25 per 2 hours, not 25 a day.
   let spendStarted = false;
   const onStage = (name: StageName, status: "start" | "ok" | "fail", detail?: string): void => {
     if (status === "start" && PAID_STAGES.has(name)) spendStarted = true;
@@ -400,6 +399,7 @@ export async function runProspectAuditCommand(
   };
 
   let result: ProspectAuditResult;
+  let html: string;
   try {
     const { runProspectAudit } = await import("../../prospect/pipeline.js");
     result = await runProspectAudit(
@@ -424,28 +424,42 @@ export async function runProspectAuditCommand(
       },
       { ...(opts.deps ?? {}), onStage },
     );
+    // Inside the try: the render runs after every paid stage, so a bug in it
+    // throws after the run has paid, like one at the pipeline's tail.
+    const { renderProspectReport } = await import("../../prospect/render.js");
+    html = renderProspectReport(result);
   } catch (err) {
     // Before any paid stage started — an unresolvable PROSPECT_LLM_AUTH, a
     // failed crawl (the pipeline's one fatal stage) — nothing was bought, so
     // the slot goes back. After one started, the run paid and its slot stays
-    // held: the row is left `running` and counts until the stale window.
-    // Best effort: a failed release is held only until the stale window too.
-    if (reservation && !spendStarted) {
+    // held: the row is marked `failed`, which counts for 24h from now (P1-16).
+    // Both are best effort, and the pipeline's own error is what is thrown
+    // either way: a failed release or mark leaves the row `running`, held
+    // until the stale window.
+    if (reservation) {
       try {
-        const { releaseProspectAuditReservation } = await import("../../db/prospect-audits.js");
-        // This run's own row (claimed by it, or reserved already claimed).
-        await releaseProspectAuditReservation(reservation.db, reservation.id, {
-          onlyIfUnclaimed: false,
-        });
-      } catch (releaseErr) {
-        console.error(`! Could not release the reserved slot: ${errorMessage(releaseErr)}`);
+        const { failProspectAudit, releaseProspectAuditReservation } =
+          await import("../../db/prospect-audits.js");
+        if (!spendStarted) {
+          // This run's own row (claimed by it, or reserved already claimed).
+          await releaseProspectAuditReservation(reservation.db, reservation.id, {
+            onlyIfUnclaimed: false,
+          });
+        } else {
+          const failedAt = (opts.now ?? (() => new Date()))();
+          const marked = await failProspectAudit(reservation.db, reservation.id, failedAt);
+          if (!marked) console.error("! Could not mark the run failed: its reserved row is gone.");
+        }
+      } catch (markErr) {
+        console.error(
+          spendStarted
+            ? `! Could not mark the run failed: ${errorMessage(markErr)}`
+            : `! Could not release the reserved slot: ${errorMessage(markErr)}`,
+        );
       }
     }
     throw err;
   }
-
-  const { renderProspectReport } = await import("../../prospect/render.js");
-  const html = renderProspectReport(result);
 
   let file: string | null = null;
   if (opts.out) {
