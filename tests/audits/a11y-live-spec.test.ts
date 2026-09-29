@@ -97,17 +97,18 @@ const THROWS_ON_LOAD_PAGE = plainPage(
  * Both reveals hold `#aaa` text on white (2.32:1), so a `color-contrast`
  * violation naming them exists only if axe measured them revealed.
  *
- * Two more are about the settle, and both END failing contrast, so a hit is
+ * Three more are about the settle. Each ENDS failing contrast, so a hit is
  * positive evidence that the pass waited:
  *
  *   - `#waapi` at 250vh animates its text's colour #111 → #aaa over 2 s on the
  *     Web Animations API, `fill: forwards`. Measured early, it passes.
- *   - `#delayed` at 380vh is a delayed Svelte 5 intro's shape: a placeholder
- *     animation runs first, and only its `onfinish` starts the real one. A
- *     settle that reads `getAnimations()` once waits for the placeholder and
- *     measures the real animation at its start. The real one runs 3 s so it
- *     outlasts `#waapi`: a single read waits on everything it saw, and a
- *     shorter tail would finish inside that wait and pass by accident.
+ *   - `#top-fade`, near the top, starts the same kind of animation when the
+ *     page comes BACK to the top after being scrolled — so only a settle that
+ *     runs after the return waits for it.
+ *   - `#spinner` runs an infinite animation. It must not be waited on: the
+ *     pass must still report `unsettled: 0` here.
+ *
+ * (The delayed two-stage intro lives alone on `/delayed`; see DELAYED_PAGE.)
  *
  * And two about the pass itself:
  *
@@ -155,7 +156,7 @@ const FIXTURE_PAGE = `<!doctype html>
   #gap-band { top: 180vh; height: 10vh; }
   #throws { top: 150vh; height: 1px; }
   #waapi { top: 250vh; }
-  #delayed { top: 380vh; }
+  #spinner { width: 8px; height: 8px; }
   #grow { top: 390vh; height: 1px; }
   #grown { top: 560vh; }
   #xo-frame { position: absolute; top: 330vh; left: 0; width: 300px; height: 150px; border: 0; }
@@ -170,11 +171,12 @@ const FIXTURE_PAGE = `<!doctype html>
   <h1>Reveal fixture</h1>
   <img src="CROSS_ORIGIN/canary.png" alt="">
   <iframe id="xo-tab" tabindex="-1" title="Player" src="CROSS_ORIGIN/player.html"></iframe>
+  <p id="top-fade">Greys out when the page comes back to the top</p>
+  <div id="spinner" aria-hidden="true"></div>
   <div class="reveal" id="below-fold"><p class="faint" id="below-fold-text">Revealed once scrolled to</p></div>
   <div class="reveal" id="gap-band"><p class="faint" id="gap-band-text">Revealed in the top three quarters of the viewport</p></div>
   <div class="reveal" id="throws"></div>
   <div class="reveal" id="waapi"><p id="waapi-text">Fades to a failing grey over two seconds</p></div>
-  <div class="reveal" id="delayed"><p id="delayed-text">Starts fading only after a placeholder animation</p></div>
   <div class="reveal" id="grow"></div>
   <div class="reveal" id="grown" hidden><p class="faint" id="grown-text">Only exists once the page has grown</p></div>
   <iframe id="xo-frame" loading="lazy" src="CROSS_ORIGIN/frame.html"></iframe>
@@ -208,12 +210,6 @@ const FIXTURE_PAGE = `<!doctype html>
   onFirstSight("waapi", () => {
     document.getElementById("waapi-text").animate(toGrey, { duration: 2000, fill: "forwards" });
   });
-  onFirstSight("delayed", (el) => {
-    const placeholder = el.animate([], { duration: 600 });
-    placeholder.onfinish = () => {
-      document.getElementById("delayed-text").animate(toGrey, { duration: 3000, fill: "forwards" });
-    };
-  });
   onFirstSight("grow", () => {
     document.querySelector("main").style.height = "600vh";
     document.getElementById("grown").hidden = false;
@@ -225,6 +221,19 @@ const FIXTURE_PAGE = `<!doctype html>
   addEventListener("scroll", () => {
     document.getElementById("bar").classList.toggle("scrolled", scrollY > 0);
   });
+  let scrolledAway = false;
+  addEventListener("scroll", () => {
+    if (scrollY > 0) {
+      scrolledAway = true;
+    } else if (scrolledAway) {
+      scrolledAway = false;
+      document.getElementById("top-fade").animate(toGrey, { duration: 1500, fill: "forwards" });
+    }
+  });
+  document.getElementById("spinner").animate(
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    { duration: 1000, iterations: Infinity },
+  );
 </script>
 </body>
 </html>`;
@@ -265,6 +274,79 @@ const THIRD_PARTY_PAGE = `<!doctype html>
 <body><main><h1>Embed below the fold</h1>
 <iframe id="widget" loading="lazy" title="Booking widget" src="CROSS_ORIGIN/throws.html"></iframe>
 </main></body>
+</html>`;
+
+/**
+ * A delayed Svelte 5 intro's shape, ALONE on its page: `#delayed` runs a
+ * placeholder animation first, and only its `onfinish` starts the real one
+ * (text #111 → #aaa over 3 s). Alone, the placeholder is the last animation to
+ * finish in the settle's first wait — and `onfinish` is dispatched at the next
+ * rendering update, AFTER the `finished` promise the wait resolved on. So the
+ * settle sees the real animation only if it lets a frame pass before looking
+ * again. (On the main page other, longer animations used to hide that.)
+ */
+const DELAYED_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Delayed intro</title>
+<style>
+  body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; }
+  main { position: relative; height: 200vh; }
+  #delayed { position: absolute; top: 150vh; left: 0; right: 0; }
+</style></head>
+<body><main><h1>Delayed intro</h1>
+<div id="delayed"><p id="delayed-text">Starts fading only after a placeholder animation</p></div>
+</main>
+<script>
+  const el = document.getElementById("delayed");
+  el.style.opacity = "0";
+  new IntersectionObserver((entries, observer) => {
+    if (!entries[0].isIntersecting) return;
+    observer.disconnect();
+    el.style.opacity = "1";
+    const placeholder = el.animate([], { duration: 600 });
+    placeholder.onfinish = () => {
+      document
+        .getElementById("delayed-text")
+        .animate([{ color: "#111" }, { color: "#aaa" }], { duration: 3000, fill: "forwards" });
+    };
+  }, { threshold: 0 }).observe(el);
+</script>
+</body>
+</html>`;
+
+/**
+ * A page whose pass cannot finish cleanly, for the warn: an 8 s finite
+ * animation outlives the 5 s settle budget (`unsettled: 1`), and a scroll
+ * listener pushes the page to scrollY 100 as soon as it comes back to the top
+ * (`finalScrollY: 100`). Nothing on it fails axe, so the run must WARN.
+ * `capped` is not reached here — it needs 400 steps, a page ~200 screens tall
+ * — and is held by the unit tests only.
+ */
+const UNSETTLED_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Unsettled</title>
+<style>
+  body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; }
+  main { height: 300vh; }
+  #slow { width: 10px; height: 10px; }
+</style></head>
+<body><main><h1>Unsettled</h1><div id="slow" aria-hidden="true"></div></main>
+<script>
+  document.getElementById("slow").animate(
+    [{ transform: "translateX(0)" }, { transform: "translateX(10px)" }],
+    { duration: 8000 },
+  );
+  let away = false;
+  addEventListener("scroll", () => {
+    if (scrollY > 0) {
+      away = true;
+    } else if (away) {
+      away = false;
+      scrollTo({ top: 100, behavior: "instant" });
+    }
+  });
+</script>
+</body>
 </html>`;
 
 /** How one throwaway site is served. */
@@ -378,6 +460,17 @@ type Violation = {
   nodes?: Array<{ target?: string[] }>;
 };
 
+/** A site with nothing to fail and one route whose reveal pass cannot finish. */
+const SITE_W: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/unsettled": UNSETTLED_PAGE,
+  },
+  a11yRoutes: ["/unsettled"],
+};
+
 /** The main fixture site: the reveal fixture page, and plain pages elsewhere. */
 const SITE_F: SiteConfig = {
   pages: {
@@ -386,8 +479,9 @@ const SITE_F: SiteConfig = {
     "/": plainPage("Home"),
     "/late-b": THROWS_ON_LOAD_PAGE,
     "/third-party": THIRD_PARTY_PAGE,
+    "/delayed": DELAYED_PAGE,
   },
-  a11yRoutes: ["/late-b", "/third-party"],
+  a11yRoutes: ["/late-b", "/third-party", "/delayed"],
   delaysMs: { "/late-b": 4000 },
 };
 
@@ -417,12 +511,12 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     if (site) await rm(site, { recursive: true, force: true });
   });
 
-  const violations = (): Violation[] =>
+  const violations = (route = "a11y fixtures"): Violation[] =>
     ((result?.details as { violations?: Violation[] } | undefined)?.violations ?? []).filter(
-      (v) => v.route === "a11y fixtures",
+      (v) => v.route === route,
     );
-  const contrastTargets = (): string[] =>
-    violations()
+  const contrastTargets = (route = "a11y fixtures"): string[] =>
+    violations(route)
       .filter((v) => v.id === "color-contrast")
       .flatMap((v) => (v.nodes ?? []).map((n) => (n.target ?? []).join(" ")));
 
@@ -431,12 +525,13 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     // crashed, a route reported missing, or a client error would each leave
     // the contrast assertions measuring nothing.
     expect(result?.summary).toMatch(
-      /^a11y: \d+ violations across 4 routes \(2 fixtures \+ 2 from package\.json\)/,
+      /^a11y: \d+ violations across 5 routes \(2 fixtures \+ 3 from package\.json\)/,
     );
     const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
     expect(all.map((v) => `${v.id} on ${v.route}`).sort()).toEqual([
       "client-error on /late-b",
       "client-error on a11y fixtures",
+      "color-contrast on /delayed",
       "color-contrast on a11y fixtures",
       "frame-focusable-content on a11y fixtures",
       "frame-title on a11y fixtures",
@@ -457,6 +552,7 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
       "animate-in demo",
       "/late-b",
       "/third-party",
+      "/delayed",
     ]);
     const fixture = reveals[0];
     // 600vh in half-viewport steps is a dozen stops; 1 would mean it never scrolled.
@@ -478,7 +574,11 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
   });
 
   it("waits for an animation that a finished animation starts (a delayed Svelte 5 intro)", () => {
-    expect(contrastTargets()).toContain("#delayed-text");
+    expect(contrastTargets("/delayed")).toContain("#delayed-text");
+  });
+
+  it("settles after the return to the top, so an animation the return starts is waited for", () => {
+    expect(contrastTargets()).toContain("#top-fade");
   });
 
   it("returns to the top before axe runs", () => {
@@ -575,5 +675,28 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     expect(reports.map((r) => String(r.directive).split(" ")[0])).toContain("img-src");
     // Only with both shown does the missing connect-src report mean anything.
     expect(reports.filter((r) => String(r.directive).startsWith("connect-src"))).toEqual([]);
+  });
+});
+
+describe("audits/a11y — a real reveal pass that cannot finish cleanly warns (#100)", () => {
+  let site = "";
+  let result: AuditResult | undefined;
+
+  beforeAll(async () => {
+    site = await makeFixtureSite(SITE_W);
+    result = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
+  }, 180_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+  });
+
+  it("warns, and names the route and both reasons, from values the pass itself measured", () => {
+    expect(result?.status).toBe("warn");
+    expect(result?.summary).toContain(
+      "reveal pass incomplete on 1 route: /unsettled (1 animation still running after 5 s; left at scrollY 100, not the top)",
+    );
+    const violations = (result?.details as { violations?: unknown[] } | undefined)?.violations;
+    expect(violations).toEqual([]);
   });
 });
