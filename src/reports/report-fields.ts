@@ -1,4 +1,5 @@
 import type { LighthouseScores } from "./types.js";
+import type { SearchPresence } from "./search/client.js";
 import { ALL_CHECKLIST_FIELDS } from "./checklist.js";
 import {
   toReportType,
@@ -75,15 +76,30 @@ function lighthouseFromFields(f: Record<string, unknown>): LighthouseScores | nu
 }
 
 /** The GA + Search-presence fields a draft can carry, written to the Reports row.
- *  `searchFoundPage1` is written whenever the check ran (true or false — false is the
- *  operator-only negative signal); `searchPosition` only when found on page 1. Shared by
- *  the create path (DraftInput) and the reuse path. */
+ *  `searchFoundPage1` is written only when a query ran against a resolved Search Console
+ *  property (true or false — false is the operator-only negative signal). When no property
+ *  matched the site, nothing was measured and it is left out, so the column is NULL.
+ *  `searchPosition` only when found on page 1. Shared by the create path (DraftInput) and
+ *  the reuse path. */
 export type ReportEnrichment = {
   gaUsersCurrent?: number;
   gaUsersPrevious?: number;
   searchFoundPage1?: boolean;
   searchPosition?: number;
 };
+
+/** The search half of `ReportEnrichment` for one lookup result. A null result (not
+ *  configured, or a soft-fail) and a no-property result (`propertyFound === false`, the
+ *  same test as auto-tick's #959 `unknown`) both yield no fields. */
+export function searchEnrichment(
+  search: Pick<SearchPresence, "foundOnPage1" | "position" | "propertyFound"> | null,
+): Pick<ReportEnrichment, "searchFoundPage1" | "searchPosition"> {
+  if (!search || search.propertyFound === false) return {};
+  return {
+    searchFoundPage1: search.foundOnPage1,
+    ...(search.foundOnPage1 && search.position !== null ? { searchPosition: search.position } : {}),
+  };
+}
 
 // The draft's field set and its `DraftInput` moved to src/reports/draft-fields.ts
 // in #646 step 4, when Turso began creating reports. Re-exported so existing
