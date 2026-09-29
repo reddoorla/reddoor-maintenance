@@ -5,14 +5,20 @@ import { dirname, join } from "node:path";
  * Read the PARTS OF A WORKFLOW THAT ACTUALLY RUN, so a test can assert on
  * behaviour instead of on prose.
  *
- * No YAML parser is a dependency of this package and adding one to satisfy a test
- * would put a new package in every consuming fleet site's lockfile, so these are
- * deliberately small, block-scoped extractors rather than a general parser. What
- * they buy is the property that matters: a `#` comment — the single easiest thing
- * to write in a workflow and the single least meaningful — can neither satisfy an
- * assertion nor break one. Source-text greps have both failure modes, and a draft
- * of the very workflow these serve shipped a test that asserted `--apply` was
- * absent from a file whose header comment explained why `--apply` is refused.
+ * These are deliberately small, block-scoped extractors rather than a general
+ * parser. What they buy is the property that matters: a `#` comment — the single
+ * easiest thing to write in a workflow and the single least meaningful — can
+ * neither satisfy an assertion nor break one. Source-text greps have both failure
+ * modes, and a draft of the very workflow these serve shipped a test that asserted
+ * `--apply` was absent from a file whose header comment explained why `--apply` is
+ * refused. They also hand back a step's `run:` block line-for-line, which is what
+ * lets a test EXECUTE it.
+ *
+ * They are no longer trusted on their own word. `js-yaml` is a devDependency
+ * (devDependencies never reach a consumer of the published package), and
+ * tests/build/tracking-issue-conditions.test.ts loads every workflow with it and
+ * requires `workflowSteps` to read the same steps, `if:`s and timeouts the parser
+ * does. A shape these regexes misread fails there, not silently here.
  *
  * The workflows here are prettier-formatted, two-space-indented and hand-written,
  * so the block shapes below are stable; anything more exotic should get a parser
@@ -135,6 +141,9 @@ export interface WorkflowStep {
   if?: string | undefined;
   timeoutMinutes?: number | undefined;
   jobTimeoutMinutes?: number | undefined;
+  /** The raw `continue-on-error:` value (`true`, or an expression); undefined
+   *  when absent. A step that carries it cannot turn `failure()` true. */
+  continueOnError?: string | undefined;
   /** The step's comment-stripped source, for "does it run X" questions. */
   source: string;
 }
@@ -173,7 +182,7 @@ export function workflowSteps(workflow: string): WorkflowStep[] {
       jobTimeout = undefined;
       continue;
     }
-    const jobKey = /^ {4}timeout-minutes:\s*(\d+)\s*$/.exec(line);
+    const jobKey = /^ {4}timeout-minutes:\s*(\d+)\s*(?:#.*)?$/.exec(line);
     if (jobKey) jobTimeout = Number(jobKey[1]);
     if (/^ {6}- /.test(line)) {
       flush();
@@ -191,13 +200,29 @@ export function workflowSteps(workflow: string): WorkflowStep[] {
   return steps;
 }
 
+/**
+ * A one-line YAML scalar as YAML reads it: a quoted scalar is the text inside
+ * its quotes (the way a condition may legally start with `!`), and a plain
+ * scalar ends at ` #` — `uses: actions/checkout@<sha> # v7` is the digest, not
+ * the digest and a version note. Both were misread here until the js-yaml
+ * cross-check in tracking-issue-conditions.test.ts compared them.
+ */
+function scalar(raw: string): string {
+  const v = raw.trim();
+  const single = /^'((?:[^']|'')*)'/.exec(v);
+  if (single) return single[1]!.replace(/''/g, "'");
+  const double = /^"((?:[^"\\]|\\.)*)"/.exec(v);
+  if (double) return JSON.parse(`"${double[1]!}"`) as string;
+  return v.replace(/\s+#.*$/, "");
+}
+
 function parseStep(job: string, lines: string[], jobTimeoutMinutes?: number): WorkflowStep {
   const keys: Record<string, string> = {};
   lines.forEach((l, i) => {
     const m = (
       i === 0 ? /^ {6}- ([A-Za-z][\w-]*):\s*(.*)$/ : /^ {8}([A-Za-z][\w-]*):\s*(.*)$/
     ).exec(l);
-    if (m) keys[m[1]!] = m[2]!.trim();
+    if (m) keys[m[1]!] = scalar(m[2]!);
   });
   let cond = keys["if"];
   if (cond !== undefined) {
@@ -217,6 +242,7 @@ function parseStep(job: string, lines: string[], jobTimeoutMinutes?: number): Wo
     if: cond,
     timeoutMinutes: timeout === undefined ? undefined : Number(timeout),
     jobTimeoutMinutes,
+    continueOnError: keys["continue-on-error"],
     source: lines.join("\n"),
   };
 }
