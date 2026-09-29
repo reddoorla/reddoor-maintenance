@@ -39,6 +39,21 @@ Two corollaries, both cheap:
 - **Before building on a flag or mechanism, read its implementation.** Both
   failures above were one file-read away from being avoided.
 
+The same failure has a second face, recorded twelve times in #711: **a
+derived, cached or configuration view read as the state itself.** Two
+instances cost the most. A reddoor-starter CI run was called "hung for 35+
+minutes" from a step's start timestamp compared with an assumed present (a
+wait loop returning), then cancelled and re-run; a clock showed 1m48s, and the
+run passed in 2m34s. Its rule: a claim about duration needs a clock read
+(`date -u`) beside the timestamp, never an inferred now. Separately, Prismic's
+`unexpected field 'my.page.uid'` was read as "the custom type was never
+pushed", but the API derives its queryable fields from published documents, so
+the error means only "nothing of that type is published", and a type that has
+never existed gives a byte-identical error. Its rule: before citing what an
+endpoint says, ask which question it answers, and run a negative control that
+cannot be true. What saved almost every instance was a read from a different
+authority than the one that answered.
+
 When the operator asks for evidence rather than a conclusion, that is the
 control working — the setup-node v7 probe exists because the question was
 asked. Prefer producing a diff over asserting an inference.
