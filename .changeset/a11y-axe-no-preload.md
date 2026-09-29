@@ -19,8 +19,9 @@ With `preload: false` it gets none. The page's own `<link>` loads the sheet in
 both cases.
 
 This covers the audit command only. A site's own Playwright specs that build an
-`AxeBuilder` themselves still preload and still post the report, and each site
-fixes those separately (roalson-interests has 16).
+`AxeBuilder` themselves need the same option. roalson-interests made that
+change in reddoorla/roalson-interests#194, which moved its 16 call sites onto a
+single `preload: false` helper.
 
 The gate cannot lose a violation it could have raised. In axe-core 4.13 only two
 rules read preloaded assets. `css-orientation-lock` is tagged `experimental`, so

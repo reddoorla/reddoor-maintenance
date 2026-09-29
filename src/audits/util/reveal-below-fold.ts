@@ -38,8 +38,11 @@ export type RevealPass = {
  * The injected `transition:none` sheet could not help: there was no transition
  * to snap, because nothing had asked the element to reveal.
  *
- * Choices, each forced by a way the simpler version is wrong, and each held by
- * a mutation in tests/audits/a11y-live-spec.test.ts:
+ * Choices, each forced by a way the simpler version is wrong. Every one below
+ * is held by a mutation in tests/audits/a11y-live-spec.test.ts — undo it and
+ * a named test there goes red. (The 400-step cap is not: reaching it takes a
+ * page some 200 screens tall, so `capped` is held by unit tests on the
+ * summary only.)
  *
  *   - **Half-viewport steps, not whole ones.** A reveal observed with a negative
  *     bottom `rootMargin` (`"0px 0px -25% 0px"` is common) only counts the top
@@ -56,18 +59,24 @@ export type RevealPass = {
  *   - **Back to the top before axe.** A header that changes once scrolled, or a
  *     fixed element that would overlap content at some other offset, is then
  *     measured where the old audit measured it.
- *   - **Settle last, in a loop.** IntersectionObserver entries are computed
- *     during a rendering update and delivered in a task after it, so every
- *     stop waits two frames and a task. CSS transitions and animations are
- *     already snapped by the spec's injected sheet, which must be added BEFORE
- *     this runs. What that sheet cannot reach is the Web Animations API, which
- *     Svelte 5 `in:`/`transition:` directives run on — and a Svelte intro with
- *     a `delay` runs a placeholder animation first and creates the real one in
- *     its `onfinish`. A single read of `document.getAnimations()` waits for the
- *     placeholder only and lets axe sample the real fade mid-way. So settling
- *     happens after the return to the top (which can start animations of its
- *     own), and re-reads the running finite animations until none are left or
- *     the 5 s budget is spent. An infinite animation (a marquee) is not waited on.
+ *   - **Two frames and a task at every stop.** IntersectionObserver entries
+ *     are computed during a rendering update and delivered in a task after it,
+ *     so a stop's reveals have run only once both have passed.
+ *   - **Settle last, in a loop.** CSS transitions are already snapped, and CSS
+ *     animations cancelled, by the spec's injected sheet, which must be added
+ *     BEFORE this runs. What that sheet cannot reach is the Web Animations API,
+ *     which Svelte 5 `in:`/`transition:` directives run on — and a Svelte intro
+ *     with a `delay` runs a placeholder animation first and creates the real
+ *     one in its `onfinish`. So the settle:
+ *       - runs after the return to the top, which can start animations of its
+ *         own;
+ *       - re-reads the running animations after every wait, until none are
+ *         left or the 5 s budget is spent;
+ *       - lets two frames and a task pass after each wait before it looks
+ *         again, because `onfinish` is dispatched at the next rendering
+ *         update, after the `finished` promise the wait resolved on;
+ *       - waits on finite animations only, so an infinite one (a marquee)
+ *         cannot eat the budget.
  *
  * Not covered, and audited hidden exactly as before:
  *
