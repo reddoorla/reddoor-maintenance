@@ -155,7 +155,7 @@ describe("draftReportForSite", () => {
     }
   });
 
-  // `base === null` used to mean BOTH "never write to Airtable" and "do no IO at all",
+  // `base === null` used to mean BOTH "never write" and "do no IO at all",
   // so a preview could never contain an ANALYTICS section however good the credentials
   // were. A CI job built to prove the GA secrets on top of `--preview` therefore failed
   // 100% of the time and reported it as a credential outage (2026-08-12). These two cases
@@ -215,9 +215,7 @@ describe("draftReportForSite", () => {
     // The prior report already covered through its periodEnd inclusively, so this
     // report starts the next day. Without the +1 the boundary day (here 2026-04-26)
     // is double-counted in both reports' inclusive GA/Search windows.
-    // Seeded in TURSO, which is where the derivation reads its prior reports
-    // since #646 step 4 — the Airtable read it replaces could not see one at all
-    // for a site created after step 3.
+    // Seeded in TURSO, which is where the derivation reads its prior reports.
     writer.rows.push(
       mapRow({
         id: "rec_old",

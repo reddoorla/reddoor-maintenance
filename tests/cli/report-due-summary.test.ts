@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// runDueDraft wires together Airtable reads + per-site drafting. Mock the whole
+// runDueDraft wires together Turso reads + per-site drafting. Mock the whole
 // data layer so we can drive the *summary* behavior: a fleet-wide GA/Search
 // outage must be visible in the batch summary, not buried in per-site warnings.
 // #612: the composition roots build real mirror factories, which under the
@@ -27,9 +27,9 @@ vi.mock("../../src/reports/report-mirror.js", () => ({
   }),
 }));
 // #646 step 4: the batch's roster and report list are TURSO reads, opened over
-// one connection by this very composition root. Mocked at the db boundary — not
-// swapped for an Airtable read — so this suite keeps proving the wiring reaches
-// the store the nightly run actually uses, without opening one.
+// one connection by this very composition root. Mocked at the db boundary, so
+// this suite keeps proving the wiring reaches the store the nightly run actually
+// uses, without opening one.
 vi.mock("../../src/db/client.js", () => ({
   readDbConfig: () => ({ url: "file::memory:" }),
   openDb: async () => ({ destroy: async () => {} }),

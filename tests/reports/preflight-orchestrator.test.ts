@@ -9,7 +9,7 @@ const io = (tables: { Websites: RawRow[]; Reports: RawRow[] }) => ({
   allReports: async () => reportRowsFrom(tables.Reports),
 });
 
-/** Raw Airtable Websites rows (mapRow field names), fully send-clean unless overridden. */
+/** Raw Websites rows (mapRow field names), fully send-clean unless overridden. */
 function siteRecord(id: string, name: string, over: Record<string, unknown> = {}): RawRow {
   return {
     id,

@@ -8,8 +8,8 @@ export type SpawnResult = { code: number; stdout: string; stderr: string };
  *  Typed rather than a bare `Error` because callers need to tell "the command ran
  *  and reported a verdict" apart from "we ran out of time and never learned one" —
  *  those mean opposite things to an audit. Conflating them is how a smoke timeout
- *  spent four nights reported as a generic `unexpected error` while Airtable kept
- *  serving the stale prior verdict.
+ *  spent four nights reported as a generic `unexpected error` while the stale
+ *  prior verdict stayed in place.
  *
  *  The message is unchanged from the historical string so anything already reading
  *  it keeps working; prefer {@link isSpawnTimeout} over matching the text. */

@@ -199,10 +199,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       {
         getWebsiteBySlug: lookupSite,
         createSubmission: (input) => createSubmission(db, input),
-        // Last-resort lead capture when the site lookup (Airtable, until #539
-        // phase 2) throws: the lead lands in submission_deadletter on THIS db —
-        // which stayed healthy through the 2026-08-17 Airtable outage — instead
-        // of 502ing away unrecorded. Replayed via `db replay-deadletters`.
+        // Last-resort lead capture when the site lookup throws: the lead lands in
+        // submission_deadletter instead of 502ing away unrecorded. Replayed via
+        // `db replay-deadletters`.
         deadLetter: (input) => createDeadLetter(db, input),
         notify: makeNotify(send),
         stampNotified: (id, status, messageId) => stampNotified(db, id, status, messageId),

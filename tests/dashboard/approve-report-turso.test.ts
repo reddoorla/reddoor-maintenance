@@ -4,11 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * #539 Phase 6 (#646): an approve is a TURSO write, and it works with no
- * `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` set — the same gate dropped from
- * `resend-webhook` (https://github.com/reddoorla/reddoor-maintenance/pull/855)
- * and from `report-commentary`
- * (https://github.com/reddoorla/reddoor-maintenance/pull/868).
+ * #539 Phase 6 (#646): an approve is a TURSO write.
  *
  * Nothing is mocked: the handler opens a real libSQL database — a throwaway
  * `file:` database in a temp dir (not `:memory:`, because every openDb on
@@ -123,8 +119,6 @@ beforeEach(async () => {
   process.env = { ...ORIGINAL_ENV };
   process.env.DASHBOARD_PASSWORD = "s3cret";
   delete process.env.TURSO_AUTH_TOKEN;
-  delete process.env.AIRTABLE_PAT;
-  delete process.env.AIRTABLE_BASE_ID;
   const url = `file:${join(DIR, `db-${++dbSeq}.sqlite`)}`;
   process.env.TURSO_DATABASE_URL = url;
   db = await openDb({ url });
@@ -139,8 +133,8 @@ afterAll(() => {
   rmSync(DIR, { recursive: true, force: true });
 });
 
-describe("approve-report with NO Airtable env", () => {
-  it("approves — 200, not 'Airtable env missing', and the flag lands in Turso", async () => {
+describe("approve-report writes to Turso", () => {
+  it("approves — 200, and the flag lands in Turso", async () => {
     await seedSite("recSiteA");
     await seedReport("recREP1", "recSiteA");
     const res = await post("recREP1");

@@ -1,14 +1,10 @@
-/** Phase 2 of the Airtable → Turso migration (#539): the fleet-state READ layer.
+/** The fleet-state READ layer.
  *
- *  Returns the exact `WebsiteRow` shape the Airtable module returned, so every
- *  repoint was an import-only swap at a composition root — the same trick
- *  listSubmissionsForSite used for the hybrid-db cutover. The raw values live
- *  in `sites`/`site_health`/`site_schedule`; coercion to `WebsiteRow` happens
- *  HERE, reusing the same coercers `mapRow` (`src/fleet/site-fields.ts`)
- *  applies (`toVerdict`, `toFrequency`, `parseNotifyRouting`,
- *  `parseSecurityAdvisories`, `trimToNull`) so there is one truth for each.
- *  Those live in `src/fleet/site-row.ts` — outside the Airtable directory
- *  Phase 6 deleted (#646 step 1).
+ *  The raw values live in `sites`/`site_health`/`site_schedule`; coercion to
+ *  `WebsiteRow` happens HERE, reusing the same coercers `mapRow`
+ *  (`src/fleet/site-fields.ts`) applies (`toVerdict`, `toFrequency`,
+ *  `parseNotifyRouting`, `parseSecurityAdvisories`, `trimToNull`, all in
+ *  `src/fleet/site-row.ts`) so there is one truth for each.
  *
  *  The equivalence instrument (tests/db/fleet-state.test.ts) pins this module
  *  to `mapRow` field-by-field: for a fixture record, `mapRow(rec)` must
@@ -16,14 +12,8 @@
  *  written it. A new WebsiteRow field fails that test until this module
  *  carries it.
  *
- *  `headerImage` is the ONE deliberate exception (design D5): Airtable stopped
- *  being its source — the bytes belong in `sites.header_image*`. Those columns
- *  ARE now written: the header-image CLI writes them on every generation and the
- *  one-shot backfill copied the rest, so as of 2026-08-25 production carries a
- *  BLOB for 12 of the 13 maintained sites (the 13th, LA Homelessness Youth, has
- *  no header image in Airtable either — its reports are blocked at approve for
- *  exactly that). An earlier version of this comment said the columns were empty
- *  fleet-wide; that was true when written and is no longer.
+ *  `headerImage` is the ONE deliberate exception (design D5): the bytes live in
+ *  `sites.header_image*`, which the header-image CLI writes on every generation.
  *
  *  The `url` is "" because the bytes live in the row itself, not behind a signed
  *  URL — which is why `url` is NOT a usable handle. A consumer that needs the
@@ -286,8 +276,7 @@ export async function mirrorSiteFields(
 }
 
 /** Upsert a site's three rows from a column-named record (#539 Phase 5). It
- *  mirrored a NEWLY CREATED Airtable Websites record, then served the #645
- *  heal's ADOPT; since #646 step 3 a new site is created in Turso by
+ *  served the #645 heal's ADOPT; since #646 step 3 a new site is created by
  *  {@link insertSiteRows} instead.
  *
  *  `ensure-site` CREATED a row, and every other site mirror is an UPDATE, which
@@ -303,9 +292,9 @@ export async function mirrorSiteFields(
  *  `missed` forever with no row to hit.
  *
  *  Upserts rather than inserts. The header_image* columns survive a re-run by
- *  construction — `mapWebsiteRecord` does not carry them (Airtable stopped being
- *  their source, design D5), so the conflict branch cannot blank a stored plate
- *  whose bytes live in no other store. */
+ *  construction — `mapWebsiteRecord` does not carry them (design D5), so the
+ *  conflict branch cannot blank a stored plate whose bytes live in no other
+ *  store. */
 export async function mirrorSiteInsert(db: Db, rec: RawRecord, computedAt: string): Promise<void> {
   const { site, health, schedule } = mapWebsiteRecord(rec, computedAt);
   await db
@@ -362,8 +351,7 @@ export async function mirrorHealthFields(
 
 /** A site as the Turso-native creator INSERTS it (#646 step 3). Only the columns
  *  `ensure-site` owns; everything else starts at its schema default (null, or 0
- *  for `require_turnstile`) exactly as an imported Airtable row with blank cells
- *  did. */
+ *  for `require_turnstile`). */
 export type NewSiteRow = {
   id: string;
   slug: string;
@@ -483,8 +471,8 @@ export async function getSiteById(db: Db, id: string): Promise<WebsiteRow | null
 }
 
 /** Every site, one row each.
- *  Name-ordered for determinism (Airtable returned table order; no consumer
- *  is order-sensitive — the cockpit groups and sorts itself). */
+ *  Name-ordered for determinism (no consumer is order-sensitive — the cockpit
+ *  groups and sorts itself). */
 export async function listSites(db: Db): Promise<WebsiteRow[]> {
   const rows = await joined(db).orderBy("sites.name").execute();
   return rows.map((r) => rowFromJoined(r as JoinedRow));
@@ -492,8 +480,8 @@ export async function listSites(db: Db): Promise<WebsiteRow[]> {
 
 // ————————————————————————— reports —————————————————————————
 
-/** stable checklist key → Airtable column name. The store keeps stable keys
- *  (mapReportRecord); `ReportRow.checklist` exposes Airtable column names — one
+/** stable checklist key → `field` name. The store keeps stable keys
+ *  (mapReportRecord); `ReportRow.checklist` exposes `field` names — one
  *  derived map, built from the checklist definitions themselves. */
 const CHECKLIST_FIELD_BY_KEY: ReadonlyMap<string, string> = new Map(
   [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.key, i.field]),
@@ -561,8 +549,7 @@ function reportRowFromDb(
     approvedBy: r.approved_by,
     deliveryStatus: (r.delivery_status ?? "pending") as DeliveryStatus,
     // The body lives IN the row (rendered_html) — the link points at the
-    // dashboard's own preview route instead of an EXPIRING Airtable signed URL.
-    // Strictly better for the operator: the old link 404'd once the URL aged out.
+    // dashboard's own preview route.
     renderedHtmlAttachment: hasRenderedHtml
       ? { url: `/api/reports/${r.id}/preview`, filename: `${r.report_id ?? r.id}.html` }
       : null,
@@ -621,8 +608,7 @@ export const REPORT_LIST_COLUMNS = [
  *  Computed in SQLite so the bytes never cross the wire. */
 const HAS_RENDERED_HTML = sql<number>`(rendered_html is not null)`.as("has_rendered_html");
 
-/** Same contract the Airtable listAllReports had. Newest-period-first (Airtable
- *  returned manual table order; every consumer filters/sorts itself). */
+/** Newest-period-first (every consumer filters/sorts itself). */
 export async function listAllReports(db: Db): Promise<ReportRow[]> {
   const rows = await db
     .selectFrom("reports")
@@ -634,7 +620,7 @@ export async function listAllReports(db: Db): Promise<ReportRow[]> {
   return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
-/** Same contract the Airtable listReportsForSite had — served by idx_reports_site.
+/** Served by idx_reports_site.
  *  Body-free for the same reason as listAllReports: the site-detail page renders
  *  a link, never the HTML. */
 export async function listReportsForSite(db: Db, siteId: string): Promise<ReportRow[]> {
@@ -649,10 +635,8 @@ export async function listReportsForSite(db: Db, siteId: string): Promise<Report
   return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
-/** Same contract the Airtable `listSendableReports` had: the send queue —
- *  `Draft ready` ∧ `Approved to send` ∧ `Sent at` BLANK, which is exactly the
- *  filterByFormula that reader sent. Airtable evaluated the predicate server-side;
- *  here it is a WHERE, so the three-part rule is stated once, in SQL, and
+/** The send queue — `Draft ready` ∧ `Approved to send` ∧ `Sent at` BLANK, as a
+ *  WHERE, so the three-part rule is stated once, in SQL, and
  *  tests/reports/send/sendable-predicate.test.ts drives every combination of the
  *  three columns through it.
  *
@@ -749,9 +733,8 @@ export async function mirrorReportPatch(
   return res.numUpdatedRows > 0n;
 }
 
-/** Upsert a report row from a column-named record (#539 Phase 5, when it
- *  mirrored a NEWLY CREATED Airtable Reports record; a new draft is inserted by
- *  {@link insertReportRow} since #646 step 4).
+/** Upsert a report row from a column-named record (#539 Phase 5; a new draft
+ *  is inserted by {@link insertReportRow} since #646 step 4).
  *
  *  Every other report mirror is an UPDATE, which silently does nothing for a row
  *  that does not exist yet — so a draft created at 09:05 was invisible to the
@@ -774,7 +757,7 @@ export async function mirrorReportInsert(db: Db, rec: RawRecord): Promise<void> 
 }
 
 /** Insert a BRAND-NEW report row (#646 step 4). The report id was just minted
- *  (`report_<ULID>`), Turso owns the row, and no Airtable record exists for it.
+ *  (`report_<ULID>`) and Turso owns the row.
  *
  *  A plain INSERT, deliberately not `mirrorReportInsert`'s upsert: a conflict
  *  HERE means the freshly minted id already exists — which must fail loudly,
@@ -832,11 +815,11 @@ export async function getReportById(db: Db, id: string): Promise<ReportRow | nul
 }
 
 /** By Resend message id — the resend-webhook's report lookup (#539 Phase 6 step 2,
- *  #646). Same contract as the Airtable `findReportByMessageId` it replaced: the
- *  first matching row, or null. Served by idx_reports_resend_message (0027), and
- *  body-free like the list reads — the webhook needs the row's id and current
- *  delivery status, never the HTML. `resend_message_id` is stamped by the send
- *  path's `reportSentMirror` (#643) and was imported for historical rows. */
+ *  #646): the first matching row, or null. Served by idx_reports_resend_message
+ *  (0027), and body-free like the list reads — the webhook needs the row's id
+ *  and current delivery status, never the HTML. `resend_message_id` is stamped
+ *  by the send path's `reportSentMirror` (#643) and was imported for historical
+ *  rows. */
 export async function findReportByMessageId(db: Db, messageId: string): Promise<ReportRow | null> {
   const r = await db
     .selectFrom("reports")

@@ -14,7 +14,6 @@ describe("the suite never sees production credentials", () => {
   it("removes every credential variable and points the config dir at an empty one", () => {
     const env: Record<string, string | undefined> = {
       TURSO_DATABASE_URL: "libsql://CANARY.turso.io",
-      AIRTABLE_PAT: "patCANARY",
       RESEND_API_KEY: "re_CANARY",
       GH_TOKEN: "ghp_CANARY",
       PATH: "/usr/bin",
@@ -36,8 +35,6 @@ describe("the suite never sees production credentials", () => {
       "TURSO_DATABASE_URL",
       "TURSO_AUTH_TOKEN",
       "TURSO_FLEET_USAGE",
-      "AIRTABLE_PAT",
-      "AIRTABLE_BASE_ID",
       "RESEND_API_KEY",
       "PRISMIC_WRITE_TOKEN",
       "NETLIFY_PAT",
