@@ -268,15 +268,22 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
   // 6. Already delivered? Content-compared, not existence-compared, so a
   //    present-but-STALE workflow (an older pin) is corrected rather than left
   //    forever.
-  const existing = await gh.fileContentsOnBranch(repo, base, WORKFLOW_PATH);
+  let existing: string | null;
+  try {
+    existing = await gh.fileContentsOnBranch(repo, base, WORKFLOW_PATH);
+  } catch (err) {
+    return resultOf(
+      site,
+      "failed",
+      `could not read ${WORKFLOW_PATH} on ${base} of ${repo}: ${messageOf(err)}`,
+    );
+  }
   if (existing !== null && sameWorkflow(existing, workflow)) {
     return resultOf(site, "noop", `delivery workflow already current on ${base}`);
   }
 
   // 7. Already proposed? Without this, every run before the PR merges opens
-  //    another one. `fileContentsOnBranch` also answers null for a read it could
-  //    not perform (gh exits non-zero on both a 404 and an auth failure), which
-  //    makes this the backstop for that collapse as well.
+  //    another one.
   const open = (await gh.openPullRequests(repo)).find((pr) => pr.headRef.startsWith(BRANCH_PREFIX));
   if (open) {
     return resultOf(site, "noop", `delivery workflow PR already open: ${open.url}`);
