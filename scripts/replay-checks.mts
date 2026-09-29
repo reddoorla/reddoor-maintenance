@@ -43,7 +43,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { openDb, readDbConfig } from "../src/db/client.js";
-import { siteKey } from "../src/db/prospect-audits.js";
+import { NO_REPORT_STATUSES, siteKey } from "../src/db/prospect-audits.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { runSiteChecks, type SiteCheck } from "../src/prospect/site-checks.js";
 import type { CheckStatus, ProspectAuditResult } from "../src/prospect/types.js";
@@ -125,9 +125,9 @@ async function fromDatabase(): Promise<Row[]> {
     return await db
       .selectFrom("prospect_audits")
       .select(["id", "url", "business", "created_at", "result_json"])
-      // #907: a `running` row is a reservation with a `{}` placeholder, not a
-      // report — nothing to replay.
-      .where("status", "!=", "running")
+      // #907 / P1-16: a `running` or `failed` row holds a `{}` placeholder,
+      // not a report — nothing to replay.
+      .where("status", "not in", NO_REPORT_STATUSES)
       .orderBy("created_at", "desc")
       .execute();
   } finally {

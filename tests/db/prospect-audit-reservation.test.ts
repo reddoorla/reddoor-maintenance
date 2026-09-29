@@ -19,12 +19,14 @@ import type { Db } from "../../src/db/client.js";
 import {
   claimProspectAuditReservation,
   countProspectAuditsTowardCap,
+  failProspectAudit,
   finishProspectAudit,
   generateToken,
   getProspectAuditByToken,
   listRecentProspectAudits,
   releaseProspectAuditReservation,
   reserveProspectAudit,
+  setProspectAuditOverrides,
   siteKey,
 } from "../../src/db/prospect-audits.js";
 import {
@@ -188,6 +190,13 @@ describe("what the cap counts", () => {
   it("a FINISHED row older than the stale window still counts — staleness is for `running` only", async () => {
     await seed(1, { status: "complete", createdAt: ago(PROSPECT_AUDIT_STALE_AFTER_MS + HOUR) });
     expect(await countProspectAuditsTowardCap(db, NOW)).toBe(1);
+  });
+
+  it("a `failed` row older than the stale window still counts, and stops at 24h (P1-16)", async () => {
+    await seed(1, { status: "failed", createdAt: ago(PROSPECT_AUDIT_STALE_AFTER_MS + HOUR) });
+    await seed(1, { status: "failed", createdAt: ago(24 * HOUR - MIN) });
+    await seed(1, { status: "failed", createdAt: ago(24 * HOUR + MIN) });
+    expect(await countProspectAuditsTowardCap(db, NOW)).toBe(2);
   });
 
   it("nothing older than 24h counts, finished or not — the window still rolls", async () => {
@@ -551,5 +560,97 @@ describe("readers tolerate `running` rows", () => {
     const r = await reserveProspectAudit(db, start(0), { now: NOW });
     if (r.kind !== "reserved") throw new Error("positive control");
     expect(await getProspectAuditByToken(db, r.token)).toBeNull();
+  });
+});
+
+describe("failing a run that paid (P1-16)", () => {
+  it("marks the reserved row `failed` in place: same id and token, placeholder kept", async () => {
+    const r = await reserveProspectAudit(db, start(0), { now: NOW });
+    if (r.kind !== "reserved") throw new Error("positive control");
+    expect(await failProspectAudit(db, r.id, new Date(NOW.getTime() + HOUR))).toEqual({
+      id: r.id,
+      token: r.token,
+    });
+    const rows = await db
+      .selectFrom("prospect_audits")
+      .select(["id", "token", "status", "created_at", "result_json"])
+      .execute();
+    expect(rows).toEqual([
+      {
+        id: r.id,
+        token: r.token,
+        status: "failed",
+        created_at: new Date(NOW.getTime() + HOUR).toISOString(),
+        result_json: "{}",
+      },
+    ]);
+  });
+
+  it("re-stamps created_at to the failure, so the slot counts for 24h from it", async () => {
+    const r = await reserveProspectAudit(db, start(0), {
+      now: new Date(ago(24 * HOUR + 30 * MIN)),
+    });
+    if (r.kind !== "reserved") throw new Error("positive control");
+    await failProspectAudit(db, r.id, new Date(ago(23 * HOUR + 30 * MIN)));
+    expect(await countProspectAuditsTowardCap(db, NOW)).toBe(1);
+  });
+
+  it("a failed row keeps its slot past the stale window, where a `running` one would not", async () => {
+    const r = await reserveProspectAudit(db, start(0), { now: NOW, cap: 1 });
+    if (r.kind !== "reserved") throw new Error("positive control");
+    await failProspectAudit(db, r.id, NOW);
+    const later = new Date(NOW.getTime() + 3 * HOUR);
+    expect(await countProspectAuditsTowardCap(db, later)).toBe(1);
+    expect((await reserveProspectAudit(db, start(1), { now: later, cap: 1 })).kind).toBe("capped");
+  });
+
+  it("never touches a finished report, and returns null for it", async () => {
+    const r = await reserveProspectAudit(db, start(0), { now: NOW });
+    if (r.kind !== "reserved") throw new Error("positive control");
+    await finishProspectAudit(
+      db,
+      r.id,
+      { url: start(0).url, business: null, status: "complete", resultJson: '{"x":1}' },
+      NOW,
+    );
+    expect(await failProspectAudit(db, r.id, new Date(NOW.getTime() + HOUR))).toBeNull();
+    const row = await getProspectAuditByToken(db, r.token);
+    expect(row?.status).toBe("complete");
+    expect(row?.created_at).toBe(NOW.toISOString());
+    expect(row?.result_json).toBe('{"x":1}');
+  });
+
+  it("a row that is gone returns null", async () => {
+    expect(await failProspectAudit(db, "pa_missing", NOW)).toBeNull();
+  });
+
+  it("a failed row is not served by token, and takes no overrides", async () => {
+    const r = await reserveProspectAudit(db, start(0), { now: NOW });
+    if (r.kind !== "reserved") throw new Error("positive control");
+    await failProspectAudit(db, r.id, NOW);
+    expect(await getProspectAuditByToken(db, r.token)).toBeNull();
+    expect(await setProspectAuditOverrides(db, r.token, {})).toEqual({
+      status: "not-found",
+      token: r.token,
+    });
+    const done = await reserveProspectAudit(db, start(1), { now: NOW });
+    if (done.kind !== "reserved") throw new Error("positive control");
+    await finishProspectAudit(db, done.id, {
+      url: start(1).url,
+      business: null,
+      status: "complete",
+      resultJson: "{}",
+    });
+    expect((await setProspectAuditOverrides(db, done.token, {})).status).toBe("updated");
+  });
+
+  it("positive control: a report with a legacy status nobody lists is still served", async () => {
+    const [id] = await seed(1, { status: "legacy-whatever" });
+    const row = await db
+      .selectFrom("prospect_audits")
+      .select("token")
+      .where("id", "=", id!)
+      .executeTakeFirstOrThrow();
+    expect((await getProspectAuditByToken(db, row.token))?.status).toBe("legacy-whatever");
   });
 });

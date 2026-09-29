@@ -85,6 +85,8 @@ const PURE_EXPORTS = new Set([
   "newProspectAuditId",
   // Pure string normalisation — computes the lineage key, never queries on it.
   "siteKey",
+  // Pure membership test on NO_REPORT_STATUSES.
+  "hasNoReport",
 ]);
 
 /** Raw scans accepted with a written justification. Empty today — the 0008
@@ -891,6 +893,19 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
           status: "complete",
           resultJson: "{}",
         });
+      },
+    },
+    {
+      name: "failProspectAudit (CLI marks its reserved row failed after a paid throw)",
+      covers: ["failProspectAudit"],
+      run: async (db) => {
+        const r = await prospectAudits.reserveProspectAudit(db, {
+          url: "https://failed.example.com",
+          business: null,
+          claimed: true,
+        });
+        if (r.kind !== "reserved") throw new Error("fail scenario could not reserve");
+        await prospectAudits.failProspectAudit(db, r.id);
       },
     },
     {
