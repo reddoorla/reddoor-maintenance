@@ -209,7 +209,7 @@ The scheduled workflows in `.github/workflows/` do the unattended work. Set thei
 | `fleet-form-e2e.yml`          | `15 10 * * *`  | form-e2e audit (`--write-back`)                                                                                                       | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`                                                                                                          |
 | `forms-deadletter-replay.yml` | `47 */6 * * *` | `db replay-deadletters`                                                                                                               | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `RESEND_API_KEY`; var `OPERATOR_EMAIL`                                                                  |
 
-`report-rerender.yml` (dispatched by the console's "refresh preview" button) needs `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` too. `renovate.yml`, `release-health.yml` and `time-travel.yml` need no store credentials. (`ci.yml` is the reusable per-repo CI the self-updating sites call; `release.yml` publishes the npm package via changesets + GitHub's `GITHUB_TOKEN` / npm OIDC.)
+`report-rerender.yml` (dispatched by the console's "refresh preview" button) needs `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` too. `renovate.yml`, `release-health.yml` and `time-travel.yml` need no store credentials. (`ci.yml` is the reusable per-repo CI the self-updating sites call; `release.yml` publishes the npm package via `changesets/action` v2 + npm OIDC; it mints a `reddoor-renovate` App token from `RENOVATE_APP_PRIVATE_KEY` and var `RENOVATE_APP_ID` and passes it as the action's `github-token`, which opens the version PR, pushes the `v*` tag and creates the GitHub Release.)
 
 ---
 

@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-09-29 ~06:00Z; state updated ~10:30Z** (cloud PM session, `claude/lucid-wozniak-wj8gaj`).
+**Last full re-rank: 2026-09-29 ~06:00Z; state updated ~17:30Z** (cloud PM session, `claude/lucid-wozniak-wj8gaj`).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -63,6 +63,10 @@ that cannot fire makes every other item invisible when it breaks).
 mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
   write-back path is proven; the other nightlies still have to run on their
   own schedules.
+- **Done (2026-09-29).** All seven scheduled nightlies went green on their own
+  schedules: db-backup, prismic-drift, security (closed #927), lighthouse
+  (`wrote=14`, evidence renewed about 15:00Z), daily-reports (closed #931),
+  smoke and form-e2e (each `wrote=14 failed=0`) [M, run logs].
 
 ### P0-2 · Alarms fire on a cancelled or hung run, and only for `main` 🟢
 
@@ -122,7 +126,6 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 | P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                                                                                                                                                                     | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap              |
 | P1-19 | `search_found_page1 = 0` is still stored when no Search Console property matched (`src/reports/draft.ts:359`, `src/recipes/announce.ts:120`), while the evidence now says `unknown` (#959). Pairs with #943                                                                                                                                                                                                                | 🟢   | S      | as named                                                                                             | A no-property result stores NULL, not 0                                                          |
 | P1-20 | Digest: a day whose pending set is unchanged still sends (`src/reports/digest.ts:563-660` skips only empty days and same-day duplicates); 09-18→09-28 repeated the same "29 Navy … health-gate (+4 more)" line for 11 days [M, mailbox]. Send on change (or weekly heartbeat), carry the age of a repeated item, and carry the exact ask ("set `Report recipients (To)` on `/s/29-navy`, then approve") linked to the cell | 🟢   | S–M    | `src/reports/digest.ts`, `tests/reports/digest*`                                                     | An unchanged pending set sends nothing; a repeated item shows its age and the concrete action    |
-| P1-21 | `docs/autonomy-journal.md` has had no row since 2026-09-09 (#733) while `AUTONOMY.md:119-120` still tells agents to write there; `AUTONOMY.md:122-129` calls `settings.json` "local, gitignored" (false since #788). Retire the file, point the loop at `docs/workJournal.md`, fix the claim (`docs/operating-model-review-2026-09-29.md` R8)                                                                              | 🟢   | S      | `AUTONOMY.md`, `docs/autonomy-journal.md`                                                            | No doc names a journal that nobody writes; AUTONOMY.md's settings claim matches `.gitignore`     |
 
 ### P1-3 start here (#912)
 
@@ -179,8 +182,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
 3. **MSOT / Revogen recipients** — fix the cells before approving either report.
 4. **Revogen GA4** — look up the numeric property ID in GA and set
    `ga4_property_id` (site editor), so its 10-05 report carries analytics (#921).
-5. **Release PR #952** (0.100.1, the #944 changeset) — merge when you want it.
-   It publishes to npm.
+5. **Release PR #952** — merged by the operator 2026-09-29 16:45Z; 0.101.0 on npm 17:01Z.
 6. **Operating-model review — answered 2026-09-29** (`docs/operating-model-review-2026-09-29.md` §7):
    (a) zero-blocker Maintenance reports **keep the click**; revisit only after
    several consecutive [TEST] sends with nothing wrong (every test send so far
@@ -199,19 +201,17 @@ Ordered by what unblocks the most. Each line is the exact ask.
    Not in #954: AUTONOMY.md still calls `settings.json` "local, gitignored"
    (false since #788), and its working loop names `docs/autonomy-journal.md`,
    which has had no row since 2026-09-09.
-9. **Changesets v3** — #897 (action v2) and #901 (CLI v3) must land together as
-   one hand-written PR, or be closed. Merged alone, #897 reds the release job on
-   every push to main, and #901 publishes to npm while silently skipping the
-   `v*` tag and GitHub Release, which leaves the match-harness snapshot guard
-   comparing against v0.100.0 forever [M, upstream source]. Details:
-   #955.
-10. **#918 / #920** (GA4 tag mechanism + recipe) — their author stopped after
-    four dirty review rounds with "the merge is yours". #918 is 16 behind main
-    and predates #936's `no analytics` opt-out.
-11. **#916** — #950 merged first (2026-09-29 12:39Z), so #916 now conflicts
-    with `main` and needs a rebase over it. It would turn 9 of 12 sampled sites
-    red until their palettes are fixed. Decide whether it is still wanted before
-    anyone spends the rebase.
+9. **Changesets v3** — done: #901 (merged by the operator 17:07Z) carries
+   both halves, and its first release run was a clean no-op. The version-only
+   path is proven by the first changeset that lands after it. #897 closes itself
+   on Renovate's next run.
+10. **#918 / #920** — in a fix round after a four-lens independent review
+    (2026-09-29): nine majors, the sixth round with majors. They ship in 0.102.0
+    if that round is clean. If it is not, they come back here as a design
+    decision rather than a seventh round.
+11. **#916** — still wanted: #950 removes none of what it catches, and it passes
+    roalson-interests. In a fix round for 0.102.0, with a `reddoor-starter`
+    palette fix staged beside it, because the starter's Hero would go red.
 12. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
@@ -308,6 +308,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
   failing outside the suite" for a red run whose suite step did not fail
   (#964).
 
+- 2026-09-29 — P1-21: AUTONOMY.md's settings and journal lines fixed by #971
+  (another session).
+- 2026-09-29 — P0-1: all seven nightlies green on post-Airtable `main`.
 - 2026-09-29 — #895 time-travel red since 09-21: shallow checkout, not a clock
   (#951, `33c01b3`).
 - 2026-09-29 — Closed as resolved, with evidence comments: #717 (every exposed

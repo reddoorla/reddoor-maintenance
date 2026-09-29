@@ -5158,6 +5158,21 @@ Beliefs corrected on contact:
   reasoning. Every claim in the changeset is now backed by a mutation that was actually run
   against the final head.
 
+## 2026-09-29 (close) — Two false lines in AUTONOMY.md, and three branches left to the operator
+
+**AUTONOMY.md.** Two lines were wrong. Another session's backlog found them while listing what #954 left behind, and they are fixed here.
+
+- **The settings file.** It called `.claude/settings.json` "local, gitignored". The file has been tracked since #788 (decision A9, 2026-09-14), and `.gitignore` re-includes it by name.
+- **The journal step.** The working loop's journal step pointed at `docs/autonomy-journal.md`, which has had no row since 2026-09-09. It now points at this file. The old journal got a two-line note saying it is no longer kept; nothing in it was edited.
+
+**Three stale remote branches were not deleted.** The operator asked for them to go, but the auto-mode classifier refused `git push origin --delete` as a destructive git action. Each still carries commits that never reached main. If they are deleted by hand, these are the heads to restore from:
+
+- `docs/airtable-to-turso-spec` `4f5f1a14b5f7bb487520f8a1b0fa130cf4e5860e`
+- `feat/dash-vulns-submission-cap-airtable-throttle` `eda447c7c2fb1b6547619788bf79d70192fd75fc`
+- `fix/lead-path-airtable-gate` `77d523bc98eb81e5dceec6d57d784b4380c4d7a7`
+
+The spawn reap-test race from the #954 entry is being handled in a separate session the operator started.
+
 ## 2026-09-29 (overnight) — A project-manager pass: five surveys, a ranked backlog, and sixteen PRs through one landing gate (#951, #953, #902, #896, #956–#959, #961–#968)
 
 The operator asked for a project-manager session: survey the fleet and this codebase, write a prioritized to-do list agents can pick up, work through it overnight, and show everything in the morning. Before leaving they answered four questions: merge under AUTONOMY.md; attach fleet repos and merge small single-repo fixes there if needed, but no sweeps; focus on getting the nightlies green; adopt another session's PR only after two idle hours.
@@ -5218,7 +5233,10 @@ Also closed with evidence comments: #717 (all five previously exposed hosts re-p
 - **fleet-prismic-drift** (scheduled, 11:01): 10 checked, 0 failed, 4 skipped, `wrote=14 failed=0`.
 - **fleet-db-backup** (10:50) and **fleet-security** (11:50): both green. fleet-security closed #927.
 - **#754**: now lists exactly one new gap, `renovate merges into reddoor-website:staging … NO required status check`. That is #966's intended finding. Its body names that run, which is #967's rewrite working through GraphQL `updateIssue`. That path could not be exercised from the cloud session that built it.
-- [NIGHTLIES-TAIL]
+- **fleet-lighthouse** (scheduled, created 14:41, green 15:03): `wrote=14 failed=0 mirrored=14`, and the GitHub signals sweep `wrote=20 failed=0` in 44 s (on 09-28 that step hung past the 6-hour job limit). Every maintained site's function-health stamp was renewed at about 15:00Z, a day before the 3-day gate would have blocked Sonder's 09-30 and 10-01 reports and the five due 10-05. Six sites fail Lighthouse assertions, the same six with the same counts as 09-27. They are not send blockers: the gate reads only whether scores exist (`src/reports/preflight.ts:483-490`).
+- **daily-reports** (16:00): nothing due and nothing approved, so nothing drafted or sent. The digest was sent, and `DIGEST_STATE_WRITE turso=1 rollup=1` rewrote the cockpit rollup row that had been stale since 09-17. It closed #931.
+- **fleet-form-e2e** (16:31) `wrote=14 failed=0`, `skipped=8 total=14`, as in the two runs before it. **fleet-smoke** (16:17–16:42) `wrote=14 failed=0`, 0 unmeasured.
+- So all seven scheduled fleet nightlies went green on the first full day on post-Airtable `main`. The schedules fired 4.5 to 8 hours after their cron minute.
 
 **How the work was run.**
 

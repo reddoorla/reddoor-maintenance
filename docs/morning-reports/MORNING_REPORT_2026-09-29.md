@@ -2,7 +2,13 @@
 
 ## One-line verdict
 
-[VERDICT]
+**All seven scheduled nightlies are green on post-Airtable `main`**, and the evidence every report depends on was renewed at 15:00Z, a day before it would have gone stale.
+
+> **Update, 17:30Z.**
+> - 0.101.0 is on npm: #950's a11y scroll, and everything below with a changeset. roalson-interests is on it (roalson-interests#196, a11y 0 violations across 5 routes).
+> - #901 moved the release job to changesets/action v2 with CLI v3. Its first run was a clean no-op.
+> - #916 and #918/#920 are in a fix round after independent reviews, and ship in 0.102.0.
+> - The Daily PM pass Routine runs from 09-30, 04:48 PT.
 
 Sixteen PRs landed overnight. Each passed an independent three-lens review and was landed by the repo's own head-SHA-gated script. The main results:
 - the alarms that could not fire on a cancelled or hung run now can;
@@ -56,7 +62,17 @@ Also:
 
 ## Nightlies
 
-[NIGHTLIES]
+| Nightly | Scheduled run (UTC) | Result |
+| --- | --- | --- |
+| fleet-db-backup | 10:50 | green |
+| fleet-prismic-drift | 11:01 | green, `wrote=14 failed=0` |
+| fleet-security | 11:50 | green, closed #927; #754 now names `reddoor-website:staging` (#966) |
+| fleet-lighthouse | 14:41–15:03 | green, `wrote=14 failed=0`, signals `wrote=20`; function-health evidence renewed |
+| daily-reports | 16:00 | green, nothing due or approved, digest sent, closed #931 |
+| fleet-smoke | 16:17–16:42 | green, `wrote=14 failed=0` |
+| fleet-form-e2e | 16:31 | green, `wrote=14 failed=0`, 8 of 14 skipped as usual |
+
+Six sites fail Lighthouse assertions (Data Dynamiq, ERP, Espada, MSOT, Revogen, Vineyard), identical to 09-27. They do not block a send.
 
 ## What went wrong, or nearly did
 

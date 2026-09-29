@@ -78,4 +78,7 @@ inbox; it carried a real robots.txt block this month.
 
 ## Done
 
-(nothing yet)
+- 2026-09-29 — **B2**: the operator merged #952 (0.101.0 on npm 17:01Z, annotated `v0.101.0`, Release created) and then #901 (changesets/action v2 + CLI v3; its first run was a clean no-op). B1 is therefore split: 0.101.0 shipped without #916/#918/#920, which go to 0.102.0.
+- 2026-09-29 — **B3**: roalson-interests#196 (`8ecd279`) is on `^0.101.0`; its a11y gate passed with 0 violations across 5 routes. roalson-interests#100 closed.
+- 2026-09-29 — **B4 prepared**: `markup-review` made path-independent (claude-skills#11); both zips handed to the operator.
+- 2026-09-29 — **W6**: done by another session in #971.
