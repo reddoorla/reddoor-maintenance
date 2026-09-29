@@ -260,6 +260,23 @@ Ordered by what unblocks the most. Each line is the exact ask.
     ignore metric changes"). **Answered 2026-09-29 ~19:00Z: "go"** on that
     pick; a worker finishes #975 with a third review round, which the answer
     sanctions.
+    **Reopened 2026-09-29 19:10Z — which implementation lands?** Two sessions
+    built the "go" in parallel. On #975's branch, `f6d5ee8c` (the session
+    that opened it) forgets a key only after **two** absent runs and adds a
+    **5-point Lighthouse tolerance**. On `claude/digest-send-exact-rule`,
+    `7925133d` (the worker) prunes on every run and has no tolerance. Measured
+    with the same `runDigest` replays: both send on a bounce back after two
+    empty days, and both send 4 times in 28 days for six Lighthouse items
+    jittering 30–34 after a send at 30. `f6d5ee8c` stays silent until the
+    heartbeat for a bounce gone **one** run and back, and for a genuine new
+    low of 1–4 points. The tolerance has a real upside: under free jitter from
+    day 1, the exact rule sends 8–9 times in 28 days (four seeds, 5–7 "worse"
+    days, all before day 16), against 20 of 28 on the old rule. **My pick:** the exact rule, because it is what "go"
+    approved and a one-day fix-and-recur is the same silence round 2
+    objected to. The Lighthouse tolerance is a separate call, and I would
+    take it as its own small PR. No third review round has run on either version. Say "exact"
+    and a worker moves `7925133d` onto #975, or "as is" and #975 lands
+    `f6d5ee8c` after its review. Evidence: #975's comment of 19:05Z.
 
 ---
 
