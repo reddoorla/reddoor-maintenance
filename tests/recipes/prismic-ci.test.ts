@@ -518,6 +518,22 @@ describe("prismicCi", () => {
     expect(d.github!.openPullRequest).not.toHaveBeenCalled();
   });
 
+  it("does not read a refused workflow read as 'absent' and propose over it", async () => {
+    await prismicSite();
+    const { d, pushed } = deps();
+    d.github!.fileContentsOnBranch = vi.fn(async () => {
+      throw new Error(
+        "fileContentsOnBranch(o/r/.github/workflows/prismic.yml) failed: gh: Resource not accessible by integration (HTTP 403)",
+      );
+    });
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain("HTTP 403");
+    expect(await exists(join(dir, WORKFLOW_PATH))).toBe(false);
+    expect(pushed).toEqual([]);
+    expect(d.github!.openPullRequest).not.toHaveBeenCalled();
+  });
+
   it("refuses on a repo whose default branch is not main — the apply job could never fire", async () => {
     await prismicSite();
     const { d, pushed } = deps();
