@@ -735,12 +735,18 @@ export async function collectProtectionCoverage(
       if (rulesets.length === 0) {
         gaps.push("no repo rulesets at all");
       } else {
-        const judged = await Promise.all(
+        // allSettled, then rethrow: a probe-failed row still counts every
+        // sibling read that finished, rather than whichever beat the failure.
+        const settled = await Promise.allSettled(
           rulesets.map(async (rs) => {
             const full = await reads.getRuleset(repo, rs.id);
             return { name: rs.name, full, gaps: rulesetGaps(full, null) };
           }),
         );
+        const judged = settled.map((r) => {
+          if (r.status === "rejected") throw r.reason;
+          return r.value;
+        });
         const covering = judged.find((j) => j.gaps.length === 0);
         if (covering) {
           const ciGated = requiresStatusChecks(covering.full.rules);

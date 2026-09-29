@@ -728,7 +728,10 @@ describe("makeGitHub.branchRequiredChecks (#892: what requires CI on a Renovate 
   it("a rule with no ruleset_id is kept WITHOUT one — never dropped, never given a made-up id", async () => {
     const { spawn } = routed({
       branch: { stdout: classicOff },
-      rules: { stdout: "required_status_checks\t\ndeletion\t7\nnon_fast_forward\tnot-a-number\n" },
+      rules: {
+        stdout:
+          "required_status_checks\t\ndeletion\t7\nnon_fast_forward\tnot-a-number\npull_request\t0\nrequired_linear_history\t-3\n",
+      },
     });
     const out = await makeGitHub({ token: "T", spawn }).branchRequiredChecks("o/r", "staging");
     expect(out).toEqual({
@@ -736,6 +739,8 @@ describe("makeGitHub.branchRequiredChecks (#892: what requires CI on a Renovate 
         { type: "required_status_checks" },
         { type: "deletion", ruleset_id: 7 },
         { type: "non_fast_forward" },
+        { type: "pull_request" },
+        { type: "required_linear_history" },
       ],
       classicContexts: [],
     });

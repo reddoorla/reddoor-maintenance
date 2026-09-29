@@ -449,6 +449,7 @@ describe("collectProtectionCoverage", () => {
     expect(rows[0]!.detail).toContain("no renovate workflow");
     expect(rows[0]!.detail).toContain("accepted until 2026-08-16");
     expect(rows[0]!.detail).toContain("pending decision");
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
   });
 });
 
@@ -1275,6 +1276,8 @@ describe("a Renovate base branch's required check must not be bypassable (#981)"
     expect(rows[0]!.detail).toContain("(unverified, not clean)");
     expect(rows[0]!.detail).not.toContain("NO required status check");
     expect(rows[0]!.detail).not.toContain("probe failed");
+    // The failed read is neither read nor unread: only the floor's ruleset 1.
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
   });
 
   it("an unknown ruleset beside a KNOWN bypassable one is still unverified, not a flat gap", async () => {
@@ -1309,5 +1312,55 @@ describe("a Renovate base branch's required check must not be bypassable (#981)"
     const rows = await collectProtectionCoverage(ORG, noBase, NOW);
     expect(rows[0]!.status).toBe("covered");
     expect(rows[0]!.rulesetBypass).toEqual({ read: 2, unread: 1 });
+  });
+  it("a failed ruleset read is not cached: a second branch joined to the same ruleset reads it again", async () => {
+    const deps = makeDeps(
+      [{ name: "reddoor-website" }],
+      { [WEBSITE]: [sound(1), ruleset(5, [])] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      {
+        files: {
+          [`${WEBSITE}:renovate.json`]: JSON.stringify({ baseBranchPatterns: ["staging", "next"] }),
+        },
+        branches: { [`${WEBSITE}:staging`]: gated(5), [`${WEBSITE}:next`]: gated(5) },
+      },
+    );
+    const real = deps.getRuleset;
+    let failures = 0;
+    deps.listRepoRulesets = async () => [{ id: 1, name: FLEET_RULESET_NAME }];
+    deps.getRuleset = async (repo, id) => {
+      if (id === 5 && failures++ === 0) {
+        deps.rulesetCalls.push(`${repo}:${id}`);
+        throw new Error("HTTP 502");
+      }
+      return real(repo, id);
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.detail).toContain("reddoor-website:staging unverified");
+    expect(rows[0]!.detail).toContain(
+      "reddoor-website:next requires status checks no one can bypass",
+    );
+    expect(deps.rulesetCalls.filter((c) => c === `${WEBSITE}:5`)).toHaveLength(2);
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 2, unread: 0 });
+  });
+
+  it("a probe-failed row still counts the sibling reads that finished after the failure", async () => {
+    const deps = makeDeps([{ name: "espada" }], {
+      "reddoorla/espada": [sound(1), sound(2)],
+    });
+    const real = deps.getRuleset;
+    deps.getRuleset = async (repo, id) => {
+      if (id === 1) throw new Error("HTTP 502");
+      await new Promise((r) => setTimeout(r, 5));
+      return real(repo, id);
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toBe("probe failed: HTTP 502");
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
   });
 });
