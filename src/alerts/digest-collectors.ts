@@ -795,6 +795,12 @@ export function urlProbeFresh(checkedAt: string | null, now: Date): boolean {
  *
  * The accept key mutes only the fresh `fail` branch; an accepted row still counts
  * toward staleness.
+ *
+ * A row added after the day's probe and before the digest reads "never checked"
+ * for one day. That is true, and the next nightly clears it. A known failure whose
+ * stamp goes stale leaves the digest, so if the probe comes back and it still
+ * fails it mails again as new: the operator hears once more about a failure that
+ * outlived a probe outage, which is the same trade `prismic-stale:` makes.
  */
 export function collectUrlResolveAlerts(
   sites: WebsiteRow[],
@@ -803,12 +809,14 @@ export function collectUrlResolveAlerts(
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
   let covered = 0;
-  let stale = 0;
+  let never = 0;
+  let aged = 0;
   for (const s of sites) {
     if (isArchivedStatus(s.status)) continue;
     covered++;
     if (!urlProbeFresh(s.urlCheckedAt, now)) {
-      stale++;
+      if (s.urlCheckedAt === null) never++;
+      else aged++;
       continue;
     }
     if (s.urlResolves !== "fail") continue;
@@ -824,12 +832,17 @@ export function collectUrlResolveAlerts(
       metric: 1,
     });
   }
+  const stale = never + aged;
   if (stale > 0) {
+    const parts = [
+      ...(never > 0 ? [`${never} never checked`] : []),
+      ...(aged > 0 ? [`${aged} not checked in ${URL_PROBE_STALE_DAYS} days`] : []),
+    ];
     items.push({
       key: "url-probe-stale",
       kind: "url",
       siteName: "(fleet)",
-      title: `Roster url probe has not checked ${stale} of ${covered} non-archived rows in ${URL_PROBE_STALE_DAYS} days — check fleet-lighthouse's "Probe roster urls to Turso" step`,
+      title: `Roster url probe is behind on ${stale} of ${covered} non-archived rows (${parts.join(", ")}) — check fleet-lighthouse's "Probe roster urls to Turso" step`,
       url: baseUrl.replace(/\/$/, ""),
       severity: "warning",
       metric: stale,

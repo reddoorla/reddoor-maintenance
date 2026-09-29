@@ -86,6 +86,23 @@ describe("collectUrlResolveAlerts — a fresh fail", () => {
     ).toEqual([]);
   });
 
+  it("trims the stored url and names a missing status", () => {
+    const items = collectUrlResolveAlerts(
+      [row({ url: "  https://x.example.com  ", urlStatus: null })],
+      BASE,
+      NOW,
+    );
+    expect(items[0]!.title).toContain(
+      "Roster url https://x.example.com does not resolve (no status)",
+    );
+  });
+
+  it("a stamp in the future is fresh, not stale", () => {
+    const future = new Date(NOW.getTime() + 3600_000).toISOString();
+    const items = collectUrlResolveAlerts([row({ urlCheckedAt: future })], BASE, NOW);
+    expect(items.map((i) => i.key)).toEqual(["url-unresolved:recPOINTE"]);
+  });
+
   it("keeps one key per site however the status wording moves", () => {
     const a = collectUrlResolveAlerts([row({ urlStatus: "404" })], BASE, NOW);
     const b = collectUrlResolveAlerts([row({ urlStatus: "error: ENOTFOUND" })], BASE, NOW);
@@ -101,6 +118,12 @@ describe("collectUrlResolveAlerts — the accept key mutes only fail", () => {
         BASE,
         NOW,
       ),
+    ).toEqual([]);
+  });
+
+  it('the alias "url-not-deployed" mutes it too', () => {
+    expect(
+      collectUrlResolveAlerts([row({ acceptedWatchConditions: ["url-not-deployed"] })], BASE, NOW),
     ).toEqual([]);
   });
 
@@ -146,6 +169,8 @@ describe("collectUrlResolveAlerts — a stale stamp is itself caught", () => {
       url: BASE,
     });
     expect(items[0]!.title).toMatch(/3 of 4/);
+    expect(items[0]!.title).toContain("1 never checked");
+    expect(items[0]!.title).toContain("2 not checked in 3 days");
     expect(items[0]!.title).toContain("Probe roster urls to Turso");
   });
 
@@ -179,6 +204,13 @@ describe("collectUrlResolveAlerts — a stale stamp is itself caught", () => {
       NOW,
     );
     expect(items.map((i) => i.key)).toEqual(["url-probe-stale"]);
+    expect(items[0]!.title).toContain("1 never checked");
+    expect(items[0]!.title).not.toContain("in 3 days");
+  });
+
+  it("links the fleet root without a trailing slash", () => {
+    const items = collectUrlResolveAlerts([passing({ urlCheckedAt: null })], `${BASE}/`, NOW);
+    expect(items[0]!.url).toBe(BASE);
   });
 
   it("an empty roster raises nothing", () => {

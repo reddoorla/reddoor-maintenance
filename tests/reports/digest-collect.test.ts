@@ -221,7 +221,7 @@ describe("collectAttention", () => {
   });
 
   it("emits the roster-url items from the persisted probe verdict (#912)", async () => {
-    const now = new Date("2026-09-30T09:23:00Z");
+    const now = new Date("2020-01-02T09:23:00Z");
     const tables = {
       Reports: [],
       Websites: [
@@ -233,12 +233,14 @@ describe("collectAttention", () => {
             url: "https://the-pointe-burbank.netlify.app",
             "URL Resolves": "fail",
             "URL Status": "404 netlify-site-not-found",
-            "URL Checked At": "2026-09-30T08:05:00.000Z",
+            "URL Checked At": "2020-01-02T08:05:00.000Z",
           },
         },
         { id: "rec_never", fields: { Name: "Never Probed", url: "https://never.example.com" } },
       ],
     };
+    // A 2020 clock: were the wiring to drop `now`, the wall clock would read the
+    // stamp as stale and the fail item would vanish.
     const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL, now });
     const fail = items.find((i) => i.key === "url-unresolved:rec_pointe")!;
     expect(fail).toMatchObject({ kind: "url", siteName: "The Pointe Burbank" });

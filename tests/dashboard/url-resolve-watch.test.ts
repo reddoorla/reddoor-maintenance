@@ -57,6 +57,17 @@ describe("assignTier — roster url watch (#912)", () => {
     expect(WATCH_CONDITION_OPTIONS).toContain(URL_NOT_DEPLOYED);
   });
 
+  it("a fresh blank url (null verdict) is not a watch", () => {
+    const r = assignTier(site({ url: "", urlResolves: null, urlStatus: "no url" }), [], NOW);
+    expect(r.tier).toBe("healthy");
+    expect(r.watchSignals).toEqual([]);
+  });
+
+  it('the alias "url-not-deployed" mutes it too', () => {
+    const r = assignTier(failing({ acceptedWatchConditions: ["url-not-deployed"] }), [], NOW);
+    expect(r.tier).toBe("healthy");
+  });
+
   it("a stale fail is not a current watch; the digest's stale item carries it", () => {
     expect(assignTier(failing({ urlCheckedAt: STALE }), [], NOW).tier).toBe("healthy");
   });

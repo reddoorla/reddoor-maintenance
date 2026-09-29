@@ -845,6 +845,23 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toContain("Netlify ID not recorded");
   });
 
+  it("tags a maintained site whose roster url fails with url-unresolved, and offers the filter (#912)", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "u",
+          name: "Unresolved",
+          status: "maintained",
+          urlResolves: "fail",
+          urlStatus: "404",
+          urlCheckedAt: new Date().toISOString(),
+        }),
+      ]),
+    );
+    expect(html).toMatch(/data-signals="[^"]*url-unresolved[^"]*"/);
+    expect(html).toContain('data-filter="url-unresolved"');
+  });
+
   it("tags a maintenance site still on *.netlify.app with the no-domain signal", () => {
     const html = renderCockpitHtml(
       model([
