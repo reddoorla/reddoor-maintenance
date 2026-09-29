@@ -582,6 +582,27 @@ describe("audits/a11y — describeViolations", () => {
     expect(text).toBe("route-missing on x (/x returned 404), color-contrast on y");
   });
 
+  // #100 review: the reveal pass runs callbacks that never ran under the gate,
+  // so an error from one is labelled and kept apart from errors on load.
+  it("marks a client error thrown during the reveal pass, and never folds it into one thrown on load", () => {
+    const line = describeViolations([
+      { id: "client-error", impact: "critical", route: "/", help: "boom" },
+      {
+        id: "client-error",
+        impact: "critical",
+        route: "/",
+        help: "during the reveal pass: map failed",
+      },
+      {
+        id: "client-error",
+        impact: "critical",
+        route: "/",
+        help: "during the reveal pass: map failed again",
+      },
+    ]);
+    expect(line).toBe("client-error on /, client-error ×2 on / (during the reveal pass)");
+  });
+
   it("is empty for no violations", () => {
     expect(describeViolations([])).toBe("");
   });
@@ -1596,7 +1617,7 @@ describe("audits/a11y — the reveal pass is recorded, and an incomplete one war
 
   it("the generated spec records every scanned route's pass in the artifact", async () => {
     const spec = await specOf();
-    expect(spec).toContain("const pass = await page.evaluate(revealBelowFold);");
+    expect(spec).toContain("pass = await page.evaluate(revealBelowFold);");
     expect(spec).toContain("reveals.push({ route: name, ...pass });");
     expect(spec).toContain(
       "{ totalViolations: violations.length, byImpact, violations, skipped, reveals }",

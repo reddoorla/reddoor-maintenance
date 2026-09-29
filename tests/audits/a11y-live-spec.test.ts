@@ -99,6 +99,9 @@ function plainPage(title: string): string {
  *     first time it is seen, and shows `#grown` at 560vh, itself a reveal. A
  *     pass that read the height once would stop near 400vh and never see it.
  *
+ * `#throws` at 150vh throws from its IntersectionObserver callback, so the
+ * error happens only because the pass scrolled to it, and must be labelled so.
+ *
  * `#xo-frame` is a lazy, title-less iframe from the second origin, at 330vh:
  * the shape of a Google Maps footer embed that the pass now brings into load
  * range. Its document has an `<img>` with no `alt`. The `<iframe>` element must
@@ -125,6 +128,7 @@ const FIXTURE_PAGE = `<!doctype html>
   .faint { color: #aaa; margin: 0; }
   #below-fold { top: 130vh; }
   #gap-band { top: 180vh; height: 10vh; }
+  #throws { top: 150vh; height: 1px; }
   #waapi { top: 250vh; }
   #delayed { top: 380vh; }
   #grow { top: 390vh; height: 1px; }
@@ -141,6 +145,7 @@ const FIXTURE_PAGE = `<!doctype html>
   <img src="CROSS_ORIGIN/canary.png" alt="">
   <div class="reveal" id="below-fold"><p class="faint" id="below-fold-text">Revealed once scrolled to</p></div>
   <div class="reveal" id="gap-band"><p class="faint" id="gap-band-text">Revealed in the top three quarters of the viewport</p></div>
+  <div class="reveal" id="throws"></div>
   <div class="reveal" id="waapi"><p id="waapi-text">Fades to a failing grey over two seconds</p></div>
   <div class="reveal" id="delayed"><p id="delayed-text">Starts fading only after a placeholder animation</p></div>
   <div class="reveal" id="grow"></div>
@@ -187,6 +192,9 @@ const FIXTURE_PAGE = `<!doctype html>
     document.getElementById("grown").hidden = false;
   });
   onFirstSight("grown", () => {});
+  onFirstSight("throws", () => {
+    throw new Error("fixture: a reveal callback threw");
+  });
   addEventListener("scroll", () => {
     document.getElementById("bar").classList.toggle("scrolled", scrollY > 0);
   });
@@ -286,6 +294,7 @@ async function makeFixtureSite(): Promise<string> {
 type Violation = {
   id: string;
   route: string;
+  help?: string;
   nodes?: Array<{ target?: string[] }>;
 };
 
@@ -331,6 +340,7 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     expect(result?.summary).toMatch(/^a11y: \d+ violations across 2 routes/);
     const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
     expect(all.map((v) => `${v.id} on ${v.route}`).sort()).toEqual([
+      "client-error on a11y fixtures",
       "color-contrast on a11y fixtures",
       "frame-title on a11y fixtures",
     ]);
@@ -375,6 +385,14 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
 
   it("follows a page that a reveal lengthens", () => {
     expect(contrastTargets()).toContain("#grown-text");
+  });
+
+  it("labels an error thrown during the reveal pass, in the artifact and the summary", () => {
+    const errors = violations().filter((v) => v.id === "client-error");
+    expect(errors.map((v) => v.help)).toEqual([
+      "during the reveal pass: fixture: a reveal callback threw",
+    ]);
+    expect(result?.summary).toContain("client-error on a11y fixtures (during the reveal pass)");
   });
 
   it("audits a third-party iframe element, but not the third party's document", async () => {

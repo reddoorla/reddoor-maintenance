@@ -67,6 +67,14 @@ const PLACEHOLDER_SKIP_REASON = "placeholder Prismic repo";
  *  above, so an operator reading a skip always learns WHY. */
 const ABSENT_FIXTURE_SKIP_REASON = "fixture not in this site's source";
 
+/** Prefixed to the help of a `client-error` thrown while the reveal pass (#100)
+ *  was scrolling. The pass runs IntersectionObserver and scroll callbacks that
+ *  never ran under the gate before — on roalson-interests it boots MapLibre —
+ *  so an error from one of them is new to the gate, and an operator has to be
+ *  able to tell it from an error thrown on load or hydration. It still fails:
+ *  a reader who scrolls hits it too. */
+const REVEAL_PASS_ERROR_PREFIX = "during the reveal pass: ";
+
 export type RouteVerdict = "scan" | "skip" | "missing";
 
 /**
@@ -355,6 +363,7 @@ const classifyRouteResponse = ${classifyRouteResponse.toString()};
 const revealBelowFold = ${revealBelowFold.toString()};
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
+const REVEAL_PASS_ERROR_PREFIX = ${JSON.stringify(REVEAL_PASS_ERROR_PREFIX)};
 
 const pages = ${JSON.stringify(axePages)};
 const smokePages = ${JSON.stringify(smokeRoutes)};
@@ -386,12 +395,17 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   // (data-dynamiq: a Svelte 4->5 run() referenced a $state declared after it) --
   // axe never sees that, so we listen for it directly and tag the route in scope.
   let currentRoute = "";
+  // True only while the reveal pass is scrolling this route (#100), so an
+  // error one of its callbacks throws is labelled as such.
+  let inRevealPass = false;
   page.on("pageerror", (err) => {
     violations.push({
       id: "client-error",
       impact: "critical",
       route: currentRoute,
-      help: String(err && err.message ? err.message : err),
+      help:
+        (inRevealPass ? REVEAL_PASS_ERROR_PREFIX : "") +
+        String(err && err.message ? err.message : err),
     });
   });
 
@@ -458,7 +472,13 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     // audited at the opacity 0 it waits in, and axe does not measure contrast
     // through that -- the text fell out of the result instead of failing it.
     // After the sheet above, so each reveal snaps to its final state as it fires.
-    const pass = await page.evaluate(revealBelowFold);
+    let pass;
+    inRevealPass = true;
+    try {
+      pass = await page.evaluate(revealBelowFold);
+    } finally {
+      inRevealPass = false;
+    }
     reveals.push({ route: name, ...pass });
     // preload: false (#52). axe's CSSOM preload re-fetches every cross-origin
     // stylesheet with an XHR, which a site's CSP judges under connect-src, not
@@ -543,21 +563,43 @@ const NAMED_VIOLATIONS_MAX = 6;
 /**
  * One line naming each violation as `<rule> on <route>`, identical pairs folded
  * into `<rule> ×N on <route>`. A `route-missing` entry appends its help, which
- * is where the path and HTTP status live -- that is the one case where the id
- * and route alone do not say what went wrong. Empty for no violations.
+ * is where the path and HTTP status live -- the id and route alone do not say
+ * what went wrong there. A `client-error` thrown during the reveal pass is
+ * marked `(during the reveal pass)` and never folded into one thrown on load
+ * (#100). Empty for no violations.
  */
 export function describeViolations(violations: AxeViolation[]): string {
-  const groups = new Map<string, { id: string; route: string; help?: string; n: number }>();
+  const groups = new Map<
+    string,
+    { id: string; route: string; help?: string; duringReveal: boolean; n: number }
+  >();
   for (const v of violations) {
-    const key = `${v.id}\u0000${v.route}`;
+    // A client error thrown by the reveal pass is a different finding from one
+    // thrown on load, so the two never fold into one entry.
+    const duringReveal =
+      v.id === "client-error" && (v.help ?? "").startsWith(REVEAL_PASS_ERROR_PREFIX);
+    const key = `${v.id}\u0000${v.route}\u0000${duringReveal ? "reveal" : ""}`;
     const g = groups.get(key);
     if (g) g.n += 1;
-    else groups.set(key, { id: v.id, route: v.route, ...(v.help ? { help: v.help } : {}), n: 1 });
+    else {
+      groups.set(key, {
+        id: v.id,
+        route: v.route,
+        ...(v.help ? { help: v.help } : {}),
+        duringReveal,
+        n: 1,
+      });
+    }
   }
   const entries = [...groups.values()];
   const shown = entries.slice(0, NAMED_VIOLATIONS_MAX).map((g) => {
     const count = g.n > 1 ? ` ×${g.n}` : "";
-    const detail = g.id === "route-missing" && g.help ? ` (${g.help})` : "";
+    const detail =
+      g.id === "route-missing" && g.help
+        ? ` (${g.help})`
+        : g.duringReveal
+          ? " (during the reveal pass)"
+          : "";
     return `${g.id}${count} on ${g.route}${detail}`;
   });
   const rest = entries.length - shown.length;
