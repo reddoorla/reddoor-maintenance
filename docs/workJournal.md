@@ -5789,3 +5789,32 @@ The morning snapshot's 0 healthy / 13 watch was mostly one roster gap (#939). Th
 - Approvals record `"dashboard"`, not the operator's email.
 
 **Where this came from.** Everything above came from read-only SELECTs, the code, and the docs. I found no written feedback from Tim or Erik, and no journal record of the stray-`\n` script failure that #672's MED-18(c) comment cites.
+
+## 2026-09-29 — a11y audit under a strict CSP and without a browser (#905, #949): PR #1003 held after two review rounds
+
+Both issues reproduced on `1b1c52fd` before any change, in the live-spec harness: a throwaway Node server and real Chromium. The harness passed 35 of 35 in the cloud container first.
+
+**#949.** On a page whose CSP has `style-src 'self'`, `page.addStyleTag` threw "Applying inline style violates … 'style-src 'self''". The whole audit then failed with no results.
+
+**#905.** An empty `PLAYWRIGHT_BROWSERS_PATH` makes Playwright print `browserType.launch: Executable doesn't exist at …/chromium_headless_shell-1234/…`.
+
+**One summary hid both.** Both runs reported `a11y: no results written (exit 1) — [WebServer] npm warn Unknown env config …`. Playwright's `line` reporter prints the error to stdout, and the summary read only stderr, which held the web server's npm warning. So #905's defect was also the reason #949's cause went unseen. The two issues share code and ship as one PR.
+
+**The #949 fix.** The freeze sheet is now a constructed `CSSStyleSheet`, adopted after the page's own adopted sheets (`src/audits/util/freeze-motion.ts`). CSP does not govern CSSOM. `bypassCSP: true` was rejected: it would switch the site's CSP off for everything the audit measures, including #52's evidence. Mutation M4 (bypassCSP plus addStyleTag) is caught only by the live test asserting that the page's CSP still fires its `img-src` canary report.
+
+**How the live fixture proves the sheet applied.** Proof means the sheet applied, not merely that nothing threw.
+- A 30 s colour transition to `#aaa`.
+- A keyframe animation that holds a `#aaa` rule at `#111`; the page adopts that rule itself, the only way that CSP lets a page style anything.
+- Each fails contrast only if the freeze applied.
+
+**The #905 fix.** `describeNoResults` names a missing executable, with `npx playwright install chromium`. Otherwise it gives the first stdout `Error:` line, then the stderr lines minus npm warnings.
+
+**Beliefs corrected on contact.**
+- **My first version let stdout's error replace stderr entirely.** Round 1 found this (major, verified twice). When the web server itself fails, stdout carries only "Process from config.webServer was not able to start", and the real cause ("Port 5173 is already in use", a failed preview build) is on stderr. The fix moved the #905 shape to a different failure, which is the #905 lesson again: a summary must not pick one channel.
+- **Round 2 found the stdout match too narrow.** A `TypeError`, or a bare test timeout, with npm-only stderr now gives no detail at all. Every such case still fails.
+
+**Held after two rounds.** That round-2 defect, and its test gaps, are filed as #1018. Per "Two dirty review rounds, then stop", #1003 is held at Operator decisions 26, with land-as-is as my pick. Its head `d9dc1ede` is merged with main and CI is green.
+
+**Numbers.** 17 mutations, all red. Round 1's reviewer ran 12 mutations of its own, and round 2's ran 15; their survivors are what became the tests in `8dc2405e` and #1018.
+
+**Conflict.** A BACKLOG conflict with #989's Done line stopped CI running on `8dc2405e` at all. GitHub does not run `pull_request` workflows on a conflicted PR. The merge that fixed it is `d9dc1ede`.
