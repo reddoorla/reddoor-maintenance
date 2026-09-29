@@ -158,6 +158,17 @@ describe("renderCockpitHtml — metrics row", () => {
     expect(complete).toMatch(/<span class="metric a11y">0<\/span>/);
   });
 
+  it("marks a run that scanned no routes as partial, and an unknown scanned count as nothing", () => {
+    const none = renderCockpitHtml(
+      model([siteRow({ a11yViolations: 0, a11yRoutesScanned: 0, a11yRoutesTotal: 2 })]),
+    );
+    const unknown = renderCockpitHtml(
+      model([siteRow({ a11yViolations: 0, a11yRoutesScanned: null, a11yRoutesTotal: 2 })]),
+    );
+    expect(none).toMatch(/<span class="metric a11y">0 \(0\/2 routes\)<\/span>/);
+    expect(unknown).toMatch(/<span class="metric a11y">0<\/span>/);
+  });
+
   it("renders '—' for a never-audited a11y count", () => {
     const html = renderCockpitHtml(model([siteRow({ a11yViolations: null })]));
     expect(html).toMatch(/<span class="metric a11y">—<\/span>/);

@@ -95,6 +95,19 @@ describe("a11yCountsFromResult", () => {
     });
   });
 
+  it("keeps a run that scanned nothing as 0, the worst partial run, not unknown", () => {
+    const none = a11yResult({
+      totalViolations: 0,
+      byImpact: {},
+      routes: { scanned: 0, total: 2 },
+    });
+    expect(a11yCountsFromResult(none)).toEqual({
+      violations: 0,
+      routesScanned: 0,
+      routesTotal: 2,
+    });
+  });
+
   it("reads a negative or fractional route count as unknown", () => {
     const bad = a11yResult({
       totalViolations: 0,

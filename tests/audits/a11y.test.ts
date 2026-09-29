@@ -968,6 +968,9 @@ describe("audits/a11y — a placeholder-repo 404 is the designed answer (#863)",
         "(2 fixtures + 1 from package.json; 1 skipped: / — placeholder Prismic repo) " +
         "(+1 hydration smoke)",
     );
+    // #910: the stored counts are the summary's "2 of 3" — the site's own route
+    // is in the total, and a placeholder skip is subtracted like any other.
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 3 });
   });
 
   // FAIL PROOF, end to end, on the SAME configuration: the fixture 404 is not

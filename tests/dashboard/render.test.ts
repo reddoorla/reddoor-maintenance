@@ -711,6 +711,11 @@ describe("renderSiteDashboardHtml — site health section", () => {
     expect(partial).toMatch(/<div class="tile-sub"[^>]*>only 1 of 2 routes scanned<\/div>/);
     expect(complete).toMatch(/<div class="tile-sub"[^>]*>2 of 2 routes scanned<\/div>/);
     expect(complete).not.toMatch(/only \d+ of/);
+    const none = renderSiteDashboardHtml(
+      siteRow({ a11yViolations: 0, a11yRoutesScanned: 0, a11yRoutesTotal: 2 }),
+      [],
+    );
+    expect(none).toMatch(/<div class="tile-sub"[^>]*>only 0 of 2 routes scanned<\/div>/);
   });
 
   it("leaves the a11y tile's route line off when the counts were never stored", () => {

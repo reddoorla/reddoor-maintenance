@@ -42,6 +42,11 @@ describe("a11y route coverage through Turso (#910)", () => {
     expect([complete.a11yRoutesScanned, complete.a11yRoutesTotal]).toEqual([2, 2]);
   });
 
+  it("a run that scanned 0 of 2 routes stores 0, not NULL", async () => {
+    const row = await roundTrip([a11yRun(0, 2)]);
+    expect([row.a11yRoutesScanned, row.a11yRoutesTotal]).toEqual([0, 2]);
+  });
+
   it("a run whose details carry no route counts clears yesterday's, never keeps them", async () => {
     const legacy = {
       ...a11yRun(0, 0),
