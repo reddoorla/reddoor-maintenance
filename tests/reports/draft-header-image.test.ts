@@ -6,7 +6,7 @@ import { openDb } from "../../src/db/client.js";
 import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
 import { loadHeaderImage } from "../../src/db/header-images.js";
 import { refreshHeaderImage, draftReportForSite } from "../../src/reports/draft.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeFakeReportWriter } from "./_helpers/fake-report-writer.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 

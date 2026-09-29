@@ -1,4 +1,4 @@
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 
 export type OnboardingStatus = {
   score: number;

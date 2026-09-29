@@ -1,7 +1,7 @@
 import sharp from "sharp";
 
 export type PreparedHeaderImage = {
-  /** Resized JPEG bytes to attach inline (CID) in place of the Airtable original. */
+  /** Resized JPEG bytes to attach inline (CID) in place of the stored original. */
   bytes: Uint8Array;
   /** Always "image/jpeg" — we re-encode for predictable size and a flat white background. */
   contentType: string;
@@ -36,7 +36,7 @@ function channelToHex(value: number): string {
  * dimensions (so the template can reserve the box and stop reflow) and a dominant color
  * (so the reserved box shows a matched placeholder while the image loads).
  *
- * Root cause this addresses: Airtable headers can be multi-MB / 2400px+ while the email
+ * Root cause this addresses: stored headers can be multi-MB / 2400px+ while the email
  * renders them at ~600px — shipping ~16× more pixels than the display can use.
  */
 export async function prepareHeaderImage(

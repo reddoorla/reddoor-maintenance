@@ -4,7 +4,7 @@ import {
   ONBOARDING_LABELS,
   missingOnboarding,
 } from "../../src/dashboard/onboarding.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function row(over: Partial<WebsiteRow> = {}): WebsiteRow {

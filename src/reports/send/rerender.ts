@@ -1,5 +1,5 @@
-import type { WebsiteRow } from "../airtable/websites.js";
-import type { ReportRow } from "../airtable/reports.js";
+import type { WebsiteRow } from "../../fleet/site-row.js";
+import type { ReportRow } from "../report-fields.js";
 import type { EvidenceRecord } from "../auto-tick.js";
 import { retickEvidence } from "../retick.js";
 

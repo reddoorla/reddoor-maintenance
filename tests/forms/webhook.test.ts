@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
 import type { SubmissionRow } from "../../src/reports/submission-row.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 
 const submission = {
   email: "subscriber@example.com",

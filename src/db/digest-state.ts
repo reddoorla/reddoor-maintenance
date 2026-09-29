@@ -1,10 +1,9 @@
 /** #609 (#539 Phase 5): the digest's prior-run snapshot, on Turso.
  *
  *  Unlike every other Phase 5 slice this is a MIGRATION, not a mirror — there
- *  was no Turso table to dual-write into, so these REPLACE the Airtable pair in
+ *  was no Turso table to dual-write into, so these REPLACED the Airtable pair in
  *  `src/alerts/digest-state.ts` rather than shadowing them. Nothing writes the
- *  Airtable "Digest State" table after this, so parity does not cover the new
- *  one: it has no counterpart to compare against.
+ *  Airtable "Digest State" table after this.
  *
  *  The pure half — `diffAttention`, and the `DigestSnapshot` type it is written
  *  against — stays exactly where it is. Only the IO moved.

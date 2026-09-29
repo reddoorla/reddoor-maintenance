@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { describeNotifyTarget, resolveRecipients } from "../../src/forms/notify.js";
-import type { WebsiteRow, NotifyRouting, Status } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow, NotifyRouting, Status } from "../../src/fleet/site-row.js";
 import type { SubmissionRow } from "../../src/reports/submission-row.js";
 
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {

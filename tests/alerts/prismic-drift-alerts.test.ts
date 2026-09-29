@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { collectPrismicDriftAlerts } from "../../src/alerts/digest-collectors.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-08-12T09:00:00.000Z");

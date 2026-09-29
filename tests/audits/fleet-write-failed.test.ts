@@ -1,7 +1,7 @@
 /**
  * #612: the fleet sweep's mirror outcomes never reached the exit code.
  *
- * `writeFleetAuditsToAirtable` catches a per-site mirror failure and COUNTS it —
+ * `writeFleetAudits` catches a per-site mirror failure and COUNTS it —
  * which is right, one bad site must not abort a 44-site sweep — but the counts
  * only ever reached the `FLEET_WRITE_SUMMARY` line, and no workflow gates on
  * them. Pre-freeze that is fine: the hourly import converges whatever a mirror
@@ -16,10 +16,7 @@
  * on the shipped constant living in tests/db/freeze-semantics.test.ts.
  */
 import { describe, it, expect } from "vitest";
-import {
-  fleetWriteFailed,
-  type FleetWriteResult,
-} from "../../src/audits/write-audits-to-airtable.js";
+import { fleetWriteFailed, type FleetWriteResult } from "../../src/audits/write-audits.js";
 
 const clean: FleetWriteResult = {
   written: [],

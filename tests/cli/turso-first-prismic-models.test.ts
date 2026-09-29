@@ -15,8 +15,6 @@ vi.mock("../../src/fleet/roster.js", () => ({
 
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({
-    created: async () => {},
-    hasRow: async () => true,
     health: async (siteId: string, fields: Record<string, unknown>) => {
       h.log.push(`turso:${siteId}`);
       if (h.tursoFails) throw new Error("turso down");
@@ -26,11 +24,7 @@ vi.mock("../../src/db/site-mirror.js", () => ({
   }),
 }));
 
-import {
-  defaultDeps,
-  writeSweepToAirtable,
-  type SweepRow,
-} from "../../src/cli/commands/prismic-models.js";
+import { defaultDeps, writeSweep, type SweepRow } from "../../src/cli/commands/prismic-models.js";
 
 const CHECKED_AT = "2026-09-28T06:00:00.000Z";
 
@@ -55,7 +49,7 @@ describe("the real prismic-models verdict sink writes each verdict into Turso", 
 
   it("lands every verdict as its exact FieldSet (known-good control)", async () => {
     const sink = await defaultDeps().openVerdictSink();
-    const res = await writeSweepToAirtable(ROWS, sink.websites, sink.update, CHECKED_AT);
+    const res = await writeSweep(ROWS, sink.websites, sink.update, CHECKED_AT);
     expect(res.failed).toEqual([]);
     expect(res.written).toHaveLength(2);
     expect(h.mirrored).toEqual([
@@ -81,7 +75,7 @@ describe("the real prismic-models verdict sink writes each verdict into Turso", 
   it("a Turso failure files every row as failed, and every row is still attempted", async () => {
     h.tursoFails = true;
     const sink = await defaultDeps().openVerdictSink();
-    const res = await writeSweepToAirtable(ROWS, sink.websites, sink.update, CHECKED_AT);
+    const res = await writeSweep(ROWS, sink.websites, sink.update, CHECKED_AT);
     expect(h.log).toEqual(["turso:recA", "turso:recB"]);
     expect(res.written).toEqual([]);
     expect(res.failed.map((f) => f.slug)).toEqual(["espada", "beacon"]);

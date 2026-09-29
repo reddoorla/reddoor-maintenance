@@ -20,7 +20,6 @@ vi.mock("../../src/reports/send/orchestrate.js", () => ({
 }));
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({
-    created: async () => {},
     health: async () => {},
     site: async () => {},
   }),

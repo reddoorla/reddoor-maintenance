@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  writeFleetAuditsToAirtable,
+  writeFleetAudits,
   planAuditWrite,
   writeBackOneSite,
-} from "../../src/audits/write-audits-to-airtable.js";
+} from "../../src/audits/write-audits.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import type { AuditResult } from "../../src/types.js";
 
@@ -47,7 +47,7 @@ function recordingMirror() {
 describe("fleet audit write-back writes Turso", () => {
   it("mirrors each site in roster order (known-good control)", async () => {
     const { mirror, seen } = recordingMirror();
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: await roster(),
       results: [lighthouse("acme-co", SCORES), lighthouse("beta-corp", SCORES)],
       mirror,
@@ -61,7 +61,7 @@ describe("fleet audit write-back writes Turso", () => {
 
   it("mirrors a Lighthouse-miss site's other audits, then files it as failed", async () => {
     const { mirror, seen } = recordingMirror();
-    const out = await writeFleetAuditsToAirtable({
+    const out = await writeFleetAudits({
       websites: await roster(),
       results: [lighthouse("beta-corp", {}), a11y("beta-corp")],
       mirror,

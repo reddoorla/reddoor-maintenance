@@ -3,7 +3,7 @@ import {
   triggerReportRerender,
   type TriggerRerenderDeps,
 } from "../../src/dashboard/trigger-rerender.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 
 /**
  * The console's "refresh preview" action (#539 Phase 4). Dispatches the

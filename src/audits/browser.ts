@@ -564,7 +564,7 @@ export function summarizeBrowser(
  * Deployed-URL browser audit: discovers a representative route set (incl. CMS templates), probes
  * each across desktop engines + mobile devices, and checks internal links — all against the LIVE
  * url (checkout-free). Skips a site with no deployed URL. Produces ONE AuditResult whose details
- * carry the three verdicts (Crossbrowser / Mobile / Links); the Airtable layer fans them out and
+ * carry the three verdicts (Crossbrowser / Mobile / Links); the write-back fans them out and
  * the auto-tick rule gates each on freshness.
  */
 export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {

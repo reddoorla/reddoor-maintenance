@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { siteSlug, ACTIVE_STATUSES } from "../../reports/airtable/websites.js";
-import type { WebsiteRow } from "../../reports/airtable/websites.js";
+import { siteSlug, ACTIVE_STATUSES } from "../../fleet/site-row.js";
+import type { WebsiteRow } from "../../fleet/site-row.js";
 import { generateHeaderImage } from "../../reports/header-image/index.js";
 import type { StoredHeaderImage } from "../../db/header-images.js";
 

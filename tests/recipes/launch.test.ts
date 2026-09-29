@@ -111,8 +111,6 @@ function deps(seed: Seed) {
     roster: async () => websiteRowsFrom(seed.Websites),
     reportMirror: writer,
     siteMirror: {
-      created: async () => {},
-      hasRow: async () => true,
       health: async () => {},
       site: async () => {},
     },
@@ -170,8 +168,6 @@ describe("recipes/launch", () => {
     await launch(siteOf(), {
       ...deps(seed),
       siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
         health: async (id: string, fields: Record<string, unknown>) => {
           mirrored.push({ id, fields });
         },

@@ -1,5 +1,5 @@
-import type { WebsiteRow } from "./airtable/websites.js";
-import { siteSlug } from "./airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
+import { siteSlug } from "../fleet/site-row.js";
 import type { LighthouseScores, ReportData, ReportType } from "./types.js";
 import { resolveCopy } from "./copy.js";
 import { fetchGaUsers, fetchSearch } from "./draft.js";
@@ -29,7 +29,7 @@ export function scoresFromRow(site: WebsiteRow): LighthouseScores | null {
 
 /**
  * Assemble the `ReportData` for a report email from a Websites row, for a given report type. Used
- * by the `selftest` command to preview any report type without an Airtable Reports row. Reuses the
+ * by the `selftest` command to preview any report type without a Reports row. Reuses the
  * same enrichment helpers as the real drafts (`fetchGaUsers`/`fetchSearch`, `resolveCopy`,
  * `announcementSiteExtras`). The GA window is a fixed 30 days (a no-write preview can't read the
  * real recurrence anchor). `Launch` skips GA entirely — the launch email shows no analytics.

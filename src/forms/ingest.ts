@@ -1,4 +1,4 @@
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import type {
   SubmissionRow,
   SubmissionInput,
@@ -142,7 +142,7 @@ export async function ingestScreenOut(
 /**
  * Normalize → resolve site → persist → notify → stamp. The order is load-bearing:
  * the row is written BEFORE notify, and notify/stamp failures are swallowed (logged)
- * so a Resend or Airtable-write-back hiccup can never turn an accepted lead into a 502.
+ * so a Resend or write-back hiccup can never turn an accepted lead into a 502.
  */
 export async function ingestSubmission(
   deps: IngestDeps,
@@ -210,7 +210,7 @@ export async function ingestSubmission(
   //  1. `/api/forms/:slug` is TOKEN-GATED before this function runs, so the
   //     slugs that reach here belong to fleet sites, not to bots guessing.
   //  2. Post-#643 the lookup reads Turso only, so a real client site whose Turso
-  //     row is missing — a half-finished `ensure-site`, a deleted row, Phase 6 —
+  //     row is missing — a half-finished `ensure-site`, a deleted row —
   //     is indistinguishable here from a typo, and dropping it loses a paying
   //     client's lead permanently and silently. It is the only failure in the
   //     fleet that does that.

@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { mapReportRecord, type RawRecord } from "../../src/db/import-airtable.js";
+import { mapReportRecord, type RawRecord } from "../../src/db/field-map.js";
 import { mirrorReportInsert } from "../../src/db/fleet-state.js";
 
 /** The shape Airtable's create response hands back: every field `createDraft`

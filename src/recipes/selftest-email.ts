@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { siteSlug } from "../reports/airtable/websites.js";
+import { siteSlug } from "../fleet/site-row.js";
 import { ELIGIBLE_STATUSES } from "../reports/due.js";
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import { prepareHeaderImage } from "../reports/maintenance-email/header-image.js";
 import { applyReportTypeHeadline } from "../reports/header-image/index.js";
 import { buildReportDataForSite, scoresFromRow } from "../reports/report-data.js";

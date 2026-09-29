@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createReportDraft } from "../../src/reports/create-report.js";
-import { mapRow } from "../../src/reports/airtable/reports.js";
+import { mapRow } from "../../src/reports/report-fields.js";
 
 function capturingCreate(captured: { fields?: Record<string, unknown> }) {
   return async (rec: { id: string; fields: Record<string, unknown> }) => {

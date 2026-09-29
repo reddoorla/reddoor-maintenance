@@ -1,8 +1,5 @@
-import {
-  mapRow as mapWebsiteRecord,
-  type WebsiteRow,
-} from "../../src/reports/airtable/websites.js";
-import { mapRow as mapReportRecord, type ReportRow } from "../../src/reports/airtable/reports.js";
+import { mapRow as mapWebsiteRecord, type WebsiteRow } from "../../src/fleet/site-fields.js";
+import { mapRow as mapReportRecord, type ReportRow } from "../../src/reports/report-fields.js";
 
 export type RawRow = { id: string; fields: Record<string, unknown> };
 

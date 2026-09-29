@@ -1,19 +1,15 @@
 /** The fields a new report row carries, as ONE pure function (#646 step 4).
  *
  *  This used to live inside `createDraft` in the Airtable layer, because Airtable
- *  was the primary write. Turso mints the report id and owns the row now, so the
- *  field set has two consumers: the Turso creator (`createReportDraft`, via the
- *  importer's `mapReportRecord`) and the legacy Airtable `createDraft`. It lives
- *  OUT of `src/reports/airtable/` so the creator survives step 6 deleting that
- *  directory.
+ *  was the primary write. Turso mints the report id and owns the row now; the
+ *  consumer is the Turso creator (`createReportDraft`, via `mapReportRecord` in
+ *  `src/db/field-map.ts`).
  *
  *  The keys are Airtable COLUMN NAMES and stay that way on purpose: they are the
  *  vocabulary `mapReportRecord` reads, so a draft maps to a `reports` row through
- *  the very function the parity harness diffs against — parity-clean by
- *  construction rather than by a second column list someone has to remember to
- *  extend. The column names outlive the Airtable client either way (design D1 kept
- *  them as the import vocabulary; #646's own checklist notes that step 6 must
- *  replace those maps, and this does not add a new place that has to change).
+ *  the one column map rather than a second column list someone has to remember to
+ *  extend. The column names outlived the Airtable client (design D1 kept them as
+ *  the import vocabulary).
  */
 import type { ReportType, LighthouseScores } from "./types.js";
 import type { EvidenceRecord } from "./auto-tick.js";

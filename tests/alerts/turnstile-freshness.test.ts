@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { collectTurnstileGuardrailAlerts } from "../../src/alerts/digest-collectors.js";
-import { auditFields } from "../../src/reports/airtable/websites.js";
-import { formE2eResultFromAudit, hasFormE2eResult } from "../../src/audits/form-e2e-airtable.js";
+import { auditFields } from "../../src/fleet/site-fields.js";
+import { formE2eResultFromAudit, hasFormE2eResult } from "../../src/audits/form-e2e-fields.js";
 import { formE2eAudit } from "../../src/audits/form-e2e.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 

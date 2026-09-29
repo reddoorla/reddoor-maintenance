@@ -166,7 +166,7 @@ export async function runSubmissionsCommand(
     };
   }
 
-  // Airtable is only consulted when there is a table to print.
+  // The roster is only read when there is a table to print.
   const table = formatTable(flagged, await loadSiteNames());
   const head = `Scanned ${scanned} status='new' submissions; ${flagged.length} score >= ${SPAM_THRESHOLD} under the current classifier:`;
   if (!apply) {

@@ -6,7 +6,7 @@ import {
   NO_STATUS_FILTER,
 } from "../../src/dashboard/fleet-table.js";
 import type { FleetSortKey } from "../../src/dashboard/fleet-table.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 /** The `Status` union is a CLAIM about the store, not a guard — fleet-state reads

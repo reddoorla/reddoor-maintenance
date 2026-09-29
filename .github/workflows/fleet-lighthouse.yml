@@ -1,7 +1,7 @@
 name: fleet-lighthouse
 
 # Nightly fleet-wide Lighthouse against each active site's DEPLOYED URL (no
-# checkout), writing the real-site scores back to its Airtable row. This repo is
+# checkout), writing the real-site scores back to its row. This repo is
 # the central scheduler (it's active, so GitHub's 60-day cron-disable never
 # triggers — unlike a per-site cron). Sequential (--concurrency 1): ~10 sites ×
 # Lighthouse on a 2-core runner saturates if run in parallel.
@@ -114,7 +114,7 @@ jobs:
           fi
 
       # M4 slice 2a: sweep three GitHub-sourced signals (Renovate-failing-CI count,
-      # default-branch CI state, last-commit date) per repo-backed site into Airtable
+      # default-branch CI state, last-commit date) per repo-backed site into Turso
       # so the cockpit reads them with zero request-path GitHub calls. `if: always()`
       # so a Lighthouse flake never skips the GitHub sweep.
       # Mint the reddoor-renovate App token HERE, not at job start: the audit

@@ -108,13 +108,13 @@ export function defaultFunctionHealthDeps(
  * Audit a site's deployed `/health` function. Checkout-free — needs only `site.deployedUrl`. Skips
  * a site with no deployed URL. Status mapping (spec Phase 2, R2.1):
  *  - no usable report (unreachable, timeout, or `/health` 404 — not yet adopted) → `skip` WITHOUT
- *    details → the Airtable writer preserves the prior verdict (a site that hasn't adopted
+ *    details → the write-back preserves the prior verdict (a site that hasn't adopted
  *    `/health`, or a transient outage, stays "never ran"; Plan 4 maps that to unknown/amber, which
  *    blocks).
  *  - deployed but erroring — any other non-2xx, a 200 non-JSON body, or a 200 JSON body with
  *    `ok:false` → `fail` (records details so the fail persists).
  *  - a 200 JSON body with `ok:true` → `pass` (records details).
- * `details` carries `{ ok, prismic, forms, checkedAt }`; the Airtable layer derives the
+ * `details` carries `{ ok, prismic, forms, checkedAt }`; the write-back derives the
  * `Function health` + `CMS Reachable` verdicts (CMS from `prismic === "ok"`) + the checked-at stamp.
  * It must NEVER write `Deploy status` — that stays the Netlify build state.
  */

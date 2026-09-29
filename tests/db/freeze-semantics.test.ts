@@ -21,7 +21,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import type { RawRecord } from "../../src/db/import-airtable.js";
+import type { RawRecord } from "../../src/db/field-map.js";
 import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
 import { makeSiteMirror } from "../../src/db/site-mirror.js";
 import { makeReportMirror } from "../../src/reports/report-mirror.js";
@@ -131,13 +131,13 @@ describe("makeReportMirror — the same inversion", () => {
   it("pre-freeze: swallows a write failure", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const mirror = await makeReportMirror(async () => brokenDb(), false);
-    await expect(mirror.created({ id: "recR", fields: {} })).resolves.toBeUndefined();
+    await expect(mirror.body("recR", "<p>x</p>")).resolves.toBeUndefined();
     expect((log.mock.calls as unknown[][]).flat().join("\n")).toContain("mirrored=0");
   });
 
   it("frozen: a write failure REJECTS", async () => {
     const mirror = await makeReportMirror(async () => brokenDb(), true);
-    await expect(mirror.created({ id: "recR", fields: {} })).rejects.toThrow(/SQLITE_BUSY/);
+    await expect(mirror.body("recR", "<p>x</p>")).rejects.toThrow(/SQLITE_BUSY/);
   });
 
   it("frozen: REFUSES TO BUILD without creds", async () => {
@@ -148,8 +148,8 @@ describe("makeReportMirror — the same inversion", () => {
     const db = await openDb({ url: ":memory:" });
     const mirror = await makeReportMirror(async () => db, true);
     await expect(
-      mirror.created({ id: "recR", fields: { "Report ID": "r1" } }),
-    ).resolves.toBeUndefined();
+      mirror.create({ id: "recR", fields: { "Report ID": "r1" } }),
+    ).resolves.toMatchObject({ id: "recR" });
     await expect(mirror.body("recR", "<p>x</p>")).resolves.toBeUndefined();
   });
 });

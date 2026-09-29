@@ -61,8 +61,6 @@ function A(seed: Seed, over: Record<string, unknown> = {}) {
     roster: async () => websiteRowsFrom(seed.Websites),
     reportMirror: writer,
     siteMirror: {
-      created: async () => {},
-      hasRow: async () => true,
       health: async (id: string, fields: Record<string, unknown>) => {
         siteHealth.push({ id, fields });
       },
@@ -499,8 +497,6 @@ describe("recipes/announce", () => {
     await announce(
       A(seed, {
         siteMirror: {
-          created: async () => {},
-          hasRow: async () => true,
           health: async (id: string, fields: Record<string, unknown>) => {
             mirrored.push({ id, fields });
           },
@@ -669,8 +665,6 @@ describe("announce's Turso writes on the reuse path", () => {
     const result = await announce(
       A(REUSE_SEED, {
         siteMirror: {
-          created: async () => {},
-          hasRow: async () => true,
           health: async () => {
             throw new Error("libsql down");
           },

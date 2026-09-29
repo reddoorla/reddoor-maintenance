@@ -29,7 +29,7 @@ export type SubmissionFilter = {
 };
 
 /** Map a raw DB row to the canonical SubmissionRow, narrowing the enum columns
- *  with the SAME validators the Airtable mapRow uses — SQLite stores TEXT, so a
+ *  with the SAME validators the Airtable mapRow used — SQLite stores TEXT, so a
  *  bad stored value must still be defended against. */
 function rowFromDb(r: Selectable<SubmissionsTable>): SubmissionRow {
   return {
@@ -129,7 +129,7 @@ export async function listNewSubmissions(db: Db, max = 200): Promise<SubmissionR
 }
 
 /** Same signature shape as the Airtable version (takes `{ id, name }`) so the
- *  composition-root swap is import-only — but here we filter by id directly, with
+ *  composition-root swap was import-only — but here we filter by id directly, with
  *  no linked-field/primary-field workaround and no JS-confirm pass. */
 export async function listSubmissionsForSite(
   db: Db,

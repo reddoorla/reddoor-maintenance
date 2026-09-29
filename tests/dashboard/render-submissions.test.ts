@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { makeSubmissionRow } from "../_helpers/submission-row.js";
-import { siteSlug } from "../../src/reports/airtable/websites.js";
+import { siteSlug } from "../../src/fleet/site-row.js";
 
 describe("renderSiteDashboardHtml — submissions", () => {
   it("omits the section when there are no submissions", () => {

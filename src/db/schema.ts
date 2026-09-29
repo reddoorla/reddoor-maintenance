@@ -87,10 +87,11 @@ export interface SubmissionDeadletterTable {
   abandoned_reason: string | null;
 }
 
-/** Operator-owned fleet config (migration 0007). PK = Airtable rec id (D1).
- *  `legacy` holds the 33 populated-but-code-unreferenced Airtable columns as a
- *  JSON object keyed by original column name; the plaintext DNS/cms credential
- *  cells never migrate (operator ruling 2026-08-23). */
+/** Operator-owned fleet config (migration 0007). PK = Airtable rec id (D1), or
+ *  `site_<ULID>` since #646 step 3 (src/fleet/site-id.ts). `legacy` holds the 33
+ *  populated-but-code-unreferenced Airtable columns as a JSON object keyed by
+ *  original column name; the plaintext DNS/cms credential cells never migrate
+ *  (operator ruling 2026-08-23). */
 export interface SitesTable {
   id: string;
   slug: string;
@@ -181,7 +182,7 @@ export interface SiteHealthTable {
   prismic_models_drift: string | null;
 }
 
-/** Code-derived schedule (migration 0007) — written by updateNextDueDates. */
+/** Code-derived schedule (migration 0007) — written by the report cron (`nextDueDatesFields`). */
 export interface SiteScheduleTable {
   site_id: string;
   next_maintenance_at: string | null;
@@ -189,9 +190,10 @@ export interface SiteScheduleTable {
   computed_at: string | null;
 }
 
-/** Report rows (migration 0007). PK = Airtable rec id. `checklist` is JSON
- *  keyed by the STABLE checklist key (src/reports/checklist.ts), not the
- *  Airtable column name; `rendered_html` is the downloaded attachment body. */
+/** Report rows (migration 0007). PK = Airtable rec id, or `report_<ULID>` since
+ *  #646 step 4 (src/fleet/report-id.ts). `checklist` is JSON keyed by the STABLE
+ *  checklist key (src/reports/checklist.ts), not the Airtable column name;
+ *  `rendered_html` is the rendered report body. */
 export interface ReportsTable {
   id: string;
   site_id: string | null;

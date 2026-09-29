@@ -40,10 +40,10 @@ export type QueueOutcome = {
  *
  * Returns what happened so the caller can surface it.
  *
- * #539 Phase 5: each flag is mirrored into Turso. The SUPERSEDED rows matter as
+ * #539 Phase 5: each flag is written to Turso. The SUPERSEDED rows matter as
  * much as the new one — un-queueing them is the whole point of this function, so
- * a mirror covering only `report.id` would leave the console showing a site with
- * two queued reports until the next hourly sync.
+ * a write covering only `report.id` would leave the console showing a site with
+ * two queued reports.
  *
  * #646 step 4: the site's other reports are READ from Turso (`mirror.forSite`),
  * which is why `mirror` is no longer optional. The Airtable read this replaces

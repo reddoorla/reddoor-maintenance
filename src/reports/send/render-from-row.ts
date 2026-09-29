@@ -1,6 +1,6 @@
-import { siteSlug } from "../airtable/websites.js";
-import type { WebsiteRow } from "../airtable/websites.js";
-import type { ReportRow } from "../airtable/reports.js";
+import { siteSlug } from "../../fleet/site-row.js";
+import type { WebsiteRow } from "../../fleet/site-row.js";
+import type { ReportRow } from "../report-fields.js";
 import { resolveCopy } from "../copy.js";
 import { announcementSiteExtras } from "../announcement-email/template.js";
 import { renderReportEmail, type RenderedReportEmail } from "./render-email.js";
@@ -10,7 +10,7 @@ import { applyReportTypeHeadline } from "../header-image/index.js";
 
 /**
  * The scores a render cannot proceed without, or a message naming the exact
- * Airtable cause. Exported so `sendOne` can fail fast on it BEFORE the header
+ * cause. Exported so `sendOne` can fail fast on it BEFORE the header
  * fetch and the sharp downscale, while the renderer stays independently safe for
  * a caller that did not — one message, one rule, two call sites.
  */
@@ -40,9 +40,7 @@ export function requireLighthouse(report: ReportRow): NonNullable<ReportRow["lig
  * report that is not yet approvable, and must never be able to email anyone.
  *
  * `headerPlateBytes` is the CLEAN plate, not a finished header: this stamps the
- * report type's headline onto it and downscales the result, which is why the
- * caller can hand over Airtable's attachment bytes or Turso's stored BLOB
- * interchangeably.
+ * report type's headline onto it and downscales the result.
  */
 export async function renderReportFromRow(
   site: WebsiteRow,

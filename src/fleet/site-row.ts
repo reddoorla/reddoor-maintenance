@@ -1,16 +1,16 @@
 /**
  * The fleet's site-row model and its pure, vendor-neutral coercers.
  *
- * `WebsiteRow` is what BOTH readers return — `mapRow` over an Airtable record
- * (`src/reports/airtable/websites.ts`) and `rowFromJoined` over Turso
+ * `WebsiteRow` is what BOTH readers return — `mapRow` over a column-named record
+ * (`src/fleet/site-fields.ts`) and `rowFromJoined` over Turso
  * (`src/db/fleet-state.ts`) — and the coercers below are the ONE truth each of
  * them applies to a raw cell/column. They lived in the Airtable module until
  * #539 Phase 6 step 1 (#646) moved them here: they run on every Turso lead read,
- * so they could not stay in the directory Phase 6 deletes. Nothing here touches
+ * so they could not stay in the directory Phase 6 deleted. Nothing here touches
  * a store; the doc comments still name Airtable columns because that is where
  * each value was first defined, and the Turso columns carry the same raw values.
  *
- * `src/reports/airtable/websites.ts` re-exports every name, so existing imports
+ * `src/fleet/site-fields.ts` re-exports every name, so existing imports
  * resolve unchanged.
  */
 import { CANONICAL_STATUSES, type Status } from "./site-status.js";
@@ -18,7 +18,7 @@ import { CANONICAL_STATUSES, type Status } from "./site-status.js";
 export type Frequency = "None" | "Monthly" | "Quarterly" | "Yearly";
 
 /** The canonical lifecycle vocabulary lives in ./site-status.ts (the Airtable
- *  write-direction mapping, `toAirtableStatus`, stays in the Airtable module).
+ *  write-direction mapping, `toAirtableStatus`, was deleted with that module).
  *  Re-exported here because every consumer already imports `Status` alongside
  *  `WebsiteRow`. */
 export type { Status };
@@ -28,7 +28,7 @@ export type { Status };
  * notification is addressed by the value of a submission field (`field`, read from
  * `extraFields`) — e.g. route a contact form's `interest` to a different recipient
  * per option, always CC-ing a shared address. Absent (`null`) → the site keeps the
- * default single-POC behavior. Recipients live HERE (server-side Airtable config),
+ * default single-POC behavior. Recipients live HERE (server-side site config),
  * never supplied by the submitting site, so the ingest can't be turned into an open
  * relay.
  */
@@ -48,20 +48,20 @@ export type WebsiteRow = {
   name: string;
   url: string;
   /** Canonical lifecycle status (see ./site-status.ts). Canonicalized at the read
-   *  boundary, so an old-vocabulary Airtable cell and a new one read identically.
+   *  boundary, so an old-vocabulary cell and a new one read identically.
    *  A present-but-unrecognized cell survives VERBATIM (blind-cast) rather than
    *  becoming null — `isUnrecognizedStatus` flags it, and null would make
    *  due.ts/preflight.ts treat the row as eligible-by-default. */
   status: Status | null;
-  /** The literal Airtable Status cell behind `status` — same pattern as
+  /** The literal Status cell behind `status` — same pattern as
    *  `maintenanceFreqRaw`. The dashboard status editor round-trips THIS, so its
-   *  dropdown offers and preselects the values Airtable actually holds while the
+   *  dropdown offers and preselects the values the row actually holds while the
    *  two vocabularies coexist. Null = blank cell. */
   statusRaw: string | null;
   pointOfContact: string | null;
   maintenanceFreq: Frequency;
   testingFreq: Frequency;
-  /** The literal Airtable cell values behind the coerced frequencies. `toFrequency`
+  /** The literal cell values behind the coerced frequencies. `toFrequency`
    *  trims whitespace ("Monthly " reads as Monthly), then maps any still-unrecognized
    *  value ("Quaterly") to "None" with a LOUD console.warn so nothing bogus reaches a
    *  client email and the drop is never invisible. Preflight validates THESE to surface
@@ -89,7 +89,8 @@ export type WebsiteRow = {
   reportRecipientsTo: string | null;
   reportRecipientsCc: string | null;
   acceptedWatchConditions: string[];
-  /** First attachment in the Header image field (Airtable's signed URL — fetch before expiry). */
+  /** Header plate metadata (`sites.header_image*`). `url` is "" on a Turso row — the
+   *  bytes come from `loadHeaderImage` (src/db/header-images.ts). */
   headerImage: { url: string; filename: string; type: string } | null;
   /** Lighthouse "current state" snapshot, kept fresh by `audit lighthouse --write-back`. */
   pScore: number | null;
@@ -134,7 +135,7 @@ export type WebsiteRow = {
   certDaysRemaining: number | null;
   domainCheckedAt: string | null;
   /** Netlify site id — the IDENTITY the `netlify-deploy` audit needs to query the
-   *  Netlify API. Read-only input (operator-set in Airtable); null = not on Netlify
+   *  Netlify API. Read-only input (operator-set in the site details); null = not on Netlify
    *  (or not wired) → that audit skips. Never derived from the URL. */
   netlifyId: string | null;
   /** Latest PRODUCTION deploy health (the `netlify-deploy` audit). `deployStatus` is
@@ -164,7 +165,7 @@ export type WebsiteRow = {
    *  One of the two `"fail"` arms is derived from `/health` (the other is a browser seeing
    *  110200 on the live hostname), whose `forms.turnstile` is a truthiness check
    *  on `PUBLIC_TURNSTILE_SITE_KEY` that never contacts Cloudflare (see
-   *  audits/function-health-airtable.ts for the incident). No key IS proof the widget can't
+   *  audits/function-health-fields.ts for the incident). No key IS proof the widget can't
    *  work; a key is NOT proof that it can — a sitekey whose widget is full at Cloudflare's
    *  10-hostname cap sets the var and still mints no token. So a `"pass"` here has to be
    *  earned by a real browser rendering the real widget (form-e2e), and until it is, null
@@ -201,7 +202,7 @@ export type WebsiteRow = {
    *  blank → skipped. The API key is `key-dc` format; dc is derived from it. */
   mailchimpApiKey: string | null;
   mailchimpAudienceId: string | null;
-  /** Per-site Cloudflare Turnstile gate (Airtable checkbox). When true, a submission
+  /** Per-site Cloudflare Turnstile gate (a checkbox). When true, a submission
    *  whose Turnstile token verifies as "fail" (forged) OR "absent" (secret configured
    *  centrally but NO token forwarded — the direct-POST-bot signature) is escalated to
    *  auto-spam regardless of content score. A present-but-expired token stays
@@ -321,7 +322,7 @@ export function trimToNull(raw: unknown): string | null {
  * Parse the Websites `Notify Routing` JSON into a NotifyRouting, defensively: a
  * non-string, blank, malformed-JSON, or wrong-shape value yields null (the site
  * then keeps default single-POC routing) — never throws. Mirrors the pipeline's
- * "a bad Airtable string degrades quietly" rule.
+ * "a bad stored string degrades quietly" rule.
  */
 export function parseNotifyRouting(raw: unknown): NotifyRouting | null {
   if (typeof raw !== "string") return null;
@@ -361,7 +362,7 @@ export function isDashboardVisible(site: WebsiteRow): boolean {
 /**
  * Pre-launch lifecycle stages: the site is being built/prepared, NOT yet live. A
  * Launch report (recipes/launch.ts) flips Status → "maintained" at go-live
- * (updateLaunched), so "maintained" is the true live state. Pre-launch sites must
+ * (`launchedFields`), so "maintained" is the true live state. Pre-launch sites must
  * not be audited as production (their deploy/domain/uptime/CMS audits fail because
  * nothing is live yet) nor scheduled recurring Maintenance/Testing reports.
  *
@@ -380,7 +381,7 @@ export function isPreLaunch(status: Status | null): boolean {
  *  can be probed without a cast. */
 export const KNOWN_STATUSES: ReadonlySet<string> = new Set<Status>(CANONICAL_STATUSES);
 
-/** Terminal, out-of-fleet lifecycle states: kept in Airtable for the record,
+/** Terminal, out-of-fleet lifecycle states: kept for the record,
  *  excluded from every fleet op (sweeps, reports, audits, cockpit tiers) exactly
  *  as before, but surfaced on the cockpit as an archived lane so a row can never
  *  silently vanish. Airtable's `legacy` AND `deprecated` both canonicalize to the
@@ -401,7 +402,7 @@ export function isUnrecognizedStatus(status: Status | null): boolean {
 
 const FREQUENCIES: readonly Frequency[] = ["None", "Monthly", "Quarterly", "Yearly"];
 
-/** Coerce an Airtable single-select value to a known Frequency at the read boundary.
+/** Coerce a single-select value to a known Frequency at the read boundary.
  *  Whitespace is trimmed first, so an operator's trailing-space option ("Quarterly ")
  *  still schedules instead of silently unscheduling the site. Any other non-empty,
  *  unrecognized value — a renamed / typo'd option — warns LOUDLY and falls back to
@@ -420,7 +421,7 @@ export function toFrequency(raw: unknown, context: string): Frequency {
   return "None";
 }
 
-/** Coerce an Airtable tri-state single-select verdict cell (`pass`/`fail`/blank) to
+/** Coerce a tri-state single-select verdict cell (`pass`/`fail`/blank) to
  *  `"pass" | "fail" | null`. Any value other than the literal strings "pass"/"fail" — blank,
  *  an unrecognized option, a typo, wrong type — reads as null ("never ran"), never guessed. The
  *  ONE shared reader for every verdict column of this shape: `Function health`, `CMS Reachable`,

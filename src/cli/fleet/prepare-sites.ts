@@ -22,7 +22,7 @@ type CloneFn = (site: Site, opts: { workdir: string }) => Promise<Site>;
  * serialize or sink the rest.
  *
  * The skipped-site label prefers `site.name` but uses a truthiness check (not
- * `??`) so an empty-string name (an Airtable row whose slug came out empty)
+ * `??`) so an empty-string name (a row whose slug came out empty)
  * still falls back to the path instead of rendering blank.
  */
 export async function prepareFleetSites(

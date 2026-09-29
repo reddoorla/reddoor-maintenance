@@ -2,7 +2,7 @@ name: fleet-prismic-drift
 
 # Nightly: does every fleet repo's content model still match the models REGISTERED
 # in its Prismic repository? This is the instrument the whole Prismic alerting path
-# describes — the Airtable verdict columns, the cockpit tier and the digest's three
+# describes — the verdict columns, the cockpit tier and the digest's three
 # attention items all report what THIS run found. It is the detector for out-of-band
 # cloud edits (Type Builder, a hand-edit in the dashboard, a stray Slice Machine
 # push), and the only thing that can catch the silent-field-drop class: a unit test
@@ -31,7 +31,7 @@ on:
   workflow_dispatch: {} # manual run from the Actions tab
 
 # Never overlap a manual run with the scheduled one: two sweeps would write verdicts
-# into one Airtable base and share one clone workdir. A queued run is not cancelled —
+# into one database and share one clone workdir. A queued run is not cancelled —
 # a skipped night is a night with no verdict.
 concurrency:
   group: fleet-prismic-drift
@@ -60,7 +60,7 @@ jobs:
       # NO GitHub App token is minted here, unlike fleet-security and
       # fleet-lighthouse, and that is deliberate rather than an omission. This sweep
       # makes no GitHub API call at all: `cloneIfNeeded` builds an unauthenticated
-      # `https://github.com/<owner>/<repo>.git` from the Airtable `Git repo` column
+      # `https://github.com/<owner>/<repo>.git` from the `Git repo` column
       # and the fleet is public. Minting an org-wide installation token for a job
       # that never presents one is unnecessary privilege plus an extra way for a
       # read-only nightly to go red (a rotated App key would fail the mint step).
@@ -138,7 +138,7 @@ jobs:
           # THIS SWEEP'S EXIT CODE IS A REAL SIGNAL, and that is the opposite of
           # fleet-security and fleet-smoke, which tolerate a non-zero CLI exit because
           # a vulnerable or failing site reds them BY DESIGN. Drift never reds this
-          # one: a site whose models diverge is a finding written to its Airtable row.
+          # one: a site whose models diverge is a finding written to its row.
           # A non-zero exit here means the fleet could not be established — a majority
           # of repos unreadable, two repos claiming one Prismic repository, two
           # repositories deriving one token secret, an inventory that resolved no
