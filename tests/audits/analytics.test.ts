@@ -827,6 +827,9 @@ describe("round four: guards that had moved and reopened the same hole", () => {
     expect(v.status).toBe("fail");
     expect(v.summary).toContain("refused property");
     expect(v.summary).toContain("before anything is installed");
+    // The refusal IS the property check; listing it as "not checked" too
+    // contradicts the verdict (A07).
+    expect(v.unchecked.join(" ")).not.toContain("the GA4 property");
   });
 
   it("discloses a failed property read on every path", () => {
