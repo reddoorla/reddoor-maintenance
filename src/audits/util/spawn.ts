@@ -55,14 +55,21 @@ type KillFn = (pid: number, signal: NodeJS.Signals | number) => void;
 /** One row of the process table: the three columns the timeout's reap needs. */
 export type ProcessRow = { pid: number; ppid: number; pgid: number };
 
-/** Reads every process on the machine through `ps -A -o pid=,ppid=,pgid=`.
- *  POSIX options, so it answers the same on macOS and Linux procps. */
-export function readProcessTable(): ProcessRow[] {
-  const out = execFileSync("ps", ["-A", "-o", "pid=,ppid=,pgid="], {
+type ExecFn = (file: string, args: readonly string[]) => string;
+
+const execPs: ExecFn = (file, args) =>
+  execFileSync(file, [...args], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "ignore"],
     timeout: 2000,
   });
+
+/** Reads every process on the machine through `ps -A -o pid=,ppid=,pgid=`.
+ *  POSIX options, so it answers the same on macOS and Linux procps. The `-A`
+ *  matters on macOS: without it `ps` lists only processes with a controlling
+ *  terminal, and a detached child (setsid) has none. */
+export function readProcessTable(exec: ExecFn = execPs): ProcessRow[] {
+  const out = exec("ps", ["-A", "-o", "pid=,ppid=,pgid="]);
   const rows: ProcessRow[] = [];
   for (const line of out.split("\n")) {
     const [pid, ppid, pgid] = line.trim().split(/\s+/).map(Number);
@@ -78,7 +85,9 @@ export function readProcessTable(): ProcessRow[] {
  *  webServer, chrome-launcher's Chrome) leads a group of its own, out of reach
  *  of `kill(-root)`. Never returns pgid <= 1 (`kill(-1)` is every process we may
  *  signal) or this process's own group; with no row for this process the own
- *  group is unknown, so nothing is returned. */
+ *  group is unknown, so nothing is returned. Nothing is returned either unless
+ *  `root` is still this process's child: once the wrapper is reaped its pid can
+ *  be reused, and a walk from a reused pid would reach strangers. */
 export function descendantGroups(
   table: readonly ProcessRow[],
   root: number,
@@ -88,6 +97,7 @@ export function descendantGroups(
   const pids = new Set<number>();
   const own = table.find((r) => r.pid === self);
   if (own === undefined) return { groups, pids };
+  if (!table.some((r) => r.pid === root && r.ppid === self)) return { groups, pids };
   const children = new Map<number, ProcessRow[]>();
   for (const r of table) {
     const list = children.get(r.ppid);
@@ -98,7 +108,7 @@ export function descendantGroups(
   while (queue.length > 0) {
     const parent = queue.shift() as number;
     for (const r of children.get(parent) ?? []) {
-      if (r.pid === root || pids.has(r.pid)) continue;
+      if (r.pid === root || r.pid === self || pids.has(r.pid)) continue;
       pids.add(r.pid);
       queue.push(r.pid);
       if (r.pgid > 1 && r.pgid !== root && r.pgid !== own.pgid && r.pgid !== self) {
@@ -221,9 +231,13 @@ export function makeSpawn(internals: SpawnInternals = {}): SpawnFn {
        *  is gone), then SIGKILL, after the grace, each group that still holds a
        *  pid from the snapshot. That escalation outlives the wrapper's `close`:
        *  a detached server that ignores SIGTERM outlives the wrapper too. The
-       *  re-check stops a SIGKILL to a group id reused after its group died. */
+       *  re-check stops a SIGKILL to a group id reused after its group died.
+       *  Best-effort like the leader's: the timer is unref'd, so a CLI that
+       *  exits inside the grace takes the SIGKILL with it. A wrapper that has
+       *  already exited has no ancestry left to walk, so it is skipped. */
       const reapDetachedGroups = (): void => {
         if (child.pid === undefined) return;
+        if (typeof child.exitCode === "number" || typeof child.signalCode === "string") return;
         const table = safeTable();
         if (table === undefined) return;
         const { groups, pids } = descendantGroups(table, child.pid);

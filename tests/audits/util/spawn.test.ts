@@ -8,6 +8,7 @@ import {
   defaultSpawn,
   SpawnTimeoutError,
   isSpawnTimeout,
+  readProcessTable,
   type ProcessRow,
 } from "../../../src/audits/util/spawn.js";
 import { findFreePort } from "../../../src/util/free-port.js";
@@ -248,19 +249,81 @@ describe("defaultSpawn detached descendant groups (mocked table)", () => {
     expect(await seen).toBeInstanceOf(SpawnTimeoutError);
   });
 
-  it("terminates on a table whose parent links loop back through the leader", async () => {
+  it("never walks through this process, even when the table says it is the leader's child", async () => {
     vi.useFakeTimers();
     const looped = [
-      self,
-      { pid: 4242, ppid: 5070, pgid: 4242 },
-      { pid: 5070, ppid: 4242, pgid: 5070 },
+      { pid: process.pid, ppid: 4242, pgid: OWN },
+      leader,
+      { pid: 5070, ppid: process.pid, pgid: 5070 },
     ];
     const { seen } = start([looped]);
-    vi.advanceTimersByTime(500);
-    expect(kills).toContainEqual({ pid: -5070, sig: "SIGTERM" });
+    vi.advanceTimersByTime(1500);
+    expect(kills.map((k) => k.pid)).not.toContain(-5070);
     vi.useRealTimers();
     expect(await seen).toBeInstanceOf(SpawnTimeoutError);
   }, 5000);
+
+  it("walks nothing when the leader's pid is no longer this process's child (reused pid)", async () => {
+    vi.useFakeTimers();
+    const reused = [
+      self,
+      { pid: 4242, ppid: 1, pgid: 4242 },
+      { pid: 5090, ppid: 4242, pgid: 5090 },
+    ];
+    const { seen } = start([reused]);
+    vi.advanceTimersByTime(1500);
+    expect(kills.map((k) => k.pid)).not.toContain(-5090);
+    expect(kills).toContainEqual({ pid: -4242, sig: "SIGTERM" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("walks nothing once the wrapper has exited, even with the timer still armed", async () => {
+    vi.useFakeTimers();
+    const table = [self, leader, { pid: 5095, ppid: 4242, pgid: 5095 }];
+    const { seen, reads } = start([table]);
+    Object.assign(child, { exitCode: 0, signalCode: null });
+    vi.advanceTimersByTime(1500);
+    expect(kills.map((k) => k.pid)).not.toContain(-5095);
+    expect(reads()).toBe(0);
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("re-checks each group on its own: SIGKILLs the one still held, spares the reused one", async () => {
+    vi.useFakeTimers();
+    const before = [
+      self,
+      leader,
+      { pid: 5100, ppid: 4242, pgid: 5100 },
+      { pid: 5101, ppid: 4242, pgid: 5101 },
+    ];
+    const after = [self, { pid: 9999, ppid: 1, pgid: 5100 }, { pid: 5101, ppid: 1, pgid: 5101 }];
+    const { seen } = start([before, after]);
+    vi.advanceTimersByTime(1500);
+    expect(kills).toContainEqual({ pid: -5101, sig: "SIGKILL" });
+    expect(kills).not.toContainEqual({ pid: -5100, sig: "SIGKILL" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("finds a detached group three levels down, and one whose leader is already gone", async () => {
+    vi.useFakeTimers();
+    const table = [
+      self,
+      leader,
+      { pid: 5110, ppid: 4242, pgid: 4242 },
+      { pid: 5111, ppid: 5110, pgid: 4242 },
+      { pid: 5112, ppid: 5111, pgid: 5112 },
+      { pid: 5113, ppid: 4242, pgid: 5199 },
+    ];
+    const { seen } = start([table]);
+    vi.advanceTimersByTime(500);
+    expect(kills).toContainEqual({ pid: -5112, sig: "SIGTERM" });
+    expect(kills).toContainEqual({ pid: -5199, sig: "SIGTERM" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
 
   it("leaves the leader's own group to the leader's kill, which close still cancels", async () => {
     vi.useFakeTimers();
@@ -285,6 +348,21 @@ describe("defaultSpawn detached descendant groups (mocked table)", () => {
     expect(kills).toContainEqual({ pid: -4242, sig: "SIGKILL" });
     vi.useRealTimers();
     expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+});
+
+describe("readProcessTable", () => {
+  it("asks ps for every process (-A) in three headerless columns, and parses padded rows", () => {
+    const calls: Array<{ file: string; args: readonly string[] }> = [];
+    const rows = readProcessTable((file, args) => {
+      calls.push({ file, args });
+      return "    1     0     1\n 4242 31337  4242\n\n  bogus line\n";
+    });
+    expect(calls).toEqual([{ file: "ps", args: ["-A", "-o", "pid=,ppid=,pgid="] }]);
+    expect(rows).toEqual([
+      { pid: 1, ppid: 0, pgid: 1 },
+      { pid: 4242, ppid: 31337, pgid: 4242 },
+    ]);
   });
 });
 
