@@ -263,6 +263,22 @@ describe("defaultSpawn detached descendant groups (mocked table)", () => {
     expect(await seen).toBeInstanceOf(SpawnTimeoutError);
   }, 5000);
 
+  it("terminates on a table whose duplicated pid rows form a loop", async () => {
+    vi.useFakeTimers();
+    const looped = [
+      self,
+      leader,
+      { pid: 5200, ppid: 4242, pgid: 5200 },
+      { pid: 5201, ppid: 5200, pgid: 5200 },
+      { pid: 5200, ppid: 5201, pgid: 5200 },
+    ];
+    const { seen } = start([looped]);
+    vi.advanceTimersByTime(500);
+    expect(kills).toContainEqual({ pid: -5200, sig: "SIGTERM" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  }, 5000);
+
   it("walks nothing when the leader's pid is no longer this process's child (reused pid)", async () => {
     vi.useFakeTimers();
     const reused = [
