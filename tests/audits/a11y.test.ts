@@ -1223,6 +1223,28 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     expect(result.summary).toContain("fixture not in this site's source");
   });
 
+  it("puts the scanned and total route counts on details, the numbers the summary says (#910)", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
+    );
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 1, total: 2 });
+  });
+
+  it("a run that skipped nothing reads every route scanned (#910)", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures", "animate-in"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [] },
+    );
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 2 });
+  });
+
   // ...and a site that has written the absence down gets its clean pass back.
   it("passes when the site declares the fixture absent on purpose", async () => {
     const { result } = await auditSite(

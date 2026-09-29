@@ -699,6 +699,25 @@ describe("renderSiteDashboardHtml — site health section", () => {
     );
   });
 
+  it("says on the a11y tile how many routes were scanned, and a partial run reads differently (#910)", () => {
+    const partial = renderSiteDashboardHtml(
+      siteRow({ a11yViolations: 0, a11yRoutesScanned: 1, a11yRoutesTotal: 2 }),
+      [],
+    );
+    const complete = renderSiteDashboardHtml(
+      siteRow({ a11yViolations: 0, a11yRoutesScanned: 2, a11yRoutesTotal: 2 }),
+      [],
+    );
+    expect(partial).toMatch(/<div class="tile-sub"[^>]*>only 1 of 2 routes scanned<\/div>/);
+    expect(complete).toMatch(/<div class="tile-sub"[^>]*>2 of 2 routes scanned<\/div>/);
+    expect(complete).not.toMatch(/only \d+ of/);
+  });
+
+  it("leaves the a11y tile's route line off when the counts were never stored", () => {
+    const html = renderSiteDashboardHtml(siteRow({ a11yViolations: 0 }), []);
+    expect(html).not.toMatch(/routes scanned/);
+  });
+
   it("shows a 'N major behind' sub-line on the deps tile only when there is major drift", () => {
     const withMajor = renderSiteDashboardHtml(
       siteRow({ a11yViolations: 0, depsDrifted: 5, depsMajorBehind: 1 }),

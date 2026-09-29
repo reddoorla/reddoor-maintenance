@@ -3,7 +3,13 @@ import { hasA11yCounts, a11yCountsFromResult } from "../../src/audits/a11y-field
 import type { AuditResult } from "../../src/types.js";
 
 function a11yResult(
-  details: { totalViolations: number; byImpact: Record<string, number> } | undefined,
+  details:
+    | {
+        totalViolations: number;
+        byImpact: Record<string, number>;
+        routes?: { scanned: number; total: number };
+      }
+    | undefined,
   status: AuditResult["status"] = "pass",
 ): AuditResult {
   return {
@@ -40,12 +46,65 @@ describe("a11yCountsFromResult", () => {
       a11yCountsFromResult(a11yResult({ totalViolations: 3, byImpact: { serious: 3 } })),
     ).toEqual({
       violations: 3,
+      routesScanned: null,
+      routesTotal: null,
     });
   });
 
   it("returns 0 for a clean audit", () => {
     expect(a11yCountsFromResult(a11yResult({ totalViolations: 0, byImpact: {} }))).toEqual({
       violations: 0,
+      routesScanned: null,
+      routesTotal: null,
+    });
+  });
+
+  it("carries the scanned and total route counts, so 1 of 2 differs from 2 of 2 (#910)", () => {
+    const partial = a11yResult({
+      totalViolations: 0,
+      byImpact: {},
+      routes: { scanned: 1, total: 2 },
+    });
+    const complete = a11yResult({
+      totalViolations: 0,
+      byImpact: {},
+      routes: { scanned: 2, total: 2 },
+    });
+    expect(a11yCountsFromResult(partial)).toEqual({
+      violations: 0,
+      routesScanned: 1,
+      routesTotal: 2,
+    });
+    expect(a11yCountsFromResult(complete)).toEqual({
+      violations: 0,
+      routesScanned: 2,
+      routesTotal: 2,
+    });
+  });
+
+  it("reads a malformed route count as unknown, never as a number", () => {
+    const bad = a11yResult({
+      totalViolations: 0,
+      byImpact: {},
+      routes: { scanned: "1", total: 2 } as unknown as { scanned: number; total: number },
+    });
+    expect(a11yCountsFromResult(bad)).toEqual({
+      violations: 0,
+      routesScanned: null,
+      routesTotal: 2,
+    });
+  });
+
+  it("reads a negative or fractional route count as unknown", () => {
+    const bad = a11yResult({
+      totalViolations: 0,
+      byImpact: {},
+      routes: { scanned: -1, total: 1.5 },
+    });
+    expect(a11yCountsFromResult(bad)).toEqual({
+      violations: 0,
+      routesScanned: null,
+      routesTotal: null,
     });
   });
 
