@@ -8,6 +8,7 @@ import {
   describeSkipped,
   describeViolations,
 } from "../../src/audits/a11y.js";
+import { revealBelowFold } from "../../src/audits/util/reveal-below-fold.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 async function tmpSite(): Promise<string> {
@@ -1387,5 +1388,52 @@ describe("audits/a11y — describeSkipped pairs routes with reasons once reasons
     expect(line).toContain(`/ (${PLACEHOLDER})`);
     // The whole point: the capped skip's reason survives.
     expect(line).toContain(ABSENT);
+  });
+});
+
+/**
+ * #100. What the reveal DOES is proven in a real Chromium by
+ * a11y-live-spec.test.ts; this pins where it sits in the spec, which a browser
+ * run alone would not name if it went wrong.
+ */
+describe("audits/a11y — the page is scrolled through before axe runs (#100)", () => {
+  async function specOf(): Promise<string> {
+    const cwd = await tmpSite();
+    const sink = { spec: "" };
+    await a11yAudit({
+      site: { path: cwd },
+      spawn: async (_cmd, args, opts) => {
+        sink.spec = await readFile(args[args.length - 1] as string, "utf-8");
+        const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
+        await mkdir(out, { recursive: true });
+        await writeFile(
+          join(out, "results.json"),
+          JSON.stringify({ totalViolations: 0, byImpact: {} }),
+        );
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    return sink.spec;
+  }
+
+  it("the generated spec runs the exported function, not a copy of it", async () => {
+    expect(await specOf()).toContain(`const revealBelowFold = ${revealBelowFold.toString()};`);
+  });
+
+  it("scrolls after the transition-snapping sheet and before axe, on every scanned route", async () => {
+    const spec = await specOf();
+    const loopAt = spec.indexOf(
+      "for (const { path, name, placeholder404Ok, sourceAbsent } of pages)",
+    );
+    const snapAt = spec.indexOf("await page.addStyleTag(", loopAt);
+    const revealAt = spec.indexOf("await page.evaluate(revealBelowFold);", loopAt);
+    const axeAt = spec.indexOf("new AxeBuilder({ page })", loopAt);
+    expect(loopAt).toBeGreaterThan(-1);
+    expect(snapAt).toBeGreaterThan(loopAt);
+    // After the sheet, so each reveal snaps to its final state as it fires.
+    expect(revealAt).toBeGreaterThan(snapAt);
+    expect(axeAt).toBeGreaterThan(revealAt);
+    // Once, in the axe loop — not in the hydration smoke, which runs no axe.
+    expect(spec.split("page.evaluate(revealBelowFold)").length - 1).toBe(1);
   });
 });

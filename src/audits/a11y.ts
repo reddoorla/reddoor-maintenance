@@ -12,6 +12,7 @@ import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
+import { revealBelowFold } from "./util/reveal-below-fold.js";
 
 type Impact = "minor" | "moderate" | "serious" | "critical";
 
@@ -345,6 +346,8 @@ import { dirname } from "node:path";
 
 // Injected, not transcribed — see classifyRouteResponse in src/audits/a11y.ts.
 const classifyRouteResponse = ${classifyRouteResponse.toString()};
+// Injected the same way, and run in the page — see src/audits/util/reveal-below-fold.ts.
+const revealBelowFold = ${revealBelowFold.toString()};
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
 
@@ -442,6 +445,12 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     await page.addStyleTag({
       content: "*,*::before,*::after{transition:none!important;animation:none!important;}",
     });
+    // Scroll the whole page through the viewport and back before axe runs
+    // (#100). Without it every scroll-triggered reveal below the fold was
+    // audited at the opacity 0 it waits in, and axe does not measure contrast
+    // through that -- the text fell out of the result instead of failing it.
+    // After the sheet above, so each reveal snaps to its final state as it fires.
+    await page.evaluate(revealBelowFold);
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
       .analyze();
