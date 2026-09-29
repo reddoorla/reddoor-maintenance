@@ -30,6 +30,7 @@ beforeEach(() => {
     defaultQueryMissed: false,
     propertyMissing: false,
     notConfigured: false,
+    lookup: null,
   });
 });
 
@@ -374,6 +375,7 @@ describe("recipes/announce", () => {
       defaultQueryMissed: false,
       propertyMissing: false,
       notConfigured: false,
+      lookup: { outcome: "resolved", property: "sc-domain:acme.example.com" },
     });
     const seed: Seed = {
       Websites: [
@@ -690,6 +692,7 @@ describe("announce — search presence with no matching Search Console property 
       defaultQueryMissed: false,
       propertyMissing: value?.propertyFound === false,
       notConfigured: false,
+      lookup: null,
     });
   }
 
@@ -782,5 +785,56 @@ describe("announce — search presence with no matching Search Console property 
     const patch = refreshPatch();
     expect("search_found_page1" in patch).toBe(false);
     expect("search_position" in patch).toBe(false);
+  });
+});
+
+describe("announce — #943: persists what the Search Console lookup resolved", () => {
+  it("writes the lookup's outcome beside the analytics stamp, and nothing when it did not run", async () => {
+    process.env.GA_SUBJECT = "tucker@reddoorla.com";
+    vi.mocked(fetchSearch).mockResolvedValue({
+      value: { foundOnPage1: false, position: null, propertyFound: false },
+      softFailed: false,
+      defaultQueryMissed: false,
+      propertyMissing: true,
+      notConfigured: false,
+      lookup: { outcome: "no-property", property: null },
+    });
+    const seed: Seed = {
+      Websites: [
+        {
+          id: "rec_acme",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintained",
+            "GA4 property ID": "G-123",
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [],
+    };
+
+    await announce(A(seed));
+
+    const write = siteHealth.find((h) => "Search Console Outcome" in h.fields);
+    expect(write?.id).toBe("rec_acme");
+    expect(write?.fields).toMatchObject({
+      "Search Console Outcome": "no-property",
+      "Search Console Resolved": null,
+      "Search Console Checked At": NOW.toISOString(),
+    });
+
+    siteHealth.length = 0;
+    vi.mocked(fetchSearch).mockResolvedValue({
+      value: null,
+      softFailed: false,
+      defaultQueryMissed: false,
+      propertyMissing: false,
+      notConfigured: false,
+      lookup: null,
+    });
+    await announce(A(seed));
+    expect(siteHealth.some((h) => "Search Console Outcome" in h.fields)).toBe(false);
   });
 });

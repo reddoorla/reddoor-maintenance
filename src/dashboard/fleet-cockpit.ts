@@ -32,6 +32,7 @@ import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { isNetlifyAppUrl } from "../util/url.js";
 import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../fleet/opt-outs.js";
+import { searchConsoleMissingLabel } from "./onboarding.js";
 
 export type Tier = "attention" | "watch" | "healthy" | "pre-launch";
 
@@ -72,7 +73,8 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * needs the watch band). A FAILED latest production deploy (`deployStatus === "failed"`/
  * "error") is the same severity → 🔴 attention. Otherwise 🟡 watch when a Lighthouse
  * category sits in [75,85), the last commit to `main` is older than 30 days, a
- * maintained site is on `*.netlify.app`, records no GA4 / Search Console property, no Git
+ * maintained site is on `*.netlify.app`, records no GA4 property, matched no Search Console
+ * property on its last report lookup (#943), no Git
  * repo or Netlify ID (#889), or requires Turnstile without a browser-verified widget.
  * Else 🟢 healthy.
  *
@@ -219,11 +221,16 @@ export function assignTier(
       reason: "GA4 property not recorded (reports carry no analytics)",
     });
   }
-  if (site.status === "maintained" && !site.searchConsoleProperty?.trim()) {
+  // #943: a watch only when a draft's lookup ran and matched no property. A blank
+  // record is not evidence either way, and a soft-fail is unknown, not a finding.
+  if (site.status === "maintained" && site.searchConsoleOutcome === "no-property") {
     candidates.push({
-      signal: "search-console-unrecorded",
+      signal: "search-console-no-property",
       acceptKeys: SEARCH_CONSOLE_OPT_OUT_KEYS,
-      reason: "Search Console property not recorded",
+      reason: searchConsoleMissingLabel(site, {
+        state: "no-property",
+        checkedAt: site.searchConsoleCheckedAt ?? "",
+      }),
     });
   }
   // #889. The roster identities the nightly sweeps need. A `maintained` site is

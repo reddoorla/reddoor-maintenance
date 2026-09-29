@@ -33,6 +33,9 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     ga4PropertyId: "123456789",
     searchConsoleProperty: "sc-domain:acme.example.com",
+    searchConsoleOutcome: "resolved",
+    searchConsoleResolved: "sc-domain:acme.example.com",
+    searchConsoleCheckedAt: new Date().toISOString(),
     maintenanceFreq: "Monthly",
     testingFreq: "Quarterly",
     maintenanceDay: "2026-05-01",
@@ -560,6 +563,21 @@ describe("renderSiteDashboardHtml — setup status", () => {
     );
     expect(html).toMatch(/Setup 6\/6/);
     expect(html).toMatch(/complete/i);
+  });
+
+  it("#943: judges the Search Console evidence at the page's own now, and names what is missing", () => {
+    const site = siteRow({
+      lastLighthouseAuditAt: "2026-05-27T18:00:00Z",
+      reportRecipientsTo: "tucker@reddoorla.com",
+      pointOfContact: "Tucker",
+      searchConsoleCheckedAt: "2026-09-20T09:00:00.000Z",
+    });
+    expect(renderSiteDashboardHtml(site, [], [], null, new Date("2026-09-29T12:00:00Z"))).toMatch(
+      /Setup 6\/6/,
+    );
+    const later = renderSiteDashboardHtml(site, [], [], null, new Date("2026-12-01T12:00:00Z"));
+    expect(later).toMatch(/Setup 5\/6/);
+    expect(later).toContain("Search Console: last resolved lookup 2026-09-20, older than 45 days");
   });
 });
 

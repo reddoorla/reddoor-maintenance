@@ -572,4 +572,20 @@ export const MIGRATIONS: Migration[] = [
     id: "0032_site_health_url_checked_at",
     sql: `ALTER TABLE site_health ADD COLUMN url_checked_at TEXT;`,
   },
+  {
+    // #943: what the last report draft's Search Console lookup resolved —
+    // `resolved`, `no-property` or `soft-fail`. 0033–0034 are #1005's.
+    id: "0035_site_health_search_console_outcome",
+    sql: `ALTER TABLE site_health ADD COLUMN search_console_outcome TEXT;`,
+  },
+  {
+    // #943: the property that lookup queried; NULL unless `resolved`.
+    id: "0036_site_health_search_console_resolved",
+    sql: `ALTER TABLE site_health ADD COLUMN search_console_resolved TEXT;`,
+  },
+  {
+    // #943: when that lookup ran, stamped on every outcome.
+    id: "0037_site_health_search_console_checked_at",
+    sql: `ALTER TABLE site_health ADD COLUMN search_console_checked_at TEXT;`,
+  },
 ];

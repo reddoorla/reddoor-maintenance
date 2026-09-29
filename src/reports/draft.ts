@@ -2,7 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ReportType, LighthouseScores } from "./types.js";
 import { renderReportHtml } from "./render.js";
-import { analyticsHealthFields, siteSlug } from "../fleet/site-fields.js";
+import {
+  analyticsHealthFields,
+  searchConsoleLookupFields,
+  siteSlug,
+  type FieldSet,
+} from "../fleet/site-fields.js";
+import type { SearchConsoleOutcome } from "../fleet/search-console-evidence.js";
 import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { searchEnrichment, type ReportRow } from "./report-fields.js";
@@ -239,6 +245,7 @@ export async function draftReportForSite(
         defaultQueryMissed: false,
         propertyMissing: false,
         notConfigured: false,
+        lookup: null,
       };
   const gaUsers = gaResult.value;
   const search = searchResult.value;
@@ -299,7 +306,10 @@ export async function draftReportForSite(
   if (readGaConfig() !== null && analyticsEnrolled(siteRow)) {
     const at = softFailures.length > 0 ? today.toISOString() : null;
     try {
-      await options.siteMirror?.health(siteRow.id, analyticsHealthFields(at));
+      await options.siteMirror?.health(siteRow.id, {
+        ...analyticsHealthFields(at),
+        ...lookupFields(searchResult, today),
+      });
     } catch (e) {
       console.warn(
         `⚠ analytics-health Turso mirror failed for ${siteRow.name}: ${(e as Error).message}`,
@@ -444,7 +454,18 @@ type SearchEnrichment = Enrichment<SearchPresence> & {
    *  from the un-enrolled skip (nothing to measure) and from a soft-fail (the API
    *  errored). See {@link fetchSearch}. */
   notConfigured: boolean;
+  /** What the lookup resolved (#943), or null when it did not run (not enrolled,
+   *  opted out, no credentials). Persisted per site by the draft and announce. */
+  lookup: { outcome: SearchConsoleOutcome; property: string | null } | null;
 };
+
+/** The #943 Search Console cells for one enrichment, or none when the lookup did
+ *  not run, so an environment without credentials never erases the evidence. */
+export function lookupFields(search: SearchEnrichment, at: Date): FieldSet {
+  return search.lookup
+    ? searchConsoleLookupFields({ ...search.lookup, checkedAt: at.toISOString() })
+    : {};
+}
 
 export function searchEnrolled(row: WebsiteRow): boolean {
   if (searchConsoleOptedOut(row)) return false;
@@ -500,7 +521,13 @@ export async function fetchSearch(
         `⚑ Search: no GA/Search Console credentials in this environment (GA_SUBJECT unset) — the Google Indexed check could not run for ${siteRow.name}.`,
       );
     }
-    return { ...NO_ENRICHMENT, defaultQueryMissed: false, propertyMissing: false, notConfigured };
+    return {
+      ...NO_ENRICHMENT,
+      defaultQueryMissed: false,
+      propertyMissing: false,
+      notConfigured,
+      lookup: null,
+    };
   }
   const explicit = siteRow.searchQuery?.trim();
   const query = explicit || siteRow.name;
@@ -529,7 +556,16 @@ export async function fetchSearch(
         `⚑ Search: site-name default "${query}" found no Search Console data for ${siteRow.name} — set an explicit search query on the site to track brand presence.`,
       );
     }
-    return { value, softFailed: false, defaultQueryMissed, propertyMissing, notConfigured: false };
+    return {
+      value,
+      softFailed: false,
+      defaultQueryMissed,
+      propertyMissing,
+      notConfigured: false,
+      lookup: propertyMissing
+        ? { outcome: "no-property", property: null }
+        : { outcome: "resolved", property: value.property ?? null },
+    };
   } catch (e) {
     console.warn(`⚠ Search presence skipped for ${siteRow.name}: ${(e as Error).message}`);
     return {
@@ -538,6 +574,7 @@ export async function fetchSearch(
       defaultQueryMissed: false,
       propertyMissing: false,
       notConfigured: false,
+      lookup: { outcome: "soft-fail", property: null },
     };
   }
 }

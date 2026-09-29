@@ -175,6 +175,9 @@ export const HEALTH_FIELDS: Record<string, keyof SiteHealthTable> = {
   "URL Resolves": "url_resolves",
   "URL Status": "url_status",
   "URL Checked At": "url_checked_at",
+  "Search Console Outcome": "search_console_outcome",
+  "Search Console Resolved": "search_console_resolved",
+  "Search Console Checked At": "search_console_checked_at",
 };
 
 /** Numeric health columns (everything else in HEALTH_FIELDS stores as text). */

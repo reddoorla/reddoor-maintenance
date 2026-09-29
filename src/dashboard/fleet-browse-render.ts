@@ -226,7 +226,7 @@ const FLEET_FILTERS = [
   "stale",
   "no-domain",
   "no-analytics",
-  "search-console-unrecorded",
+  "search-console-no-property",
   "no-git-repo",
   "no-netlify-id",
 ] as const;

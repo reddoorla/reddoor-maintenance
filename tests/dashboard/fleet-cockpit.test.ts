@@ -377,30 +377,57 @@ describe("assignTier", () => {
     },
   );
 
-  it("watches a maintained site that records no Search Console property, says only that, and names the opt-out key", () => {
-    const r = assignTier(site({ status: "maintained", searchConsoleProperty: null }), [], NOW);
+  const NO_PROPERTY: Partial<WebsiteRow> = {
+    url: "https://www.acme.example.com/",
+    searchConsoleOutcome: "no-property",
+    searchConsoleCheckedAt: "2026-06-01T09:00:00Z",
+  };
+
+  it("#943: watches a maintained site whose last lookup matched no property, naming its host and the opt-out key", () => {
+    const r = assignTier(site({ status: "maintained", ...NO_PROPERTY }), [], NOW);
     expect(r.tier).toBe("watch");
-    expect(r.watchReasons).toEqual(["Search Console property not recorded"]);
+    expect(r.watchReasons).toEqual([
+      "Search Console: no property matched www.acme.example.com (lookup 2026-06-01)",
+    ]);
     expect(r.watchAcceptKeys).toEqual(["no search console"]);
-    expect(r.watchSignals).toEqual(["search-console-unrecorded"]);
+    expect(r.watchSignals).toEqual(["search-console-no-property"]);
   });
 
-  it("an explicit 'no search console' opt-out leaves the band as a muted chip, and does not opt out of GA4", () => {
+  it("#943: a blank or unrecorded property is no longer a watch on its own; only a lookup that matched nothing is", () => {
+    for (const over of [
+      { searchConsoleProperty: null },
+      { searchConsoleProperty: "  " },
+      { searchConsoleProperty: null, searchConsoleOutcome: "soft-fail" as const },
+      {
+        searchConsoleProperty: null,
+        searchConsoleOutcome: "resolved" as const,
+        searchConsoleCheckedAt: "2026-01-01T00:00:00Z",
+      },
+    ]) {
+      const r = assignTier(site({ status: "maintained", ...over }), [], NOW);
+      expect(r.tier).toBe("healthy");
+      expect(r.watchSignals).toEqual([]);
+    }
+  });
+
+  it("an explicit 'no search console' opt-out wins: the no-property watch leaves the band as a muted chip, and GA4 is not opted out", () => {
     const optedOut = assignTier(
       site({
         status: "maintained",
-        searchConsoleProperty: null,
+        ...NO_PROPERTY,
         acceptedWatchConditions: ["no search console"],
       }),
       [],
       NOW,
     );
     expect(optedOut.tier).toBe("healthy");
-    expect(optedOut.acceptedReasons).toEqual(["Search Console property not recorded"]);
+    expect(optedOut.acceptedReasons).toEqual([
+      "Search Console: no property matched www.acme.example.com (lookup 2026-06-01)",
+    ]);
     const wrongKey = assignTier(
       site({
         status: "maintained",
-        searchConsoleProperty: null,
+        ...NO_PROPERTY,
         acceptedWatchConditions: ["no analytics"],
       }),
       [],
@@ -409,10 +436,10 @@ describe("assignTier", () => {
     expect(wrongKey.tier).toBe("watch");
   });
 
-  it("treats a blank Search Console property as missing", () => {
-    expect(
-      assignTier(site({ status: "maintained", searchConsoleProperty: "  " }), [], NOW).tier,
-    ).toBe("watch");
+  it("does not raise the no-property watch for a non-maintained site", () => {
+    for (const status of ["building", "hosted-only", "external", "archived"] as const) {
+      expect(assignTier(site({ status, ...NO_PROPERTY }), [], NOW).watchSignals).toEqual([]);
+    }
   });
 
   it("does not ask a launching site for GA4 or Search Console before go-live", () => {
@@ -998,7 +1025,13 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
     const m = buildCockpitModel(
       [
         // Reddoor's shape: a genuine break plus a launch-completeness gap.
-        site({ id: "r", name: "Broken", defaultBranchCi: "failing", searchConsoleProperty: null }),
+        site({
+          id: "r",
+          name: "Broken",
+          defaultBranchCi: "failing",
+          searchConsoleOutcome: "no-property",
+          searchConsoleCheckedAt: "2026-06-01T09:00:00Z",
+        }),
         site({ id: "h", name: "Fine" }),
       ],
       [],
@@ -1008,13 +1041,13 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
     );
     const broken = m.cards.find((c) => c.site.name === "Broken")!;
     expect(broken.tier).toBe("attention");
-    expect(broken.watchSignals).toContain("search-console-unrecorded");
+    expect(broken.watchSignals).toContain("search-console-no-property");
     expect(broken.watchReasons).toEqual([]);
     expect(m.summary).toMatchObject({ attention: 1, watch: 0, healthy: 1 });
     const feed = buildNeedsYouFeed(m);
     expect(feed).toHaveLength(1);
     expect(feed[0]!.group).toBe("broken");
-    expect(feed[0]!.reasons).not.toContain("Search Console property not recorded");
+    expect(feed[0]!.reasons.some((r) => r.startsWith("Search Console"))).toBe(false);
   });
 });
 

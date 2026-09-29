@@ -39,6 +39,9 @@ describe("runMigrations", () => {
       "0030_site_health_url_resolves",
       "0031_site_health_url_status",
       "0032_site_health_url_checked_at",
+      "0035_site_health_search_console_outcome",
+      "0036_site_health_search_console_resolved",
+      "0037_site_health_search_console_checked_at",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -89,6 +92,9 @@ describe("runMigrations", () => {
       "0030_site_health_url_resolves",
       "0031_site_health_url_status",
       "0032_site_health_url_checked_at",
+      "0035_site_health_search_console_outcome",
+      "0036_site_health_search_console_resolved",
+      "0037_site_health_search_console_checked_at",
     ]);
   });
 
@@ -143,6 +149,9 @@ describe("runMigrations", () => {
       "0030_site_health_url_resolves",
       "0031_site_health_url_status",
       "0032_site_health_url_checked_at",
+      "0035_site_health_search_console_outcome",
+      "0036_site_health_search_console_resolved",
+      "0037_site_health_search_console_checked_at",
     ]);
   });
 
@@ -200,6 +209,9 @@ describe("runMigrations", () => {
       "0030_site_health_url_resolves",
       "0031_site_health_url_status",
       "0032_site_health_url_checked_at",
+      "0035_site_health_search_console_outcome",
+      "0036_site_health_search_console_resolved",
+      "0037_site_health_search_console_checked_at",
     ]);
   });
 });
