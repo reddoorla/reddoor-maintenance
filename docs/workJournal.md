@@ -5575,3 +5575,61 @@ The review had three lenses: correctness, test validity with 20 mutations of the
 Landing took three merges of `main`, each conflicting only in `docs/BACKLOG.md`. Removing P1-16's row re-pads the whole P1 table under Prettier, so every other session's edit to any P1 row conflicts with it; land-prs.mjs's update-branch was overtaken once, by #993. The full suite passed on each merged head (7744 tests on the last one that brought in code), and CI passed on the landed head `a16069e`.
 
 Belief corrected on contact: the brief expected the `failed` → 404 behaviour to need a test only for the public route. It also fixes `setProspectAuditOverrides` and `touchProspectAuditOpened` for free, because both act only after `getProspectAuditByToken` succeeds. The overrides half is pinned by a test.
+
+## 2026-09-29 — The palette fix #916 needs goes to two repos, not nine; vida is red for other reasons (29-navy#58, reddoor-starter-blux#36)
+
+#916 makes an unmeasured contrast check fail the a11y gate. Before the
+operator clicks 0.102.0, every maintained site was measured with the #916
+build to find the ones whose Renovate PR would go red, and to stage the
+palette fix in each. The roster was re-derived from Turso: 15 maintained
+rows, not the brief's 14 (`vida-legacy-foundation` is new), plus
+`reddoor-starter-blux`. Each site ran its own CI gate three ways: control
+on its locked version (0.90.1–0.97.0), #916 packed from `origin/main` @
+`c1410fa` in a scratch copy, and #916 plus the fix.
+
+**Measured: 16 of 16 controls green. On #916, 3 red and 13 green.** Two are
+fixed by the palette alone: 29-navy and reddoor-starter-blux, both through
+the starter-lineage Hero (`bg-neutral-900 text-white`). Each goes from
+`rule-errored on a11y fixtures` with 0 contrast nodes on that route to a
+pass with 68 and 66. The third, vida-legacy-foundation, carries the same
+Hero, but it was also **hidden-red twice over**. `mix-blend-plus-lighter`
+makes axe throw `blendFunctions[blendMode] is not a function` on `/` and
+`/es`, since axe has no plus-lighter. With the palette fixed, the fixtures'
+`text-red-600` form errors fail contrast for real. Neither is a palette
+line, so no vida PR was opened. It is Operator decisions 23, with the table
+in `docs/palette-rollout-2026-09-29.md`.
+
+**Belief corrected: "9 of 12 sampled sites red" did not hold.** It came from
+a static grep for none-hued tokens in `theme.css`, and every site installs
+that file, since all 16 are on Tailwind 4.3.3 with the same 13 tokens.
+Tailwind emits only the tokens a site uses. The instrument that predicted
+the gate was the site's _built_ CSS: 4 of 16 emit a none-hued variable.
+Three of those went red, and the fourth (beachfront, `neutral-100` on a map
+placeholder) is not on any gate route. Twelve sites use none of the
+tokens at all.
+
+The brief's reference commit was not there. `f34eed2` and
+`claude/lucid-wozniak-wj8gaj` do not exist on `reddoorla/reddoor-starter`
+(422, no ref), and no starter PR carries them. The block was generated
+instead from each repo's own `node_modules/tailwindcss/theme.css` (L and C
+kept, `none` → `0`). On the starter it proved the instrument: `origin/main`
+
+- #916 → exit 1 `rule-errored on a11y fixtures`; + block → exit 0, 64
+  fixture nodes.
+
+Two instruments nearly lied. The gate first reported
+`no results written`, which was the environment's fault, not the site's:
+the sites pin Playwright 1.63.0, whose `chromium_headless_shell-1243` was
+not in `/opt/pw-browsers`, and installing it fixed that. The first
+render-identity check shot the production preview, where every route is a
+404, and reported 6/6 identical. Only the status log showed it. It now
+runs on the dev server the gate scans and fails on any non-200. It was
+proven both ways: A/A gave 0 differing bytes, and `neutral-900` at chroma
+0.08 gave 359,643 and 837,179. A mutation that removed only the
+`neutral-900` line from 29-navy's fix put its gate back to the same
+`rule-errored`.
+
+One PASS is worth distrusting: erp-industrial's fixtures measure **0**
+contrast nodes, and it passes. #916 catches colours axe cannot parse, not
+a route where the rule found nothing. That is not a palette matter and is
+not in this change.
