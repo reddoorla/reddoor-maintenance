@@ -26,44 +26,58 @@ one in the placeholder's `onfinish`, which fires at the next rendering update. T
 `classifyRouteResponse`, the spec gets that function's own source through
 `toString()`.
 
-A new test runs the generated spec in real Chromium against two throwaway
-sites. Every mutation below turns it red:
+A new test runs the generated spec in real Chromium against three throwaway
+sites. Every claim below comes from a mutation that was run against the final
+head, and each one turns the named tests red:
 
 - No scroll: the fixture's planted contrast failures below the fold come back
   as 0 violations. This is the defect.
 - Whole-viewport steps: a reveal observed with a `-25%` bottom `rootMargin` is
   never seen.
-- No `behavior: "instant"`: under the fixture's `scroll-behavior: smooth`,
-  nothing is revealed at all.
+- No `behavior: "instant"`: on the fixture page, which sets
+  `scroll-behavior: smooth`, no reveal is measured.
 - Height read once: content added by a reveal that lengthens the page is never
   reached.
 - No return to the top: a fixed bar that is legible only while scrolled is
   measured at the wrong offset.
 - Settle before the return to the top: an animation the return itself starts
   is measured at its start.
-- One `getAnimations()` read and stop, or no frame wait between reads: the
-  delayed two-stage intro (alone on its route) is measured mid-animation.
-  Skipping the settle altogether also misses a plain two-second Web
-  Animation.
-- Waiting on infinite animations too: a spinner eats the whole budget.
+- One `getAnimations()` read and stop, or no yield between reads: the delayed
+  two-stage intro (alone on its route) is measured mid-animation. Skipping the
+  settle altogether also misses a plain two-second Web Animation.
+- Waiting on infinite animations too: a spinner eats the whole budget, and the
+  fixture's pass reports an unsettled animation.
 
-A second group of mutations holds the attribution rules above:
+A second group holds the attribution rules and the time limits:
 
-- Classifying errors by stack URL, or falling back to the stack's origin when
-  a cross-origin frame on the page shares it (the Vimeo shape), fails the
-  library tests.
-- No downgrade at all fails a lazy embed's error test.
+- Classifying errors by stack URL fails the library tests. So does falling back
+  to the stack's origin when a cross-origin frame on the page shares it (the
+  Vimeo shape).
+- No downgrade at all fails the lazy-embed error tests.
 - Calling every child frame cross-origin fails the same-origin frame and
-  srcdoc facade tests. This applies to BOTH checks: their violation nodes
-  must be kept, and their thrown errors must stay the site's.
-- Checking only the outermost frame, or reading the `src` attribute, fails the
-  wrapper-frame and facade tests.
+  srcdoc facade tests. That holds twice over: once in the error split (their
+  errors must stay the site's) and once in the node filter (their nodes must
+  be kept).
+- Checking only the outermost frame fails the wrapper-frame tests, live and
+  unit. Reading the `src` attribute instead of the loaded URL fails the facade
+  test.
 - Treating a frame path that cannot be resolved as cross-origin fails a unit
-  test with fake frames. No element, no frame, a throw, and no answer must
-  all keep the node.
-- Reading a frame without a time limit, or not settling the hydration smoke's
-  errors, fails a live site whose home page crashes next to a lazy iframe that
-  never loads. The first times out; the second loses the crash.
+  test with fake frames. No element, no frame, a throw and no answer must all
+  keep the node.
+- Frames with no document must be skipped. Without the skip, the live site
+  whose pages crash next to a lazy iframe that never loads fails in one of two
+  ways. With the 2 s limit in place, the unloaded frame reads as a silent site
+  frame, so nothing moves and the embed's error is charged to the site. With
+  no limit either, the run times out at the test's 45 s spawn cap.
+- The 2 s read limit itself is held by unit tests only. One is a fake frame
+  that never answers (removing the limit fails it within its 5 s test
+  timeout). The other is an assertion that both spec call sites pass the
+  limit. No live fixture has a frame with a document that fails to answer.
+- Not settling inside the smoke loop charges the embed's error on the home
+  page to the site, but the crash itself is still reported by the final
+  flush. Dropping the final flush as well loses the crash.
+- The 10 s limit on every `about:blank` navigation is held by an assertion on
+  the generated spec, not by a live fixture.
 
 The exact length of the waits between steps and between settle reads, two
 frames and a task, is a margin that no test holds.
@@ -153,6 +167,11 @@ wait forever, which would turn any uncaught error on such a page into a
 - every other read, and every step of the frame-path walk, gives up after 2 s.
   A cross-origin frame that does not answer is no evidence, and a site frame
   that does not answer counts as a hidden entry;
+- every navigation to `about:blank` gives up after 10 s instead of throwing.
+  A renderer kept permanently busy (a cross-origin embed in an endless loop
+  shares the page's renderer under Playwright's Chromium) never finishes that
+  navigation, so without the limit the run hangs to the spawn timeout with
+  the crash unnamed;
 - after the last route, anything still held is settled as the site's.
 
 **Each route ends on `about:blank`.** Navigating to route B keeps route A's
