@@ -330,7 +330,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `node scripts/land-prs.mjs 995`, then dispatch `fleet-config-drift.yml` once
     on `main` (the brief's live proof: control passes, summary total = roster
     size, issue filed to match).
-25. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** — two
+25. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** —
+    answered 2026-09-29: land as it is, no third round; #989 lands with this line. Two
     review rounds each found a real defect, so #989 is held for your call, not a
     third round. Round 1 (on `ce4cb9db`) found a behaviour defect: the walk
     trusted `child.pid` after an early-exiting wrapper could have been reaped,
