@@ -38,25 +38,44 @@ describe("json5ToJson", () => {
   });
 });
 
-describe("presetFiles uses Renovate's file naming", () => {
+describe("presetFiles follows Renovate 44's preset parser (lib/config/presets/parse.ts, util.ts @ 44.0.0)", () => {
   it.each([
     ["github>reddoorla/.github:renovate-config", "reddoorla/.github", ["renovate-config.json"]],
     ["local>reddoorla/.github", "reddoorla/.github", ["default.json", "renovate.json"]],
+    // A bare owner/repo is a `local>` preset in Renovate's parser.
+    ["reddoorla/.github:renovate-config", "reddoorla/.github", ["renovate-config.json"]],
     ["github>o/r//configs/base", "o/r", ["configs/base.json"]],
     ["github>o/r:thing.json5", "o/r", ["thing.json5"]],
+    ["github>o/r:thing.jsonc", "o/r", ["thing.jsonc"]],
     ["github>o/r:thing(arg)", "o/r", ["thing.json"]],
   ])("%s", (preset, repo, files) => {
-    expect(presetFiles(preset)).toEqual({ repo, files });
+    expect(presetFiles(preset)).toEqual({ kind: "file", repo, files });
   });
 
+  // Renovate's own built-in groups. Every one of the 17 group files at 44.0.0
+  // was grepped for `baseBranch` (0 hits), so these are RESOLVED — to "sets
+  // no base branch" — not skipped, and they print nothing.
   it.each([
     "config:recommended",
     "group:allNonMajor",
-    "github>o/r#v1",
-    "github>o/r:file/sub",
-    "npm-pkg",
-  ])("%s is not resolvable here (built-in, tagged, sub-preset, other host)", (preset) => {
-    expect(presetFiles(preset)).toBeNull();
+    ":dependencyDashboard",
+    "helpers:pinGitHubActionDigests",
+  ])("%s is built-in", (preset) => {
+    expect(presetFiles(preset)).toEqual({ kind: "builtin" });
+  });
+
+  it.each([
+    ["github>o/r#v1", "pinned to a tag"],
+    ["github>o/r//path/name#v1", "pinned to a tag"],
+    ["github>o/r:file/sub", "sub-preset"],
+    ["github>o/r//path:name", "sub-preset"],
+    ["gitlab>o/r", "not hosted on GitHub"],
+    ["gitea>o/r", "not hosted on GitHub"],
+    ["https://example.com/preset.json", "not hosted on GitHub"],
+    ["renovate-config-foo", "npm"],
+    ["@scope/renovate-config", "npm"],
+  ])("%s is SKIPPED with a reason", (preset, why) => {
+    expect(presetFiles(preset)).toEqual({ kind: "skipped", why: expect.stringContaining(why) });
   });
 });
 
@@ -78,7 +97,25 @@ describe("readRenovateBaseBranches", () => {
       reason: "no Renovate config file",
       unreadPresets: [],
     });
-    expect(r.reads).toEqual(RENOVATE_CONFIG_FILES.map((f) => `o/r:${f}`));
+    // Pinned LITERALLY, not derived from RENOVATE_CONFIG_FILES: this is
+    // Renovate 44's `getConfigFileNames("github")` (lib/config/app-strings.ts
+    // @ 44.0.0 — `.gitlab/*` filtered out on GitHub, `.jsonc` second). A list
+    // compared against itself could never catch a missing name.
+    const expected = [
+      "renovate.json",
+      "renovate.jsonc",
+      "renovate.json5",
+      ".github/renovate.json",
+      ".github/renovate.jsonc",
+      ".github/renovate.json5",
+      ".renovaterc",
+      ".renovaterc.json",
+      ".renovaterc.jsonc",
+      ".renovaterc.json5",
+      "package.json",
+    ];
+    expect([...RENOVATE_CONFIG_FILES]).toEqual(expected);
+    expect(r.reads).toEqual(expected.map((f) => `o/r:${f}`));
   });
 
   it("package.json counts only with a `renovate` key", async () => {
@@ -124,6 +161,45 @@ describe("readRenovateBaseBranches", () => {
       state: "unverified",
       reason: expect.stringContaining("not a list of strings"),
     });
+  });
+
+  it("a preset's OWN value beats anything its nested `extends` sets", async () => {
+    // Renovate resolves a preset's extends first and then applies the preset's
+    // own keys over them, so P's ["x"] must win over Q's ["y"].
+    const r = reader({
+      "o/r:renovate.json": JSON.stringify({ extends: ["github>o/p"] }),
+      "o/p:default.json": JSON.stringify({ extends: ["github>o/q"], baseBranchPatterns: ["x"] }),
+      "o/q:default.json": JSON.stringify({ baseBranchPatterns: ["y"] }),
+    });
+    expect(await readRenovateBaseBranches("o/r", r)).toEqual({
+      state: "configured",
+      source: "baseBranchPatterns in github>o/p",
+      patterns: ["x"],
+      unreadPresets: [],
+    });
+  });
+
+  it("every preset this audit cannot follow is NAMED; a built-in one is not", async () => {
+    const r = reader({
+      "o/r:renovate.json": JSON.stringify({
+        extends: [
+          "config:recommended",
+          "github>o/pinned#v2",
+          "github>o/r:file/sub",
+          "gitlab>o/elsewhere",
+          "renovate-config-foo",
+        ],
+      }),
+    });
+    const out = await readRenovateBaseBranches("o/r", r);
+    expect(out.state).toBe("default-only");
+    if (out.state === "unverified") throw new Error("unreachable");
+    expect(out.unreadPresets).toEqual([
+      expect.stringMatching(/^renovate-config-foo \(npm/),
+      expect.stringMatching(/^gitlab>o\/elsewhere \(not hosted on GitHub/),
+      expect.stringMatching(/^github>o\/r:file\/sub \(sub-preset/),
+      expect.stringMatching(/^github>o\/pinned#v2 \(pinned to a tag/),
+    ]);
   });
 
   it("a refused or broken PRESET is skipped and NAMED, never unverified — and an earlier preset still counts", async () => {

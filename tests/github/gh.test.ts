@@ -730,6 +730,24 @@ describe("makeGitHub.branchRequiredChecks (#892: what requires CI on a Renovate 
       await makeGitHub({ token: "T", spawn: gated.spawn }).branchRequiredChecks("o/r", "staging"),
     ).toEqual({ rules: [], classicContexts: ["ci / ci", "build"] });
 
+    // "off" is not a gate even when contexts are listed: enforcement is what
+    // binds, and a list with nothing enforcing it blocks no merge.
+    const offWithContexts = JSON.stringify({
+      enabled: true,
+      required_status_checks: {
+        enforcement_level: "off",
+        contexts: ["ci / ci"],
+        checks: [{ context: "ci / ci" }],
+      },
+    });
+    const listedButOff = routed({ branch: { stdout: offWithContexts }, rules: { stdout: "" } });
+    expect(
+      await makeGitHub({ token: "T", spawn: listedButOff.spawn }).branchRequiredChecks(
+        "o/r",
+        "staging",
+      ),
+    ).toEqual({ rules: [], classicContexts: [] });
+
     const off = routed({ branch: { stdout: classicOff }, rules: { stdout: "deletion\n" } });
     expect(
       await makeGitHub({ token: "T", spawn: off.spawn }).branchRequiredChecks("o/r", "staging"),

@@ -948,6 +948,24 @@ describe("Renovate base branches are judged too (#892)", () => {
     expect(deps.fileReads).toEqual([`${WEBSITE}:renovate.json`]);
   });
 
+  it("reads renovate.jsonc — Renovate 44's SECOND config name — so a base branch there is not missed", async () => {
+    // JSONC is JSON with comments (and, in practice, trailing commas).
+    const jsonc = `{
+  // staging is where integration happens
+  "extends": ["${PRESET}"],
+  "baseBranchPatterns": ["staging"], /* the one non-default base */
+}
+`;
+    const deps = website(
+      { [`${WEBSITE}:renovate.jsonc`]: jsonc },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("baseBranchPatterns in renovate.jsonc");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+  });
+
   it("reads .github/renovate.json and renovate.json5 (comments, bare keys, trailing commas)", async () => {
     const json5 = `// staging is the integration branch
 {

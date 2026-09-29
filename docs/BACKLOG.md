@@ -118,7 +118,6 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 | P1-2  | _(in progress 09-29, `wip/sc942`)_ **#942**: a Search Console lookup that finds no property is recorded as `unknown`, not "fail: Not on page 1"                                                             | 🟢   | S      | `src/reports/auto-tick.ts:182-208`, `src/reports/draft.ts`, `src/reports/search/client.ts:226`       | `propertyFound:false` → `unknown` "No Search Console property matched this site"; mutation-tested both ways |
 | P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done, #962 `wip/roster889`                                                                                 | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts                |
 | P1-4  | _(in progress 09-29, `wip/chips941`)_ **#941**: watch filter chips drop sites that also have an attention item                                                                                              | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:164-180`                                                             | A site with one attention item and one watch condition carries both tags; tier stays `attention`            |
-| P1-6  | _(in progress 09-29, `wip/prot892`)_ **#892**: protection-audit judges the branch Renovate merges into, not only the default branch (reddoor-website `staging` has no required check)                       | 🟢   | S–M    | `src/audits/protection*`, `tests/audits/protection-coverage.test.ts`                                 | reddoor-website's `staging` shows as a gap. Applying the staging ruleset stays 🔴.                          |
 | P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                         | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                        |
 | P1-8  | **#907**: the prospect-audit daily cap binds before the spend                                                                                                                                               | 🟢   | M      | `src/db/prospect-audits.ts:27`, `src/dashboard/prospect-audit-trigger.ts`                            | N concurrent starts admit only cap − count; a crashed run frees its slot after the stale window             |
 | P1-11 | Tracking-issue bodies are never rewritten (S2 leftover): the issue body keeps the first failure's run URL forever (#895's body still named 09-21's run when it closed)                                      | 🟢   | S      | the open steps in `.github/workflows/*.yml`                                                          | Body updated with `gh issue edit` on each failure                                                           |
@@ -250,6 +249,11 @@ Ordered by what unblocks the most. Each line is the exact ask.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — P1-6 / #892: `protection-audit` judges every branch Renovate
+  merges into, not only the default branch (#TBD, `wip/prot892`).
+  reddoor-website's `staging` is expected to show as the one new gap;
+  applying its ruleset stays 🔴.
 
 - 2026-09-29 — P1-10: forward pointers to #874 on the three meta-week docs that
   recommended deleting `FIGMA_PAT` (the docs half; the credential half stays

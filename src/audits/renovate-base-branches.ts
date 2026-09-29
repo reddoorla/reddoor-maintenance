@@ -39,18 +39,25 @@
  * renovate.json of its own is the normal case and changes nothing here.
  */
 
-/** Renovate's own config-file search order (lib/config/app-strings.ts); the
- *  FIRST file present wins and the rest are never read, exactly as Renovate
- *  does. `package.json` counts only when it carries a `renovate` key. */
+/** Renovate's own config-file search order ON GITHUB, copied from
+ *  renovatebot/renovate@44.0.0 `lib/config/app-strings.ts` — the major the
+ *  fleet runs (renovatebot/github-action v46 defaults to Renovate 44). There,
+ *  `configFilePatterns` brace-expands `renovate.json{,c,5}` and friends, and
+ *  `getConfigFileNames("github")` drops every `.gitlab/*` name. The FIRST file
+ *  present wins and the rest are never read, exactly as Renovate does.
+ *  `package.json` counts only when it carries a `renovate` key. The test pins
+ *  this list literally; re-check it against app-strings.ts on a Renovate
+ *  major bump. */
 export const RENOVATE_CONFIG_FILES = [
   "renovate.json",
+  "renovate.jsonc",
   "renovate.json5",
   ".github/renovate.json",
+  ".github/renovate.jsonc",
   ".github/renovate.json5",
-  ".gitlab/renovate.json",
-  ".gitlab/renovate.json5",
   ".renovaterc",
   ".renovaterc.json",
+  ".renovaterc.jsonc",
   ".renovaterc.json5",
   "package.json",
 ] as const;
@@ -91,7 +98,8 @@ function errText(e: unknown): string {
  * single-quoted strings, bare identifier keys, trailing commas — rewritten as
  * JSON. Deliberately a subset (no hex, no leading `+`, no multi-line strings):
  * anything outside it fails the JSON.parse that follows and reads as
- * unverified, never as "no base branches".
+ * unverified, never as "no base branches". JSONC (`.jsonc`: JSON plus
+ * comments and trailing commas) is a strict subset of what this accepts.
  */
 export function json5ToJson(text: string): string {
   const n = text.length;
@@ -156,29 +164,100 @@ export function parseRenovateConfigText(text: string): unknown {
   }
 }
 
+/** Renovate's built-in preset groups (`config:`, `group:`, `:x`, …), from
+ *  renovatebot/renovate@44.0.0 `lib/config/presets/parse.ts`. Every group file
+ *  under `lib/config/presets/internal/` at that tag was grepped for
+ *  `baseBranch` with zero hits, so a built-in preset is RESOLVED — to "sets no
+ *  base branch" — not skipped. */
+const BUILTIN_PRESET_GROUPS = [
+  "abandonments",
+  "compatibility",
+  "config",
+  "customManagers",
+  "default",
+  "docker",
+  "global",
+  "group",
+  "helpers",
+  "mergeConfidence",
+  "monorepo",
+  "npm",
+  "packages",
+  "preview",
+  "replacements",
+  "schedule",
+  "security",
+  "workarounds",
+];
+
+export type PresetLocation =
+  | { kind: "file"; repo: string; files: string[] }
+  | { kind: "builtin" }
+  | { kind: "skipped"; why: string };
+
 /**
- * Where a preset's file lives, or `null` when this audit cannot resolve it.
+ * Where a preset's file lives, following Renovate 44's own parser
+ * (`lib/config/presets/parse.ts` + `util.ts` fetchPreset @ 44.0.0).
  *
- * Resolvable: `github>` and `local>` presets without a `#tag` or sub-preset —
- * read at the preset repo's default branch, with Renovate's file naming
- * (`default.json` then `renovate.json` for a bare repo, `<name>.json` for
- * `:name`, `<path>.json` for `//path`). Everything else is skipped: Renovate's
- * built-in presets (`config:recommended`, `group:allNonMajor`, …) never set a
- * base branch, and a tagged, npm-hosted or other-platform preset is out of
- * reach of a default-branch reader. That is a known blind spot, not a silent
- * pass on what we could read.
+ * `file`: a `github>`, `local>` or bare `owner/repo` preset (bare is `local>`
+ * in Renovate's parser), read at that repo's default branch with Renovate's
+ * naming — `default.json` then `renovate.json` for no name, `<name>.json`
+ * unless it already ends `.json`/`.jsonc`/`.json5`, and `<path>/<name>` for
+ * `//path/name`.
+ *
+ * `builtin`: see BUILTIN_PRESET_GROUPS.
+ *
+ * `skipped`, with the reason: pinned to a `#tag`, a sub-preset (a key INSIDE
+ * a preset file), hosted off GitHub (gitlab>, gitea>, forgejo>, http), or on
+ * npm. A default-branch file reader cannot follow these. The caller names
+ * every one in `unreadPresets`, so a skip is always visible, never silent.
  */
-export function presetFiles(preset: string): { repo: string; files: string[] } | null {
-  const m =
-    /^(?:github|local)>([^/\s:#()]+\/[^/\s:#()]+)(?:\/\/([^\s:#()]+)|:([^\s/:#()]+))?(?:\(.*\))?$/.exec(
-      preset,
-    );
-  if (!m) return null;
-  const [, repo, path, name] = m;
-  const withExt = (f: string) => (/\.json5?$/.test(f) ? f : `${f}.json`);
-  if (path) return { repo: repo!, files: [withExt(path)] };
-  if (name && name !== "default") return { repo: repo!, files: [withExt(name)] };
-  return { repo: repo!, files: ["default.json", "renovate.json"] };
+export function presetFiles(preset: string): PresetLocation {
+  let str = preset;
+  let onGitHub = false;
+  for (const prefix of ["github>", "local>"]) {
+    if (str.startsWith(prefix)) {
+      onGitHub = true;
+      str = str.slice(prefix.length);
+    }
+  }
+  if (!onGitHub) {
+    if (/^(gitlab|gitea|forgejo)>/.test(str) || /^https?:\/\//.test(str))
+      return { kind: "skipped", why: "not hosted on GitHub" };
+    if (!str.startsWith("@") && !str.startsWith(":") && str.includes("/")) onGitHub = true;
+  }
+  str = str.replace(/^npm>/, "");
+  if (str.includes("(")) str = str.slice(0, str.indexOf("("));
+  if (str.startsWith(":") || BUILTIN_PRESET_GROUPS.some((g) => str.startsWith(`${g}:`)))
+    return { kind: "builtin" };
+  if (!onGitHub) return { kind: "skipped", why: "npm-hosted preset" };
+
+  const withExt = (f: string) => (/\.json[5c]?$/.test(f) ? f : `${f}.json`);
+  const named = (repo: string, prefix: string, name: string): PresetLocation =>
+    name === "default"
+      ? { kind: "file", repo, files: [`${prefix}default.json`, `${prefix}renovate.json`] }
+      : { kind: "file", repo, files: [`${prefix}${withExt(name)}`] };
+  const tagged: PresetLocation = {
+    kind: "skipped",
+    why: "pinned to a tag; this audit reads default branches only",
+  };
+
+  if (str.includes("//")) {
+    if (str.includes(":")) return { kind: "skipped", why: "sub-preset with a path" };
+    const m = /^([\w.-]+\/[\w.-]+)\/\/(?:([\w\-./]+)\/)?([\w\-.]+)(?:#([\w\-./]+?))?$/.exec(str);
+    if (!m) return { kind: "skipped", why: "preset name this audit cannot parse" };
+    const [, repo, path, name, tag] = m;
+    if (tag) return tagged;
+    return named(repo!, path ? `${path}/` : "", name!);
+  }
+  const m = /^([\w.-]+\/[\w.-]+)(?::([\w\-.+/]+))?(?:#([\w\-./]+?))?$/.exec(str);
+  if (!m) return { kind: "skipped", why: "preset name this audit cannot parse" };
+  const [, repo, name = "default", tag] = m;
+  if (tag) return tagged;
+  const [fileName, subPreset] = name.split("/");
+  if (subPreset !== undefined)
+    return { kind: "skipped", why: `sub-preset (a key inside ${fileName}.json)` };
+  return named(repo!, "", fileName!);
 }
 
 function ownBaseBranches(
@@ -218,10 +297,14 @@ async function resolveBaseBranches(
   for (const preset of [...presets].reverse()) {
     if (typeof preset !== "string") continue;
     const loc = presetFiles(preset);
-    if (!loc) continue;
-    const key = `${loc.repo}:${loc.files.join("|")}`;
+    if (loc.kind === "builtin") continue;
+    const key = loc.kind === "file" ? `${loc.repo}:${loc.files.join("|")}` : preset;
     if (seen.has(key)) continue;
     seen.add(key);
+    if (loc.kind === "skipped") {
+      unread.push(`${preset} (${loc.why})`);
+      continue;
+    }
     try {
       if (depth >= PRESET_DEPTH_LIMIT)
         throw new Error(`preset chain deeper than ${PRESET_DEPTH_LIMIT}`);
