@@ -223,12 +223,40 @@ Ordered by what unblocks the most. Each line is the exact ask.
     (`maintenance-email/template.ts` → `email-sections.ts`). With #957, LAHI's
     email will say "CMS Checked ✓" for a site with no CMS, as Form Functionality
     already does for sites without a form. Decide whether `n/a` rows render
-    differently or drop out.
-18. **Standing product calls** — #943 (what "Search Console set up" means),
-    #948 (hydration signal), #690 (pnpm pin questions), #672 (cockpit design),
-    #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
-    #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
-    #773 (local-only git objects).
+    differently or drop out. **Answered 2026-09-29: they drop out**, neither ✓
+    nor "N/A". Done in #1015, on every render path (send, refresh preview,
+    stored draft body, `report --preview`, `selftest email`). A draft stored
+    before that release keeps its old body until "refresh preview". The next
+    [TEST] send is the change's first real check. The Announcement email's
+    checklist is unchanged, since it is not evidence and not named here.
+18. **Standing product calls** — answered 2026-09-29, except #773:
+    - #943 (what "Search Console set up" means): evidence-based; a worker is
+      building it.
+    - #948 (hydration signal): audit the built preview (`vite preview`), not
+      the dev server; queued until the a11y PRs in flight land.
+    - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
+      101 self- or dead-host comparers removed, #728 closed.
+    - #776: closed as done.
+    - #711: closed into `CLAUDE.md` ("Prove the instrument", the paragraph on
+      a derived view read as the state).
+    - #690 (pnpm pin questions): Renovate owns the pin. Verified 2026-09-29
+      across all 27 public, non-archived `reddoorla` repos: 21 are on
+      `pnpm@12.5.1` via merged Renovate PRs (reddoor-starter#157 and 20
+      more, 2026-09-22), and the 5 still on `pnpm@11.11.0` (29-navy,
+      erp-industrial, reddoor-maintenance, reddoor-md-pdf, roalson-interests)
+      each list "update pnpm to v12" under Awaiting Schedule on their
+      Dependency Dashboard; `.github` has no `package.json`. Closed with the
+      table.
+    - #672 (cockpit design): design brief first. Brief written, awaiting the
+      operator's markup:
+      [`docs/cockpit-design-brief-2026-09.md`](cockpit-design-brief-2026-09.md).
+    - #674 (design-review tool): mine the rules only. Rules mined in
+      `docs/design-review-rules-2026-09.md` (#1012). Answered 2026-09-29:
+      rule 23 became a flag, six single-site rules and five seen-once rules
+      kept, and the full-bleed opt-in is `data-bleed`. The second pass (Discord,
+      Figma, MarkUp) waits on credentials, Figma team or project IDs, and a
+      private home for the corpus; the file's last section lists them.
+    - Still open, on the laptop: #773 (local-only git objects).
 19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
     rule, then, after two sessions built it in parallel (`f6d5ee8c` on #975,
     `7925133d` on `claude/digest-send-exact-rule`), "do yours": #975 lands
@@ -386,10 +414,15 @@ verdict is its only input, because no client and no check sees the email.
 
 - 2026-09-29 — P1-3 / #912, PR 2 (the surface): a fresh `url_resolves = 'fail'`
   on any non-archived row reaches the digest as `url-unresolved:<siteId>`,
-  naming the url and the status; stamps older than three days (or none) roll into
-  one `url-probe-stale` fleet item whose metric is the count; `url not deployed`
+  naming the url and the status; stale stamps (older than three days, unreadable, or never
+  set while no row in the fleet is fresh) roll into one `url-probe-stale` fleet item whose metric is the count; `url not deployed`
   in Accepted Watch Conditions mutes only the failure; maintained rows also watch
   on the cockpit. PR 1 (#986) stores the verdict.
+
+- 2026-09-29 — Operator decisions 17: a checklist row whose evidence is
+  `n/a` (no CMS, no form, no CI) is dropped from the client Maintenance and
+  Testing email on every render path, and a list that empties takes its heading
+  with it (#1015).
 
 - 2026-09-29 — #969: a timed-out spawn reaps the process groups its
   descendants detached into (Playwright's webServer, Chrome under
