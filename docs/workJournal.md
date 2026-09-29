@@ -5849,7 +5849,7 @@ manual `node --test matching/probe-ref.test.mjs` is 24/25 on both the branch and
 It predates the change and is not in CI, and it is left for whoever next touches
 beachfront matching.
 
-## 2026-09-29 — #674: the operator's cut of the mined rules, and what the second pass needs (#PRNUM)
+## 2026-09-29 — #674: the operator's cut of the mined rules, and what the second pass needs (#1020)
 
 The operator answered #1012 the same evening. The decisions are recorded at the top of `docs/design-review-rules-2026-09.md`.
 
