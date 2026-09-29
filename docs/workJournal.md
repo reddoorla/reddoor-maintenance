@@ -4819,3 +4819,124 @@ The operator asked for Search Console to count as part of site launch, the day a
 **One adjacent inconsistency, not changed.** Search enrichment only runs for a site that is "analytics-enrolled", meaning it has a `ga4PropertyId` or a `searchQuery` (`src/reports/draft.ts:487`). A site that opts out of GA4 but records a Search Console property will still get no search section. No site is in that state today. Widening enrollment to include `searchConsoleProperty` changes report content, so it needs its own change.
 
 **Proof.** Eight mutations, each failing a test: the check always true, the opt-out ignored in setup, no watch, the watch ignoring the opt-out key, the option missing from the editor, a blank property counting as set, the filter chip removed, and a GA4 opt-out leaking into Search Console. The end-to-end editor test now writes both opt-outs into an in-memory Turso and reads both back. `runbook-anchors` caught `continuity.md:336` pointing at `site-details.ts` two lines early. Two `fleet-cockpit.ts` ranges below the new block it let through on overlap; I checked those by hand and re-numbered all three.
+
+## 2026-09-29 — The a11y gate scrolls before axe, attributes third-party frames only on evidence, and runs axe without its CSSOM preload (roalson-interests#100, #52; PR #950, `f3c564a`…`892660c`)
+
+The generated a11y spec never scrolled, so a `use:animateIn` reveal below the fold was still
+at its inline `opacity: 0` when axe ran. axe does not measure contrast through that, so the
+text dropped out of the result instead of failing it. A live fixture with two below-fold
+reveals at 2.32:1 came back as 0 violations: a green gate over two failures. The spec now
+runs `revealBelowFold` before `analyze()`:
+
+- it scrolls in half-viewport steps with `behavior: "instant"`, re-reading the page height
+  at every stop;
+- it returns to the top;
+- it then settles in a loop until no finite Web Animation is running, or 5 s are spent.
+
+Each of those choices exists because the simpler version was measured wrong:
+
+- Whole-viewport steps never see a reveal observed with a -25% bottom `rootMargin`.
+- A plain `scrollTo` under a site's `scroll-behavior: smooth` reveals nothing at all.
+- A single `getAnimations()` read waits on a delayed Svelte 5 intro's placeholder, not the
+  real fade that its `onfinish` starts a frame later.
+- The first fixture for that last case passed the broken code, because a longer, unrelated
+  animation in the same list outlived it. A test only discriminates once its tail outlives
+  everything else being waited on.
+
+All of this is held by `tests/audits/a11y-live-spec.test.ts`, the first test that runs the
+generated spec in Chromium. Every earlier test read the spec as a string. It runs three
+throwaway sites in about 40 s.
+
+Separately (#52), axe's CSSOM preload re-fetched cross-origin stylesheets by XHR, and a CSP
+that allows Google Fonts in `style-src` but not `connect-src` logged one real `connect-src`
+report per axe run. That is roalson's CSP, and the report was measured on its own dev
+server. With `preload: false` the count drops to 0. This fixes the audit command only.
+roalson moved its 16 own AxeBuilder call sites onto a `preload: false` helper in
+roalson-interests#194. The gate loses nothing it could fail on: in axe-core 4.13 the only
+preload rules are `css-orientation-lock` (experimental, never run under the gate's tags) and
+`no-autoplay-audio` (reviewOnFail). A unit test holds that against axe's own rule table.
+
+The pass created a new problem, and it took four review rounds to get the answer right. The
+pass loads lazy third-party iframes (beachfront's Google Maps footer is on every route), so
+their documents' violations and uncaught errors reached the gate for the first time. Three
+approaches were tried and abandoned:
+
+1. `{ iframes: false }` is silently ignored by @axe-core/playwright 4.13's default mode.
+   Measured, the results were identical to the default.
+2. Legacy mode skipped cross-origin frames, but it also dropped `frame-focusable-content`
+   (WCAG 2.1.1), which axe can only evaluate inside the frame and which is the site's own
+   defect.
+3. Classifying page errors by the first URL in their stack downgraded a site's own crash
+   inside a library it loads from a CDN (Vimeo's `player.js`, Turnstile, Maps) to a warn.
+   That is the green-granting shape this repo's CLAUDE.md forbids.
+
+What held is one rule: something is the third party's only on positive evidence that it
+happened inside a cross-origin frame.
+
+- **Frame nodes.** The spec walks each nested node's frame path, through shadow roots and
+  same-origin wrapper frames, and reads the URL each frame actually loaded. So a srcdoc
+  facade stays the site's, and a third party behind a redirect is dropped.
+- **Errors.** Errors are attributed by a per-frame error log installed with
+  `addInitScript`, never by the stack.
+- **Kept.** `frame-focusable-content` and anything that cannot be resolved stay the site's.
+- **Recorded.** What is set aside goes into `frameNodesDropped` and `thirdPartyErrors` and
+  is named in the summary. The known cost is an embed error that its own window saw only as
+  `Script error.`: it cannot be matched, so it stays the site's and fails.
+
+The instrument also had to stop hanging:
+
+- Playwright lists a lazy iframe that never loaded, with an empty URL and no document, and
+  an unbounded read of its log waited forever. Every frame read and walk step is now bounded
+  at 2 s, and frames with no document are skipped.
+- A renderer kept busy by an embed's endless loop made the final `about:blank` navigation
+  wait forever. Every such navigation is now bounded at 10 s.
+- Every route ends on `about:blank`, so a late error cannot be charged to the next route.
+  The "while the reveal pass ran" label marks a time window, not a cause.
+- After the last route, anything still held is settled as the site's.
+- Each route's pass is recorded as `reveals`, and a capped, unsettled or off-the-top pass
+  warns by name.
+
+Honest accounting on roalson, the site that reported #100:
+
+- On its warm dev server the old harness usually audited pre-hydration SSR markup, where
+  nothing is hidden. That was 216 contrast nodes on `/dev/a11y-fixtures`.
+- The loss #100 describes appeared only when hydration won the race: 199 nodes, with all 9
+  featured-card nodes gone. The new harness measured 216 in every warm and cold run.
+- The bump keeps roalson green: 0 violations across 5 routes, every pass complete, nothing
+  dropped.
+
+Still not covered, and written down in the changeset:
+
+- reveals that toggle both ways;
+- CSS-keyframe reveals, whose forwards fill the injected `animation:none` cancels;
+- reveals delayed by a bare `setTimeout`;
+- inner scroll containers;
+- a mount that lands after the pass has gone by.
+
+What the tests hold:
+
+- Every choice above is held by a mutation that turns a named test red.
+- Not held: the exact length of the waits (two frames and a task is a margin).
+- Held by unit tests only: the 400-step cap, the 2 s read limit (a fake frame that never
+  answers, plus call-site assertions) and the 10 s `about:blank` limit (a spec assertion).
+
+Open and outside this change:
+
+- the audit's lack of a generic hydration wait (#948);
+- the injected snap sheet's need for `'unsafe-inline'` in `style-src` (#949);
+- the `spawn.test` zombie flake (#960);
+- the fixture or dev server left orphaned after a spawn timeout (#969).
+
+Beliefs corrected on contact:
+
+- `AxeBuilder.options()` replaces the options object. Chained after `withTags()`, it
+  silently drops the WCAG filter, and the first live run in that order was green.
+- "Skip cross-origin frames" looked conservative, but it silenced a WCAG A rule whose defect
+  is in the site's markup. The right cut was per node, after the fact.
+- "The stack says where an error came from": it says whose code was running, not whose page
+  crashed.
+- "A frame that cannot be read is no evidence" was true but incomplete. The read could
+  fail by never returning, and an instrument that can hang is a red that never arrives.
+- Claims about what a test holds were wrong twice after they had been "verified" by
+  reasoning. Every claim in the changeset is now backed by a mutation that was actually run
+  against the final head.
