@@ -7,7 +7,8 @@ import {
   nextReadySince,
   DIGEST_HEARTBEAT_DAYS,
   EMPTY_SEND_LOG,
-  sentFrom,
+  nextSent,
+  LIGHTHOUSE_WORSE_POINTS,
   type DigestLine,
   type DigestSendLog,
 } from "../../src/alerts/digest-send.js";
@@ -20,9 +21,37 @@ const line = (key: string, metric = 1, asks?: string[]): DigestLine => ({
 
 const sent = (lines: DigestLine[], sentOn = "2026-09-20"): DigestSendLog => ({
   sentOn,
-  sent: sentFrom(lines),
+  sent: nextSent({}, lines, sentOn),
   readySince: {},
 });
+
+function days(start: string, n: number): string[] {
+  const t = Date.parse(`${start}T00:00:00Z`);
+  return Array.from({ length: n }, (_, i) =>
+    new Date(t + i * 86_400_000).toISOString().slice(0, 10),
+  );
+}
+
+function replay(perDay: DigestLine[][], start = "2026-10-01"): string[] {
+  let log: DigestSendLog = EMPTY_SEND_LOG;
+  const out: string[] = [];
+  days(start, perDay.length).forEach((today, i) => {
+    const lines = perDay[i]!;
+    if (lines.length === 0) {
+      log = { ...log, sent: nextSent(log.sent, lines, today) };
+      out.push("empty");
+      return;
+    }
+    const d = decideDigestSend(lines, log, today);
+    log = {
+      sentOn: d.send ? today : log.sentOn,
+      sent: nextSent(log.sent, lines, today),
+      readySince: {},
+    };
+    out.push(d.send ? d.reason : "skip");
+  });
+  return out;
+}
 
 describe("decideDigestSend", () => {
   it("sends the first time, when nothing has been sent", () => {
@@ -53,31 +82,31 @@ describe("decideDigestSend", () => {
     );
   });
 
-  it("an item that left and came back since the last send is not news", () => {
-    expect(decideDigestSend([line("b")], sent([line("a"), line("b")]), "2026-09-22").send).toBe(
+  it("a Lighthouse deficit is worse only past its tolerance", () => {
+    const log = sent([{ ...line("lh", 30), tolerance: 5 }]);
+    expect(decideDigestSend([{ ...line("lh", 35), tolerance: 5 }], log, "2026-09-21").send).toBe(
       false,
+    );
+    expect(decideDigestSend([{ ...line("lh", 36), tolerance: 5 }], log, "2026-09-21").reason).toBe(
+      "worse",
     );
   });
 
-  it("sends when a metric is worse than at the last send, not than yesterday", () => {
+  it("sends when a metric beats its baseline", () => {
     const log = sent([line("lh", 40)]);
     expect(decideDigestSend([line("lh", 41)], log, "2026-09-21").reason).toBe("worse");
     expect(decideDigestSend([line("lh", 39)], log, "2026-09-21").send).toBe(false);
-    expect(decideDigestSend([line("lh", 40)], log, "2026-09-22").send).toBe(false);
   });
 
   it("sends when an item's ask gains a part, not when it loses one", () => {
-    const log = sent([line("p", 2, ["set Report recipients (To)", "health-gate: X (unknown)"])]);
+    const log = sent([line("p", 2, ["set Report recipients (To)", "health-gate: X"])]);
     expect(
-      decideDigestSend(
-        [line("p", 2, ["add a Header image", "health-gate: X (unknown)"])],
-        log,
-        "2026-09-21",
-      ).reason,
-    ).toBe("new-ask");
-    expect(
-      decideDigestSend([line("p", 1, ["health-gate: X (unknown)"])], log, "2026-09-21").send,
-    ).toBe(false);
+      decideDigestSend([line("p", 2, ["add a Header image", "health-gate: X"])], log, "2026-09-21")
+        .reason,
+    ).toBe("added");
+    expect(decideDigestSend([line("p", 1, ["health-gate: X"])], log, "2026-09-21").send).toBe(
+      false,
+    );
   });
 
   it("sends a heartbeat on the seventh day of silence, not the sixth", () => {
@@ -89,6 +118,68 @@ describe("decideDigestSend", () => {
       reason: "heartbeat",
     });
     expect(DIGEST_HEARTBEAT_DAYS).toBe(7);
+  });
+});
+
+describe("day sequences (P1-20 review round 2)", () => {
+  it("an item mailed, fixed for two runs, then back is mailed again at once", () => {
+    const bounce = [line("notify-bounce:s1", 3)];
+    expect(
+      replay([bounce, [], [], [line("notify-bounce:s1", 2)], [line("notify-bounce:s1", 2)]]),
+    ).toEqual(["first", "empty", "empty", "added", "skip"]);
+  });
+
+  it("a one-run flap (a score hovering at the floor) is not news", () => {
+    const lh = line("lighthouse:s1:performance", 26);
+    const other = line("ci:s2");
+    expect(replay([[lh, other], [other], [lh, other], [other], [lh, other]])).toEqual([
+      "first",
+      "skip",
+      "skip",
+      "skip",
+      "skip",
+    ]);
+  });
+
+  it("a fixed ask part that comes back after two runs is news; after one it is not", () => {
+    const withAsk = [line("p", 1, ["set Report recipients (To)"])];
+    const without = [line("p", 1, ["add a Header image"])];
+    expect(replay([withAsk, without, withAsk])).toEqual(["first", "added", "skip"]);
+    expect(replay([withAsk, without, without, withAsk])).toEqual([
+      "first",
+      "added",
+      "skip",
+      "added",
+    ]);
+  });
+
+  it("a send does not reset baselines: six jittering scores send at most a few times in 28 days", () => {
+    const pattern = [30, 32, 34, 31, 33, 30, 34, 32, 31, 33];
+    const perDay = Array.from({ length: 28 }, (_, d) =>
+      Array.from({ length: 6 }, (_, i) => ({
+        ...line(`lighthouse:s${i}:performance`, pattern[(d * 3 + i * 7) % pattern.length]!),
+        tolerance: LIGHTHOUSE_WORSE_POINTS,
+      })),
+    );
+    expect(replay(perDay).filter((r) => r !== "skip")).toEqual([
+      "first",
+      "heartbeat",
+      "heartbeat",
+      "heartbeat",
+    ]);
+    const noTolerance = perDay.map((ls) => ls.map(({ tolerance: _, ...l }) => l));
+    expect(replay(noTolerance).filter((r) => r === "worse").length).toBeGreaterThan(0);
+  });
+
+  it("a send caused by one item does not lower another item's baseline", () => {
+    expect(
+      replay([[line("a", 30)], [line("a", 20), line("b")], [line("a", 26), line("b")]]),
+    ).toEqual(["first", "added", "skip"]);
+  });
+
+  it("a health-gate field flipping between failing and unknown is the same ask", () => {
+    const asks = [line("p", 1, ["health-gate: Maint: Uptime Checked"])];
+    expect(replay([asks, asks, asks, asks])).toEqual(["first", "skip", "skip", "skip"]);
   });
 });
 
@@ -125,12 +216,17 @@ describe("coerceSendLog", () => {
     expect(
       coerceSendLog({
         sentOn: 5,
-        sent: { a: { metric: 2, asks: ["x", 1] }, b: { metric: "3" }, c: 4 },
+        sent: {
+          a: { metric: 2, gone: "2026-10-01" },
+          b: { metric: "3" },
+          c: 4,
+          d: { metric: 1, gone: 7 },
+        },
         readySince: { x: "d", y: 3 },
       }),
     ).toEqual({
       sentOn: null,
-      sent: { a: { metric: 2, asks: ["x"] } },
+      sent: { a: { metric: 2, gone: "2026-10-01" }, d: { metric: 1 } },
       readySince: { x: "d" },
     });
   });

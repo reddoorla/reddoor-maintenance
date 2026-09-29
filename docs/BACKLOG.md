@@ -246,17 +246,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
     #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
     #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
     #773 (local-only git objects).
-19. **P1-20, the digest (#975, parked after two dirty review rounds)** — pick
-    how the digest decides what is news. It is green and full-suite clean, but
-    round 2 found (a) an item that was mailed, fixed and then recurs stays
-    silent until the weekly heartbeat, and (b) every send resets every item's
-    baseline, so six jittering Lighthouse items sent on 20 of 28 simulated
-    days. **My pick:** on every run, forget keys and ask parts no longer
-    present, so a recurrence re-sends; keep a high-water baseline for keys
-    that persist; compare health asks by field, not by status. That is about
-    30 lines plus tests on `claude/digest-send-on-change`. Say "go" and a
-    worker finishes it, or name another rule (e.g. "send on any NEW badge,
-    ignore metric changes").
+19. **P1-20, the digest (#975)** — answered 2026-09-29: "go". The proposed
+    rule landed in #975 (forget what is gone two runs, high-water baselines, a
+    5-point Lighthouse tolerance, health asks compared by field).
 
 ---
 
@@ -315,10 +307,11 @@ verdict is its only input, because no client and no check sees the email.
 
 ## Done (move items here when they land)
 
-- 2026-09-29 — P1-20: the digest sends only when an item the last send did not
-  carry appears, an item is worse than at the last send, an item's ask gains a
-  part, or weekly; repeated items carry their age and a blocked draft carries
-  the exact ask with its `/s/<slug>` path (#975).
+- 2026-09-29 — P1-20: the digest sends only when an item or ask part the
+  record does not hold appears, a metric beats its high-water baseline (a
+  Lighthouse score by more than 5 points), or weekly; what is gone two runs is
+  forgotten so a recurrence re-sends. Repeated items carry their age and a
+  blocked draft carries the exact ask with its `/s/<slug>` path (#975).
 
 - 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
   4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its

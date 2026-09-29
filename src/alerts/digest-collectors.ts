@@ -196,6 +196,20 @@ export function preflightAskParts(fails: readonly PreflightFinding[]): {
   return { fixes: [...new Set(fixes)], health: [...new Set(health)] };
 }
 
+function healthField(message: string): string {
+  const head = message.split(" — ")[0]!;
+  const m = head.match(/^(.*): (?:failing|not yet green \(.*\))$/);
+  return m ? m[1]! : head;
+}
+
+export function preflightAskKeys(fails: readonly PreflightFinding[]): string[] {
+  const keys = new Set<string>();
+  for (const f of fails) {
+    if (f.check === "health-gate") keys.add(`health-gate: ${healthField(f.message)}`);
+  }
+  return [...preflightAskParts(fails).fixes, ...keys];
+}
+
 export function preflightAsks(fails: readonly PreflightFinding[]): string[] {
   const { fixes, health } = preflightAskParts(fails);
   return health.length > 0
@@ -251,9 +265,7 @@ export function collectPreflightBlocked(
       severity: r.approvedToSend ? "critical" : "warning",
       metric: fails.length,
       ask: `${preflightAsks(fails).join("; ")}${where}, ${then}`,
-      askParts: (({ fixes, health }) => [...fixes, ...health.map((h) => `health-gate: ${h}`)])(
-        preflightAskParts(fails),
-      ),
+      askParts: preflightAskKeys(fails),
     });
   }
   return items;

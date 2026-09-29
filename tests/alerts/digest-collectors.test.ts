@@ -707,6 +707,10 @@ describe("collectPreflightBlocked", () => {
       "https://d",
     );
     expect(failing!.ask).toContain("Maint: CMS Checked (failing)");
+    expect(failing!.askParts).toContain("health-gate: Maint: CMS Checked");
+    expect(failing!.askParts!.join()).not.toMatch(/failing|unknown/);
+    expect(it0!.askParts).toContain("health-gate: Maint: CMS Checked");
+    expect(it0!.askParts).toContain("add a Header image");
     expect(failing!.ask).not.toContain("500 on /admin");
   });
 

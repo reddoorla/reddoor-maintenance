@@ -23,7 +23,8 @@ import {
   ageLabel,
   daysBetween,
   decideDigestSend,
-  sentFrom,
+  nextSent,
+  LIGHTHOUSE_WORSE_POINTS,
   type DigestLine,
   nextReadySince,
   EMPTY_SEND_LOG,
@@ -679,6 +680,7 @@ export async function runDigest(
       ...needsAttention.map((it) => ({
         key: it.key,
         metric: it.metric,
+        ...(it.kind === "lighthouse" ? { tolerance: LIGHTHOUSE_WORSE_POINTS } : {}),
         ...(it.askParts ? { asks: it.askParts } : {}),
       })),
     ];
@@ -693,7 +695,11 @@ export async function runDigest(
       await persistDigestState(next, options.digestState?.write, () =>
         writeRollupOnce(options, today),
       );
-      await writeSendLogSafely(options, { ...sendLog, readySince }, "empty");
+      await writeSendLogSafely(
+        options,
+        { ...sendLog, sent: nextSent(sendLog.sent, digestLines, dayKey), readySince },
+        "empty",
+      );
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
     }
 
@@ -702,7 +708,11 @@ export async function runDigest(
       await persistDigestState(next, options.digestState?.write, () =>
         writeRollupOnce(options, today),
       );
-      await writeSendLogSafely(options, { ...sendLog, readySince }, decision.reason);
+      await writeSendLogSafely(
+        options,
+        { ...sendLog, sent: nextSent(sendLog.sent, digestLines, dayKey), readySince },
+        decision.reason,
+      );
       const last = sendLog.sentOn ?? "never";
       return {
         output: `Digest skipped (unchanged since ${last}; ${digestLines.length} items, heartbeat after ${DIGEST_HEARTBEAT_DAYS} days).`,
@@ -767,7 +777,7 @@ export async function runDigest(
     );
     await writeSendLogSafely(
       options,
-      { sentOn: dayKey, sent: sentFrom(digestLines), readySince },
+      { sentOn: dayKey, sent: nextSent(sendLog.sent, digestLines, dayKey), readySince },
       decision.reason,
     );
     return {

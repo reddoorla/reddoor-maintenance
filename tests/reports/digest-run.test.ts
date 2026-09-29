@@ -1113,6 +1113,20 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
     expect(w.captured).toHaveLength(2);
   });
 
+  it("an item mailed, gone for two runs and back is mailed again", async () => {
+    const w = world();
+    const withBounce = {
+      Reports: [...navy.Reports, bouncedReport()],
+      Websites: navy.Websites,
+    };
+    await run(w, withBounce, day(0));
+    await run(w, navy, day(1));
+    await run(w, navy, day(2));
+    const r = await run(w, withBounce, day(3));
+    expect(r.output).toContain("Digest sent (added)");
+    expect(w.captured).toHaveLength(2);
+  });
+
   it("a skip still writes the attention snapshot, so a resolved key drops out of it", async () => {
     const w = world();
     const withBounce = {

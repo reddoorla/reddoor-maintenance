@@ -89,7 +89,8 @@ describe("digest send log on Turso (P1-20)", () => {
     sentOn: "2026-09-28",
     sent: {
       "ready:r1": { metric: 1 },
-      "preflight:r2:pending": { metric: 2, asks: ["add a Header image"] },
+      "preflight:r2:pending": { metric: 2 },
+      "preflight:r2:pending#add a Header image": { metric: 1, gone: "2026-09-28" },
     },
     readySince: { "ready:r1": "2026-09-18" },
   };
