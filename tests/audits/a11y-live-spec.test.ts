@@ -90,6 +90,15 @@ function plainPage(title: string): string {
  *     outlasts `#waapi`: a single read waits on everything it saw, and a
  *     shorter tail would finish inside that wait and pass by accident.
  *
+ * And two about the pass itself:
+ *
+ *   - `#bar-text` is fixed to the viewport and legible (#111) only while the
+ *     page is scrolled; at the top it is #aaa. So it fails contrast only if axe
+ *     runs back at the top.
+ *   - `#grow`, a marker at 390vh, lengthens the page from 400vh to 600vh the
+ *     first time it is seen, and shows `#grown` at 560vh, itself a reveal. A
+ *     pass that read the height once would stop near 400vh and never see it.
+ *
  * `#outside-landmarks` fails axe's `region` rule, which is tagged
  * `best-practice` only. The gate asks for WCAG tags, so it must never appear;
  * if it does, the tag filter was lost. `AxeBuilder.options()` REPLACES the
@@ -112,6 +121,11 @@ const FIXTURE_PAGE = `<!doctype html>
   #gap-band { top: 180vh; height: 10vh; }
   #waapi { top: 250vh; }
   #delayed { top: 380vh; }
+  #grow { top: 390vh; height: 1px; }
+  #grown { top: 560vh; }
+  #bar { position: fixed; right: 0; bottom: 0; background: #fff; padding: 4px; }
+  #bar-text { color: #aaa; margin: 0; }
+  #bar.scrolled #bar-text { color: #111; }
 </style>
 </head>
 <body>
@@ -122,6 +136,9 @@ const FIXTURE_PAGE = `<!doctype html>
   <div class="reveal" id="gap-band"><p class="faint" id="gap-band-text">Revealed in the top three quarters of the viewport</p></div>
   <div class="reveal" id="waapi"><p id="waapi-text">Fades to a failing grey over two seconds</p></div>
   <div class="reveal" id="delayed"><p id="delayed-text">Starts fading only after a placeholder animation</p></div>
+  <div class="reveal" id="grow"></div>
+  <div class="reveal" id="grown" hidden><p class="faint" id="grown-text">Only exists once the page has grown</p></div>
+  <div id="bar"><p id="bar-text">Legible only while scrolled</p></div>
 </main>
 <div id="outside-landmarks">Outside every landmark</div>
 <script>
@@ -156,6 +173,14 @@ const FIXTURE_PAGE = `<!doctype html>
     placeholder.onfinish = () => {
       document.getElementById("delayed-text").animate(toGrey, { duration: 3000, fill: "forwards" });
     };
+  });
+  onFirstSight("grow", () => {
+    document.querySelector("main").style.height = "600vh";
+    document.getElementById("grown").hidden = false;
+  });
+  onFirstSight("grown", () => {});
+  addEventListener("scroll", () => {
+    document.getElementById("bar").classList.toggle("scrolled", scrollY > 0);
   });
 </script>
 </body>
@@ -305,6 +330,14 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
 
   it("waits for an animation that a finished animation starts (a delayed Svelte 5 intro)", () => {
     expect(contrastTargets()).toContain("#delayed-text");
+  });
+
+  it("returns to the top before axe runs", () => {
+    expect(contrastTargets()).toContain("#bar-text");
+  });
+
+  it("follows a page that a reveal lengthens", () => {
+    expect(contrastTargets()).toContain("#grown-text");
   });
 
   it("does not re-fetch the page's cross-origin stylesheet, so the site's CSP is not tripped (#52)", async () => {
