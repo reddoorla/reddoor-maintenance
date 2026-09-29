@@ -101,10 +101,10 @@ hits:
   `client-error`, exactly as on load. The pass runs IntersectionObserver and
   scroll callbacks that never ran under the gate before; on roalson-interests
   it boots MapLibre. An error thrown while the pass was running is labelled
-  `while the reveal pass ran: …` in the artifact and `(while the reveal pass
-  ran)` in the summary. The label marks a time window, not a cause: a late
-  hydration error can land inside it, and an error the pass triggers through
-  async work can land after it.
+  `while the reveal pass ran: …` in the artifact and
+  `(while the reveal pass ran)` in the summary. The label marks a time window,
+  not a cause: a late hydration error can land inside it, and an error the
+  pass triggers through async work can land after it.
 
 **New ways a clean site can move to `warn`:** a reveal pass that stopped short,
 and an uncaught error from another origin.
