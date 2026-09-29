@@ -115,7 +115,7 @@ describe("ingestSubmission — spam handling is off for sites in development", (
 });
 
 describe("ingestSubmission", () => {
-  it("rejects an invalid payload before touching Airtable", async () => {
+  it("rejects an invalid payload before touching the store", async () => {
     const d = deps();
     const r = await ingestSubmission(d, "acme", { name: "no contact info" });
     expect(r.status).toBe("rejected");
@@ -1361,11 +1361,9 @@ describe("ingestSubmission deferred tail", () => {
 });
 
 describe("ingestSubmission — persist before enrich (#539 Phase 0)", () => {
-  // The 2026-08-17 failure shape: getWebsiteBySlug reads Airtable, whose quota
-  // outage made it THROW — while the submissions store (which the dead-letter
-  // shares) was healthy the whole time. Before this branch existed the throw
-  // propagated to the handler's 502 and the lead vanished unrecorded.
-  const outage = () => vi.fn().mockRejectedValue(new Error("airtable 429 quota"));
+  // The failure shape: the site lookup THROWS while the submissions store
+  // (which the dead-letter shares) is healthy.
+  const outage = () => vi.fn().mockRejectedValue(new Error("upstream 429 quota"));
 
   it("dead-letters the lead and accepts when the site lookup throws", async () => {
     const deadLetter = vi.fn().mockResolvedValue({ id: "dl_1" });
@@ -1382,7 +1380,7 @@ describe("ingestSubmission — persist before enrich (#539 Phase 0)", () => {
       siteSlug: "acme",
       payload: { email: "a@b.co", message: "hi" },
       turnstile: { outcome: "pass", hostname: null },
-      error: expect.stringContaining("airtable 429"),
+      error: expect.stringContaining("upstream 429"),
       receivedAt: new Date("2026-06-14T12:00:00Z"),
     });
     // Nothing downstream of the lookup ran — no row, no notify.
@@ -1429,9 +1427,7 @@ describe("ingestSubmission — persist before enrich (#539 Phase 0)", () => {
 
 /**
  * #645 item 2. Until now `unknown-site` returned empty-handed: no row anywhere,
- * no alarm, no way back. The comment that justified it — "the store answered; a
- * junk slug is a rejection, not a lead to save" — was written while Airtable was
- * authoritative, and #643 retired the premise underneath it.
+ * no alarm, no way back.
  *
  * TWO facts overturn it:
  *

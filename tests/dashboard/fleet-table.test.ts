@@ -71,8 +71,8 @@ const DEFAULT_QUERY = { sort: "name", dir: "asc", status: "", q: "" } as const;
 
 describe("buildFleetTableModel — inclusion", () => {
   it("includes EVERY site — maintained, legacy, deprecated, and null-status rows", () => {
-    // This table replaces eyeballing the Airtable grid: nothing may be
-    // status-filtered out by default, unlike the cockpit's isDashboardVisible.
+    // This table is the whole fleet: nothing may be status-filtered out by
+    // default, unlike the cockpit's isDashboardVisible.
     const sites = [
       makeWebsiteRow({ id: "r1", name: "Alpha", status: "maintained" }),
       makeWebsiteRow({ id: "r2", name: "Bravo", status: "archived", statusRaw: "legacy" }),
@@ -175,9 +175,8 @@ describe("buildFleetTableModel — the no-status filter", () => {
     makeWebsiteRow({ id: "r3", name: "CalTex", status: null }),
   ];
   it("returns exactly the null-status rows for the sentinel", () => {
-    // "Which sites have no Status set?" is the hygiene question this page
-    // replaces the Airtable grid for — sorting nulls-last and scrolling does not
-    // survive the 200-site direction.
+    // "Which sites have no Status set?" is a hygiene question this page answers
+    // — sorting nulls-last and scrolling does not survive the 200-site direction.
     const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, status: NO_STATUS_FILTER });
     expect(m.rows.map((r) => r.name)).toEqual(["Beachfront", "CalTex"]);
     expect(m.totalSites).toBe(3);
@@ -355,8 +354,8 @@ describe("buildFleetTableModel — every advertised sort key actually sorts", ()
       id: "r3",
       name: "Charlie",
       url: "https://4.example.com",
-      // A cell ALREADY migrated to the new vocabulary — "archived" is both the
-      // canonical status and, post-stage-2, a real Airtable cell. `statusRaw` is
+      // A cell in the new vocabulary — "archived" is both the canonical status
+      // and a real cell value. `statusRaw` is
       // set explicitly because the factory would otherwise derive "deprecated"
       // from the canonical status and collide with Delta below, and this
       // fixture's whole premise is four DISTINCT raw statuses.

@@ -4880,3 +4880,34 @@ This is the follow-up the 09-28 entry listed as C2, plus #646 step 6's last clau
 - `.claude/settings.json`'s Airtable MCP write pre-approval and `api.airtable.com` allow;
 - AUTONOMY.md's Airtable tiers;
 - revoking or narrowing `AIRTABLE_PAT` in Actions, Netlify and the local credentials.
+
+## 2026-09-29 (later) — The last Airtable references leave the code
+
+After the release (#930), the operator asked for every remaining Airtable reference to be removed from the codebase. The frozen base and the `AIRTABLE_PAT` token stay, by their decision.
+
+**What went, beyond comments.**
+
+- `src/cli/retired-flags.ts` (the `--write-airtable` → `--write-back` alias, #698) is deleted along with its tests. `--write-airtable` now fails the way any unknown flag does: cac throws `Unknown option` with a stack trace and exits 1. Checked against `--bogus-flag`, which produces the same output, so this is the CLI's existing behaviour for unknown flags, not a new one.
+- The named refusal of `--fleet airtable` is gone. The value is now read as an inventory path and fails with `unsupported extension (none)`.
+- `AIRTABLE_` is no longer in `vitest.credential-env.ts`'s stripped prefixes. Nothing reads the variable. If the live token is in the environment, test processes can now see it.
+- `.claude/settings.json` lost the `mcp__airtable__update_field` pre-approval and the `api.airtable.com` network allow.
+- AUTONOMY.md's tiers now name the store the writes actually go to:
+  - The yellow "Airtable writes from the audit pipeline" became Turso writes. Those writes had moved to Turso and nothing tiered them.
+  - The green "reads of Airtable" became reads of Turso.
+
+**Comments and tests.** Three agents on disjoint lists swept 118 files.
+
+- Every non-test source file the sweep touched printed the same comment-free AST as main. The exceptions are the three files changed on purpose: `bin.ts`, `resolve-sites.ts` and `vitest.credential-env.ts`.
+- Test cases whose only subject was Airtable were deleted, 18 in all:
+  - the six-case retired-flag suite, plus the `--write-airtable` registration case;
+  - the `--fleet airtable` refusal;
+  - "never reaches for Airtable";
+  - `import-airtable` from the retired-`db`-actions table;
+  - three `DIGEST_STATE_WRITE airtable=` gate cases;
+  - five "Airtable env set/missing" or "creds set" handler and command cases.
+- Five workflow tests lost an assertion that no `AIRTABLE_*` secret was passed.
+- The suite went from 7255 to 7237.
+
+**Citations.** Deleting comments shifted five runbook citations in `continuity.md`. `runbook-anchors` flagged three of them. The other two, `ingest.ts:202–231` and `site-row.ts:26–44`, were still passing, because their shifted lines happened to contain an anchor term. All five were remapped by locating main's cited block, byte for byte, in the edited file.
+
+**Left as written: the history records.** These are the journal, CHANGELOG, `docs/superpowers/`, `docs/meta-week/`, the morning reports, the dated specs and decisions, `docs/autonomy-journal.md` and the 06-12 review findings. The journal's own rule is that history is not edited to be right. CLAUDE.md's "Airtable is gone" section is now "Stored column names". The "do not reintroduce Airtable calls" warning went with it, so the removed network allow is now the only thing stopping an agent from calling the API.

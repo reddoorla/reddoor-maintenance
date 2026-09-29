@@ -10,8 +10,8 @@ import { makeWebsiteRow } from "../_helpers/website-row.js";
  * `testingDay` feed the code-owned next-due schedule, so an untouched tab-through
  * would silently reschedule the site.
  *
- * Dormant while those Airtable columns are date-only; it goes live the instant
- * anyone ticks "include time" on the field. Two independent defences are asserted
+ * Dormant while those columns are date-only; it goes live the instant one holds
+ * a datetime. Two independent defences are asserted
  * here, because either alone would leave the class open:
  *   1. the renderer never emits a value the control cannot hold;
  *   2. the script requires a real edit gesture before any blur can save.

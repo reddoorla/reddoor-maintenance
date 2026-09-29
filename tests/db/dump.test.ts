@@ -149,7 +149,7 @@ describe("db verify-dump (CLI)", () => {
 
   it("FAILS when the header-image bytes do not round-trip", async () => {
     // Row counts alone pass a dump in which every BLOB came back NULL — and
-    // those bytes exist in no other store once Airtable is frozen.
+    // those bytes exist in no other store.
     const file = await dumpToFile((sql) =>
       sql.replace(/X'[0-9a-f]+'/, "NULL").replace("PRAGMA", "PRAGMA"),
     );

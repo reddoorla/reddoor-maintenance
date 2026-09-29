@@ -48,8 +48,8 @@ describe("runDbCommand", () => {
   });
 });
 
-describe("the retired Airtable actions", () => {
-  it.each(["import-airtable", "sync", "parity", "backfill-header-images", "backfill-digest-state"])(
+describe("retired db actions", () => {
+  it.each(["sync", "parity", "backfill-header-images", "backfill-digest-state"])(
     "%s is an unknown action, refused before touching any store",
     async (action) => {
       const r = await runDbCommand(action, {});

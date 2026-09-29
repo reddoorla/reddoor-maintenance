@@ -59,30 +59,12 @@ describe("runEnsureSiteCommand", () => {
     });
   });
 
-  it("creates a new slug without consulting Airtable, even with Airtable credentials set", async () => {
-    vi.stubEnv("AIRTABLE_PAT", "patFAKE");
-    vi.stubEnv("AIRTABLE_BASE_ID", "appFAKE");
-    const res = await runEnsureSiteCommand("roalson", { name: "Roalson" }, deps());
-    vi.unstubAllEnvs();
-    expect(res.code).toBe(0);
-    expect(res.output).toMatch(/^\[roalson\] created \(site_/);
-    expect(res.output).not.toMatch(/Airtable/);
-    const row = await db
-      .selectFrom("sites")
-      .select(["id", "name"])
-      .where("slug", "=", "roalson")
-      .executeTakeFirst();
-    expect(row?.id).toMatch(/^site_/);
-    expect(row?.name).toBe("Roalson");
-  });
-
   it("reports exists + which blanks were filled", async () => {
     await runEnsureSiteCommand("acme-co", {}, deps());
     const res = await runEnsureSiteCommand("acme-co", { url: "https://acme.example.com" }, deps());
     expect(res.code).toBe(0);
     expect(res.output).toContain("exists");
     expect(res.output).toContain("filled blank field(s): url");
-    expect(res.output).not.toContain("no Airtable record was created");
   });
 
   it("tells the operator when inputs differ from existing values", async () => {

@@ -24,12 +24,12 @@ import { SITE_STATUS_OPTIONS } from "../../src/dashboard/site-details.js";
  * rename, now carried through all three stages.
  *
  * The VALUES in BASELINE below are the original frozen capture: they were
- * recorded by RUNNING every status predicate over every Airtable Status cell
- * value against the PRE-RENAME code (origin/main @ 5a97866), not by reading them
- * off the source. Not one of them has been edited since.
+ * recorded by RUNNING every status predicate over every Status cell value
+ * against the PRE-RENAME code (origin/main @ 5a97866), not by reading them off
+ * the source. Not one of them has been edited since.
  *
  * What stage 3 changed is the KEY, not the value. The rows used to be addressed
- * by the old Airtable cell name; the alias map that connected those names to
+ * by the old cell name; the alias map that connected those names to
  * canonical ones is now deleted, so each row is addressed by the canonical
  * status the old name mapped to:
  *
@@ -63,12 +63,11 @@ import { SITE_STATUS_OPTIONS } from "../../src/dashboard/site-details.js";
  *    skip only a non-null ineligible status, and `preflight.ts:374` selects
  *    `w.status === null` explicitly.
  */
-/** The seven Airtable option names that existed before the migration, kept ONLY
- *  as test data. Stage 3 deleted the alias map that used to translate them, so
- *  this list is what "an old value must now alarm" is checked against — it is
- *  no longer imported from production code, because production code no longer
- *  knows these strings. */
-const OLD_AIRTABLE_VALUES = [
+/** The seven old status option names, kept ONLY as test data. Stage 3 deleted
+ *  the alias map that used to translate them, so this list is what "an old
+ *  value must now alarm" is checked against — it is no longer imported from
+ *  production code, because production code no longer knows these strings. */
+const OLD_STATUS_VALUES = [
   "in development",
   "launch period",
   "maintenance",
@@ -195,7 +194,7 @@ const BASELINE = {
  *  shrink a loop. */
 const NON_STATUS_BASELINE_KEYS = ["wat", "(empty)", "(null)"] as const;
 
-/** The Airtable cell a BASELINE key stands for. */
+/** The Status cell a BASELINE key stands for. */
 function cellFor(key: string): unknown {
   if (key === "(null)") return undefined;
   if (key === "(empty)") return "";
@@ -225,7 +224,7 @@ function predicates(status: Status | null) {
 
 describe("site-status: behaviour equivalence across the vocabulary rename", () => {
   for (const [key, expected] of Object.entries(BASELINE)) {
-    it(`Airtable cell ${JSON.stringify(key)} selects exactly what it selected before the rename`, () => {
+    it(`Status cell ${JSON.stringify(key)} selects exactly what it selected before the rename`, () => {
       expect(predicates(canonicalizeStatus(cellFor(key)))).toEqual(expected);
     });
   }
@@ -263,7 +262,7 @@ describe("site-status: behaviour equivalence across the vocabulary rename", () =
 });
 
 describe("canonicalizeStatus", () => {
-  it("no longer TRANSLATES an old Airtable name — stage 3 deleted the alias map", () => {
+  it("no longer TRANSLATES an old status name — stage 3 deleted the alias map", () => {
     // The direct inverse of the stage-1/2 assertion this replaces. Each of these
     // used to yield its canonical partner; the mapping is now gone, so each cell
     // survives verbatim and lands in the unrecognized bucket (asserted just
@@ -295,13 +294,11 @@ describe("canonicalizeStatus", () => {
 
   it("FLAGS an old-vocabulary cell as unrecognized — stage 3 removed the tolerance", () => {
     // The inverse of the stage-1/2 pin, and deliberately so. The seven old
-    // options no longer exist in the Airtable field (verified against the live
-    // base before this landed: the single-select carries exactly the six
-    // canonical choices), so an old value can no longer be entered. If one
+    // options no longer exist, so an old value can no longer be entered. If one
     // reappears it is a genuine anomaly — a restored backup, a scripted write,
     // an API caller with a stale constant — and must surface as a cockpit watch
     // row rather than being silently translated into a status nobody chose.
-    for (const old of OLD_AIRTABLE_VALUES) {
+    for (const old of OLD_STATUS_VALUES) {
       expect(isUnrecognizedStatus(canonicalizeStatus(old)), `'${old}' must alarm`).toBe(true);
       expect(canonicalizeStatus(old), `'${old}' must survive verbatim`).toBe(old);
     }
@@ -371,7 +368,7 @@ describe("mapRow status seam", () => {
     // cannot quietly stop being true. If a future change reintroduces any
     // translation at this seam, this fails and forces the raw-vs-canonical
     // question to be answered deliberately rather than discovered in the cockpit.
-    for (const cell of [...CANONICAL_STATUSES, ...OLD_AIRTABLE_VALUES, "wat", ""]) {
+    for (const cell of [...CANONICAL_STATUSES, ...OLD_STATUS_VALUES, "wat", ""]) {
       const r = row({ Status: cell });
       expect(r.status, `status/statusRaw diverged for ${JSON.stringify(cell)}`).toBe(r.statusRaw);
     }
@@ -418,7 +415,7 @@ describe("the status sets are stated in the canonical vocabulary", () => {
     );
   });
 
-  it("the dashboard status dropdown offers exactly these Airtable options, in this order", () => {
+  it("the dashboard status dropdown offers exactly these status options, in this order", () => {
     // `SITE_STATUS_OPTIONS = [...CANONICAL_STATUSES]` is the
     // ONLY consumer of CANONICAL_STATUSES' ORDER, and until this pin existed
     // nothing read it: reversing the array left the whole suite green while

@@ -29,8 +29,6 @@ This is the end-to-end operations walkthrough: how to stand up the fleet-mainten
 
 Four moving parts, each needing its own credentials: **Turso** (the libSQL database — the only store), the **local CLI** (you, onboarding/launching), the **Netlify console** (your daily approve surface, the per-site details editor, the forms endpoint and the Resend webhook), and the **GitHub Actions crons** (the unattended draft/send/audit loop).
 
-The old Airtable base still exists as a frozen archive. Nothing reads or writes it, and nothing in this walkthrough needs it.
-
 ---
 
 ## Phase 0 — Prerequisites

@@ -255,7 +255,7 @@ describe("assignTier", () => {
   // An accepted Prismic divergence must not simply VANISH. The item is suppressed
   // upstream so the site stops nagging, and the card then has to say that a finding
   // exists and when the acceptance runs out — otherwise the operator sees a plain
-  // green site and the only record of the decision is an Airtable cell nobody opens.
+  // green site and the only record of the decision is a cell nobody opens.
   it("shows an accepted Prismic divergence as a dated chip, not silence", () => {
     const r = assignTier(
       site({ prismicModels: "fail", prismicAckUntil: "2026-06-20T00:00:00Z" }),
@@ -572,7 +572,7 @@ describe("buildCockpitModel", () => {
     );
     expect(m.cards.map((c) => c.site.name)).toEqual(["Maintained"]);
     // `status` on an OffFleetSiteEntry is the RAW cell: the lane mirrors the
-    // Airtable column, and `legacy`/`deprecated` are the one pair the canonical
+    // column, and `legacy`/`deprecated` are the one pair the canonical
     // vocabulary merges. Reporting both as "archived" would make the fleet's 7
     // legacy and 5 deprecated rows indistinguishable from each other.
     expect(m.archived).toEqual([

@@ -353,10 +353,7 @@ export async function writeNextDueDates(
  *  #646 step 4: `roster` and `allReports` READ FROM TURSO. They are required
  *  rather than defaulted for the reason every other step-4 reader is — this
  *  function is called directly by tests, and a default would let a unit suite
- *  open a real store. They also had to move together with report creation: a
- *  report row now exists only in Turso, so an Airtable `listAllReports` would
- *  stop seeing last night's drafts and the period guard would re-draft every
- *  site every night. */
+ *  open a real store. */
 export type DraftDueDeps = {
   /** Every site in the fleet — `site_<ULID>` sites included. */
   roster: () => Promise<WebsiteRow[]>;

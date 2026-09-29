@@ -153,8 +153,7 @@ describe("formsNotifyTarget", () => {
   });
 
   it("flips a Turso-native `site_<ULID>` site", async () => {
-    // The case an Airtable roster could not even find (#646 steps 3–4): the guard
-    // lives in Turso — which is exactly the cell form ingest reads.
+    // The guard lives in Turso — which is exactly the cell form ingest reads.
     setup("maintained", true, "site_01ARYZ6S41TSV4RRFFQ69G5FAV");
     const r = await formsNotifyTarget(D({ site: "1836dig", set: "on" }));
     expect(r.flip).toMatchObject({ from: "maintained", to: VERIFY_STATUS, confirmed: true });
@@ -206,16 +205,9 @@ describe("formsNotifyTarget", () => {
   });
 
   it("writes a RETIRED name verbatim — stale operator input must not be silently fixed", async () => {
-    // This test's original point was that operator free text must never be
-    // routed through the canonical→Airtable map, because that map was
-    // many-to-one: `--restore legacy` would have landed "deprecated", rewriting
-    // a real cell to a value nobody asked for, and unlike every other change in
-    // this rename `git revert` cannot undo a rewritten cell.
-    //
-    // Stage 3 deleted that map, so the specific hazard is gone — but the
-    // property matters MORE now, not less. "legacy" is no longer a status at
-    // all, so the only two possible behaviours are: write it verbatim, or
-    // quietly translate it into one that exists. The first tells the operator
+    // "legacy" is no longer a status at all, so the only two possible
+    // behaviours are: write it verbatim, or quietly translate it into one that
+    // exists. The first tells the operator
     // their input is stale; the second hands them a status they never typed.
     setup(VERIFY_STATUS);
     const r = await formsNotifyTarget(D({ site: "1836dig", set: "off", restore: "legacy" }));
