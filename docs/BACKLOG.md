@@ -307,7 +307,7 @@ verdict is its only input, because no client and no check sees the email.
 - 2026-09-29 — P1-20: the digest sends only when an item the last send did not
   carry appears, an item is worse than at the last send, an item's ask gains a
   part, or weekly; repeated items carry their age and a blocked draft carries
-  the exact ask with its `/s/<slug>` path (#PR_DIGEST).
+  the exact ask with its `/s/<slug>` path (#975).
 
 - 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
   4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its
