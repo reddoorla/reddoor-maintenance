@@ -42,7 +42,13 @@ jobs:
     # cancel-in-progress is false, queue next Monday's run behind this one.
     timeout-minutes: 30
     steps:
+      # fetch-depth: 0 for the same reason as ci.yml: the suite runs the
+      # match-harness snapshot guard, which reads the previous release tag, and a
+      # shallow clone has none. Without it every run from 2026-09-21 failed on
+      # that one test (#895). tests/ci-gate.test.ts asserts it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 

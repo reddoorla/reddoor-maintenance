@@ -89,3 +89,44 @@ describe("a workflow that runs the suite installs the browser it needs", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * Every workflow that runs the suite must check out full history.
+ *
+ * `tests/recipes/match-harness-snapshot-guard.test.ts` runs the real guard on
+ * the real tree, and the guard reads the previous release tag. A default
+ * checkout is shallow and carries no tags, so the guard refuses and the test
+ * fails. ci.yml and release.yml took `fetch-depth: 0` for it; time-travel.yml
+ * did not, and every weekly run from 2026-09-21 was red on that one test while
+ * the tracking issue (#895) read it as a wall-clock failure.
+ */
+describe("a workflow that runs the suite checks out the tags the suite reads", () => {
+  function workflowsRunningTheSuite(): { f: string; body: string }[] {
+    const dir = resolve(root, ".github/workflows");
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".yml"))
+      .map((f) => ({ f, body: readFileSync(resolve(dir, f), "utf-8") }))
+      .filter(({ body }) => /^\s*(- )?run: pnpm (test|test:coverage)\b/m.test(body));
+  }
+
+  it("finds the workflows it is meant to police", () => {
+    expect(workflowsRunningTheSuite().map(({ f }) => f)).toEqual(
+      expect.arrayContaining(["ci.yml", "release.yml", "time-travel.yml"]),
+    );
+  });
+
+  it("holds for every such workflow", () => {
+    const offenders = workflowsRunningTheSuite()
+      .filter(({ body }) => {
+        const checkouts = [
+          ...body.matchAll(/- uses: actions\/checkout@[^\n]*\n((?:\s+[^-\s][^\n]*\n)*)/g),
+        ];
+        return (
+          checkouts.length === 0 ||
+          checkouts.some(([, block]) => !/^\s+fetch-depth: 0\s*$/m.test(block ?? ""))
+        );
+      })
+      .map(({ f }) => f);
+    expect(offenders).toEqual([]);
+  });
+});
