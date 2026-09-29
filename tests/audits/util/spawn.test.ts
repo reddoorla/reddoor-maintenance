@@ -354,6 +354,43 @@ describe("defaultSpawn detached descendant groups (mocked table)", () => {
     expect(await seen).toBeInstanceOf(SpawnTimeoutError);
   });
 
+  it("swallows ESRCH from a detached group that exits between the read and each signal", async () => {
+    vi.useFakeTimers();
+    const table = [self, leader, { pid: 5300, ppid: 4242, pgid: 5300 }];
+    const tried: Array<{ pid: number; sig: NodeJS.Signals | number }> = [];
+    const esrchFor5300 = (pid: number, sig: NodeJS.Signals | number) => {
+      tried.push({ pid, sig });
+      if (pid === -5300) throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+      kills.push({ pid, sig });
+    };
+    const s = makeSpawn({
+      spawnImpl,
+      killImpl: esrchFor5300,
+      readProcessTable: () => table,
+      killGraceMs: 1000,
+    });
+    const seen = s("slow", [], { timeoutMs: 500 }).catch((e: unknown) => e);
+    expect(() => vi.advanceTimersByTime(500)).not.toThrow();
+    expect(kills).toContainEqual({ pid: -4242, sig: "SIGTERM" });
+    expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    expect(tried).toContainEqual({ pid: -5300, sig: "SIGTERM" });
+    expect(tried).toContainEqual({ pid: -5300, sig: "SIGKILL" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
+  it("walks nothing once the wrapper was killed by a signal", async () => {
+    vi.useFakeTimers();
+    const table = [self, leader, { pid: 5310, ppid: 4242, pgid: 5310 }];
+    const { seen, reads } = start([table]);
+    Object.assign(child, { exitCode: null, signalCode: "SIGSEGV" });
+    vi.advanceTimersByTime(1500);
+    expect(kills.map((k) => k.pid)).not.toContain(-5310);
+    expect(reads()).toBe(0);
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
   it("skips the escalation quietly when the re-read throws", async () => {
     vi.useFakeTimers();
     const before = [self, leader, { pid: 5050, ppid: 4242, pgid: 5050 }];
