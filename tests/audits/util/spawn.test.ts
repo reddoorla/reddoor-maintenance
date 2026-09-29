@@ -248,17 +248,30 @@ describe("defaultSpawn real process-group reap (integration)", () => {
     const grandPid = Number((await readFile(pidFile, "utf-8")).trim());
     expect(grandPid).toBeGreaterThan(0);
 
-    // Poll for the reap rather than guessing a fixed propagation delay.
-    let alive = true;
-    for (let i = 0; i < 40 && alive; i++) {
+    // Poll for the reap against a deadline, and always probe AFTER the last wait:
+    // the killed sleep lingers as a zombie until PID 1 reaps it (up to ~2 s in a
+    // cloud container), so a reap landing in the final wait must count as reaped.
+    const isAlive = (pid: number): boolean => {
       try {
-        process.kill(grandPid, 0); // signal 0 = liveness probe
-        await delay(50);
+        process.kill(pid, 0); // signal 0 = liveness probe
+        return true;
       } catch {
-        alive = false; // ESRCH → the grandchild was reaped
+        return false; // ESRCH → the grandchild was reaped
+      }
+    };
+    const deadline = Date.now() + 5000;
+    let alive = isAlive(grandPid);
+    while (alive && Date.now() < deadline) {
+      await delay(50);
+      alive = isAlive(grandPid);
+    }
+    if (alive) {
+      try {
+        process.kill(grandPid, "SIGKILL"); // cleanup if the fix regressed
+      } catch {
+        // ESRCH: reaped after the final probe. Cleanup must never be the failure.
       }
     }
-    if (alive) process.kill(grandPid, "SIGKILL"); // cleanup if the fix regressed
     expect(alive).toBe(false);
   });
 });

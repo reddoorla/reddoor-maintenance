@@ -155,8 +155,7 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
 
 ### Watching, owned elsewhere
 
-- **#960**: the `spawn.test` zombie flake (`kill ESRCH`, about 1 in 180 cloud
-  runs). Another session filed it and has a tested patch.
+- None. #960 (the `spawn.test` zombie flake) moved to _Done_ on 2026-09-29.
 
 ---
 
@@ -248,6 +247,12 @@ Ordered by what unblocks the most. Each line is the exact ask.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — #960: the `spawn.test` grandchild-reap test polls to a 5 s
+  deadline, probes after its final wait, and its cleanup kill ignores `ESRCH`
+  (`claude/charming-meitner-28381c`). The test only; `spawn.ts` is unchanged.
+  The issue's third suggestion, counting a zombie as dead via `ps`, was not
+  taken, so a reaper slower than ~5 s would still fail the test.
 
 - 2026-09-29 — P1-8 / #907: the prospect-audit daily cap reserves a `running`
   row before the spend, atomically, and counts finished plus non-stale running

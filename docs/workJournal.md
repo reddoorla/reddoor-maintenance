@@ -5157,3 +5157,68 @@ Beliefs corrected on contact:
 - Claims about what a test holds were wrong twice after they had been "verified" by
   reasoning. Every claim in the changeset is now backed by a mutation that was actually run
   against the final head.
+
+## 2026-09-29 — The spawn reap test waits out PID 1, and its cleanup can no longer be the failure (#960, `claude/charming-meitner-28381c`)
+
+`tests/audits/util/spawn.test.ts` › "kills a non-detached grandchild in the timed-out child's
+group" failed once under full-suite load that day with `Error: kill ESRCH` at l.261. It passed
+3/3 alone. The ESRCH came from the test's own cleanup, not from `spawn.ts`, so the fix is in
+the test only.
+
+The mechanism, measured in a cloud container:
+
+- **The group kill works.** After `process.kill(-pid, SIGTERM)` the backgrounded `sleep` is
+  dead within about 10 ms. Its parent `sh` died in the same kill, so the `sleep` is re-parented
+  to PID 1 and stays a zombie (`/proc/<pid>/stat` state `Z`, ppid 1).
+- **`process.kill(pid, 0)` succeeds on a zombie.** So the test's liveness probe measured when
+  PID 1 reaped the zombie, not when the group kill landed.
+- **PID 1 is slow to reap.** Here it is `process_api --firecracker-init`. With nothing else
+  running it reaped the orphan 1149–1961 ms after death (8 samples). During a full-suite run it
+  took 1176–1667 ms (12 samples, load average 2.04 on 4 CPUs). #960 measured 1006–1991 ms over
+  85 trials. Load barely moves it; the reaper sets it.
+- **The old loop had no probe after its last wait.** It probed, then slept 50 ms, 40 times: a
+  window of about 2.0 s. A reap landing in the final 50 ms left `alive = true`, and the
+  unguarded `process.kill(grandPid, "SIGKILL")` threw ESRCH. A reap landing later failed
+  `expected true to be false` instead.
+
+The fix: poll to a 5 s deadline, always probing after the last wait, and wrap the cleanup kill
+in try/catch. `testTimeout` is 120 s, so the longer poll fits. A passing run still ends at the
+1.5 s spawn timeout plus the reap: 2.6–3.5 s here.
+
+To prove that the test still discriminates, and to find each version's edge, a Python harness
+(`prctl(PR_SET_CHILD_SUBREAPER)`) ran vitest as its child. It adopted the orphaned `sleep`s and
+held each zombie for a set time before reaping it:
+
+| zombie held         | old test                                        | new test                                                    |
+| ------------------- | ----------------------------------------------- | ----------------------------------------------------------- |
+| 300 ms              | pass                                            | pass                                                        |
+| 2030 ms             | `kill ESRCH` at l.261, the incident's signature | pass                                                        |
+| 2060, 2500, 4500 ms | `expected true to be false`                     | pass                                                        |
+| 4960, 4990, 5010 ms | (not run)                                       | pass; at 5010 the reap landed in the final wait and counted |
+| 5030, 5060, 6000 ms | at 6000 only: `expected true to be false`       | `expected true to be false` at l.275, never ESRCH           |
+
+Reverting `spawn.ts` to the pre-fix shape (`detached: false`, and `killImpl(child.pid, …)`
+instead of the group) turns the test red after 6.5 s on its assertion. The cleanup killed the
+orphaned `sleep 100`, so none leaked. The three mocked group-kill unit tests go red as well.
+Restored, the file passed 8/8 alone, and the full suite passed once (531 files, 7587 tests,
+exit 0).
+
+Beliefs corrected on contact:
+
+- "Under heavy parallel load the reap can take longer than 2 s" was this session's brief. The
+  kill is not slow; PID 1's reaping of the zombie is, and it is slow with no load at all. The
+  container's reaper alone spans about 1.0–2.0 s against a 2.0 s window. #960 had already said
+  the failure "depends on the reaper, not on load", and these measurements agree.
+- BACKLOG listed #960 as owned by another session that "has a tested patch". No pushed branch
+  changed `spawn.test.ts`, so that patch lived only in that session's container. This session
+  claimed the issue before starting.
+
+Not taken: #960's proposal to count a zombie as dead via `ps -o stat= -p <pid>`. It would make
+the test independent of the reaper; the deadline only gives 2.5× headroom over the slowest reap
+measured. If a reaper ever holds zombies past about 5 s, the test fails its assertion, cleanly,
+and that proposal is the change to revive. Its costs are a `ps` subprocess per probe and a stat
+format that differs by platform.
+
+Honest accounting: the old test passed on GitHub runners and on the laptop because their init
+reaps promptly, so this flake is shaped by the cloud container. The rate #960 estimated (about
+1 in 180 runs) is its own; this session did not re-measure it.
