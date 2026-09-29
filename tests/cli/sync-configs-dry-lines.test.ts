@@ -53,13 +53,18 @@ describe("sync-configs --dry machine lines", () => {
     expect(code).toBe(0);
     const lines = machine(output);
 
-    const plain = run(["sync-configs", "--dry"], a);
-    const expectedPaths = plain
-      .split("\n")
-      .map((l) => /^would (?:update|create) (\S+)/.exec(l)?.[1])
-      .filter((p): p is string => p !== undefined)
-      .sort();
-    expect(expectedPaths.length).toBeGreaterThan(1);
+    const expectedPaths = [
+      ".github/workflows/renovate.yml",
+      ".gitignore",
+      ".prettierignore",
+      ".prettierrc.json",
+      "eslint.config.js",
+      "lighthouserc.json",
+      "netlify.toml",
+      "playwright.config.ts",
+      "renovate.json",
+      "svelte.config.js",
+    ];
 
     for (const repo of ["reddoorla/repo-a", "reddoorla/repo-b"]) {
       const paths = lines
@@ -109,6 +114,28 @@ describe("sync-configs --dry machine lines", () => {
     ]);
     expect(lines).toContain("CLEAN reddoorla/repo-y");
     expect(lines.at(-1)).toBe("SYNC_CONFIGS_DRIFT drifted=0 clean=1 skipped=1 total=2");
+  });
+
+  it("names a freshly cloned fleet site by its gitRepo, not its slug", async () => {
+    const src = await copyFixtureToTmp(drift);
+    const bare = join(await mkdtemp(join(tmpdir(), "sync-dry-bare-")), "repo.git");
+    execFileSync("git", ["clone", "-q", "--bare", src, bare]);
+    const wd = await mkdtemp(join(tmpdir(), "sync-dry-wd-"));
+    const fleet = await inventory([
+      {
+        path: join(wd, "slug-fresh"),
+        name: "slug-fresh",
+        gitRepo: "reddoorla/repo-fresh",
+        repoUrl: `file://${bare}`,
+      },
+    ]);
+    const { output } = await runSyncConfigsCommand(undefined, { dry: true, fleet, workdir: wd });
+    const lines = machine(output);
+    expect(lines.filter((l) => l.startsWith("DRIFT reddoorla/repo-fresh ")).length).toBeGreaterThan(
+      1,
+    );
+    expect(lines.some((l) => /slug-fresh/.test(l))).toBe(false);
+    expect(lines.at(-1)).toBe("SYNC_CONFIGS_DRIFT drifted=1 clean=0 skipped=0 total=1");
   });
 
   it("in fleet mode, --only without gitignore still skips a checkout that is not a git repo", async () => {

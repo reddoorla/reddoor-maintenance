@@ -66,6 +66,7 @@ jobs:
           grep -q "^DRIFT " "$root/clean.out" && bad="$bad clean-says-drift"
           grep -qx "SYNC_CONFIGS_DRIFT drifted=1 clean=0 skipped=0 total=1" "$root/tracked.out" || bad="$bad tracked-summary"
           grep -qx "DRIFT tracked .gitignore" "$root/tracked.out" || bad="$bad tracked-artifact"
+          [ "$(grep -c "^DRIFT " "$root/tracked.out" || true)" = "1" ] || bad="$bad tracked-not-only-gitignore"
           grep -q "^CLEAN " "$root/tracked.out" && bad="$bad tracked-says-clean"
           if [ -n "$bad" ]; then
             echo "::error::the sync-configs --dry positive control failed:$bad. The instrument is broken, so this run cannot say whether the fleet drifts."

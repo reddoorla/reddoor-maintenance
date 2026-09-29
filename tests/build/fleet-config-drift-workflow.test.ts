@@ -116,6 +116,18 @@ describe("fleet-config-drift — the shape of the job", () => {
     expect(cmd).toContain('--workdir "${RUNNER_TEMP:-/tmp}/fleet-config-drift"');
   });
 
+  it("opens the finding issue only on drift, and only on main", () => {
+    const doc = yaml.load(wf) as Workflow;
+    const open = doc.jobs.drift.steps.find((s) => s.name === OPEN);
+    const close = doc.jobs.drift.steps.find((s) => s.name === CLOSE);
+    expect(open?.if).toBe(
+      "steps.drift.outputs.drifted == 'yes' && github.ref == 'refs/heads/main'",
+    );
+    expect(close?.if).toBe(
+      "steps.drift.outputs.drifted == 'no' && github.ref == 'refs/heads/main'",
+    );
+  });
+
   it("runs the positive control before the sweep", () => {
     const doc = yaml.load(wf) as Workflow;
     const names = doc.jobs.drift.steps.map((s) => s.name);
@@ -187,6 +199,25 @@ describe("fleet-config-drift — the positive control", () => {
       { ...GOOD, tracked: "DRIFT tracked .gitignore" },
     ],
     [
+      "the drift fixture's summary says clean under DRIFT lines",
+      { ...GOOD, drift: `DRIFT drift eslint.config.js\n${summary(0, 1, 0)}` },
+    ],
+    [
+      "the clean fixture's summary counts it as skipped",
+      { ...GOOD, clean: `CLEAN clean\n${summary(0, 0, 1)}` },
+    ],
+    [
+      "the clean fixture has a clean summary and no CLEAN line",
+      { ...GOOD, clean: `no changes needed\n${summary(0, 1, 0)}` },
+    ],
+    [
+      "the tracked-artifact fixture drifts on more than .gitignore",
+      {
+        ...GOOD,
+        tracked: `DRIFT tracked eslint.config.js\nDRIFT tracked .gitignore\n${summary(1, 0, 0)}`,
+      },
+    ],
+    [
       "the tracked-artifact fixture reads as clean",
       { ...GOOD, tracked: `CLEAN tracked\n${summary(0, 1, 0)}` },
     ],
@@ -256,10 +287,13 @@ describe("fleet-config-drift — the sweep gate", () => {
     expect(r.output).toBe("");
   });
 
-  it("warns but stays green on one skipped site", async () => {
-    const r = await sweep(`SKIPPED reddoorla/gone git clone failed\n${summary(0, 13, 1)}\n`);
+  it("warns but stays green on one skipped site, naming only that site", async () => {
+    const r = await sweep(
+      `DRIFT reddoorla/drifted .gitignore\nCLEAN reddoorla/fine\nSKIPPED reddoorla/gone git clone failed\n${summary(1, 12, 1)}\n`,
+    );
     expect(r.code).toBe(0);
-    expect(r.out).toMatch(/::warning::.*reddoorla\/gone/);
+    const warning = r.out.split("\n").find((l) => l.startsWith("::warning::")) ?? "";
+    expect(warning).toMatch(/: reddoorla\/gone\s*$/);
     expect(r.out).not.toContain("::error::");
   });
 
