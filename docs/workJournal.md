@@ -5172,3 +5172,98 @@ Beliefs corrected on contact:
 - `fix/lead-path-airtable-gate` `77d523bc98eb81e5dceec6d57d784b4380c4d7a7`
 
 The spawn reap-test race from the #954 entry is being handled in a separate session the operator started.
+
+## 2026-09-29 (overnight) — A project-manager pass: five surveys, a ranked backlog, and sixteen PRs through one landing gate (#951, #953, #902, #896, #956–#959, #961–#968)
+
+The operator asked for a project-manager session: survey the fleet and this codebase, write a prioritized to-do list agents can pick up, work through it overnight, and show everything in the morning. Before leaving they answered four questions: merge under AUTONOMY.md; attach fleet repos and merge small single-repo fixes there if needed, but no sweeps; focus on getting the nightlies green; adopt another session's PR only after two idle hours.
+
+**The survey came first, because a backlog is only as good as what it was built from.** Five read-only agents ran in parallel:
+
+- the job logs of every red nightly from 09-27/28;
+- every open PR and fresh `claude/*` branch;
+- all 38 open issues;
+- live Turso state, read through a SELECT-only guarded client that was shown to refuse an insert, an update and a `select 1; delete …` before it was trusted;
+- a reconciliation of `docs/meta-week/06–14` against `git log` since 09-12.
+
+The result is `docs/BACKLOG.md` (#958), linked from CLAUDE.md. Each item carries its AUTONOMY tier, [M]/[I] evidence, "start here" and "done when". The file says it is a derived view (#711): re-verify an item before starting it, claim it on its issue, and update the file in the PR that finishes it.
+
+**What the survey found that was not written down anywhere:**
+
+- **One cause behind every fleet red.** Every red of 09-27/28 was the Airtable 429 hang on SHAs from before #933. Every audit printed ✔ per site, then the write-back went silent until its timeout.
+- **A cancelled run filed no issue.** fleet-lighthouse on 09-28 hung past GitHub's 6-hour job limit and was _cancelled_. Every tracking-issue step was `if: failure()`, which is false on cancel, so that night filed nothing.
+- **Time-travel was a checkout, not a clock.** It had been red since 09-21 because its checkout was shallow and the snapshot guard needs tags.
+- **Close steps had no ref guard.** A dispatch on a PR branch closed #895 while main was red.
+- **Report evidence was about to go stale.** Every maintained site's function-health stamp was from 09-27 13:39–13:58Z. The pre-send gate treats evidence older than 3 days as unknown, so Sonder's first-ever Testing report (09-30) and five 10-05 reports would have drafted blocked without a sweep.
+
+**What landed, in merge order (UTC):**
+
+- **#951 (05:41), time-travel.** Full-history checkout, plus a ci-gate test for every suite-running workflow. It named only `time-travel.yml` on main and `release.yml` when that file was mutated.
+- **#953 (06:10), `land-prs.mjs` speaks only REST.** This was orphaned work from `claude/happy-cerf-xb0xif`, idle 25h and never PR'd, adopted and reviewed.
+  - The review found four mutations its tests missed. One reported a PR that was closed without merging as merged, then deleted its branch.
+  - It also found a gate hole. Netlify's three neutral checks register about 2 s before `build`, so a poll in that gap "passed".
+  - It then landed itself, the first real merge made from a cloud session. It went on to land every other PR here, and #902 and #896 through update-branch.
+- **#902 and #896 (06:15, 06:21), two Renovate majors.** #896 was proven by a dispatched backup whose artifact was `turso-backup-36530796403`, 17.7 MB with 30-day retention.
+  - #897 and #901 (changesets action v2 and CLI v3) must not merge alone, because each breaks the publish chain a different way. The analysis is #955.
+- **#956 (06:38), alarms.** Open steps fire on `failure() || cancelled()` on main only, and close steps act on main only.
+  - fleet-lighthouse's sweep is `!cancelled()` with a timeout. `cancelled()` alone would not have filed 09-28, because the hung `always()` sweep used up the whole 5-minute post-cancel grace.
+  - The test evaluates each `if:` with a small GitHub-expression evaluator that is itself tested first.
+- **#957 (06:46), #911.** A site with no CMS reads CMS Checked as `n/a`.
+  - The issue's proposed `null` would still have blocked. Its "tick the box" workaround reads a field the gate never reads.
+  - The first review found the Prismic sweep also blanks placeholder configs. data-dynamiq, a real Prismic site, has LAHI's row shape, so `/health`'s own verdict is what tells them apart.
+- **#958 (06:53), the backlog.**
+- **#959 (07:08), #942.** When no Search Console property matched, the row now reads `unknown`, not "fail: Not on page 1". The triage premise was wrong: nothing needed threading, because the flag was delivered and never read.
+- **#961 (07:18), #941.** A broken site keeps its watch filter tags.
+- **#962 (07:45), #889.** A maintained site missing its repo or Netlify ID is now a watch item. It has its own entry above.
+- **#963 (07:57), `land-prs` retries transient reads, never writes.** The classifier was checked against real gh 2.101.0 output from a local server built to fail in each way.
+- **#964 (08:04), YAML and the last two alarms.** Every workflow is now parsed as YAML, and release-health and time-travel get the two alarms that still could not fire.
+  - The parser cross-check caught the step extractor misreading 43 `uses:` lines.
+  - The review caught a lockfile that would have killed every nightly at install (see below).
+- **#965 (08:11).** Forward pointers to #874 on the three meta-week docs that recommend deleting `FIGMA_PAT`.
+- **#966 (09:01), #892.** protection-audit judges every branch Renovate merges into.
+  - The review matched the config-file list against Renovate 44's source, adding `.jsonc` and dropping `.gitlab/*` on GitHub. Without that, a gap declared in `renovate.jsonc` would have been missed.
+  - An early live run showed that one refused read of the org preset would have made all 27 repos that extend it into gaps. Preset refusals are now notes.
+- **#967 (09:43), issue bodies.** A tracking issue's body is rewritten on every failure, and the comment is kept.
+- **#968 (10:18), #907.** The prospect-audit daily cap reserves before it spends. It has its own entry above. It took two review rounds; the second found two production-wiring reverts that passed the full suite.
+
+Also closed with evidence comments: #717 (all five previously exposed hosts re-probed, with controls), #698 and #863.
+
+**Proven live on post-Airtable `main` today:**
+
+- **fleet-smoke** (dispatched 05:43): `FLEET_WRITE_SUMMARY wrote=14 failed=0 total=14 mirrored=14 mirror_failed=0`. It closed #924.
+- **fleet-prismic-drift** (scheduled, 11:01): 10 checked, 0 failed, 4 skipped, `wrote=14 failed=0`.
+- **fleet-db-backup** (10:50) and **fleet-security** (11:50): both green. fleet-security closed #927.
+- **#754**: now lists exactly one new gap, `renovate merges into reddoor-website:staging … NO required status check`. That is #966's intended finding. Its body names that run, which is #967's rewrite working through GraphQL `updateIssue`. That path could not be exercised from the cloud session that built it.
+- **fleet-lighthouse** (scheduled, created 14:41, green 15:03): `wrote=14 failed=0 mirrored=14`, and the GitHub signals sweep `wrote=20 failed=0` in 44 s (on 09-28 that step hung past the 6-hour job limit). Every maintained site's function-health stamp was renewed at about 15:00Z, a day before the 3-day gate would have blocked Sonder's 09-30 and 10-01 reports and the five due 10-05. Six sites fail Lighthouse assertions, the same six with the same counts as 09-27. They are not send blockers: the gate reads only whether scores exist (`src/reports/preflight.ts:483-490`).
+- **daily-reports** (16:00): nothing due and nothing approved, so nothing drafted or sent. The digest was sent, and `DIGEST_STATE_WRITE turso=1 rollup=1` rewrote the cockpit rollup row that had been stale since 09-17. It closed #931.
+- **fleet-form-e2e** (16:31) `wrote=14 failed=0`, `skipped=8 total=14`, as in the two runs before it. **fleet-smoke** (16:17–16:42) `wrote=14 failed=0`, 0 unmeasured.
+- So all seven scheduled fleet nightlies went green on the first full day on post-Airtable `main`. The schedules fired 4.5 to 8 hours after their cron minute.
+
+**How the work was run.**
+
+- Only `claude/lucid-wozniak-wj8gaj` was authorised for pushes, so each change was built by an agent in its own local worktree on a branch that never pushed.
+- A separate agent then reviewed it through three lenses: correctness, test validity, and the full suite. Findings went back to the implementer.
+- Only then was the change pushed through the session branch and landed with `land-prs.mjs`, one at a time.
+- The permission classifier refused a force-push to reset the session branch after a squash, so the branch was re-created after each merge. GitHub deletes merged heads here.
+- Fourteen of the sixteen PRs needed at least one fold-in round after review.
+
+**Beliefs corrected on contact:**
+
+- **`runbook-anchors` is a floor, not a proof.** Edits that shifted lines `continuity.md` cites by number drifted citations in three of the first five local-branch PRs. The test caught one per PR and passed the others by accident, because the shifted line still held an anchor term. On #962 it missed the drift twice more after its own fix. Reading every cited line is what worked.
+- **A green local gate can hide a broken lockfile.** #964's first lockfile failed `pnpm install --frozen-lockfile`, because the repo's js-yaml override rewrites a new direct dependency's specifier. It was invisible locally: a synced `node_modules` skips the check, and any `pnpm <script>` rewrites the lockfile in place. It is now proven in a fresh worktree with no `node_modules`.
+- **Tests at the function layer don't prove the wiring.** Twice on #968, a fix tested at the DB-function layer could be reverted in the CLI or the Netlify adapter with every test still green. The fixes now have tests that drive the real CLI and the real handler.
+- **My own running notes were an hour off in places.** Every time here comes from `git log` or the Actions API.
+
+**Honest accounting.**
+
+- The wins in the nightlies came from #933 and #937, the previous session's Airtable deletion, not from anything written tonight. Tonight's work proved them, made the alarms able to report the next failure, and fixed what the survey found around them.
+- About sixty subagents were used. The reviews found real defects in fourteen of sixteen PRs, including two that would have broken production:
+  - the lockfile, which would have killed every nightly at install;
+  - #892's first version, which would have flooded #754.
+
+**Left for the operator:** `docs/BACKLOG.md` → "Operator decisions", and `docs/morning-reports/MORNING_REPORT_2026-09-29.md`. Dated items:
+
+- Sonder's Testing report, due 09-30;
+- 29 Navy's recipients;
+- LAHI's refresh-preview before approving on 10-05;
+- MSOT and Revogen recipients;
+- Revogen's GA4 property.
