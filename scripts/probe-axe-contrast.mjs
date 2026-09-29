@@ -2,23 +2,35 @@
 /**
  * Re-prove the #888 contrast detection against REAL axe output.
  *
- * This exists because the first attempt at #888 shipped a guard built on a
- * mechanism that does not occur. The issue said axe "throws, files an
- * error-occurred check, and skips the rule for the whole page". It does not:
- * an unparseable colour is caught PER NODE and recorded as an incomplete entry
- * whose check carries messageKey "colorParse", while the rule keeps running
- * everywhere else. Unit tests on a hand-built artifact could not tell the
- * difference, because they asserted the shape the author believed in.
+ * The mechanism has been got wrong twice, in opposite directions. The issue
+ * said axe "throws, files an error-occurred check, and skips the rule for the
+ * whole page"; the first correction said that never happens, because a probe
+ * with the colour directly behind the text found a PER-NODE `incomplete` entry
+ * with messageKey "colorParse" instead. Both happen. Which one depends on
+ * where the colour sits under the text:
  *
- * So this lifts the detection VERBATIM out of the generated spec and runs it
- * against axe in a real browser, in both directions. Run it after any change
- * to that detection:
+ *   - first opaque background behind the text -> per node, "colorParse",
+ *     the rule runs on elsewhere (reported as contrast-unmeasured);
+ *   - beneath an opaque background (a white CTA or card inside the coloured
+ *     band: the starter's Hero) -> the rule THROWS, `incomplete[].error` is
+ *     set, and color-contrast is skipped for the whole page (reported as
+ *     rule-errored).
+ *
+ * Unit tests on a hand-built artifact could not tell any of this apart,
+ * because they asserted the shape their author believed in. So this runs the
+ * detection the generated spec injects (unparseableContrastNodes, from
+ * src/audits/util/contrast-unmeasured.ts, serialized into the spec with
+ * toString()) and the spec's `incomplete[].error` test against axe in a real
+ * browser, in both directions. The same shapes, run through the real audit,
+ * are held in CI by tests/audits/a11y-live-spec.test.ts; this is the quick
+ * check to run after any change to that detection or any axe-core bump:
  *
  *     node --import tsx scripts/probe-axe-contrast.mjs
  *
  * Expected, axe-core 4.13.0 + Chromium:
- *     BAD  one band            -> VIOLATION, 1 node(s)
- *     BAD  colour on body      -> VIOLATION, 2 node(s)
+ *     BAD  one band            -> UNMEASURED, 1 node(s)
+ *     BAD  colour on body      -> UNMEASURED, 2 node(s)
+ *     BAD  white CTA in band   -> RULE THREW: Unable to parse color ...
  *     GOOD healthy control     -> nothing reported
  *     GOOD text on a gradient  -> nothing reported
  *     GOOD no text at all      -> nothing reported
@@ -31,42 +43,13 @@
  */
 import { chromium } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { readFileSync, mkdirSync, writeFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { a11yAudit } from "../src/audits/a11y.ts";
-
-const site = mkdtempSync(join(tmpdir(), "probe-axe-"));
-for (const f of ["a11y-fixtures", "animate-in"]) {
-  mkdirSync(join(site, "src", "routes", "dev", f), { recursive: true });
-}
-writeFileSync(join(site, "package.json"), JSON.stringify({ name: "probe" }));
-
-let spec = "";
-await a11yAudit({
-  site: { path: site },
-  spawn: async (_cmd, args, opts) => {
-    spec = readFileSync(args[args.length - 1], "utf-8");
-    mkdirSync(join(opts.cwd, ".reddoor-a11y"), { recursive: true });
-    writeFileSync(
-      join(opts.cwd, ".reddoor-a11y", "results.json"),
-      JSON.stringify({ totalViolations: 0, byImpact: {} }),
-    );
-    return { code: 0, stdout: "", stderr: "" };
-  },
-});
-
-const lifted = spec.match(/const contrastIncomplete = [\s\S]*?\n\s*: \[\];\n/);
-if (!lifted) {
-  console.error("could not lift the detection out of the generated spec — has it been renamed?");
-  process.exit(2);
-}
-const detect = new Function("results", `${lifted[0]}; return unparseable;`);
+import { unparseableContrastNodes } from "../src/audits/util/contrast-unmeasured.ts";
 
 const T = "A sentence long enough that axe will actually judge its contrast.";
 const PAGES = {
-  "BAD  one band (the incident shape)": `<style>.b{background-color:oklch(0.205 0 none);color:#3a3a3a}</style><main><p class="b">${T}</p><p>${T} Plain.</p></main>`,
+  "BAD  one band (the colour directly behind the text)": `<style>.b{background-color:oklch(0.205 0 none);color:#3a3a3a}</style><main><p class="b">${T}</p><p>${T} Plain.</p></main>`,
   "BAD  colour on body (page-wide)": `<style>body{background-color:oklch(0.205 0 none);color:#3a3a3a}</style><main><p>${T}</p><p>${T} Again.</p></main>`,
+  "BAD  white CTA in the band (the starter Hero, and #888 as reported)": `<style>section{background-color:oklch(0.205 0 none);color:#fff;position:relative;isolation:isolate;padding:20px}a{display:inline-block;background:#fff;color:#000;padding:8px}</style><main><p>${T}</p><section><p>${T}</p><a href="#x">Explore</a></section></main>`,
   "GOOD healthy control": `<style>body{background:#fff;color:#111}</style><main><p>${T}</p></main>`,
   "GOOD text on a gradient": `<style>.g{background-image:linear-gradient(#000,#333);color:#eee}</style><main><p class="g">${T}</p></main>`,
   "GOOD no text at all": `<main><div style="width:9px;height:9px"></div></main>`,
@@ -82,18 +65,27 @@ for (const [label, body] of Object.entries(PAGES)) {
   await page.setContent(
     `<!doctype html><html><head><meta charset="utf-8"></head><body>${body}</body></html>`,
   );
-  // The same builder and tags the audit's own spec uses, so this measures the
-  // shipped path rather than a lookalike.
+  // The same builder, options (preload off, set before the tags, #52) and tags
+  // the audit's own spec uses, so this measures the shipped path rather than a
+  // lookalike.
   const results = await new AxeBuilder({ page })
+    .options({ preload: false })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
     .analyze();
   await page.close();
-  const found = detect(results);
-  const reported = found.length > 0;
+  const found = unparseableContrastNodes(results);
+  // The spec's other test, verbatim in substance: any incomplete rule that
+  // carries axe's documented `error` field threw and measured nothing.
+  const threw = (results.incomplete ?? []).filter((r) => r.error);
+  const reported = found.length > 0 || threw.length > 0;
   const expected = label.startsWith("BAD");
   if (reported !== expected) bad += 1;
+  const said = [
+    ...(found.length > 0 ? [`UNMEASURED, ${found.length} node(s)`] : []),
+    ...threw.map((r) => `RULE THREW: ${r.id}: ${r.error.message}`),
+  ];
   console.log(
-    `${label}\n   -> ${reported ? `VIOLATION, ${found.length} node(s)` : "nothing reported"}${
+    `${label}\n   -> ${reported ? said.join("; ") : "nothing reported"}${
       reported === expected ? "" : "   <-- UNEXPECTED"
     }`,
   );

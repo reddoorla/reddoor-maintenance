@@ -24,6 +24,11 @@ import {
   splitCrossOriginFrameNodes,
   splitThirdPartyErrors,
 } from "../../src/audits/util/cross-origin.js";
+import {
+  contrastUnmeasuredHelp,
+  ruleErroredHelp,
+  unparseableContrastNodes,
+} from "../../src/audits/util/contrast-unmeasured.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 async function tmpSite(): Promise<string> {
@@ -1439,28 +1444,36 @@ describe("audits/a11y — describeSkipped pairs routes with reasons once reasons
 /**
  * #888 — contrast that was never measured, reported as clean.
  *
- * The issue and this test block's first draft both had the MECHANISM wrong,
- * and it cost a whole PR. The claim was that axe "throws, files an
- * error-occurred check, and skips the rule for the whole page". Measured
- * against axe-core 4.13.0 in Chromium, none of that happens:
+ * The mechanism has been got wrong twice, in opposite directions, so it is
+ * written here as MEASURED against axe-core 4.13.0 in Chromium
+ * (`scripts/probe-axe-contrast.mjs` re-runs every row). An unparseable colour
+ * — Tailwind 4.3's `oklch(… 0 none)` neutrals, which Chrome renders fine —
+ * reaches axe in two shapes, depending on where it sits under the text:
  *
- *   computed background-color : oklch(0.205 0 none)   (Chrome resolves it fine)
- *   band on one element       : passes=1 incomplete=1 keys=["colorParse"]
- *   same colour on body       : passes=0 incomplete=3 keys=["colorParse"]
- *   healthy control           : passes=2 incomplete=0 keys=[]
- *   error-occurred anywhere   : none
+ *   the colour is the first opaque background   -> per node, incomplete,
+ *     band on one element : passes=1 incomplete=1   messageKey "colorParse";
+ *     same colour on body : passes=0 incomplete=2   the rule runs on elsewhere
  *
- * The parse failure is PER NODE. The rule keeps running, the rest of the page
- * passes, and the run reports zero violations — so the page looks clean
- * because the elements that were not legible are also the elements nobody
- * looked at. A guard built on `error-occurred` could never have fired.
+ *   the colour sits BENEATH an opaque background -> the rule THROWS: one
+ *     white card / CTA inside the coloured band     incomplete entry with
+ *     (the starter's Hero)                          `error` + `error-occurred`,
+ *                                                   0 passes on the WHOLE page
  *
- * `colorParse` is the right signal because it means the browser understood the
- * colour and axe did not: an instrument failure. The rule's OTHER messageKeys
- * (bgImage, bgGradient, imgNode, elmPartiallyObscured) are properties of the
- * page, where "axe cannot be sure" is the honest answer, and a page with no
- * text makes the rule inapplicable. Neither is a defect, and an earlier cut
- * that keyed on "color-contrast missing from passes" flagged both.
+ * The issue described only the second; the correction posted on it (and this
+ * block's previous header) described only the first and called the second
+ * impossible. Both occur. The first is `contrast-unmeasured`; the second is
+ * `rule-errored`, keyed on axe's documented `incomplete[].error` field.
+ *
+ * `colorParse` is the right per-node signal because it means the browser
+ * understood the colour and axe did not: an instrument failure. The rule's
+ * OTHER messageKeys (bgImage, bgGradient, imgNode, elmPartiallyObscured) are
+ * properties of the page, where "axe cannot be sure" is the honest answer, and
+ * a page with no text makes the rule inapplicable. Neither is a defect, and an
+ * earlier cut that keyed on "color-contrast missing from passes" flagged both.
+ *
+ * These tests hold the audit's handling of the artifact and the pure pieces the
+ * spec injects. What axe actually returns is held in a real browser by
+ * a11y-live-spec.test.ts ("contrast that was never measured, run for real").
  */
 describe("audits/a11y — contrast that was never measured (#888)", () => {
   const writePkg = (dir: string, reddoor: unknown) =>
@@ -1514,7 +1527,7 @@ describe("audits/a11y — contrast that was never measured (#888)", () => {
           id: "contrast-unmeasured",
           impact: "serious",
           route: "a11y fixtures",
-          help: "7 element(s) on a colour axe cannot parse, so contrast was never measured there — give the oklch() token an explicit hue (identical at chroma 0)",
+          help: "7 element(s) on a colour axe cannot parse (oklch(0.205 0 none)), so contrast was never measured there — give the oklch() token an explicit hue (identical at chroma 0)",
         },
       ],
       measured: [{ route: "a11y fixtures", ruleNodes: { "color-contrast": 54 } }],
@@ -1526,7 +1539,7 @@ describe("audits/a11y — contrast that was never measured (#888)", () => {
     expect(r.summary).toContain("explicit hue");
   });
 
-  // Still correct, still kept, just not what #888 was.
+  // The shape #888 actually reported: the whole rule thrown for the page.
   it("fails on a rule that genuinely threw, naming the rule and axe's message", async () => {
     const r = await run({
       totalViolations: 1,
@@ -1568,8 +1581,140 @@ describe("audits/a11y — contrast that was never measured (#888)", () => {
     expect(sink.spec).toContain("contrast-unmeasured");
     expect(sink.spec).toContain("inc.error");
     expect(sink.spec).toContain("ruleNodes");
-    // And must NOT have gone back to the shape that cannot occur.
-    expect(sink.spec).not.toContain("error-occurred");
+    // Keyed on axe's documented `error` field, not on the check id it files
+    // beside it: the field is the API, the check id an implementation detail.
+    expect(sink.spec).not.toContain('"error-occurred"');
+  });
+
+  // Where the detection sits is load-bearing, and only a live run or this can
+  // see it. `results` is declared inside the axe loop's try block, and a
+  // textual merge of this PR over #950 put the detection AFTER that block's
+  // finally: every unit test here stayed green and tsc passed (the spec is a
+  // string), while every real audit died on `results is not defined` and
+  // reported "no results written". It must read `results` inside the try, and
+  // be counted and filtered by the same cross-origin frame split as axe's own
+  // violations (#100).
+  it("reads axe's results inside the route's try, and splits its findings like axe's own", async () => {
+    const sink = { spec: "" };
+    await run({ totalViolations: 0, byImpact: {} }, sink);
+    const spec = sink.spec;
+    const analyze = spec.indexOf(".analyze();");
+    const detect = spec.indexOf("const unparseable = unparseableContrastNodes(results);");
+    const errored = spec.indexOf("ruleErroredHelp(inc.id");
+    const split = spec.indexOf("splitCrossOriginFrameNodes(candidates, foreignPaths)");
+    const measured = spec.indexOf("measured.push(");
+    const loopFinally = spec.indexOf("} finally {", analyze);
+    for (const at of [analyze, detect, errored, split, measured, loopFinally]) {
+      expect(at).toBeGreaterThan(-1);
+    }
+    expect(analyze).toBeLessThan(detect);
+    expect(detect).toBeLessThan(split);
+    expect(errored).toBeLessThan(split);
+    expect(split).toBeLessThan(measured);
+    expect(measured).toBeLessThan(loopFinally);
+    // The derived findings join axe's violations BEFORE the frame paths are
+    // walked, so a node inside a third party's frame is dropped and counted.
+    expect(spec).toContain("const candidates = [...results.violations, ...derived];");
+    expect(spec).toMatch(/for \(const v of candidates\) \{\s+for \(const n of v\.nodes\)/);
+  });
+});
+
+/**
+ * The pure pieces #888's detection is built from, fed the shapes a real axe
+ * run returns (see the probe and the live spec test for where each was
+ * measured). The live test proves axe produces them; these hold the edges.
+ */
+describe("audits/a11y — the #888 detection's pure pieces", () => {
+  const colorParseCheck = (colour: string) => ({
+    id: "color-contrast",
+    data: { messageKey: "colorParse", colorParse: colour },
+  });
+  const keyed = (messageKey: string) => ({ id: "color-contrast", data: { messageKey } });
+
+  it("returns only the color-contrast nodes axe could not parse a colour for", () => {
+    const band = { target: ["#band"], any: [colorParseCheck("oklch(0.205 0 none)")] };
+    const gradient = { target: ["#gradient"], any: [keyed("bgGradient")] };
+    const image = { target: ["#hero"], any: [keyed("imgNode")] };
+    const short = { target: ["#x"], any: [keyed("shortTextContent")] };
+    const found = unparseableContrastNodes({
+      incomplete: [
+        { id: "color-contrast", nodes: [band, gradient, image, short] },
+        // Another rule's node carrying the same key must not be counted.
+        { id: "link-in-text-block", nodes: [{ target: ["#l"], any: [keyed("colorParse")] }] },
+      ],
+    });
+    expect(found).toEqual([band]);
+  });
+
+  it("finds the key in any of axe's three check lists, and tolerates null data", () => {
+    const inAll = { target: ["#a"], all: [colorParseCheck("oklch(0.5 0 none)")] };
+    const inNone = { target: ["#b"], none: [colorParseCheck("oklch(0.5 0 none)")] };
+    const noData = { target: ["#c"], any: [{ id: "color-contrast", data: null }, null] };
+    expect(
+      unparseableContrastNodes({
+        incomplete: [{ id: "color-contrast", nodes: [inAll, inNone, noData] }],
+      }),
+    ).toEqual([inAll, inNone]);
+  });
+
+  it("returns nothing when the rule is not incomplete at all", () => {
+    expect(unparseableContrastNodes({})).toEqual([]);
+    expect(unparseableContrastNodes({ incomplete: [] })).toEqual([]);
+    expect(unparseableContrastNodes({ incomplete: [{ id: "color-contrast" }] })).toEqual([]);
+  });
+
+  it("names the count, up to two colours axe rejected, and the remedy", () => {
+    const node = (colour: string) => ({ any: [colorParseCheck(colour)] });
+    expect(contrastUnmeasuredHelp([node("oklch(0.205 0 none)"), node("oklch(0.205 0 none)")])).toBe(
+      "2 element(s) on a colour axe cannot parse (oklch(0.205 0 none)), so contrast was never measured there — give the oklch() token an explicit hue (identical at chroma 0)",
+    );
+    expect(
+      contrastUnmeasuredHelp([
+        node("oklch(0.205 0 none)"),
+        node("oklch(0.97 0 none)"),
+        node("oklch(0.556 0 none)"),
+      ]),
+    ).toContain("(oklch(0.205 0 none), oklch(0.97 0 none), +1 more)");
+    // No colour string recorded: still a count and a remedy, no empty "()".
+    expect(contrastUnmeasuredHelp([{ any: [keyed("colorParse")] }])).toBe(
+      "1 element(s) on a colour axe cannot parse, so contrast was never measured there — give the oklch() token an explicit hue (identical at chroma 0)",
+    );
+  });
+
+  it("gives a thrown rule axe's own message, and the remedy only when a colour caused it", () => {
+    expect(
+      ruleErroredHelp(
+        "color-contrast",
+        'Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule.',
+      ),
+    ).toBe(
+      'axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule. — give the oklch() token an explicit hue (identical at chroma 0)',
+    );
+    expect(ruleErroredHelp("region", "boom Skipping region rule.")).toBe(
+      'axe could not run "region": boom Skipping region rule.',
+    );
+    expect(ruleErroredHelp("region", undefined)).toBe(
+      'axe could not run "region": no message from axe',
+    );
+  });
+
+  // Injected with toString(), so it must not lean on anything outside itself.
+  it("each piece survives serialization into the spec", () => {
+    for (const fn of [unparseableContrastNodes, contrastUnmeasuredHelp, ruleErroredHelp]) {
+      const revived = new Function(`return (${fn.toString()});`)() as typeof fn;
+      expect(typeof revived).toBe("function");
+    }
+    const revivedDetect = new Function(
+      `return (${unparseableContrastNodes.toString()});`,
+    )() as typeof unparseableContrastNodes;
+    const band = { any: [colorParseCheck("oklch(0.205 0 none)")] };
+    expect(revivedDetect({ incomplete: [{ id: "color-contrast", nodes: [band] }] })).toEqual([
+      band,
+    ]);
+    const revivedHelp = new Function(
+      `return (${ruleErroredHelp.toString()});`,
+    )() as typeof ruleErroredHelp;
+    expect(revivedHelp("color-contrast", "Unable to parse color x")).toContain("explicit hue");
   });
 });
 

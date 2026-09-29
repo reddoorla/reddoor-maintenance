@@ -191,8 +191,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
 8. **#918 / #920** (GA4 tag mechanism + recipe) — their author stopped after
    four dirty review rounds with "the merge is yours". #918 is 16 behind main
    and predates #936's `no analytics` opt-out.
-9. **#916 vs #950** — both rewrite the a11y spec and conflict. #916 would turn
-   9 of 12 sampled sites red until their palettes are fixed. Pick the order.
+9. **#916 vs #950** — decided 2026-09-29: #950 first, then #916 merged over
+   it for 0.101.0. Moved to _Done_.
 10. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
@@ -248,6 +248,16 @@ Ordered by what unblocks the most. Each line is the exact ask.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — Operator decision 9 / #888: #916 lands over #950. main was merged
+  in, not rebased, because a text-only resolution put the detection after the
+  axe loop's `finally`. Every unit test and tsc passed on that, and every real
+  audit died on `results is not defined`. #916's findings go through #950's
+  cross-origin frame split. The "9 of 12 sampled sites red" figure came from a
+  static grep for `none`-hued tokens. Nobody measured it against the gate. Both
+  of axe's shapes occur. The whole-rule throw (`rule-errored`) that the issue
+  reported, and that the correction posted on it called impossible, is what the
+  starter's `Hero` produces: a white CTA over `bg-neutral-900`.
 
 - 2026-09-29 — P1-8 / #907: the prospect-audit daily cap reserves a `running`
   row before the spend, atomically, and counts finished plus non-stale running

@@ -242,6 +242,12 @@ const CROSS_PAGES: Record<string, string> = {
   "/frame.html": thirdPartyPage("Embed", `<img src="/tile.png">`),
   // Something focusable, inside a frame the site gave tabindex="-1".
   "/player.html": thirdPartyPage("Player", `<button type="button">Play</button>`),
+  // Text on a colour axe cannot parse (#888), inside a third party's document:
+  // not the site's to fix, so it must be counted, not failed.
+  "/unparseable.html": thirdPartyPage(
+    "Widget",
+    `<p style="background-color: oklch(0.205 0 none); color: #3a3a3a">A sentence long enough that axe will actually judge its contrast.</p>`,
+  ),
   // A third party's script that throws as soon as it loads.
   "/throws.html": thirdPartyPage(
     "Widget",
@@ -611,6 +617,95 @@ const SITE_H: SiteConfig = {
   a11yRoutes: ["/hidden-lazy"],
 };
 
+/**
+ * #888, run for real: text on a colour axe cannot parse. Chrome resolves
+ * `oklch(0.205 0 none)` and paints it; axe-core 4.13 cannot parse it, and
+ * leaves each such node `incomplete` with `messageKey: "colorParse"` while the
+ * rule runs on everywhere else. Every sentence is long enough to be judged (a
+ * one-character node comes back `shortTextContent` instead).
+ *
+ *   - `#band-text`: #3a3a3a on that colour, 1.57:1 once measured — a real
+ *     failure that axe never measures. It must be reported as unmeasured.
+ *   - `#hued-text`: the same two colours with an explicit hue, which renders
+ *     identically. It must come back as the `color-contrast` violation the
+ *     band hides — the remedy turns the measurement on.
+ *   - `#revealed-text`: the band's colour on a reveal at 150vh, at opacity 0
+ *     until first seen. Only the reveal pass (#100) brings it into the rule, so
+ *     its presence proves the detection reads what the pass revealed.
+ *   - `#gradient-text`: text on a gradient, which axe leaves `incomplete` as
+ *     `bgGradient`. A property of the page, not an instrument failure: it must
+ *     NOT be reported.
+ *   - `#plain-text`: a healthy control.
+ *   - `#xo-unparseable`: a cross-origin frame whose own text sits on the
+ *     unparseable colour. The third party's, so it is counted as a dropped
+ *     frame node, never failed (#100's positive-evidence rule).
+ */
+const UNMEASURED_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Unmeasured contrast</title>
+<style>
+  body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; }
+  main { position: relative; height: 300vh; }
+  .band { background-color: oklch(0.205 0 none); color: #3a3a3a; }
+  .hued { background-color: oklch(0.205 0 0); color: #3a3a3a; }
+  .gradient { background-image: linear-gradient(#000, #333); color: #eee; }
+  #reveal { position: absolute; top: 150vh; left: 0; right: 0; }
+  iframe { width: 300px; height: 150px; border: 0; }
+</style></head>
+<body><main><h1>Unmeasured contrast</h1>
+<p id="plain-text">A sentence long enough that axe will actually judge its contrast.</p>
+<p id="band-text" class="band">A sentence long enough that axe will actually judge its contrast.</p>
+<p id="hued-text" class="hued">A sentence long enough that axe will actually judge its contrast.</p>
+<p id="gradient-text" class="gradient">A sentence long enough that axe will actually judge its contrast.</p>
+<iframe id="xo-unparseable" title="Widget" src="CROSS_ORIGIN/unparseable.html"></iframe>
+<div id="reveal"><p id="revealed-text" class="band">A sentence long enough that axe will actually judge its contrast.</p></div>
+</main>
+<script>
+  const el = document.getElementById("reveal");
+  el.style.opacity = "0";
+  el.style.transition = "opacity 600ms";
+  new IntersectionObserver((entries, observer) => {
+    if (entries[0].isIntersecting) {
+      el.style.opacity = "1";
+      observer.disconnect();
+    }
+  }, { threshold: 0 }).observe(el);
+</script>
+</body>
+</html>`;
+
+/**
+ * #888's reported shape: the starter's Hero. The band is the unparseable
+ * colour and the CTA inside it is white, so axe finds the CTA's white first,
+ * then parses every element under it for the stacking context and THROWS on
+ * the band. The whole rule is skipped for the whole page — including
+ * `#above`, legible text on white that has nothing to do with the band.
+ */
+const HERO_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Hero</title>
+<style>
+  body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; }
+  .hero { position: relative; isolation: isolate; padding: 24px; background-color: oklch(0.205 0 none); color: #fff; }
+  .cta { display: inline-block; padding: 8px 16px; background: #fff; color: #000; }
+</style></head>
+<body><main><h1>Hero</h1>
+<p id="above">A sentence long enough that axe will actually judge its contrast.</p>
+<section class="hero"><h2>Hero slice</h2><p>Hero body copy over a dark backdrop, long enough to judge.</p><a class="cta" href="#explore">Explore</a></section>
+</main></body>
+</html>`;
+
+/** The #888 site: the unmeasured-contrast page on the fixtures route, and the Hero. */
+const SITE_C: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": UNMEASURED_PAGE,
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/hero": HERO_PAGE,
+  },
+  a11yRoutes: ["/hero"],
+};
+
 /** A site with nothing to fail and one route whose reveal pass cannot finish. */
 const SITE_W: SiteConfig = {
   pages: {
@@ -970,5 +1065,90 @@ describe("audits/a11y — a frame that never loads cannot stall the run (#100 re
       [];
     expect(errors.map((e) => e.route).sort()).toEqual(["/hidden-lazy", "home"]);
     for (const e of errors) expect(e.frame).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/throws\.html$/);
+  });
+});
+
+describe("audits/a11y — contrast that was never measured, run for real (#888)", () => {
+  let site = "";
+  let result: AuditResult | undefined;
+
+  beforeAll(async () => {
+    site = await makeFixtureSite(SITE_C);
+    result = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
+  }, 180_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+  });
+
+  const all = (): Violation[] =>
+    (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+  const targetsOf = (id: string): string[] =>
+    all()
+      .filter((v) => v.id === id)
+      .flatMap((v) => (v.nodes ?? []).map((n) => (n.target ?? []).join(" ")));
+
+  it("fails on the unmeasured nodes, and on the failure the explicit hue lets axe see", () => {
+    expect(result?.status).toBe("fail");
+    expect(
+      all()
+        .map((v) => `${v.id} on ${v.route}`)
+        .sort(),
+    ).toEqual([
+      "color-contrast on a11y fixtures",
+      "contrast-unmeasured on a11y fixtures",
+      "rule-errored on /hero",
+    ]);
+    // The band axe could not parse, and the same band revealed by the pass.
+    expect(targetsOf("contrast-unmeasured").sort()).toEqual(["#band-text", "#revealed-text"]);
+    // Identical pixels with an explicit hue: now measured, and failing.
+    expect(targetsOf("color-contrast")).toEqual(["#hued-text"]);
+  });
+
+  it("names the count, the colour axe rejected and the remedy on the summary line", () => {
+    expect(result?.summary).toContain(
+      "contrast-unmeasured on a11y fixtures (2 element(s) on a colour axe cannot parse (oklch(0.205 0 none)), so contrast was never measured there — give the oklch() token an explicit hue (identical at chroma 0))",
+    );
+  });
+
+  it("does not report text axe is merely unsure of: a gradient", () => {
+    expect(targetsOf("contrast-unmeasured")).not.toContain("#gradient-text");
+    expect(targetsOf("color-contrast")).not.toContain("#gradient-text");
+  });
+
+  it("counts the unparseable colour inside a cross-origin frame, and does not fail on it", () => {
+    type Dropped = { route: string; count: number; rules: string[] };
+    const dropped =
+      (result?.details as { frameNodesDropped?: Dropped[] } | undefined)?.frameNodesDropped ?? [];
+    expect(dropped.find((d) => d.route === "a11y fixtures")).toEqual({
+      route: "a11y fixtures",
+      count: 1,
+      rules: ["contrast-unmeasured"],
+    });
+    expect(targetsOf("contrast-unmeasured").some((t) => t.startsWith("#xo-unparseable"))).toBe(
+      false,
+    );
+  });
+
+  it("fails the Hero shape — a white CTA over the colour — as a thrown rule, with axe's message and the remedy", () => {
+    const hero = all().filter((v) => v.route === "/hero");
+    expect(hero.map((v) => v.id)).toEqual(["rule-errored"]);
+    expect(hero[0]?.help).toBe(
+      'axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule. — give the oklch() token an explicit hue (identical at chroma 0)',
+    );
+    expect(result?.summary).toContain(
+      'rule-errored on /hero (axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)"',
+    );
+  });
+
+  it("records how many nodes each rule measured, per route — none for contrast where the rule threw", () => {
+    type Measured = { route: string; ruleNodes: Record<string, number> };
+    const measured = (result?.details as { measured?: Measured[] } | undefined)?.measured ?? [];
+    expect(measured.map((m) => m.route)).toEqual(["a11y fixtures", "animate-in demo", "/hero"]);
+    // #plain-text and the h1 at least; the band, the reveal and the gradient
+    // are not passes.
+    expect(measured[0]?.ruleNodes["color-contrast"]).toBeGreaterThanOrEqual(2);
+    // The thrown rule measured nothing on the whole page, #above included.
+    expect(measured[2]?.ruleNodes["color-contrast"] ?? 0).toBe(0);
   });
 });

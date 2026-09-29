@@ -14,6 +14,11 @@ import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
 import {
+  contrastUnmeasuredHelp,
+  ruleErroredHelp,
+  unparseableContrastNodes,
+} from "./util/contrast-unmeasured.js";
+import {
   collectFrameErrorLogs,
   firstStackUrl,
   frameOnPathIsForeign,
@@ -411,6 +416,10 @@ const splitThirdPartyErrors = ${splitThirdPartyErrors.toString()};
 const firstStackUrl = ${firstStackUrl.toString()};
 const collectFrameErrorLogs = ${collectFrameErrorLogs.toString()};
 const frameOnPathIsForeign = ${frameOnPathIsForeign.toString()};
+// Injected the same way — see src/audits/util/contrast-unmeasured.ts (#888).
+const unparseableContrastNodes = ${unparseableContrastNodes.toString()};
+const contrastUnmeasuredHelp = ${contrastUnmeasuredHelp.toString()};
+const ruleErroredHelp = ${ruleErroredHelp.toString()};
 // Every read of a frame is bounded: a lazy iframe that never loaded is listed
 // with no document, and waiting on it hung the whole run (#100 review).
 const FRAME_READ_TIMEOUT_MS = 2000;
@@ -630,6 +639,47 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
         .options({ preload: false })
         .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
         .analyze();
+      // #888: contrast axe never measured, which an empty violations list
+      // cannot tell from legible text. A colour axe cannot parse (Tailwind
+      // 4.3's none-hued neutral palette, which Chrome renders fine) reaches it
+      // in two shapes, both measured -- see src/audits/util/contrast-unmeasured.ts:
+      // per node, as an incomplete "colorParse" entry while the rule runs on
+      // (-> contrast-unmeasured, here); or, when the colour sits beneath an
+      // opaque background such as a white CTA in a neutral-900 Hero, as a
+      // thrown rule that is skipped for the whole page (-> rule-errored,
+      // below). The rule's other incomplete reasons (a gradient, an image, an
+      // obscured box) belong to the page and are NOT reported.
+      //
+      // Read after the reveal pass above, like every other result: a node the
+      // pass reveals is measured revealed, so a reveal on such a colour lands
+      // here instead of dropping out of the rule at opacity 0.
+      const unparseable = unparseableContrastNodes(results);
+      // Findings derived from axe's incomplete results. They are the site's on
+      // the same terms as axe's own violations, so they go through the same
+      // cross-origin frame split below: a colour axe cannot parse inside a third
+      // party's document is not the site's to fix either.
+      const derived = [];
+      if (unparseable.length > 0) {
+        derived.push({ id: "contrast-unmeasured", impact: "serious", nodes: unparseable });
+      }
+      // A rule that THREW measured nothing on this page, and axe documents a
+      // field for it (incomplete[].error). This is #888's reported shape: the
+      // colour beneath a white CTA made color-contrast throw "Unable to parse
+      // color ... Skipping color-contrast rule." and skip the whole page.
+      for (const inc of results.incomplete ?? []) {
+        if (!inc.error) continue;
+        const errored = {
+          id: "rule-errored",
+          impact: "serious",
+          help: ruleErroredHelp(inc.id, inc.error.message),
+          helpUrl: inc.helpUrl,
+          nodes: inc.nodes ?? [],
+        };
+        // No node means nothing to attribute to a frame: it is the site's.
+        if (errored.nodes.length > 0) derived.push(errored);
+        else violations.push({ ...errored, route: name });
+      }
+      const candidates = [...results.violations, ...derived];
       // Cross-origin frame CONTENTS do not count against the site. The reveal
       // pass brings lazy third-party iframes (a Google Maps footer, a YouTube
       // player) into load range; their documents' violations are not the
@@ -645,7 +695,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // splitCrossOriginFrameNodes keeps every frame-focusable-content node.
       const foreignPaths = [];
       const checkedPaths = [];
-      for (const v of results.violations) {
+      for (const v of candidates) {
         for (const n of v.nodes) {
           const t = n.target;
           if (!Array.isArray(t) || t.length < 2) continue;
@@ -655,79 +705,20 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
           if (await pathIsForeign(t.slice(0, -1))) foreignPaths.push(key);
         }
       }
-      const split = splitCrossOriginFrameNodes(results.violations, foreignPaths);
+      const split = splitCrossOriginFrameNodes(candidates, foreignPaths);
       frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });
       for (const v of split.kept) {
         violations.push({
           id: v.id,
           impact: v.impact ?? "moderate",
           route: name,
-          help: v.help,
+          // contrast-unmeasured's help IS its summary line in CI, so it is
+          // written from the nodes that were kept. It carries the count (how
+          // blind was the run), the colour axe rejected (what to change) and
+          // the remedy -- an alarm without a remedy just gets muted.
+          help: v.id === "contrast-unmeasured" ? contrastUnmeasuredHelp(v.nodes) : v.help,
           helpUrl: v.helpUrl,
           nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
-        });
-      }
-      // #888. Read inside the route's try: results is declared in it (a
-      // textual merge over #950 left this after the finally, where every real
-      // audit died on "results is not defined").
-      //
-      // The mechanism, MEASURED against axe-core 4.13.0 in Chromium
-      // rather than inferred: an unparseable colour does NOT throw the rule.
-      // Chrome resolves "oklch(0.205 0 none)" perfectly well, axe fails to parse
-      // it, and axe records that PER NODE as an "incomplete" entry whose check
-      // carries messageKey "colorParse". The rule keeps running everywhere else.
-      //
-      //   band on one element : passes=1 incomplete=1 keys=["colorParse"]
-      //   same colour on body : passes=0 incomplete=3 keys=["colorParse"]
-      //   healthy control     : passes=2 incomplete=0 keys=[]
-      //
-      // So the nodes behind that colour are never measured for contrast, while
-      // the rest of the page passes and the run reports zero violations. That is
-      // what hid two real failures: the page looked clean because the elements
-      // that were not legible were also the elements nobody looked at.
-      //
-      // "colorParse" is the RIGHT signal precisely because it means the browser
-      // understood the colour and axe did not — an instrument failure. The other
-      // messageKeys on this rule (bgImage, bgGradient, imgNode,
-      // elmPartiallyObscured) are properties of the PAGE, where "axe cannot be
-      // sure" is the honest answer and not a defect. Measured: a text-on-gradient
-      // page yields keys=["bgGradient"], and a page with no text at all makes the
-      // rule inapplicable. Neither is reported here.
-      const contrastIncomplete = (results.incomplete ?? []).find((r) => r.id === "color-contrast");
-      const unparseable = contrastIncomplete
-        ? (contrastIncomplete.nodes ?? []).filter((n) =>
-            [...(n.any ?? []), ...(n.all ?? []), ...(n.none ?? [])].some(
-              (c) => c && c.data && c.data.messageKey === "colorParse",
-            ),
-          )
-        : [];
-      if (unparseable.length > 0) {
-        violations.push({
-          id: "contrast-unmeasured",
-          impact: "serious",
-          route: name,
-          // One line, because this IS the summary line in CI. It has to carry the
-          // count (how blind was the run), the cause (axe, not the browser) and
-          // the remedy (an explicit hue) — an alarm without a remedy just gets
-          // muted.
-          help:
-            unparseable.length +
-            " element(s) on a colour axe cannot parse, so contrast was never measured there" +
-            " — give the oklch() token an explicit hue (identical at chroma 0)",
-          nodes: unparseable.map((n) => ({ html: n.html, target: n.target })),
-        });
-      }
-      // A rule that genuinely THREW is a different and much rarer shape, and axe
-      // documents a field for it. Keep it: it is correct, it just is not what
-      // #888 was.
-      for (const inc of results.incomplete ?? []) {
-        if (!inc.error) continue;
-        violations.push({
-          id: "rule-errored",
-          impact: "serious",
-          route: name,
-          help: 'axe could not run "' + inc.id + '": ' + (inc.error.message || "no message from axe"),
-          helpUrl: inc.helpUrl,
         });
       }
       // Coverage as a NUMBER, not a boolean. The unit that matters is nodes --
@@ -803,9 +794,11 @@ const NAMED_VIOLATIONS_MAX = 6;
  * One line naming each violation as `<rule> on <route>`, identical pairs folded
  * into `<rule> ×N on <route>`. A `route-missing` entry appends its help, which
  * is where the path and HTTP status live -- the id and route alone do not say
- * what went wrong there. A `client-error` thrown while the reveal pass ran is
- * marked `(while the reveal pass ran)` — a time window, not a cause — and never
- * folded into one thrown outside it (#100). Empty for no violations.
+ * what went wrong there; so do `rule-errored` and `contrast-unmeasured` (#888),
+ * whose help is axe's message or the unparsed colour and its remedy. A
+ * `client-error` thrown while the reveal pass ran is marked `(while the reveal
+ * pass ran)` — a time window, not a cause — and never folded into one thrown
+ * outside it (#100). Empty for no violations.
  */
 export function describeViolations(violations: AxeViolation[]): string {
   const groups = new Map<
@@ -833,11 +826,12 @@ export function describeViolations(violations: AxeViolation[]): string {
   const entries = [...groups.values()];
   const shown = entries.slice(0, NAMED_VIOLATIONS_MAX).map((g) => {
     const count = g.n > 1 ? ` ×${g.n}` : "";
-    // `route-missing` and `rule-errored` both carry their diagnostic in `help`
-    // rather than in a node, and for both of them that sentence IS the finding
-    // — "rule-errored on a11y fixtures" tells an operator nothing, while
-    // "Unable to parse color oklch(0.205 0 none)" tells them exactly what to
-    // change. Every other rule's help is generic advice the helpUrl repeats.
+    // `route-missing`, `rule-errored` and `contrast-unmeasured` (#888) carry
+    // their diagnostic in `help`, and for each of them that sentence IS the
+    // finding — "rule-errored on a11y fixtures" tells an operator nothing,
+    // while axe's own message, or the colour it could not parse and the
+    // remedy, tells them exactly what to change. Every other rule's help is
+    // generic advice the helpUrl repeats.
     const carriesItsOwnDiagnostic =
       g.id === "route-missing" || g.id === "rule-errored" || g.id === "contrast-unmeasured";
     const detail =
