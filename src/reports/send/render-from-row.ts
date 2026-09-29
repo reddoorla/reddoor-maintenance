@@ -72,6 +72,7 @@ export async function renderReportFromRow(
       report.searchFoundPage1 && report.searchPosition !== null ? report.searchPosition : undefined,
     lastTestedDate: report.lastTestedDate ? new Date(report.lastTestedDate) : null,
     commentary: report.commentary,
+    checklistEvidence: report.autoEvidence ?? undefined,
     copy: resolveCopy(site),
     headerImageCid: cidName,
     headerWidth: header.displayWidth,

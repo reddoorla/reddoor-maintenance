@@ -5790,6 +5790,91 @@ The morning snapshot's 0 healthy / 13 watch was mostly one roster gap (#939). Th
 
 **Where this came from.** Everything above came from read-only SELECTs, the code, and the docs. I found no written feedback from Tim or Erik, and no journal record of the stray-`\n` script failure that #672's MED-18(c) comment cites.
 
+## 2026-09-29 — #674: design-review rules mined, no code (#1012)
+
+The operator decided on 2026-09-29 that #674 should mine the rules first and write no code. This session did the mining from the cloud. The result is `docs/design-review-rules-2026-09.md`: 25 ranked rules, nine single-site clusters, eleven rules for the written guide, and a tail of rules seen once.
+
+**What was read.**
+
+- This repo: the whole journal, meta-week (its `_data/commits.jsonl` of fleet commit subjects turned out to be the densest source here), the morning reports and the specs.
+- Eight public fleet repos: reddoor-website, beachfront-dentistry, gallerysonder, vida-legacy-foundation, roalson-interests, 29-navy and both starters. For each one, every issue and PR body (954 in total), every human comment (179), CLAUDE.md, docs, journals and code comments that state a rule.
+- Seven read-only agents did the reading, one per source group. 44 of their quotes were then grepped back against the sources: all were genuine, and a deliberately wrong probe missed.
+
+Discord, Figma comments and the MarkUp boards could not be reached from a cloud session. Neither could the private `claude-skills` repo, which was not attached. They are listed in the file as a second pass for a laptop session.
+
+**Beliefs corrected on contact.**
+
+- **Design review never happened in GitHub's review UI.** PR line-review comments are zero on all eight repos. The reviewers' words reach the repos only as agent-written fix PRs and journal entries that quote them. The best primary record a cloud session can read is beachfront's and 29-navy's `matching/LEDGER.md`, which transcribe Tim's MarkUp pins round by round.
+- **The seed rule holds and is the most restated note:** about 30 instances on 5 sites. But **neither starter has an explicit full-bleed marker.** Full-bleed is implicit: an element sits in the band's section, outside its content box. #674 itself says full-bleed must be an explicit opt-in and never inferred. So the first rule has a prerequisite, and that prerequisite is a design call, which is now an ask.
+- **Two of the issue's illustrative seeds are thinner than the issue implied.**
+  - The blend/transform isolation bug has about 6 instances, all on reddoor-website plus one on beachfront.
+  - "A container class passed from outside collapses the gutter" has **no recorded defect** in anything a cloud session can read. reddoor-starter's `ContentWidth` already protects its gutter against a passed class. By #674's own bar ("must fail on at least one real page") it does not qualify yet. The Discord pass should look for it specifically.
+- **The broadest rules are motion and contrast, not layout.**
+  - Reduced motion shows up on all 8 repos.
+  - Contrast against the ground that is actually painted (photos, textures, hover and open states, after reveals settle) is the largest cluster, at about 40 instances. Most of it is what axe cannot see. The fleet audit's axe filter also drops the best-practice heading rules (`page-has-heading-one`, `heading-order`), which is why the 25-instance heading-outline cluster kept being found by hand.
+- **A recurring meta-finding: the gates only sampled three widths.** Beachfront's gutters agreed at 1440/834/390 and splayed at 1294. Vida's 4-up grid was keyed to the comp's 1440 and fell to 2×2 at a maximized 1440 window's 1425. Rule 10 turns this into the viewport sweep every other rule runs on.
+
+**Honest accounting.** The rule counts are distinct instances as the miners reported them, not a deduplicated census. One fix PR, its journal entry and its commit subject can describe the same event, and some rules count all three. The ranking is frequency × testability, judged per rule, and is not a formula. Nothing here has been run against a page. Every "check" line is a proposal until a fixture shows it passing on a known-good page and failing on the real past defect it cites.
+
+## 2026-09-29 — Beachfront's self-comparing matching scripts deleted: 101, not 33 (#728, beachfront#69 `e3547dfe`)
+
+The operator's call on #728 was to delete, not to route through the read
+layer. The issue's premise had moved since it was filed: beachfront#54 deleted
+the 16 `sweep*.sh`, and beachfront#65 put 17 probes behind `assertRef`,
+which is fail-closed, so those now refuse where they used to match. Re-measured
+on beachfront `5221c02`, 147 tracked top-level scripts hard-code
+`https://[www.]beachfrontdentistry.com` or `beachfront-dentistry.webflow.io`.
+The 101 deleted were the ones that also load a candidate, carry no guard, and
+are named nowhere but LEDGER. The guard grep was first shown to hit on
+`probe-cut.mjs`, a known-guarded probe. #728's 33 does not reproduce from any
+grep shape tried, so the shape is recorded in beachfront's journal, not the
+number.
+
+**The brief was wrong about `gate.sh`, and the brief's own keep rule caught
+it.** #728 described gate.sh's REF as the dead webflow host. It now reads REF
+from harness.json and refuses through `--check-ref`. Beachfront is also the
+source `gen-match-harness-template.mjs` cuts the recipe from (`SRC` defaults to
+the laptop's beachfront checkout), so deleting gate.sh there would have left the
+next template regeneration without its upstream. Also kept: the recipe harness,
+the 17 guarded probes, config-driven tools, 37 reference-only measurement
+scripts (they compare nothing), 7 scripts cited from `src/` or `SPEC.md`, and
+`probe-markup-i2-z3`/`-z4`/`-z5` (localhost only), which the brief's
+`probe-markup-i2-z*` glob would otherwise have swept in.
+
+Re-probed: webflow.io 404 (906 bytes). `www.` 301 to the apex. The apex is 200
+and carries `candMark` 29 times, which proves by fingerprint that it is our
+build. Beachfront lint, check, 812/812 unit tests and build were green. The
+manual `node --test matching/probe-ref.test.mjs` is 24/25 on both the branch and
+`main`; the failure is `probe-footer-chrome.mjs` exiting 1 where 2 is expected.
+It predates the change and is not in CI, and it is left for whoever next touches
+beachfront matching.
+
+## 2026-09-29 — The client email drops checklist rows whose evidence is n/a (#1015)
+
+This is Operator decisions 17, the #957 follow-up. The operator decided that a row whose evidence is `n/a` is left out of the client email, neither drawn with a ✓ nor shown as "N/A". Before this, `checklistRowsSection` drew a green check beside every label in `copy.maintenanceChecks` and `copy.testingChecklist`, and the template never saw the evidence at all. `ReportData` had no field for it. The gate read `autoEvidence`, but the email did not. So once #957 made a CMS-less site's "CMS Checked" `n/a`, LAHI's email would have said "CMS Checked ✓". "Form Functionality ✓" and "Tested After Updates ✓" had already been saying it for sites with no form or no CI since #370.
+
+The rule sits in one place. `shownChecklistLabels` in the template reads a new `ReportData.checklistEvidence` and drops a label whose field's evidence is `n/a`. It matches labels to fields by index against `MAINTENANCE_CHECKLIST` and `TESTING_CHECKLIST`, which is safe because `resolveCopy` never overrides either list and `checklist.test.ts` already pins them against `DEFAULT_COPY`. Wiring it took five render paths, and finding them all was most of the work. The send and "refresh preview" both go through `renderReportFromRow`, which now forwards `report.autoEvidence`. `rerender` already hands it the reticked row. The stored draft body behind the dashboard preview, and `report --preview`, go through `draftReportForSite`, where `autoTickChecklist` used to run _after_ the render. It is pure, so it moved up, and the body renders from the same evidence the row stores. The half-made-row completion path renders with that row's own stored evidence, so its preview drops exactly what its send will. `selftest email` builds its data from the roster with no report row, so `buildReportDataForSite` now computes the evidence itself at the selftest's clock. The send has no plain-text part (the Resend payload is `html` only), so the HTML is the whole email.
+
+**Measured.** Ten mutations were named and run against the new tests, and all went red. Review round 1 used three lenses and a full-suite integration run on a clean checkout (546 files, 7996 passed). It found no source defect but four more surviving mutations. Three of them were on paths pinned by one case each: the send keeping only `Maint:` evidence, the send forwarding evidence only when nothing fails, and selftest applying evidence only to Testing. The fourth was completion falling back to fresh evidence. Round 2 found no defect and one survivor, which was selftest judging freshness at `periodStart` instead of `now`. Every n/a fixture stamped its sweep six hours before `now`, so a clock thirty days back still read those stamps as fresh. A stale-sweep test now kills it. Two dirty rounds of _test gaps_ and zero source defects, so no third round.
+
+**Beliefs corrected on contact.** The brief assumed a plain-text rendering to update. There is none. "Every row that can be n/a" turns out to be three rows, CMS, form and CI. Google never yields `n/a`, and every Maintenance row except CMS is gating, so it is `unknown` rather than absent. A whole list emptying is therefore unreachable today, but the headings are handled and pinned anyway.
+
+**Left for later.** A draft stored before this release keeps its old body, n/a rows included, until "refresh preview" is pressed, and its send already drops them. The Announcement email still lists every check, because it describes the service rather than reporting evidence and decision 17 does not name it. If the operator wants the rule there too, it is a new decision. This changes the client email, so the next [TEST] send is its first real check, per the streak table. No email was sent and nothing was written to Turso.
+
+## 2026-09-29 — #674: the operator's cut of the mined rules, and what the second pass needs (#1020)
+
+The operator answered #1012 the same evening. The decisions are recorded at the top of `docs/design-review-rules-2026-09.md`.
+
+- **Rule 23 (art-directed mobile crops) is not a rule.** It is worth flagging in review, but a crop's quality is taste. It now lives under Flags. Its number stays retired so that "rule 24" still means the blend rule.
+- **Single-site rules: six of nine kept.**
+  - The column-gutter rule was cut with a reason that corrects the mining. The starter's #56 and #57 read "never flush" as a rule, but "we want them flush for some designs". Four agreeing instances on one site were one site's house style, not a fleet rule.
+  - The scroll-follower that never jumps was cut.
+  - Mobile-is-not-the-comp-scaled-down was cut.
+- **Seen once: five of sixteen kept.** They are the one-control-per-corner rule, white or brand page transitions, a manual carousel turn animating like an automatic one, user navigation restarting the autoplay delay, and warming hidden images.
+- **The full-bleed opt-in is `data-bleed`.** Rules 1, 8 and 16 can now be specified exactly. Adding the attribute to the starters is a change in those repos, so it did not land here.
+
+**The second pass.** The file's last section now lists what it needs. `claude-skills` needs nothing more: it attached to this cloud session with read access on the first try, so "private and not attached" in #1012 was the state of that session, not a wall. Discord, Figma and MarkUp can each run on the laptop, where the Discord and MarkUp keys already are. They can also run in the cloud, given three read-only secrets and three allowed hosts. Figma additionally needs the team or project IDs, because its API cannot list every file. The one decision that is the operator's own is where the raw corpus lives. #674 forbids putting it in this public repo, and a cloud session keeps nothing it does not push.
+
 ## 2026-09-29 — P1-3 PR 2, the roster-url surface, held after two review rounds (#1004, `490e6be2`)
 
 PR 1 (#986) stores whether each non-archived roster `url` resolves. Nothing read that verdict yet. #1004 makes it reach the operator.
