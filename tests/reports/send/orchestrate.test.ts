@@ -780,9 +780,9 @@ describe("sendApprovedReports", () => {
     });
     // Only the site write (the Status flip) throws. The send + sent stamp must
     // still succeed — the email already went out and the row must not replay. But
-    // post-freeze (#643) the flip failure can no longer be a green-run warning:
-    // nothing converges it, and Turso — the store lead routing reads — would keep
-    // the site in launch-period forever.
+    // the flip failure can no longer be a green-run warning (#643): nothing
+    // converges it, and Turso — the store lead routing reads — would keep the
+    // site in launch-period forever.
     const { client } = captureClient();
     const res = await sendApprovedReports({
       ...h.io,

@@ -129,7 +129,7 @@ export async function runReportCommand(
     // Websites row; #643 retired the hourly sync, so these mirrors are the ONLY
     // way either write reaches Turso.
     const { makeSiteMirror } = await import("../../db/site-mirror.js");
-    const { mirrorWrite } = await import("../../db/freeze.js");
+    const { mirrorWrite } = await import("../../db/mirror-write.js");
     const { openDb, readDbConfig } = await import("../../db/client.js");
     const { mirrorReportPatch, listSendableReports, listSites } =
       await import("../../db/fleet-state.js");
@@ -150,8 +150,8 @@ export async function runReportCommand(
         loadHeaderPlate: async (siteId) =>
           (await loadHeaderImage(await getFleetDb(), siteId))?.bytes ?? null,
         siteMirror: await makeSiteMirror(),
-        // The sent stamp, routed through mirrorWrite so the freeze switch owns
-        // the semantics: strict rethrows and the send loop reds the run. The 409
+        // The sent stamp, routed through mirrorWrite: a failed write throws and
+        // the send loop reds the run. The 409
         // replay path has no message id, so the stamp omits it there. The row
         // count is handed through (#647): a stamp for a report row Turso never
         // held is `missed`, not a green no-op.
@@ -226,7 +226,7 @@ export async function runReportCommand(
 async function runDueDraft(): Promise<{ output: string; code: number }> {
   // Phase 3 (#539): next-due writes land in site_schedule. Null when libSQL
   // creds are absent, reported as `mirror=absent` on the NEXT_DUE_WRITE line.
-  const { makeScheduleMirrorBestEffort } = await import("../../audits/health-mirror.js");
+  const { makeScheduleMirror } = await import("../../audits/health-mirror.js");
   // Phase 5 (#539): mirror this batch's report writes — the created
   // rows, their bodies, and the queue flags. Unlike the schedule mirror this is
   // never null — creds-absent is reported on the REPORT_MIRROR line rather than
@@ -241,7 +241,7 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
     const result = await draftDueReports(new Date(), {
       roster: async () => listSites(await fleetDb.get()),
       allReports: async () => listAllReports(await fleetDb.get()),
-      scheduleMirror: await makeScheduleMirrorBestEffort(),
+      scheduleMirror: await makeScheduleMirror(),
       reportMirror: await makeReportMirror(),
       siteMirror: await makeSiteMirror(),
     });

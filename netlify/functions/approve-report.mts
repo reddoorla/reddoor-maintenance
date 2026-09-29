@@ -3,7 +3,7 @@ import { approveReport, requireOperator, denialResponse } from "../../src/dashbo
 
 import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { mirrorWrite } from "../../src/db/freeze.js";
+import { mirrorWrite } from "../../src/db/mirror-write.js";
 import { mirrorReportPatch, getReportById, getSiteById } from "../../src/db/fleet-state.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
@@ -106,8 +106,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // land there strictly.
     const db2 = await openDb(readDbConfig());
     // The authoritative write. Everything — opening the db included — is inside
-    // mirrorWrite, which decides what a failure MEANS: post-freeze it rethrows
-    // and this request 502s, because no sync converges it any more. The row
+    // mirrorWrite, which rethrows a failure so this request 502s: nothing
+    // converges a lost write. The row
     // count is handed through (#647): an approve for a row Turso never held is
     // `missed`, not a green no-op.
     const mirror = async (rid: string, patch: Parameters<typeof mirrorReportPatch>[2]) =>

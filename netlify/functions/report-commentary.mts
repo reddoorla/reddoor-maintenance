@@ -1,7 +1,7 @@
 import type { Context, Config } from "@netlify/functions";
 import { getReportById, mirrorReportPatch } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { mirrorWrite } from "../../src/db/freeze.js";
+import { mirrorWrite } from "../../src/db/mirror-write.js";
 import { requireOperator, denialResponse, setReportCommentary } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";

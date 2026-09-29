@@ -22,10 +22,10 @@ vi.mock("../../src/db/client.js", () => ({
 vi.mock("../../src/db/submissions.js", () => ({
   markNotifyBouncedByMessageId: vi.fn(),
 }));
-// Post-freeze (#612) the Turso patch inside `mirrorWrite` is the write that
-// must SUCCEED — a healthy-path test therefore needs a working mirror. Unmocked,
-// the real mirrorReportPatch would run against the fake db object and throw,
-// which the strict world correctly turns into a 500.
+// The Turso patch inside `mirrorWrite` is the write that must SUCCEED (#612) —
+// a healthy-path test therefore needs a working mirror. Unmocked, the real
+// mirrorReportPatch would run against the fake db object and throw, which
+// mirrorWrite correctly turns into a 500.
 vi.mock("../../src/db/fleet-state.js", () => ({
   findReportByMessageId: vi.fn(),
   mirrorReportPatch: vi.fn(),
@@ -457,7 +457,7 @@ describe("Resend webhook signed-POST path", () => {
     expect(findReportMock).not.toHaveBeenCalled();
   });
 
-  it("fails CLOSED when libSQL is down: 500 so Resend redelivers (post-freeze)", async () => {
+  it("fails CLOSED when libSQL is down: 500 so Resend redelivers", async () => {
     // Pre-freeze this test proved the opposite — a Turso outage fell through
     // and the Airtable write alone counted as success. With Turso
     // authoritative (#612), a status that never reached the real store is NOT

@@ -29,8 +29,8 @@ export type GitHubSignalsDeps = {
   roster: FleetRoster;
   /** GitHub probe client for the fleet token (default: makeGitHub). */
   makeGh: (token: string) => GhProbes;
-  /** Turso writer factory (default: makeHealthMirrorBestEffort — null without
-   *  libSQL creds, reported as absent on the summary line). */
+  /** Turso writer factory (default: makeHealthMirror, which throws when libSQL
+   *  is unreachable). A null is a run with no store, and fails it. */
   makeMirror: () => Promise<HealthMirror | null>;
   /** Fleet-activity recorder (default: recordFleetEventsBestEffort). */
   recordEvents: (events: FleetEvent[], now: Date) => Promise<void>;
@@ -98,8 +98,8 @@ export async function runGitHubSignalsCommand(
   const makeMirror =
     deps.makeMirror ??
     (async () => {
-      const { makeHealthMirrorBestEffort } = await import("../../audits/health-mirror.js");
-      return makeHealthMirrorBestEffort();
+      const { makeHealthMirror } = await import("../../audits/health-mirror.js");
+      return makeHealthMirror();
     });
   const mirror = await makeMirror();
   const result: FleetWriteResult = {

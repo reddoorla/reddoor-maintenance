@@ -9,8 +9,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // which side of the freeze the constant currently points at — the flip must be
 // a one-line change, not a change plus eleven test files.
 vi.mock("../../src/audits/health-mirror.js", () => ({
-  makeHealthMirrorBestEffort: async () => null,
-  makeScheduleMirrorBestEffort: async () => null,
+  makeHealthMirror: async () => null,
+  makeScheduleMirror: async () => null,
 }));
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({

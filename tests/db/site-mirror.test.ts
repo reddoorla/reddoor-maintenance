@@ -4,15 +4,15 @@
  * only via the hourly sync (analytics soft-fail, auto-fix attempts, prismic
  * models, launched, the forms notify target, the single-site audit write-back).
  *
- * Like `makeReportMirror` and unlike the Phase 3 factories, this NEVER returns
- * null. #585 is the reason: `makeHealthMirrorBestEffort` returned null without
- * creds, the dual-write silently no-opped for weeks, and a dead mirror was
- * indistinguishable from a healthy one. Here creds-absent is a state the mirror
- * reports, so a missing SITE_MIRROR line means the wiring itself is gone.
+ * This NEVER returns null. #585 is the reason: the health mirror factory once
+ * returned null without creds, the dual-write silently no-opped for weeks, and
+ * a dead mirror was indistinguishable from a healthy one. Here an unreachable
+ * store refuses to build, and every write logs one SITE_MIRROR line before it
+ * succeeds or throws.
  *
  * `missed` is its own outcome, distinct from both success and failure: the
- * UPDATE matched no row because the hourly sync has not imported that site yet.
- * Counting it as `mirrored=1` would claim a write that never landed.
+ * UPDATE matched no row. Counting it as `mirrored=1` would claim a write that
+ * never landed, and nothing imports the row later, so it also throws.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { openDb } from "../../src/db/client.js";
@@ -36,12 +36,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("makeSiteMirror (best-effort, always observable)", () => {
+describe("makeSiteMirror (always observable, never swallows)", () => {
   it("site: writes sites columns and reports op=site mirrored=1", async () => {
     const db = await dbWithSite();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db, false);
+    const mirror = await makeSiteMirror(async () => db);
     await mirror.site("recSITE", { Status: "maintained", "Launched at": "2026-08-25" });
 
     const row = await db
@@ -57,7 +57,7 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     const db = await dbWithSite();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db, false);
+    const mirror = await makeSiteMirror(async () => db);
     await mirror.health("recSITE", { "Analytics soft-fail at": "2026-08-25T00:00:00.000Z" });
 
     const row = await db
@@ -69,33 +69,27 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     expect(logged(log)).toContain("SITE_MIRROR site=recSITE op=health mirrored=1");
   });
 
-  it("reports mirrored=missed for a site the sync has not imported yet", async () => {
-    // Distinct from success on purpose: the write did not land, it just is not
-    // an error either. Reporting it as mirrored=1 would claim otherwise.
+  it("reports mirrored=missed for a site Turso does not hold, and throws", async () => {
     const db = await dbWithSite();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db, false);
-    await mirror.site("recBRANDNEW", { Status: "maintained" });
+    const mirror = await makeSiteMirror(async () => db);
+    await expect(mirror.site("recBRANDNEW", { Status: "maintained" })).rejects.toThrow(
+      /SITE_MIRROR site=recBRANDNEW op=site: no such row in Turso/,
+    );
 
     expect(logged(log)).toContain("SITE_MIRROR site=recBRANDNEW op=site mirrored=missed");
   });
 
-  it("without libSQL creds every operation reports mirrored=absent instead of returning null", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-
-    const mirror = await makeSiteMirror(async () => {
-      throw new Error("no TURSO_DATABASE_URL");
-    }, false);
-    await expect(mirror.site("recSITE", { Status: "maintained" })).resolves.toBeUndefined();
-    await expect(mirror.health("recSITE", { "Smoke OK": "pass" })).resolves.toBeUndefined();
-
-    const out = logged(log);
-    expect(out).toContain("SITE_MIRROR site=recSITE op=site mirrored=absent");
-    expect(out).toContain("SITE_MIRROR site=recSITE op=health mirrored=absent");
+  it("without libSQL creds it refuses to build instead of returning null", async () => {
+    await expect(
+      makeSiteMirror(async () => {
+        throw new Error("no TURSO_DATABASE_URL");
+      }),
+    ).rejects.toThrow(/SITE_MIRROR unavailable: no TURSO_DATABASE_URL/);
   });
 
-  it("a write failure is reported as mirrored=0 and never breaks the caller", async () => {
+  it("a write failure is reported as mirrored=0 and thrown to the caller", async () => {
     const db = {
       updateTable: () => {
         throw new Error("SQLITE_BUSY");
@@ -103,8 +97,8 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     } as unknown as Awaited<ReturnType<typeof openDb>>;
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db, false);
-    await expect(mirror.site("recSITE", { Status: "maintained" })).resolves.toBeUndefined();
+    const mirror = await makeSiteMirror(async () => db);
+    await expect(mirror.site("recSITE", { Status: "maintained" })).rejects.toThrow(/SQLITE_BUSY/);
 
     expect(logged(log)).toContain("SITE_MIRROR site=recSITE op=site mirrored=0 error=SQLITE_BUSY");
   });
@@ -113,8 +107,8 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     const db = await dbWithSite();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db, false);
-    await mirror.site("recSITE", { "Not A Column": "x" });
+    const mirror = await makeSiteMirror(async () => db);
+    await expect(mirror.site("recSITE", { "Not A Column": "x" })).rejects.toThrow(/Not A Column/);
 
     expect(logged(log)).toContain("SITE_MIRROR site=recSITE op=site mirrored=0");
     expect(logged(log)).toContain("Not A Column");

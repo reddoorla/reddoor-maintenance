@@ -16,7 +16,7 @@ import type { ReportType } from "./types.js";
 
 /** The one Turso operation creating a report needs: insert the row and hand back
  *  what was STORED. Implemented by the report writer (`makeReportMirror().create`),
- *  which owns the db handle and the freeze's error semantics. Reading the row back
+ *  which owns the db handle and its error semantics. Reading the row back
  *  rather than mapping the input is the same rule the create mirror already
  *  followed: the caller gets what the store holds, so a coercion can never
  *  diverge the returned row from the persisted one. */

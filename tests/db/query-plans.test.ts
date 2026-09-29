@@ -62,9 +62,9 @@ const EXEMPT_MODULES: Record<string, string> = {
   "header-images.ts":
     "header plate store + per-site read for the CLI, drafting and send — by-PK, not request-path",
   "site-mirror.ts":
-    "best-effort write-through wrapper — issues no SQL of its own, delegates to " +
+    "write wrapper — issues no SQL of its own, delegates to " +
     "fleet-state's mirrorHealthFields/mirrorSiteFields, which are gated below",
-  "freeze.ts": "a single exported constant — no queries, no runtime behaviour of its own",
+  "mirror-write.ts": "error policy around a caller-supplied write — issues no SQL of its own",
   "site-create.ts":
     "#646 step 3 transaction wrapper — issues no SQL of its own: it runs fleet-state's " +
     "insertSiteRows inside one transaction and delegates to updateSiteIdentity/getSiteBySlug, " +
@@ -1018,7 +1018,7 @@ describe("EXPLAIN-query-plan gate", () => {
 
   // ————— MED-11: the allowlist's stated reason, checked against the code —————
   //
-  // `mirror-write-freeze.test.ts` has a "no exemption is stale" test; the check
+  // `mirror-write.test.ts` has a "no exemption is stale" test; the check
   // below is its equivalent here, and it is stricter in one way that matters:
   // that one asks whether an exemption still names a real FILE, this one asks
   // whether an exemption's stated REASON is still true. The 08-26 brief named
