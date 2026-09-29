@@ -37,14 +37,14 @@ describe("resolveSlug", () => {
 describe("handlerError", () => {
   it("returns a generic 502 that does NOT leak the error message/stack", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const secret = "Airtable 500: token=SECRET_xyz at /internal/path";
+    const secret = "LibsqlError 500: token=SECRET_xyz at /internal/path";
     const res = handlerError("site-dashboard", new Error(secret));
     const body = await res.text();
 
     expect(res.status).toBe(502);
     expect(res.headers.get("content-type")).toMatch(/text\/plain/);
     expect(body).not.toContain(secret); // no detail leaked to the client
-    expect(body).not.toMatch(/SECRET_xyz|Airtable|stack/i);
+    expect(body).not.toMatch(/SECRET_xyz|LibsqlError|stack/i);
     expect(body).toMatch(/temporarily unavailable/i);
     // but the real detail IS logged server-side for the operator
     expect(spy).toHaveBeenCalledOnce();

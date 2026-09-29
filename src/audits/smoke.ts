@@ -255,7 +255,7 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
     }
     // A timeout is not a verdict. Rethrowing sent it to runOneAudit's catch-all,
     // which stringified it into `smoke: unexpected error — Error: spawn timeout…`:
-    // technically a `fail`, carrying no details, so Airtable correctly preserved the
+    // technically a `fail`, carrying no details, so the write-back preserved the
     // prior verdict — and therefore kept showing GREEN for a site that had not been
     // measured in days, while the workflow (gated on write-back) exited 0. Name it
     // instead, and leave `details` unset so the write-back behavior is unchanged.

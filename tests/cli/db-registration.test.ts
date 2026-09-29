@@ -151,15 +151,9 @@ describe("db replay-deadletters — the site lookup wiring (#645)", () => {
     expect(branch).toMatch(/getWebsiteBySlug:\s*lookupSite/);
   });
 
-  it("never reaches for Airtable", () => {
-    const branch = replayBranch();
-    expect(branch).not.toMatch(/airtable|openBase|makeLazySiteLookup/i);
-  });
-
   it("the live handler builds its lookup the SAME way", () => {
     const handler = readFileSync(join(repoRoot, "netlify/functions/form-ingest.mts"), "utf-8");
     expect(handler).toMatch(lookupShape);
     expect(handler).toMatch(/getWebsiteBySlug:\s*lookupSite/);
-    expect(handler).not.toMatch(/openBase|openAirtable|makeLazySiteLookup/);
   });
 });

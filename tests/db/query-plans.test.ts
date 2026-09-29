@@ -340,7 +340,7 @@ const LONG_MESSAGE =
   "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike " +
   "november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu";
 
-function scenarios(state: { createdId: string }): Scenario[] {
+function scenarios(state: { createdId: string; reservedId: string }): Scenario[] {
   let prospectToken = "";
   return [
     {
@@ -550,8 +550,6 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.listAllReports(db),
     },
     {
-      // #646 step 4: the nightly send's queue read, moved off Airtable (where the
-      // same three-part predicate was a filterByFormula).
       name: "listSendableReports (the send queue)",
       covers: ["listSendableReports"],
       run: (db) => fleetState.listSendableReports(db),
@@ -567,8 +565,8 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.getReportById(db, "recA"),
     },
     {
-      // #646 (Phase 6 step 2): the resend-webhook's report lookup, moved off
-      // Airtable. Runs on every Resend delivery/bounce event for a report, so
+      // #646 (Phase 6 step 2): the resend-webhook's report lookup. Runs on
+      // every Resend delivery/bounce event for a report, so
       // the plan must land on idx_reports_resend_message (0027), not a scan of
       // the HTML-bearing reports table.
       name: "findReportByMessageId (resend-webhook report lookup)",
@@ -852,6 +850,57 @@ function scenarios(state: { createdId: string }): Scenario[] {
       covers: ["touchProspectAuditOpened"],
       run: (db) => prospectAudits.touchProspectAuditOpened(db, prospectToken),
     },
+    {
+      // #907: the cap's count runs INSIDE the reservation's INSERT, so its plan
+      // is on every start of an audit — cockpit and CLI alike.
+      name: "countProspectAuditsTowardCap (daily-cap refusal message)",
+      covers: ["countProspectAuditsTowardCap"],
+      run: (db) => prospectAudits.countProspectAuditsTowardCap(db, new Date()),
+    },
+    {
+      name: "reserveProspectAudit (cockpit dispatch / CLI start: conditional INSERT)",
+      covers: ["reserveProspectAudit"],
+      run: async (db) => {
+        await prospectAudits.reserveProspectAudit(db, {
+          url: "https://reserved.example.com",
+          business: null,
+          claimed: false,
+        });
+      },
+    },
+    {
+      name: "claimProspectAuditReservation (dispatched CLI adopts the cockpit's row)",
+      covers: ["claimProspectAuditReservation"],
+      run: async (db) => {
+        const claimed = await prospectAudits.claimProspectAuditReservation(
+          db,
+          "https://reserved.example.com",
+          new Date(),
+        );
+        if (!claimed) throw new Error("claim scenario found nothing to claim");
+        state.reservedId = claimed.id;
+      },
+    },
+    {
+      name: "finishProspectAudit (CLI completes its reserved row)",
+      covers: ["finishProspectAudit"],
+      run: async (db) => {
+        await prospectAudits.finishProspectAudit(db, state.reservedId, {
+          url: "https://reserved.example.com",
+          business: null,
+          status: "complete",
+          resultJson: "{}",
+        });
+      },
+    },
+    {
+      name: "releaseProspectAuditReservation (failed dispatch gives its slot back)",
+      covers: ["releaseProspectAuditReservation"],
+      run: (db) =>
+        prospectAudits.releaseProspectAuditReservation(db, state.reservedId, {
+          onlyIfUnclaimed: true,
+        }),
+    },
   ];
 }
 
@@ -867,7 +916,9 @@ describe("EXPLAIN-query-plan gate", () => {
   });
 
   it("every exported query function of a gated module is exercised by a scenario", () => {
-    const exercised = new Set(scenarios({ createdId: "" }).flatMap((s) => s.covers));
+    const exercised = new Set(
+      scenarios({ createdId: "", reservedId: "" }).flatMap((s) => s.covers),
+    );
     const missing: string[] = [];
     for (const [file, mod] of Object.entries(GATED_MODULES)) {
       for (const [name, value] of Object.entries(mod)) {
@@ -907,7 +958,7 @@ describe("EXPLAIN-query-plan gate", () => {
   it("no query a gated module executes raw-scans a table", async () => {
     const h = await openCapturingDb();
     const tables = await schemaTables(h.client);
-    const state = { createdId: "" };
+    const state = { createdId: "", reservedId: "" };
     const violations: Array<{ scenario: string; table: string; detail: string; sql: string }> = [];
     const observed = new Set<string>();
     let statementCount = 0;
@@ -1047,7 +1098,9 @@ describe("EXPLAIN-query-plan gate", () => {
 
   it("every ALLOWED_RAW_SCANS requestPath claim matches the import graph", () => {
     const { importers } = requestPathGraph();
-    const covers = new Map(scenarios({ createdId: "" }).map((s) => [s.name, s.covers]));
+    const covers = new Map(
+      scenarios({ createdId: "", reservedId: "" }).map((s) => [s.name, s.covers]),
+    );
     const wrong: string[] = [];
     for (const entry of ALLOWED_RAW_SCANS) {
       const fns = covers.get(entry.scenario);

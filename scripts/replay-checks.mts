@@ -125,6 +125,9 @@ async function fromDatabase(): Promise<Row[]> {
     return await db
       .selectFrom("prospect_audits")
       .select(["id", "url", "business", "created_at", "result_json"])
+      // #907: a `running` row is a reservation with a `{}` placeholder, not a
+      // report — nothing to replay.
+      .where("status", "!=", "running")
       .orderBy("created_at", "desc")
       .execute();
   } finally {

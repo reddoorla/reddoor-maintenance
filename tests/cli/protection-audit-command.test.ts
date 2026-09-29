@@ -75,6 +75,8 @@ describe("runProtectionAuditCommand", () => {
       renovateMergeWindow: async () => ({ merges: [], truncated: false }),
       repoTextFile: async () => null,
       listWorkflowPaths: async () => [],
+      defaultBranch: async () => "main",
+      branchRequiredChecks: async () => null,
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(1);
@@ -104,6 +106,8 @@ describe("runProtectionAuditCommand", () => {
       renovateMergeWindow: async () => ({ merges: [], truncated: false }),
       repoTextFile: async () => null,
       listWorkflowPaths: async () => [],
+      defaultBranch: async () => "main",
+      branchRequiredChecks: async () => null,
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(0);
@@ -143,6 +147,8 @@ describe("runProtectionAuditCommand", () => {
       repoTextFile: async (repo) =>
         repo === "reddoorla/drifted" ? pkg("pnpm@11.9.0") : pkg("pnpm@11.11.0"),
       listWorkflowPaths: async () => [],
+      defaultBranch: async () => "main",
+      branchRequiredChecks: async () => null,
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(1);
@@ -175,10 +181,54 @@ describe("runProtectionAuditCommand", () => {
       renovateMergeWindow: async () => ({ merges: [], truncated: false }),
       repoTextFile: async () => null,
       listWorkflowPaths: async () => [],
+      defaultBranch: async () => "main",
+      branchRequiredChecks: async () => null,
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(0);
     expect(r.output).toContain("PROTECTION_AUDIT gaps=0 covered=1 skipped=0 total=1");
     expect(r.output).toContain("out-of-scope=1");
+  });
+
+  /**
+   * #892 end to end: a Renovate base-branch gap lands INSIDE the repo's own
+   * row, anchored at column 0, naming `repo:branch` — for the same reason as
+   * the pnpm-pin merge above. A separate `GAP reddoorla/reddoor-website:staging`
+   * row would be a repo token that can never print COVERED, and so an issue
+   * the nightly could never close.
+   */
+  it("folds an unprotected Renovate base branch into the repo's own GAP row", async () => {
+    const deps: ProtectionAuditDeps = {
+      listOrgRepos: async () => [
+        { name: "espada", ...PUBLIC_CLEAN },
+        { name: "reddoor-website", ...PUBLIC_CLEAN },
+      ],
+      listRepoRulesets: async () => [{ id: 1, name: FLEET_RULESET_NAME }],
+      getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
+      workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH }),
+      dependencyDashboard: async () => ({
+        present: true,
+        blockedBranches: [],
+        unknownSections: [],
+      }),
+      branchTip: async () => null,
+      openSecretAlerts: async () => 0,
+      renovateMergeWindow: async () => ({ merges: [], truncated: false }),
+      repoTextFile: async (repo, path) =>
+        repo === "reddoorla/reddoor-website" && path === "renovate.json"
+          ? JSON.stringify({ baseBranchPatterns: ["staging"] })
+          : null,
+      listWorkflowPaths: async () => [],
+      defaultBranch: async () => "main",
+      branchRequiredChecks: async () => ({ rules: [{ type: "deletion" }], classicContexts: [] }),
+    };
+    const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
+    expect(r.code).toBe(1);
+    expect(r.output).toMatch(
+      /^GAP {5}reddoorla\/reddoor-website — .*renovate merges into reddoor-website:staging/m,
+    );
+    expect(r.output).not.toMatch(/^GAP {5}reddoorla\/reddoor-website:/m);
+    expect(r.output).toMatch(/^COVERED reddoorla\/espada/m);
+    expect(r.output).toContain("PROTECTION_AUDIT gaps=1 covered=1 skipped=0 total=2");
   });
 });

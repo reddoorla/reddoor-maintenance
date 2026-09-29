@@ -2,15 +2,14 @@ import type { SitesTable, SiteHealthTable, SiteScheduleTable, ReportsTable } fro
 import { siteSlug } from "../fleet/site-row.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
 
-/** One raw record: id + a column-named fields object in the Airtable API's shape
- *  (empty cells are ABSENT, not null — the API omitted them). */
+/** One raw record: id + a column-named fields object (empty cells are ABSENT,
+ *  not null). */
 export type RawRecord = { id: string; fields: Record<string, unknown> };
 
 /**
- * Phase 1.3 of #539: map Airtable-column-named records into the 0007 fleet-state
- * tables. The importer and the parity harness that first used it are gone; the
- * fleet-state mirrors still take Airtable-column-named FieldSets, and this is
- * the SINGLE source of truth for Airtable-column → Turso-column.
+ * Map column-named records into the 0007 fleet-state tables. The fleet-state
+ * mirrors take column-named FieldSets, and this is the SINGLE source of truth
+ * for column name → Turso column.
  *
  * Values are stored RAW (the cell as given, stringified where the
  * column is TEXT). Coercion — `toFrequency`, `toVerdict`, recipient splitting —
@@ -18,7 +17,7 @@ export type RawRecord = { id: string; fields: Record<string, unknown> };
  * never bakes in a lossy interpretation. The two exceptions are shapes, not
  * meanings: `Accepted Watch Conditions` normalizes to a JSON array (mapRow
  * accepts array or delimited string; the new store keeps one shape), and the
- * report checklist re-keys from Airtable column names to the stable keys in
+ * report checklist re-keys from column names to the stable keys in
  * src/reports/checklist.ts.
  */
 
@@ -31,8 +30,7 @@ export const EXCLUDED_WEBSITE_FIELDS: ReadonlySet<string> = new Set([
   "site host password",
   "launch day",
   "contract link",
-  // Plaintext credentials — operator ruling 2026-08-23: these live on ONLY in
-  // the frozen Airtable base. A new store does not inherit plaintext creds.
+  // Plaintext credentials — operator ruling 2026-08-23: never stored.
   "DNS username",
   "DNS password",
   "cms username",
@@ -42,7 +40,7 @@ export const EXCLUDED_WEBSITE_FIELDS: ReadonlySet<string> = new Set([
   "Submissions",
   "Spam Screenouts",
   // Regenerated into sites.header_image as a BLOB by the header-image CLI (D5);
-  // the Airtable attachment (an expiring signed URL) is never migrated.
+  // the attachment cell itself is never mapped.
   "Header image",
 ]);
 
@@ -58,13 +56,13 @@ const json = (v: unknown): string | null => (v === undefined ? null : JSON.strin
 
 /** Direct field→column map for `sites` (operator-owned config). Exported for
  *  the site-details write (fleet-state.mirrorSiteField), so the editor and
- *  `mapWebsiteRecord` share ONE Airtable-column → sites-column truth. */
+ *  `mapWebsiteRecord` share ONE column-name → sites-column truth. */
 export const SITE_FIELDS: Record<string, keyof SitesTable> = {
   Name: "name",
   url: "url",
   Status: "status",
   "point of contact": "point_of_contact",
-  "maintenence freq": "maintenance_freq", // Airtable's misspelling dies at this boundary
+  "maintenence freq": "maintenance_freq", // legacy column name's misspelling dies here
   "testing freq": "testing_freq",
   "maintenance day": "maintenance_day",
   "testing day": "testing_day",
@@ -129,7 +127,7 @@ export function siteValueFor(column: keyof SitesTable, raw: unknown): string | n
 /** Direct field→column map for `site_health` (nightly-cron-owned). Exported for
  *  the Phase 3 writer mirrors (fleet-state.mirrorHealthFields) and their
  *  lockstep tests, so the nightly writers and `mapWebsiteRecord` share ONE
- *  Airtable-column → site_health-column truth. */
+ *  column-name → site_health-column truth. */
 export const HEALTH_FIELDS: Record<string, keyof SiteHealthTable> = {
   pScore: "p_score",
   rScore: "r_score",
@@ -197,7 +195,7 @@ const HEALTH_NUMERIC: ReadonlySet<keyof SiteHealthTable> = new Set([
   "renovate_failing_cis",
 ]);
 
-/** Boolean-checkbox health columns (Airtable true/absent → 1/0/null). */
+/** Boolean-checkbox health columns (true/absent → 1/0/null). */
 export const HEALTH_BOOLEAN: Record<string, keyof SiteHealthTable> = {
   "Crossbrowser OK": "crossbrowser_ok",
   "Mobile OK": "mobile_ok",
@@ -323,7 +321,7 @@ export function mapWebsiteRecord(rec: RawRecord, computedAt: string): MappedWebs
   return { site, health, schedule };
 }
 
-/** Stable-key checklist mapping (Airtable column name → key). */
+/** Stable-key checklist mapping (column name → key). */
 const CHECKLIST_BY_FIELD: ReadonlyArray<{ field: string; key: string }> = [
   ...MAINTENANCE_CHECKLIST,
   ...TESTING_CHECKLIST,

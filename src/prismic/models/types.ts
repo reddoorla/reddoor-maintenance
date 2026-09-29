@@ -74,6 +74,6 @@ export type PushReport = {
    *  slice in the repo". This field is the difference.
    *
    *  `model` is deliberately NOT carried: the report is serialised into PR
-   *  comments and an Airtable cell, and the identity is what a human acts on. */
+   *  comments and a stored detail, and the identity is what a human acts on. */
   remoteOnlyReported: Array<{ kind: ModelKind; id: string }>;
 };

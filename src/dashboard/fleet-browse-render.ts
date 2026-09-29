@@ -226,7 +226,9 @@ const FLEET_FILTERS = [
   "stale",
   "no-domain",
   "no-analytics",
-  "no-search-console",
+  "search-console-unrecorded",
+  "no-git-repo",
+  "no-netlify-id",
 ] as const;
 
 /** The fleet browser: one collapsed <details> holding the filter chips and a single flat

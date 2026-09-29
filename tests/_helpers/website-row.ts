@@ -102,9 +102,9 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     notifyRoutingRaw: null,
     ...over,
   };
-  // `statusRaw` is the literal Airtable cell behind `status`. Deriving it keeps
+  // `statusRaw` is the literal cell behind `status`. Deriving it keeps
   // every caller self-consistent for free: `makeWebsiteRow({ status: "archived" })`
-  // gets the Airtable value that WOULD produce that status, matching what mapRow
+  // gets the raw value that WOULD produce that status, matching what mapRow
   // hands the dashboard editor. A caller that needs an off-vocabulary raw cell
   // (a typo, or "legacy" specifically) passes `statusRaw` explicitly.
   if (over.statusRaw === undefined) {

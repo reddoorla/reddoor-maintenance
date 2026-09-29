@@ -1,8 +1,6 @@
 /**
  * #646 step 4: `--fleet turso` reads the fleet roster from the database, driven
- * here against a temp `file:` db through the `openDb` seam. The old
- * `--fleet airtable` keyword was retired with the Airtable layer and is refused
- * by name.
+ * here against a temp `file:` db through the `openDb` seam.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -18,8 +16,6 @@ let url: string;
 const NATIVE = mintSiteId(Date.parse("2026-09-17T00:00:00.000Z"));
 
 beforeEach(async () => {
-  vi.stubEnv("AIRTABLE_PAT", "");
-  vi.stubEnv("AIRTABLE_BASE_ID", "");
   dir = mkdtempSync(join(tmpdir(), "resolve-sites-turso-"));
   url = `file:${join(dir, "fleet.db")}`;
   const db = await openDb({ url });
@@ -57,7 +53,7 @@ afterEach(() => {
 });
 
 describe("resolveSites --fleet turso", () => {
-  it("returns the Turso roster, including a site_<ULID> site that has no Airtable record", async () => {
+  it("returns the Turso roster, including a site_<ULID> site", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const sites = await resolveSites({
       fleet: "turso",
@@ -68,25 +64,6 @@ describe("resolveSites --fleet turso", () => {
     expect(sites.map((s) => s.name).sort()).toEqual(["legacy-co", "native-co"]);
     expect(sites.find((s) => s.name === "native-co")?.meta?.siteId).toBe(NATIVE);
     expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("--fleet airtable is refused with exit 2, naming --fleet turso, and reads nothing", async () => {
-    let opened = false;
-    await expect(
-      resolveSites({
-        fleet: "airtable",
-        workdir: "/w",
-        cwd: "/nonexistent",
-        openDb: () => {
-          opened = true;
-          return openDb({ url });
-        },
-      }),
-    ).rejects.toMatchObject({
-      message: expect.stringMatching(/--fleet airtable was removed.*--fleet turso/),
-      exitCode: 2,
-    });
-    expect(opened).toBe(false);
   });
 
   it("still refuses a positional site combined with the keyword", async () => {

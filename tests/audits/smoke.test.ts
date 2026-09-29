@@ -298,7 +298,7 @@ describe("audits/smoke — a timeout is not a verdict", () => {
     expect(isUnmeasuredSmoke(r)).toBe(true);
   });
 
-  it("leaves `details` unset on a timeout, so Airtable keeps the prior verdict", async () => {
+  it("leaves `details` unset on a timeout, so the prior verdict is kept", async () => {
     // The write-back gate is `hasSmokeResult`, which keys on details.checkedAt. A
     // timeout learned nothing, so it must not overwrite a real prior result with a
     // fabricated fail — the same contract the pnpm-install path already honours.

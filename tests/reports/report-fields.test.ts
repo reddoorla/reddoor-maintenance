@@ -9,8 +9,8 @@ import {
 import { WEBSITES_TABLE, siteSlug } from "../../src/fleet/site-fields.js";
 import { reportRowsFrom } from "../_helpers/raw-rows.js";
 
-describe("airtable constants", () => {
-  it("uses the exact Airtable table names", () => {
+describe("table-name constants", () => {
+  it("uses the exact table names", () => {
     expect(REPORTS_TABLE).toBe("Reports");
     expect(WEBSITES_TABLE).toBe("Websites");
   });

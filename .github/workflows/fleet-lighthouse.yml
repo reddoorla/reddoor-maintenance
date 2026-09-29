@@ -22,6 +22,11 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    # Backstop for the steps that carry no budget of their own (setup, install,
+    # build). Every budgeted step fits well inside it: ~3 min setup + 75 audit +
+    # 5 mint + 10 sweep. Without it a wedge in any unbudgeted step sits to
+    # GitHub's 6-hour limit — the limit 36451921171's unbudgeted sweep hit.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -115,25 +120,45 @@ jobs:
 
       # M4 slice 2a: sweep three GitHub-sourced signals (Renovate-failing-CI count,
       # default-branch CI state, last-commit date) per repo-backed site into Turso
-      # so the cockpit reads them with zero request-path GitHub calls. `if: always()`
+      # so the cockpit reads them with zero request-path GitHub calls. `if: !cancelled()`
       # so a Lighthouse flake never skips the GitHub sweep.
       # Mint the reddoor-renovate App token HERE, not at job start: the audit
       # above can run ~48 minutes and installation tokens expire at 60 — a
       # job-start mint would hand the sweep a nearly-dead token. Replaces the
-      # retired org RENOVATE PAT (2026-08 rotation). `if: always()` to match
-      # the sweep step — a Lighthouse flake must not skip the mint and
-      # silently de-token the sweep. `owner:` widens the token to the whole
-      # installation (all reddoorla repos). Digest-pinned per renovate.yml.
+      # retired org RENOVATE PAT (2026-08 rotation). Same `if:` as the sweep
+      # step — a Lighthouse flake must not skip the mint and silently de-token
+      # the sweep. `owner:` widens the token to the whole installation (all
+      # reddoorla repos). Digest-pinned per renovate.yml.
+      #
+      # `!cancelled()`, not `always()`, on both: a failed audit still runs the
+      # sweep, but a CANCELLED run does not. `always()` keeps a step running
+      # into the 5-minute grace window GitHub gives a cancelled job, and in
+      # 36451921171 the hung sweep held that whole window (22:33:44 job limit
+      # to 22:38:48) ahead of the tracking-issue step, which would have been
+      # force-killed before it ran even had it been cancellation-aware.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
-        if: always()
+        if: ${{ !cancelled() }}
+        # ~1 s on a green night (36323063369, 35615432191).
+        timeout-minutes: 5
         with:
           app-id: ${{ vars.RENOVATE_APP_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
           owner: reddoorla
 
       - name: Sweep GitHub signals to Turso
-        if: always()
+        if: ${{ !cancelled() }}
+        # 40-42 s on a green night (36323063369, 35615432191). With no budget it
+        # hung from 17:51 to 22:38 in 36451921171 — past the 6-hour job limit,
+        # which cancelled the run and so filed no tracking issue. At 10 minutes a
+        # hang is a step failure that continue-on-error absorbs, so the job keeps
+        # the verdict the AUDIT gave it: after a failed audit the run is red and
+        # the tracking issue gets its turn, but a sweep-only hang ends GREEN and
+        # files nothing. The signals then go stale, and after 3 days the digest's
+        # CI/Renovate collectors silently skip the site (GITHUB_SIGNALS_STALE_DAYS
+        # in src/alerts/digest-collectors.ts). The step's timed-out annotation on
+        # an otherwise green run is the only trace of it.
+        timeout-minutes: 10
         continue-on-error: true
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -156,9 +181,13 @@ jobs:
       # failure is durably visible, and auto-close it once the run goes green again.
       # continue-on-error so the alert machinery can NEVER turn a run's status red.
       - name: Open/update the nightly-failure tracking issue
-        if: failure()
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
+          JOB_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ github.token }}
         run: |
           # Identify the tracking issue by exact TITLE (not a label) so the only
@@ -167,17 +196,29 @@ jobs:
           title="Nightly fleet audit failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body=$(printf 'The nightly **fleet-lighthouse** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
           fi
 
       - name: Close the nightly-failure issue on recovery
-        if: success()
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

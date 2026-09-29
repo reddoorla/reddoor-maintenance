@@ -31,7 +31,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   if (!auth.ok) return denialResponse(auth.denial);
 
   const id = ctx.params?.id;
-  // Both report id shapes — `rec…` (Airtable-minted, pre-#646) and a minted
+  // Both report id shapes — `rec…` (pre-#646) and a minted
   // `report_<ULID>` — and nothing else: anything else is a probe, not a report.
   if (!id || !isReportId(id)) return json({ ok: false, error: "not-found" }, 404);
 

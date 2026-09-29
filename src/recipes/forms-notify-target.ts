@@ -3,7 +3,7 @@ import { siteSlug, type Status, type WebsiteRow } from "../fleet/site-row.js";
 import { canonicalizeStatus } from "../fleet/site-status.js";
 import { describeNotifyTarget, type NotifyTarget } from "../forms/notify.js";
 
-/** The (Airtable-named) column the pre-launch guard lives in. */
+/** The column the pre-launch guard lives in. */
 export const STATUS_COLUMN = "Status";
 
 /** The two ends of the verify flip. Deliberately the ONLY transition this

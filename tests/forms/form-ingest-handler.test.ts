@@ -1,20 +1,11 @@
 /**
  * Handler-level tests for the lead hot path (#612 follow-up).
  *
- * The claim under test is the one the freeze made true and nothing asserted:
- * form ingest resolves a site from Turso ALONE (`getSiteBySlug`). Airtable is
- * unreachable from this path — which means no Airtable env var, credential or
- * outage may be able to cost a lead.
- *
- * That was not what the handler did. A presence check on AIRTABLE_PAT /
- * AIRTABLE_BASE_ID sat in front of every POST and returned 500 — BEFORE
- * `ingestSubmission` is entered, so before the dead-letter that exists to catch
- * exactly this. `submitToIngest` does not retry. Every lead in such a window is
- * gone, announced by a log line.
+ * The claim under test: form ingest resolves a site from Turso ALONE
+ * (`getSiteBySlug`).
  *
  * These tests are deliberately handler-level rather than adapter-level: the
- * defect lived entirely in the glue that no unit test covers, and an assertion
- * on a pure helper would have passed throughout.
+ * glue is what no unit test covers.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import type { Context } from "@netlify/functions";
@@ -58,14 +49,11 @@ const SITE = {
   },
 };
 
-/** Only the vars the lead path legitimately needs. Airtable's are set by the
- *  caller when a test is about their presence. */
+/** Only the vars the lead path legitimately needs. */
 function baseEnv(): void {
   process.env.TURSO_DATABASE_URL = ":memory:";
   process.env.FORMS_INGEST_TOKEN = "tok";
   delete process.env.TURSO_AUTH_TOKEN;
-  delete process.env.AIRTABLE_PAT;
-  delete process.env.AIRTABLE_BASE_ID;
   delete process.env.RESEND_API_KEY;
   delete process.env.TURNSTILE_SECRET_KEY;
   delete process.env.TURNSTILE_SECRET_KEY_2;
@@ -92,8 +80,8 @@ function post(): Request {
 
 const ctx = { params: { slug: SLUG } } as unknown as Context;
 
-describe("form-ingest — Airtable cannot cost a lead", () => {
-  it("captures the lead with AIRTABLE_PAT and AIRTABLE_BASE_ID unset", async () => {
+describe("form-ingest — the site resolves from Turso", () => {
+  it("captures the lead for a site Turso holds", async () => {
     baseEnv();
     await seedSite();
 
@@ -103,22 +91,8 @@ describe("form-ingest — Airtable cannot cost a lead", () => {
     expect(await res.json()).toEqual({ ok: true, id: expect.any(String) });
   });
 
-  it("captures the lead with AIRTABLE_PAT and AIRTABLE_BASE_ID set", async () => {
+  it("a slug Turso does not hold is an unknown site", async () => {
     baseEnv();
-    process.env.AIRTABLE_PAT = "pat-present";
-    process.env.AIRTABLE_BASE_ID = "app-present";
-    await seedSite();
-
-    const res = await formIngest(post(), ctx);
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, id: expect.any(String) });
-  });
-
-  it("a slug Turso does not hold is an unknown site, whatever Airtable env is set", async () => {
-    baseEnv();
-    process.env.AIRTABLE_PAT = "pat-present";
-    process.env.AIRTABLE_BASE_ID = "app-present";
     await openDb(readDbConfig());
 
     const res = await formIngest(post(), ctx);

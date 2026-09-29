@@ -42,7 +42,13 @@ jobs:
     # cancel-in-progress is false, queue next Monday's run behind this one.
     timeout-minutes: 30
     steps:
+      # fetch-depth: 0 for the same reason as ci.yml: the suite runs the
+      # match-harness snapshot guard, which reads the previous release tag, and a
+      # shallow clone has none. Without it every run from 2026-09-21 failed on
+      # that one test (#895). tests/ci-gate.test.ts asserts it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
@@ -80,27 +86,90 @@ jobs:
       # in globalSetup would otherwise file an issue confidently asserting a wall-clock
       # diagnosis, sending the reader hunting for a time bomb that isn't there. Those
       # failures still turn the run red — they just don't get to name their own cause.
-      - name: Open/update the time-travel tracking issue
-        if: failure() && steps.suite.outcome == 'failure'
+      #
+      # A CANCELLED suite (a hang to the 30-minute job timeout) files too — `failure()` is
+      # false on a cancelled run, so it used to file nothing. Same title, so recovery still
+      # closes it, but the body leads with "cancelled, not failed": a hang is not the
+      # wall-clock diagnosis the rest of the text asserts.
+      #
+      # A failure or cancel OUTSIDE the suite step (checkout, `pnpm install --frozen-lockfile`,
+      # the browser install — a hang there to the 30-minute limit) used to file nothing at all
+      # (P1-15). It now files a SEPARATE issue, not this one: "Time-travel suite failing" is
+      # itself a diagnosis, and a setup break commenting on an open wall-clock issue would
+      # read as another clock failure. The two conditions are exact complements on the
+      # suite step's outcome, so a red run files exactly one of them, and the step that
+      # guards the other sits first so it is not still running on a cancelled run.
+      - name: Open/update the outside-the-suite tracking issue
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && steps.suite.outcome != 'failure' && steps.suite.outcome != 'cancelled' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+          SUITE_OUTCOME: ${{ steps.suite.outcome }}
+        run: |
+          title="Time-travel run failing outside the suite"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The weekly **time-travel** run went red, but **not in the suite step** (its outcome: `%s`; `skipped` means an earlier step broke first). So this is **not** a wall-clock finding and says nothing about the tests: checkout, `pnpm install --frozen-lockfile` or the Playwright browser install failed or hung. Fix the environment or the lockfile, then re-run the workflow; the suite itself was never judged.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "${SUITE_OUTCOME:-unknown}" "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Open/update the time-travel tracking issue
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && (steps.suite.outcome == 'failure' || steps.suite.outcome == 'cancelled') && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ github.token }}
           DAYS: ${{ github.event.inputs.days || '90' }}
         run: |
           title="Time-travel suite failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The weekly **time-travel** run failed at +%s days.\n\nA test depends on the wall clock and will start failing on `main` on its own, without any commit causing it. Find the failing test and freeze its clock (pass an explicit `now`), rather than widening the production window to accommodate it.\n\nIf the failure is `time-travel guard — the shim actually moved the clock`, the shim itself did not apply and every other result in that run is meaningless.\n\nIf the failure is a missing browser (`browserType.launch: Executable` in the log) or any install error, the environment is at fault, not a clock — fix the setup steps of this workflow, not a test.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$DAYS" "$run_url")
+          body=$(printf 'The weekly **time-travel** run failed at +%s days.\n\nA test depends on the wall clock and will start failing on `main` on its own, without any commit causing it. Find the failing test and freeze its clock (pass an explicit `now`), rather than widening the production window to accommodate it.\n\nIf the failure is `time-travel guard — the shim actually moved the clock`, the shim itself did not apply and every other result in that run is meaningless.\n\nA failed or hung install or browser-install step files the separate "Time-travel run failing outside the suite" issue, not this one. What still lands here without a clock at fault is a break INSIDE the suite step: a globalSetup or build error, or a browser that will not launch (`browserType.launch: Executable` in the log). Then the environment is at fault, not a clock — fix it, not a test.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$DAYS" "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
           fi
 
       - name: Close the time-travel issue on recovery
-        if: success()
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -110,4 +179,18 @@ jobs:
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
             gh issue close "$n" --comment "Recovered — the time-travel run is green again." && echo "closed #$n"
+          done
+
+      - name: Close the outside-the-suite issue on recovery
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Time-travel run failing outside the suite"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the time-travel run got through setup and is green again." && echo "closed #$n"
           done

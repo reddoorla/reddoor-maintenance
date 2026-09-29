@@ -7,8 +7,8 @@ import type { ReportMirrorPatch } from "../../../src/db/fleet-state.js";
  * An in-memory stand-in for the Turso report writer (`makeReportMirror`), for
  * suites that exercise the drafting/queue/recipe logic rather than the store.
  *
- * Inserted rows are mapped with the Airtable `mapRow`, not a bespoke mapper: the
- * creator hands the writer the same Airtable-column-keyed field set
+ * Inserted rows are mapped with report-fields' `mapRow`, not a bespoke mapper:
+ * the creator hands the writer the same column-keyed field set
  * (`draftFields`) that `mapReportRecord` turns into a `reports` row in
  * production, and `mapRow` / `reportRowFromDb` are pinned field-for-field to
  * each other by tests/db/fleet-state.test.ts. So what a test reads back here is

@@ -61,7 +61,7 @@ const REPORT: RawRecord = {
     "Maint: CMS Checked": true,
     "Test: Verified After Updates": true,
     "Checklist auto-evidence": { deploy: { ok: true } },
-    "Rendered HTML": [{ url: "https://airtable.example/signed/abc", filename: "r.html" }],
+    "Rendered HTML": [{ url: "https://files.example/signed/abc", filename: "r.html" }],
   },
 };
 
@@ -134,8 +134,8 @@ describe("mapReportRecord", () => {
   it("resolves the site link and re-keys the checklist to stable keys", () => {
     expect(r.site_id).toBe("recACME");
     const checklist = JSON.parse(r.checklist!) as Record<string, boolean>;
-    // Airtable column names ("Maint: …", "Test: Verified After Updates") do NOT
-    // leak into the new store; the stable keys from checklist.ts do.
+    // Column names ("Maint: …", "Test: Verified After Updates") do NOT leak
+    // into the store; the stable keys from checklist.ts do.
     expect(checklist).toMatchObject({ deploy: true, cms: true, updates: true, forms: false });
     expect(r.checklist).not.toContain("Maint:");
   });
@@ -153,7 +153,7 @@ describe("mapReportRecord", () => {
   });
 
   it("a STRING auto-evidence cell is stored verbatim, never double-encoded", () => {
-    // Airtable long-text cells arrive as strings; JSON.stringify-ing one again
+    // Long-text cells arrive as strings; JSON.stringify-ing one again
     // would make parseAutoEvidence yield a string → null on the read side.
     const evidence = JSON.stringify({ deploy: { result: "pass", checkedAt: null, note: "" } });
     const rec: RawRecord = {

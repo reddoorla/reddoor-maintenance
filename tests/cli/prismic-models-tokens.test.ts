@@ -165,11 +165,11 @@ const deps = (env: Record<string, string | undefined> = {}): PrismicModelsDeps =
   // The doctor spawns nothing. Injected so a regression that shells out shows up
   // as a call on this mock rather than as a real process.
   spawn: vi.fn<SpawnFn>(async () => ({ code: 0, stdout: "", stderr: "" })),
-  // No test in this file writes to Airtable. Required (not optional) on the deps
+  // No test here writes to the fleet store. Required (not optional) on the deps
   // type precisely so that stays true by construction: a stub that throws is the
   // only way this path can be reached from here.
   openVerdictSink: async () => {
-    throw new Error("this test never opens Airtable");
+    throw new Error("this test never opens the fleet store");
   },
 });
 
@@ -625,9 +625,8 @@ describe("runPrismicModelsCommand --tokens --fleet", () => {
     expect(r.output).not.toMatch(/more than one Prismic repository/i);
   });
 
-  // An inventory that names nobody is not a fleet with no secrets to mint. The
-  // Airtable inventory is view-filtered, so one filter change empties it with no
-  // error anywhere — and an empty checklist reads exactly like a finished one.
+  // An inventory that names nobody is not a fleet with no secrets to mint: an
+  // empty checklist reads exactly like a finished one.
   it("refuses an inventory that resolved no sites instead of printing an empty checklist", async () => {
     const fleet = await fleetInventory([]);
     const r = await runPrismicModelsCommand(
