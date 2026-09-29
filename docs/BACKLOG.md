@@ -186,7 +186,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
    reports: keep the click, auto-approve after 3 days unless a site is on hold,
    or auto-approve for listed sites only; (b) pin the "Daily PM pass" Routine to
    Opus (it ran on Sonnet); (c) which skills move into `.claude/skills/` for
-   cloud sessions; (d) the three cloud environment secrets (item 11 below);
+   cloud sessions; (d) the three cloud environment secrets (item 12 below);
    (e) the Discord ✅ convention with Tim, Nicole and Erik.
 7. **Webflow, hard date 2026-10-19** [M, Discord #website-maintenance 09-17]:
    two sites still to convert before the license renews; Domaru must stay up
