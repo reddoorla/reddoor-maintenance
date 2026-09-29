@@ -333,7 +333,7 @@ verdict is its only input, because no client and no check sees the email.
 - 2026-09-29 — #969: a timed-out spawn reaps the process groups its
   descendants detached into (Playwright's webServer, Chrome under
   chrome-launcher), found from a `ps -A -o pid=,ppid=,pgid=` snapshot taken
-  before the first SIGTERM (#PR_NUMBER). The Verify probe went from
+  before the first SIGTERM (#989). The Verify probe went from
   `Sl; accepting=true` 7 s after the timeout to `gone; accepting=false`.
 - 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
   4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its
