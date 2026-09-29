@@ -247,6 +247,17 @@ Ordered by what unblocks the most. Each line is the exact ask.
     #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
     #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
     #773 (local-only git objects).
+19. **P1-20, the digest (#975, parked after two dirty review rounds)** — pick
+    how the digest decides what is news. It is green and full-suite clean, but
+    round 2 found (a) an item that was mailed, fixed and then recurs stays
+    silent until the weekly heartbeat, and (b) every send resets every item's
+    baseline, so six jittering Lighthouse items sent on 20 of 28 simulated
+    days. **My pick:** on every run, forget keys and ask parts no longer
+    present, so a recurrence re-sends; keep a high-water baseline for keys
+    that persist; compare health asks by field, not by status. That is about
+    30 lines plus tests on `claude/digest-send-on-change`. Say "go" and a
+    worker finishes it, or name another rule (e.g. "send on any NEW badge,
+    ignore metric changes").
 
 ---
 
