@@ -12,6 +12,8 @@ import {
   refPath,
   repoFromRemoteUrl,
   resolveRepo,
+  isReadOnlyApiCall,
+  isTransientReadFailure,
   type RunResult,
 } from "../../scripts/land-prs.mjs";
 
@@ -1359,3 +1361,222 @@ describe("land-prs: --dry-run", () => {
     expect(fork.lines.some((l) => l.includes("delete branch"))).toBe(false);
   });
 });
+
+/**
+ * Landing #957 from a cloud session stopped on one transient read error from the egress
+ * proxy — `read tcp 127.0.0.1:49958->127.0.0.1:42405: read: connection reset by peer` on
+ * the check-runs GET — and an immediate re-run landed it. A READ that fails in transport is
+ * now tried again (3 attempts, 2 s then 4 s apart); an answer is not, and a WRITE never is.
+ *
+ * Every failure fixture below except the #957 line is gh 2.101.0's own output, read on
+ * 2026-09-29 by pointing `gh api --hostname localhost` at a local HTTPS server that failed
+ * each way on purpose (reset, EOF, silent TLS, HTML/empty/text 5xx, JSON 5xx, 4xx, nothing
+ * listening).
+ */
+describe("land-prs: a read that fails in transport is retried; an answer or a write never is", () => {
+  const url = (path: string) => `https://api.github.com/${P}/${path}`;
+  const failed = (stderr: string, stdout = ""): RunResult => ({ code: 1, stdout, stderr });
+  const RUNS_PAGE_1 = `commits/${A}/check-runs?filter=latest&per_page=100&page=1`;
+  // #957, verbatim but for the elided URL.
+  const RESET = failed(
+    `Get "${url(RUNS_PAGE_1)}": read tcp 127.0.0.1:49958->127.0.0.1:42405: read: connection reset by peer\n`,
+  );
+  const EOF_ = failed(`Get "${url(RUNS_PAGE_1)}": EOF\n`);
+  const TLS_TIMEOUT = failed(`Get "${url("pulls/5")}": net/http: TLS handshake timeout\n`);
+  // gh has no response timeout of its own: against a server that never answers it hangs
+  // until the runner kills it.
+  const KILLED: RunResult = { code: 1, stdout: "", stderr: "", timedOut: true };
+  const HTML_502 = failed("gh: HTTP 502\n", "<html><body><h1>502 Bad Gateway</h1></body></html>\n");
+  const EMPTY_503 = failed("gh: HTTP 503\n");
+  const TEXT_504 = failed("gh: HTTP 504\n", "upstream request timeout");
+  const HTML_404 = failed("gh: HTTP 404\n", "<html>nope</html>");
+  const REFUSED = failed(
+    `Get "${url("pulls/5")}": dial tcp 127.0.0.1:443: connect: connection refused\n`,
+  );
+
+  it("classifies real gh failures: transport and a proxy's bodiless 5xx are transient, every answer is final", () => {
+    // Go's spellings of a body cut short and a read deadline; not yet seen from gh itself.
+    const goOnly = {
+      unexpectedEof: failed(`Get "${url("pulls/5")}": unexpected EOF\n`),
+      ioTimeout: failed(
+        `Get "${url("pulls/5")}": read tcp 127.0.0.1:1->127.0.0.1:2: i/o timeout\n`,
+      ),
+    };
+    const transient = {
+      RESET,
+      EOF_,
+      TLS_TIMEOUT,
+      KILLED,
+      HTML_502,
+      EMPTY_503,
+      TEXT_504,
+      ...goOnly,
+    };
+    const final = {
+      ok: ok("{}"),
+      json502: httpError(502, "Server Error"),
+      json404: httpError(404, "Not Found"),
+      html404: HTML_404,
+      proxy403: PROXY_403,
+      conflict409: httpError(409, "Head branch was modified. Review and try the merge again."),
+      unprocessable422: httpError(422, "Reference does not exist"),
+      refused: REFUSED,
+      // The transport check reads a GET's error line; a reset that is not one is not.
+      notAGet: failed(`Put "${url("pulls/5/merge")}": read: connection reset by peer\n`),
+      noOutput: failed(""),
+    };
+    const verdicts = (o: Record<string, RunResult>) =>
+      Object.entries(o).map(([k, r]) => [k, isTransientReadFailure(r)]);
+    expect(verdicts(transient)).toEqual(Object.keys(transient).map((k) => [k, true]));
+    expect(verdicts(final)).toEqual(Object.keys(final).map((k) => [k, false]));
+  });
+
+  it("only a plain GET counts as a read: any method, any body flag, any flag it does not know is a write", () => {
+    expect(isReadOnlyApiCall([])).toBe(true);
+    expect(isReadOnlyApiCall(["--jq", ".full_name"])).toBe(true);
+    for (const args of [
+      ["--method", "PUT", "-f", "merge_method=squash", "-f", `sha=${A}`],
+      ["--method", "PUT", "-f", `expected_head_sha=${A}`],
+      ["--method", "DELETE"],
+      ["--method", "GET"],
+      ["-X", "POST"],
+      // -f alone switches gh's default method from GET to POST.
+      ["-f", "x=y"],
+      ["-F", "x=1"],
+      ["--input", "body.json"],
+      ["--jq"],
+      ["--paginate"],
+    ]) {
+      expect([args, isReadOnlyApiCall(args)]).toEqual([args, false]);
+    }
+  });
+
+  it("one connection reset on the check-runs GET, then success: it lands", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view(), view(), merged()]],
+        [RUNS(A), [RESET, GREEN]],
+        [STATUSES(A), [statuses()]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A}`);
+    expect(r.calls.filter((c) => RUNS(A).test(c))).toHaveLength(2);
+    expect(r.sleeps[0]).toBe(2_000);
+    expect(r.lines).toContain(
+      `LAND note: gh api ${RUNS_PAGE_1} failed in transport (attempt 1 of 3), retrying in 2 s: ${firstLineOf(RESET)}`,
+    );
+    expect(kinds(r.calls)).toEqual(["checks", "checks", "merge", "delete"]);
+  });
+
+  it("a reset that persists stops after 3 attempts, naming the call and the LAST error", async () => {
+    const r = await land(
+      [5, 6],
+      [
+        [VIEW(5), [view()]],
+        [RUNS(A), [RESET, RESET, EOF_]],
+        [STATUSES(A), [statuses()]],
+      ],
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      `LAND #5 stopped reason=gh api ${RUNS_PAGE_1} failed after 3 attempts: ${firstLineOf(EOF_)}`,
+    );
+    expect(r.calls.filter((c) => RUNS(A).test(c))).toHaveLength(3);
+    expect(r.sleeps).toEqual([2_000, 4_000]);
+    expect(kinds(r.calls)).toEqual(["checks", "checks", "checks"]);
+    expect(r.calls.some((c) => /\/pulls\/6\b/.test(c))).toBe(false);
+  });
+
+  it("an answer is final: a 404, 403, 409, 422, a JSON 5xx, or nothing listening is issued once", async () => {
+    for (const [answer, said] of [
+      [httpError(404, "Not Found"), "gh: Not Found (HTTP 404)"],
+      [HTML_404, "gh: HTTP 404"],
+      [PROXY_403, firstLineOf(PROXY_403)],
+      [httpError(409, "Conflict"), "gh: Conflict (HTTP 409)"],
+      [httpError(422, "Unprocessable Entity"), "gh: Unprocessable Entity (HTTP 422)"],
+      [httpError(502, "Server Error"), "gh: Server Error (HTTP 502)"],
+      [REFUSED, firstLineOf(REFUSED)],
+    ] as const) {
+      const r = await land([5], [[VIEW(5), [answer, view()]]]);
+      expect(r.code).toBe(1);
+      // No "after N attempts": the reason reads exactly as it did before retries existed.
+      expect(r.lines.at(-1)).toBe(`LAND #5 stopped reason=gh api pulls/5 failed: ${said}`);
+      expect(r.calls).toEqual([`gh api ${P}/pulls/5`]);
+      expect(r.sleeps).toEqual([]);
+    }
+  });
+
+  // Each failure here is one the READ path would retry — asserted, so this test proves the
+  // write gate and not merely that the classifier said no.
+  const TRANSIENT_LOOKING = [RESET, KILLED, HTML_502, EMPTY_503];
+
+  it("the merge PUT is issued once even when it fails transiently: the view, not a second PUT, decides", async () => {
+    for (const failure of TRANSIENT_LOOKING) {
+      expect(isTransientReadFailure(failure)).toBe(true);
+      const r = await land([5], [[VIEW(5), [view()]], ...green, [MERGE_CMD(5), [failure, ok()]]]);
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toMatch(/^LAND #5 stopped reason=merge did not land \(state=OPEN\): /);
+      expect(r.calls.filter((c) => MERGE_CMD(5).test(c))).toHaveLength(1);
+      expect(r.lines.some((l) => l.includes("retrying"))).toBe(false);
+    }
+  });
+
+  it("update-branch is issued once even when it fails transiently", async () => {
+    for (const failure of TRANSIENT_LOOKING) {
+      const r = await land(
+        [5],
+        [
+          [VIEW(5), [view({ mergeStateStatus: "BEHIND" })]],
+          [UPDATE(5), [failure, ok()]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toMatch(/^LAND #5 stopped reason=update-branch failed: /);
+      expect(kinds(r.calls)).toEqual(["update-branch"]);
+    }
+  });
+
+  it("the branch DELETE is issued once even when it fails transiently", async () => {
+    for (const failure of TRANSIENT_LOOKING) {
+      const r = await land(
+        [5],
+        [
+          [VIEW(5), [view(), view(), merged()]],
+          ...green,
+          [MERGE_CMD(5), [ok(JSON.stringify({ sha: MERGE, merged: true }))]],
+          [DELETE(), [failure, ok()]],
+          [REF(), [httpError(404, "Not Found")]],
+        ],
+      );
+      expect(r.code).toBe(0);
+      expect(r.calls.filter((c) => DELETE().test(c))).toHaveLength(1);
+      expect(kinds(r.calls)).toEqual(["checks", "merge", "delete"]);
+    }
+  });
+
+  it("resolving the repo retries a reset too, and says so when the retries run out", async () => {
+    const guess = /^gh api repos\/reddoorla\/reddoor-maintenance --jq \.full_name$/;
+    const origin: Route = [/^git remote/, [ok(`https://github.com/${REPO}\n`)]];
+    const sleeps: number[] = [];
+    const sleep = async (ms: number) => {
+      if (sleeps.length >= 100) throw new Error("runaway: 100 sleeps without an outcome");
+      sleeps.push(ms);
+    };
+    const once = fakeRunner([origin, [guess, [RESET, ok(`${REPO}\n`)]]]);
+    expect(await resolveRepo({ run: once.run, sleep })).toEqual({ repo: REPO });
+    expect(once.calls.filter((c) => guess.test(c))).toHaveLength(2);
+    const always = fakeRunner([origin, [guess, [RESET]]]);
+    expect((await resolveRepo({ run: always.run, sleep })).error).toBe(
+      `gh api repos/${REPO} failed after 3 attempts: ${firstLineOf(RESET)}`,
+    );
+    expect(always.calls.filter((c) => guess.test(c))).toHaveLength(3);
+    expect(sleeps).toEqual([2_000, 2_000, 4_000]);
+  });
+});
+
+function firstLineOf(r: RunResult): string {
+  return (r.stderr || r.stdout).split("\n")[0]!.trim();
+}
