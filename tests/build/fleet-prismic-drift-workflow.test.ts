@@ -403,9 +403,12 @@ describe("fleet-prismic-drift — scheduling and supply chain", () => {
 });
 
 describe("fleet-prismic-drift — a red night is durably visible", () => {
-  it("files a tracking issue on failure and closes it on recovery", () => {
-    expect(wf).toContain("if: failure()");
-    expect(wf).toContain("if: success()");
+  // Cancelled counts as red (a hang to a timeout is not a pass), and only main's
+  // runs speak for main. tracking-issue-conditions.test.ts evaluates these
+  // conditions across every workflow; this pins the exact lines here.
+  it("files a tracking issue on failure or cancellation and closes it on recovery", () => {
+    expect(wf).toContain("if: (failure() || cancelled()) && github.ref == 'refs/heads/main'");
+    expect(wf).toContain("if: success() && github.ref == 'refs/heads/main'");
     expect(wf).toContain("gh issue create");
     expect(wf).toContain("gh issue close");
   });
