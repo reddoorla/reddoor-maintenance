@@ -4,6 +4,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import yaml from "js-yaml";
 import {
   isScheduled,
   stepEnv,
@@ -512,37 +513,158 @@ describe("the run-failure open steps read the job's real status", () => {
   });
 });
 
-describe("no `if:` is a YAML construct instead of a string", () => {
-  // STOPGAP for a real YAML parse. js-yaml is only a transitive dependency
-  // (via @lhci/utils and @changesets), not importable from this package, so a
-  // full load of every workflow waits on adding it as a devDependency. Until
-  // then, this catches the one shape the review showed passing everything
-  // above: `if: !cancelled()` unwrapped. In YAML a plain scalar starting with
-  // `!` is a TAG (js-yaml: "unknown tag !<!cancelled()>"), GitHub rejects the
-  // workflow, and the nightly never runs at all. `& * % @ \` { [` are the other
-  // indicators that make a plain scalar something other than a string.
-  /** Lines whose `if:` value is a plain scalar starting with a YAML indicator. */
-  const indicatorIfs = (file: string, text: string): string[] =>
-    text.split("\n").flatMap((l, i) => {
-      const m = /^\s*(?:- )?if:\s*(\S.*)$/.exec(l);
-      return m && /^[!&*%@`{[]/.test(m[1]!) ? [`${file}:${i + 1}: ${l.trim()}`] : [];
-    });
+describe("every workflow is YAML that GitHub will load, and the extractor reads what YAML reads", () => {
+  // Everything above trusts `workflowSteps`, a block-scoped regex reader. This
+  // block proves it against a real parser, and proves each workflow parses at
+  // all. The review's mutation M3 was an unwrapped `if: !cancelled()`: in YAML a
+  // plain scalar starting with `!` is a TAG, js-yaml refuses it ("unknown tag
+  // !<!cancelled()>"), GitHub refuses the whole file, and the nightly never runs.
+  // The regex reader, meanwhile, read it happily as the condition `!cancelled()`
+  // and every rule above passed.
+  //
+  // This replaces #956's stopgap, which scanned `if:` lines for a plain scalar
+  // starting with a YAML indicator (`! & * % @ \` { [`). The parse subsumes it:
+  // `! % @ \`` and an undefined `*alias` make the load throw, and `&anchor`,
+  // `{…}` and `[…]` load as a different string or as a non-string, which the
+  // cross-check below reports as a disagreement. It also covers every line of
+  // every file, not only `if:` lines — a stray tab or a bad indent anywhere
+  // stops a workflow just as dead.
 
-  // Positive control first, on the exact shape the review's mutation used.
-  it("flags an unwrapped `if: !cancelled()` and passes the wrapped form", () => {
-    const step = (cond: string) =>
-      `jobs:\n  a:\n    steps:\n      - name: x\n        if: ${cond}\n`;
-    expect(indicatorIfs("m3.yml", step("!cancelled()"))).toEqual(["m3.yml:5: if: !cancelled()"]);
-    expect(indicatorIfs("ok.yml", step("${{ !cancelled() }}"))).toEqual([]);
-    expect(indicatorIfs("ok.yml", step("(failure() || cancelled())"))).toEqual([]);
+  interface Row {
+    job: string;
+    name?: string | undefined;
+    if?: unknown;
+    timeoutMinutes?: unknown;
+    jobTimeoutMinutes?: unknown;
+  }
+
+  /** What Actions evaluates from an `if:` value: the string with any `${{ }}`
+   *  wrapper removed. A non-string is passed through untouched so a flow
+   *  mapping or a boolean shows up as the disagreement it is. */
+  const unwrap = (v: unknown): unknown => {
+    if (typeof v !== "string") return v;
+    const m = /^\$\{\{([\s\S]*)\}\}$/.exec(v.trim());
+    return m ? m[1]!.trim() : v.trim();
+  };
+
+  /** The rows the PARSER sees: one per step, in order. */
+  function parsedRows(text: string): Row[] {
+    const doc = yaml.load(text) as { jobs?: Record<string, Record<string, unknown>> };
+    const rows: Row[] = [];
+    for (const [job, body] of Object.entries(doc.jobs ?? {})) {
+      const steps = (body["steps"] ?? []) as Array<Record<string, unknown>>;
+      for (const s of steps) {
+        const name =
+          typeof s["name"] === "string"
+            ? s["name"]
+            : s["id"] !== undefined
+              ? `id: ${String(s["id"])}`
+              : s["uses"] !== undefined
+                ? `uses: ${String(s["uses"])}`
+                : undefined;
+        rows.push({
+          job,
+          name,
+          if: unwrap(s["if"]),
+          timeoutMinutes: s["timeout-minutes"],
+          jobTimeoutMinutes: body["timeout-minutes"],
+        });
+      }
+    }
+    return rows;
+  }
+
+  /** The same rows as `workflowSteps` reads them. A `run:`-only step has no
+   *  name to compare (its extractor label is the first line of the script). */
+  const extractedRows = (text: string): Row[] =>
+    workflowSteps(text).map((s) => ({
+      job: s.job,
+      name: s.label.startsWith("run: ") ? undefined : s.label,
+      if: s.if,
+      timeoutMinutes: s.timeoutMinutes,
+      jobTimeoutMinutes: s.jobTimeoutMinutes,
+    }));
+
+  const fixture = (stepKeys: string) =>
+    `on: push\njobs:\n  a:\n    runs-on: x\n    timeout-minutes: 5\n    steps:\n      - name: s\n${stepKeys}        run: echo\n`;
+
+  // POSITIVE CONTROLS, first: the parser refuses M3 and accepts its fixes, and
+  // the cross-check both agrees on a clean file and catches a real misread.
+  it("the parser refuses an unwrapped `if: !cancelled()` and loads the wrapped and quoted forms", () => {
+    expect(() => yaml.load(fixture("        if: !cancelled()\n"))).toThrow(
+      /unknown tag !<!cancelled\(\)>/,
+    );
+    expect(parsedRows(fixture("        if: ${{ !cancelled() }}\n"))[0]!.if).toBe("!cancelled()");
+    expect(parsedRows(fixture('        if: "!cancelled()"\n'))[0]!.if).toBe("!cancelled()");
   });
 
-  it("every `if:` value that starts with a YAML indicator is quoted or ${{ }}-wrapped", async () => {
+  it("the cross-check agrees on a clean step and reports a step the extractor misreads", () => {
+    const clean = fixture('        if: "!cancelled()"\n        timeout-minutes: 3\n');
+    expect(extractedRows(clean)).toEqual(parsedRows(clean));
+    expect(parsedRows(clean)).toEqual([
+      { job: "a", name: "s", if: "!cancelled()", timeoutMinutes: 3, jobTimeoutMinutes: 5 },
+    ]);
+    // A trailing comment is YAML's, not the condition's.
+    const commented = fixture(
+      "        if: failure() # file on red\n        timeout-minutes: 2 # s\n",
+    );
+    expect(extractedRows(commented)).toEqual(parsedRows(commented));
+    expect(parsedRows(commented)[0]!.if).toBe("failure()");
+    // A plain scalar continued onto the next line: YAML folds it into one
+    // condition, the line-based extractor reads only its first line.
+    const misread = fixture(
+      "        if: (failure() || cancelled()) &&\n          github.ref == 'refs/heads/main'\n",
+    );
+    expect(parsedRows(misread)[0]!.if).toBe(
+      "(failure() || cancelled()) && github.ref == 'refs/heads/main'",
+    );
+    expect(extractedRows(misread)[0]!.if).toBe("(failure() || cancelled()) &&");
+    expect(extractedRows(misread)).not.toEqual(parsedRows(misread));
+  });
+
+  it("finds all fourteen workflows", async () => {
+    expect((await readdir(workflowPath("."))).filter((f) => f.endsWith(".yml")).sort()).toEqual([
+      "ci.yml",
+      "daily-reports.yml",
+      "fleet-db-backup.yml",
+      "fleet-form-e2e.yml",
+      "fleet-lighthouse.yml",
+      "fleet-prismic-drift.yml",
+      "fleet-security.yml",
+      "fleet-smoke.yml",
+      "forms-deadletter-replay.yml",
+      "release-health.yml",
+      "release.yml",
+      "renovate.yml",
+      "report-rerender.yml",
+      "time-travel.yml",
+    ]);
+  });
+
+  it("every workflow parses, and workflowSteps reads the same steps, `if:`s and timeouts", async () => {
     const dir = workflowPath(".");
-    const bad: string[] = [];
+    const problems: string[] = [];
     for (const f of (await readdir(dir)).filter((x) => x.endsWith(".yml")).sort()) {
-      bad.push(...indicatorIfs(f, await readFile(join(dir, f), "utf-8")));
+      const text = await readFile(join(dir, f), "utf-8");
+      let parsed: Row[];
+      try {
+        parsed = parsedRows(text);
+      } catch (e) {
+        problems.push(`${f}: does not parse — ${(e as Error).message.split("\n")[0]}`);
+        continue;
+      }
+      if (parsed.length === 0) problems.push(`${f}: the parser found no steps`);
+      const extracted = extractedRows(text);
+      const n = Math.max(parsed.length, extracted.length);
+      for (let i = 0; i < n; i++) {
+        const [p, x] = [parsed[i], extracted[i]];
+        if (JSON.stringify(p) !== JSON.stringify(x)) {
+          problems.push(
+            `${f} step ${i}: parser ${JSON.stringify(p)} ≠ extractor ${JSON.stringify(x)}`,
+          );
+        }
+      }
     }
-    expect(bad).toEqual([]);
+    expect(problems).toEqual([]);
   });
 });
