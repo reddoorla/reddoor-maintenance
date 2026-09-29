@@ -5158,6 +5158,21 @@ Beliefs corrected on contact:
   reasoning. Every claim in the changeset is now backed by a mutation that was actually run
   against the final head.
 
+## 2026-09-29 (close) — Two false lines in AUTONOMY.md, and three branches left to the operator
+
+**AUTONOMY.md.** Two lines were wrong. Another session's backlog found them while listing what #954 left behind, and they are fixed here.
+
+- **The settings file.** It called `.claude/settings.json` "local, gitignored". The file has been tracked since #788 (decision A9, 2026-09-14), and `.gitignore` re-includes it by name.
+- **The journal step.** The working loop's journal step pointed at `docs/autonomy-journal.md`, which has had no row since 2026-09-09. It now points at this file. The old journal got a two-line note saying it is no longer kept; nothing in it was edited.
+
+**Three stale remote branches were not deleted.** The operator asked for them to go, but the auto-mode classifier refused `git push origin --delete` as a destructive git action. Each still carries commits that never reached main. If they are deleted by hand, these are the heads to restore from:
+
+- `docs/airtable-to-turso-spec` `4f5f1a14b5f7bb487520f8a1b0fa130cf4e5860e`
+- `feat/dash-vulns-submission-cap-airtable-throttle` `eda447c7c2fb1b6547619788bf79d70192fd75fc`
+- `fix/lead-path-airtable-gate` `77d523bc98eb81e5dceec6d57d784b4380c4d7a7`
+
+The spawn reap-test race from the #954 entry is being handled in a separate session the operator started.
+
 ## 2026-09-29 — The spawn reap test waits out PID 1, and its cleanup can no longer be the failure (#960, `claude/charming-meitner-28381c`)
 
 `tests/audits/util/spawn.test.ts` › "kills a non-detached grandchild in the timed-out child's

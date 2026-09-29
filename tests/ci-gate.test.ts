@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import yaml from "js-yaml";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ci = readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf-8");
@@ -128,5 +129,79 @@ describe("a workflow that runs the suite checks out the tags the suite reads", (
       })
       .map(({ f }) => f);
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * The release job's changesets step is the only npm-publish path, and two of
+ * the ways to break it are silent: without the `github-token` input the version
+ * PR is pushed with the built-in token, so ci.yml never fires and its required
+ * `build` check never runs; with the v1 pin, v1 ignores v2's input names and
+ * never publishes. Neither fails the step, so this test is what catches them.
+ */
+describe("the release job drives changesets/action v2 with the App token", () => {
+  type Step = {
+    id?: string;
+    name?: string;
+    uses?: string;
+    if?: string;
+    run?: string;
+    with?: Record<string, unknown>;
+    env?: Record<string, unknown>;
+  };
+  const text = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf-8");
+  const steps = (yaml.load(text) as { jobs: { release: { steps: Step[] } } }).jobs.release.steps;
+  const step = steps.find((s) => s.uses?.startsWith("changesets/action@"));
+  // The `inputs:` of changesets/action v2.1.2's action.yml (ae32849d).
+  const V2_INPUTS = [
+    "github-token",
+    "publish-script",
+    "version-script",
+    "commit-message",
+    "pr-title",
+    "pr-draft",
+    "pr-base-branch",
+    "create-github-releases",
+    "push-git-tags",
+    "push-with-git-cli",
+    "cwd",
+  ];
+
+  it("pins a v2 release by full commit SHA", () => {
+    expect(step?.uses).toMatch(/^changesets\/action@[0-9a-f]{40}$/);
+    const line = text.split("\n").find((l) => l.includes(step!.uses!));
+    expect(line).toMatch(/# v2\.\d+\.\d+\s*$/);
+  });
+
+  it("passes only v2 input names, and runs the repo's own scripts", () => {
+    const keys = Object.keys(step!.with ?? {});
+    expect(keys.filter((k) => !V2_INPUTS.includes(k))).toEqual([]);
+    expect(step!.with!["publish-script"]).toBe("pnpm run release");
+    expect(step!.with!["version-script"]).toBe("pnpm run version-packages");
+    expect(pkg.scripts.release).toBeDefined();
+    expect(pkg.scripts["version-packages"]).toBeDefined();
+  });
+
+  it("takes the App token as its input, with no GITHUB_TOKEN env, and pushes with git", () => {
+    expect(step!.with!["github-token"]).toBe("${{ steps.app-token.outputs.token }}");
+    expect(step!.env?.GITHUB_TOKEN).toBeUndefined();
+    expect(step!.with!["push-with-git-cli"]).toBe(true);
+  });
+
+  it("pairs with @changesets/cli v3, which v2 requires", () => {
+    const deps = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8")) as {
+      devDependencies?: Record<string, string>;
+    };
+    expect(deps.devDependencies?.["@changesets/cli"]).toMatch(/^\^?3\./);
+  });
+
+  it("fails the run when a publish leaves no annotated tag on the published commit", () => {
+    const verify = steps.find((s) =>
+      s.if?.includes(`steps.${step!.id}.outputs.published == 'true'`),
+    );
+    expect(step!.id).toBeTruthy();
+    expect(verify?.run).toContain("refs/tags/${v}^{}");
+    expect(verify?.run).toContain("git rev-parse HEAD");
+    expect(verify?.run).toMatch(/exit 1/);
   });
 });
