@@ -275,7 +275,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
       each list "update pnpm to v12" under Awaiting Schedule on their
       Dependency Dashboard; `.github` has no `package.json`. Closed with the
       table.
-    - #672 (cockpit design): design brief first.
+    - #672 (cockpit design): design brief first. Brief written, awaiting the
+      operator's markup:
+      [`docs/cockpit-design-brief-2026-09.md`](cockpit-design-brief-2026-09.md).
     - #674 (design-review tool): mine the rules only. Rules mined in
       `docs/design-review-rules-2026-09.md` (#1012); awaiting the operator's
       accept/cut, plus a call on a `data-bleed`-style full-bleed opt-in.
