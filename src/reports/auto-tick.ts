@@ -274,17 +274,23 @@ function deployEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
  * CMS Checked: the server-side `/health` Prismic probe reported reachable. Freshness rides the
  * function-health check stamp (one `/health` fetch feeds both Deploy and CMS). Never measured →
  * null; stale → unknown; pass/fail mirror the stored verdict; a fresh stamp with no verdict →
- * `n/a` when the site has no CMS (below), otherwise unknown.
+ * `n/a` when the site has no live CMS (below), otherwise unknown.
  *
- * "No CMS" (#911) is read from the nightly Prismic model sweep, never from `/health`: a blank
- * `prismicModels` under a FRESH `prismicModelsCheckedAt` is the one state that sweep writes for
- * "read this site's checkout and found no Prismic config" (`sweepRowWriteback`'s `skipped`).
- * `/health`'s `prismic: "skipped"` cannot carry that fact — the same word comes back from a
- * Prismic site on a placeholder repository or with no `createClient` export, and the writer
- * flattens it to null alongside malformed bodies. So n/a needs both: /health fresh and silent
- * about the CMS, AND the repository shown to hold no Prismic config. A sweep that failed
- * (`unknown`), never ran (no stamp) or has gone stale keeps the item `unknown`, and a `/health`
- * pass/fail always outranks it.
+ * What discriminates a site WITH a CMS is `/health`'s own verdict: a site that really probes
+ * Prismic answers `pass` or `fail`, and both are returned above, before n/a is considered. n/a
+ * therefore needs `/health` fresh and SILENT about the CMS (`prismic: "skipped"`, flattened to
+ * null on write) AND the nightly Prismic model sweep's blank verdict under a FRESH
+ * `prismicModelsCheckedAt` (`sweepRowWriteback`'s `skipped`). Neither half is "no CMS" alone:
+ * `/health` says "skipped" for a Prismic site on a placeholder repository too, and the sweep
+ * writes the same blank for a repository with NO Prismic config and for one whose config names
+ * only a placeholder repository (`your-prismic-repo-name`, `reddoor-wireframer` — see
+ * `readPrismicConfig`). data-dynamiq is that second shape and a real Prismic site: its row
+ * matches LAHI's in the sweep columns, and only its `/health` answering `ok` (→ `pass`, above)
+ * keeps it out of n/a. A sweep that failed (`unknown`), never ran (no stamp) or has gone stale
+ * keeps the item `unknown`.
+ *
+ * The record's `checkedAt` is the SWEEP's stamp, because that is the evidence n/a rests on;
+ * `/health`'s freshness has already been required above.
  */
 function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (!site.functionHealthCheckedAt) return null;
@@ -302,7 +308,9 @@ function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
     return {
       result: "n/a",
       checkedAt: site.prismicModelsCheckedAt,
-      note: "No CMS: the nightly Prismic model sweep found no Prismic config in this site's repository",
+      note:
+        "No CMS verdict from /health, and the nightly Prismic sweep found no live Prismic config" +
+        " (none, or only a placeholder) in this site's repository",
     };
   }
   return { result: "unknown", checkedAt: at, note: "CMS reachability not reported" };

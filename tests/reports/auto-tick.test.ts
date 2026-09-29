@@ -384,13 +384,17 @@ describe("autoTickChecklist — CMS Checked evidence", () => {
   });
 });
 
-// #911. "This site has no CMS" is known from ONE place: the nightly Prismic model sweep read
-// the site's checkout and found no Prismic config (blank `prismicModels`, fresh
-// `prismicModelsCheckedAt`). /health's `prismic: "skipped"` alone is NOT that fact — it is
-// also what a Prismic site on a placeholder repo, or one whose module lacks `createClient`,
-// answers — and it is flattened to null on write anyway. Each "has a CMS" row below differs
+// #911. n/a needs BOTH halves: /health fresh and silent about the CMS (`prismic: "skipped"` →
+// null), AND the nightly Prismic sweep's blank verdict under a fresh stamp. Neither is "no CMS"
+// alone — /health says "skipped" for a placeholder-repo Prismic site, and the sweep writes the
+// same blank for no config AND for a config naming only a placeholder repository
+// (`reddoor-wireframer`: data-dynamiq, a real Prismic site). What discriminates a site with a
+// CMS is /health's own pass/fail, which is returned first. Each "has a CMS" row below differs
 // from the no-CMS row in exactly one field, so the n/a branch cannot pass on a proxy.
 describe("autoTickChecklist — CMS Checked on a site with no CMS (#911)", () => {
+  /** The sweep's stamp, deliberately NOT `FRESH` (the /health stamp), so an assertion on the
+   *  n/a record's `checkedAt` can tell which of the two it carries. */
+  const SWEEP_AT = "2026-06-18T05:00:00.000Z";
   /** LAHI's measured shape: /health answered fresh with no CMS verdict (`prismic: "skipped"`
    *  → null), and the drift sweep found no Prismic config in its repository. */
   const noCms = (over: Parameters<typeof makeWebsiteRow>[0] = {}) =>
@@ -399,7 +403,7 @@ describe("autoTickChecklist — CMS Checked on a site with no CMS (#911)", () =>
       functionHealthCheckedAt: FRESH,
       cmsReachable: null,
       prismicModels: null,
-      prismicModelsCheckedAt: FRESH,
+      prismicModelsCheckedAt: SWEEP_AT,
       prismicModelsDrift: "not a Prismic site (no repositoryName) — skipped",
       ...over,
     });
@@ -417,8 +421,27 @@ describe("autoTickChecklist — CMS Checked on a site with no CMS (#911)", () =>
   it("is n/a, with a note that says why, and does not block the send gate", () => {
     const e = cms(noCms());
     expect(e.result).toBe("n/a");
-    expect(e.note).toMatch(/no Prismic config/i);
+    expect(e.note).toMatch(/no CMS verdict from \/health/i);
+    expect(e.note).toMatch(/no live Prismic config \(none, or only a placeholder\)/i);
     expect(gateClear(noCms())).toBe(true);
+  });
+
+  it("carries the SWEEP's stamp as the n/a record's checkedAt (the evidence n/a rests on)", () => {
+    expect(cms(noCms()).checkedAt).toBe(SWEEP_AT);
+  });
+
+  it("data-dynamiq shape: /health pass + sweep blank-and-fresh (placeholder config) is pass, not n/a", () => {
+    // data-dynamiq's slicemachine config names `reddoor-wireframer`, a placeholder by operator
+    // ruling, so the sweep writes the same blank verdict it writes for LAHI. Its /health really
+    // probes Prismic and answers ok — that verdict must win.
+    const e = cms(
+      noCms({
+        cmsReachable: "pass",
+        prismicModelsDrift: "not a Prismic site (no repositoryName) — skipped",
+      }),
+    );
+    expect(e.result).toBe("pass");
+    expect(e.checkedAt).toBe(FRESH);
   });
 
   it("stays unknown (blocked) for a site WITH a CMS whose /health reported no CMS verdict", () => {

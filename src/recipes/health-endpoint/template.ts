@@ -68,8 +68,9 @@ export const GET: RequestHandler = async ({ fetch }) => {
  * Vite build when the *module* doesn't exist — so those sites need a variant with
  * no import at all. CMS is reported as a constant "skipped", which the gate never
  * false-greens: on its own it reads as "never ran" (unknown, blocks), and it becomes
- * `n/a` only when the nightly Prismic model sweep has also found no Prismic config in
- * the repository (#911, `cmsEvidence` in reports/auto-tick.ts). The comment inside the
+ * `n/a` only when the nightly Prismic model sweep has also found no live Prismic config
+ * (none, or only a placeholder repository) in the repository (#911, `cmsEvidence` in
+ * reports/auto-tick.ts). The comment inside the
  * template string below predates that and is emitted verbatim into sites, so it is left
  * as written. Same JSON shape as the Prismic template
  * (ok/prismic/forms) so the function-health audit parses both identically. */
