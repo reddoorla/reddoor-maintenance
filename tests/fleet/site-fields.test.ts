@@ -8,8 +8,8 @@ import {
 } from "../../src/fleet/site-fields.js";
 
 describe("mapRow Header image", () => {
-  // REGRESSION (2026-08-24): mapRow took `attachments[0]`, but Airtable's
-  // uploadAttachment APPENDS — so the newest file is the TAIL. Any field that ever held
+  // REGRESSION (2026-08-24): mapRow took `attachments[0]`, but uploads
+  // APPEND — so the newest file is the TAIL. Any field that ever held
   // more than one served its OLDEST image forever, which is how a pre-clean-plate header
   // reached a live announcement and got a second headline stamped over it (#574/#577).
   it("maps the NEWEST Header image attachment, not the first ever uploaded", () => {

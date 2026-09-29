@@ -35,7 +35,7 @@ The service account's client ID is authorized for the GA + Search Console **read
 
 ### 2. Grant it Viewer on every GA4 property
 
-Enumerate the GA4 properties in use from the Turso **`sites`** table, column **`ga4_property_id`** — every non-empty value is a property backing a site's report. (Not the old Airtable base: it is a frozen archive, and sites created since Turso became the only store are not in it.) With the `turso` CLI, where `<db>` is the database `TURSO_DATABASE_URL` names (`libsql://<db>-<org>.turso.io`):
+Enumerate the GA4 properties in use from the Turso **`sites`** table, column **`ga4_property_id`** — every non-empty value is a property backing a site's report. With the `turso` CLI, where `<db>` is the database `TURSO_DATABASE_URL` names (`libsql://<db>-<org>.turso.io`):
 
 ```bash
 turso db shell <db> "SELECT name, status, ga4_property_id FROM sites WHERE trim(coalesce(ga4_property_id, '')) <> '' ORDER BY name"

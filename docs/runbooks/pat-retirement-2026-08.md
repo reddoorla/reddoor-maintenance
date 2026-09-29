@@ -35,8 +35,8 @@ cockpit's GitHub columns go stale and gap alarms mute.**
    logs that the Dependabot-alerts path reads (not the `pnpm audit`
    fallback), `renovate-dispatch` dispatches without warnings,
    `protection-audit` prints its `PROTECTION_AUDIT gaps=` line, and
-   `github-signals` prints a write summary — then check an Airtable Websites
-   row's GitHub columns actually refreshed.
+   `github-signals` prints a write summary — then check a site's GitHub
+   columns in Turso's `site_health` actually refreshed.
 3. **[operator or merge-authority] Merge the migration PR.** Do NOT merge
    before step 1 — `protection-audit` under an under-permissioned token files
    false "coverage gap" issues, and `github-signals` goes silently stale.

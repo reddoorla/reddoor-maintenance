@@ -1,21 +1,14 @@
 /**
- * #539 Phase 5 (freeze prerequisite): report rows are CREATED in Airtable by
- * `createDraft`, and every mirror built so far is UPDATE-only — so a report
- * drafted at 09:05 does not exist in Turso until the 09:20 sync. Phase 4 moved
- * report review onto Turso, which makes that window user-visible today; at the
- * freeze it stops being a window and becomes a lost row.
- *
- * The instrument is EQUIVALENCE WITH `mapReportRecord(rec)`, not a column
- * checklist. Asserting that directly means a new Reports column can never be
- * half-mirrored.
+ * #539 Phase 5. The instrument is EQUIVALENCE WITH `mapReportRecord(rec)`, not
+ * a column checklist. Asserting that directly means a new Reports column can
+ * never be half-mirrored.
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
 import { mapReportRecord, type RawRecord } from "../../src/db/field-map.js";
 import { mirrorReportInsert } from "../../src/db/fleet-state.js";
 
-/** The shape Airtable's create response hands back: every field `createDraft`
- *  writes, as Airtable echoes it. */
+/** Every field `createDraft` writes. */
 const DRAFT: RawRecord = {
   id: "recRPT_NEW",
   fields: {

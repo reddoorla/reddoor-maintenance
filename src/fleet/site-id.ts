@@ -1,11 +1,11 @@
 /**
- * Site ids after Airtable (#646 step 3, operator decision 2026-09-17).
+ * Site ids (#646 step 3, operator decision 2026-09-17).
  *
  * Two shapes coexist PERMANENTLY:
  *
  *   - `rec…`          every site that existed before the Turso-native creator. The
- *                     Airtable record id became the Turso primary key at import
- *                     (design D1), and it is never rewritten: `submissions.site_id`,
+ *                     imported record id is the primary key (design D1), and it
+ *                     is never rewritten: `submissions.site_id`,
  *                     `reports.site_id`, `fleet_events`, `spam_screenouts`,
  *                     `digest_state` keys and event ids all hold it by convention.
  *   - `site_<ULID>`   every site created since, minted here.

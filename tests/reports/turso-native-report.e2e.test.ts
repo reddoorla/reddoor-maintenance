@@ -1,11 +1,6 @@
 /**
- * #646 step 4, the whole point of the decision: a site that exists ONLY in Turso
- * — created by `ensure-site` with a minted `site_<ULID>` id and no Airtable
- * record anywhere — can receive a report end to end, drafting through send.
- *
- * Before this, it could not. `createDraft` minted the report id from Airtable's
- * record id and refused a `site_` id by name, so every such site was
- * un-reportable; the roster reads could not see it either.
+ * #646 step 4: a site created by `ensure-site` with a minted `site_<ULID>` id
+ * can receive a report end to end, drafting through send.
  *
  * Driven against a REAL migrated libSQL database in a temp `file:` — never
  * `:memory:` (a libSQL transaction hands its connection away and the next
@@ -87,7 +82,7 @@ async function seedPassingHealth(siteId: string): Promise<void> {
 }
 
 describe("a Turso-only site receives a report end to end (#646 step 4)", () => {
-  it("drafts, queues, approves and sends — with no Airtable record anywhere", async () => {
+  it("drafts, queues, approves and sends", async () => {
     // 1. The site: created in Turso.
     const created = await ensureSite(
       { slug: "e2e-co", displayName: "E2E Co", url: "https://e2e.example.com" },

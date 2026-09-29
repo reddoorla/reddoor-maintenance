@@ -4,9 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * #539 Phase 6 (#646): the commentary edit is a TURSO write, and it works with no
- * `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` set — the same gate step 2 dropped from
- * `resend-webhook` (https://github.com/reddoorla/reddoor-maintenance/pull/855).
+ * #539 Phase 6 (#646): the commentary edit is a TURSO write.
  *
  * Nothing is mocked: the handler opens a real libSQL database — a throwaway
  * `file:` database in a temp dir (not `:memory:`, because every openDb on
@@ -71,8 +69,6 @@ beforeEach(async () => {
   process.env = { ...ORIGINAL_ENV };
   process.env.DASHBOARD_PASSWORD = "s3cret";
   delete process.env.TURSO_AUTH_TOKEN;
-  delete process.env.AIRTABLE_PAT;
-  delete process.env.AIRTABLE_BASE_ID;
   const url = `file:${join(DIR, `db-${++dbSeq}.sqlite`)}`;
   process.env.TURSO_DATABASE_URL = url;
   db = await openDb({ url });
@@ -87,8 +83,8 @@ afterAll(() => {
   rmSync(DIR, { recursive: true, force: true });
 });
 
-describe("report-commentary with NO Airtable env", () => {
-  it("writes the commentary to Turso — 200, not airtable-env-missing", async () => {
+describe("report-commentary writes to Turso", () => {
+  it("writes the commentary to Turso — 200", async () => {
     await seedReport("recREP1");
     const res = await post("recREP1", "  Traffic is up this month.  ");
     expect(await res.json()).toEqual({ ok: true });

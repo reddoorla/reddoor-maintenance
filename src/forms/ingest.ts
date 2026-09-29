@@ -163,11 +163,9 @@ export async function ingestSubmission(
     return { status: "rejected", reason: "invalid-payload", errors: normalized.errors };
   }
   // Persist before enrich (#539 Phase 0). The lookup THROWING is a store outage,
-  // not an answer — and until 2026-08-23 it was the one await that could cost a
-  // lead: the row write comes later, so a thrown lookup 502'd the visitor with
-  // nothing recorded anywhere (the 2026-08-17 Airtable quota outage did exactly
-  // that, while the submissions store itself was healthy the whole time). With
-  // `deadLetter` wired, the lead lands there and the visitor gets an honest
+  // not an answer: the row write comes later, so a thrown lookup would 502 the
+  // visitor with nothing recorded anywhere. With `deadLetter` wired, the lead
+  // lands there and the visitor gets an honest
   // "accepted"; `db replay-deadletters` runs it through this same function once
   // the lookup recovers, producing a normal row with real classification+notify.
   //

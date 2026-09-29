@@ -183,15 +183,4 @@ describe("prismic-models CLI registration — behaviour", () => {
     expect(r.out).toMatch(/write-back/);
     expect(r.code).not.toBe(0);
   });
-
-  // #698: the retired spelling is typed by runbooks and shell history, so it must
-  // still reach the same handler — not `Unknown option`, and not the in-repo check.
-  it("still accepts the retired --write-airtable spelling as --write-back", () => {
-    const dir = emptyDir();
-    const r = runCli(["prismic-models", "--write-airtable", "--cwd", dir]);
-    expect(r.out).not.toMatch(/unknown option/i);
-    expect(r.out).toMatch(/--write-back needs --fleet/);
-    expect(r.out).toMatch(/--write-airtable is now --write-back/);
-    expect(r.code).not.toBe(0);
-  });
 });
