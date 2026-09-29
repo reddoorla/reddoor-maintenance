@@ -21,7 +21,7 @@ const line = (key: string, metric = 1, asks?: string[]): DigestLine => ({
 
 const sent = (lines: DigestLine[], sentOn = "2026-09-20"): DigestSendLog => ({
   sentOn,
-  sent: nextSent({}, lines, sentOn),
+  sent: nextSent({}, lines, sentOn, true),
   readySince: {},
 });
 
@@ -38,14 +38,14 @@ function replay(perDay: DigestLine[][], start = "2026-10-01"): string[] {
   days(start, perDay.length).forEach((today, i) => {
     const lines = perDay[i]!;
     if (lines.length === 0) {
-      log = { ...log, sent: nextSent(log.sent, lines, today) };
+      log = { ...log, sent: nextSent(log.sent, lines, today, false) };
       out.push("empty");
       return;
     }
     const d = decideDigestSend(lines, log, today);
     log = {
       sentOn: d.send ? today : log.sentOn,
-      sent: nextSent(log.sent, lines, today),
+      sent: nextSent(log.sent, lines, today, d.send),
       readySince: {},
     };
     out.push(d.send ? d.reason : "skip");
@@ -175,6 +175,22 @@ describe("day sequences (P1-20 review round 2)", () => {
     expect(
       replay([[line("a", 30)], [line("a", 20), line("b")], [line("a", 26), line("b")]]),
     ).toEqual(["first", "added", "skip"]);
+  });
+
+  it("a critical item gets no one-run grace: a dead-letter back after one clean run is mailed", () => {
+    const dl = (n: number) => [{ ...line("deadletter:x", n), critical: true }];
+    expect(replay([dl(3), [], dl(1), dl(1), dl(2)])).toEqual([
+      "first",
+      "empty",
+      "added",
+      "skip",
+      "worse",
+    ]);
+  });
+
+  it("a Lighthouse score creeping 4 points a day is mailed once it is 5 past the last send", () => {
+    const lh = (n: number) => [{ ...line("lh", n), tolerance: LIGHTHOUSE_WORSE_POINTS }];
+    expect(replay([lh(30), lh(34), lh(38), lh(42)])).toEqual(["first", "skip", "worse", "skip"]);
   });
 
   it("a health-gate field flipping between failing and unknown is the same ask", () => {

@@ -2,7 +2,7 @@ export const DIGEST_HEARTBEAT_DAYS = 7;
 
 export const LIGHTHOUSE_WORSE_POINTS = 5;
 
-export type SentItem = { metric: number; gone?: string };
+export type SentItem = { metric: number; gone?: string; critical?: boolean };
 
 export type DigestSendLog = {
   sentOn: string | null;
@@ -17,6 +17,7 @@ export type DigestLine = {
   metric: number;
   asks?: readonly string[];
   tolerance?: number;
+  critical?: boolean;
 };
 
 export type SendDecision =
@@ -35,13 +36,19 @@ export function ageLabel(days: number | undefined): string {
   return days === 1 ? "1 day" : `${days} days`;
 }
 
-type Flat = { metric: number; tolerance: number };
+type Flat = { metric: number; tolerance: number; critical: boolean };
 
 export function flattenLines(lines: readonly DigestLine[]): Map<string, Flat> {
   const out = new Map<string, Flat>();
   for (const l of lines) {
-    out.set(l.key, { metric: l.metric, tolerance: l.tolerance ?? 0 });
-    for (const a of l.asks ?? []) out.set(`${l.key}#${a}`, { metric: 1, tolerance: 0 });
+    out.set(l.key, {
+      metric: l.metric,
+      tolerance: l.tolerance ?? 0,
+      critical: l.critical ?? false,
+    });
+    for (const a of l.asks ?? []) {
+      out.set(`${l.key}#${a}`, { metric: 1, tolerance: 0, critical: false });
+    }
   }
   return out;
 }
@@ -69,17 +76,22 @@ export function nextSent(
   prior: Record<string, SentItem>,
   lines: readonly DigestLine[],
   today: string,
+  sending: boolean,
 ): Record<string, SentItem> {
   const now = flattenLines(lines);
   const out: Record<string, SentItem> = {};
   for (const [k, f] of now) {
     const was = prior[k];
-    out[k] = { metric: was ? Math.max(was.metric, f.metric) : f.metric };
+    if (!was) out[k] = { metric: f.metric };
+    else out[k] = { metric: sending ? Math.max(was.metric, f.metric) : was.metric };
   }
   for (const [k, was] of Object.entries(prior)) {
-    if (now.has(k)) continue;
-    if (was.gone === undefined || was.gone === today) out[k] = { metric: was.metric, gone: today };
+    if (now.has(k) || was.critical) continue;
+    if (was.gone === undefined || was.gone === today) {
+      out[k] = { metric: was.metric, gone: today };
+    }
   }
+  for (const [k, f] of now) if (f.critical) out[k] = { ...out[k]!, critical: true };
   return out;
 }
 
@@ -104,8 +116,11 @@ export function coerceSendLog(raw: unknown): DigestSendLog {
   if (isRecord(raw.sent)) {
     for (const [k, v] of Object.entries(raw.sent)) {
       if (!isRecord(v) || typeof v.metric !== "number" || !Number.isFinite(v.metric)) continue;
-      sent[k] =
-        typeof v.gone === "string" ? { metric: v.metric, gone: v.gone } : { metric: v.metric };
+      sent[k] = {
+        metric: v.metric,
+        ...(typeof v.gone === "string" ? { gone: v.gone } : {}),
+        ...(v.critical === true ? { critical: true } : {}),
+      };
     }
   }
   const readySince: Record<string, string> = {};

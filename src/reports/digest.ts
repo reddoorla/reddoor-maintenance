@@ -681,6 +681,7 @@ export async function runDigest(
         key: it.key,
         metric: it.metric,
         ...(it.kind === "lighthouse" ? { tolerance: LIGHTHOUSE_WORSE_POINTS } : {}),
+        ...(it.severity === "critical" ? { critical: true } : {}),
         ...(it.askParts ? { asks: it.askParts } : {}),
       })),
     ];
@@ -697,7 +698,7 @@ export async function runDigest(
       );
       await writeSendLogSafely(
         options,
-        { ...sendLog, sent: nextSent(sendLog.sent, digestLines, dayKey), readySince },
+        { ...sendLog, sent: nextSent(sendLog.sent, digestLines, dayKey, false), readySince },
         "empty",
       );
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
@@ -710,7 +711,7 @@ export async function runDigest(
       );
       await writeSendLogSafely(
         options,
-        { ...sendLog, sent: nextSent(sendLog.sent, digestLines, dayKey), readySince },
+        { ...sendLog, sent: nextSent(sendLog.sent, digestLines, dayKey, false), readySince },
         decision.reason,
       );
       const last = sendLog.sentOn ?? "never";
@@ -777,7 +778,7 @@ export async function runDigest(
     );
     await writeSendLogSafely(
       options,
-      { sentOn: dayKey, sent: nextSent(sendLog.sent, digestLines, dayKey), readySince },
+      { sentOn: dayKey, sent: nextSent(sendLog.sent, digestLines, dayKey, true), readySince },
       decision.reason,
     );
     return {

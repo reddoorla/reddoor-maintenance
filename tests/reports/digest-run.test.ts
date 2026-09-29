@@ -1098,19 +1098,18 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
     expect(w.captured).toHaveLength(1);
   });
 
-  it("an item already sent that leaves and comes back is not news; a new one is", async () => {
+  it("a warning already sent that leaves for one run and comes back is not news; a critical one is", async () => {
     const w = world();
-    await run(w, navy, day(0));
+    const pending = { Reports: [readyReport()], Websites: navy.Websites };
+    await run(w, pending, day(0));
     await run(w, { Reports: [], Websites: navy.Websites }, day(1));
-    const back = await run(w, navy, day(2));
+    const back = await run(w, pending, day(2));
     expect(back.output).toContain("Digest skipped (unchanged");
-    const added = await run(
-      w,
-      { Reports: [...navy.Reports, bouncedReport()], Websites: navy.Websites },
-      day(3),
-    );
-    expect(added.output).toContain("Digest sent (added)");
-    expect(w.captured).toHaveLength(2);
+    await run(w, navy, day(3));
+    await run(w, pending, day(4));
+    const critical = await run(w, navy, day(5));
+    expect(critical.output).toContain("Digest sent (added)");
+    expect(w.captured).toHaveLength(3);
   });
 
   it("an item mailed, gone for two runs and back is mailed again", async () => {
