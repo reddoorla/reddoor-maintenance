@@ -177,6 +177,10 @@ function securityEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
  * fixed by wiring a secret. An un-enrolled site (`value: null`, not configured, not failed)
  * emits nothing so the box stays manual.
  *
+ * No matching Search Console property (`propertyFound: false`) is `unknown`: no query ran, so
+ * the site's ranking was never measured, and "Not on page 1" would be a false SEO verdict.
+ * Only an explicit `false` counts; an absent flag keeps the page-1 verdict below (#942).
+ *
  * Page-1 is `pass` (with the position in the note); off page 1 is `fail`.
  */
 function googleEvidence(now: Date, search: AutoTickSignals["search"]): EvidenceRecord | null {
@@ -192,6 +196,13 @@ function googleEvidence(now: Date, search: AutoTickSignals["search"]): EvidenceR
     };
   }
   if (search.value === null) return null;
+  if (search.value.propertyFound === false) {
+    return {
+      result: "unknown",
+      checkedAt: at,
+      note: "No Search Console property matched this site",
+    };
+  }
   if (search.value.foundOnPage1) {
     const pos = search.value.position;
     return {

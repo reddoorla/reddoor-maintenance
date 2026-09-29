@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { autoTickChecklist, type AutoTickSignals } from "../../src/reports/auto-tick.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { gatingFields } from "../../src/reports/checklist.js";
+import type { SearchPresence } from "../../src/reports/search/client.js";
 
 const NOW = new Date("2026-06-18T12:00:00.000Z");
 const GOOGLE = "Maint: Google Indexed";
@@ -45,6 +46,49 @@ describe("autoTickChecklist — Google Indexed", () => {
       }),
     );
     expect(ev.get(GOOGLE)!.result).toBe("fail");
+  });
+
+  it("is unknown, not fail, when no Search Console property matched the site (#942)", () => {
+    // `propertyFound: false` means every subject resolved ZERO properties, so no query ran and
+    // nothing was measured. It used to read "fail: Not on page 1", a client-facing SEO verdict
+    // on data the system never saw. On a Testing report it also blocked the send for that
+    // false reason.
+    for (const reportType of ["Maintenance", "Testing"] as const) {
+      const ev = autoTickChecklist(
+        makeWebsiteRow(),
+        reportType,
+        NOW,
+        signals({
+          search: {
+            value: { foundOnPage1: false, position: null, propertyFound: false },
+            softFailed: false,
+            notConfigured: false,
+          },
+        }),
+      );
+      expect(ev.get(GOOGLE), reportType).toEqual({
+        result: "unknown",
+        checkedAt: NOW.toISOString(),
+        note: "No Search Console property matched this site",
+      });
+    }
+  });
+
+  it("keeps today's verdict when propertyFound is absent (a caller that predates the flag)", () => {
+    // Only an explicit `false` means "no property". An absent flag must not quietly turn a
+    // real off-page-1 result into unknown.
+    const legacy = { foundOnPage1: false, position: 18 } as SearchPresence;
+    const ev = autoTickChecklist(
+      makeWebsiteRow(),
+      "Maintenance",
+      NOW,
+      signals({ search: { value: legacy, softFailed: false, notConfigured: false } }),
+    );
+    expect(ev.get(GOOGLE)).toEqual({
+      result: "fail",
+      checkedAt: NOW.toISOString(),
+      note: "Not on page 1 (avg #18)",
+    });
   });
 
   it("is unknown (no tick) when the Search Console call soft-failed", () => {
