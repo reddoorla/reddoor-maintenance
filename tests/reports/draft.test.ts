@@ -727,6 +727,23 @@ describe("draftReportForSite", () => {
       const fields = writer.inserts[0]!.fields;
       expect(fields["Maint: Google Indexed"]).toBeUndefined();
     });
+
+    it("records unknown, not fail, when no Search Console property matched (#942)", async () => {
+      // End to end: the client's propertyFound:false has to survive fetchSearch and reach the
+      // stored evidence, not just the pure function.
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: false,
+      });
+      await draftReportForSite(siteFixture({ searchQuery: "acme co" }), "Maintenance", NO_HEADER);
+      const fields = writer.inserts[0]!.fields;
+      expect(fields["Maint: Google Indexed"]).toBeUndefined();
+      const ev = JSON.parse(fields["Checklist auto-evidence"] as string);
+      expect(ev["Maint: Google Indexed"].result).toBe("unknown");
+      expect(ev["Maint: Google Indexed"].note).toBe("No Search Console property matched this site");
+    });
   });
 });
 
