@@ -23,7 +23,7 @@ import {
   ageLabel,
   daysBetween,
   decideDigestSend,
-  sentFrom,
+  nextSendLog,
   type DigestLine,
   nextReadySince,
   EMPTY_SEND_LOG,
@@ -693,7 +693,11 @@ export async function runDigest(
       await persistDigestState(next, options.digestState?.write, () =>
         writeRollupOnce(options, today),
       );
-      await writeSendLogSafely(options, { ...sendLog, readySince }, "empty");
+      await writeSendLogSafely(
+        options,
+        nextSendLog(digestLines, sendLog, dayKey, false, readySince),
+        "empty",
+      );
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
     }
 
@@ -702,7 +706,11 @@ export async function runDigest(
       await persistDigestState(next, options.digestState?.write, () =>
         writeRollupOnce(options, today),
       );
-      await writeSendLogSafely(options, { ...sendLog, readySince }, decision.reason);
+      await writeSendLogSafely(
+        options,
+        nextSendLog(digestLines, sendLog, dayKey, false, readySince),
+        decision.reason,
+      );
       const last = sendLog.sentOn ?? "never";
       return {
         output: `Digest skipped (unchanged since ${last}; ${digestLines.length} items, heartbeat after ${DIGEST_HEARTBEAT_DAYS} days).`,
@@ -767,7 +775,7 @@ export async function runDigest(
     );
     await writeSendLogSafely(
       options,
-      { sentOn: dayKey, sent: sentFrom(digestLines), readySince },
+      nextSendLog(digestLines, sendLog, dayKey, true, readySince),
       decision.reason,
     );
     return {

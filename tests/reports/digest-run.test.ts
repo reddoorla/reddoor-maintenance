@@ -1098,19 +1098,20 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
     expect(w.captured).toHaveLength(1);
   });
 
-  it("an item already sent that leaves and comes back is not news; a new one is", async () => {
+  it("an item already sent that leaves and comes back is news again, as a new one is", async () => {
     const w = world();
     await run(w, navy, day(0));
     await run(w, { Reports: [], Websites: navy.Websites }, day(1));
     const back = await run(w, navy, day(2));
-    expect(back.output).toContain("Digest skipped (unchanged");
+    expect(back.output).toContain("Digest sent (added)");
+    await run(w, navy, day(3));
     const added = await run(
       w,
       { Reports: [...navy.Reports, bouncedReport()], Websites: navy.Websites },
-      day(3),
+      day(4),
     );
     expect(added.output).toContain("Digest sent (added)");
-    expect(w.captured).toHaveLength(2);
+    expect(w.captured).toHaveLength(3);
   });
 
   it("a skip still writes the attention snapshot, so a resolved key drops out of it", async () => {
@@ -1174,5 +1175,152 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
       "DIGEST_SEND_LOG write=1 decision=unchanged",
       "DIGEST_SEND_LOG write=0 decision=unchanged",
     ]);
+  });
+});
+
+describe("runDigest — the round-2 rule: prune every run, high-water per key, health by field (P1-20)", () => {
+  const BASE = "https://reddoor-maintenance.netlify.app";
+
+  function memorySendLog() {
+    let log: DigestSendLog = { sentOn: null, sent: {}, readySince: {} };
+    return {
+      read: async () => log,
+      write: async (next: DigestSendLog) => {
+        log = next;
+      },
+      get: () => log,
+    };
+  }
+
+  function day(n: number): Date {
+    return new Date(Date.UTC(2026, 9, 1 + n, 13, 0, 0));
+  }
+
+  function world() {
+    return { digestState: memoryDigestState(), sendLog: memorySendLog(), ...captureClient() };
+  }
+
+  async function run(
+    w: ReturnType<typeof world>,
+    tables: { Websites: RawRow[]; Reports: RawRow[] },
+    now: Date,
+  ): Promise<string> {
+    const r = await runDigest({
+      digestState: w.digestState,
+      sendLog: w.sendLog,
+      ...io(tables),
+      resend: w.client,
+      baseUrl: BASE,
+      now,
+    });
+    expect(r.code).toBe(0);
+    return r.output;
+  }
+
+  const verdict = (output: string): string =>
+    output.match(/^Digest sent \(([a-z-]+)\)/)?.[1] ??
+    (output.startsWith("Digest skipped (nothing") ? "empty" : "skip");
+
+  const navySite = siteRow({ Name: "29 Navy", "point of contact": undefined });
+  const bounceOnly = { Websites: [navySite], Reports: [bouncedReport()] };
+  const nothing = { Websites: [navySite], Reports: [] };
+
+  it("a fixed item that recurs after empty days sends on the day it comes back (round 2, major 1)", async () => {
+    const w = world();
+    const plan = [bounceOnly, nothing, nothing, bounceOnly, bounceOnly, bounceOnly, bounceOnly];
+    const seen: string[] = [];
+    for (const [n, tables] of plan.entries()) seen.push(verdict(await run(w, tables, day(n))));
+    expect(seen).toEqual(["first", "empty", "empty", "added", "skip", "skip", "skip"]);
+  });
+
+  it("a fixed item that recurs after skipped days sends on the day it comes back", async () => {
+    const w = world();
+    const navy = { Websites: [navySite], Reports: [readyReport()] };
+    const withBounce = { Websites: [navySite], Reports: [readyReport(), bouncedReport()] };
+    const plan = [withBounce, navy, navy, withBounce, withBounce];
+    const seen: string[] = [];
+    for (const [n, tables] of plan.entries()) seen.push(verdict(await run(w, tables, day(n))));
+    expect(seen).toEqual(["first", "skip", "skip", "added", "skip"]);
+  });
+
+  it("a blocked draft whose ask regains a part sends; losing one does not", async () => {
+    const w = world();
+    const noHeader = siteRow({
+      Name: "29 Navy",
+      "point of contact": undefined,
+      "Header image": undefined,
+    });
+    const both = { Websites: [noHeader], Reports: [readyReport()] };
+    const one = { Websites: [navySite], Reports: [readyReport()] };
+    const seen: string[] = [];
+    for (const [n, tables] of [both, one, one, both].entries()) {
+      seen.push(verdict(await run(w, tables, day(n))));
+    }
+    expect(seen).toEqual(["first", "skip", "skip", "new-ask"]);
+  });
+
+  it("a health field flipping between failing and unknown is not a new ask (round 2, minor)", async () => {
+    const w = world();
+    const evidence = (cms: "fail" | null) => {
+      const e = JSON.parse(healthCleanEvidence()) as Record<string, unknown>;
+      if (cms) e["Maint: CMS Checked"] = { result: cms, checkedAt: "2026-09-30", note: "500" };
+      else delete e["Maint: CMS Checked"];
+      return JSON.stringify(e);
+    };
+    const tables = (cms: "fail" | null) => ({
+      Websites: [siteRow({ Name: "29 Navy" })],
+      Reports: [readyReport({ "Checklist auto-evidence": evidence(cms) })],
+    });
+    const seen: string[] = [];
+    for (const [n, cms] of (["fail", null, "fail", null, "fail"] as const).entries()) {
+      seen.push(verdict(await run(w, tables(cms), day(n))));
+    }
+    expect(seen).toEqual(["first", "skip", "skip", "skip", "skip"]);
+  });
+
+  function mulberry32(seed: number): () => number {
+    let a = seed;
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const lighthouseFleet = (scores: number[]) => ({
+    Websites: scores
+      .map((pScore, i) => siteRow({ Name: `Jitter ${i}`, pScore }))
+      .map((row, i) => ({ ...row, id: `rec_site_jitter_${i}` })),
+    Reports: [],
+  });
+
+  it("six Lighthouse items jittering 30–34 after a send at 30 send only day 1 and weekly heartbeats (round 2, major 2)", async () => {
+    const rand = mulberry32(975);
+    const w = world();
+    const sends: number[] = [];
+    for (let n = 0; n < 28; n++) {
+      const scores = Array.from({ length: 6 }, () => (n === 0 ? 30 : 30 + Math.floor(rand() * 5)));
+      const v = verdict(await run(w, lighthouseFleet(scores), day(n)));
+      if (v !== "skip") sends.push(n);
+    }
+    expect(sends).toEqual([0, 7, 14, 21]);
+    expect(w.captured).toHaveLength(4);
+  });
+
+  it("under free jitter, every 'worse' send is a genuine new high and every new high sends", async () => {
+    for (const seed of [1, 2, 3, 975]) {
+      const rand = mulberry32(seed);
+      const w = world();
+      const high: number[] = [];
+      for (let n = 0; n < 28; n++) {
+        const metrics = Array.from({ length: 6 }, () => 66 + Math.floor(rand() * 5));
+        const record = n > 0 && metrics.some((m, i) => m > high[i]!);
+        metrics.forEach((m, i) => (high[i] = Math.max(high[i] ?? m, m)));
+        const v = verdict(await run(w, lighthouseFleet(metrics.map((m) => 100 - m)), day(n)));
+        if (record) expect(v, `seed ${seed} day ${n}`).toBe("worse");
+        else expect(["first", "heartbeat", "skip"], `seed ${seed} day ${n}`).toContain(v);
+      }
+    }
   });
 });

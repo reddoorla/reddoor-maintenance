@@ -157,13 +157,18 @@ export function collectLighthouseAlerts(sites: WebsiteRow[], baseUrl: string): A
  * warning — approving it just schedules that failure. Keyed `preflight:<reportId>`.
  * PURE; same predicate the approve gate and the dashboard chip use.
  */
-function healthAsk(message: string): string {
+function healthParts(message: string): { field: string; status?: string } {
   const head = message.split(" — ")[0]!;
   const failing = head.match(/^(.*): failing$/);
-  if (failing) return `${failing[1]} (failing)`;
+  if (failing) return { field: failing[1]!, status: "failing" };
   const pending = head.match(/^(.*): not yet green \((.*)\)$/);
-  if (pending) return `${pending[1]} (${pending[2]})`;
-  return head;
+  if (pending) return { field: pending[1]!, status: pending[2]! };
+  return { field: head };
+}
+
+function healthAsk(message: string): string {
+  const { field, status } = healthParts(message);
+  return status ? `${field} (${status})` : field;
 }
 
 export function preflightAskParts(fails: readonly PreflightFinding[]): {
@@ -251,9 +256,14 @@ export function collectPreflightBlocked(
       severity: r.approvedToSend ? "critical" : "warning",
       metric: fails.length,
       ask: `${preflightAsks(fails).join("; ")}${where}, ${then}`,
-      askParts: (({ fixes, health }) => [...fixes, ...health.map((h) => `health-gate: ${h}`)])(
-        preflightAskParts(fails),
-      ),
+      askParts: [
+        ...preflightAskParts(fails).fixes,
+        ...new Set(
+          fails
+            .filter((f) => f.check === "health-gate")
+            .map((f) => `health-gate: ${healthParts(f.message).field}`),
+        ),
+      ],
     });
   }
   return items;

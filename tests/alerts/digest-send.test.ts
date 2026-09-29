@@ -7,7 +7,7 @@ import {
   nextReadySince,
   DIGEST_HEARTBEAT_DAYS,
   EMPTY_SEND_LOG,
-  sentFrom,
+  nextSendLog,
   type DigestLine,
   type DigestSendLog,
 } from "../../src/alerts/digest-send.js";
@@ -18,11 +18,8 @@ const line = (key: string, metric = 1, asks?: string[]): DigestLine => ({
   ...(asks ? { asks } : {}),
 });
 
-const sent = (lines: DigestLine[], sentOn = "2026-09-20"): DigestSendLog => ({
-  sentOn,
-  sent: sentFrom(lines),
-  readySince: {},
-});
+const sent = (lines: DigestLine[], sentOn = "2026-09-20"): DigestSendLog =>
+  nextSendLog(lines, EMPTY_SEND_LOG, sentOn, true, {});
 
 describe("decideDigestSend", () => {
   it("sends the first time, when nothing has been sent", () => {
@@ -53,7 +50,7 @@ describe("decideDigestSend", () => {
     );
   });
 
-  it("an item that left and came back since the last send is not news", () => {
+  it("an item still in the log is not news while another one resolves", () => {
     expect(decideDigestSend([line("b")], sent([line("a"), line("b")]), "2026-09-22").send).toBe(
       false,
     );
@@ -89,6 +86,116 @@ describe("decideDigestSend", () => {
       reason: "heartbeat",
     });
     expect(DIGEST_HEARTBEAT_DAYS).toBe(7);
+  });
+});
+
+describe("nextSendLog over consecutive days", () => {
+  function replay(days: DigestLine[][], start = "2026-10-01"): string[] {
+    let log = EMPTY_SEND_LOG;
+    return days.map((lines, n) => {
+      const today = new Date(Date.parse(`${start}T00:00:00Z`) + n * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      if (lines.length === 0) {
+        log = nextSendLog(lines, log, today, false, {});
+        return "empty";
+      }
+      const d = decideDigestSend(lines, log, today);
+      log = nextSendLog(lines, log, today, d.send, {});
+      return d.send ? d.reason : "skip";
+    });
+  }
+
+  it("a key mailed, fixed and back sends on its return, after empty or skipped days", () => {
+    const bounce = line("delivery:r1");
+    const other = line("ready:r2");
+    expect(replay([[bounce], [], [], [bounce], [bounce]])).toEqual([
+      "first",
+      "empty",
+      "empty",
+      "added",
+      "skip",
+    ]);
+    expect(replay([[other, bounce], [other], [other], [other, bounce]])).toEqual([
+      "first",
+      "skip",
+      "skip",
+      "added",
+    ]);
+  });
+
+  it("keeps the high-water across sends, so jitter under it stays quiet", () => {
+    const lh = (m: number) => line("lighthouse:s:performance", m);
+    const heart = line("ready:r");
+    const days = [
+      [lh(70), heart],
+      ...Array.from({ length: 6 }, () => [lh(67), heart]),
+      [lh(66), heart],
+      [lh(69), heart],
+      [lh(70), heart],
+    ];
+    expect(replay(days)).toEqual([
+      "first",
+      "skip",
+      "skip",
+      "skip",
+      "skip",
+      "skip",
+      "skip",
+      "heartbeat",
+      "skip",
+      "skip",
+    ]);
+  });
+
+  it("a metric worse than the high-water still sends, and raises it", () => {
+    const lh = (m: number) => line("lh", m);
+    expect(replay([[lh(66)], [lh(68)], [lh(67)], [lh(68)], [lh(69)]])).toEqual([
+      "first",
+      "worse",
+      "skip",
+      "skip",
+      "worse",
+    ]);
+  });
+
+  it("resets the high-water only when the key drops out, so a lower recurrence can worsen again", () => {
+    const lh = (m: number) => line("lh", m);
+    const keep = line("ready:r");
+    expect(replay([[lh(70), keep], [keep], [lh(60), keep], [lh(65), keep]])).toEqual([
+      "first",
+      "skip",
+      "added",
+      "worse",
+    ]);
+  });
+
+  it("a new blocker swapped in for an old one sends; a returning ask part sends", () => {
+    const p = (asks: string[]) => line("preflight:r:pending", 1, asks);
+    expect(
+      replay([
+        [p(["set Report recipients (To)"])],
+        [p(["add a Header image"])],
+        [p(["add a Header image", "set Report recipients (To)"])],
+        [p(["set Report recipients (To)"])],
+        [p(["add a Header image", "set Report recipients (To)"])],
+      ]),
+    ).toEqual(["first", "new-ask", "new-ask", "skip", "new-ask"]);
+  });
+
+  it("keeps sentOn on a skip and prunes to the day's keys and parts", () => {
+    const log = nextSendLog(
+      [line("a", 3, ["x", "y"]), line("b", 2)],
+      EMPTY_SEND_LOG,
+      "2026-10-01",
+      true,
+      {},
+    );
+    expect(nextSendLog([line("a", 1, ["y"])], log, "2026-10-02", false, { r: "d" })).toEqual({
+      sentOn: "2026-10-01",
+      sent: { a: { metric: 3, asks: ["y"] } },
+      readySince: { r: "d" },
+    });
   });
 });
 

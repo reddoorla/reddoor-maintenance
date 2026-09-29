@@ -47,13 +47,23 @@ export function decideDigestSend(
   return { send: false, reason: "unchanged" };
 }
 
-export function sentFrom(lines: readonly DigestLine[]): Record<string, SentItem> {
-  const out: Record<string, SentItem> = {};
+export function nextSendLog(
+  lines: readonly DigestLine[],
+  log: DigestSendLog,
+  today: string,
+  didSend: boolean,
+  readySince: Record<string, string>,
+): DigestSendLog {
+  const sent: Record<string, SentItem> = {};
   for (const l of lines) {
-    out[l.key] =
-      l.asks && l.asks.length > 0 ? { metric: l.metric, asks: [...l.asks] } : { metric: l.metric };
+    const was = log.sent[l.key];
+    if (!was && !didSend) continue;
+    const metric = was ? Math.max(was.metric, l.metric) : l.metric;
+    const told = new Set(was?.asks ?? []);
+    const asks = (l.asks ?? []).filter((a) => didSend || told.has(a));
+    sent[l.key] = asks.length > 0 ? { metric, asks } : { metric };
   }
-  return out;
+  return { sentOn: didSend ? today : log.sentOn, sent, readySince };
 }
 
 export function nextReadySince(
