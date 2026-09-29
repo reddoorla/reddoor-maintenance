@@ -334,6 +334,24 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `node scripts/land-prs.mjs 995`, then dispatch `fleet-config-drift.yml` once
     on `main` (the brief's live proof: control passes, summary total = roster
     size, issue filed to match).
+25. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** — two
+    review rounds each found a real defect, so #989 is held for your call, not a
+    third round. Round 1 (on `ce4cb9db`) found a behaviour defect: the walk
+    trusted `child.pid` after an early-exiting wrapper could have been reaped,
+    so a reused pid could be walked. It also found the per-group SIGKILL
+    re-check tested with one group only. Both are fixed in `81aa0afc`. Round 2
+    (on `3434e9cb`) found no behaviour defect, and the full suite passed (7648
+    tests). Its one confirmed gap was a missing TEST: nothing pinned
+    `killOther`'s ESRCH guard, or the `signalCode` half of the exited-wrapper
+    guard. Both are pinned in `6fce94e2`, and each goes red on its mutation.
+    All 18 mutations from the brief and both rounds turn a test red; the
+    visited-set one does so by hanging the run. The Verify probe went from
+    `Sl; accepting=true` to `gone; accepting=false`. Head `8b2ab564` is
+    merged with `main` as of 20:40Z. The ask: land #989 as it is (my pick:
+    `spawn.ts` has not changed since round 2 cleared the round-1 fixes; only
+    tests were added), or run a third review round first. Landing it is
+    `git merge origin/main` (keep both sides of BACKLOG and the journal), CI
+    green, then `node scripts/land-prs.mjs 989`.
 
 ---
 
