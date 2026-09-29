@@ -64,6 +64,23 @@ work:
   for fresh `fix/*` branches and open or just-merged PRs there — another
   session may already be on it (this is exactly how six duplicate-fix PRs
   nearly double-merged on 2026-07-09).
+- **Look at fresh branches, not only open PRs.** On 2026-09-29 #932
+  duplicated #933: its session checked the open PRs but not the fresh
+  branches, where the other session's work already sat. Before your first
+  edit, list every `claude/*` and `fix/*` branch by age and open anything
+  under a day old:
+
+  ```sh
+  git fetch -q origin 'refs/heads/claude/*:refs/remotes/origin/claude/*' 'refs/heads/fix/*:refs/remotes/origin/fix/*'
+  git for-each-ref --sort=-committerdate --format='%(committerdate:iso-strict) %(refname:short)' refs/remotes/origin/claude refs/remotes/origin/fix | head
+  git diff --stat origin/main...origin/claude/<name>
+  ```
+
+  `git ls-remote --heads origin 'refs/heads/claude/*' 'refs/heads/fix/*'` is
+  the quick form, but it prints SHAs with no dates, and this repo carries
+  dozens of months-old `fix/*` branches, so "under a day old" cannot be read
+  off it. A fresh branch that touches your files belongs to that session.
+
 - **Stay in your charter.** If the operator scoped the session to a problem,
   don't opportunistically pick up other fleet signals without the claim check
   above.
@@ -81,6 +98,34 @@ work:
 
 Individual site repos generally get **one** agent session at a time; the
 worktree rule is mandatory here in the central repo and best practice there.
+
+## Worker sessions never ask mid-flight
+
+Since 2026-09-30 the operator reads one morning report and spends 15–20 minutes
+on it (`docs/operating-model-review-2026-09-29.md` §R3, `docs/pm-pass.md`). A
+question asked in the middle of a worker session waits hours for an answer
+nobody is watching for, and the session that asked it has usually ended by
+then. So a worker started from a backlog item or a brief
+(`docs/worker-brief.md`) follows three rules:
+
+- **At a stop condition, write the question down and end.** Any of
+  `AUTONOMY.md`'s stop conditions, or a fork the brief did not settle, becomes
+  one line under "Operator decisions" in `docs/BACKLOG.md`: the exact ask, what
+  you would pick and why, and the branch or PR that holds the work so far.
+  Land that line (a docs-only PR is fine), push the branch, and end the
+  session. The next morning's PM pass puts it in front of the operator. Do not
+  wait in the session for a reply.
+- **Two dirty review rounds, then stop.** If the second adversarial review of
+  the same PR still finds a real defect, the PR goes to "Operator decisions"
+  with the findings of both rounds, not into a third round. #918 and #920
+  reached a sixth round with majors before anyone asked whether the design was
+  right; this rule would have put them in front of the operator two weeks
+  earlier. Review finding bugs is the process working; the cost is the third
+  and fourth round.
+- **The mutations are named before the code.** A brief lists the mutations the
+  worker commits to running against its own tests. Run each, record whether a
+  test went red, and put the table in the PR body. A test no mutation turns
+  red is not yet evidence (see "Prove the instrument", above).
 
 ## Before a fleet sweep, ask which repos can receive a push
 
@@ -144,13 +189,11 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   reach GitHub.
 - **Land PRs from the cloud with `node scripts/land-prs.mjs`.** It has been
   REST-only since 2026-09-28, with the same gates on the laptop and in the
-  cloud. What proves the port so far is its tests (REST-shaped fakes) and live
-  runs from a cloud session that stopped before the first write: `--dry-run`s,
-  and one full run with every PUT and DELETE withheld. No real merge,
-  update-branch or branch delete has yet been made from the cloud, so the first
-  real cloud landing is the remaining proof — read that run's raw output, not
-  just its verdict line. The one known difference is the branch delete, which
-  the proxy refuses: the script then checks whether GitHub already removed the
+  cloud. It is proven live: on 2026-09-29 one cloud session landed sixteen PRs
+  with it (listed in that day's `docs/workJournal.md` entry), two of them
+  through update-branch (#902, #896), each merge pinned to the head it had
+  watched go green. The one known difference is the branch delete, which the
+  proxy refuses: the script then checks whether GitHub already removed the
   branch (it does when the repo has "Automatically delete head branches" on, as
   reddoor-maintenance does) and prints a `note:` only when the branch is still
   there. A branch name is percent-encoded only where it must be (`#`, `%`), so
@@ -250,11 +293,16 @@ Note the creds live in the repo `.env`, NOT in
 - Do NOT read Discord through the browser: `discord.com` in the local Chrome
   profile is logged out, and logging in as the operator is not yours to do.
 
-**Know who is internal before drafting anything.** The project channels contain
-Reddoor staff AND clients. In `#sonder`, `timholmes_62898` and `nicole_35266`
-are internal and **Josh** is the client — a note "for Tim" is a colleague note,
-not a client email. Read enough of the channel to place people before writing
-in anyone's voice.
+**There are no clients in the Discord** (measured 2026-09-29: the guild has 5
+members, the reader bot plus `tucksravin`, `timholmes_62898`, `nicole_35266`
+and `eriksvendsen_89989`, all Reddoor). Clients such as Josh (Sonder), Meagan
+(Revogen) or Brooke (VLF) appear only in the third person, in asks Erik or Tim
+relay after a call or paste from email. So a channel is the colleague record of
+a client, not the client's voice: a note "for Tim" is a colleague note, and the
+only client-facing prose in the corpus is Erik's email, which is warmer and
+longer than the channel register. Read enough to place people before writing
+in anyone's voice, and treat the tone rule above as "how the team talks to
+each other", not a sample of client email.
 
 ## Two starter templates (since 2026-08-31)
 
