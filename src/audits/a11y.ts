@@ -13,6 +13,7 @@ import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
+import { crossOriginFrameSelectors, splitCrossOriginFrameNodes } from "./util/cross-origin.js";
 
 type Impact = "minor" | "moderate" | "serious" | "critical";
 
@@ -39,6 +40,10 @@ export type SkippedRoute = {
 /** One route's reveal pass (#100), as the spec records it in the artifact. */
 export type RevealRecord = RevealPass & { route: string };
 
+/** Violation nodes inside cross-origin frames that one scanned route did not
+ *  count (#100 review): how many, and under which rules. */
+export type FrameNodesDropped = { route: string; count: number; rules: string[] };
+
 type NormalizedA11y = {
   totalViolations: number;
   byImpact: Partial<Record<Impact, number>>;
@@ -46,6 +51,8 @@ type NormalizedA11y = {
   skipped?: SkippedRoute[];
   /** Absent in an artifact written by a spec from before this field existed. */
   reveals?: RevealRecord[];
+  /** Absent in an artifact written by a spec from before this field existed. */
+  frameNodesDropped?: FrameNodesDropped[];
 };
 
 /** One route as the generated spec sees it. `placeholder404Ok` is set only on
@@ -361,6 +368,9 @@ import { dirname } from "node:path";
 const classifyRouteResponse = ${classifyRouteResponse.toString()};
 // Injected the same way, and run in the page — see src/audits/util/reveal-below-fold.ts.
 const revealBelowFold = ${revealBelowFold.toString()};
+// Injected the same way — see src/audits/util/cross-origin.ts.
+const splitCrossOriginFrameNodes = ${splitCrossOriginFrameNodes.toString()};
+const crossOriginFrameSelectors = ${crossOriginFrameSelectors.toString()};
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
 const REVEAL_PASS_ERROR_PREFIX = ${JSON.stringify(REVEAL_PASS_ERROR_PREFIX)};
@@ -389,6 +399,9 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   // One entry per scanned route: what the reveal pass did there. Written to
   // the artifact so a pass that stopped short can be named, not assumed.
   const reveals = [];
+  // One entry per scanned route: violation nodes inside cross-origin frames
+  // that were not counted against the site, and under which rules.
+  const frameNodesDropped = [];
 
   // Capture uncaught client-side exceptions across every route we visit. A page
   // that builds + SSRs cleanly can still throw on hydrate and blank itself
@@ -499,26 +512,37 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     // .options() comes FIRST: it replaces the whole options object, and
     // withTags() writes runOnly into it. Called after, it would drop the tag
     // filter without a word and axe would run every rule it has.
-    //
-    // setLegacyMode(): cross-origin frame CONTENTS are not audited. The reveal
-    // pass brings lazy third-party iframes (a Google Maps footer, a YouTube
-    // embed) into load range, and their documents' violations are not the
-    // site's to fix -- and whether they were audited at all depended on
-    // whether axe could be injected into them inside a 1 s window. The
-    // <iframe> element itself is still audited here in the top document
-    // (frame-title and the rest), and same-origin frames are still audited
-    // inside. This is the only switch that does it in @axe-core/playwright
-    // 4.13: its default mode lists frames with getFrameContexts(context)
-    // without the run options, so { iframes: false } is ignored there, and it
-    // has no per-frame opt-out. Legacy mode runs axe.run() with allowedOrigins
-    // <same_origin>, so a cross-origin frame never answers axe's ping and is
-    // skipped after 500 ms.
     const results = await new AxeBuilder({ page })
       .options({ preload: false })
       .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
-      .setLegacyMode()
       .analyze();
+    // Cross-origin frame CONTENTS do not count against the site. The reveal
+    // pass brings lazy third-party iframes (a Google Maps footer, a YouTube
+    // player) into load range; their documents' violations are not the
+    // site's to fix, and whether axe reached them at all depended on
+    // injecting into them inside a 1 s window. So a node whose target is
+    // nested inside a frame whose src is on another origin is dropped here,
+    // counted, and named in the summary -- never silently.
+    //
+    // Default mode, deliberately. Legacy mode (setLegacyMode) skips those
+    // frames too, but it also drops frame-focusable-content, which axe can
+    // only evaluate INSIDE the frame and which is the site's own defect (an
+    // iframe given tabindex=-1 whose document still has something to focus).
+    // splitCrossOriginFrameNodes keeps every frame-focusable-content node.
+    const outerFrames = [];
     for (const v of results.violations) {
+      for (const n of v.nodes) {
+        const t = n.target;
+        if (Array.isArray(t) && t.length > 1 && typeof t[0] === "string" && !outerFrames.includes(t[0])) {
+          outerFrames.push(t[0]);
+        }
+      }
+    }
+    const crossOriginFrames =
+      outerFrames.length === 0 ? [] : await page.evaluate(crossOriginFrameSelectors, outerFrames);
+    const split = splitCrossOriginFrameNodes(results.violations, crossOriginFrames);
+    frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });
+    for (const v of split.kept) {
       violations.push({
         id: v.id,
         impact: v.impact ?? "moderate",
@@ -551,7 +575,14 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     await writeFile(
       OUTPUT,
       JSON.stringify(
-        { totalViolations: violations.length, byImpact, violations, skipped, reveals },
+        {
+          totalViolations: violations.length,
+          byImpact,
+          violations,
+          skipped,
+          reveals,
+          frameNodesDropped,
+        },
         null,
         2,
       ),
@@ -700,6 +731,21 @@ export function describeReveals(reveals: RevealRecord[]): string {
   if (incomplete.length === 0) return "";
   const routes = incomplete.length === 1 ? "1 route" : `${incomplete.length} routes`;
   return `reveal pass incomplete on ${routes}: ${incomplete.join(", ")}`;
+}
+
+/**
+ * The frame clause of the summary: violation nodes inside cross-origin frames
+ * that were not counted against the site. Information, never a status change —
+ * but never silent either, because a filter nobody can see is how coverage
+ * goes missing. Empty when nothing was dropped, so such a run keeps its line
+ * byte-for-byte.
+ */
+export function describeFrameNodesDropped(dropped: FrameNodesDropped[]): string {
+  const hit = dropped.filter((d) => d.count > 0);
+  if (hit.length === 0) return "";
+  const total = hit.reduce((sum, d) => sum + d.count, 0);
+  const where = hit.map((d) => `${d.route} (${d.count}: ${d.rules.join(", ")})`).join(", ");
+  return `${total} violation node${total === 1 ? "" : "s"} inside cross-origin frames not counted: ${where}`;
 }
 
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
@@ -885,6 +931,10 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     const absentSkips = skippedRoutes.filter((r) => r.reason === ABSENT_FIXTURE_SKIP_REASON);
     // #100. A reveal pass that stopped short is named and warns, never fails.
     const revealNote = describeReveals(Array.isArray(artifact.reveals) ? artifact.reveals : []);
+    // Information only: third-party frame contents never change the status.
+    const frameNote = describeFrameNodesDropped(
+      Array.isArray(artifact.frameNodesDropped) ? artifact.frameNodesDropped : [],
+    );
     const absenceDowngrade =
       undeclaredAbsent.length > 0 && absentSkips.some((r) => undeclaredAbsent.includes(r.path));
     const status: AuditResult["status"] = hasSerious
@@ -947,7 +997,10 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
       (status === "pass"
         ? `a11y: 0 violations across ${scanned} (${smokeNote})`
         : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`) +
-      (revealNote ? `; ${revealNote}` : "");
+      [revealNote, frameNote]
+        .filter((note) => note.length > 0)
+        .map((note) => `; ${note}`)
+        .join("");
 
     return {
       audit: "a11y",

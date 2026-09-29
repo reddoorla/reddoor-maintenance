@@ -57,7 +57,7 @@ function plainPage(title: string): string {
 }
 
 /**
- * The page under audit, served by `SERVER` below from two origins: the page on
+ * The page under audit, served by `serverSource` below from two origins: the page on
  * the port Playwright hands `vite:dev`, and a second one (`CROSS_ORIGIN`)
  * standing in for fonts.googleapis.com.
  *
@@ -105,8 +105,14 @@ function plainPage(title: string): string {
  * `#xo-frame` is a lazy, title-less iframe from the second origin, at 330vh:
  * the shape of a Google Maps footer embed that the pass now brings into load
  * range. Its document has an `<img>` with no `alt`. The `<iframe>` element must
- * still fail `frame-title` in the top document; the frame's own contents are a
- * third party's and must not be audited.
+ * still fail `frame-title` in the top document; the `image-alt` inside is a
+ * third party's and must not count — but must be counted as dropped, which is
+ * also the proof that axe reached the frame at all.
+ *
+ * `#xo-tab` is an eager cross-origin iframe with `tabindex="-1"` whose
+ * document has a button: the site's own defect, `frame-focusable-content`
+ * (serious, WCAG 2.1.1), which axe can only see from inside the frame. The
+ * filter that drops third-party nodes must keep it.
  *
  * `#outside-landmarks` fails axe's `region` rule, which is tagged
  * `best-practice` only. The gate asks for WCAG tags, so it must never appear;
@@ -134,6 +140,7 @@ const FIXTURE_PAGE = `<!doctype html>
   #grow { top: 390vh; height: 1px; }
   #grown { top: 560vh; }
   #xo-frame { position: absolute; top: 330vh; left: 0; width: 300px; height: 150px; border: 0; }
+  #xo-tab { width: 300px; height: 150px; border: 0; }
   #bar { position: fixed; right: 0; bottom: 0; background: #fff; padding: 4px; }
   #bar-text { color: #aaa; margin: 0; }
   #bar.scrolled #bar-text { color: #111; }
@@ -143,6 +150,7 @@ const FIXTURE_PAGE = `<!doctype html>
 <main>
   <h1>Reveal fixture</h1>
   <img src="CROSS_ORIGIN/canary.png" alt="">
+  <iframe id="xo-tab" tabindex="-1" title="Player" src="CROSS_ORIGIN/player.html"></iframe>
   <div class="reveal" id="below-fold"><p class="faint" id="below-fold-text">Revealed once scrolled to</p></div>
   <div class="reveal" id="gap-band"><p class="faint" id="gap-band-text">Revealed in the top three quarters of the viewport</p></div>
   <div class="reveal" id="throws"></div>
@@ -202,10 +210,30 @@ const FIXTURE_PAGE = `<!doctype html>
 </body>
 </html>`;
 
-/** The third-party frame's document: one `image-alt` failure, not the site's. */
-const FRAME_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embed</title></head><body><main><img src="/tile.png"></main></body></html>`;
+/** A third party's document: `<title>`, one body, nothing else. */
+function thirdPartyPage(title: string, body: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main>${body}</main></body></html>`;
+}
 
-const SERVER = `
+/** Documents the second origin serves, by path. */
+const CROSS_PAGES: Record<string, string> = {
+  // One image-alt failure, which is the third party's, not the site's.
+  "/frame.html": thirdPartyPage("Embed", `<img src="/tile.png">`),
+  // Something focusable, inside a frame the site gave tabindex="-1".
+  "/player.html": thirdPartyPage("Player", `<button type="button">Play</button>`),
+};
+
+/** How one throwaway site is served. */
+type SiteConfig = {
+  /** HTML by path, served with the CSP below. `CROSS_ORIGIN` is replaced. */
+  pages: Record<string, string>;
+  /** Added to the audit through package.json#reddoor.a11yRoutes. */
+  a11yRoutes?: string[];
+  /** Milliseconds to hold a path's response. */
+  delaysMs?: Record<string, number>;
+};
+
+const serverSource = (config: SiteConfig): string => `
 import { createServer } from "node:http";
 import { appendFileSync } from "node:fs";
 
@@ -214,9 +242,11 @@ const log = (file, entry) => appendFileSync(file, JSON.stringify(entry) + "\\n")
 
 const cross = createServer((req, res) => {
   log("cross-origin.jsonl", { url: req.url, mode: req.headers["sec-fetch-mode"] ?? null });
-  if (req.url === "/frame.html") {
+  const crossPages = ${JSON.stringify(CROSS_PAGES)};
+  const doc = crossPages[(req.url ?? "/").split("?")[0]];
+  if (doc !== undefined) {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(${JSON.stringify(FRAME_PAGE)});
+    res.end(doc);
     return;
   }
   res.writeHead(200, { "content-type": "text/css", "cache-control": "no-store" });
@@ -235,11 +265,13 @@ const csp = [
   "report-uri /csp-report",
 ].join("; ");
 
-const pages = {
-  "/dev/a11y-fixtures": ${JSON.stringify(FIXTURE_PAGE)}.replaceAll("CROSS_ORIGIN", crossOrigin),
-  "/dev/animate-in": ${JSON.stringify(plainPage("Animate-in"))},
-  "/": ${JSON.stringify(plainPage("Home"))},
-};
+const pages = Object.fromEntries(
+  Object.entries(${JSON.stringify(config.pages)}).map(([path, html]) => [
+    path,
+    html.replaceAll("CROSS_ORIGIN", crossOrigin),
+  ]),
+);
+const delaysMs = ${JSON.stringify(config.delaysMs ?? {})};
 
 createServer((req, res) => {
   if (req.method === "POST" && req.url === "/csp-report") {
@@ -260,18 +292,21 @@ createServer((req, res) => {
     });
     return;
   }
-  const html = pages[(req.url ?? "/").split("?")[0]];
+  const path = (req.url ?? "/").split("?")[0];
+  const html = pages[path];
   if (html === undefined) {
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("not found");
     return;
   }
-  res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": csp });
-  res.end(html);
+  setTimeout(() => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": csp });
+    res.end(html);
+  }, delaysMs[path] ?? 0);
 }).listen(port);
 `;
 
-async function makeFixtureSite(): Promise<string> {
+async function makeFixtureSite(config: SiteConfig): Promise<string> {
   const site = await mkdtemp(join(tmpdir(), "reddoor-a11y-live-"));
   await writeFile(
     join(site, "package.json"),
@@ -280,9 +315,10 @@ async function makeFixtureSite(): Promise<string> {
       private: true,
       type: "module",
       scripts: { "vite:dev": "node server.mjs" },
+      ...(config.a11yRoutes ? { reddoor: { a11yRoutes: config.a11yRoutes } } : {}),
     }),
   );
-  await writeFile(join(site, "server.mjs"), SERVER);
+  await writeFile(join(site, "server.mjs"), serverSource(config));
   // Both built-in fixtures exist in this tree, so neither can be skipped as
   // absent (#900) — a skip here would pass every assertion below vacuously.
   await mkdir(join(site, "src", "routes", "dev", "a11y-fixtures"), { recursive: true });
@@ -296,6 +332,15 @@ type Violation = {
   route: string;
   help?: string;
   nodes?: Array<{ target?: string[] }>;
+};
+
+/** The main fixture site: the reveal fixture page, and plain pages elsewhere. */
+const SITE_F: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": FIXTURE_PAGE,
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+  },
 };
 
 async function readJsonl(path: string): Promise<Array<Record<string, unknown>>> {
@@ -316,7 +361,7 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
   let result: AuditResult | undefined;
 
   beforeAll(async () => {
-    site = await makeFixtureSite();
+    site = await makeFixtureSite(SITE_F);
     result = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
   }, 180_000);
 
@@ -342,6 +387,7 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     expect(all.map((v) => `${v.id} on ${v.route}`).sort()).toEqual([
       "client-error on a11y fixtures",
       "color-contrast on a11y fixtures",
+      "frame-focusable-content on a11y fixtures",
       "frame-title on a11y fixtures",
     ]);
   });
@@ -395,15 +441,30 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     expect(result?.summary).toContain("client-error on a11y fixtures (during the reveal pass)");
   });
 
-  it("audits a third-party iframe element, but not the third party's document", async () => {
-    // The frame really loaded, so its image-alt failure was there to be found.
-    const hits = await readJsonl(join(site, "cross-origin.jsonl"));
-    expect(hits.map((h) => h.url)).toContain("/frame.html");
+  it("audits a third-party iframe element, but does not count the third party's document", () => {
     const frameTitle = violations().filter((v) => v.id === "frame-title");
     expect(frameTitle.flatMap((v) => (v.nodes ?? []).map((n) => n.target))).toEqual([
       ["#xo-frame"],
     ]);
     expect(violations().map((v) => v.id)).not.toContain("image-alt");
+    // Not absence alone: axe DID reach the frame, and its image-alt node was
+    // dropped and counted — in the artifact and, by name, in the summary.
+    type Dropped = { route: string; count: number; rules: string[] };
+    const dropped = (result?.details as { frameNodesDropped?: Dropped[] } | undefined)
+      ?.frameNodesDropped;
+    expect(dropped?.find((d) => d.route === "a11y fixtures")).toEqual({
+      route: "a11y fixtures",
+      count: 1,
+      rules: ["image-alt"],
+    });
+    expect(result?.summary).toContain(
+      "1 violation node inside cross-origin frames not counted: a11y fixtures (1: image-alt)",
+    );
+  });
+
+  it("still reports frame-focusable-content from inside a cross-origin frame", () => {
+    const ffc = violations().filter((v) => v.id === "frame-focusable-content");
+    expect(ffc.flatMap((v) => (v.nodes ?? []).map((n) => n.target))).toEqual([["#xo-tab", "html"]]);
   });
 
   it("does not re-fetch the page's cross-origin stylesheet, so the site's CSP is not tripped (#52)", async () => {

@@ -6,12 +6,17 @@ import { join } from "node:path";
 import {
   a11yAudit,
   classifyRouteResponse,
+  describeFrameNodesDropped,
   describeReveals,
   describeSkipped,
   describeViolations,
   type RevealRecord,
 } from "../../src/audits/a11y.js";
 import { revealBelowFold } from "../../src/audits/util/reveal-below-fold.js";
+import {
+  crossOriginFrameSelectors,
+  splitCrossOriginFrameNodes,
+} from "../../src/audits/util/cross-origin.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 async function tmpSite(): Promise<string> {
@@ -24,6 +29,7 @@ type A11yArtifact = {
   violations?: Array<{ id: string; impact: string; route: string; help?: string }>;
   skipped?: Array<{ route: string; path: string; status: number | null; reason: string }>;
   reveals?: RevealRecord[];
+  frameNodesDropped?: Array<{ route: string; count: number; rules: string[] }>;
 };
 
 /**
@@ -1489,12 +1495,12 @@ describe("audits/a11y — axe runs without its CSSOM preload (#52)", () => {
 
   // AxeBuilder.options() REPLACES the options object that withTags() writes
   // runOnly into. After withTags(), it would drop the WCAG filter silently.
-  // Frame contents from another origin are not the site's (review of #100):
-  // legacy mode is the one switch @axe-core/playwright 4.13 honours for that —
-  // `{ iframes: false }` in options is ignored by its default mode. What it
-  // does in a browser is held by a11y-live-spec.test.ts.
-  it("runs in legacy mode, so cross-origin frame contents are not audited", async () => {
-    expect(axeChain(await specOf())).toContain(".setLegacyMode()");
+  // Round-2 review: legacy mode skipped cross-origin frames but also dropped
+  // frame-focusable-content, the site's own defect that axe evaluates inside
+  // the frame. Default mode audits the frames; the spec drops their nodes
+  // afterwards and keeps that rule (held by a11y-live-spec.test.ts).
+  it("stays in default mode, so rules that run inside a frame still run", async () => {
+    expect(axeChain(await specOf())).not.toContain("setLegacyMode");
   });
 
   it("sets the options before the tags, so the tag filter survives", async () => {
@@ -1624,8 +1630,96 @@ describe("audits/a11y — the reveal pass is recorded, and an incomplete one war
     const spec = await specOf();
     expect(spec).toContain("pass = await page.evaluate(revealBelowFold);");
     expect(spec).toContain("reveals.push({ route: name, ...pass });");
+    // The artifact write carries it, beside skipped.
+    const artifactWrite = spec.slice(spec.indexOf("totalViolations: violations.length"));
+    expect(artifactWrite).toMatch(
+      /^totalViolations: violations\.length,\s+byImpact,\s+violations,\s+skipped,\s+reveals,/,
+    );
+  });
+});
+
+/**
+ * Round-2 review of #100: cross-origin frame contents are audited (default
+ * mode) and then not counted. What the filter keeps and drops, as a table —
+ * this is the function the spec runs (see the identity test).
+ */
+describe("audits/a11y — nodes inside cross-origin frames are counted, not failed", () => {
+  const XO = "#xo";
+  const v = (id: string, ...targets: unknown[][]) => ({
+    id,
+    nodes: targets.map((target) => ({ target })),
+  });
+
+  it("drops a nested node whose outer frame is cross-origin, and keeps everything else", () => {
+    const split = splitCrossOriginFrameNodes(
+      [
+        v("image-alt", [XO, "img"], ["#own", "img"], ["img.top"]),
+        v("color-contrast", [XO, "p"]),
+        v("frame-title", [XO]),
+      ],
+      [XO],
+    );
+    expect(split.kept).toEqual([
+      // A same-origin frame's node and a top-document node stay.
+      v("image-alt", ["#own", "img"], ["img.top"]),
+      // The <iframe> element itself is a top-document node (length 1) and stays.
+      v("frame-title", [XO]),
+    ]);
+    // A violation left with no nodes is gone, and every dropped node is counted.
+    expect(split.dropped).toBe(2);
+    expect(split.rules).toEqual(["image-alt", "color-contrast"]);
+  });
+
+  it("keeps every frame-focusable-content node — the site's defect, seen from inside the frame", () => {
+    const split = splitCrossOriginFrameNodes([v("frame-focusable-content", [XO, "html"])], [XO]);
+    expect(split.kept).toEqual([v("frame-focusable-content", [XO, "html"])]);
+    expect(split.dropped).toBe(0);
+  });
+
+  it("keeps a node whose outer target is not a plain selector (shadow DOM), since it cannot be resolved", () => {
+    const shadow = v("image-alt", [["host-el", "#xo"], "img"]);
+    expect(splitCrossOriginFrameNodes([shadow], [XO]).kept).toEqual([shadow]);
+  });
+
+  it("the generated spec runs these exact functions, not copies of them", async () => {
+    const spec = await specOf();
     expect(spec).toContain(
-      "{ totalViolations: violations.length, byImpact, violations, skipped, reveals }",
+      `const splitCrossOriginFrameNodes = ${splitCrossOriginFrameNodes.toString()};`,
+    );
+    expect(spec).toContain(
+      `const crossOriginFrameSelectors = ${crossOriginFrameSelectors.toString()};`,
+    );
+    expect(spec).toContain(
+      "frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });",
+    );
+  });
+
+  it("names dropped nodes in the summary as information: empty when there are none", () => {
+    expect(describeFrameNodesDropped([])).toBe("");
+    expect(describeFrameNodesDropped([{ route: "/", count: 0, rules: [] }])).toBe("");
+    expect(
+      describeFrameNodesDropped([
+        { route: "/", count: 2, rules: ["image-alt", "link-name"] },
+        { route: "/about", count: 0, rules: [] },
+        { route: "/contact", count: 1, rules: ["image-alt"] },
+      ]),
+    ).toBe(
+      "3 violation nodes inside cross-origin frames not counted: / (2: image-alt, link-name), /contact (1: image-alt)",
+    );
+  });
+
+  it("never changes the status: a clean run with dropped nodes still passes, and says so", async () => {
+    const result = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        frameNodesDropped: [{ route: "a11y fixtures", count: 1, rules: ["image-alt"] }],
+      }),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).toContain(
+      "; 1 violation node inside cross-origin frames not counted: a11y fixtures (1: image-alt)",
     );
   });
 });
