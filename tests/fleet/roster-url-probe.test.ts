@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { probeRosterUrl, type UrlFetch } from "../../src/fleet/roster-url-probe.js";
+import {
+  PROBE_TIMEOUT_MS,
+  probeRosterUrl,
+  type UrlFetch,
+} from "../../src/fleet/roster-url-probe.js";
 
 const SITE_NOT_FOUND_BODY =
   "Not Found - Request ID: 01K6A0000000000000000000ZZ\n\nBuild and deploy your own site for free: https://netlify.new/?utm_campaign=loops&utm_content=site-not-found-text&utm_source=netlify";
@@ -131,5 +135,54 @@ describe("probeRosterUrl classification", () => {
     expect(seen[0]!.init?.method ?? "GET").toBe("GET");
     expect(seen[0]!.init?.redirect).toBe("follow");
     expect(seen[0]!.init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("2xx means exactly 200-299", async () => {
+    expect(await probeRosterUrl("https://x.example.com", respond(299, ""))).toEqual({
+      resolves: "pass",
+      status: "299",
+    });
+    expect(await probeRosterUrl("https://x.example.com", respond(300, ""))).toEqual({
+      resolves: "fail",
+      status: "300",
+    });
+  });
+
+  it("a Netlify 404 page that says Not Found but not site-not-found is a plain 404", async () => {
+    const f = respond(404, "<html><title>404 Not Found</title>Not Found</html>", {
+      server: "Netlify",
+    });
+    expect((await probeRosterUrl("https://x.netlify.app", f)).status).toBe("404");
+  });
+
+  it("the server header must be Netlify itself, not a name containing it", async () => {
+    const f = respond(404, SITE_NOT_FOUND_BODY, { server: "netlify-edge" });
+    expect((await probeRosterUrl("https://x.example.com", f)).status).toBe("404");
+  });
+
+  it("prefers the cause's code, and falls back to 'unknown' for a nameless throw", async () => {
+    const both: UrlFetch = async () => {
+      throw Object.assign(new TypeError("fetch failed"), {
+        code: "OUTER",
+        cause: { code: "ECONNRESET" },
+      });
+    };
+    expect((await probeRosterUrl("https://x.example.com", both)).status).toBe("error: ECONNRESET");
+    const bare: UrlFetch = async () => {
+      throw {};
+    };
+    expect((await probeRosterUrl("https://x.example.com", bare)).status).toBe("error: unknown");
+  });
+
+  it("gives up after its timeout (15 s by default)", async () => {
+    expect(PROBE_TIMEOUT_MS).toBe(15_000);
+    const hang: UrlFetch = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+      });
+    expect(await probeRosterUrl("https://x.example.com", hang, 20)).toEqual({
+      resolves: "fail",
+      status: "error: TimeoutError",
+    });
   });
 });

@@ -254,11 +254,61 @@ describe("runRosterUrlsCommand", () => {
     expect(r.output).toContain("mirrored=6 mirror_failed=1");
   });
 
-  it("a run with no store is exit 1", async () => {
+  it("a run with no store is exit 1 and says why", async () => {
     const r = await runRosterUrlsCommand(
       { fleet: true, writeBack: true },
       deps({ makeMirror: async () => null }),
     );
     expect(r.code).toBe(1);
+    expect(r.output).toContain("::error::roster-urls: no store");
+  });
+
+  it("a known-good control that answers but not 2xx stops the run", async () => {
+    const writes: Write[] = [];
+    const base = worldFetch();
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({
+        writes,
+        fetch: async (url, init) =>
+          url.includes("the-tower-burbank-rd")
+            ? new Response("unavailable", { status: 503 })
+            : base(url, init),
+      }),
+    );
+    expect(r.code).toBe(1);
+    expect(writes).toEqual([]);
+    expect(r.output).toContain(`known-good control ${KNOWN_GOOD_CONTROL.url} read fail 503`);
+  });
+
+  it("an equal split of mirror writes and failures is not a majority: exit 0", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({
+        roster: async () => [
+          row("tower", "https://the-tower-burbank-rd.netlify.app", "maintained"),
+          row("ext", "https://ok.example.com", "external"),
+        ],
+        makeMirror: recordingMirror([], (id) => (id === "ext" ? new Error("flake") : true)),
+      }),
+    );
+    expect(r.output).toContain("mirrored=1 mirror_failed=1");
+    expect(r.code).toBe(0);
+  });
+
+  it("a roster with nothing to probe is a clean run", async () => {
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({ roster: async () => [row("gone", "https://ok.example.com", "archived")] }),
+    );
+    expect(r.code).toBe(0);
+  });
+
+  it("warns once per failing row and never for a blank url", async () => {
+    const r = await runRosterUrlsCommand({ fleet: true, writeBack: true }, deps());
+    const warnings = r.output.split("\n").filter((l) => l.startsWith("::warning::"));
+    expect(warnings).toHaveLength(2);
+    expect(r.output).not.toContain("::warning::roster-urls: blank");
   });
 });

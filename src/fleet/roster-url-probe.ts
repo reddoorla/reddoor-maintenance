@@ -25,7 +25,7 @@ export type UrlProbe = {
 
 export const NETLIFY_SITE_NOT_FOUND = "404 netlify-site-not-found";
 
-const PROBE_TIMEOUT_MS = 15_000;
+export const PROBE_TIMEOUT_MS = 15_000;
 
 export async function probeRosterUrl(
   raw: string,
