@@ -21,6 +21,7 @@ import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   createProspectAudit,
   getProspectAuditByToken,
+  failProspectAudit,
   reserveProspectAudit,
   setProspectAuditOverrides,
 } from "../../src/db/prospect-audits.js";
@@ -137,6 +138,20 @@ describe("audit-report-json — refusals", () => {
       claimed: true,
     });
     if (r.kind !== "reserved") throw new Error("positive control");
+    const res = await auditReportJson(req(), ctxFor(r.token));
+    expect(res.status).toBe(404);
+  });
+
+  it("P1-16: 404s a failed audit — it paid, but there is no report behind its token", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const r = await reserveProspectAudit(db, {
+      url: "https://acme.example/",
+      business: null,
+      claimed: true,
+    });
+    if (r.kind !== "reserved") throw new Error("positive control");
+    if (!(await failProspectAudit(db, r.id))) throw new Error("positive control: marked failed");
     const res = await auditReportJson(req(), ctxFor(r.token));
     expect(res.status).toBe(404);
   });
