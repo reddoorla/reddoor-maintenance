@@ -210,6 +210,21 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   `~/.claude` memory or plugins, not the other checkouts. `.session-logs/` dies
   with the container, so the journal entry has to be committed and pushed
   before the session ends.
+- **Dropbox takes text, not files, from a cloud session.** The Dropbox
+  connector creates folders, moves and deletes, but it cannot upload a binary.
+  `DROPBOX_ACCESS_TOKEN` answers 401 (short-lived, and nothing reads it). Found
+  2026-09-29; what worked was a Dropbox file request driven by Playwright.
+  Setting the page's hidden file input does nothing; a synthetic `drop` event
+  carrying the file does. The page never shows a completion state a script can
+  read, so wait by size (≈5 s/MB) and then verify every file's byte size with
+  the connector's `list_folder`. Dropbox prefixes the uploader's name to each
+  file. The connector cannot close a file request, so the operator must.
+  Recipe and script: `docs/runbooks/listing-packages-and-public-gis.md`.
+- **A session opened on a site repo gets none of this repo's setup.** Headless
+  Chromium there fails every HTTPS load with `ERR_CERT_AUTHORITY_INVALID` until
+  the proxy CA is added to `~/.pki/nssdb`. Use the same `certutil` loop as
+  `.claude/hooks/cloud-session-setup.sh`; the site-side issue is
+  roalson-interests#164.
 
 ## The work journal
 

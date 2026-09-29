@@ -5730,3 +5730,33 @@ Neither LA site ships a GA tag today, so the move corrects the record but produc
 ## 2026-09-29 — #989 lands on the operator's go, no third round (`8819e841`)
 
 The operator answered Operator decisions 25 in chat: land #989 as it is. The line was marked answered in #989's own BACKLOG diff, and `land-prs` merged it at `8819e841`, pinned to head `51008acf`. `spawn.ts` did not change after round 2; the merge carried only the base merges and that BACKLOG line. The first `land-prs` run stopped with "still BEHIND after 3 check rounds": `main` moved three times while CI ran, and every check round passed. The second run landed after one update-branch. During the hold, two other pushes landed on the branch, both merges of `main`: one from another session (`fb6b5351`) and one from GitHub's update-branch under the operator's account (`81fc23e2`). Each was merged in, never force-pushed over.
+
+## 2026-09-29 — Cloud notes from the Roalson listing-package rebuild: Dropbox uploads, public GIS, a hidden `build/`
+
+This session rebuilt Roalson Interests' 22 listing packages from a cloud container. The
+package work and its decisions are recorded in roalson-interests: the tool is
+`tools/listing-packages/`, the journal entry is dated 2026-09-29, and the open items are
+issues #207–#211. This entry records only what applies beyond that site. The detail is in the
+new `docs/runbooks/listing-packages-and-public-gis.md`; `CLAUDE.md` §Cloud sessions gains two
+bullets.
+
+**Dropbox was the unexpectedly hard part.** The connector can make folders, move, list and
+delete, but it cannot upload a PDF, and `DROPBOX_ACCESS_TOKEN` answers 401. The
+meta-week audit had already listed that key as read by nothing. A Dropbox file request filled
+by Playwright worked, with a synthetic `drop` event; `setInputFiles` on the hidden input did
+nothing. The page never shows a completion state a script can read, so the uploader waits by
+size and every file was then checked by byte size through `list_folder`. All 46 files
+matched. A retry of a batch that had silently succeeded would have left `(1)` duplicates, and
+one nearly did.
+
+**Two beliefs were corrected on contact.** First, "the map's scale bar is right because it
+looks plausible": it read 2× the true distance, from the 256-px tile constant in a 512-px
+MapLibre. The builder's spot checks missed it; an agent measuring a parcel of known width
+found it. Second, "the tool is committed": the site template's `.gitignore` ignores every
+directory named `build`, so the renderer never reached the branch across two commits. Only
+cloning fresh and running the pipeline showed it. Both are in the runbook as traps.
+
+**Honest accounting.** Most of the "wow" in the packages came from public data joined to the
+right parcel, not from the template: TxDOT's 2025 counts, FEMA NFHL and USGS imagery. The
+expensive part was deciding which parcel is the site. The CMS pins are often one parcel off,
+and 4 of 22 sites still have no reliable outline.
