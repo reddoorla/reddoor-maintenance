@@ -5770,6 +5770,26 @@ The operator answered BACKLOG Operator decisions 18 in the PM pass, and this wor
 
 **Found on the way, not touched.** reddoor-maintenance still carries `renovate/npm-pnpm-vulnerability`, left behind by #668 (merged 2026-09-02). That is the same branch name that swallowed reddoor-starter's pnpm security bump for two months (#690's first comment). Its dashboard (#490) does not list it under "PR Edited (Blocked)" today, so it blocks nothing yet. It is primed for the next pnpm advisory, though, and the cloud proxy refuses branch deletes, so it is left for a laptop session.
 
+## 2026-09-29 — Cockpit design brief for #672, no code (`docs/cockpit-design-brief-2026-09.md`)
+
+The operator asked for a brief before any rework. It maps the five pages, then argues for four changes. The cockpit becomes the place the morning report sends the operator to act, not a start page. Roster gaps move out of Watch. The browse panel merges into `/fleet`. The inline scripts become module files with DOM tests rather than a Svelte port. Eight open questions each carry a pick.
+
+**Watch is saturated by rule shape, not by fleet state.** `assignTier` puts two different kinds of condition in one list:
+
+- **Roster gaps**, fixed once by writing a field: no GA4, no Search Console, no repo, no Netlify ID, no custom domain.
+- **Health drift**: Lighthouse between 75 and 85, stale commits, Turnstile unverified.
+
+The morning snapshot's 0 healthy / 13 watch was mostly one roster gap (#939). The evening SELECT shows 6 of 15 maintained rows still without a Search Console property, 5 without GA4, and 8 already carrying an accepted condition. I did not recompute tiers after the day's Search Console writes, so the brief does not claim a current watch count.
+
+**`/audits` is barely used, and the brief says so rather than designing past it.**
+
+- 68 audits over 32 URLs. 66 ran between 08-25 and 09-03, and the last on 09-09.
+- 2 reports were opened, 1 was edited, and none was claimed.
+- `prospect_audits` now has 14 columns, not the 7 #672 counted. Who ran an audit, its goal and whether it was sent are still not among them: `requested_by` exists only as a workflow input.
+- Approvals record `"dashboard"`, not the operator's email.
+
+**Where this came from.** Everything above came from read-only SELECTs, the code, and the docs. I found no written feedback from Tim or Erik, and no journal record of the stray-`\n` script failure that #672's MED-18(c) comment cites.
+
 ## 2026-09-29 — Beachfront's self-comparing matching scripts deleted: 101, not 33 (#728, beachfront#69 `e3547dfe`)
 
 The operator's call on #728 was to delete, not to route through the read

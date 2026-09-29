@@ -276,7 +276,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
       each list "update pnpm to v12" under Awaiting Schedule on their
       Dependency Dashboard; `.github` has no `package.json`. Closed with the
       table.
-    - #672 (cockpit design): design brief first.
+    - #672 (cockpit design): design brief first. Brief written, awaiting the
+      operator's markup:
+      [`docs/cockpit-design-brief-2026-09.md`](cockpit-design-brief-2026-09.md).
     - #674 (design-review tool): mine the rules only.
     - Still open, on the laptop: #773 (local-only git objects).
 19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
