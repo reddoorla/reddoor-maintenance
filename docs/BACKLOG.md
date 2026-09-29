@@ -337,7 +337,7 @@ verdict is its only input, because no client and no check sees the email.
 - 2026-09-29 — P1-12 / #983: `fleet-config-drift.yml` runs
   `sync-configs --fleet turso --dry` every Sunday at 07:23 UTC behind a
   three-fixture positive control, and files "Fleet config drift" with the DRIFT
-  and SKIPPED lines (PR_PLACEHOLDER). It closes only when every repo in the issue's
+  and SKIPPED lines (#995). It closes only when every repo in the issue's
   own body comes back CLEAN. `--dry` now reports a tracked `build/` file as
   `.gitignore` drift, as the real run already committed it. The Verify line held:
   no workflow ran `sync-configs`, and the probe printed `no changes needed`
