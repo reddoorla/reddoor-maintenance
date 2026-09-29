@@ -130,6 +130,9 @@ const RICH: RawRecord = {
     "Prismic Models": "pass",
     "Prismic Models Checked At": "2026-08-23T05:23:00.000Z",
     "Prismic Models Drift": "- old_slice",
+    "URL Resolves": "fail",
+    "URL Status": "404 netlify-site-not-found",
+    "URL Checked At": "2026-08-23T07:30:00.000Z",
     "Next maintenance at": "2026-09-01",
     "Next testing at": "2026-11-01",
   },
@@ -150,6 +153,7 @@ const WEIRD: RawRecord = {
     "Accepted Watch Conditions": "cert-warning,  , prismic\nsmoke", // delimited string + empty entry
     "Function health": "maybe", // not pass/fail → null
     "Prismic Models": "unknown", // the third state must SURVIVE (never null)
+    "URL Resolves": "maybe", // not pass/fail → null on both sides
     "Crossbrowser OK": true,
     "Broken links": 7,
   },
