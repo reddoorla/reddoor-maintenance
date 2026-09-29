@@ -120,7 +120,6 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 | P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                            |
 | P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review) | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested |
 | P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                              | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap              |
-| P1-18 | Prove #967 live: on the first real nightly failure after 09-29, confirm the tracking issue's BODY names that run. `gh issue edit` (GraphQL) was only stub-tested because the cloud proxy refuses GraphQL                                                                            | 🟢   | S      | the next red nightly's issue                                                                         | Body names the latest run; if not, the `::warning::` in that step says why                       |
 | P1-19 | `search_found_page1 = 0` is still stored when no Search Console property matched (`src/reports/draft.ts:359`, `src/recipes/announce.ts:120`), while the evidence now says `unknown` (#959). Pairs with #943                                                                         | 🟢   | S      | as named                                                                                             | A no-property result stores NULL, not 0                                                          |
 
 ### P1-3 start here (#912)
@@ -247,6 +246,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
 
 ## Done (move items here when they land)
 
+- 2026-09-29 — P1-18: #967 proven live. fleet-security run 36564241156
+  rewrote #754's body to name that run, including the new
+  `reddoor-website:staging` gap from #966, which also proves #966 live.
 - 2026-09-29 — P1-2 / #942 (#959), P1-4 / #941 (#961), P1-11 tracking-issue
   bodies rewritten on every failure (#967), P1-13 `land-prs` retries transient
   reads (#963), P1-14 / P1-15 (#964).
