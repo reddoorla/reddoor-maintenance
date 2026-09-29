@@ -5353,3 +5353,24 @@ Honest accounting: the old test is presumed to pass on GitHub runners and the la
 their init reaps promptly. That is inferred, not measured here; #960 says only that the failure
 is "rarer there". The rate #960 estimated (about 1 in 180 runs) is its own; this session did not
 re-measure it.
+
+## 2026-09-29 — The morning loop's worker rules, brief and streak land; the digest fix parks after two dirty rounds (#973, #974, #975)
+
+This session was split off the afternoon PM session to build the agent side of the new operating model before the operator leaves for a month. Two of its three PRs landed. The third is the first PR to go through the rule the first one wrote.
+
+#973 (`071e804`) puts the worker rules into `CLAUDE.md`. A worker that reaches a stop condition writes the question under "Operator decisions" and ends. Two dirty review rounds send a PR there instead of into a third. A brief names its mutations before any code is written. It also adds `docs/worker-brief.md`, with a P1-12 example whose _Verify_ command was run first (`grep -rl sync-configs .github/workflows/` exits 1), the [H] tag, and a Monday paragraph in `pm-pass.md`. It also stopped `pm-pass.md` and the rollout plan from assuming the operator's pronouns. The fresh-branch rule the rollout plan asked for named `git ls-remote --heads origin 'refs/heads/claude/*' 'refs/heads/fix/*'`. Run, that prints 32 SHAs with no dates, most of them months-old `fix/*` branches, so "under a day old" cannot be read from it. The rule now fetches those refs and sorts them with `for-each-ref --sort=-committerdate`. The same read showed that `pm-pass.md` said "every weekday" of a Routine whose cron is `48 4 * * *`.
+
+#974 (`b2df475`) is the clean-send streak. The belief going in was that some send path produces the "[TEST]" emails. None on `main` does: nothing in `src/` contains "[TEST". The 2026-09-28 22:54Z "[TEST] 29 Navy — September 2026 Maintenance Report" reads "Completed on 09.17.2026", the stored draft's date. So a session rendered the real draft by hand, probably the 09-28 session that re-rendered it with its writes stubbed [I]. `selftest email` builds from the roster with today's date and adds no prefix. Since the only input is the operator's verdict on an email no check can see, the record is a table in BACKLOG rather than a Turso table. The PM pass counts the `clean` rows up from the bottom and asks for each `awaiting` one. The first row, 29 Navy on 09-28, is awaiting.
+
+#975 is P1-20, the digest that sent "29 Navy … health-gate (+4 more)" eleven days running. It is green and full-suite clean (7618 passed, 5 skipped, in a fresh worktree), and it is not landed.
+
+- **Round 1** (three lenses, 7 agents) found the design wrong. The first version sent whenever an item was NEW or WORSE against yesterday's snapshot. `collectLighthouseAlerts` uses `metric = 100 − score`, and the scores are rewritten nightly, so a one-point dip would have reopened the daily mail, and a score hovering at the floor would resend on every crossing. The same round found two full-suite failures that the targeted runs could not see. The query-plans gate wants a scenario for every exported db function. `docs/runbooks/continuity.md` cites `digest-collectors.ts` by line, and those citations moved 53 lines. It also found a mutation that survived: dropping the snapshot write on the skip path.
+- **Round 2**, against "compare with the last send", found that this only holds until anything sends, because every send resets every baseline. Six simulated Lighthouse items jittering between 30 and 34 sent on 20 of 28 days. It also found the silent direction: an item mailed, fixed and recurring within the week waits for the heartbeat, a bounced lead address included.
+- Both findings were verified by agents told to refute them. By the rule #973 had landed two hours earlier, the PR went to "Operator decisions" (item 19) with a proposed fix: prune the record to what is present each run, keep a high-water baseline, and compare health asks by field.
+
+Beliefs corrected on contact:
+
+- "Send only when the set changed" is not a rule, it is two. The operator's pain was the nag; the danger is the silence. Every simpler version tried here fixed one by breaking the other, and each break was invisible to the tests written alongside it, because those tests replayed stable metrics. What found them was simulated day sequences with noise.
+- Targeted test runs are not the suite. Both round-1 suite failures were in files the diff never touched.
+
+Also this session: a wake is set for 2026-09-30 12:40Z (`trig_01Sg6T3amEZ1a9KjHet5ayNr`) to read the first real Daily PM pass and fix whatever it trips on (B10). The Routine's model is unchanged; pinning it waits on the operator.
