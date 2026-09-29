@@ -238,9 +238,18 @@ Ordered by what unblocks the most. Each line is the exact ask.
     keys in GCP, then close the four alerts.
 14. **Promotion authority (#623 → #545)** — pick identity A/B/C, apply the
     prepared staging ruleset, and promote reddoor-website `staging` → `main`.
-15. **Renovate delivery (#898)** — pick among `prCreation: "immediate"`, a
-    priority on the grouped rule, wider or staggered windows, and a separate App
-    identity for `release.yml`. `renovate/pnpm-12.x` is rate-limited on #490 now.
+15. **Renovate delivery (#898)** — decided 2026-09-29: `prCreation:
+"immediate"` on the grouped rule. The measurement agrees with #898: here,
+    `renovate/all-minor-patch` was pushed at 02:07Z on 09-28 and the next run
+    started at 18:48Z, after the window, so no PR opened that week. The preset
+    change is written, validated and stored as
+    `docs/patches/2026-09-29-github-renovate-grouped-pr-immediate.patch`, but
+    **no `.github` PR exists**: a cloud session cannot attach `reddoorla/.github`
+    (its name starts with a dot), so the push was refused. **Ask:** open it from
+    the laptop (`git am` the patch in a `.github` checkout, then open the PR for
+    your review). It does nothing for `renovate/pnpm-12.x`, a major held by
+    Renovate's own PR/branch limits; a `prPriority` or a higher `prHourlyLimit`
+    is still the lever for that.
 16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
 17. **Client email copy (#957 follow-up).** The Maintenance email draws a green
