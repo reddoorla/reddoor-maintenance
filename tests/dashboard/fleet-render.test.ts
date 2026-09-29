@@ -841,6 +841,26 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toMatch(/data-signals="[^"]*no-domain[^"]*"/);
   });
 
+  it("a broken site keeps its watch tags, so it stays under those filter chips (#941)", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "r",
+          name: "Broken",
+          status: "maintained",
+          defaultBranchCi: "failing",
+          searchConsoleProperty: null,
+        }),
+      ]),
+    );
+    expect(html).toMatch(/class="pill attention"/);
+    expect(html).toMatch(/data-signals="[^"]*\bci\b[^"]*"/);
+    expect(html).toMatch(/data-signals="[^"]*\bsearch-console-unrecorded\b[^"]*"/);
+    // Tagged, not re-tiered: the verdict still counts it once, as broken.
+    expect(html).toMatch(/⚠ 1 site broken/);
+    expect(html).not.toMatch(/\d+ watching/);
+  });
+
   it("renders the ok verdict when nothing needs attention", () => {
     const html = renderCockpitHtml(model([siteRow()]));
     expect(html).toContain('class="verdict ok"');

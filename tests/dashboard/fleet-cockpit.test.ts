@@ -902,7 +902,7 @@ describe("assignTier — structured watchSignals", () => {
     expect(both.watchSignals).toContain("stale");
   });
 
-  it("is empty for attention and healthy sites", () => {
+  it("is empty for attention and healthy sites with no watch condition", () => {
     expect(assignTier(site(), [item()], NOW).watchSignals).toEqual([]);
     expect(assignTier(site(), [], NOW).watchSignals).toEqual([]);
   });
@@ -926,6 +926,71 @@ describe("assignTier — structured watchSignals", () => {
   it("does NOT flag a launch-period site on *.netlify.app (no domain is expected pre-launch)", () => {
     const r = assignTier(site({ status: "launching", url: "https://espada.netlify.app" }), [], NOW);
     expect(r.watchSignals).not.toContain("no-domain");
+  });
+});
+
+// #941. The watch filter chips key off `watchSignals`, and the attention short-circuit
+// used to return it empty, so a broken site dropped out of every launch-completeness
+// chip it belonged under. Every earlier filter test built a site whose only condition
+// was the one under test, so no test mixed tiers.
+describe("assignTier — an attention site still carries its watch tags (#941)", () => {
+  it("an attention item keeps tier 'attention' and tags the watch condition", () => {
+    const r = assignTier(site({ status: "maintained", ga4PropertyId: null }), [item()], NOW);
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual(["no-analytics"]);
+    // Tier-scoped fields stay empty: the card is not on Watch, and nothing that
+    // reads watchReasons (Needs-you feed, verdict, chips) may treat it as if it were.
+    expect(r.watchReasons).toEqual([]);
+    expect(r.watchAcceptKeys).toEqual([]);
+    expect(r.acceptedReasons).toEqual([]);
+  });
+
+  it("a failed deploy keeps tier 'attention' and tags the watch condition", () => {
+    const r = assignTier(
+      site({ status: "maintained", url: "https://acme.netlify.app", deployStatus: "error" }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual(["no-domain"]);
+    expect(r.watchReasons).toEqual([]);
+  });
+
+  it("an accepted watch condition is not tagged on an attention site either", () => {
+    const r = assignTier(
+      site({
+        status: "maintained",
+        ga4PropertyId: null,
+        acceptedWatchConditions: ["no analytics"],
+      }),
+      [item()],
+      NOW,
+    );
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual([]);
+  });
+
+  it("buildCockpitModel: the attention site is tagged but counted only as attention", () => {
+    const m = buildCockpitModel(
+      [
+        // Reddoor's shape: a genuine break plus a launch-completeness gap.
+        site({ id: "r", name: "Broken", defaultBranchCi: "failing", searchConsoleProperty: null }),
+        site({ id: "h", name: "Fine" }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    const broken = m.cards.find((c) => c.site.name === "Broken")!;
+    expect(broken.tier).toBe("attention");
+    expect(broken.watchSignals).toContain("search-console-unrecorded");
+    expect(broken.watchReasons).toEqual([]);
+    expect(m.summary).toMatchObject({ attention: 1, watch: 0, healthy: 1 });
+    const feed = buildNeedsYouFeed(m);
+    expect(feed).toHaveLength(1);
+    expect(feed[0]!.group).toBe("broken");
+    expect(feed[0]!.reasons).not.toContain("Search Console property not recorded");
   });
 });
 
