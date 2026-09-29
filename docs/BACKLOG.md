@@ -121,7 +121,6 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 | P1-6  | **#892**: protection-audit judges the branch Renovate merges into, not only the default branch (reddoor-website `staging` has no required check)                                                            | 🟢   | S–M    | `src/audits/protection*`, `tests/audits/protection-coverage.test.ts`                                 | reddoor-website's `staging` shows as a gap. Applying the staging ruleset stays 🔴.                          |
 | P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                         | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                        |
 | P1-8  | **#907**: the prospect-audit daily cap binds before the spend                                                                                                                                               | 🟢   | M      | `src/db/prospect-audits.ts:27`, `src/dashboard/prospect-audit-trigger.ts`                            | N concurrent starts admit only cap − count; a crashed run frees its slot after the stale window             |
-| P1-10 | **#874 (docs half)**: forward pointers on the three meta-week docs that still recommend deleting `FIGMA_PAT`                                                                                                | 🟢   | S      | `docs/meta-week/06-priorities-system.md:630`, `01-fleet-current-state.md:1409`, `_research/inv-07-…` | Each carries a pointer to #874                                                                              |
 | P1-11 | Tracking-issue bodies are never rewritten (S2 leftover): the issue body keeps the first failure's run URL forever (#895's body still named 09-21's run when it closed)                                      | 🟢   | S      | the open steps in `.github/workflows/*.yml`                                                          | Body updated with `gh issue edit` on each failure                                                           |
 | P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                          | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                       |
 | P1-13 | `land-prs.mjs` stops on one transient proxy error (`read: connection reset by peer` on a check-runs GET, seen landing #957). Retry idempotent GETs a bounded number of times; never retry a PUT             | 🟢   | S      | `scripts/land-prs.mjs` (`apiJson`), `tests/scripts/land-prs.test.ts`                                 | One reset then success lands; a persistent failure still stops with a reason; no PUT is ever retried        |
@@ -251,6 +250,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — P1-10: forward pointers to #874 on the three meta-week docs that
+  recommended deleting `FIGMA_PAT` (the docs half; the credential half stays
+  with the operator).
 
 - 2026-09-29 — P1-3's #889 half: a maintained site with a blank Git repo or
   Netlify ID is a cockpit watch item, acceptable as `no git repo` /
