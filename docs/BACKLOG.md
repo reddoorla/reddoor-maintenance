@@ -249,11 +249,26 @@ Ordered by what unblocks the most. Each line is the exact ask.
     email will say "CMS Checked ✓" for a site with no CMS, as Form Functionality
     already does for sites without a form. Decide whether `n/a` rows render
     differently or drop out.
-18. **Standing product calls** — #943 (what "Search Console set up" means),
-    #948 (hydration signal), #690 (pnpm pin questions), #672 (cockpit design),
-    #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
-    #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
-    #773 (local-only git objects).
+18. **Standing product calls** — answered 2026-09-29, except #773:
+    - #943 (what "Search Console set up" means): evidence-based; a worker is
+      building it.
+    - #948 (hydration signal): audit the built preview (`vite preview`), not
+      the dev server; queued until the a11y PRs in flight land.
+    - #728 (beachfront `matching/`): delete; a worker is doing it.
+    - #776: closed as done.
+    - #711: closed into `CLAUDE.md` ("Prove the instrument", the paragraph on
+      a derived view read as the state).
+    - #690 (pnpm pin questions): Renovate owns the pin. Verified 2026-09-29
+      across all 27 public, non-archived `reddoorla` repos: 21 are on
+      `pnpm@12.5.1` via merged Renovate PRs (reddoor-starter#157 and 20
+      more, 2026-09-22), and the 5 still on `pnpm@11.11.0` (29-navy,
+      erp-industrial, reddoor-maintenance, reddoor-md-pdf, roalson-interests)
+      each list "update pnpm to v12" under Awaiting Schedule on their
+      Dependency Dashboard; `.github` has no `package.json`. Closed with the
+      table.
+    - #672 (cockpit design): design brief first.
+    - #674 (design-review tool): mine the rules only.
+    - Still open, on the laptop: #773 (local-only git objects).
 19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
     rule, then, after two sessions built it in parallel (`f6d5ee8c` on #975,
     `7925133d` on `claude/digest-send-exact-rule`), "do yours": #975 lands
