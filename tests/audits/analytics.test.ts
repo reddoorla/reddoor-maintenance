@@ -6,6 +6,7 @@ import {
   analyticsAudit,
   classifyAnalytics,
   classifyPropertyError,
+  defaultAnalyticsDeps,
   determineEmission,
   gtagLoaderIds,
   readTagConfig,
@@ -845,5 +846,151 @@ describe("round four: guards that had moved and reopened the same hole", () => {
         }),
       ).status,
     ).toBe("pass");
+  });
+});
+
+describe("integration with main: the no-analytics opt-out (#936, spec D8) and a bare checkout", () => {
+  async function hookDir(hook: string): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "rd-int-"));
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "hooks.client.ts"), hook);
+    return dir;
+  }
+  const DECLARED = `initAnalytics({ measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" });`;
+
+  it("skips a site whose row accepts `no analytics`, and reads nothing to say so", async () => {
+    // D8: the audit skips an opted-out site through the one predicate the
+    // setup check and the cockpit use. It must not GET the page, launch a
+    // browser or spend a Data API call on a site nobody is asking about.
+    const calls: string[] = [];
+    const res = await analyticsAudit({
+      site: {
+        path: await hookDir(DECLARED),
+        deployedUrl: "https://www.example.com/",
+        analyticsOptedOut: true,
+        meta: { siteId: "recSONDER" },
+      },
+      analyticsDeps: {
+        propertyId: "480126732",
+        fetchHtml: async () => {
+          calls.push("fetchHtml");
+          return "";
+        },
+        probeTag: async () => {
+          calls.push("probeTag");
+          return { requestedIds: [] };
+        },
+        readUsers: async () => {
+          calls.push("readUsers");
+          return { ok: true, users: 0 };
+        },
+      },
+    });
+    expect(res.status).toBe("skip");
+    expect(res.summary).toContain("no analytics");
+    expect(calls).toEqual([]);
+  });
+
+  it("knows the difference between 'the row has no property' and 'no row was read'", async () => {
+    // A roster site always carries meta.siteId (selectFleetSites). A bare path
+    // (`audit --only analytics ./checkout`, init's closing audit) read no row.
+    expect((await defaultAnalyticsDeps({})).propertyId).toBeUndefined();
+    expect((await defaultAnalyticsDeps({ meta: { siteId: "rec1" } })).propertyId).toBe(null);
+    expect((await defaultAnalyticsDeps({ ga4PropertyId: "111111111" })).propertyId).toBe(
+      "111111111",
+    );
+  });
+
+  it("does not accuse a bare checkout of a row it never read", async () => {
+    // The pilot's own flow: run analytics-tag on a checkout, then audit that
+    // checkout. With no row read, "its fleet row has no GA4 property ID" is a
+    // confident fail about something nobody looked at.
+    const res = await analyticsAudit({ site: { path: await hookDir(DECLARED) } });
+    expect(res.status).toBe("skip");
+    expect(res.summary).toContain("no fleet row");
+    expect(res.summary).not.toContain("has no GA4 property ID");
+  });
+
+  it("still fails a roster site whose row really has no property", async () => {
+    const res = await analyticsAudit({
+      site: { path: await hookDir(DECLARED), meta: { siteId: "rec1" } },
+    });
+    expect(res.status).toBe("fail");
+    expect(res.summary).toContain("has no GA4 property ID");
+  });
+});
+
+describe("hookUnreadable reaches every branch it can land on, not only the non-emitting one", () => {
+  const unreadable = { measurementId: null, productionHost: null, hookUnreadable: true } as const;
+
+  it("does not tell a site to remove the package's own loader", () => {
+    // A hook reading its ID from an import is ordinary. When the page loads a
+    // tag, the old wording called it "a mechanism this audit did not install"
+    // and said to REMOVE it and run a recipe that no-ops on an existing hook.
+    const v = classifyAnalytics(
+      facts({
+        config: unreadable,
+        propertyId: "111111111",
+        evidence: { probe: { requestedIds: ["G-AAAAAAAAAA"] }, htmlIds: null },
+      }),
+    );
+    expect(v.status).toBe("warn");
+    expect(v.summary).toContain("src/hooks.client.ts");
+    expect(v.summary).not.toContain("REMOVE");
+    expect(v.summary).not.toContain("did not install");
+  });
+
+  it("does not say a site with a hook declares no tag", () => {
+    for (const probe of [null, { requestedIds: [] }, { requestedIds: ["G-AAAAAAAAAA"] }]) {
+      const v = classifyAnalytics(
+        facts({ config: unreadable, propertyId: null, evidence: { probe, htmlIds: null } }),
+      );
+      expect(v.summary).toContain("src/hooks.client.ts");
+      expect(v.summary).not.toContain("declares no tag");
+    }
+  });
+
+  it("does not claim 'emits no tag' when emission was never observed", () => {
+    const v = classifyAnalytics(facts({ evidence: { probe: null, htmlIds: [] } }));
+    expect(v.summary).not.toContain("emits no tag");
+    expect(v.summary).toContain("no tag and has no GA4 property");
+  });
+});
+
+describe("readTagConfig pins the round-four reader fixes, not just the classifier", () => {
+  async function hookDir(hook: string): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "rd-r4-"));
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "hooks.client.ts"), hook);
+    return dir;
+  }
+
+  it("marks a hook with nothing legible as unreadable", async () => {
+    // The round-four classifier test injects hookUnreadable by hand, so the
+    // reader could stop setting it and nothing would notice.
+    const cfg = await readTagConfig(
+      await hookDir(
+        `import { ID, HOST } from "$lib/ga";\nexport const init = () => initAnalytics({ measurementId: ID, productionHost: HOST });`,
+      ),
+    );
+    expect(cfg).toMatchObject({ measurementId: null, productionHost: null, hookUnreadable: true });
+  });
+
+  it("marks a hook with only the host legible as unreadable", async () => {
+    const cfg = await readTagConfig(
+      await hookDir(`initAnalytics({ measurementId: ID, productionHost: "www.example.com" });`),
+    );
+    expect(cfg).toMatchObject({ measurementId: null, hookUnreadable: true });
+  });
+
+  it("reads a declaration on the same line as a string containing //", async () => {
+    // The round-four test of this name drove the classifier with a parsed
+    // config and never reached the stripper.
+    const cfg = await readTagConfig(
+      await hookDir(
+        `const u = new URL("https://x.example"); initAnalytics({ measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" });`,
+      ),
+    );
+    expect(cfg).toMatchObject({ measurementId: "G-AAAAAAAAAA", productionHost: "www.example.com" });
   });
 });

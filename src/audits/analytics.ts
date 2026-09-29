@@ -373,15 +373,29 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
       return {
         status: observed("fail"),
         summary:
-          `analytics: the site loads ${emission.ids.join(", ")} but declares no tag and its row has ` +
-          "no GA4 property, so nothing that collects here is read by any report.",
+          `analytics: the site loads ${emission.ids.join(", ")} ` +
+          (facts.config.hookUnreadable === true
+            ? "from a src/hooks.client.ts whose measurement ID cannot be read, "
+            : "but declares no tag ") +
+          "and its row has no GA4 property, so nothing that collects here is read by any report.",
         unchecked,
       };
     }
+    // Say what was actually found. "Emits no tag" is an observation, and only
+    // an authoritative probe makes it; a hook nobody could read, or a loader
+    // outside initAnalytics, is not "no tag" at all.
+    const found =
+      facts.config.hookUnreadable === true
+        ? "src/hooks.client.ts exists but no measurement ID could be read out of it,"
+        : foreign
+          ? "the checkout references a tag manager, but not through initAnalytics,"
+          : emission.emitting === false
+            ? "this site emits no tag"
+            : "this site declares no tag";
     return {
       status: "warn",
       summary:
-        "analytics: this site emits no tag and has no GA4 property. Nothing about it is measured, " +
+        `analytics: ${found} and has no GA4 property. Nothing it collects is read by any report, ` +
         "and its monthly report has no analytics section to render.",
       unchecked,
     };
@@ -394,6 +408,22 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
   // on the row are different values and cannot be compared without the Admin
   // API, so whether they describe the SAME property is genuinely unknown here.
   if (declared === null && hasProperty) {
+    // An unreadable hook is initAnalytics with an ID this reader cannot see (an
+    // import, an env var), not a foreign loader. Telling that site to REMOVE its
+    // loader and run a recipe that no-ops on an existing hook is round four's
+    // defect 4 on the one branch its fix did not reach.
+    if (facts.config.hookUnreadable === true && !foreign) {
+      return {
+        status: "warn",
+        summary:
+          `analytics: the site loads ${[...new Set(emission.ids)].join(", ")} and ` +
+          "src/hooks.client.ts exists, but no measurement ID could be read out of it, so whether " +
+          `it is property ${facts.propertyId} cannot be told from here. Write the hook's ` +
+          "measurementId as a string literal to make it checkable — the recipe no-ops on a file " +
+          "that already exists.",
+        unchecked: [...unchecked, "whether the emitted tag and the row's property match"],
+      };
+    }
     return {
       status: "warn",
       summary:
@@ -911,8 +941,28 @@ export const PROBE_ENV = "REDDOOR_ANALYTICS_PROBE";
  * 2026-08-24 overload was six agents and one Chrome. The checkout/row pairing,
  * which is what catches the two silent failures, needs no browser at all.
  */
+/**
+ * The row's GA4 property, or `undefined` when no row was read at all.
+ *
+ * A roster site (`selectFleetSites`, behind `--fleet turso`) always carries
+ * `meta.siteId`. Without one, the Site came from a bare path —
+ * `reddoor-maint audit --only analytics ./checkout`, or `init`'s closing audit —
+ * and nothing was read about its property. Collapsing that to `null` ("the row
+ * has none") failed a correctly-tagged checkout with "its fleet row has no GA4
+ * property ID" about a row nobody looked at, which is the pilot's own flow:
+ * run `analytics-tag`, then audit the checkout.
+ */
+function rowPropertyId(site: {
+  ga4PropertyId?: string | undefined;
+  meta?: Record<string, unknown> | undefined;
+}): string | null | undefined {
+  if (site.ga4PropertyId !== undefined) return site.ga4PropertyId;
+  return typeof site.meta?.["siteId"] === "string" ? null : undefined;
+}
+
 export async function defaultAnalyticsDeps(site: {
   ga4PropertyId?: string | undefined;
+  meta?: Record<string, unknown> | undefined;
 }): Promise<AnalyticsDeps> {
   let probeTag: ((url: string) => Promise<TagProbe>) | undefined;
   if (process.env[PROBE_ENV]) {
@@ -923,7 +973,7 @@ export async function defaultAnalyticsDeps(site: {
     }
   }
   return {
-    propertyId: site.ga4PropertyId ?? null,
+    propertyId: rowPropertyId(site),
     probeTag,
     fetchHtml: defaultFetchHtml,
     readUsers: await defaultReadUsers(),
@@ -945,6 +995,20 @@ function reportedHostnames(siteUrl: string | null): string[] {
 
 export async function analyticsAudit(ctx: AuditContext): Promise<AuditResult> {
   const site = ctx.site;
+  // Spec D8 (#936): a site that accepts `no analytics` runs its own analytics,
+  // or none, by the operator's decision. Neither end is ours to pair, so this
+  // returns before any IO is wired: no GET, no browser, no Data API call.
+  if (site.analyticsOptedOut === true) {
+    return {
+      audit: "analytics",
+      site: siteLabel(site),
+      status: "skip",
+      summary:
+        "analytics: the site row accepts `no analytics`, so there is no tag or property of ours " +
+        "to pair.",
+      details: { optedOut: true },
+    };
+  }
   const deps: AnalyticsDeps = ctx.analyticsDeps ?? (await defaultAnalyticsDeps(site));
   const windowDays = deps.windowDays ?? DEFAULT_WINDOW_DAYS;
   const siteUrl = site.deployedUrl ?? null;

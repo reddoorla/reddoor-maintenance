@@ -1,6 +1,7 @@
 import type { Site } from "../types.js";
 import { siteSlug, ACTIVE_STATUSES, isPreLaunch, type WebsiteRow } from "../fleet/site-row.js";
 import { isHttpUrl } from "../util/url.js";
+import { analyticsOptedOut } from "../fleet/opt-outs.js";
 
 /**
  * THE fleet-sweep selection rule (#646 step 4).
@@ -68,6 +69,10 @@ export function selectFleetSites(websites: readonly WebsiteRow[], workdir: strin
       // BOTH ends — this and the tag the live site loads — because each one
       // alone looks fine while the pair is broken.
       if (w.ga4PropertyId) site.ga4PropertyId = w.ga4PropertyId;
+      // The `no analytics` opt-out (spec D8), through the same predicate the
+      // setup check and the cockpit read, so the audit skips exactly the sites
+      // the cockpit has stopped asking about.
+      if (analyticsOptedOut(w)) site.analyticsOptedOut = true;
       return [site];
     });
 }

@@ -18,6 +18,12 @@ export type Site = {
    *  of the pair and says so rather than guessing. Like `netlifyId`, an explicit
    *  operator-set column, never derived. */
   ga4PropertyId?: string;
+  /** The row accepts `no analytics` under Accepted watch conditions (spec D8,
+   *  #936): the client runs their own analytics, or none. Read through
+   *  `analyticsOptedOut`, the predicate the setup check and the cockpit use, so
+   *  an alias cannot mute one and not the other. The analytics audit skips such
+   *  a site. Absent = not opted out. */
+  analyticsOptedOut?: boolean;
   meta?: Record<string, unknown>;
 };
 
