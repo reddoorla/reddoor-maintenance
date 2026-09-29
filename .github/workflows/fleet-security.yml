@@ -203,7 +203,9 @@ jobs:
           node dist/cli/bin.js protection-audit --org reddoorla | tee "${RUNNER_TEMP:-/tmp}/protection.out"
 
       - name: Open/update the protection-gap tracking issue
-        if: steps.protection.outcome == 'failure'
+        # main only: a branch run's finding is not main's to file (and a green PR-branch
+        # dispatch of time-travel once closed #895 while main was still red).
+        if: steps.protection.outcome == 'failure' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -229,7 +231,8 @@ jobs:
           fi
 
       - name: Close the protection-gap issue on a clean sweep
-        if: steps.protection.outcome == 'success'
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: steps.protection.outcome == 'success' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -294,14 +297,23 @@ jobs:
       # fleet-lighthouse's ("Nightly fleet audit failing") so the two workflows never
       # comment on or close each other's issue.
       - name: Open/update the nightly-failure tracking issue
-        if: failure()
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
+          JOB_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Nightly fleet security audit failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body=$(printf 'The nightly **fleet-security** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
@@ -312,7 +324,8 @@ jobs:
           fi
 
       - name: Close the nightly-failure issue on recovery
-        if: success()
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
