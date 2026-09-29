@@ -750,6 +750,15 @@ describe("announce — search presence with no matching Search Console property 
     const patch = refreshPatch();
     expect("search_found_page1" in patch && patch.search_found_page1 === null).toBe(true);
     expect("search_position" in patch && patch.search_position === null).toBe(true);
+    expect(Object.keys(patch).sort()).toEqual([
+      "completed_on",
+      "lighthouse_accessibility",
+      "lighthouse_best_practices",
+      "lighthouse_performance",
+      "lighthouse_seo",
+      "search_found_page1",
+      "search_position",
+    ]);
   });
 
   it("reuse: a page-1 result still patches 1 and its position", async () => {
