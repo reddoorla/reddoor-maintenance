@@ -1437,9 +1437,13 @@ async function specOf(): Promise<string> {
 }
 
 /**
- * #100. What the reveal DOES is proven in a real Chromium by
- * a11y-live-spec.test.ts; this pins where it sits in the spec, which a browser
- * run alone would not name if it went wrong.
+ * #100. a11y-live-spec.test.ts runs the generated spec in Chromium against ONE
+ * fixture page and shows that the reveals planted there — plain, rootMargin,
+ * Web Animations, a delayed two-stage intro, a page that grows, a bar that
+ * depends on the scroll offset — are measured as a reader sees them. That is
+ * evidence about those shapes, not about every reveal a site can write. This
+ * pins where the call sits in the spec, which a browser run alone would not
+ * name if it went wrong.
  */
 describe("audits/a11y — the page is scrolled through before axe runs (#100)", () => {
   it("the generated spec runs the exported function, not a copy of it", async () => {
@@ -1465,9 +1469,10 @@ describe("audits/a11y — the page is scrolled through before axe runs (#100)", 
 });
 
 /**
- * #52. That the preload is really off in a browser — no connect-src report
- * from the site's CSP — is proven by a11y-live-spec.test.ts. This pins the
- * option and its position in the chain.
+ * #52. a11y-live-spec.test.ts shows that, on its fixture page with a CSP of
+ * roalson-interests' shape, the generated spec's axe run posts no connect-src
+ * report while a canary report does arrive. This pins the option and its
+ * position in the chain.
  */
 describe("audits/a11y — axe runs without its CSSOM preload (#52)", () => {
   const axeChain = (spec: string): string => {

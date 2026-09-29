@@ -461,9 +461,12 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     // AnimateIn-style fixtures transition opacity 0->1; sampling mid-transition
     // makes axe compute color-contrast against semi-transparent text, yielding a
     // flaky "serious" color-contrast violation (~1/3 of runs on /dev/animate-in).
-    // Disabling transitions/animations forces the final, rendered state
+    // Disabling transitions forces their final, rendered state
     // deterministically -- which is also what users (and prefers-reduced-motion
-    // users) actually see, so it's the correct thing to assert.
+    // users) actually see, so it's the correct thing to assert. Disabling a CSS
+    // keyframe animation does NOT: it drops the animation and leaves the
+    // element at its base style, so a keyframe reveal whose visible state
+    // exists only as its forwards fill is audited hidden (see #100).
     await page.addStyleTag({
       content: "*,*::before,*::after{transition:none!important;animation:none!important;}",
     });
@@ -471,7 +474,11 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     // (#100). Without it every scroll-triggered reveal below the fold was
     // audited at the opacity 0 it waits in, and axe does not measure contrast
     // through that -- the text fell out of the result instead of failing it.
-    // After the sheet above, so each reveal snaps to its final state as it fires.
+    // After the sheet above, so a TRANSITION-driven reveal snaps to its end
+    // state as it fires; Web Animations are waited for by the pass itself. A
+    // keyframe reveal is cancelled by the sheet and stays hidden, and a reveal
+    // that hides again on leaving the viewport is hidden again by the return
+    // to the top -- neither is covered.
     let pass;
     inRevealPass = true;
     try {
