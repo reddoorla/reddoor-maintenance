@@ -12,6 +12,7 @@ import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft, type QueueOutcome } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
 import { readGaConfig } from "./ga/config.js";
+import { searchConsoleOptedOut } from "../fleet/opt-outs.js";
 import { fetchPeriodUsers, measuredHostnames } from "./ga/client.js";
 import { fetchSearchPresence } from "./search/client.js";
 import type { SearchPresence } from "./search/client.js";
@@ -295,7 +296,7 @@ export async function draftReportForSite(
   // self-heals.
   // Best-effort: a stamp is re-derived on every draft, so a lost one costs a
   // period's signal, not the draft the operator is waiting on.
-  if (readGaConfig() !== null && Boolean(siteRow.ga4PropertyId || siteRow.searchQuery)) {
+  if (readGaConfig() !== null && analyticsEnrolled(siteRow)) {
     const at = softFailures.length > 0 ? today.toISOString() : null;
     try {
       await options.siteMirror?.health(siteRow.id, analyticsHealthFields(at));
@@ -448,11 +449,21 @@ type SearchEnrichment = Enrichment<SearchPresence> & {
   notConfigured: boolean;
 };
 
+export function searchEnrolled(row: WebsiteRow): boolean {
+  if (searchConsoleOptedOut(row)) return false;
+  return Boolean(row.ga4PropertyId || row.searchQuery || row.searchConsoleProperty?.trim());
+}
+
+export function analyticsEnrolled(row: WebsiteRow): boolean {
+  return Boolean(row.ga4PropertyId) || searchEnrolled(row);
+}
+
 /**
  * Fetch the site's Google search presence for the period, soft-failing to null. Runs whenever
  * GA/SA is configured (`readGaConfig()` non-null — search shares the SA credentials) AND the
- * site is analytics-enrolled (has a `ga4PropertyId` OR an explicit `searchQuery`); otherwise a
- * legitimate skip (null value, `softFailed: false`). The brand query defaults to the site NAME
+ * site is search-enrolled ({@link searchEnrolled}: a `ga4PropertyId`, an explicit
+ * `searchQuery` or a recorded `searchConsoleProperty`, and no "no search console" opt-out);
+ * otherwise a legitimate skip (null value, `softFailed: false`). The brand query defaults to the site NAME
  * when no explicit `searchQuery` is set (whitespace-only counts as unset) — so brand presence is
  * tracked automatically, and the operator only hand-tunes the handful of sites the name misses.
  *
@@ -484,7 +495,7 @@ export async function fetchSearch(
   periodEnd: Date,
 ): Promise<SearchEnrichment> {
   const cfg = readGaConfig();
-  const enrolled = Boolean(siteRow.ga4PropertyId || siteRow.searchQuery);
+  const enrolled = searchEnrolled(siteRow);
   if (!cfg || !enrolled) {
     const notConfigured = enrolled && !cfg;
     if (notConfigured) {
