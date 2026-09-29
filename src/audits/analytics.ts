@@ -239,7 +239,14 @@ export function determineEmission(ev: EmissionEvidence): Emission {
   // The probe saw no loader arrive, but the served HTML names one. A loader
   // gated on the first interaction (reddoor's) never loads for a probe that
   // does not interact, so this is conflicting evidence, not an observed absence.
-  if (ev.probe !== null && ev.probe.loadedIds.length === 0 && (ev.htmlIds ?? []).length > 0) {
+  // Only when the probe recorded NO refusal: a loader it saw refused (a CSP
+  // block) is an observation, and stays the authoritative `emitting: false`.
+  if (
+    ev.probe !== null &&
+    ev.probe.loadedIds.length === 0 &&
+    (ev.probe.failed ?? []).length === 0 &&
+    (ev.htmlIds ?? []).length > 0
+  ) {
     return {
       emitting: null,
       ids: [],
@@ -696,6 +703,30 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
         unchecked,
       };
     }
+  }
+
+  // Emission unknown, but the served HTML names a loader for a DIFFERENT ID
+  // than the checkout declares. With the probe off this reads as a mismatch;
+  // a probe that saw nothing must not turn it into a pass.
+  if (
+    emission.emitting === null &&
+    (facts.evidence.htmlIds ?? []).length > 0 &&
+    !(facts.evidence.htmlIds ?? []).includes(id)
+  ) {
+    const named = [...new Set(facts.evidence.htmlIds ?? [])];
+    if (gaUsers !== null) {
+      return conflicts(
+        `the served HTML names ${named.join(", ")} while the checkout declares ${id}`,
+      );
+    }
+    return {
+      status: "warn",
+      summary:
+        `analytics: the live site loads ${named.join(", ")} but the checkout declares ${id}. ` +
+        "Traffic is going to a property nobody reads, and the configured one reads zero." +
+        propertyNote,
+      unchecked,
+    };
   }
 
   // --------------------------------------------------------------- PROPERTY
@@ -1344,11 +1375,13 @@ export async function analyticsAudit(ctx: AuditContext): Promise<AuditResult> {
   try {
     r = await classifySite(ctx);
   } catch (e) {
+    // Anything thrown, including `null` or `undefined`, which have no message.
+    const why = e instanceof Error ? e.message : String(e);
     r = result(
       ctx.site,
       "warn",
-      `analytics: the audit could not complete (${(e as Error).message}), so nothing was checked.`,
-      { error: (e as Error).message },
+      `analytics: the audit could not complete (${why}), so nothing was checked.`,
+      { error: why },
     );
   }
   return r.status === "fail" ? { ...r, status: "warn" } : r;
