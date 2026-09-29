@@ -49,7 +49,15 @@ const CANONICAL_ALIASES: Record<string, string> = {
 };
 
 type CspDirectives = Record<string, string[]>;
-type CspObject = { mode?: string; directives?: CspDirectives; [k: string]: unknown };
+type CspObject = {
+  mode?: string;
+  directives?: CspDirectives;
+  /** Fold {@link ANALYTICS_CSP} into the directives. Set by the analytics recipe;
+   *  a site with no GA4 tag leaves it off so its policy does not allow a script
+   *  host it never loads. */
+  analytics?: boolean;
+  [k: string]: unknown;
+};
 
 /**
  * SHA-256 of Svelte's SSR event-replay stub, `this.__e=event`.
@@ -128,17 +136,45 @@ function cloneDirectives(directives: CspDirectives): CspDirectives {
   );
 }
 
+/**
+ * Append {@link ANALYTICS_CSP} to a directives map, skipping hosts already
+ * present so a site that also lists one by hand does not get it twice.
+ * Directives the map does not have are created: a site overriding `img-src`
+ * without a beacon host still gets one.
+ */
+function withAnalytics(directives: CspDirectives): CspDirectives {
+  const out = cloneDirectives(directives);
+  for (const [name, hosts] of Object.entries(ANALYTICS_CSP)) {
+    // `svelte.config.js` is untyped, so a site may legally write
+    // `"script-src": "self"`. Spreading a STRING shreds it into characters —
+    // ["s","e","l","f",…] — and only when analytics is on, which is a corruption
+    // this fold would have introduced rather than found. Leave a non-array
+    // alone; the audit will notice the missing host.
+    const existing = out[name];
+    if (existing !== undefined && !Array.isArray(existing)) continue;
+    const list = existing ?? [];
+    out[name] = [...list, ...hosts.filter((h) => !list.includes(h))];
+  }
+  return out;
+}
+
 /** Build a `kit.csp` block from the `csp` option, layering over the baseline. */
 function buildCsp(option: true | CspObject): CspObject {
   const baseDirectives = BASELINE_CSP.directives ?? {};
   if (option === true) {
     return { mode: BASELINE_CSP.mode, directives: cloneDirectives(baseDirectives) };
   }
-  const { directives: siteDirectives, ...rest } = option;
+  // `analytics` is a reddoor option, not a CSP field: destructured out here so
+  // it can never leak into the emitted policy object as a stray key.
+  const { directives: siteDirectives, analytics, ...rest } = option;
+  const merged = cloneDirectives({ ...baseDirectives, ...(siteDirectives ?? {}) });
   return {
     mode: BASELINE_CSP.mode,
     ...rest, // allow `mode` override, `reportOnly`, etc.
-    directives: cloneDirectives({ ...baseDirectives, ...(siteDirectives ?? {}) }),
+    // Applied LAST, on purpose. A site that overrides `script-src` replaces the
+    // baseline entry wholesale, so folding the analytics hosts in before the
+    // merge would lose them on exactly the sites most likely to need them.
+    directives: analytics === true ? withAnalytics(merged) : merged,
   };
 }
 
@@ -147,6 +183,40 @@ type PrerenderErrorDetails = {
   status?: number;
   message?: string;
   referrer?: string;
+};
+
+/**
+ * The hosts a GA4 tag needs, by directive.
+ *
+ * Google's own list for "Google Analytics without any Ads features", from
+ * https://developers.google.com/tag-platform/security/guides/csp (read
+ * 2026-09-29): `script-src-elem` www.googletagmanager.com; `img-src`
+ * www.googletagmanager.com and *.google-analytics.com; `connect-src`
+ * www.googletagmanager.com, *.google-analytics.com and *.google.com. The
+ * script host goes in `script-src`, which `script-src-elem` falls back to. The
+ * fleet's properties run no Ads features and no Google Signals; turning either
+ * on needs that page's wider list (*.g.doubleclick.net, *.google.<TLD>, …).
+ *
+ * Exported as data and folded in by `csp: { analytics: true }` rather than
+ * written into each site's `svelte.config.js`, for the same reason
+ * {@link SVELTE_EVENT_REPLAY_HASH} is imported and never transcribed: a copied
+ * host list cannot be told apart from a stale one, and a CSP that is stale in
+ * the direction of MISSING a host fails silently — the loader is refused, the
+ * property records nothing, and the page looks fine.
+ *
+ * `script-src` is required and not optional. The emitted policy carries no
+ * `'strict-dynamic'` (measured on reddoor-starter, 2026-09-22), so the host
+ * allowlist governs the loader `initAnalytics` injects from bundle JS exactly
+ * as it governs one typed into `app.html`.
+ */
+export const ANALYTICS_CSP: Readonly<Record<string, readonly string[]>> = {
+  "script-src": ["https://www.googletagmanager.com"],
+  "img-src": ["https://www.googletagmanager.com", "https://*.google-analytics.com"],
+  "connect-src": [
+    "https://www.googletagmanager.com",
+    "https://*.google-analytics.com",
+    "https://*.google.com",
+  ],
 };
 
 /**

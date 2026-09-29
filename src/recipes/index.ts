@@ -15,8 +15,8 @@ import {
   type InitStepResult,
 } from "./init.js";
 
-// Library value exports. Not every recipe is one: health-endpoint, smoke-suite
-// and match-harness are CLI-only (operator decision on #731) — they stay in
+// Library value exports. Not every recipe is one: health-endpoint, smoke-suite,
+// match-harness and analytics-tag are CLI-only (operator decision on #731) — they stay in
 // ALL_RECIPE_NAMES and run as `reddoor-maint <name>`, but the CLI commands and
 // init.ts import them from their own modules, not from here. smoke-dist requires
 // every value export of this barrel to reach dist/index.js, so adding one here
@@ -53,6 +53,7 @@ export const ALL_RECIPE_NAMES: RecipeName[] = [
   "convert-to-pnpm",
   "onboard",
   "a11y-fixtures-page",
+  "analytics-tag",
   "health-endpoint",
   "smoke-suite",
   "self-updating",

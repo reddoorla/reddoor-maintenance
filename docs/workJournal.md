@@ -5647,3 +5647,125 @@ The review went two rounds, and each found real gaps, so under "Two dirty review
 The live proof (dispatch once on `main`: control passes, total equals the roster, issue filed to match) waits for the merge. It belongs in the entry that lands #995.
 
 Belief corrected on contact: a mutation harness that rewrites files is itself something to verify. Killing a run mid-mutation left mutation 1 (a skipped site printed as `CLEAN`) applied in the worktree, and only a diff before committing caught it.
+
+## 2026-09-29 — A timed-out spawn will reap the process groups its descendants detached into; held after two rounds (#989 held, #997 `1b1c52fd`)
+
+> Superseded in part by 2026-09-29 — #989 lands on the operator's go, no third round.
+
+#969 was filed from #950's review: when the a11y audit's Playwright run timed out, `defaultSpawn` killed Playwright's process group, and the site's dev server stayed up. This worker session took it from a PM brief. The shape turned out to be more general than a11y. Playwright's `launchProcess` spawns the `webServer` with `detached: true` (`playwright-core@1.62.1` `coreBundle.js:8905`), so the server leads a new session and process group of its own. The runner has no SIGTERM handler, so the SIGTERM ends it before its `exit`-only teardown can run. chrome-launcher (lhci's Chrome) spawns with `detached: true` too (`chrome-launcher.js:239`; the brief said `:196`, which is the port probe). So `kill(-child.pid)` never reached any of them, and the `spawn.ts` comment that said it reached "Chromium under lhci/playwright" was wrong from the day it was written. That comment is corrected in this PR.
+
+Measured with the brief's probe, on this container, before the fix: the positive control (`HANG=0`) printed `playwright exited 0` and `webServer pid 4794: gone; port 43177 accepting=false`, which proved the probe can say "gone". The hanging spec printed `rejected: SpawnTimeoutError` and then `webServer pid 4873: Sl; port 50181 accepting=true`, 7 s after the timeout and past the 5 s SIGKILL grace. After the fix the same run printed `gone; port 49130 accepting=false`.
+
+The fix stays inside `spawn.ts`. At the timeout, before the first signal, it reads `ps -A -o pid=,ppid=,pgid=` once. That is the only moment the ancestry exists: once the wrapper dies, the server's `sh -c` is reparented to PID 1. It walks every descendant, not only the direct children, because the server sits two or more levels down. It then SIGTERMs each descendant group alongside `-child.pid`. After the grace it re-reads the table and SIGKILLs only a group that still holds a pid from the snapshot. That escalation outlives the wrapper's `close`, which the leader's does not: the wrapper usually dies on the SIGTERM, and a detached server that ignores SIGTERM would otherwise never see a SIGKILL. `-A` is load-bearing on macOS, where `ps` without it lists only processes with a controlling terminal, and a setsid'd child has none. On Linux CI the flag makes no difference, so a unit test pins the argv.
+
+Review round 1 ran as a Workflow (correctness, test validity with the reviewers' own mutations, integration with the full suite in a fresh worktree: 7604 passed, 5 skipped), with three skeptics on each serious finding. It confirmed two:
+
+- **The walk trusted `child.pid` after the wrapper could have been reaped.** A wrapper that exits early while a grandchild holds its stdout pipe fires `exit` but not `close`, so the timer stays armed, and the pid is free for reuse. A walk from a reused pid would SIGTERM a stranger's children's groups. One of three skeptics refuted it, arguing the pid stays reserved while any process keeps it as pgid or sid. That is true only while something is left in the old group or session, and the finding's own case is a descendant that setsid'd away. Now the root's row must still show `ppid === process.pid`, and a wrapper with an `exitCode` or `signalCode` is skipped. The leader's own `kill(-pid)` is unchanged, because a live group's id cannot be reused.
+- **The membership re-check was tested with one group only**, so "SIGKILL every group once any snapshot pid lives" survived. The code was already per-group; a two-group test now pins it.
+
+Review round 2 (on `3434e9cb`) found both round-1 fixes correct and complete. The full suite passed in a fresh worktree (7648 tests, 5 skipped), and no lens found a behaviour defect. The test lens found one serious gap, confirmed by all three skeptics: `killOther`'s ESRCH `try/catch` had no test. The only throwing `killImpl` sat in an old test that reads the real `ps` table, which has no row for fake pid 4242, so the walk never ran there. Removing the guard would let a group that exits between the read and the signal throw out of the timer callback, before the leader's SIGTERM. The same lens found the `signalCode` half of the exited-wrapper guard untested. Both are now pinned, and each goes red on its mutation. That makes round 2 dirty, so under `CLAUDE.md`'s two-round rule #989 went to "Operator decisions" (item 25, landed in #997) rather than into a third round or to `land-prs`. The item was numbered 23, then 24, then 25: two other workers' holds landed on `main` while #997 waited for CI, and each renumber first showed up as a Prettier failure on the merged head.
+
+Dead ends named in the brief and not walked, recorded so nobody walks them later:
+
+- **Patching Playwright** (`pnpm patch` to undo `detached`). The a11y audit runs `npx --yes playwright` from the site's own tree, so a patch in this repo never reaches it.
+- **Sending SIGINT first** so that Playwright tears down its own server. That depends on the runner still being responsive, which a timeout says it is not, and it does nothing for lhci's Chrome.
+
+Beliefs corrected on contact:
+
+- The container runs as root, and the old mocked tests read the real `ps` for fake pid 4242. That is harmless only because they also inject `killImpl`. The new mocked tests always pass a table. The brief kept the old ones unchanged, so they stay as they were.
+- My first mutation loop reverted each mutation with `git checkout spawn.ts`. I started it once against uncommitted round-1 fixes, which it would have silently reverted. I stopped it after it had applied its first mutation but before any revert, restored that line by hand, and committed before running it again. A `pkill -f` on the vitest pattern then killed my own shell, because the pattern matched the shell's command line. Commit before mutating, and never `pkill -f` a pattern that your own command contains.
+
+## 2026-09-29 — Search Console properties matched and verified for the fleet; the VLF launch recorded; Sonder's GA tag is not ours
+
+**VLF's launch, as the fleet database records it.** The previous session launched Vida Legacy Foundation (`vida-legacy-foundation`) today and wrote no journal entry, so this one records it. The Turso row was edited directly. `url` became `https://vidalegacy.org`. `name` changed from `vida-legacy-foundation` to `Vida Legacy Foundation`, with the same slug. The header image was stored with `header-image --write-back`. `ga4_property_id` is 556595961: the operator first gave 15868715457, which is the web data stream id, not the property. `netlify_id` is `b99da9d3-d708-4f15-8f8b-adb954b21f53` and `search_console_property` is `sc-domain:vidalegacy.org`. The launch email is approved and goes out in the 09:23 UTC daily-reports run on 2026-09-30. It is the only approved-unsent report in the fleet.
+
+The Lighthouse baseline `launch` stored was 52/100/100/61, and it was wrong in kind, not just low. A `launching` site has no `deployedUrl`, so `launch` audited a local Vite dev server. It was replaced by hand, in the Launch report row and in `site_health`, with 85/100/100/100: desktop preset, devtools throttling, `uses-http2` skipped, 3 runs averaged. Those are the fleet's deployed settings. A single mobile run had given 72. Two defects were filed as suggested tasks, not fixed:
+
+- `branchProtectionContexts` (`src/github/gh.ts`) returns `[]` on any failure. A 403 read therefore leads to a protection PUT that would drop the existing contexts and PR reviews.
+- `launch` audits a dev server instead of the live URL.
+
+`launch` cannot finish from a cloud session at all. The GitHub integration cannot read `branches/main/protection` (403), and the proxy refuses the PUT, so the operator ran it from the laptop.
+
+**Search Console: the instrument first.** The newly added `GA_SA_KEY_B64` and `GA_SUBJECT` resolved: `readGaConfig()` returned one subject, and the hook-written key is the `reddoor-reports@` service account. `sites.list`, called through the same JWT/DWD path as `src/reports/search/client.ts`, returned 10 properties. `sc-domain:reddoorla.com` was among them and read back 5 clicks and 473 impressions over 2026-09-21..27, so the listing was proven before anything was matched against it. `sc-domain:vidalegacy.org` is listed and reads 0/0 without error on launch day. Eight of the 13 missing sites match exactly one URL-prefix property (none has an `sc-domain:` form), and every one of them returned real rows on the same 7-day query:
+
+| Site       | Clicks / impressions |
+| ---------- | -------------------- |
+| Beachfront | 5/710                |
+| CalTex     | 1/11                 |
+| ERP        | 19/510               |
+| Espada     | 14/169               |
+| MSOT       | 8/256                |
+| Revogen    | 19/120               |
+| Sonder     | 40/647               |
+| Vineyard   | 45/104               |
+
+Five sites have no property the account can see, and so get none: 1836dig, 29 Navy, Data Dynamiq, LA Homelessness Initiative, and LA Homelessness Youth, which is still on netlify.app. Each needs the property added and verified in Search Console first.
+
+**The writes did not happen from this session.** The operator confirmed writing the eight values, plus Revogen's GA4 id and a `no analytics` opt-out for Sonder. The cloud session's permission classifier then refused the production write, and it was not routed around. At the time of this entry, the eight rows still read `search_console_property = NULL` unless the operator has since applied them. The next session should read them back before believing either state.
+
+**GA4.** VLF's `report --preview --enrich` exited 0 with no soft-failure, but its preview had no ANALYTICS section. So did Sonder's, a site live for over a year, and that pointed at the check rather than at VLF. Calling the draft's own `fetchGaUsers` settled which was wrong. Reddoor returned 99 users against 128, so the GA path works. VLF and Sonder both returned a clean `{0,0}`, and `analyticsSection` hides a block whose previous period is 0. An empty section is therefore not evidence of broken credentials. The `>ANALYTICS<` gate in `daily-reports.yml` would call both of these a credential failure, and for these two sites it would be wrong.
+
+The Admin API told the zeros apart. Property 556595961 owns `G-34GXWCZ315`, which is the id in VLF's live SvelteKit bundle, and the realtime report showed 11 active users. VLF's 0 is GA's processing lag on launch day, not a fault. Sonder's stored property 480126732 owns `G-832GNRHGGY` and had no rows on any hostname for 30 days. The live site's `GTM-5FVCTMK7` fires `G-KF2C19YMQX`, a property this account cannot see. The operator says Sonder runs analytics in house, so Sonder is "no analytics".
+
+Before any of that was trusted, the tag-to-stream comparison was checked on known-good sites. CalTex, ERP, Espada, MSOT, Revogen, Reddoor, Vineyard and Beachfront each ship exactly the tag of their own stream.
+
+Two more rows are wrong in ways this session did not fix:
+
+- **LA Homelessness Youth's `ga4_property_id` 500039567 names a property whose stream is `www.lahomelessnessawareness.org`**, the Initiative's domain, and which has no data. Neither live site carries a detectable GA tag.
+- **Revogen's live tag `G-Y0VSL1KFNT` belongs to property 545817747, named "Revogen"**, which is the id the operator approved writing.
+
+1836dig, 29 Navy, Data Dynamiq and LA Homelessness Initiative have no GA4 property visible to the account and no GA tag on their live pages.
+
+**Beliefs corrected on contact.** An empty ANALYTICS block means only that "GA returned a zero previous period", not that "credentials failed". A GA4 property id on a row does not mean that site sends data to that property; the site's live tag has to name the property's stream.
+
+**What the operator decided next, and what the rows already said.** The operator asked for three changes: clear Sonder's `ga4_property_id`, since Sonder handles its analytics in house; add Sonder's `no analytics` opt-out; and re-aim the misplaced GA4 id. Reading the rows before writing turned up two things the probe had missed:
+
+- **Sonder already carries a `no search console` opt-out** in `accepted_watch_conditions`. `searchEnrolled` returns false for it, so the matched `https://gallerysonder.com/` would be recorded but never read. It was dropped from the write set.
+- **The two LA rows are two Netlify sites serving the same "Hearts and Minds" page.** Their `netlify_id`s differ: `c4473d34…` belongs to the Initiative, which owns `www.lahomelessnessawareness.org`, and `442e3569…` to Youth, which is marked `no custom domain`. Property 500039567, although GA names it "LA Youth Homelessness", has its stream on the Initiative's domain. The id therefore moves to `la-homelessness-initiative`, and `la-homelessness-youth` becomes NULL.
+
+Neither LA site ships a GA tag today, so the move corrects the record but produces no numbers until one is installed. The classifier refused this write as well. The full write set is 7 Search Console values, Revogen 545817747, Sonder GA4 NULL plus `no analytics`, Initiative 500039567 and Youth NULL. It waits for the operator.
+
+**The writes landed at ~21:15 UTC.** The operator switched the session out of auto mode and had an allow rule added for the one write script, in the container's uncommitted `.claude/settings.local.json`. The script had in fact never existed on disk. Each refused attempt had written it and run it in the same command, so each refusal also discarded the file. All ten rows were updated, one row per update, and read back exactly as intended. Through the draft's own `fetchGaUsers` and `fetchSearch`, Revogen now reads 694 users against 675 on property 545817747, its first GA numbers in a report. It is on page 1 at position 1 through the stored `https://revogen.com/`. Espada reads position 2 through its newly stored property.
+
+## 2026-09-29 — #989 lands on the operator's go, no third round (`8819e841`)
+
+The operator answered Operator decisions 25 in chat: land #989 as it is. The line was marked answered in #989's own BACKLOG diff, and `land-prs` merged it at `8819e841`, pinned to head `51008acf`. `spawn.ts` did not change after round 2; the merge carried only the base merges and that BACKLOG line. The first `land-prs` run stopped with "still BEHIND after 3 check rounds": `main` moved three times while CI ran, and every check round passed. The second run landed after one update-branch. During the hold, two other pushes landed on the branch, both merges of `main`: one from another session (`fb6b5351`) and one from GitHub's update-branch under the operator's account (`81fc23e2`). Each was merged in, never force-pushed over.
+
+## 2026-09-29 — P1-12 lands: the weekly config-drift sweep, and its first run finds all 15 repos drifted (#995, `84b9155c`)
+
+This session resumed #995 after the previous worker hit a usage limit. The PM brief described it as stopped mid–round 2. It had in fact finished round 2 and parked #995 as Operator decisions 24 (#1000), asking "land as is, or a third round". The brief's instruction, rerun round 2 from scratch and land only if it is clean, answers that ask with the more careful option, so that is what ran. The line is marked resolved in #995's own BACKLOG diff.
+
+The rerun covered `be476956` with `main` merged in, using three lenses. Correctness found nothing. Integration found nothing: frozen install, lint, typecheck, prettier, the full suite (7810 tests), match-harness and smoke-dist all passed. A local fleet `--dry` over file:// clones left every source repo's HEAD unchanged. The test lens ran 30 mutations of its own, none repeated from the PR body. 22 went red, 4 were equivalent, and 4 survived. All 4 survivors were minor and all were in the issue steps, so no finding reached the skeptic stage:
+
+- `--state open` on the finding lookup. The `gh` stub ignored `--state`, so the open step could have commented on a closed issue.
+- `continue-on-error` on the finding open step. Without it, a `gh` error while filing drift would red the run as an outage.
+- The recovery close's exact-title filter.
+- The close loop judging only `.[0]`. The only test put the verified issue first.
+
+Each survivor got a test, and each test was shown red under its mutation before `b1403e87` was pushed. With no blocker or major, this was a clean round, not a third dirty one, and the PR landed. `main` moved three times while `land-prs` waited: two update-branches, plus one hand merge for a BACKLOG conflict with #989's answered line.
+
+**First live run** (dispatched once on `main`): https://github.com/reddoorla/reddoor-maintenance/actions/runs/36638161272. The positive control passed on all three fixtures. The sweep printed `SYNC_CONFIGS_DRIFT drifted=15 clean=0 skipped=0 total=15`, with 51 DRIFT lines across 15 repos. It filed #1007 "Fleet config drift", and the recovery-close step ran and found nothing to close.
+
+**Beliefs corrected on contact.** The instrument works. What it measured is that every site on the roster has drifted from the templates, with nothing clean and nothing skipped. Counting DRIFT lines per file: `.gitignore` 13 of 15 repos, `playwright.config.ts` 9, `eslint.config.js` 8, `lighthouserc.json` 7, `.prettierrc.json` 6, `netlify.toml` 4, `renovate.json` 3, `.prettierignore` 1. So the weekly report starts as a standing backlog of 15 per-repo `sync-configs` PRs, not an exception feed. Healing it is a per-repo PR each time; a fleet-wide push is 🔴 and was not attempted. Until those land, #1007 stays open every week by design.
+
+## 2026-09-29 — Renovate's grouped PR opens on the run that pushes it: preset change written, not deliverable from the cloud (#898)
+
+The operator picked `prCreation: "immediate"` on the grouped rule for #898. Before writing it, the delay was measured on this repo. The 2026-09-28 Monday 02:05Z run pushed `renovate/all-minor-patch` at 02:07:37Z. The branch carried `renovate/stability-days: success` and zero check runs, which is the state #35 made possible. The next scheduled run started at 18:48Z, 48 minutes after `before 6pm on monday` closed, and no Renovate PR was created in this repo that week. That is obstacles 1 and 2 of #898 exactly, so the grouped rule is where the delay comes from and the stop condition did not fire.
+
+Renovate's source (main at `7fa35d7`, `lib/workers/repository/update/branch/index.ts`) was read before building on the option. The early return that loses the week is `!branchPr && … && commitSha && config.prCreation !== 'immediate'`, so it only ever applied to a branch with no PR yet. The same file skips PR automerge on any run that pushed a commit (`config.ignoreTests === true || !commitSha`). So `immediate` opens the PR on the pushing run and does not merge it on that run, and the preset's invariant (3), a required check on every base branch, is exercised no more than before. The source also shows that once a PR exists, an out-of-schedule run still processes the branch (`updateNotScheduled` defaults to true), so the merge need not wait a week. That was read, not observed on this fleet, and the preset's own description says an out-of-schedule run is a no-op; the two should be reconciled with a real run before anyone relies on either.
+
+The change is one packageRule, `matchUpdateTypes: ["minor","patch"]` with `prCreation: "immediate"`, placed above the reddoor-website rule that must stay last. `group:allNonMajor` puts every minor and patch update into the grouped branch, so this is that branch plus any minor or patch security branch. It does nothing for `renovate/pnpm-12.x`, which is a major held by Renovate's own limits, not by GitHub's API allowance, and the grouped branch sorts before majors, so it will now take one of the two hourly PR slots first.
+
+Instruments, proved before trusted. `validate.yml`'s preset check passed the change and threw on a copy with `platformAutomerge` removed. `renovate-config-validator` 44.121.3 passed the change, but also passed `prCreation: "sometimes"`, first because a file passed by path is validated as global config and then, even as a repo `renovate.json`, because it does not check `allowedValues`. It did reject an unknown key and a numeric value inside `packageRules`. So it proves the key is accepted inside a packageRule, and the value rests on the options schema (`allowedValues: ['immediate', 'not-pending', 'status-success', 'approval']`). Prettier flags `renovate-config.json` on `.github`'s main too, so it is not a gate there.
+
+**What did not happen.** `add_repo` refuses any repository whose name starts with a dot, so `reddoorla/.github` cannot be attached to a cloud session: the git proxy refused the push and the GitHub MCP refused the branch. The commit is stored as `docs/patches/2026-09-29-github-renovate-grouped-pr-immediate.patch` and BACKLOG Operator decisions 15 asks the operator to open the PR from the laptop. Any future cloud brief that ends in a `.github` PR has the same wall; it should be routed to the laptop from the start.
+
+## 2026-09-29 — Three standing product calls closed: #711 into CLAUDE.md, #690 verified and closed, BACKLOG item 18 answered (#1010)
+
+The operator answered BACKLOG Operator decisions 18 in the PM pass, and this worker carried out the three parts that were docs: #711 closes into `CLAUDE.md`, #690 is verified against the fleet before it closes, and item 18 records each answer. No code changed, and nothing was dispatched.
+
+**#711.** The issue's twelve instances end with its own authors arguing that "the remedy is mechanical or it is nothing", since three of the last four instances were committed while writing about the class. The operator chose the prose close anyway, and the paragraph added under "Prove the instrument" is deliberately short: it names the class, the two instances that cost the most, and the rule each teaches. Instance 12 was the only one that produced an action rather than a sentence: a healthy reddoor-starter CI run cancelled on a duration nobody measured, because a wait loop returning stood in for a clock. The Prismic `my.page.uid` misread went furthest, into plan F via #707. The paragraph ends on the refinement the thread earned from instance 7 onwards: the saving read almost always had to go to a different authority, not the same one twice. The lint the thread asked for was not built, and nobody is currently scoped to build one.
+
+**#690, measured.** The org listing endpoint is refused from the cloud (`orgs/reddoorla/repos` answers 403, "sessions are bound to their configured repositories"), so the repo list came from repository search, which returned 33 repos: 27 public and non-archived, 3 archived (`the-pointe`, `the-tower`, `reddoor-test`) and 3 private (`claude-skills`, `reddoor-rfp-analyses`, `reddoor-prospect-runner`). The pins came from `raw.githubusercontent.com`, whose answer for this repo was checked first against the local `package.json` (`pnpm@11.11.0` on both). 21 repos read `pnpm@12.5.1`, and a PR search on `head:renovate/pnpm-12.x` returned exactly 21 merged Renovate PRs, one per repo, from reddoor-starter#157 on 09-21 to the batch merged 09-22. The two counts matching is the positive control. The 5 repos still on `pnpm@11.11.0` (29-navy, erp-industrial, reddoor-maintenance, reddoor-md-pdf, roalson-interests) each list "update pnpm to v12" under Awaiting Schedule on their Dependency Dashboard, and four already carry a `renovate/pnpm-12.x` branch whose `package.json` reads `pnpm@12.6.0`. Every in-scope repo extends `github>reddoorla/.github:renovate-config`, so none is outside Renovate. `.github` has no `package.json`. The private and archived repos are out of the pin guard's scope by the operator's 2026-09-17 decision. #690 closed with the table.
+
+**Found on the way, not touched.** reddoor-maintenance still carries `renovate/npm-pnpm-vulnerability`, left behind by #668 (merged 2026-09-02). That is the same branch name that swallowed reddoor-starter's pnpm security bump for two months (#690's first comment). Its dashboard (#490) does not list it under "PR Edited (Blocked)" today, so it blocks nothing yet. It is primed for the next pnpm advisory, though, and the cloud proxy refuses branch deletes, so it is left for a laptop session.

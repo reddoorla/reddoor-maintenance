@@ -1,0 +1,34 @@
+From d549d5a868a75e947d94f3aa65d04cbf0c5637f4 Mon Sep 17 00:00:00 2001
+From: Tucker Lemos <contact@tuckerlemos.com>
+Date: Tue, 29 Sep 2026 22:13:41 +0000
+Subject: [PATCH] fix(renovate): open the grouped minor/patch PR on the run
+ that pushes it (reddoor-maintenance#898)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01S4jk2hZEYuaYgiWiWxRSkY
+---
+ renovate-config.json | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/renovate-config.json b/renovate-config.json
+index 8c18a4d..d456972 100644
+--- a/renovate-config.json
++++ b/renovate-config.json
+@@ -43,6 +43,14 @@
+       "automerge": true,
+       "platformAutomerge": false
+     },
++    {
++      "description": "GROUPED MINOR/PATCH PR OPENS ON THE RUN THAT PUSHES IT (2026-09-29, reddoor-maintenance#898). `group:allNonMajor` puts every minor and patch update into the one `renovate/all-minor-patch` branch, so this rule matches exactly that branch (plus any minor or patch security branch, where opening sooner is the point). Under the top-level `prCreation: not-pending`, Renovate returns early from any run that pushed a commit to a branch with no PR yet (`config.prCreation !== 'immediate'` in lib/workers/repository/update/branch/index.ts), and the first Monday run always pushes, because a week of releases has arrived. The PR could therefore only open on a second in-window run that pushed nothing. Measured 2026-09-28 on reddoor-maintenance: the 02:05Z run pushed `renovate/all-minor-patch` at 02:07:37Z with `renovate/stability-days: success` and zero check runs, the next scheduled run started at 18:48Z, after `before 6pm on monday` closed, and no Renovate PR was created in that repo that week. On 2026-09-21, 14 of 25 dispatched repos pushed on their second run as well, and roalson-interests, whose main moved eight times that day, rebased on every run and could not open the PR on any day. `immediate` opens the PR on the run that pushes. It does NOT make that run merge it: the same file skips PR automerge when the run pushed a commit (`config.ignoreTests === true || !commitSha`), so the merge still happens on a later run, after CI has registered, and invariant (3) above holds as before. `internalChecksFilter: strict` still keeps releases younger than `minimumReleaseAge` out of the branch, so the PR carries no pending stability status. Held packages are unaffected: a group containing `@reddoorla/maintenance` opens and waits for a human, as designed. This rule does NOT touch majors, lock-file maintenance, `prHourlyLimit` or `branchConcurrentLimit`, or the GitHub App's shared API allowance, so a major such as `renovate/pnpm-12.x` that is rate-limited on a dependency dashboard stays rate-limited, and because the grouped branch sorts before majors it now takes one of the two hourly PR slots first. It must stay above the reddoor-website rule, which has to stay last.",
++      "matchUpdateTypes": [
++        "minor",
++        "patch"
++      ],
++      "prCreation": "immediate"
++    },
+     {
+       "description": "Exempt lockfile maintenance from the top-level 1-day minimumReleaseAge. The gate (added in .github#26) emitted a pending renovate/stability-days status on every lock-file-maintenance PR, freezing all 11 of the 2026-08-10 Monday batch open and blocking the automerge that transitive-vuln cleanup rides on. CORRECTION (2026-08-12): the original version of this note justified the exemption by claiming fleet CI's pnpm supply-chain policy already rejects lockfile entries younger than 24h at install time. That is false \u2014 every fleet repo sets `minimumReleaseAge: 0` in pnpm-workspace.yaml (10/10 sampled, including reddoor-starter, which every site clones), so there is no pnpm-layer age gate backing this up. Do not cite one. The exemption stands on its own merits instead: lock-file maintenance re-resolves the ranges the manifest already permits rather than widening any range or adding a dependency, and it is the mechanism transitive-vulnerability cleanup rides on, so gating a whole-tree refresh on the freshest single transitive release trades real security latency for no meaningful supply-chain protection. `minimumReleaseAge: null` resets the option for this update type only (schema type is string|null, default null); normal version-bump PRs keep the 1-day wait, and security PRs were never gated (vulnerabilityAlerts defaults include minimumReleaseAge: null).",
+       "matchUpdateTypes": [
+-- 
+2.43.0
+
