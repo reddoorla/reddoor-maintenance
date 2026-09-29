@@ -161,7 +161,7 @@ reddoor-maint header-image <slug> --write-back  # stores it as the site's plate 
 
 A send for a site with no plate fails by name, so do this before its first report. (Every real draft also refreshes the plate from the live homepage.)
 
-Finally, open the site's page in the console (`/s/<slug>`) and fill in its **Site details**: report recipients (a blank To sends to the point of contact), maintenance/testing cadence, and the GA4 property / search query / Search Console property if it gets analytics.
+Finally, open the site's page in the console (`/s/<slug>`) and fill in its **Site details**: report recipients (a blank To sends to the point of contact), maintenance/testing cadence, the GA4 property and the Search Console property (`sc-domain:<host>` or an `https://…/` prefix), and a search query if the site name is not what people search for. GA4 and Search Console are both setup checks, each with its own opt-out: a site that deliberately goes without one records `no analytics` or `no search console` under **Accepted watch conditions** instead, and the cockpit stops asking (a `no search console` site also skips the report's Google Indexed lookup).
 
 What makes the site show up where:
 

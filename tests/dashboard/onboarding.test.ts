@@ -4,6 +4,8 @@ import {
   ONBOARDING_LABELS,
   missingOnboarding,
 } from "../../src/dashboard/onboarding.js";
+import { assignTier } from "../../src/dashboard/fleet-cockpit.js";
+import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../../src/fleet/opt-outs.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
@@ -84,6 +86,24 @@ describe("onboardingStatus", () => {
     ).toBe(false);
   });
 
+  it.each([
+    ...SEARCH_CONSOLE_OPT_OUT_KEYS.map(
+      (k) => ["searchConsole", "search-console-unrecorded", k] as const,
+    ),
+    ...ANALYTICS_OPT_OUT_KEYS.map((k) => ["analytics", "no-analytics", k] as const),
+  ])("the setup check and the cockpit agree on the %s opt-out spelled %j", (check, signal, key) => {
+    const site = row({
+      status: "maintained",
+      ga4PropertyId: null,
+      searchConsoleProperty: null,
+      acceptedWatchConditions: [key],
+    });
+    expect(onboardingStatus(site).checks[check]).toBe(true);
+    expect(assignTier(site, [], new Date("2026-09-29T00:00:00Z")).watchSignals).not.toContain(
+      signal,
+    );
+  });
+
   it("treats maintenanceFreq 'None' as schedule-not-set", () => {
     expect(onboardingStatus(row({ maintenanceFreq: "None" })).checks.schedule).toBe(false);
     expect(onboardingStatus(row({ maintenanceFreq: "Monthly" })).checks.schedule).toBe(true);
@@ -115,7 +135,7 @@ describe("ONBOARDING_LABELS", () => {
       schedule: "Maintenance schedule",
       poc: "Point of contact",
       analytics: 'GA4 property (or a "no analytics" opt-out)',
-      searchConsole: 'Search Console property (or a "no search console" opt-out)',
+      searchConsole: 'Search Console property recorded (or a "no search console" opt-out)',
     });
   });
 });
@@ -128,7 +148,7 @@ describe("missingOnboarding", () => {
       "Maintenance schedule",
       "Point of contact",
       'GA4 property (or a "no analytics" opt-out)',
-      'Search Console property (or a "no search console" opt-out)',
+      'Search Console property recorded (or a "no search console" opt-out)',
     ]);
   });
 

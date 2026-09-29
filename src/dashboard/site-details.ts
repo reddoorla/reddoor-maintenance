@@ -4,6 +4,7 @@ import { CANONICAL_STATUSES } from "../fleet/site-status.js";
 import type { CellValue } from "../fleet/site-fields.js";
 import { isOwnerRepo } from "../util/git.js";
 import { isHttpUrl } from "../util/url.js";
+import { normalizeSearchConsoleProperty } from "../reports/search/property.js";
 
 /**
  * Status options the editor offers, expressed as the values the "Status" column
@@ -67,7 +68,8 @@ type FieldKind =
   | "notifyRouting"
   | "bool"
   | "multiselect"
-  | "secret";
+  | "secret"
+  | "searchConsoleProperty";
 export type EditableField = {
   column: string;
   kind: FieldKind;
@@ -113,7 +115,7 @@ export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   // every field in this map is rendered back into the page carrying its stored
   // value (see `inputRow` in render.ts). It needs a write-only kind first.
   netlifyId: { column: "Netlify ID", kind: "text", maxLen: 200 },
-  searchConsoleProperty: { column: "Search Console property", kind: "text", maxLen: 500 },
+  searchConsoleProperty: { column: "Search Console property", kind: "searchConsoleProperty" },
   mailchimpAudienceId: { column: "Mailchimp Audience ID", kind: "text", maxLen: 200 },
   newsletterWebhook: { column: "Newsletter Webhook", kind: "url" },
   maintenanceDay: { column: "maintenance day", kind: "date" },
@@ -213,6 +215,8 @@ export function normalizeFieldValue(f: EditableField, raw: string): CellValue | 
       // on every page load (its value is never sent to the browser), so
       // clear-on-empty would let any unrelated save destroy a working key.
       return v.length <= (f.maxLen ?? 500) ? v : null;
+    case "searchConsoleProperty":
+      return v === "" ? "" : normalizeSearchConsoleProperty(v);
     case "text":
       return v.length <= (f.maxLen ?? 500) ? v : null;
   }
