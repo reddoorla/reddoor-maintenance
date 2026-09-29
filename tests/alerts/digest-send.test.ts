@@ -193,6 +193,32 @@ describe("day sequences (P1-20 review round 2)", () => {
     expect(replay([lh(30), lh(34), lh(38), lh(42)])).toEqual(["first", "skip", "worse", "skip"]);
   });
 
+  it("a Lighthouse score hovering at the floor does not re-mail on each dip (review round 3)", () => {
+    const lhLine = { ...line("lh", 26), tolerance: LIGHTHOUSE_WORSE_POINTS };
+    const ci = line("ci:y");
+    const seq = [[lhLine, ci], [ci], [ci], [lhLine, ci], [ci], [ci], [lhLine, ci]];
+    expect(replay(seq)).toEqual(["first", "skip", "skip", "skip", "skip", "skip", "skip"]);
+  });
+
+  it("a Lighthouse item gone four weeks is forgotten, so its return is news", () => {
+    const lhLine = { ...line("lh", 26), tolerance: LIGHTHOUSE_WORSE_POINTS };
+    const ci = line("ci:y");
+    const back = (gap: number) =>
+      replay([[lhLine, ci], ...Array.from({ length: gap }, () => [ci]), [lhLine, ci]]).at(-1);
+    expect(back(28)).toBe("skip");
+    expect(back(29)).toBe("added");
+  });
+
+  it("a critical count that falls and rises again is mailed at once", () => {
+    const vuln = (n: number) => [{ ...line("vuln:a", n), critical: true }];
+    expect(replay([vuln(2), vuln(1), vuln(2), vuln(2)])).toEqual([
+      "first",
+      "skip",
+      "worse",
+      "skip",
+    ]);
+  });
+
   it("a health-gate field flipping between failing and unknown is the same ask", () => {
     const asks = [line("p", 1, ["health-gate: Maint: Uptime Checked"])];
     expect(replay([asks, asks, asks, asks])).toEqual(["first", "skip", "skip", "skip"]);

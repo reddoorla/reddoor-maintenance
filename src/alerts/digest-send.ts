@@ -2,7 +2,9 @@ export const DIGEST_HEARTBEAT_DAYS = 7;
 
 export const LIGHTHOUSE_WORSE_POINTS = 5;
 
-export type SentItem = { metric: number; gone?: string; critical?: boolean };
+export const NOISY_MEMORY_DAYS = 28;
+
+export type SentItem = { metric: number; gone?: string; critical?: boolean; tolerance?: number };
 
 export type DigestSendLog = {
   sentOn: string | null;
@@ -72,6 +74,17 @@ export function decideDigestSend(
   return { send: false, reason: "unchanged" };
 }
 
+function baseline(was: SentItem, f: Flat, sending: boolean): number {
+  if (sending) return Math.max(was.metric, f.metric);
+  return f.critical ? Math.min(was.metric, f.metric) : was.metric;
+}
+
+function stillRemembered(was: SentItem, today: string): boolean {
+  if (was.critical) return false;
+  if (was.gone === undefined || was.gone === today) return true;
+  return (was.tolerance ?? 0) > 0 && daysBetween(was.gone, today) < NOISY_MEMORY_DAYS;
+}
+
 export function nextSent(
   prior: Record<string, SentItem>,
   lines: readonly DigestLine[],
@@ -82,16 +95,16 @@ export function nextSent(
   const out: Record<string, SentItem> = {};
   for (const [k, f] of now) {
     const was = prior[k];
-    if (!was) out[k] = { metric: f.metric };
-    else out[k] = { metric: sending ? Math.max(was.metric, f.metric) : was.metric };
+    out[k] = {
+      metric: was ? baseline(was, f, sending) : f.metric,
+      ...(f.critical ? { critical: true } : {}),
+      ...(f.tolerance > 0 ? { tolerance: f.tolerance } : {}),
+    };
   }
   for (const [k, was] of Object.entries(prior)) {
-    if (now.has(k) || was.critical) continue;
-    if (was.gone === undefined || was.gone === today) {
-      out[k] = { metric: was.metric, gone: today };
-    }
+    if (now.has(k) || !stillRemembered(was, today)) continue;
+    out[k] = { ...was, gone: was.gone ?? today };
   }
-  for (const [k, f] of now) if (f.critical) out[k] = { ...out[k]!, critical: true };
   return out;
 }
 
@@ -120,6 +133,9 @@ export function coerceSendLog(raw: unknown): DigestSendLog {
         metric: v.metric,
         ...(typeof v.gone === "string" ? { gone: v.gone } : {}),
         ...(v.critical === true ? { critical: true } : {}),
+        ...(typeof v.tolerance === "number" && Number.isFinite(v.tolerance) && v.tolerance > 0
+          ? { tolerance: v.tolerance }
+          : {}),
       };
     }
   }
