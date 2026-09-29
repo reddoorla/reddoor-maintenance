@@ -248,11 +248,16 @@ Note the creds live in the repo `.env`, NOT in
 - Do NOT read Discord through the browser: `discord.com` in the local Chrome
   profile is logged out, and logging in as the operator is not yours to do.
 
-**Know who is internal before drafting anything.** The project channels contain
-Reddoor staff AND clients. In `#sonder`, `timholmes_62898` and `nicole_35266`
-are internal and **Josh** is the client — a note "for Tim" is a colleague note,
-not a client email. Read enough of the channel to place people before writing
-in anyone's voice.
+**There are no clients in the Discord** (measured 2026-09-29: the guild has 5
+members, the reader bot plus `tucksravin`, `timholmes_62898`, `nicole_35266`
+and `eriksvendsen_89989`, all Reddoor). Clients such as Josh (Sonder), Meagan
+(Revogen) or Brooke (VLF) appear only in the third person, in asks Erik or Tim
+relay after a call or paste from email. So a channel is the colleague record of
+a client, not the client's voice: a note "for Tim" is a colleague note, and the
+only client-facing prose in the corpus is Erik's email, which is warmer and
+longer than the channel register. Read enough to place people before writing
+in anyone's voice, and treat the tone rule above as "how the team talks to
+each other", not a sample of client email.
 
 ## Two starter templates (since 2026-08-31)
 

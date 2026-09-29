@@ -113,14 +113,16 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                           | Done when                                                                                        |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                       | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts     |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                 | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso             |
-| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                            |
-| P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review) | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested |
-| P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                              | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap              |
-| P1-19 | `search_found_page1 = 0` is still stored when no Search Console property matched (`src/reports/draft.ts:359`, `src/recipes/announce.ts:120`), while the evidence now says `unknown` (#959). Pairs with #943                                                                         | 🟢   | S      | as named                                                                                             | A no-property result stores NULL, not 0                                                          |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                       | Tier | Effort | Start here                                                                                           | Done when                                                                                        |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                                                                                                                                                              | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts     |
+| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                                                                                                                                                        | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso             |
+| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                                                                                                                                                         | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                            |
+| P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review)                                                                                                                                        | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested |
+| P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                                                                                                                                                                     | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap              |
+| P1-19 | `search_found_page1 = 0` is still stored when no Search Console property matched (`src/reports/draft.ts:359`, `src/recipes/announce.ts:120`), while the evidence now says `unknown` (#959). Pairs with #943                                                                                                                                                                                                                | 🟢   | S      | as named                                                                                             | A no-property result stores NULL, not 0                                                          |
+| P1-20 | Digest: a day whose pending set is unchanged still sends (`src/reports/digest.ts:563-660` skips only empty days and same-day duplicates); 09-18→09-28 repeated the same "29 Navy … health-gate (+4 more)" line for 11 days [M, mailbox]. Send on change (or weekly heartbeat), carry the age of a repeated item, and carry the exact ask ("set `Report recipients (To)` on `/s/29-navy`, then approve") linked to the cell | 🟢   | S–M    | `src/reports/digest.ts`, `tests/reports/digest*`                                                     | An unchanged pending set sends nothing; a repeated item shows its age and the concrete action    |
+| P1-21 | `docs/autonomy-journal.md` has had no row since 2026-09-09 (#733) while `AUTONOMY.md:119-120` still tells agents to write there; `AUTONOMY.md:122-129` calls `settings.json` "local, gitignored" (false since #788). Retire the file, point the loop at `docs/workJournal.md`, fix the claim (`docs/operating-model-review-2026-09-29.md` R8)                                                                              | 🟢   | S      | `AUTONOMY.md`, `docs/autonomy-journal.md`                                                            | No doc names a journal that nobody writes; AUTONOMY.md's settings claim matches `.gitignore`     |
 
 ### P1-3 start here (#912)
 
@@ -179,44 +181,55 @@ Ordered by what unblocks the most. Each line is the exact ask.
    `ga4_property_id` (site editor), so its 10-05 report carries analytics (#921).
 5. **Release PR #952** (0.100.1, the #944 changeset) — merge when you want it.
    It publishes to npm.
-6. **Airtable residue** — PR #954 (another session, at your request, opened
+6. **Operating-model review** (`docs/operating-model-review-2026-09-29.md`, five
+   calls, in the order they unblock things): (a) zero-blocker Maintenance
+   reports: keep the click, auto-approve after 3 days unless a site is on hold,
+   or auto-approve for listed sites only; (b) pin the "Daily PM pass" Routine to
+   Opus (it ran on Sonnet); (c) which skills move into `.claude/skills/` for
+   cloud sessions; (d) the three cloud environment secrets (item 11 below);
+   (e) the Discord ✅ convention with Tim, Nicole and Erik.
+7. **Webflow, hard date 2026-10-19** [M, Discord #website-maintenance 09-17]:
+   two sites still to convert before the license renews; Domaru must stay up
+   to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19.
+
+8. **Airtable residue** — PR #954 (another session, at your request, opened
    2026-09-29 05:52Z) removes the `settings.json` pre-approval and network allow
    and AUTONOMY.md's Airtable tiers, and keeps `AIRTABLE_PAT` by your choice.
    Not in #954: AUTONOMY.md still calls `settings.json` "local, gitignored"
    (false since #788), and its working loop names `docs/autonomy-journal.md`,
    which has had no row since 2026-09-09.
-7. **Changesets v3** — #897 (action v2) and #901 (CLI v3) must land together as
+9. **Changesets v3** — #897 (action v2) and #901 (CLI v3) must land together as
    one hand-written PR, or be closed. Merged alone, #897 reds the release job on
    every push to main, and #901 publishes to npm while silently skipping the
    `v*` tag and GitHub Release, which leaves the match-harness snapshot guard
    comparing against v0.100.0 forever [M, upstream source]. Details:
    #955.
-8. **#918 / #920** (GA4 tag mechanism + recipe) — their author stopped after
-   four dirty review rounds with "the merge is yours". #918 is 16 behind main
-   and predates #936's `no analytics` opt-out.
-9. **#916** — #950 merged first (2026-09-29 12:39Z), so #916 now conflicts
-   with `main` and needs a rebase over it. It would turn 9 of 12 sampled sites
-   red until their palettes are fixed. Decide whether it is still wanted before
-   anyone spends the rebase.
-10. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
+10. **#918 / #920** (GA4 tag mechanism + recipe) — their author stopped after
+    four dirty review rounds with "the merge is yours". #918 is 16 behind main
+    and predates #936's `no analytics` opt-out.
+11. **#916** — #950 merged first (2026-09-29 12:39Z), so #916 now conflicts
+    with `main` and needs a rebase over it. It would turn 9 of 12 sampled sites
+    red until their palettes are fixed. Decide whether it is still wanted before
+    anyone spends the rebase.
+12. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
-11. **Google Maps keys (#754)** — add referrer and API restrictions to the three
+13. **Google Maps keys (#754)** — add referrer and API restrictions to the three
     keys in GCP, then close the four alerts.
-12. **Promotion authority (#623 → #545)** — pick identity A/B/C, apply the
+14. **Promotion authority (#623 → #545)** — pick identity A/B/C, apply the
     prepared staging ruleset, and promote reddoor-website `staging` → `main`.
-13. **Renovate delivery (#898)** — pick among `prCreation: "immediate"`, a
+15. **Renovate delivery (#898)** — pick among `prCreation: "immediate"`, a
     priority on the grouped rule, wider or staggered windows, and a separate App
     identity for `release.yml`. `renovate/pnpm-12.x` is rate-limited on #490 now.
-14. **#779** — go-ahead for the form-e2e central widening. Seven maintained
+16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
-15. **Client email copy (#957 follow-up).** The Maintenance email draws a green
+17. **Client email copy (#957 follow-up).** The Maintenance email draws a green
     ✓ beside every checklist row whatever the evidence says
     (`maintenance-email/template.ts` → `email-sections.ts`). With #957, LAHI's
     email will say "CMS Checked ✓" for a site with no CMS, as Form Functionality
     already does for sites without a form. Decide whether `n/a` rows render
     differently or drop out.
-16. **Standing product calls** — #943 (what "Search Console set up" means),
+18. **Standing product calls** — #943 (what "Search Console set up" means),
     #948 (hydration signal), #690 (pnpm pin questions), #672 (cockpit design),
     #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
     #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
