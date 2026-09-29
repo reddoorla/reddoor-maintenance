@@ -29,7 +29,7 @@ Local + reversible-remote. The agent does these freely:
 - Edits, branches, commits, push to **feature** branches, PR **create**.
 - **Merge of any non-release PR** that is CI-green and adversarial-review-clean
   (see Merge authority).
-- Reads of Airtable / GitHub / the fleet; running audits, builds, tests, lint,
+- Reads of Turso / GitHub / the fleet; running audits, builds, tests, lint,
   typecheck, `changeset` (authoring, not publishing), the review workflows.
 - **Prismic model push via CI on a merged PR** — a model change rides a normal
   PR: the check posts the delta as a PR comment, the PR is merged under Merge
@@ -42,7 +42,8 @@ Local + reversible-remote. The agent does these freely:
 
 ### 🟡 YELLOW — autonomous behind a stronger gate, logged + reversible
 
-- Airtable **writes** (idempotent, restorable) from the audit pipeline.
+- Turso **writes** (idempotent, restorable from the nightly backup) from the audit
+  pipeline.
 - Behavior-changing `feat` merges — allowed unattended **only** when CI is green
   AND a 3-lens adversarial review is clean. Logged in the journal so the arc is
   reviewable after the fact.
@@ -132,7 +133,7 @@ enabled purely via settings — the `/sandbox` panel is a terminal TUI the VS Co
 extension doesn't render, and isn't required). Sandboxed commands get filesystem
 access limited to the project + caches (`~/Library/pnpm`,
 `~/Library/Caches/ms-playwright`, `~/.npm`) and network limited to an allowlist
-(github, npm, airtable, googleapis, resend).
+(github, npm, googleapis, resend).
 
 **What it actually contains (the honest scope):** the primary supply-chain vector
 — **`pnpm install` / `pnpm add`**, i.e. dependency **postinstall scripts** — runs

@@ -130,8 +130,8 @@ export type GitHub = {
    *  need a paid plan, so callers gate on this rather than attempting. */
   repoVisibility: (repo: string) => Promise<string>;
   /** Every repo in the org (paginated) — the anti-hand-typed-list enumerator.
-   *  Sweeps driven by a hand-maintained or Airtable-scoped list have already
-   *  produced two false "all clear"s; enumerate from the API instead.
+   *  Sweeps driven by a hand-maintained list have already produced two false
+   *  "all clear"s; enumerate from the API instead.
    *  secretScanning/pushProtection come from the same listing (no extra call);
    *  "unavailable" means the token couldn't read security_and_analysis (needs
    *  admin/security read) — callers must treat that as unverified, not fine. */

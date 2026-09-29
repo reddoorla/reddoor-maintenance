@@ -102,7 +102,7 @@ describe("renderSubmissionsPageHtml — bulk mark-read form", () => {
 
 // ---------- adapter: the POST path on the submissions-page function ----------
 
-// Phase 2: the fleet list is a Turso read (fleet-state), not Airtable.
+// The fleet list is a Turso read (fleet-state).
 vi.mock("../../src/db/fleet-state.js", () => ({
   listSites: vi.fn(async () => [{ id: "recA", name: "Site A" }]),
 }));
@@ -145,8 +145,6 @@ const ctx = {} as unknown as Context;
 describe("submissions-page adapter — bulk mark-read POST", () => {
   beforeEach(() => {
     process.env.DASHBOARD_PASSWORD = "s3cret";
-    process.env.AIRTABLE_PAT = "pat";
-    process.env.AIRTABLE_BASE_ID = "appX";
     process.env.TURSO_DATABASE_URL = "libsql://x";
     markMock.mockClear();
   });
@@ -230,23 +228,5 @@ describe("submissions-page adapter — bulk mark-read POST", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("No submissions match these filters.");
-  });
-
-  // The page reads `sites` and `submissions` from Turso and imports only
-  // `siteSlug` (a pure string helper) from the Airtable module — so an Airtable
-  // presence check could only ever refuse a page it does not need. The rest of
-  // this file sets AIRTABLE_PAT in beforeEach, which is exactly what kept the
-  // dead guard invisible.
-  it("renders with no Airtable env at all", async () => {
-    delete process.env.AIRTABLE_PAT;
-    delete process.env.AIRTABLE_BASE_ID;
-    const res = await submissionsPage(
-      new Request("https://dash.x/submissions", {
-        method: "GET",
-        headers: { authorization: AUTH },
-      }),
-      ctx,
-    );
-    expect(res.status).toBe(200);
   });
 });

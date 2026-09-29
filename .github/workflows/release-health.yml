@@ -138,7 +138,9 @@ jobs:
       # File/reopen a single deduped tracking issue (by exact title — only needs issues:write).
       # continue-on-error so the alert machinery can never flip the run's own status.
       - name: Open/update the npm-drift tracking issue
-        if: steps.drift.outputs.behind == 'yes'
+        # main only: a branch run's finding is not main's to file (and a green PR-branch
+        # dispatch of time-travel once closed #895 while main was still red).
+        if: steps.drift.outputs.behind == 'yes' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -156,7 +158,8 @@ jobs:
           fi
 
       - name: Close the drift issue once npm catches up
-        if: steps.drift.outputs.behind != 'yes'
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: steps.drift.outputs.behind != 'yes' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -178,7 +181,9 @@ jobs:
           done
 
       - name: Open/update the release-failing tracking issue
-        if: steps.relstate.outputs.red == 'yes'
+        # main only: a branch run's finding is not main's to file (and a green PR-branch
+        # dispatch of time-travel once closed #895 while main was still red).
+        if: steps.relstate.outputs.red == 'yes' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -197,7 +202,8 @@ jobs:
           fi
 
       - name: Close the release-failing issue once it goes green
-        if: steps.relstate.outputs.red != 'yes'
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: steps.relstate.outputs.red != 'yes' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1103,7 +1103,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
 
   it("labels each archived row from its OWN raw cell, not from the shared canonical one", () => {
     // A RENDERER contract test, and deliberately synthetic: since stage 3 no
-    // Airtable cell can produce `status !== statusRaw`, so these rows are built
+    // cell can produce `status !== statusRaw`, so these rows are built
     // by hand rather than through mapRow. What it still catches is a renderer
     // that starts labelling from `status` — the change that once relabelled all
     // 12 live archived rows and was caught only on the combined tree.
@@ -1119,16 +1119,9 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     expect(html).toContain('<span class="muted">deprecated</span>');
   });
 
-  it("labels the archived lane from a RAW Airtable cell driven through mapRow", () => {
-    // End-to-end through the real read seam. This used to drive "legacy" and
-    // "deprecated" cells through mapRow and assert they rendered under their own
-    // names — which worked because the alias map made them archived while
-    // statusRaw kept them distinct. Stage 3 deleted that map and the operator
-    // deleted the two options from Airtable, so that fixture now describes a
-    // state the base cannot hold.
-    //
-    // What it pins now is the same seam in its post-migration shape: the lane is
-    // driven by real mapRow output, and the label still comes from the raw cell.
+  it("labels the archived lane from a RAW cell driven through mapRow", () => {
+    // End-to-end through the real read seam: the lane is driven by real mapRow
+    // output, and the label still comes from the raw cell.
     const record = (id: string, name: string, status: string) =>
       mapRow({ id, fields: { Name: name, Status: status } });
     const html = renderCockpitHtml(

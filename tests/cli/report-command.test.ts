@@ -252,11 +252,6 @@ describe("draftDueReports period guard", () => {
   });
 
   it("reads every report ONCE, from the injected store", async () => {
-    // Was: "one unfiltered Airtable select, no per-site record-id formulas" —
-    // linked-record fields render as primary-field NAMES in filterByFormula, so a
-    // per-site formula matched NOTHING (live-proven). #646 step 4 moved the read
-    // to Turso; what survives from the old test is the shape that matters: ONE
-    // fleet-wide read.
     rosterRows = [siteRow(), siteRow({ id: "rec_site_two", name: "Two Co" })];
     let reads = 0;
     await draftDueReports(

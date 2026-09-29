@@ -124,3 +124,111 @@ export function workflowUses(workflow: string): string[] {
       return m ? [m[1]!] : [];
     });
 }
+
+/** One step of one job, as far as a structural gate needs it. */
+export interface WorkflowStep {
+  job: string;
+  /** `name:`, else `id:`, else `uses:`, else the first line of `run:` — what a
+   *  failure message should call the step. */
+  label: string;
+  /** The raw `if:` value with any `${{ … }}` wrapper removed; undefined when absent. */
+  if?: string | undefined;
+  timeoutMinutes?: number | undefined;
+  jobTimeoutMinutes?: number | undefined;
+  /** The step's comment-stripped source, for "does it run X" questions. */
+  source: string;
+}
+
+/**
+ * Every step of every job, read from the comment-stripped workflow.
+ *
+ * Same contract as the extractors above: prettier-formatted, two-space indents —
+ * jobs at 2, job keys at 4, step items at 6, step keys at 8. A step key written
+ * on the dash line (`- if: …`) is read too. A block-scalar `if:` (`|` / `>`)
+ * throws rather than being read as a one-line condition it is not.
+ */
+export function workflowSteps(workflow: string): WorkflowStep[] {
+  const lines = withoutComments(workflow).split("\n");
+  const jobsAt = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+  if (jobsAt === -1) throw new Error("workflow has no top-level `jobs:`");
+
+  const steps: WorkflowStep[] = [];
+  let job = "";
+  let jobTimeout: number | undefined;
+  let current: string[] | undefined;
+  const pending: Array<{ job: string; lines: string[] }> = [];
+  const flush = () => {
+    if (current) pending.push({ job, lines: current });
+    current = undefined;
+  };
+
+  for (const line of lines.slice(jobsAt + 1)) {
+    if (line.trim() !== "" && !/^\s/.test(line)) break; // next top-level key
+    const jobHead = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line);
+    if (jobHead) {
+      flush();
+      // Resolve the previous job's steps with its timeout before switching.
+      for (const p of pending.splice(0)) steps.push(parseStep(p.job, p.lines, jobTimeout));
+      job = jobHead[1]!;
+      jobTimeout = undefined;
+      continue;
+    }
+    const jobKey = /^ {4}timeout-minutes:\s*(\d+)\s*$/.exec(line);
+    if (jobKey) jobTimeout = Number(jobKey[1]);
+    if (/^ {6}- /.test(line)) {
+      flush();
+      current = [line];
+      continue;
+    }
+    if (/^ {0,5}\S/.test(line)) {
+      flush(); // a job-level key ends the step list
+      continue;
+    }
+    if (current) current.push(line);
+  }
+  flush();
+  for (const p of pending) steps.push(parseStep(p.job, p.lines, jobTimeout));
+  return steps;
+}
+
+function parseStep(job: string, lines: string[], jobTimeoutMinutes?: number): WorkflowStep {
+  const keys: Record<string, string> = {};
+  lines.forEach((l, i) => {
+    const m = (
+      i === 0 ? /^ {6}- ([A-Za-z][\w-]*):\s*(.*)$/ : /^ {8}([A-Za-z][\w-]*):\s*(.*)$/
+    ).exec(l);
+    if (m) keys[m[1]!] = m[2]!.trim();
+  });
+  let cond = keys["if"];
+  if (cond !== undefined) {
+    if (/^[|>]/.test(cond)) throw new Error(`job ${job}: block-scalar \`if:\` is not supported`);
+    const wrapped = /^\$\{\{([\s\S]*)\}\}$/.exec(cond);
+    if (wrapped) cond = wrapped[1]!.trim();
+  }
+  const label =
+    keys["name"] ??
+    (keys["id"] ? `id: ${keys["id"]}` : undefined) ??
+    (keys["uses"] ? `uses: ${keys["uses"]}` : undefined) ??
+    `run: ${keys["run"] ?? "?"}`;
+  const timeout = keys["timeout-minutes"];
+  return {
+    job,
+    label,
+    if: cond,
+    timeoutMinutes: timeout === undefined ? undefined : Number(timeout),
+    jobTimeoutMinutes,
+    source: lines.join("\n"),
+  };
+}
+
+/** True when the workflow's `on:` block has a `schedule:` trigger. */
+export function isScheduled(workflow: string): boolean {
+  const lines = withoutComments(workflow).split("\n");
+  const onAt = lines.findIndex((l) => /^(on|"on"):\s*$/.test(l));
+  if (onAt === -1) return false;
+  for (const l of lines.slice(onAt + 1)) {
+    if (l.trim() !== "" && !/^\s/.test(l)) return false;
+    if (/^ {2}schedule:/.test(l)) return true;
+  }
+  return false;
+}

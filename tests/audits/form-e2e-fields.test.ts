@@ -5,7 +5,7 @@ import type { AuditResult } from "../../src/types.js";
 const fe2e = (details: unknown): AuditResult =>
   ({ audit: "form-e2e", site: "acme", status: "pass", summary: "ok", details }) as AuditResult;
 
-describe("form-e2e-airtable", () => {
+describe("form-e2e-fields", () => {
   it("hasFormE2eResult is true only for a form-e2e audit carrying a checkedAt", () => {
     expect(
       hasFormE2eResult(

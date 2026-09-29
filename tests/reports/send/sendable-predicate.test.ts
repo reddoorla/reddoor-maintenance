@@ -1,15 +1,11 @@
 /**
- * #646 step 4: the send queue's predicate, moved from an Airtable
- * `filterByFormula` into SQL.
+ * #646 step 4: the send queue's predicate — `Draft ready` AND `Approved to send`
+ * AND `Sent at` blank — in SQL.
  *
- * Airtable evaluated `AND({Draft ready} = TRUE(), {Approved to send} = TRUE(),
- * {Sent at} = BLANK())` server-side, which is also why the suite's fake base has
- * never been able to exercise it: the fake does not evaluate formulas. So the
- * parity that matters here is not "same rows as the fake Airtable" — it is
- * "every combination of the three columns lands on the side the formula puts it".
- * All eight are driven through the real reader against a real migrated libSQL
- * database in a temp `file:` (never `:memory:`, never a `TURSO_*` url from the
- * environment).
+ * The parity that matters is "every combination of the three columns lands on
+ * the side the rule puts it". All eight are driven through the real reader
+ * against a real migrated libSQL database in a temp `file:` (never `:memory:`,
+ * never a `TURSO_*` url from the environment).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -31,7 +27,7 @@ const COMBOS: Flags[] = [false, true].flatMap((draftReady) =>
 
 const idOf = (f: Flags) => `rec_d${Number(f.draftReady)}_a${Number(f.approved)}_s${Number(f.sent)}`;
 
-/** The Airtable formula, restated once as a predicate so the expectation below is
+/** The send rule, restated once as a predicate so the expectation below is
  *  derived from the RULE rather than from the implementation under test. */
 const formulaSaysSendable = (f: Flags) => f.draftReady && f.approved && !f.sent;
 
@@ -62,7 +58,7 @@ afterEach(async () => {
 });
 
 describe("listSendableReports", () => {
-  it("returns exactly the rows the Airtable formula selected — all eight combinations", async () => {
+  it("returns exactly the rows the send rule selects — all eight combinations", async () => {
     const got = (await listSendableReports(db)).map((r) => r.id).sort();
     const want = COMBOS.filter(formulaSaysSendable).map(idOf).sort();
     expect(got).toEqual(want);

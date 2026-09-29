@@ -229,10 +229,8 @@ describe("runPrismicCiCommand", () => {
     expect(res.output).toMatch(/\[hedloc\] failed: GITHUB_TOKEN not set/);
   });
 
-  // An inventory that names nobody is not a delivered fleet. The Airtable
-  // inventory is view-filtered, so one filter change empties it with no error
-  // anywhere — and "0 applied, 0 noop, 0 failed." exits 0 and reads like a
-  // rollout with nothing left to do.
+  // An inventory that names nobody is not a delivered fleet: "0 applied, 0 noop,
+  // 0 failed." exits 0 and reads like a rollout with nothing left to do.
   it("refuses an inventory that resolved no sites", async () => {
     const fleet = await inventory([]);
     const f = recipeFake();

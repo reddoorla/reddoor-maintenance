@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import { cac } from "cac";
 import type { AuditName, RecipeName } from "../types.js";
 import { loadCredentialsIntoEnv } from "../util/credentials.js";
-import { rewriteRetiredFlags } from "./retired-flags.js";
 import { resolvePackageVersion } from "./version.js";
 
 // Command modules are loaded LAZILY (dynamic `import()` inside each `.action()`),
@@ -949,6 +948,4 @@ cli.on("command:*", () => {
   process.exit(1);
 });
 
-// Retired flag spellings (`--write-airtable` → `--write-back`, #698) are rewritten
-// before cac sees them, so the old names keep working without appearing in --help.
-cli.parse(rewriteRetiredFlags(process.argv));
+cli.parse();
