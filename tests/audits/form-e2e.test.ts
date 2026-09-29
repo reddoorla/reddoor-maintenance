@@ -651,6 +651,25 @@ describe("audits/form-e2e synthesized required fields (#779)", () => {
     });
   });
 
+  it("names the synthesized fields on a failure too, so a rejected value is traceable", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({
+        submit: async () => ({
+          formPresent: true,
+          success: false,
+          detail: "no success banner after submit — POST 400",
+          synthesized: ["interest"],
+        }),
+      }),
+    });
+    expect(r.status).toBe("warn");
+    expect(r.summary).toBe(
+      "form-e2e: synthetic submission failed — no success banner after submit — POST 400 — synthesized required field(s): interest",
+    );
+  });
+
   it("says nothing about synthesis when the standard fills were enough", async () => {
     const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
     expect(r.summary).toBe("form-e2e: synthetic submission succeeded");

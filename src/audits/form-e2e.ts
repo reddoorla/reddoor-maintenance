@@ -476,6 +476,9 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       };
     }
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
+    const synthesizedNote = outcome.synthesized?.length
+      ? ` — synthesized required field(s): ${outcome.synthesized.join(", ")}`
+      : "";
     // ALWAYS defined on this path, never omitted — because this path refreshes
     // `Form E2E checked at`, which is the clock the CRITICAL alarm ages the verdict
     // against. Omitting the verdict here would preserve an older one beside a fresh
@@ -501,7 +504,7 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "form-e2e",
         site: label,
         status: "warn",
-        summary: `form-e2e: synthetic submission failed${outcome.detail ? ` — ${outcome.detail}` : ""}`,
+        summary: `form-e2e: synthetic submission failed${outcome.detail ? ` — ${outcome.detail}` : ""}${synthesizedNote}`,
         details,
       };
     }
@@ -527,9 +530,7 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     // is where that evidence has to land for anyone to see it.
     const refillNote =
       (outcome.refilled ? " — fields were wiped by a client re-render and re-filled once" : "") +
-      (outcome.synthesized?.length
-        ? ` — synthesized required field(s): ${outcome.synthesized.join(", ")}`
-        : "");
+      synthesizedNote;
     return {
       audit: "form-e2e",
       site: label,
@@ -566,7 +567,7 @@ export const SYNTHESIZE_REQUIRED_EXPR = `
       return el.maxLength > 0 ? v.slice(0, el.maxLength) : v;
     };
     for (const el of Array.from(f.elements)) {
-      if (!el.required || el.disabled || !el.name) continue;
+      if (!el.required || el.matches(":disabled") || !el.name) continue;
       const type = String(el.type || "").toLowerCase();
       if (el.tagName === "SELECT") {
         if (el.value) continue;
@@ -584,6 +585,7 @@ export const SYNTHESIZE_REQUIRED_EXPR = `
         continue;
       } else {
         el.value = text(el, type);
+        if (!String(el.value).trim()) continue;
       }
       fire(el);
       if (!done.includes(el.name)) done.push(el.name);
@@ -943,8 +945,12 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         `,
           )
           .catch(() => 0)) as number;
-        const refilled = wipedCount > 0;
-        if (refilled) await fillAll();
+        const resynthesized =
+          wipedCount > 0
+            ? []
+            : ((await page.evaluate(SYNTHESIZE_REQUIRED_EXPR).catch(() => [])) as string[]);
+        const refilled = wipedCount > 0 || resynthesized.length > 0;
+        if (wipedCount > 0) await fillAll();
         // Capture the action POST so a failure names the real server response
         // (espada 2026-07-10: three "no success banner" warns were undiagnosable
         // without it — the POST status/alert text is the evidence). SAME-SITE

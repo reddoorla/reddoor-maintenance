@@ -1,11 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { defaultFormRunner, formE2eAudit, type FormRunner } from "../../src/audits/form-e2e.js";
+import { chromium } from "@playwright/test";
+import {
+  defaultFormRunner,
+  formE2eAudit,
+  SYNTHESIZE_REQUIRED_EXPR,
+  type FormRunner,
+} from "../../src/audits/form-e2e.js";
 
 type Posted = Record<string, unknown>;
 
-const contactPage = (opts: { banner: boolean }) => `<!doctype html>
+const contactPage = (opts: { banner: boolean; resetSelect: boolean }) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
   <form id="contact" method="POST">
@@ -17,7 +23,7 @@ const contactPage = (opts: { banner: boolean }) => `<!doctype html>
     <input type="text" name="company" required>
     <select name="interest" required>
       <option value="">Area of interest</option>
-      <option value="" disabled>----</option>
+      <option value="closed" disabled>Closed</option>
       <option value="funds">Funds</option>
       <option value="other">Other</option>
     </select>
@@ -52,10 +58,16 @@ const contactPage = (opts: { banner: boolean }) => `<!doctype html>
       const r = await fetch("/contact", { method: "POST", body: JSON.stringify(body) });
       if (r.ok && ${opts.banner ? "true" : "false"}) document.getElementById("ok").hidden = false;
     });
+    if (${opts.resetSelect ? "true" : "false"}) {
+      setTimeout(() => {
+        f.querySelector('[name="interest"]').value = "";
+        state.interest = "";
+      }, 300);
+    }
   </script>
 </body></html>`;
 
-type Fixture = { health: unknown; banner: boolean };
+type Fixture = { health: unknown; banner: boolean; resetSelect?: boolean };
 
 let server: Server;
 let base: string;
@@ -71,7 +83,7 @@ beforeAll(async () => {
     }
     if (req.method === "GET" && req.url === "/contact") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(contactPage({ banner: fixture.banner }));
+      res.end(contactPage({ banner: fixture.banner, resetSelect: fixture.resetSelect ?? false }));
       return;
     }
     if (req.method === "POST" && req.url === "/contact") {
@@ -187,4 +199,52 @@ describe("form-e2e live runner — the instrument can fail, and the interlock ho
     expect(out).toEqual({ testModeUndeclared: true });
     expect(posts).toHaveLength(0);
   }, 90_000);
+});
+
+describe("form-e2e live runner — a synthesized value reverted after the fill (#779 review)", () => {
+  it("re-synthesizes a select the page reset during the settle, and still passes", async () => {
+    const out = await submit({ health: DECLARED, banner: true, resetSelect: true });
+    expect(out).toMatchObject({ formPresent: true, success: true, refilled: true });
+    expect(posts[0]?.interest).toBe("funds");
+  }, 90_000);
+});
+
+describe("SYNTHESIZE_REQUIRED_EXPR — only fields it can actually fill", () => {
+  const synthesize = async (html: string) => {
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html);
+      const names = (await page.evaluate(SYNTHESIZE_REQUIRED_EXPR)) as string[];
+      const values = (await page.evaluate(
+        "Object.fromEntries(Array.from(document.forms[0].elements).filter((e) => e.name).map((e) => [e.name, e.value]))",
+      )) as Record<string, string>;
+      return { names, values };
+    } finally {
+      await browser.close();
+    }
+  };
+
+  it("does not claim a field whose type rejects the synthetic value", async () => {
+    const { names } = await synthesize(
+      `<form><input type="time" name="callback" required><input type="text" name="company" required></form>`,
+    );
+    expect(names).toEqual(["company"]);
+  }, 30_000);
+
+  it("leaves a required control inside a disabled fieldset alone", async () => {
+    const { names, values } = await synthesize(
+      `<form><fieldset disabled><input type="text" name="later" required></fieldset><input type="text" name="company" required></form>`,
+    );
+    expect(names).toEqual(["company"]);
+    expect(values.later).toBe("");
+  }, 30_000);
+
+  it("fills the typed fields with values the browser accepts", async () => {
+    const { names, values } = await synthesize(
+      `<form><input type="url" name="site" required><input type="number" name="n" min="3" required><input type="date" name="d" required></form>`,
+    );
+    expect(names).toEqual(["site", "n", "d"]);
+    expect(values).toEqual({ site: "https://reddoorla.com", n: "3", d: "2026-01-01" });
+  }, 30_000);
 });

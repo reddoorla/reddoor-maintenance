@@ -102,9 +102,15 @@ async function filters() {
     new Date(NOW),
     unread,
   );
+  const stored = await db
+    .selectFrom("submissions")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("site_id", "=", SITE.id)
+    .executeTakeFirstOrThrow();
   const card = cockpit.cards.find((c) => c.site.name === SITE.fields.Name);
   return {
     notifications: sent.length,
+    storedRows: Number(stored.n),
     unreadBadge: unread.length,
     unreadPage: await countSubmissionsFiltered(db, { status: "new" }),
     cockpitLeads: card?.newLeads ?? null,
@@ -121,6 +127,7 @@ describe("form-e2e's testMode marker reaches every filter (#779)", () => {
     expect(seen.notifications).toBeGreaterThan(0);
     expect(seen).toEqual({
       notifications: seen.notifications,
+      storedRows: 1,
       unreadBadge: 1,
       unreadPage: 1,
       cockpitLeads: 1,
@@ -134,6 +141,7 @@ describe("form-e2e's testMode marker reaches every filter (#779)", () => {
     expect(await res.json()).toMatchObject({ ok: true });
     expect(await filters()).toEqual({
       notifications: 0,
+      storedRows: 0,
       unreadBadge: 0,
       unreadPage: 0,
       cockpitLeads: 0,

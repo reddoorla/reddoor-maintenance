@@ -251,6 +251,42 @@ describe("fleet-form-e2e — a positive control runs before any client row is wr
     expect(s?.if).toBeUndefined();
   });
 
+  it("nothing between the control and the sweep, nor the sweep itself, runs after a failure", () => {
+    const steps = workflowSteps(workflow);
+    const between = steps.slice(step(POSITIVE_CONTROL_STEP) + 1, step(FORM_E2E_STEP) + 1);
+    expect(between.map((s) => s.label)).toContain(FORM_E2E_STEP);
+    for (const s of between) expect(s.if).toBeUndefined();
+  });
+
+  it("runs the whole fixture file and cannot swallow its failure", () => {
+    const script = stepRunScript(workflow, POSITIVE_CONTROL_STEP);
+    expect(script).not.toMatch(/\|\||--passWithNoTests|\s-t\s|--testNamePattern|--bail/);
+  });
+
+  const runControl = async (exit: number) => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-form-e2e-control-"));
+    const bin = join(dir, "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "pnpm"), `#!/bin/sh\nexit ${exit}\n`, "utf-8");
+    await chmod(join(bin, "pnpm"), 0o755);
+    const script = stepRunScript(workflow, POSITIVE_CONTROL_STEP);
+    return execFileAsync("bash", ["-e", "-c", script], {
+      cwd: dir,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    }).then(
+      () => 0,
+      (e: { code?: number }) => e.code ?? 1,
+    );
+  };
+
+  it("exits 0 when the fixture test passes", async () => {
+    expect(await runControl(0)).toBe(0);
+  });
+
+  it("exits non-zero when the fixture test fails, which stops the job before the sweep", async () => {
+    expect(await runControl(1)).not.toBe(0);
+  });
+
   it("carries no store credentials and does not arm the live runner", () => {
     const s = workflowSteps(workflow)[step(POSITIVE_CONTROL_STEP)];
     expect(s).toBeDefined();
