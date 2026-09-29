@@ -132,7 +132,7 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 | P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                 | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                       |
 | P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                      |
 | P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review) | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested           |
-| P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                              | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap                        |
+| P1-17 | **#981**, built in PR #985, held at Operator decisions 22. Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)   | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap                        |
 
 ### P1-3 start here (#912)
 
@@ -263,6 +263,35 @@ Ordered by what unblocks the most. Each line is the exact ask.
     at once, raises a baseline only on a send, needs a Lighthouse score to be
     more than 5 points worse than what was last mailed, and compares health
     asks by field.
+20. **P1-3 post-merge production run (#986, `e86abd72`)**: this cloud
+    session's permission classifier refused the one sanctioned production run
+    of `roster-urls --fleet --write-back` from `origin/main` ("Production
+    Deploy"). The ask: either let tonight's `fleet-lighthouse` nightly do the
+    write (its new "Probe roster urls to Turso" step is the same command), or
+    run `node dist/cli/bin.js roster-urls --fleet --write-back` once yourself
+    from a build of `main`. Then check with a SELECT: `the-pointe-burbank` should be
+    `fail` / `404 netlify-site-not-found`, the tower and vida `-rd` rows `pass`,
+    `summittrek` and `young-life-connect-compliance-site` NULL / `no url`, and
+    `url_checked_at` set on the 34 non-archived rows and on no archived row. My
+    pick is the nightly, since it is the same code with no new permission.
+21. **the-pointe-burbank url**: set its url to
+    `https://the-pointe-burbank-rd.netlify.app` on `/s/the-pointe-burbank`.
+    The probe named it on 2026-09-29 (`404 netlify-site-not-found`, and the
+    `-rd` host 200) in #986's pre-merge run. Wait until item 20's run has
+    stored the `fail`, since that row is the live positive case.
+22. **P1-17, bypass actors on a Renovate base branch (#981, PR #985)** — two
+    review rounds each found a real defect, so #985 is held for your call, not a
+    third round. Both defects were missing TESTS, and both are now fixed on the
+    branch; no verdict bug was found. Round 1 (on `1c5810eb`): nothing pinned
+    that a failed ruleset read is left out of `RULESET_BYPASS`, or that acked
+    rows carry their count. Fixed in `e20b7041`, which also makes a probe-failed
+    row wait for its sibling reads. Round 2 (on `e20b7041`): nothing pinned that
+    a bypass-free ruleset wins over an unknown one. Fixed in `280ef2e2`. Every mutation that changes behaviour, from the brief and both rounds, now turns a test red; the two that survive (`isSafeInteger` → `!isNaN`, a Set of ids → an array) are equivalent on real GitHub data. The full suite, lint, typecheck and build pass at `e20b7041`. The only merge
+    conflict with `main` is `docs/BACKLOG.md`. The ask: land #985 as it is
+    (my pick, because the code has not changed since round 1 except the
+    allSettled count fix, which round 2 cleared), or run a third review round
+    first. Landing it is `git merge origin/main` (keep both sides of BACKLOG),
+    CI green, then `node scripts/land-prs.mjs 985`.
 
 ---
 

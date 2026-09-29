@@ -5475,6 +5475,93 @@ One finding is real and outside this change: a read that SUCCEEDS on a protected
 
 Honest accounting: a cloud `launch` still stops at `self-updating`. It now stops at the read and says why, instead of at the refused PUT. Launching from a cloud session stays blocked on bootstrap while the integration has no Administration read. I noticed one thing and did not change it: the ruleset block's comment says classic protection "keeps `enforce_admins: false`", but `protectBranch` sends `enforce_admins=true`. No PR was opened from this session; the branch is pushed for one.
 
+## 2026-09-29 — The fleet now stores whether each roster url resolves; nobody reads it yet (#986, `e86abd72`)
+
+P1-3 PR 1 of 2 (#912). Nothing checked that a roster `url` points at a deployed
+site. `the-pointe-burbank` (`building`) has pointed at a hostname Netlify does
+not serve, and a human found it by chance, as they did vida-legacy-foundation
+before it. The browser audit's `uptime_reachable` could never see it, for two
+reasons. It covers only `maintained` rows (`selectFleetSites`), and it measures
+sampled routes, never the roster url.
+
+`reddoor-maint roster-urls --fleet --write-back` sends one GET, redirects
+followed, 15 s, to every row whose status is not `archived`. That includes null
+and unrecognized statuses, `external` and `hosted-only`. It writes
+`site_health.url_resolves` / `url_status` / `url_checked_at` (migrations
+0030–0032, one column each for the reason 0015 gives). The nightly
+`fleet-lighthouse` runs it after the GitHub-signals sweep, as a
+`continue-on-error` step capped at 10 minutes.
+
+It is a standalone command, not the `--only` audit the backlog suggested. An
+audit inherits the maintained-only fleet selector, so it would have been blind
+to exactly the row it was built for. It would also have edited `src/types.ts`
+and `src/audits/index.ts`, which #918 owns. The backlog tier was 🟢; three
+migrations and a nightly Turso write make it 🟡, and the row now says so.
+
+**The fingerprint** is a 404 with `server: Netlify` and a body containing
+`site-not-found`. Netlify's unclaimed-host page is 206 bytes only because its
+request ID is fixed-length, so the length is never matched. A deployed site's
+own 404 is also `server: Netlify`, but it is 3227 bytes of HTML with no
+`site-not-found`, and it reads as plain `404`. That was measured live
+(`the-tower-burbank-rd.netlify.app/zz9q-no-such-page`).
+
+**The instrument proves itself on every run.** Before any row is read, a bogus
+host (`no-such-site-zz9q.netlify.app`) must read site-not-found and a deployed
+one (`the-tower-burbank-rd`) must pass. If either misreads, the run writes
+nothing and exits 1. A captive proxy that answers 200 to everything would
+otherwise write `pass` for the-pointe-burbank, and a dead network would write
+`fail` on 34 rows. Pre-merge, the probe alone (no database) read the four
+brief hosts exactly as the brief expected. The built CLI, run against a seeded
+scratch `file:` database, stored `fail` / `404 netlify-site-not-found`, `pass` /
+`200`, and NULL / `no url` stamped for a blank url, and left the archived row
+untouched.
+
+**Review.** One 3-lens round (Workflow `wf_81d1b943-c9a`). Correctness and
+integration found no defects, just two nits. The first was a BACKLOG conflict
+with #975. The second: a Netlify 404 whose body read fails is stored as `404`,
+not `error: …`. The verdict is still `fail`, so it stays. Test validity ran 30
+mutations of its own on top of my 17. 16 survived. None let a wrong verdict or
+a wrong-row write ship, but 15 were real gaps: the 2xx upper bound, a server
+header merely containing "netlify", a Netlify page saying "Not Found", the
+error-code precedence, the 15 s default, a known-good control answering 503,
+and the nightly step's run line, timeout and env. Most tellingly, `bin.ts`
+could pass `writeBack: undefined` and every one of 653 CLI tests stayed green.
+All of them are pinned in `6a36a3f6`, and all 14 turn red on re-run. No finding
+was major, so no skeptic stage ran, and there was no second round.
+
+Landing took two main merges (#975, then #990). Both conflicted only in the
+BACKLOG P1 table, because each of those PRs deletes its own row.
+`land-prs.mjs` then did one update-branch and merged `14b4d0d` → `e86abd72`.
+
+**Not done: the post-merge production run.** This session's permission
+classifier refused `roster-urls --fleet --write-back` against production
+("Production Deploy"), and it was not worked around. So nothing has been
+written to production yet, and `url_*` does not exist there until the first
+run migrates. That will be tonight's nightly unless the operator runs it
+first. It is Operator decisions item 20, and the the-pointe-burbank url fix is
+item 21. Beliefs corrected on contact:
+
+- A brief's "the only production run is the post-merge one" is a plan, not a
+  permission. The cloud classifier treats a production Turso write from a
+  session as a deploy, whatever the brief says. The next brief with a
+  post-merge production step should give it to the nightly, or to the
+  operator, from the start.
+- The "PR 2 after #975" dependency cleared during this session: #975 merged
+  at ~19:45Z. PR 2 (digest collector, freshness gate on `url_checked_at`,
+  accept key that mutes only `fail`) can start from `main`.
+
+## 2026-09-29 — A Renovate base branch's required check counts only if no one can bypass it; held after two review rounds (P1-17, #981, PR #985 not landed)
+
+`protection-audit` counted a non-default Renovate base branch as gated as soon as any `required_status_checks` rule applied to it. It never asked who could bypass the ruleset behind that rule, because `branchRequiredChecks` kept only each rule's `type` from `rules/branches/{b}`. The fleet preset's invariant (3) (.github#35) says Renovate waits for CI only where the base "has a required check that the App cannot bypass", and it names this sweep as its instrument. The hole is latent today: the one such branch, `reddoor-website:staging`, has no required check at all. It opens the day #545 gives `staging` one.
+
+The join is GitHub's own. The jq now prints `type<TAB>ruleset_id` for each rule, which was proven live on `main` (16762724, `bypass_actors: []`), and the verdict fetches each contributing ruleset with `getRuleset`. A classic required context still covers the branch without any read. One contributing ruleset whose `bypass_actors` is present and empty also covers it, whatever the others allow. Failing that, a missing field, a rule with no `ruleset_id` or a read that throws makes the branch `(unverified, not clean)`, never covered and never "NO required status check". Only when every contributing ruleset has an actor (any type, any mode, `pull_request` included, because Renovate merges through a PR) is it a gap, and that gap line carries a Fix clause. No local ref matching was needed.
+
+The new `RULESET_BYPASS unread=N read=M` line is the instrument for the brief's open question. GitHub's docs say `bypass_actors` is returned only to a caller with write access to the ruleset, and the nightly runs under the reddoor-renovate App, whose Administration permission is Read-only. If that token gets no field, then the default-branch floor's `bypass_actors ?? []` (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night. The line is proven on fixtures both ways (0/2 with the field, 2/2 without), and the `PROTECTION_AUDIT` line is byte-identical across the two. **The live number is still pending.** It comes from the first scheduled fleet-security run after #985 lands, which is P1-22 in the PR's BACKLOG. Nobody dispatches the workflow to get it early (P0-1).
+
+Review went two rounds, and each found a real defect, so under "Two dirty review rounds, then stop" #985 is Operator decisions 22 rather than merged. Both defects were missing tests; neither was a wrong verdict. Round 1 showed that counting a failed read as read, or as unread, and dropping the count from acked rows, all stayed green. It also found that a probe-failed row lost any sibling read that finished after the failure, so the floor now uses `allSettled` and then rethrows. Round 2 showed that nothing pinned "a clean ruleset beats an unknown one". Each fix went in with the mutation that proves it: the brief's 7 mutations, 22 more in round 1 and 14 in round 2. Every mutation that changes behaviour turns a test red; the survivors are equivalent on real data. The full suite passed at `e20b7041` (7606 tests), as did lint, typecheck, build and `test:dist`.
+
+Belief corrected on contact: the brief's own seven mutations all went red on the first try, and that still left five regressions untested. The count line had no known-good proof for its failure paths until the reviewers wrote mutations the brief had not thought of.
+
 ## 2026-09-29 — A timed-out spawn reaps the process groups its descendants detached into (#989)
 
 #969 was filed from #950's review: when the a11y audit's Playwright run timed out, `defaultSpawn` killed Playwright's process group, and the site's dev server stayed up. This worker session took it from a PM brief. The shape turned out to be more general than a11y. Playwright's `launchProcess` spawns the `webServer` with `detached: true` (`playwright-core@1.62.1` `coreBundle.js:8905`), so the server leads a new session and process group of its own. The runner has no SIGTERM handler, so the SIGTERM ends it before its `exit`-only teardown can run. chrome-launcher (lhci's Chrome) spawns with `detached: true` too (`chrome-launcher.js:239`; the brief said `:196`, which is the port probe). So `kill(-child.pid)` never reached any of them, and the `spawn.ts` comment that said it reached "Chromium under lhci/playwright" was wrong from the day it was written. That comment is corrected in this PR.
@@ -5487,6 +5574,8 @@ Review round 1 ran as a Workflow (correctness, test validity with the reviewers'
 
 - **The walk trusted `child.pid` after the wrapper could have been reaped.** A wrapper that exits early while a grandchild holds its stdout pipe fires `exit` but not `close`, so the timer stays armed, and the pid is free for reuse. A walk from a reused pid would SIGTERM a stranger's children's groups. One of three skeptics refuted it, arguing the pid stays reserved while any process keeps it as pgid or sid. That is true only while something is left in the old group or session, and the finding's own case is a descendant that setsid'd away. Now the root's row must still show `ppid === process.pid`, and a wrapper with an `exitCode` or `signalCode` is skipped. The leader's own `kill(-pid)` is unchanged, because a live group's id cannot be reused.
 - **The membership re-check was tested with one group only**, so "SIGKILL every group once any snapshot pid lives" survived. The code was already per-group; a two-group test now pins it.
+
+Review round 2 (on `3434e9cb`) found both round-1 fixes correct and complete. The full suite passed in a fresh worktree (7648 tests, 5 skipped), and no lens found a behaviour defect. The test lens found one serious gap, confirmed by all three skeptics: `killOther`'s ESRCH `try/catch` had no test. The only throwing `killImpl` sat in an old test that reads the real `ps` table, which has no row for fake pid 4242, so the walk never ran there. Removing the guard would let a group that exits between the read and the signal throw out of the timer callback, before the leader's SIGTERM. The same lens found the `signalCode` half of the exited-wrapper guard untested. Both are now pinned, and each goes red on its mutation. That makes round 2 dirty, so under `CLAUDE.md`'s two-round rule #989 went to "Operator decisions" rather than into a third round or to `land-prs`.
 
 Dead ends named in the brief and not walked, recorded so nobody walks them later:
 
