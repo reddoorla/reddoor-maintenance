@@ -316,6 +316,23 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     expect(all.map((v) => `${v.id} on ${v.route}`)).toEqual(["color-contrast on a11y fixtures"]);
   });
 
+  it("records a complete reveal pass for every scanned route", () => {
+    type Reveal = {
+      route: string;
+      steps: number;
+      capped: boolean;
+      finalScrollY: number;
+      unsettled: number;
+    };
+    const reveals = (result?.details as { reveals?: Reveal[] } | undefined)?.reveals ?? [];
+    expect(reveals.map((r) => r.route)).toEqual(["a11y fixtures", "animate-in demo"]);
+    const fixture = reveals[0];
+    // 600vh in half-viewport steps is a dozen stops; 1 would mean it never scrolled.
+    expect(fixture?.steps).toBeGreaterThan(1);
+    expect(fixture).toMatchObject({ capped: false, finalScrollY: 0, unsettled: 0 });
+    expect(result?.summary).not.toContain("reveal pass incomplete");
+  });
+
   it("measures a reveal below the fold in its revealed state", () => {
     expect(contrastTargets()).toContain("#below-fold-text");
   });

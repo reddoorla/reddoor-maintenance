@@ -12,7 +12,7 @@ import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
-import { revealBelowFold } from "./util/reveal-below-fold.js";
+import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
 
 type Impact = "minor" | "moderate" | "serious" | "critical";
 
@@ -36,11 +36,16 @@ export type SkippedRoute = {
   reason: string;
 };
 
+/** One route's reveal pass (#100), as the spec records it in the artifact. */
+export type RevealRecord = RevealPass & { route: string };
+
 type NormalizedA11y = {
   totalViolations: number;
   byImpact: Partial<Record<Impact, number>>;
   violations: AxeViolation[];
   skipped?: SkippedRoute[];
+  /** Absent in an artifact written by a spec from before this field existed. */
+  reveals?: RevealRecord[];
 };
 
 /** One route as the generated spec sees it. `placeholder404Ok` is set only on
@@ -372,6 +377,9 @@ test("a11y + hydration across configured routes", async ({ page }) => {
   // they cannot fail the run, and written to the artifact so they cannot vanish
   // from the summary either.
   const skipped = [];
+  // One entry per scanned route: what the reveal pass did there. Written to
+  // the artifact so a pass that stopped short can be named, not assumed.
+  const reveals = [];
 
   // Capture uncaught client-side exceptions across every route we visit. A page
   // that builds + SSRs cleanly can still throw on hydrate and blank itself
@@ -450,7 +458,8 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     // audited at the opacity 0 it waits in, and axe does not measure contrast
     // through that -- the text fell out of the result instead of failing it.
     // After the sheet above, so each reveal snaps to its final state as it fires.
-    await page.evaluate(revealBelowFold);
+    const pass = await page.evaluate(revealBelowFold);
+    reveals.push({ route: name, ...pass });
     // preload: false (#52). axe's CSSOM preload re-fetches every cross-origin
     // stylesheet with an XHR, which a site's CSP judges under connect-src, not
     // style-src. A site allowing fonts.googleapis.com for styles only got a
@@ -500,7 +509,7 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     await writeFile(
       OUTPUT,
       JSON.stringify(
-        { totalViolations: violations.length, byImpact, violations, skipped },
+        { totalViolations: violations.length, byImpact, violations, skipped, reveals },
         null,
         2,
       ),
@@ -591,6 +600,42 @@ export function describeSkipped(skipped: SkippedRoute[]): string {
   }
   const names = shown.map((s) => s.route).join(", ") + more;
   return `${skipped.length} skipped: ${names}${reasons.length > 0 ? ` — ${reasons.join(", ")}` : ""}`;
+}
+
+/**
+ * The reveal clause of the summary: every route whose reveal pass (#100) did
+ * not finish cleanly, and why. Empty when every pass did, so a clean run keeps
+ * its line byte-for-byte.
+ *
+ * Three ways a pass can stop short, each of which leaves part of the page
+ * audited in a state no reader sees:
+ *
+ *   - it hit its step cap before the bottom, so reveals below that point never
+ *     fired;
+ *   - finite animations were still running when the settle budget ran out, so
+ *     axe sampled them mid-way;
+ *   - the page did not come back to the top, so everything scroll-dependent
+ *     was measured at the wrong offset.
+ *
+ * None of them is a defect in the site's markup, which is why they warn and
+ * never fail. But a green that quietly covered less than it says is the thing
+ * #100 was about, so they are named.
+ */
+export function describeReveals(reveals: RevealRecord[]): string {
+  const incomplete = reveals
+    .map((r) => {
+      const why: string[] = [];
+      if (r.capped) why.push(`stopped at the step cap (${r.steps} steps) before the bottom`);
+      if (r.unsettled > 0) {
+        why.push(`${r.unsettled} animation${r.unsettled === 1 ? "" : "s"} still running after 5 s`);
+      }
+      if (r.finalScrollY !== 0) why.push(`left at scrollY ${r.finalScrollY}, not the top`);
+      return why.length > 0 ? `${r.route} (${why.join("; ")})` : "";
+    })
+    .filter((line) => line.length > 0);
+  if (incomplete.length === 0) return "";
+  const routes = incomplete.length === 1 ? "1 route" : `${incomplete.length} routes`;
+  return `reveal pass incomplete on ${routes}: ${incomplete.join(", ")}`;
 }
 
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
@@ -774,11 +819,13 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // said "0 violations across 2 routes" — a warning with nothing in it to
     // act on. A warn now requires that the run actually declined to scan.
     const absentSkips = skippedRoutes.filter((r) => r.reason === ABSENT_FIXTURE_SKIP_REASON);
+    // #100. A reveal pass that stopped short is named and warns, never fails.
+    const revealNote = describeReveals(Array.isArray(artifact.reveals) ? artifact.reveals : []);
     const absenceDowngrade =
       undeclaredAbsent.length > 0 && absentSkips.some((r) => undeclaredAbsent.includes(r.path));
     const status: AuditResult["status"] = hasSerious
       ? "fail"
-      : hasAny || absenceDowngrade
+      : hasAny || absenceDowngrade || revealNote.length > 0
         ? "warn"
         : "pass";
 
@@ -833,9 +880,10 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
         : `+${smokeRoutes.length} hydration smoke on a production preview`;
     const named = describeViolations(artifact.violations ?? []);
     const summary =
-      status === "pass"
+      (status === "pass"
         ? `a11y: 0 violations across ${scanned} (${smokeNote})`
-        : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`;
+        : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`) +
+      (revealNote ? `; ${revealNote}` : "");
 
     return {
       audit: "a11y",

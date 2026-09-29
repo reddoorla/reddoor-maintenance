@@ -6,8 +6,10 @@ import { join } from "node:path";
 import {
   a11yAudit,
   classifyRouteResponse,
+  describeReveals,
   describeSkipped,
   describeViolations,
+  type RevealRecord,
 } from "../../src/audits/a11y.js";
 import { revealBelowFold } from "../../src/audits/util/reveal-below-fold.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
@@ -21,6 +23,7 @@ type A11yArtifact = {
   byImpact: Partial<Record<"minor" | "moderate" | "serious" | "critical", number>>;
   violations?: Array<{ id: string; impact: string; route: string; help?: string }>;
   skipped?: Array<{ route: string; path: string; status: number | null; reason: string }>;
+  reveals?: RevealRecord[];
 };
 
 /**
@@ -1498,6 +1501,97 @@ describe("audits/a11y — axe runs without its CSSOM preload (#52)", () => {
     expect(preloading.length).toBeGreaterThan(0);
     expect(preloading.filter((r) => runs(r) && r.reviewOnFail !== true).map((r) => r.id)).toEqual(
       [],
+    );
+  });
+});
+
+/**
+ * #100 review: the reveal pass's own report used to be discarded. It is now in
+ * the artifact, and a pass that stopped short warns by name.
+ */
+describe("audits/a11y — the reveal pass is recorded, and an incomplete one warns (#100)", () => {
+  const pass = (route: string, over: Partial<RevealRecord> = {}): RevealRecord => ({
+    route,
+    steps: 12,
+    stepPx: 360,
+    capped: false,
+    scrollHeight: 4000,
+    finalScrollY: 0,
+    unsettled: 0,
+    ...over,
+  });
+  const clean = [pass("a11y fixtures"), pass("animate-in demo")];
+
+  it("is empty when every pass finished cleanly", () => {
+    expect(describeReveals(clean)).toBe("");
+    expect(describeReveals([])).toBe("");
+  });
+
+  it("names each way a pass can stop short, per route", () => {
+    expect(describeReveals([pass("/", { capped: true, steps: 400 })])).toBe(
+      "reveal pass incomplete on 1 route: / (stopped at the step cap (400 steps) before the bottom)",
+    );
+    expect(describeReveals([pass("/a", { unsettled: 2 }), pass("/b", { finalScrollY: 120 })])).toBe(
+      "reveal pass incomplete on 2 routes: /a (2 animations still running after 5 s), /b (left at scrollY 120, not the top)",
+    );
+    expect(describeReveals([pass("/", { unsettled: 1, finalScrollY: 5 })])).toBe(
+      "reveal pass incomplete on 1 route: / (1 animation still running after 5 s; left at scrollY 5, not the top)",
+    );
+  });
+
+  it("warns — not passes — when a pass stopped short, and says where", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        reveals: [pass("a11y fixtures", { unsettled: 1 }), pass("animate-in demo")],
+      }),
+    });
+    expect(result.status).toBe("warn");
+    expect(result.summary).toContain(
+      "reveal pass incomplete on 1 route: a11y fixtures (1 animation still running after 5 s)",
+    );
+  });
+
+  it("never turns a fail into anything else, and still names the pass", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 1,
+          byImpact: { serious: 1 },
+          violations: [{ id: "color-contrast", impact: "serious", route: "a11y fixtures" }],
+          reveals: [pass("a11y fixtures", { capped: true, steps: 400 })],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toContain("reveal pass incomplete on 1 route: a11y fixtures");
+  });
+
+  it("leaves a clean run's summary byte-for-byte what it was without the field", async () => {
+    const withReveals = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({ totalViolations: 0, byImpact: {}, reveals: clean }),
+    });
+    const without = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({ totalViolations: 0, byImpact: {} }),
+    });
+    expect(withReveals.status).toBe("pass");
+    expect(withReveals.summary).toBe(without.summary);
+  });
+
+  it("the generated spec records every scanned route's pass in the artifact", async () => {
+    const spec = await specOf();
+    expect(spec).toContain("const pass = await page.evaluate(revealBelowFold);");
+    expect(spec).toContain("reveals.push({ route: name, ...pass });");
+    expect(spec).toContain(
+      "{ totalViolations: violations.length, byImpact, violations, skipped, reveals }",
     );
   });
 });
