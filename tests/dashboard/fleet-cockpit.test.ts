@@ -334,7 +334,7 @@ describe("assignTier", () => {
   it("watches a maintained site with no GA4 property, and names the key that opts it out", () => {
     const r = assignTier(site({ status: "maintained", ga4PropertyId: null }), [], NOW);
     expect(r.tier).toBe("watch");
-    expect(r.watchReasons).toEqual(["no GA4 property (analytics not set up)"]);
+    expect(r.watchReasons).toEqual(["GA4 property not recorded (reports carry no analytics)"]);
     expect(r.watchAcceptKeys).toEqual(["no analytics"]);
     expect(r.watchSignals).toEqual(["no-analytics"]);
   });
@@ -356,21 +356,29 @@ describe("assignTier", () => {
       NOW,
     );
     expect(r.tier).toBe("healthy");
-    expect(r.acceptedReasons).toEqual(["no GA4 property (analytics not set up)"]);
+    expect(r.acceptedReasons).toEqual(["GA4 property not recorded (reports carry no analytics)"]);
   });
 
-  it("does not ask a launching site for GA4 before go-live", () => {
-    expect(assignTier(site({ status: "launching", ga4PropertyId: null }), [], NOW).tier).toBe(
-      "pre-launch",
-    );
-  });
+  it.each(["building", "hosted-only", "external", "archived"] as const)(
+    "does not ask a %s site for GA4 or Search Console",
+    (status) => {
+      const r = assignTier(
+        site({ status, ga4PropertyId: null, searchConsoleProperty: null }),
+        [],
+        NOW,
+      );
+      expect(r.watchSignals).toEqual([]);
+      expect(r.acceptedReasons).toEqual([]);
+      expect(r.tier).toBe("healthy");
+    },
+  );
 
-  it("watches a maintained site with no Search Console property, and names the opt-out key", () => {
+  it("watches a maintained site that records no Search Console property, says only that, and names the opt-out key", () => {
     const r = assignTier(site({ status: "maintained", searchConsoleProperty: null }), [], NOW);
     expect(r.tier).toBe("watch");
-    expect(r.watchReasons).toEqual(["no Search Console property"]);
+    expect(r.watchReasons).toEqual(["Search Console property not recorded"]);
     expect(r.watchAcceptKeys).toEqual(["no search console"]);
-    expect(r.watchSignals).toEqual(["no-search-console"]);
+    expect(r.watchSignals).toEqual(["search-console-unrecorded"]);
   });
 
   it("an explicit 'no search console' opt-out leaves the band as a muted chip, and does not opt out of GA4", () => {
@@ -384,7 +392,7 @@ describe("assignTier", () => {
       NOW,
     );
     expect(optedOut.tier).toBe("healthy");
-    expect(optedOut.acceptedReasons).toEqual(["no Search Console property"]);
+    expect(optedOut.acceptedReasons).toEqual(["Search Console property not recorded"]);
     const wrongKey = assignTier(
       site({
         status: "maintained",
@@ -403,9 +411,13 @@ describe("assignTier", () => {
     ).toBe("watch");
   });
 
-  it("does not ask a launching site for Search Console before go-live", () => {
+  it("does not ask a launching site for GA4 or Search Console before go-live", () => {
     expect(
-      assignTier(site({ status: "launching", searchConsoleProperty: null }), [], NOW).tier,
+      assignTier(
+        site({ status: "launching", ga4PropertyId: null, searchConsoleProperty: null }),
+        [],
+        NOW,
+      ).tier,
     ).toBe("pre-launch");
   });
 

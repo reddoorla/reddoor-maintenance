@@ -813,18 +813,18 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     );
     expect(html).toMatch(/data-signals="[^"]*no-analytics[^"]*"/);
     expect(html).toContain('data-filter="no-analytics"');
-    expect(html).toContain("no GA4 property");
+    expect(html).toContain("GA4 property not recorded");
   });
 
-  it("tags a maintained site with no Search Console property with its signal, and offers the filter", () => {
+  it("tags a maintained site that records no Search Console property with its signal, and offers the filter", () => {
     const html = renderCockpitHtml(
       model([
         siteRow({ id: "g", name: "NoGsc", status: "maintained", searchConsoleProperty: null }),
       ]),
     );
-    expect(html).toMatch(/data-signals="[^"]*no-search-console[^"]*"/);
-    expect(html).toContain('data-filter="no-search-console"');
-    expect(html).toContain("no Search Console property");
+    expect(html).toMatch(/data-signals="[^"]*search-console-unrecorded[^"]*"/);
+    expect(html).toContain('data-filter="search-console-unrecorded"');
+    expect(html).toContain("Search Console property not recorded");
   });
 
   it("tags a maintenance site still on *.netlify.app with the no-domain signal", () => {

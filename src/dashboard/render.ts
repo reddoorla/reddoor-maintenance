@@ -591,9 +591,9 @@ function checkboxRow(label: string, field: string, checked: boolean, url: string
   return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="checkbox" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}"${checked ? " checked" : ""} />${savedSpan(field)}</dd></div>`;
 }
 
-/** Editable multi-select row. Options come from WATCH_CONDITION_OPTIONS — the
- *  live Airtable choices — because the API cannot create a missing one, so an
- *  option offered here that the field lacks would produce a rejected write. */
+/** Editable multi-select row. Options come from WATCH_CONDITION_OPTIONS, the
+ *  same list `setSiteDetail` validates against, so every option offered here is
+ *  one the save accepts. */
 function multiSelectRow(
   label: string,
   field: string,
