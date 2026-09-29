@@ -1,6 +1,7 @@
 import type { Site } from "../types.js";
 import { siteSlug, ACTIVE_STATUSES, isPreLaunch, type WebsiteRow } from "../fleet/site-row.js";
 import { isHttpUrl } from "../util/url.js";
+import { analyticsOptedOut } from "../fleet/opt-outs.js";
 
 /**
  * THE fleet-sweep selection rule (#646 step 4).
@@ -64,6 +65,15 @@ export function selectFleetSites(websites: readonly WebsiteRow[], workdir: strin
       // netlify-deploy audit can query the API with no checkout. Absent → that
       // audit skips for this site. Not derived from the URL.
       if (w.netlifyId) site.netlifyId = w.netlifyId;
+      // The GA4 property the monthly report reads. The analytics audit needs
+      // BOTH ends — this and the tag the checkout declares — because each one
+      // alone looks fine while the pair is broken. Always set: `null` says the
+      // row was read and has none, which absence (no row read) must not.
+      site.ga4PropertyId = w.ga4PropertyId?.trim() || null;
+      // The `no analytics` opt-out (spec D8), through the same predicate the
+      // setup check and the cockpit read, so the audit skips exactly the sites
+      // the cockpit has stopped asking about.
+      if (analyticsOptedOut(w)) site.analyticsOptedOut = true;
       return [site];
     });
 }

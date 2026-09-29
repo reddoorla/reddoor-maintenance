@@ -65,6 +65,16 @@ describe("fetchPeriodUsers", () => {
     expect(runReport.mock.calls[0]![0].metrics).toEqual([{ name: "activeUsers" }]);
   });
 
+  it("trims the property id into the resource name, as the analytics audit does", async () => {
+    runReport.mockResolvedValue(resp(1));
+    await fetchPeriodUsers(
+      { propertyId: " 471880366\n", subjects: ["s@x"], keyPath, hostnames: [] },
+      start,
+      end,
+    );
+    expect(runReport.mock.calls[0]![0].property).toBe("properties/471880366");
+  });
+
   it("builds a JWT with the impersonation subject + analytics.readonly scope", async () => {
     runReport.mockResolvedValue(resp(1));
     await fetchPeriodUsers(
