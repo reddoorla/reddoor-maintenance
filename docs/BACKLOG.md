@@ -299,10 +299,11 @@ Ordered by what unblocks the most. Each line is the exact ask.
 23. **0.102.0 release gate: these palette PRs to merge first** — measured
     2026-09-29 with #916's build on all 15 maintained sites plus
     `reddoor-starter-blux` (table: `docs/palette-rollout-2026-09-29.md`).
-    Merge [29-navy#58](https://github.com/reddoorla/29-navy/pull/58) and
-    [reddoor-starter-blux#36](https://github.com/reddoorla/reddoor-starter-blux/pull/36)
-    (13 lines in `@theme`, render byte-identical, gate green on #916), along
-    with the `reddoor-starter` fix. 13 sites already pass on #916. **Vida
+    The palette PRs are done: [29-navy#58](https://github.com/reddoorla/29-navy/pull/58)
+    and [reddoor-starter-blux#36](https://github.com/reddoorla/reddoor-starter-blux/pull/36)
+    (13 lines in `@theme`, render byte-identical, gate green on #916), merged
+    by the operator at 20:45Z. The `reddoor-starter` fix is still the PM
+    session's. 13 sites already pass on #916. **Vida
     stays red after the palette** and needs your call. axe throws on
     `mix-blend-plus-lighter` on `/` and `/es`: do we exempt it in the gate, or
     change the design? Measured, its fixtures' `text-red-600` form errors fail
