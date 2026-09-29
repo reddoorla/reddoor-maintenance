@@ -5576,6 +5576,103 @@ Landing took three merges of `main`, each conflicting only in `docs/BACKLOG.md`.
 
 Belief corrected on contact: the brief expected the `failed` → 404 behaviour to need a test only for the public route. It also fixes `setProspectAuditOverrides` and `touchProspectAuditOpened` for free, because both act only after `getProspectAuditByToken` succeeds. The overrides half is pinned by a test.
 
+## 2026-09-29 — The palette fix #916 needs goes to two repos, not nine; vida is red for other reasons (29-navy#58, reddoor-starter-blux#36)
+
+#916 makes an unmeasured contrast check fail the a11y gate. Before the
+operator clicks 0.102.0, every maintained site was measured with the #916
+build to find the ones whose Renovate PR would go red, and to stage the
+palette fix in each. The roster was re-derived from Turso: 15 maintained
+rows, not the brief's 14 (`vida-legacy-foundation` is new), plus
+`reddoor-starter-blux`. Each site ran its own CI gate three ways: control
+on its locked version (0.90.1–0.97.0), #916 packed from `origin/main` @
+`c1410fa` in a scratch copy, and #916 plus the fix.
+
+**Measured: 16 of 16 controls green. On #916, 3 red and 13 green.** Two are
+fixed by the palette alone: 29-navy and reddoor-starter-blux, both through
+the starter-lineage Hero (`bg-neutral-900 text-white`). Each goes from
+`rule-errored on a11y fixtures` with 0 contrast nodes on that route to a
+pass with 68 and 66. The third, vida-legacy-foundation, carries the same
+Hero, but it was also **hidden-red twice over**. `mix-blend-plus-lighter`
+makes axe throw `blendFunctions[blendMode] is not a function` on `/` and
+`/es`, since axe has no plus-lighter. With the palette fixed, the fixtures'
+`text-red-600` form errors fail contrast for real. Neither is a palette
+line, so no vida PR was opened. It is Operator decisions 23, with the table
+in `docs/palette-rollout-2026-09-29.md`.
+
+**Belief corrected: "9 of 12 sampled sites red" did not hold.** It came from
+a static grep for none-hued tokens in `theme.css`, and every site installs
+that file, since all 16 are on Tailwind 4.3.3 with the same 13 tokens.
+Tailwind emits only the tokens a site uses. The instrument that predicted
+the gate was the site's _built_ CSS: 4 of 16 emit a none-hued variable.
+Three of those went red, and the fourth (beachfront, `neutral-100` on a map
+placeholder) is not on any gate route. Twelve sites use none of the
+tokens at all.
+
+The brief's reference commit was not there. `f34eed2` and
+`claude/lucid-wozniak-wj8gaj` do not exist on `reddoorla/reddoor-starter`
+(422, no ref), and no starter PR carries them. The block was generated
+instead from each repo's own `node_modules/tailwindcss/theme.css` (L and C
+kept, `none` → `0`). On the starter it proved the instrument: `origin/main`
+
+- #916 → exit 1 `rule-errored on a11y fixtures`; + block → exit 0, 64
+  fixture nodes.
+
+Two instruments nearly lied. The gate first reported
+`no results written`, which was the environment's fault, not the site's:
+the sites pin Playwright 1.63.0, whose `chromium_headless_shell-1243` was
+not in `/opt/pw-browsers`, and installing it fixed that. The first
+render-identity check shot the production preview, where every route is a
+404, and reported 6/6 identical. Only the status log showed it. It now
+runs on the dev server the gate scans and fails on any non-200. It was
+proven both ways: A/A gave 0 differing bytes, and `neutral-900` at chroma
+0.08 gave 359,643 and 837,179. A mutation that removed only the
+`neutral-900` line from 29-navy's fix put its gate back to the same
+`rule-errored`.
+
+One PASS is worth distrusting: erp-industrial's fixtures measure **0**
+contrast nodes, and it passes. #916 catches colours axe cannot parse, not
+a route where the rule found nothing. That is not a palette matter and is
+not in this change.
+
+## 2026-09-29 — `sync-configs --dry` becomes an instrument and gets a weekly workflow; held after two review rounds (P1-12, #983, PR #995 not landed)
+
+Nothing ran `sync-configs --dry`, and it could not have been trusted if anything had. The brief's probe reproduced exactly on `e2d4aa67`. `sync-clean` plus one force-added `build/app.js` printed `no changes needed` under `--dry`, and the real run printed `applied: 1 commit(s)` with `chore: sync gitignore`. The dry path had its own merge-only copy of the gitignore planner, which never asked which canonically ignored paths are tracked. The fix follows the same principle as the template half of the dry plan: `planGitignore` is exported with an optional `tracked` list, and `--dry` calls it. A plain directory that is not a git repo passes `[]` and still works. A fleet checkout that is not a git work tree is `SKIPPED`, never read as clean.
+
+The dry run now ends with machine lines: `DRIFT <repo> <path>`, `CLEAN <repo>`, `SKIPPED <repo> <reason>` and one `SYNC_CONFIGS_DRIFT drifted= clean= skipped= total=`. Every line names `site.gitRepo`, because five roster slugs differ from their repo, and `SkippedSite` gained an optional `repo` so prep-skipped sites are named the same way. A dry plan that throws for one site becomes that site's SKIPPED line, never a CLEAN one, and never aborts the fleet.
+
+`fleet-config-drift.yml` runs Sundays at 07:23 UTC. It first runs a positive control on three git-init'd fixture copies: drift, clean, and clean plus a tracked `build/app.js`, which must read as exactly `DRIFT tracked .gitignore`. Then it sweeps `--fleet turso --dry` with unauthenticated clones and no App token. The run goes red on a failed control, a CLI exit, a missing summary, `total=0` or more than half skipped; drift never reds it. The finding issue "Fleet config drift" closes only when the summary says `drifted=0 ` and every repo in its own body comes back CLEAN, matched exactly. The executing tests run the control against the real CLI and fixtures, and they run the issue steps against a `gh` stub that does GitHub's substring title search and applies the step's own `--jq` through real `jq`. The first stub filtered titles exactly, so a test of "a near-title issue is never closed" passed because of the stub, not the step. Round 1 caught that.
+
+The review went two rounds, and each found real gaps, so under "Two dirty review rounds, then stop" #995 is Operator decisions 24 rather than merged. Round 1 found one code defect: `--only` without gitignore skipped the fleet git guard. It also found six untested guards: exact-title and exact-repo matching, the control's contradiction checks, and one record per line. Round 2's correctness lens found nothing. Its test lens found five more: the expected DRIFT paths were derived from the dry plan itself, so they could not catch it dropping a file; the open step's `drifted == 'yes'` gate; three control checks; the tracked leg, which would pass if built from the drift fixture; and the skip warning's repo list. Its integration lens found the runbook tables missing the workflow. All are fixed on the branch with the mutation that proves each one: 37 mutation runs, every one red. One design point is kept as the brief set it: a repo that leaves the roster keeps the finding issue open until someone closes it by hand, and the close step now says so in a `::warning::` rather than an echo.
+
+The live proof (dispatch once on `main`: control passes, total equals the roster, issue filed to match) waits for the merge. It belongs in the entry that lands #995.
+
+Belief corrected on contact: a mutation harness that rewrites files is itself something to verify. Killing a run mid-mutation left mutation 1 (a skipped site printed as `CLEAN`) applied in the worktree, and only a diff before committing caught it.
+
+## 2026-09-29 — A timed-out spawn will reap the process groups its descendants detached into; held after two rounds (#989 held, #997 `1b1c52fd`)
+
+#969 was filed from #950's review: when the a11y audit's Playwright run timed out, `defaultSpawn` killed Playwright's process group, and the site's dev server stayed up. This worker session took it from a PM brief. The shape turned out to be more general than a11y. Playwright's `launchProcess` spawns the `webServer` with `detached: true` (`playwright-core@1.62.1` `coreBundle.js:8905`), so the server leads a new session and process group of its own. The runner has no SIGTERM handler, so the SIGTERM ends it before its `exit`-only teardown can run. chrome-launcher (lhci's Chrome) spawns with `detached: true` too (`chrome-launcher.js:239`; the brief said `:196`, which is the port probe). So `kill(-child.pid)` never reached any of them, and the `spawn.ts` comment that said it reached "Chromium under lhci/playwright" was wrong from the day it was written. That comment is corrected in this PR.
+
+Measured with the brief's probe, on this container, before the fix: the positive control (`HANG=0`) printed `playwright exited 0` and `webServer pid 4794: gone; port 43177 accepting=false`, which proved the probe can say "gone". The hanging spec printed `rejected: SpawnTimeoutError` and then `webServer pid 4873: Sl; port 50181 accepting=true`, 7 s after the timeout and past the 5 s SIGKILL grace. After the fix the same run printed `gone; port 49130 accepting=false`.
+
+The fix stays inside `spawn.ts`. At the timeout, before the first signal, it reads `ps -A -o pid=,ppid=,pgid=` once. That is the only moment the ancestry exists: once the wrapper dies, the server's `sh -c` is reparented to PID 1. It walks every descendant, not only the direct children, because the server sits two or more levels down. It then SIGTERMs each descendant group alongside `-child.pid`. After the grace it re-reads the table and SIGKILLs only a group that still holds a pid from the snapshot. That escalation outlives the wrapper's `close`, which the leader's does not: the wrapper usually dies on the SIGTERM, and a detached server that ignores SIGTERM would otherwise never see a SIGKILL. `-A` is load-bearing on macOS, where `ps` without it lists only processes with a controlling terminal, and a setsid'd child has none. On Linux CI the flag makes no difference, so a unit test pins the argv.
+
+Review round 1 ran as a Workflow (correctness, test validity with the reviewers' own mutations, integration with the full suite in a fresh worktree: 7604 passed, 5 skipped), with three skeptics on each serious finding. It confirmed two:
+
+- **The walk trusted `child.pid` after the wrapper could have been reaped.** A wrapper that exits early while a grandchild holds its stdout pipe fires `exit` but not `close`, so the timer stays armed, and the pid is free for reuse. A walk from a reused pid would SIGTERM a stranger's children's groups. One of three skeptics refuted it, arguing the pid stays reserved while any process keeps it as pgid or sid. That is true only while something is left in the old group or session, and the finding's own case is a descendant that setsid'd away. Now the root's row must still show `ppid === process.pid`, and a wrapper with an `exitCode` or `signalCode` is skipped. The leader's own `kill(-pid)` is unchanged, because a live group's id cannot be reused.
+- **The membership re-check was tested with one group only**, so "SIGKILL every group once any snapshot pid lives" survived. The code was already per-group; a two-group test now pins it.
+
+Review round 2 (on `3434e9cb`) found both round-1 fixes correct and complete. The full suite passed in a fresh worktree (7648 tests, 5 skipped), and no lens found a behaviour defect. The test lens found one serious gap, confirmed by all three skeptics: `killOther`'s ESRCH `try/catch` had no test. The only throwing `killImpl` sat in an old test that reads the real `ps` table, which has no row for fake pid 4242, so the walk never ran there. Removing the guard would let a group that exits between the read and the signal throw out of the timer callback, before the leader's SIGTERM. The same lens found the `signalCode` half of the exited-wrapper guard untested. Both are now pinned, and each goes red on its mutation. That makes round 2 dirty, so under `CLAUDE.md`'s two-round rule #989 went to "Operator decisions" (item 25, landed in #997) rather than into a third round or to `land-prs`. The item was numbered 23, then 24, then 25: two other workers' holds landed on `main` while #997 waited for CI, and each renumber first showed up as a Prettier failure on the merged head.
+
+Dead ends named in the brief and not walked, recorded so nobody walks them later:
+
+- **Patching Playwright** (`pnpm patch` to undo `detached`). The a11y audit runs `npx --yes playwright` from the site's own tree, so a patch in this repo never reaches it.
+- **Sending SIGINT first** so that Playwright tears down its own server. That depends on the runner still being responsive, which a timeout says it is not, and it does nothing for lhci's Chrome.
+
+Beliefs corrected on contact:
+
+- The container runs as root, and the old mocked tests read the real `ps` for fake pid 4242. That is harmless only because they also inject `killImpl`. The new mocked tests always pass a table. The brief kept the old ones unchanged, so they stay as they were.
+- My first mutation loop reverted each mutation with `git checkout spawn.ts`. I started it once against uncommitted round-1 fixes, which it would have silently reverted. I stopped it after it had applied its first mutation but before any revert, restored that line by hand, and committed before running it again. A `pkill -f` on the vitest pattern then killed my own shell, because the pattern matched the shell's command line. Commit before mutating, and never `pkill -f` a pattern that your own command contains.
+
 ## 2026-09-29 — Search Console properties matched and verified for the fleet; the VLF launch recorded; Sonder's GA tag is not ours
 
 **VLF's launch, as the fleet database records it.** The previous session launched Vida Legacy Foundation (`vida-legacy-foundation`) today and wrote no journal entry, so this one records it. The Turso row was edited directly. `url` became `https://vidalegacy.org`. `name` changed from `vida-legacy-foundation` to `Vida Legacy Foundation`, with the same slug. The header image was stored with `header-image --write-back`. `ga4_property_id` is 556595961: the operator first gave 15868715457, which is the web data stream id, not the property. `netlify_id` is `b99da9d3-d708-4f15-8f8b-adb954b21f53` and `search_console_property` is `sc-domain:vidalegacy.org`. The launch email is approved and goes out in the 09:23 UTC daily-reports run on 2026-09-30. It is the only approved-unsent report in the fleet.
@@ -5625,3 +5722,5 @@ Two more rows are wrong in ways this session did not fix:
 - **The two LA rows are two Netlify sites serving the same "Hearts and Minds" page.** Their `netlify_id`s differ: `c4473d34…` belongs to the Initiative, which owns `www.lahomelessnessawareness.org`, and `442e3569…` to Youth, which is marked `no custom domain`. Property 500039567, although GA names it "LA Youth Homelessness", has its stream on the Initiative's domain. The id therefore moves to `la-homelessness-initiative`, and `la-homelessness-youth` becomes NULL.
 
 Neither LA site ships a GA tag today, so the move corrects the record but produces no numbers until one is installed. The classifier refused this write as well. The full write set is 7 Search Console values, Revogen 545817747, Sonder GA4 NULL plus `no analytics`, Initiative 500039567 and Youth NULL. It waits for the operator.
+
+**The writes landed at ~21:15 UTC.** The operator switched the session out of auto mode and had an allow rule added for the one write script, in the container's uncommitted `.claude/settings.local.json`. The script had in fact never existed on disk. Each refused attempt had written it and run it in the same command, so each refusal also discarded the file. All ten rows were updated, one row per update, and read back exactly as intended. Through the draft's own `fetchGaUsers` and `fetchSearch`, Revogen now reads 694 users against 675 on property 545817747, its first GA numbers in a report. It is on page 1 at position 1 through the stored `https://revogen.com/`. Espada reads position 2 through its newly stored property.
