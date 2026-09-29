@@ -228,12 +228,12 @@ export function assignTier(
   }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less
   // submissions, so a gated site whose widget state ISN'T positively confirmed
-  // deserves a nag. A fresh confirmed "fail" never reaches here — that is a CRITICAL
-  // AttentionItem (collectTurnstileGuardrailAlerts) that sets `broken` BEFORE the
-  // accept loop, so an accept key can mute this "can't verify" watch but
-  // can never silence the confirmed-missing alarm. `!== "pass"` covers both null
-  // (older package /health without a forms block, or the sweep never ran) and a
-  // stale "fail" the collector downgraded.
+  // deserves a nag. A fresh confirmed "fail" is a CRITICAL AttentionItem
+  // (collectTurnstileGuardrailAlerts) that sets `broken` BEFORE the accept loop, so it
+  // reaches here only to tag its 🔴 card `turnstile-unverified` (#941): an accept key
+  // mutes this "can't verify" watch, never the confirmed-missing alarm. `!== "pass"`
+  // covers both null (older package /health without a forms block, or the sweep never
+  // ran) and a stale "fail" the collector downgraded.
   if (site.requireTurnstile && site.turnstileWidget !== "pass") {
     candidates.push({
       signal: "turnstile-unverified",

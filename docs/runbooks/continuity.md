@@ -94,10 +94,10 @@ tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-co
 worst-band-wins, with the watch band being the soft zone beneath the alert floor (a Lighthouse
 score in [75, 85), a check stale past 30 days). A watch reason the operator has explicitly
 accepted is routed to `acceptedReasons` and leaves the band rather than raising it
-(`fleet-cockpit.ts:184`, `:305–307`).
+(`fleet-cockpit.ts:176`, `:314–316`).
 
 **The "Needs you" feed** is real and is the thing to read first
-(`src/dashboard/fleet-cockpit.ts:419–442`, rendered by `renderNeedsYouFeed`,
+(`src/dashboard/fleet-cockpit.ts:428–451`, rendered by `renderNeedsYouFeed`,
 `src/dashboard/fleet-render.ts:209–228`).
 One row per site, every reason combined, ordered `broken` → `watch` → `approval`, critical-first
 within `broken`. A vuln the fleet is still auto-patching is amber `watch`; a vuln whose

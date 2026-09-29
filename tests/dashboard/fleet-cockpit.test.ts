@@ -945,6 +945,26 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
     expect(r.acceptedReasons).toEqual([]);
   });
 
+  it("an attention item keeps tier 'attention' and tags a stale repo", () => {
+    const r = assignTier(site({ lastCommitAt: "2026-04-01T00:00:00Z" }), [item()], NOW);
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual(["stale"]);
+    expect(r.watchReasons).toEqual([]);
+  });
+
+  it("a confirmed Turnstile fail keeps tier 'attention' and tags turnstile-unverified", () => {
+    // The fresh "fail" arrives as a CRITICAL item; the watch candidate still sees the
+    // flag + "fail" widget and contributes its tag, never a watch reason.
+    const r = assignTier(
+      site({ requireTurnstile: true, turnstileWidget: "fail" }),
+      [item({ key: "turnstile:recSITE", kind: "turnstile" })],
+      NOW,
+    );
+    expect(r.tier).toBe("attention");
+    expect(r.watchSignals).toEqual(["turnstile-unverified"]);
+    expect(r.watchReasons).toEqual([]);
+  });
+
   it("a failed deploy keeps tier 'attention' and tags the watch condition", () => {
     const r = assignTier(
       site({ status: "maintained", url: "https://acme.netlify.app", deployStatus: "error" }),
