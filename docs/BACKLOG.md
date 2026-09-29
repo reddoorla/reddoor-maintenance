@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-09-29 ~06:00Z** (cloud PM session, `claude/lucid-wozniak-wj8gaj`).
+**Last full re-rank: 2026-09-29 ~06:00Z; state updated ~10:30Z** (cloud PM session, `claude/lucid-wozniak-wj8gaj`).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -113,17 +113,15 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                        | Tier | Effort | Start here                                                                                           | Done when                                                                                                   |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| P1-2  | _(in progress 09-29, `wip/sc942`)_ **#942**: a Search Console lookup that finds no property is recorded as `unknown`, not "fail: Not on page 1"                                                             | 🟢   | S      | `src/reports/auto-tick.ts:182-208`, `src/reports/draft.ts`, `src/reports/search/client.ts:226`       | `propertyFound:false` → `unknown` "No Search Console property matched this site"; mutation-tested both ways |
-| P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done, #962 `wip/roster889`                                                                                 | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts                |
-| P1-4  | _(in progress 09-29, `wip/chips941`)_ **#941**: watch filter chips drop sites that also have an attention item                                                                                              | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:164-180`                                                             | A site with one attention item and one watch condition carries both tags; tier stays `attention`            |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                         | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                        |
-| P1-11 | _(done 09-29, `wip/issuebody`)_ Tracking-issue bodies are never rewritten (S2 leftover): the issue body keeps the first failure's run URL forever (#895's body still named 09-21's run when it closed)      | 🟢   | S      | the open steps in `.github/workflows/*.yml`                                                          | Body updated with `gh issue edit` on each failure                                                           |
-| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                          | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                       |
-| P1-13 | `land-prs.mjs` stops on one transient proxy error (`read: connection reset by peer` on a check-runs GET, seen landing #957). Retry idempotent GETs a bounded number of times; never retry a PUT             | 🟢   | S      | `scripts/land-prs.mjs` (`apiJson`), `tests/scripts/land-prs.test.ts`                                 | One reset then success lands; a persistent failure still stops with a reason; no PUT is ever retried        |
-| P1-14 | _(done 09-29, `wip/alarms2`)_ Add `js-yaml` as a devDependency and parse every workflow in `tests/build/tracking-issue-conditions.test.ts` (today a stopgap only catches unquoted YAML indicators in `if:`) | 🟢   | S      | `package.json`, `tests/build/_helpers/workflow-source.ts`                                            | An invalid workflow fails the test; all 14 load                                                             |
-| P1-15 | _(done 09-29, `wip/alarms2`)_ Alarms that still cannot fire: release-health hitting its 5-min job timeout, and time-travel hanging before its suite step, file nothing (#956 follow-ups)                    | 🟢   | S      | `.github/workflows/release-health.yml`, `time-travel.yml`                                            | Each files (or its gap is written into the workflow as accepted) with a test                                |
+| #     | Item                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                           | Done when                                                                                        |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                       | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts     |
+| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                 | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso             |
+| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                            |
+| P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review) | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested |
+| P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                              | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap              |
+| P1-18 | Prove #967 live: on the first real nightly failure after 09-29, confirm the tracking issue's BODY names that run. `gh issue edit` (GraphQL) was only stub-tested because the cloud proxy refuses GraphQL                                                                            | 🟢   | S      | the next red nightly's issue                                                                         | Body names the latest run; if not, the `::warning::` in that step says why                       |
+| P1-19 | `search_found_page1 = 0` is still stored when no Search Console property matched (`src/reports/draft.ts:359`, `src/recipes/announce.ts:120`), while the evidence now says `unknown` (#959). Pairs with #943                                                                         | 🟢   | S      | as named                                                                                             | A no-property result stores NULL, not 0                                                          |
 
 ### P1-3 start here (#912)
 
@@ -133,7 +131,7 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
 
 1. **A roster-URL pass over every non-archived row**, not `selectFleetSites`:
    for example a new `--only` audit in the `fleet-lighthouse` nightly.
-2. **Migration 0029** adding `url_resolves` (pass/fail), `url_status` and
+2. **The next migration** (0029 is taken by #968's `claimed_at`) adding `url_resolves` (pass/fail), `url_status` and
    `url_checked_at`, plus `schema.ts`, `field-map.ts`, `fleet-state.ts` and the
    `WebsiteRow` fields.
 3. **The Netlify 404 fingerprint**: status 404 with `server: Netlify`, proven
@@ -249,6 +247,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
 
 ## Done (move items here when they land)
 
+- 2026-09-29 — P1-2 / #942 (#959), P1-4 / #941 (#961), P1-11 tracking-issue
+  bodies rewritten on every failure (#967), P1-13 `land-prs` retries transient
+  reads (#963), P1-14 / P1-15 (#964).
+
 - 2026-09-29 — P1-8 / #907: the prospect-audit daily cap reserves a `running`
   row before the spend, atomically, and counts finished plus non-stale running
   rows (#968). The row cited `src/db/prospect-audits.ts:27`, the
@@ -276,11 +278,11 @@ Ordered by what unblocks the most. Each line is the exact ask.
   (upload-artifact v7; proven by backup artifact `turso-backup-36530796403`).
 - 2026-09-29 — P0-2 alarms (#956) and P0-3 / #911 (#957).
 - 2026-09-29 — P1-14: `js-yaml` is a devDependency and all 14 workflows are
-  parsed, with `workflowSteps` cross-checked against the parse (`wip/alarms2`).
+  parsed, with `workflowSteps` cross-checked against the parse (#964).
 - 2026-09-29 — P1-15: release-health files "Daily release-health check failing"
   when the checker itself fails or hangs, and time-travel files "Time-travel run
   failing outside the suite" for a red run whose suite step did not fail
-  (`wip/alarms2`).
+  (#964).
 
 - 2026-09-29 — #895 time-travel red since 09-21: shallow checkout, not a clock
   (#951, `33c01b3`).
