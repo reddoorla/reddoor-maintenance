@@ -257,7 +257,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
     that persist; compare health asks by field, not by status. That is about
     30 lines plus tests on `claude/digest-send-on-change`. Say "go" and a
     worker finishes it, or name another rule (e.g. "send on any NEW badge,
-    ignore metric changes").
+    ignore metric changes"). **Answered 2026-09-29 ~19:00Z: "go"** on that
+    pick; a worker finishes #975 with a third review round, which the answer
+    sanctions.
 
 ---
 
@@ -282,9 +284,9 @@ verdict is its only input, because no client and no check sees the email.
   stopping at the first row that is not `clean`. An `awaiting` row stops it
   too, and becomes an ask in the morning report.
 
-| Sent (UTC)       | Site    | Report                 | Verdict  |
-| ---------------- | ------- | ---------------------- | -------- |
-| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | awaiting |
+| Sent (UTC)       | Site    | Report                 | Verdict |
+| ---------------- | ------- | ---------------------- | ------- |
+| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | clean   |
 
 ## Fleet snapshot (2026-09-29 05:36Z, live Turso, SELECT-only) [M]
 
