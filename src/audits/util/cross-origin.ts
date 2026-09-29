@@ -110,9 +110,13 @@ export function splitCrossOriginFrameNodes<V extends FrameFilterViolation>(
  * the positive evidence of which frame an error was thrown in.
  *
  * An entry is the error's message, or null when the browser hid it — an
- * error from a cross-origin script loaded without CORS reaches its window only
- * as "Script error.", with no error object. A null entry names no error, so it
- * can move nothing out of the site's count.
+ * error THROWN in a cross-origin script loaded without CORS reaches its window
+ * only as "Script error.", with no error object. A null entry names no error,
+ * so it can move nothing out of the site's count. A REJECTION in such a script
+ * is hidden completely: Chromium fires no `unhandledrejection` for it, so it
+ * leaves no entry at all. Nothing is then logged that could match it, and it
+ * stays the site's by the count rule in splitThirdPartyErrors, not by this
+ * null.
  */
 export function recordFrameErrors(): void {
   const key = Symbol.for("reddoor.a11y.frameErrors");
@@ -149,8 +153,10 @@ export type FrameErrorLog = { url: string; foreign: boolean; messages: Array<str
  * Maps) and crashes inside it has a stack that starts on that origin, and it is
  * still the site's crash.
  *
- * If a site frame logged a hidden error (null), nothing on the route moves:
- * that hidden error could be any of them, and "could be" is not evidence.
+ * If a site frame logged a hidden error (null) — or its log could not be read,
+ * which collectFrameErrorLogs reports the same way — nothing on the route
+ * moves: that hidden error could be any of them, and "could be" is not
+ * evidence.
  */
 export function splitThirdPartyErrors<E extends { message: string }>(
   errors: E[],
@@ -197,4 +203,131 @@ export function splitThirdPartyErrors<E extends { message: string }>(
 export function firstStackUrl(stack: string): string | null {
   const match = /^\s*at .*?(https?:\/\/[^\s)]+)/m.exec(stack);
   return match !== null && match[1] !== undefined ? match[1] : null;
+}
+
+/** The slice of a Playwright `Frame` that collectFrameErrorLogs reads. */
+export type LoggingFrame = {
+  url(): string;
+  evaluate(fn: () => unknown): Promise<unknown>;
+};
+
+/**
+ * Read every frame's error log (see recordFrameErrors) for splitThirdPartyErrors.
+ *
+ * Every read is bounded. A frame with no committed document — a lazy iframe
+ * never brought into range, below the fold on the hydration smoke or
+ * `display: none` anywhere — is still listed by Playwright with url "", and
+ * evaluating in it waits forever for a context that never arrives. Unbounded,
+ * one such frame on a page with any uncaught error hung the whole run until
+ * the 5-minute spawn timeout, and the crash went unnamed. So:
+ *
+ *   - a frame with url "" is skipped: no document, no log, no evidence;
+ *   - every other read races `timeoutMs`. A cross-origin frame that does not
+ *     answer contributes no evidence. A SITE frame that does not answer is
+ *     reported as a hidden entry ([null]), because its log could have held the
+ *     very message a child logged — and then nothing on the route moves.
+ *
+ * `isForeign` is passed in (it is isForeignUrl) because this function is
+ * serialized into the spec and can reference nothing outside itself.
+ */
+export async function collectFrameErrorLogs(
+  frames: LoggingFrame[],
+  mainFrame: LoggingFrame,
+  topOrigin: string,
+  isForeign: (url: string, topOrigin: string) => boolean,
+  timeoutMs: number,
+): Promise<FrameErrorLog[]> {
+  const logs: FrameErrorLog[] = [];
+  for (const frame of frames) {
+    const url = frame.url();
+    if (url === "") continue;
+    const foreign = frame !== mainFrame && isForeign(url, topOrigin);
+    const read = frame.evaluate(
+      () =>
+        (window as unknown as Record<symbol, unknown>)[Symbol.for("reddoor.a11y.frameErrors")] ??
+        null,
+    );
+    // A read abandoned on timeout may still reject later (the frame detaches
+    // at the next navigation); it must not surface as an unhandled rejection.
+    read.catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let messages: unknown;
+    try {
+      messages = await Promise.race([
+        read,
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(undefined), timeoutMs);
+        }),
+      ]);
+    } catch {
+      messages = undefined;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (Array.isArray(messages))
+      logs.push({ url, foreign, messages: messages as Array<string | null> });
+    else if (!foreign) logs.push({ url, foreign, messages: [null] });
+  }
+  return logs;
+}
+
+/** The slice of a Playwright `Frame` that frameOnPathIsForeign walks. */
+export type WalkableFrame = {
+  url(): string;
+  evaluateHandle(
+    fn: (selector: string | string[]) => Element | null,
+    selector: string | string[],
+  ): Promise<{ asElement(): { contentFrame(): Promise<WalkableFrame | null> } | null }>;
+};
+
+/**
+ * Is there positive evidence that this frame path — axe's target minus its
+ * last element — runs through a cross-origin document? Walk it frame by frame,
+ * stepping into shadow roots (via `resolve`, which is resolveTargetElement)
+ * and through same-origin wrapper frames, and ask each frame for the URL it
+ * actually loaded: redirects are followed, and a srcdoc facade is
+ * `about:srcdoc`, the site's.
+ *
+ * Anything that cannot be resolved is "no": an element that does not resolve,
+ * one that is not a frame, a step that throws (a detached frame), or a step
+ * that does not answer within `timeoutMs`. That keeps the node — the site's —
+ * because dropping on "cannot tell" is the green-granting direction.
+ *
+ * Serialized into the spec, so its helpers are passed in.
+ */
+export async function frameOnPathIsForeign(
+  mainFrame: WalkableFrame,
+  path: Array<string | string[]>,
+  topOrigin: string,
+  isForeign: (url: string, topOrigin: string) => boolean,
+  resolve: (selector: string | string[]) => Element | null,
+  timeoutMs: number,
+): Promise<boolean> {
+  let frame = mainFrame;
+  for (const selector of path) {
+    const step = (async () => {
+      const handle = await frame.evaluateHandle(resolve, selector);
+      const element = handle.asElement();
+      return element === null ? null : await element.contentFrame();
+    })();
+    step.catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let child: WalkableFrame | null = null;
+    try {
+      child = await Promise.race([
+        step,
+        new Promise<null>((done) => {
+          timer = setTimeout(() => done(null), timeoutMs);
+        }),
+      ]);
+    } catch {
+      child = null;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (child === null) return false;
+    if (isForeign(child.url(), topOrigin)) return true;
+    frame = child;
+  }
+  return false;
 }

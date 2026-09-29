@@ -15,7 +15,9 @@ import {
 } from "../../src/audits/a11y.js";
 import { revealBelowFold } from "../../src/audits/util/reveal-below-fold.js";
 import {
+  collectFrameErrorLogs,
   firstStackUrl,
+  frameOnPathIsForeign,
   isForeignUrl,
   recordFrameErrors,
   resolveTargetElement,
@@ -1722,8 +1724,9 @@ describe("audits/a11y — nodes inside cross-origin frames are counted, not fail
     expect(spec).toContain(
       "frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });",
     );
-    // The decision is made from the URL each frame actually loaded.
-    expect(spec).toContain("if (isForeignUrl(child.url(), currentOrigin)) return true;");
+    // The decision is made from the URL each frame actually loaded, by the
+    // walker (held below with fake frames).
+    expect(spec).toContain("frameOnPathIsForeign(");
   });
 
   it("names dropped nodes in the summary as information: empty when there are none", () => {
@@ -1885,5 +1888,116 @@ describe("audits/a11y — an error is a cross-origin frame's only on that frame'
     expect(result.summary).toContain(
       "1 uncaught error thrown inside cross-origin frames, not counted: / (https://maps.example.com)",
     );
+  });
+});
+
+/**
+ * #100 review, round 4: the two frame-walking steps of the spec, lifted into
+ * functions so their safe directions can be held with fake frames. Every read
+ * is bounded, and every "cannot tell" stays the site's.
+ */
+describe("audits/a11y — frame reads are bounded, and unreadable is the site's", () => {
+  const TOP = "http://localhost:5173";
+  const NEVER = () => new Promise<never>(() => undefined);
+  const logFrame = (url: string, read: () => Promise<unknown>) => ({
+    url: () => url,
+    evaluate: read,
+  });
+
+  it("skips a frame with no document, and never waits on one", async () => {
+    const main = logFrame(`${TOP}/`, async () => ["site broke"]);
+    const unloaded = logFrame("", NEVER);
+    const started = Date.now();
+    const logs = await collectFrameErrorLogs([main, unloaded], main, TOP, isForeignUrl, 60_000);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(logs).toEqual([{ url: `${TOP}/`, foreign: false, messages: ["site broke"] }]);
+  });
+
+  it("gives up on a frame that does not answer: no evidence from a cross-origin one, a hidden entry for the site's", async () => {
+    const main = logFrame(`${TOP}/`, NEVER);
+    const embed = logFrame("https://embed.example.com/w", NEVER);
+    const answering = logFrame("https://other.example.com/x", async () => ["embed broke"]);
+    const logs = await collectFrameErrorLogs([main, embed, answering], main, TOP, isForeignUrl, 50);
+    expect(logs).toEqual([
+      { url: `${TOP}/`, foreign: false, messages: [null] },
+      { url: "https://other.example.com/x", foreign: true, messages: ["embed broke"] },
+    ]);
+  });
+
+  it("treats a read that throws like one that does not answer", async () => {
+    const main = logFrame(`${TOP}/`, async () => {
+      throw new Error("detached");
+    });
+    const embed = logFrame("https://embed.example.com/w", async () => {
+      throw new Error("detached");
+    });
+    expect(await collectFrameErrorLogs([main, embed], main, TOP, isForeignUrl, 50)).toEqual([
+      { url: `${TOP}/`, foreign: false, messages: [null] },
+    ]);
+  });
+
+  type Walkable = Parameters<typeof frameOnPathIsForeign>[0];
+  const walkFrame = (url: string, children: Record<string, Walkable | null> = {}): Walkable => ({
+    url: () => url,
+    evaluateHandle: async (_fn, selector) => {
+      const key = JSON.stringify(selector);
+      if (!(key in children)) return { asElement: () => null };
+      const child = children[key] ?? null;
+      return { asElement: () => ({ contentFrame: async () => child }) };
+    },
+  });
+  const walk = (main: Walkable, path: Array<string | string[]>, timeoutMs = 1000) =>
+    frameOnPathIsForeign(main, path, TOP, isForeignUrl, resolveTargetElement, timeoutMs);
+
+  it("finds a foreign document through same-origin wrappers and shadow selectors", async () => {
+    const embed = walkFrame("https://embed.example.com/x");
+    const wrapper = walkFrame(`${TOP}/wrapper`, { [JSON.stringify("iframe")]: embed });
+    const main = walkFrame(`${TOP}/`, {
+      [JSON.stringify("#wrap")]: wrapper,
+      [JSON.stringify(["#host", "iframe"])]: embed,
+    });
+    expect(await walk(main, ["#wrap", "iframe"])).toBe(true);
+    expect(await walk(main, [["#host", "iframe"]])).toBe(true);
+    expect(await walk(main, ["#wrap"])).toBe(false);
+  });
+
+  it("calls a srcdoc facade the site's", async () => {
+    const main = walkFrame(`${TOP}/`, { [JSON.stringify("#facade")]: walkFrame("about:srcdoc") });
+    expect(await walk(main, ["#facade"])).toBe(false);
+  });
+
+  it("keeps anything unresolvable the site's: no element, no frame, a throw, or no answer", async () => {
+    const main = walkFrame(`${TOP}/`, { [JSON.stringify("#gone")]: null });
+    // The selector no longer resolves (a frame removed before the walk).
+    expect(await walk(main, ["#missing"])).toBe(false);
+    // It resolves, but to something with no frame.
+    expect(await walk(main, ["#gone"])).toBe(false);
+    const throwing: Walkable = {
+      url: () => `${TOP}/`,
+      evaluateHandle: async () => {
+        throw new Error("Frame was detached");
+      },
+    };
+    expect(await walk(throwing, ["#x"])).toBe(false);
+    const silent: Walkable = { url: () => `${TOP}/`, evaluateHandle: NEVER };
+    const started = Date.now();
+    expect(await walk(silent, ["#x"], 50)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("the generated spec runs these exact functions, bounded, and flushes what is still held", async () => {
+    const spec = await specOf();
+    for (const fn of [collectFrameErrorLogs, frameOnPathIsForeign]) {
+      expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
+    }
+    expect(spec).toContain("const FRAME_READ_TIMEOUT_MS = 2000;");
+    // After the smoke loop, one last settle: nothing held is ever dropped.
+    const smokeLoop = spec.indexOf("for (const { path, name } of smokePages)");
+    const finalSettle = spec.indexOf(
+      "await settleErrors();",
+      spec.indexOf("}\n", spec.indexOf('await page.goto("about:blank");', smokeLoop)),
+    );
+    expect(smokeLoop).toBeGreaterThan(-1);
+    expect(finalSettle).toBeGreaterThan(smokeLoop);
   });
 });

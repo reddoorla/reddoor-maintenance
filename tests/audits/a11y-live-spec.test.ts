@@ -36,6 +36,13 @@ import type { AuditResult } from "../../src/types.js";
 const REPO_NODE_MODULES = fileURLToPath(new URL("../../node_modules", import.meta.url));
 const PLAYWRIGHT_CLI = createRequire(import.meta.url).resolve("@playwright/test/cli");
 
+/** livePlaywright with a tighter spawn budget than the audit's 5 minutes, for a
+ *  site whose failure mode is a hang: it must fail in seconds, not minutes. */
+const livePlaywrightWithin =
+  (timeoutMs: number): SpawnFn =>
+  (cmd, args, opts) =>
+    livePlaywright(cmd, args, { ...opts, timeoutMs });
+
 const livePlaywright: SpawnFn = (cmd, args, opts) => {
   // Refuse anything but the one command this substitutes for, so a change to
   // how the audit launches Playwright fails here by name instead of running
@@ -253,16 +260,40 @@ const CROSS_PAGES: Record<string, string> = {
  * A site crashing inside a library it loaded from another origin. Both errors'
  * stacks START on the library's origin, and both are the site's crash: the
  * site called the library with nothing to render into. They must stay
- * `client-error`s and fail.
+ * `client-error`s and fail. The page also frames a document from the SAME
+ * origin as the library — Vimeo serves both `player.js` and its player iframe
+ * from player.vimeo.com — so "the stack's origin matches a cross-origin frame
+ * on the page" is on offer here, and must not be taken as evidence.
  */
 const LIB_PAGE = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Library</title>
 <script src="CROSS_ORIGIN/lib.js"></script></head>
-<body><main><h1>Library</h1></main>
+<body><main><h1>Library</h1>
+<iframe title="Player" src="CROSS_ORIGIN/player.html"></iframe></main>
 <script>
   fixtureLib.load();
   fixtureLib.render(null);
+</script>
+</body>
+</html>`;
+
+/**
+ * The library's REJECTION alone, beside the same Vimeo-shaped frame. A
+ * rejection in a cross-origin script is hidden from the page completely — no
+ * `unhandledrejection` fires, so no log entry exists — which means nothing
+ * short-circuits this route: only the rule that an error needs a matching
+ * entry in a cross-origin frame's own log keeps it the site's. A fallback that
+ * moved an error because its stack starts on the embed's origin would move it.
+ */
+const LIB_REJECT_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Library rejection</title>
+<script src="CROSS_ORIGIN/lib.js"></script></head>
+<body><main><h1>Library rejection</h1>
+<iframe title="Player" src="CROSS_ORIGIN/player.html"></iframe></main>
+<script>
+  fixtureLib.load();
 </script>
 </body>
 </html>`;
@@ -274,10 +305,11 @@ const LIB_PAGE = `<!doctype html>
  *     the site's own defect, `frame-focusable-content` (serious, WCAG 2.1.1),
  *     which axe sees only from inside the frame. Must be KEPT.
  *   - `#so-frame`: the site's own same-origin page, with an unnamed button
- *     (`button-name`). Must be KEPT.
+ *     (`button-name`). Must be KEPT. It also throws on load: an error in the
+ *     site's own child frame is the site's, and must fail.
  *   - `#facade`: a lazy-video facade — `src` on the third party, but a
  *     `srcdoc` of the site's markup, which is what actually loads. Its `<img>`
- *     has no `alt`. Must be KEPT.
+ *     has no `alt`. Must be KEPT. It throws too, and that is the site's error.
  *   - `#redir`: a same-origin `src` that 302s to the third party. DROPPED.
  *   - `#wrap`: a same-origin wrapper page holding a third-party frame. The
  *     inner frame's `image-alt` is DROPPED.
@@ -302,7 +334,7 @@ const FRAMES_PAGE = `<!doctype html>
 <body><main><h1>Frames</h1>
 <iframe id="xo-tab" tabindex="-1" title="Player" src="CROSS_ORIGIN/player.html"></iframe>
 <iframe id="so-frame" title="Own page" src="/own-frame"></iframe>
-<iframe id="facade" title="Video" src="CROSS_ORIGIN/frame.html" srcdoc="<img src='/thumb.png'>"></iframe>
+<iframe id="facade" title="Video" src="CROSS_ORIGIN/frame.html" srcdoc="<img src='/thumb.png'><script>throw new Error('fixture: the srcdoc facade threw')</script>"></iframe>
 <iframe id="redir" title="Redirected embed" src="/go-embed"></iframe>
 <iframe id="wrap" title="Wrapper" src="/wrapper"></iframe>
 <div id="host"></div>
@@ -315,8 +347,8 @@ const FRAMES_PAGE = `<!doctype html>
 </body>
 </html>`;
 
-/** The site's own page, framed by `#so-frame`: one unnamed button. */
-const OWN_FRAME_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Own</title></head><body><main><button type="button"></button></main></body></html>`;
+/** The site's own page, framed by `#so-frame`: one unnamed button, and a throw. */
+const OWN_FRAME_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Own</title></head><body><main><button type="button"></button></main><script>throw new Error("fixture: the site's own frame threw");</script></body></html>`;
 
 /** The site's own wrapper page, framing a third party's document. */
 const WRAPPER_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Wrapper</title></head><body><main><iframe title="Inner embed" src="CROSS_ORIGIN/frame.html"></iframe></main></body></html>`;
@@ -536,6 +568,49 @@ type Violation = {
   nodes?: Array<{ target?: string[] }>;
 };
 
+/**
+ * Pages whose frames include one that never loads, next to errors that must be
+ * settled — the shape of beachfront-dentistry's footer, a lazy Google Maps
+ * iframe on every route. Playwright lists an unloaded lazy frame with url ""
+ * and no execution context, and an unbounded read of it waited forever:
+ *
+ *   - `/` is the hydration smoke's page. The smoke runs no reveal pass, so a
+ *     lazy iframe at 1000vh never loads. It throws on load (the site's), and
+ *     an eager embed on it throws too (the third party's).
+ *   - `/hidden-lazy` is an axe route with the same pair of errors and a
+ *     `hidden` lazy iframe, which stays unloaded even after the pass.
+ */
+const crashingPageWithUnloadedFrame = (title: string, message: string, lazyFrame: string) =>
+  `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>${title}</title>
+<style>main { position: relative; height: 1100vh; } #far { position: absolute; top: 1000vh; }</style></head>
+<body><main><h1>${title}</h1>
+<iframe title="Widget" src="CROSS_ORIGIN/throws.html"></iframe>
+${lazyFrame}
+</main>
+<script>throw new Error(${JSON.stringify(message)});</script>
+</body>
+</html>`;
+
+const SITE_H: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": crashingPageWithUnloadedFrame(
+      "Home",
+      "fixture: the homepage crashed on hydrate",
+      `<iframe id="far" loading="lazy" title="Map" src="CROSS_ORIGIN/frame.html"></iframe>`,
+    ),
+    "/hidden-lazy": crashingPageWithUnloadedFrame(
+      "Hidden lazy frame",
+      "fixture: a page with a hidden lazy frame crashed",
+      `<iframe hidden loading="lazy" title="Map" src="CROSS_ORIGIN/frame.html"></iframe>`,
+    ),
+  },
+  a11yRoutes: ["/hidden-lazy"],
+};
+
 /** A site with nothing to fail and one route whose reveal pass cannot finish. */
 const SITE_W: SiteConfig = {
   pages: {
@@ -557,11 +632,12 @@ const SITE_F: SiteConfig = {
     "/third-party": THIRD_PARTY_PAGE,
     "/delayed": DELAYED_PAGE,
     "/lib": LIB_PAGE,
+    "/lib-reject": LIB_REJECT_PAGE,
     "/frames": FRAMES_PAGE,
     "/own-frame": OWN_FRAME_PAGE,
     "/wrapper": WRAPPER_PAGE,
   },
-  a11yRoutes: ["/late-b", "/third-party", "/delayed", "/lib", "/frames"],
+  a11yRoutes: ["/late-b", "/third-party", "/delayed", "/lib", "/lib-reject", "/frames"],
   delaysMs: { "/late-b": 4000 },
   redirects: { "/go-embed": "CROSS_ORIGIN/frame.html" },
 };
@@ -606,14 +682,17 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     // crashed, a route reported missing, or a client error would each leave
     // the contrast assertions measuring nothing.
     expect(result?.summary).toMatch(
-      /^a11y: \d+ violations across 7 routes \(2 fixtures \+ 5 from package\.json\)/,
+      /^a11y: \d+ violations across 8 routes \(2 fixtures \+ 6 from package\.json\)/,
     );
     const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
     expect(all.map((v) => `${v.id} on ${v.route}`).sort()).toEqual([
       "button-name on /frames",
+      "client-error on /frames",
+      "client-error on /frames",
       "client-error on /late-b",
       "client-error on /lib",
       "client-error on /lib",
+      "client-error on /lib-reject",
       "client-error on a11y fixtures",
       "color-contrast on /delayed",
       "color-contrast on a11y fixtures",
@@ -639,6 +718,7 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
       "/third-party",
       "/delayed",
       "/lib",
+      "/lib-reject",
       "/frames",
     ]);
     const fixture = reveals[0];
@@ -753,6 +833,33 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     expect(thirdParty.filter((e) => e.route === "/lib")).toEqual([]);
   });
 
+  it("keeps a library's rejection the site's beside a frame from the library's own origin", () => {
+    expect(
+      violations("/lib-reject")
+        .filter((v) => v.id === "client-error")
+        .map((v) => v.help),
+    ).toEqual(["fixture: lib.load rejected"]);
+    type ThirdPartyError = { route: string };
+    const thirdParty =
+      (result?.details as { thirdPartyErrors?: ThirdPartyError[] } | undefined)?.thirdPartyErrors ??
+      [];
+    expect(thirdParty.filter((e) => e.route === "/lib-reject")).toEqual([]);
+  });
+
+  it("keeps an error thrown in the site's own child frames the site's: same-origin, and srcdoc", () => {
+    expect(
+      violations("/frames")
+        .filter((v) => v.id === "client-error")
+        .map((v) => v.help)
+        .sort(),
+    ).toEqual(["fixture: the site's own frame threw", "fixture: the srcdoc facade threw"]);
+    type ThirdPartyError = { route: string };
+    const thirdParty =
+      (result?.details as { thirdPartyErrors?: ThirdPartyError[] } | undefined)?.thirdPartyErrors ??
+      [];
+    expect(thirdParty.filter((e) => e.route === "/frames")).toEqual([]);
+  });
+
   const nodeTargets = (route: string, rule: string): unknown[] =>
     violations(route)
       .filter((v) => v.id === rule)
@@ -819,5 +926,44 @@ describe("audits/a11y — a real reveal pass that cannot finish cleanly warns (#
     );
     const violations = (result?.details as { violations?: unknown[] } | undefined)?.violations;
     expect(violations).toEqual([]);
+  });
+});
+
+describe("audits/a11y — a frame that never loads cannot stall the run (#100 review)", () => {
+  // The whole run normally takes seconds. Unbounded, it hung to the 5-minute
+  // spawn timeout; this cap makes that failure take under a minute instead.
+  const SPAWN_CAP_MS = 45_000;
+  let site = "";
+  let result: AuditResult | undefined;
+  let elapsedMs = 0;
+
+  beforeAll(async () => {
+    site = await makeFixtureSite(SITE_H);
+    const started = Date.now();
+    result = await a11yAudit({ site: { path: site }, spawn: livePlaywrightWithin(SPAWN_CAP_MS) });
+    elapsedMs = Date.now() - started;
+  }, 90_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+  });
+
+  it("finishes, and names the site's crash on the smoke route and on an axe route", () => {
+    expect(elapsedMs).toBeLessThan(SPAWN_CAP_MS);
+    expect(result?.status).toBe("fail");
+    const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+    expect(all.map((v) => `${v.id} on ${v.route}: ${v.help ?? ""}`).sort()).toEqual([
+      "client-error on /hidden-lazy: fixture: a page with a hidden lazy frame crashed",
+      "client-error on home: fixture: the homepage crashed on hydrate",
+    ]);
+  });
+
+  it("still names the embed's errors as the third party's, on both routes", () => {
+    type ThirdPartyError = { route: string; frame?: string };
+    const errors =
+      (result?.details as { thirdPartyErrors?: ThirdPartyError[] } | undefined)?.thirdPartyErrors ??
+      [];
+    expect(errors.map((e) => e.route).sort()).toEqual(["/hidden-lazy", "home"]);
+    for (const e of errors) expect(e.frame).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/throws\.html$/);
   });
 });

@@ -14,7 +14,9 @@ import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
 import {
+  collectFrameErrorLogs,
   firstStackUrl,
+  frameOnPathIsForeign,
   isForeignUrl,
   recordFrameErrors,
   resolveTargetElement,
@@ -398,6 +400,11 @@ const splitCrossOriginFrameNodes = ${splitCrossOriginFrameNodes.toString()};
 const recordFrameErrors = ${recordFrameErrors.toString()};
 const splitThirdPartyErrors = ${splitThirdPartyErrors.toString()};
 const firstStackUrl = ${firstStackUrl.toString()};
+const collectFrameErrorLogs = ${collectFrameErrorLogs.toString()};
+const frameOnPathIsForeign = ${frameOnPathIsForeign.toString()};
+// Every read of a frame is bounded: a lazy iframe that never loaded is listed
+// with no document, and waiting on it hung the whole run (#100 review).
+const FRAME_READ_TIMEOUT_MS = 2000;
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
 const REVEAL_PASS_ERROR_PREFIX = ${JSON.stringify(REVEAL_PASS_ERROR_PREFIX)};
@@ -454,25 +461,19 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
 
   // Settle this route's pending errors. An error moves to thirdPartyErrors
   // only when a cross-origin frame's own log recorded it (see
-  // splitThirdPartyErrors); everything else is the site's client-error.
-  // A frame that cannot be read contributes no evidence.
+  // splitThirdPartyErrors); everything else is the site's client-error. Every
+  // frame read is bounded (see collectFrameErrorLogs): a frame that does not
+  // answer is no evidence for the third party, and a site frame that does not
+  // answer moves nothing.
   const settleErrors = async () => {
     if (pendingErrors.length === 0) return;
-    const frameLogs = [];
-    for (const frame of page.frames()) {
-      let messages = null;
-      try {
-        messages = await frame.evaluate(() => window[Symbol.for("reddoor.a11y.frameErrors")] ?? null);
-      } catch {
-        messages = null;
-      }
-      if (!Array.isArray(messages)) continue;
-      frameLogs.push({
-        url: frame.url(),
-        foreign: frame !== page.mainFrame() && isForeignUrl(frame.url(), currentOrigin),
-        messages,
-      });
-    }
+    const frameLogs = await collectFrameErrorLogs(
+      page.frames(),
+      page.mainFrame(),
+      currentOrigin,
+      isForeignUrl,
+      FRAME_READ_TIMEOUT_MS,
+    );
     const errors = pendingErrors.splice(0, pendingErrors.length);
     const split = splitThirdPartyErrors(errors, frameLogs);
     for (const e of split.site) {
@@ -489,28 +490,18 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
     }
   };
 
-  // Is there positive evidence that this frame path (axe's target minus its
-  // last element) runs through a cross-origin document? Walk it frame by
-  // frame -- stepping into shadow roots, through same-origin wrapper frames --
-  // and ask each frame for the URL it actually loaded (redirects followed; a
-  // srcdoc facade is about:srcdoc, the site's). Anything unresolvable: no.
-  const frameOnPathIsForeign = async (path) => {
-    let frame = page.mainFrame();
-    for (const selector of path) {
-      let child = null;
-      try {
-        const handle = await frame.evaluateHandle(resolveTargetElement, selector);
-        const element = handle.asElement();
-        child = element ? await element.contentFrame() : null;
-      } catch {
-        child = null;
-      }
-      if (child === null) return false;
-      if (isForeignUrl(child.url(), currentOrigin)) return true;
-      frame = child;
-    }
-    return false;
-  };
+  // Is there positive evidence that this frame path runs through a
+  // cross-origin document? See frameOnPathIsForeign: the URL each frame on the
+  // path actually loaded, and anything unresolvable is no.
+  const pathIsForeign = (path) =>
+    frameOnPathIsForeign(
+      page.mainFrame(),
+      path,
+      currentOrigin,
+      isForeignUrl,
+      resolveTargetElement,
+      FRAME_READ_TIMEOUT_MS,
+    );
   // True only while the reveal pass is running on this route (#100). An
   // error caught then is labelled with that time window -- which is all the
   // label claims: not that the pass caused it.
@@ -643,7 +634,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
           const key = JSON.stringify(t.slice(0, -1));
           if (checkedPaths.includes(key)) continue;
           checkedPaths.push(key);
-          if (await frameOnPathIsForeign(t.slice(0, -1))) foreignPaths.push(key);
+          if (await pathIsForeign(t.slice(0, -1))) foreignPaths.push(key);
         }
       }
       const split = splitCrossOriginFrameNodes(results.violations, foreignPaths);
@@ -681,6 +672,10 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
     await settleErrors();
     await page.goto("about:blank");
   }
+  // Anything still held -- an error that arrived after its route's settle --
+  // is the site's: with no frame left to read, nothing can move it. Nothing
+  // held is ever dropped.
+  await settleErrors();
 
   const byImpact = {};
   for (const v of violations) {
