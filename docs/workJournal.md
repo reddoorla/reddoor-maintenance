@@ -5789,3 +5789,15 @@ The morning snapshot's 0 healthy / 13 watch was mostly one roster gap (#939). Th
 - Approvals record `"dashboard"`, not the operator's email.
 
 **Where this came from.** Everything above came from read-only SELECTs, the code, and the docs. I found no written feedback from Tim or Erik, and no journal record of the stray-`\n` script failure that #672's MED-18(c) comment cites.
+
+## 2026-09-29 — P1-3 PR 2, the roster-url surface, held after two review rounds (#1004, `490e6be2`)
+
+PR 1 (#986) stores whether each non-archived roster `url` resolves. Nothing read that verdict yet. #1004 makes it reach the operator.
+
+A fresh `fail` becomes `url-unresolved:<siteId>` in the digest. It names the url and the status, and it is keyed once per site, so a 404 that turns into a DNS error does not re-mail under #975's send-on-change rule. A stale stamp is caught as one fleet item, `url-probe-stale`, whose metric is the count. It is one item rather than thirty-four because a dead nightly stales every row at once. `url not deployed` mutes only the fresh failure. Maintained rows also watch on the cockpit, because a watch (not an attention item) is the only cockpit shape an accept key can mute.
+
+**What the fixtures said about the design.** Wiring the collector in turned twelve digest tests red. Every stock fixture row had a null `url_checked_at`, so the new staleness item fired on "clean" fleets. That was the collector doing exactly its job, and it showed that a null stamp is the most common state a row will ever be in: every row until tonight's first nightly, and every new site until its first probe. Round 1 caught the wording ("not checked in 3 days" for a row that was never checked). Round 2 caught the real cost. The workflows run late (fleet-lighthouse started at 14:41Z on 09-29, not at 08:00, and on 09-28 the digest ran while the nightly was still going), so a site added during the PT day reaches the next 09:23 digest before any probe has run. A never-stamped row would then send a NEW mail telling the operator to debug a working step, once per new site. The fix counts a never-stamped row only while no row in the fleet is fresh. Its cost is written into the collector and the Operator decisions line.
+
+**Mutations.** 12 were named before the code, and 20 more came from the two review rounds' survivors and the fixes. M5 (a window of 30 days instead of 3) survived the first pass because the tests built their stale date from the constant itself. It took a literal-hours test, and later a minute-exact one, to pin the window. All 32 now turn a test red.
+
+**Why it is held.** Both rounds found a real defect, so under the two-round rule #1004 is Operator decisions item 26 and does not go to a third round. The branch has both rounds' fixes, is merged with `main`, and passes the full suite. No production write, no dispatch.
