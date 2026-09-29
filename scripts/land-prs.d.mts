@@ -130,6 +130,9 @@ export function checksFromRest(
   statuses: Array<{ context: string; state: string }>,
 ): Array<{ name: string; bucket: CheckBucket }>;
 
+/** A branch name as a REST path: only `%`, `#`, `?` and space are percent-encoded. */
+export function refPath(branch: string): string;
+
 /** `owner/repo` from a git remote URL, or "" when it names none. */
 export function repoFromRemoteUrl(url: string): string;
 

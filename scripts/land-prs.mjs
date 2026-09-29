@@ -27,9 +27,15 @@
 //      viewed, sleep 25 s, poll until head.sha moves (≤ 3 min).
 //   3. poll the head's check runs and commit statuses every 10 s (≤ --checks-timeout-min),
 //      bucketed the way `gh pr checks` buckets them. The first failure stops the run,
-//      naming the failing checks; nothing pending and nothing failed passes.
+//      naming the failing checks. It passes only when nothing is pending or failed AND at
+//      least one check passed: no checks at all, or only neutral/skipped/cancelled ones, is
+//      "not reported yet" and waits under the no-checks budget. Netlify posts its neutral
+//      runs about 2 s before Actions registers `build` (#953's head: 05:48:56Z vs
+//      05:48:58Z), and a poll in that window used to pass a head nothing had built.
 //   4. re-view. The head moved during the wait → back to 3. BEHIND (main moved during the
-//      wait) → back to 2. Both count against the same 3 rounds. Otherwise the merge state
+//      wait) → back to 2. Both count against the same 3 rounds. The step-1 refusals run
+//      again on this view, so a PR retargeted, retitled as a release or made a draft while
+//      the checks ran is refused, not merged. Otherwise the merge state
 //      must be CLEAN (UNKNOWN/BLOCKED get a short settle first, because GitHub recomputes
 //      it lazily after the last check completes); any other state stops.
 //   5. `PUT pulls/N/merge` with merge_method=squash and sha=<the gated head>, then verify
@@ -248,7 +254,7 @@ async function apiJson(ctx, path) {
   if (r.code !== 0) throw new Stop(`gh api ${path} failed: ${ghFailureDetail(r)}`);
   const body = parseJson(r.stdout);
   if (body === null || typeof body !== "object") {
-    throw new Stop(`gh api ${path} returned no JSON: ${firstLine(r.stdout)}`);
+    throw new Stop(`gh api ${path} returned no JSON: ${firstLine(r.stdout) || "an empty body"}`);
   }
   return body;
 }
@@ -288,7 +294,9 @@ export function prFromRest(p) {
 }
 
 /** The bucket `gh pr checks` puts a check in. Cancelled is its own bucket and, as in gh,
- *  does not fail the wait; anything unrecognised is pending. */
+ *  does not fail the wait. Anything unrecognised — `waiting`, `requested`, `stale`,
+ *  `expected`, a value GitHub adds tomorrow — is pending, never pass: the default is the
+ *  fail-safe one, because an unknown state that passed would open the gate. */
 export function checkBucket(state) {
   switch (String(state ?? "").toUpperCase()) {
     case "SUCCESS":
@@ -415,8 +423,16 @@ async function waitForChecks(ctx, n, sha) {
   let empty = 0;
   for (;;) {
     const checks = await readChecks(ctx, sha);
-    // Right after a push the new head can have no check runs registered yet.
-    if (checks.length === 0) {
+    const named = (...buckets) =>
+      checks.filter((c) => buckets.includes(c.bucket)).map((c) => c.name);
+    if (named("fail").length > 0) {
+      throw new Stop(`checks failed on ${short(sha)}: ${named("fail", "cancel").join(", ")}`);
+    }
+    const pending = named("pending");
+    // Right after a push the new head can have no check runs registered yet — or only
+    // Netlify's neutral ones, which arrive about 2 s before Actions registers `build`.
+    // Neither is a verdict: nothing has passed, so keep waiting under the same budget.
+    if (pending.length === 0 && named("pass").length === 0) {
       if (budget === null) budget = await noChecksBudget(ctx, n, sha);
       if (empty < budget) {
         empty++;
@@ -424,14 +440,12 @@ async function waitForChecks(ctx, n, sha) {
         continue;
       }
       const waited = Math.round((budget * ctx.t.noChecksIntervalMs) / 1000);
-      throw new Stop(`no checks reported on ${short(sha)} after ${waited}s`);
+      throw new Stop(
+        checks.length === 0
+          ? `no checks reported on ${short(sha)} after ${waited}s`
+          : `no check passed on ${short(sha)} after ${waited}s, only ${checks.map((c) => `${c.name} (${c.bucket})`).join(", ")}`,
+      );
     }
-    const named = (...buckets) =>
-      checks.filter((c) => buckets.includes(c.bucket)).map((c) => c.name);
-    if (named("fail").length > 0) {
-      throw new Stop(`checks failed on ${short(sha)}: ${named("fail", "cancel").join(", ")}`);
-    }
-    const pending = named("pending");
     if (pending.length === 0) {
       ctx.log(`LAND #${n} checks passed on ${short(sha)}`);
       return;
@@ -491,7 +505,10 @@ async function merge(ctx, n, pr) {
     if (v.state === "MERGED") break;
   }
   if (!v || v.state !== "MERGED") {
-    throw new Stop(`merge did not land (state=${v?.state}): ${ghFailureDetail(r)}`);
+    // A merge call that exited 0 has only its JSON body to show, `"merged":true` included,
+    // which reads as a contradiction in a "did not land" line; say what happened instead.
+    const said = r.code === 0 ? "the merge call succeeded" : ghFailureDetail(r);
+    throw new Stop(`merge did not land (state=${v?.state}): ${said}`);
   }
   if (r.code !== 0) {
     ctx.log(`LAND #${n} note: the merge call failed but the PR is MERGED: ${ghFailureDetail(r)}`);
@@ -500,8 +517,17 @@ async function merge(ctx, n, pr) {
   return v.mergeCommit?.oid ?? "(unknown merge commit)";
 }
 
+/** A branch name as a REST path. Only `%`, `#`, `?` and space are encoded: `#` would
+ *  otherwise start a fragment and `%` an escape (`?` and space cannot be in a ref at all).
+ *  Everything else stays literal, because the cloud proxy answers ANY percent-encoded path
+ *  with 400 "could not be canonicalized" — and `encodeURIComponent` turned every
+ *  dependabot `…/@types/…` branch into `%40types`. */
+export function refPath(branch) {
+  return branch.replace(/[%#? ]/g, (c) => encodeURIComponent(c));
+}
+
 async function deleteBranch(ctx, n, branch) {
-  const path = branch.split("/").map(encodeURIComponent).join("/");
+  const path = refPath(branch);
   const del = await api(ctx, `git/refs/heads/${path}`, ["--method", "DELETE"]);
   if (del.code === 0 || httpStatus(del) === 422) return;
   let seen;
@@ -651,6 +677,10 @@ async function landOne(ctx, n) {
       return { status: "skipped" };
     }
     if (pr.state !== "OPEN") throw new Stop(`state=${pr.state} after the checks wait`);
+    // The first view's refusals, again: the base, the title and draft can all change while
+    // the checks run, and this view — not the first one — is what the merge acts on.
+    const refusedNow = refusal(pr, ctx.base);
+    if (refusedNow) throw new Stop(`${refusedNow}; seen after the checks wait on ${short(began)}`);
     if (pr.headRefOid !== began) {
       if (round >= ctx.t.maxCheckRounds) {
         throw new Stop(`head kept moving: ${round} check rounds, now ${short(pr.headRefOid)}`);

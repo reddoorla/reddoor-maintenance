@@ -140,13 +140,21 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   permitted through this proxy", and a percent-encoded path answers 400 "could
   not be canonicalized". `PUT pulls/{n}/merge` and `PUT pulls/{n}/update-branch`
   reach GitHub.
-- **Land PRs from the cloud with `node scripts/land-prs.mjs`, exactly as on the
-  laptop.** It has been REST-only since 2026-09-28, with every gate unchanged.
-  The one difference is the branch delete, which the proxy refuses: the script
-  then checks whether GitHub already removed the branch (it does when the repo
-  has "Automatically delete head branches" on, as reddoor-maintenance does) and
-  prints a `note:` only when the branch is still there. Attach a fleet repo with
-  `add_repo` before landing in it, or its first `gh api` call stops on the 403.
+- **Land PRs from the cloud with `node scripts/land-prs.mjs`.** It has been
+  REST-only since 2026-09-28, with the same gates on the laptop and in the
+  cloud. What proves the port so far is its tests (REST-shaped fakes) and live
+  runs from a cloud session that stopped before the first write: `--dry-run`s,
+  and one full run with every PUT and DELETE withheld. No real merge,
+  update-branch or branch delete has yet been made from the cloud, so the first
+  real cloud landing is the remaining proof — read that run's raw output, not
+  just its verdict line. The one known difference is the branch delete, which
+  the proxy refuses: the script then checks whether GitHub already removed the
+  branch (it does when the repo has "Automatically delete head branches" on, as
+  reddoor-maintenance does) and prints a `note:` only when the branch is still
+  there. A branch name is percent-encoded only where it must be (`#`, `%`), so
+  only such a branch's delete and check hit the proxy's 400. Attach a fleet
+  repo with `add_repo` before landing in it, or its first `gh api` call stops
+  on the 403.
 - **`scripts/fleet-repos.sh` has nothing to enumerate**: the other checkouts
   are not here. For a sweep, list the org through the API and clone each repo
   after attaching it.

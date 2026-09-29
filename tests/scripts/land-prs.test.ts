@@ -7,7 +7,9 @@ import {
   noChecksRetriesFor,
   refusal,
   prFromRest,
+  checkBucket,
   checksFromRest,
+  refPath,
   repoFromRemoteUrl,
   resolveRepo,
   type RunResult,
@@ -134,6 +136,14 @@ const MERGE_CMD = (n: number) => new RegExp(`^gh api ${P}/pulls/${n}/merge `);
 const DELETE = (branch = "feat/something") =>
   new RegExp(`^gh api ${P}/git/refs/heads/${branch} --method DELETE$`);
 const REF = (branch = "feat/something") => new RegExp(`^gh api ${P}/git/ref/heads/${branch}$`);
+
+// What Netlify posts on this repo's heads, about 2 s before Actions registers `build`
+// (#953's head, 2026-09-29: the three neutral runs at 05:48:56Z, `build` at 05:48:58Z).
+const NETLIFY: CheckRun[] = [
+  ["Header rules - reddoor-maintenance", "completed", "neutral"],
+  ["Pages changed - reddoor-maintenance", "completed", "neutral"],
+  ["Redirect rules - reddoor-maintenance", "completed", "neutral"],
+];
 
 const green: Route[] = [
   [RUNS(), [GREEN]],
@@ -435,6 +445,37 @@ describe("land-prs: REST shapes", () => {
       "preview=pending",
     ]);
   });
+
+  it("an unrecognised state is pending, never pass: the default is the fail-safe one", () => {
+    // `waiting` / `requested` / `pending` are check-run statuses (deployment protection,
+    // re-requested runs), `stale` a conclusion GitHub gives a run left incomplete, and
+    // `expected` the GraphQL status state for a required context nobody has posted.
+    for (const state of [
+      "waiting",
+      "requested",
+      "pending",
+      "queued",
+      "in_progress",
+      "stale",
+      "expected",
+      "a_state_github_adds_tomorrow",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect([state, checkBucket(state)]).toEqual([state, "pending"]);
+    }
+    expect(
+      checksFromRest(
+        [
+          { name: "deploy", status: "waiting", conclusion: null },
+          { name: "rerun", status: "requested", conclusion: null },
+          { name: "old", status: "completed", conclusion: "stale" },
+        ],
+        [{ context: "required-ci", state: "expected" }],
+      ).map((c) => `${c.name}=${c.bucket}`),
+    ).toEqual(["deploy=pending", "rerun=pending", "old=pending", "required-ci=pending"]);
+  });
 });
 
 describe("land-prs: which repo", () => {
@@ -523,6 +564,38 @@ describe("land-prs: refusals and skips", () => {
       expect(r.code).toBe(1);
       expect(r.lines.at(-1)).toContain(`LAND #5 stopped reason=${reason}`);
       expect(pastTheRefusal(r.calls)).toEqual([]);
+    }
+  });
+
+  it("a 200 whose body is not JSON stops, saying so, instead of reading as an empty object", async () => {
+    for (const [body, said] of [
+      ["<html><body>502 Bad Gateway</body></html>", "<html><body>502 Bad Gateway</body></html>"],
+      ["", "an empty body"],
+    ] as const) {
+      const r = await land([5], [[VIEW(5), [ok(body)]]]);
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toBe(
+        `LAND #5 stopped reason=gh api pulls/5 returned no JSON: ${said}`,
+      );
+    }
+  });
+
+  it("the refusals run again at the gate: a PR retargeted, retitled as a release or made a draft during the checks wait is not merged", async () => {
+    for (const [over, reason] of [
+      [{ baseRefName: "next" }, "base is next, not main (pass --base next to allow it)"],
+      [
+        { title: "chore(release): version packages" },
+        'release PR (title "chore(release): version packages", head feat/something) — always human, AUTONOMY.md §Merge authority',
+      ],
+      // GitHub reports a draft's mergeable_state as "draft".
+      [{ isDraft: true, mergeStateStatus: "DRAFT" }, "draft"],
+    ] as const) {
+      const r = await land([5], [[VIEW(5), [view(), view(over)]], ...green, ...landed()]);
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toBe(
+        `LAND #5 stopped reason=${reason}; seen after the checks wait on aaaaaaa`,
+      );
+      expect(kinds(r.calls)).toEqual(["checks"]);
     }
   });
 
@@ -780,6 +853,21 @@ describe("land-prs: the head-SHA gate", () => {
     expect(r.sleeps).toEqual([5_000, 5_000]);
     expect(kinds(r.calls)).toEqual(["checks", "merge"]);
   });
+
+  it("a merge call that succeeds but leaves the PR CLOSED, not merged, is not landed: stop, delete nothing", async () => {
+    const r = await land(
+      [5, 6],
+      [[VIEW(5), [view(), view(), view({ state: "CLOSED" })]], ...green, ...landed()],
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=merge did not land (state=CLOSED): the merge call succeeded",
+    );
+    expect(kinds(r.calls)).toEqual(["checks", "merge"]);
+    expect(r.lines.some((l) => / merged /.test(l))).toBe(false);
+    expect(r.results.map((x) => x.status)).toEqual(["stopped"]);
+    expect(r.calls.some((c) => /\/pulls\/6\b/.test(c))).toBe(false);
+  });
 });
 
 describe("land-prs: waiting for checks", () => {
@@ -901,6 +989,124 @@ describe("land-prs: waiting for checks", () => {
     expect(r.lines.at(-1)).toBe("LAND #5 stopped reason=checks failed on aaaaaaa: shard 100");
   });
 
+  it("reads every page of commit statuses, so a failure on page 2 is not missed", async () => {
+    const page = (ss: Array<{ context: string; state: string }>) =>
+      ok(JSON.stringify({ state: "failure", total_count: 101, statuses: ss }));
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RUNS(A), [GREEN]],
+        [
+          new RegExp(`^gh api ${P}/commits/${A}/status\\?per_page=100&page=1$`),
+          [
+            page(
+              Array.from({ length: 100 }, (_, i) => ({ context: `ctx ${i}`, state: "success" })),
+            ),
+          ],
+        ],
+        [
+          new RegExp(`^gh api ${P}/commits/${A}/status\\?per_page=100&page=2$`),
+          [page([{ context: "ctx 100", state: "failure" }])],
+        ],
+      ],
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe("LAND #5 stopped reason=checks failed on aaaaaaa: ctx 100");
+    expect(r.calls.some((c) => MERGE_CMD(5).test(c))).toBe(false);
+  });
+
+  it("a check in a state it does not recognise holds the gate until the timeout, and never merges", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [
+          RUNS(A),
+          [
+            runs(
+              ["build", "completed", "success"],
+              ["deploy", "waiting", null],
+              ["old", "completed", "stale"],
+            ),
+          ],
+        ],
+        [STATUSES(A), [statuses(["required-ci", "expected"])]],
+      ],
+      { checksTimeoutMin: 1 },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=checks still running after 1 min on aaaaaaa: deploy, old, required-ci",
+    );
+    expect(r.calls.some((c) => MERGE_CMD(5).test(c))).toBe(false);
+  });
+
+  it("neutral-only checks are not a verdict: it waits, and gates on build once Actions registers it", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view(), view(), merged()]],
+        [
+          RUNS(A),
+          [
+            runs(...NETLIFY),
+            runs(...NETLIFY, ["build", "in_progress", null]),
+            runs(...NETLIFY, ["build", "completed", "success"]),
+          ],
+        ],
+        [STATUSES(A), [statuses()]],
+        [
+          COMMIT(A),
+          [ok(JSON.stringify({ commit: { committer: { date: "2026-09-28T11:59:50Z" } } }))],
+        ],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.calls.filter((c) => RUNS(A).test(c))).toHaveLength(3);
+    // one no-checks round for the neutral-only poll, then one pending round for build
+    expect(r.sleeps).toEqual([20_000, 10_000]);
+    expect(r.lines).toContain("LAND #5 checks passed on aaaaaaa");
+    expect(r.calls.find((c) => MERGE_CMD(5).test(c))).toContain(`sha=${A}`);
+  });
+
+  it("checks that are only neutral, skipped or cancelled, forever, stop with the reason and never merge", async () => {
+    for (const [only, named] of [
+      [
+        NETLIFY,
+        "Header rules - reddoor-maintenance (skipping), Pages changed - reddoor-maintenance (skipping), Redirect rules - reddoor-maintenance (skipping)",
+      ],
+      [
+        [
+          ["optional", "completed", "skipped"],
+          ["claude-review", "completed", "cancelled"],
+        ] as CheckRun[],
+        "optional (skipping), claude-review (cancel)",
+      ],
+    ] as const) {
+      const r = await land(
+        [5],
+        [
+          [VIEW(5), [view()]],
+          [RUNS(A), [runs(...only)]],
+          [STATUSES(A), [statuses()]],
+          [
+            COMMIT(A),
+            [ok(JSON.stringify({ commit: { committer: { date: "2026-09-28T11:00:00Z" } } }))],
+          ],
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toBe(
+        `LAND #5 stopped reason=no check passed on aaaaaaa after 60s, only ${named}`,
+      );
+      expect(r.sleeps).toEqual([20_000, 20_000, 20_000]);
+      expect(r.calls.some((c) => MERGE_CMD(5).test(c))).toBe(false);
+    }
+  });
+
   it("checks GitHub will not return stop the run with the call and its reason", async () => {
     const r = await land(
       [5],
@@ -1013,6 +1219,15 @@ describe("land-prs: deleting the head branch", () => {
     const r = await land([5], through([], { headRepo: "someone/reddoor-maintenance" }));
     expect(r.code).toBe(0);
     expect(kinds(r.calls)).toEqual(["checks", "merge"]);
+  });
+
+  it("leaves @ in a dependabot branch literal, because the cloud proxy 400s on any percent-encoded path", async () => {
+    const branch = "dependabot/npm_and_yarn/@types/node-22.1.0";
+    const r = await land([5], through([[DELETE(branch), [ok()]]], { headRefName: branch }));
+    expect(r.code).toBe(0);
+    expect(r.calls).toContain(`gh api ${P}/git/refs/heads/${branch} --method DELETE`);
+    expect(refPath("renovate/foo+bar@2,x=y")).toBe("renovate/foo+bar@2,x=y");
+    expect(refPath("fix/100%-#1")).toBe("fix/100%25-%231");
   });
 
   it("encodes a branch name GitHub would otherwise read as a URL fragment", async () => {
