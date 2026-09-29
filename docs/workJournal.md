@@ -5861,6 +5861,20 @@ The rule sits in one place. `shownChecklistLabels` in the template reads a new `
 
 **Left for later.** A draft stored before this release keeps its old body, n/a rows included, until "refresh preview" is pressed, and its send already drops them. The Announcement email still lists every check, because it describes the service rather than reporting evidence and decision 17 does not name it. If the operator wants the rule there too, it is a new decision. This changes the client email, so the next [TEST] send is its first real check, per the streak table. No email was sent and nothing was written to Turso.
 
+## 2026-09-29 — #674: the operator's cut of the mined rules, and what the second pass needs (#1020)
+
+The operator answered #1012 the same evening. The decisions are recorded at the top of `docs/design-review-rules-2026-09.md`.
+
+- **Rule 23 (art-directed mobile crops) is not a rule.** It is worth flagging in review, but a crop's quality is taste. It now lives under Flags. Its number stays retired so that "rule 24" still means the blend rule.
+- **Single-site rules: six of nine kept.**
+  - The column-gutter rule was cut with a reason that corrects the mining. The starter's #56 and #57 read "never flush" as a rule, but "we want them flush for some designs". Four agreeing instances on one site were one site's house style, not a fleet rule.
+  - The scroll-follower that never jumps was cut.
+  - Mobile-is-not-the-comp-scaled-down was cut.
+- **Seen once: five of sixteen kept.** They are the one-control-per-corner rule, white or brand page transitions, a manual carousel turn animating like an automatic one, user navigation restarting the autoplay delay, and warming hidden images.
+- **The full-bleed opt-in is `data-bleed`.** Rules 1, 8 and 16 can now be specified exactly. Adding the attribute to the starters is a change in those repos, so it did not land here.
+
+**The second pass.** The file's last section now lists what it needs. `claude-skills` needs nothing more: it attached to this cloud session with read access on the first try, so "private and not attached" in #1012 was the state of that session, not a wall. Discord, Figma and MarkUp can each run on the laptop, where the Discord and MarkUp keys already are. They can also run in the cloud, given three read-only secrets and three allowed hosts. Figma additionally needs the team or project IDs, because its API cannot list every file. The one decision that is the operator's own is where the raw corpus lives. #674 forbids putting it in this public repo, and a cloud session keeps nothing it does not push.
+
 ## 2026-09-29 — The Search Console launch check is built on evidence, held on its freshness window (#943, PR #1016)
 
 On 2026-09-29 the operator decided that the "Search Console set up" setup check becomes evidence-based. Until now it passed when the site row _recorded_ a property, which says nothing about whether Search Console answers for the site. The draft already computed the answer on every run and threw it away (`propertyMissing`, #942). #1016 keeps it. Every draft or announcement whose lookup actually runs writes three `site_health` cells beside the `Analytics soft-fail at` stamp, in the same upsert: `search_console_outcome` (`resolved` / `no-property` / `soft-fail`), `search_console_resolved` (the property the query ran against, NULL unless resolved), and `search_console_checked_at`. These are migrations 0035–0037; 0033/0034 are #1005's. `fetchSearchPresence` now returns `property`: the candidate that returned data, or the first one queried when none did. A lookup that did not run writes nothing, so an environment without GA credentials cannot erase evidence. That covers not enrolled, opted out, no credentials, and preview.
