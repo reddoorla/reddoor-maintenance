@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   collectProtectionCoverage,
   partitionAcceptedGaps,
+  rulesetBypassSummary,
   renovateGaps,
   renovateBlockedGaps,
   dashboardVocabularyGaps,
@@ -76,7 +77,9 @@ function makeDeps(
   alertCalls: string[];
   fileReads: string[];
   branchCalls: string[];
+  rulesetCalls: string[];
 } {
+  const rulesetCalls: string[] = [];
   const healthCalls: string[] = [];
   const alertCalls: string[] = [];
   const fileReads: string[] = [];
@@ -86,6 +89,7 @@ function makeDeps(
     alertCalls,
     fileReads,
     branchCalls,
+    rulesetCalls,
     repoTextFile: async (repo, path) => {
       fileReads.push(`${repo}:${path}`);
       const hit = renovate.files?.[`${repo}:${path}`];
@@ -128,6 +132,7 @@ function makeDeps(
     listRepoRulesets: async (repo) =>
       (rulesetsByRepo[repo] ?? []).map((rs) => ({ id: rs.id, name: rs.name })),
     getRuleset: async (repo, id) => {
+      rulesetCalls.push(`${repo}:${id}`);
       const found = (rulesetsByRepo[repo] ?? []).find((rs) => rs.id === id);
       if (!found) throw new Error(`no ruleset ${id} on ${repo}`);
       return found;
@@ -160,12 +165,14 @@ describe("collectProtectionCoverage", () => {
         status: "covered",
         detail: `"${FLEET_RULESET_NAME}"`,
         renovateOutcome: delivering,
+        rulesetBypass: { read: 1, unread: 0 },
       },
       {
         repo: "reddoorla/dotgithub",
         status: "covered",
         detail: `"${FLEET_RULESET_NAME}" — NO CI gate (refs rules only)`,
         renovateOutcome: delivering,
+        rulesetBypass: { read: 1, unread: 0 },
       },
     ]);
     expect(deps.healthCalls).toEqual([
@@ -200,6 +207,7 @@ describe("collectProtectionCoverage", () => {
           lastBranch: "renovate/all-minor-patch",
           lastMergedAt: FRESH_RUN,
         },
+        rulesetBypass: { read: 0, unread: 0 },
       },
     ]);
   });
@@ -410,6 +418,7 @@ describe("collectProtectionCoverage", () => {
       repo: "reddoorla/flaky",
       status: "gap",
       detail: "probe failed: api 500",
+      rulesetBypass: { read: 0, unread: 0 },
     });
     expect(rows[1]!.status).toBe("covered");
   });
@@ -441,6 +450,7 @@ describe("collectProtectionCoverage", () => {
     expect(rows[0]!.detail).toContain("no renovate workflow");
     expect(rows[0]!.detail).toContain("accepted until 2026-08-16");
     expect(rows[0]!.detail).toContain("pending decision");
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
   });
 });
 
@@ -834,19 +844,44 @@ describe("Renovate base branches are judged too (#892)", () => {
   // What reddoor-website's staging carried when #892 was filed: a ruleset that
   // forbids deletion and nothing else.
   const deletionOnly: BranchRequiredChecks = { rules: [{ type: "deletion" }], classicContexts: [] };
-  const rulesetGated: BranchRequiredChecks = {
-    rules: [{ type: "deletion" }, { type: "required_status_checks" }],
+  // A staging ruleset as GET rulesets/{id} returns it. `bypass: undefined`
+  // is the response with NO bypass_actors field, which GitHub documents for a
+  // caller without write access to the ruleset (#981).
+  const STAGING_RULESET = 2;
+  const stagingRuleset = (
+    id: number,
+    bypass: unknown[] | undefined,
+    name = `staging CI ${id}`,
+  ): ExistingRuleset => ({
+    id,
+    name,
+    enforcement: "active",
+    ...(bypass === undefined ? {} : { bypass_actors: bypass }),
+    conditions: { ref_name: { include: ["refs/heads/staging"], exclude: [] } },
+    rules: [{ type: "required_status_checks" }],
+  });
+  const gatedBy = (...ids: Array<number | undefined>): BranchRequiredChecks => ({
+    rules: [
+      { type: "deletion", ruleset_id: 1 },
+      ...ids.map((id) =>
+        id === undefined
+          ? { type: "required_status_checks" }
+          : { type: "required_status_checks", ruleset_id: id },
+      ),
+    ],
     classicContexts: [],
-  };
+  });
+  const rulesetGated = gatedBy(STAGING_RULESET);
   const classicGated: BranchRequiredChecks = { rules: [], classicContexts: ["ci / ci"] };
 
   function website(
     files: Record<string, string | Error>,
     branches: Record<string, BranchRequiredChecks | null | Error> = {},
+    stagingRulesets: ExistingRuleset[] = [stagingRuleset(STAGING_RULESET, [])],
   ) {
     return makeDeps(
       [{ name: "reddoor-website" }],
-      { [WEBSITE]: [sound(1)] },
+      { [WEBSITE]: [sound(1), ...stagingRulesets] },
       {},
       {},
       {},
@@ -889,17 +924,33 @@ describe("Renovate base branches are judged too (#892)", () => {
     const rows = await collectProtectionCoverage(ORG, deps, NOW);
     expect(rows[0]!.status).toBe("covered");
     expect(rows[0]!.detail).toBe(
-      `"${FLEET_RULESET_NAME}"; renovate base reddoor-website:staging requires status checks`,
+      `"${FLEET_RULESET_NAME}"; renovate base reddoor-website:staging requires status checks ` +
+        `no one can bypass ("staging CI 2")`,
     );
+    expect(deps.rulesetCalls).toContain(`${WEBSITE}:${STAGING_RULESET}`);
   });
 
-  it("PASS control: staging gated by CLASSIC branch protection is covered too", async () => {
+  it("PASS control: staging gated by CLASSIC branch protection is covered too, with no ruleset read", async () => {
+    // The classic case is unchanged (#981): a classic required context gates
+    // on its own, so the ruleset behind the branch's rules is never asked for.
+    // Ruleset 77 is not in the fixture, so reading it would throw.
     const deps = website(
       { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
-      { [`${WEBSITE}:staging`]: classicGated },
+      { [`${WEBSITE}:staging`]: { ...gatedBy(77), classicContexts: ["ci / ci"] } },
+      [],
     );
     const rows = await collectProtectionCoverage(ORG, deps, NOW);
     expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toContain(
+      "renovate base reddoor-website:staging requires status checks",
+    );
+    expect(deps.rulesetCalls).toEqual([`${WEBSITE}:1`]);
+
+    const plain = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: classicGated },
+    );
+    expect((await collectProtectionCoverage(ORG, plain, NOW))[0]!.status).toBe("covered");
   });
 
   it("UNCHANGED: no Renovate config at all is not a gap, and probes no branch", async () => {
@@ -1118,5 +1169,231 @@ describe("Renovate base branches are judged too (#892)", () => {
     expect(r2[0]!.detail).toContain("/^release\\/.*/");
     expect(r2[0]!.detail).toContain("unverified, not clean");
     expect(pattern.branchCalls).toEqual([]);
+  });
+});
+
+/**
+ * #981: a required check only gates Renovate if no one can bypass it. The
+ * preset's invariant (3) (.github#35) says Renovate waits for CI only where the
+ * base branch "has a required check that the App cannot bypass", and names
+ * this sweep as its instrument. The join is GitHub's own: `rules/branches/{b}`
+ * names the ruleset behind each rule, and that ruleset's `bypass_actors` says
+ * who can skip it.
+ */
+describe("a Renovate base branch's required check must not be bypassable (#981)", () => {
+  const WEBSITE = "reddoorla/reddoor-website";
+  const config = {
+    [`${WEBSITE}:renovate.json`]: JSON.stringify({ baseBranchPatterns: ["staging"] }),
+  };
+  const APP = { actor_id: 1234, actor_type: "Integration", bypass_mode: "pull_request" };
+  const ADMIN = { actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" };
+  const ruleset = (id: number, bypass: unknown[] | undefined): ExistingRuleset => ({
+    id,
+    name: `staging CI ${id}`,
+    enforcement: "active",
+    ...(bypass === undefined ? {} : { bypass_actors: bypass }),
+    conditions: { ref_name: { include: ["refs/heads/staging"], exclude: [] } },
+    rules: [{ type: "required_status_checks" }],
+  });
+  const gated = (...ids: Array<number | undefined>): BranchRequiredChecks => ({
+    rules: ids.map((id) =>
+      id === undefined
+        ? { type: "required_status_checks" }
+        : { type: "required_status_checks", ruleset_id: id },
+    ),
+    classicContexts: [],
+  });
+  function site(staging: BranchRequiredChecks, rulesets: ExistingRuleset[]) {
+    return makeDeps(
+      [{ name: "reddoor-website" }],
+      { [WEBSITE]: [sound(1), ...rulesets] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      { files: config, branches: { [`${WEBSITE}:staging`]: staging } },
+    );
+  }
+
+  it("FAIL: the only gating ruleset lets the Renovate App bypass in pull_request mode — a gap with a Fix clause", async () => {
+    const rows = await collectProtectionCoverage(ORG, site(gated(2), [ruleset(2, [APP])]), NOW);
+    expect(rows[0]!.status).toBe("gap");
+    const d = rows[0]!.detail;
+    expect(d).toContain("reddoor-website:staging");
+    expect(d).toContain('"staging CI 2" has 1 bypass actor');
+    expect(d).toContain(
+      "Fix: empty that bypass list, or drop staging from the Renovate base branches",
+    );
+    expect(d).not.toContain("NO required status check");
+    expect(d).not.toContain("unverified");
+  });
+
+  it("FAIL: every gating ruleset is bypassable — each is named with its actor count", async () => {
+    const rows = await collectProtectionCoverage(
+      ORG,
+      site(gated(2, 3), [ruleset(2, [APP]), ruleset(3, [APP, ADMIN])]),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain('"staging CI 2" has 1 bypass actor');
+    expect(rows[0]!.detail).toContain('"staging CI 3" has 2 bypass actor');
+  });
+
+  it("PASS: ONE bypass-free gating ruleset is enough, whatever another one allows", async () => {
+    const rows = await collectProtectionCoverage(
+      ORG,
+      site(gated(3, 2), [ruleset(2, []), ruleset(3, [ADMIN])]),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toContain('no one can bypass ("staging CI 2")');
+  });
+
+  it("UNVERIFIED: a ruleset read WITHOUT a bypass_actors field is not read as 'no bypass actors'", async () => {
+    const rows = await collectProtectionCoverage(ORG, site(gated(2), [ruleset(2, undefined)]), NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("no bypass_actors field");
+    expect(rows[0]!.detail).toContain("(unverified, not clean)");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+    expect(rows[0]!.detail).not.toContain("no one can bypass");
+  });
+
+  it("UNVERIFIED: a required_status_checks rule with no ruleset_id cannot be joined, so it is not a gate", async () => {
+    const rows = await collectProtectionCoverage(ORG, site(gated(undefined), []), NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("no ruleset_id");
+    expect(rows[0]!.detail).toContain("(unverified, not clean)");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+  });
+
+  it("UNVERIFIED: a getRuleset that THROWS is neither covered nor 'no required status check'", async () => {
+    // Ruleset 9 is not in the fixture, so getRuleset throws for it.
+    const rows = await collectProtectionCoverage(ORG, site(gated(9), []), NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("no ruleset 9");
+    expect(rows[0]!.detail).toContain("(unverified, not clean)");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+    expect(rows[0]!.detail).not.toContain("probe failed");
+    // The failed read is neither read nor unread: only the floor's ruleset 1.
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
+  });
+
+  it("PASS: a bypass-free ruleset wins over an unknown one, whichever comes first", async () => {
+    for (const staging of [gated(undefined, 2), gated(9, 2), gated(3, 2)]) {
+      const rows = await collectProtectionCoverage(
+        ORG,
+        site(staging, [ruleset(2, []), ruleset(3, undefined)]),
+        NOW,
+      );
+      expect(rows[0]!.status, JSON.stringify(staging)).toBe("covered");
+      expect(rows[0]!.detail).toContain('no one can bypass ("staging CI 2")');
+    }
+  });
+
+  it("an unknown ruleset beside a KNOWN bypassable one is still unverified, not a flat gap", async () => {
+    const rows = await collectProtectionCoverage(
+      ORG,
+      site(gated(2, 3), [ruleset(2, [APP]), ruleset(3, undefined)]),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("(unverified, not clean)");
+    expect(rows[0]!.detail).toContain('"staging CI 2" has 1 bypass actor');
+  });
+
+  it("counts every ruleset read and those read without bypass_actors, once each per repo", async () => {
+    // Ruleset 2 is read by the default-branch floor (it is listed) AND joined
+    // from staging; it is read once and counted once.
+    const present = site(gated(2), [ruleset(2, [])]);
+    const r1 = await collectProtectionCoverage(ORG, present, NOW);
+    expect(r1[0]!.rulesetBypass).toEqual({ read: 2, unread: 0 });
+    expect(present.rulesetCalls.filter((c) => c === `${WEBSITE}:2`)).toHaveLength(1);
+
+    const missing = site(gated(2), [ruleset(2, undefined)]);
+    const r2 = await collectProtectionCoverage(ORG, missing, NOW);
+    expect(r2[0]!.rulesetBypass).toEqual({ read: 2, unread: 1 });
+  });
+
+  it("the default-branch floor's rulesets are counted even when no base branch is judged", async () => {
+    const { bypass_actors: _dropped, ...noField } = sound(2);
+    const noBase = makeDeps([{ name: "espada" }], {
+      "reddoorla/espada": [sound(1), noField],
+    });
+    const rows = await collectProtectionCoverage(ORG, noBase, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 2, unread: 1 });
+  });
+  it("a failed ruleset read is not cached: a second branch joined to the same ruleset reads it again", async () => {
+    const deps = makeDeps(
+      [{ name: "reddoor-website" }],
+      { [WEBSITE]: [sound(1), ruleset(5, [])] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      {
+        files: {
+          [`${WEBSITE}:renovate.json`]: JSON.stringify({ baseBranchPatterns: ["staging", "next"] }),
+        },
+        branches: { [`${WEBSITE}:staging`]: gated(5), [`${WEBSITE}:next`]: gated(5) },
+      },
+    );
+    const real = deps.getRuleset;
+    let failures = 0;
+    deps.listRepoRulesets = async () => [{ id: 1, name: FLEET_RULESET_NAME }];
+    deps.getRuleset = async (repo, id) => {
+      if (id === 5 && failures++ === 0) {
+        deps.rulesetCalls.push(`${repo}:${id}`);
+        throw new Error("HTTP 502");
+      }
+      return real(repo, id);
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.detail).toContain("reddoor-website:staging unverified");
+    expect(rows[0]!.detail).toContain(
+      "reddoor-website:next requires status checks no one can bypass",
+    );
+    expect(deps.rulesetCalls.filter((c) => c === `${WEBSITE}:5`)).toHaveLength(2);
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 2, unread: 0 });
+  });
+
+  it("a probe-failed row still counts the sibling reads that finished after the failure", async () => {
+    const deps = makeDeps([{ name: "espada" }], {
+      "reddoorla/espada": [sound(1), sound(2)],
+    });
+    const real = deps.getRuleset;
+    deps.getRuleset = async (repo, id) => {
+      if (id === 1) throw new Error("HTTP 502");
+      await new Promise((r) => setTimeout(r, 5));
+      return real(repo, id);
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toBe("probe failed: HTTP 502");
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
+  });
+  it("RULESET_BYPASS sums every row that carries a count, probe-failed rows included", () => {
+    expect(
+      rulesetBypassSummary([
+        {
+          repo: "reddoorla/a",
+          status: "gap",
+          detail: "probe failed: x",
+          rulesetBypass: { read: 1, unread: 1 },
+        },
+        {
+          repo: "reddoorla/b",
+          status: "covered",
+          detail: "",
+          renovateOutcome: { state: "unmeasured", reason: "x" },
+          rulesetBypass: { read: 2, unread: 0 },
+        },
+        { repo: "reddoorla/c", status: "skipped", detail: "archived" },
+      ]),
+    ).toBe("RULESET_BYPASS unread=1 read=3");
   });
 });

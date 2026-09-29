@@ -1,0 +1,5 @@
+---
+"@reddoorla/maintenance": patch
+---
+
+A prospect audit that throws after a paid stage (analyze, probes or accuracy) has started, or whose report render throws, now marks its row `failed` instead of leaving it `running` (P1-16). A `failed` row counts toward the daily cap for the full 24 hours from the failure. A `running` row stops counting two hours after its claim, so a bug that threw after every paid run used to be held to about 25 runs per two hours instead of 25 a day. A throw before any paid stage still gives the slot back, and the CLI still exits with the pipeline's own error even when marking the row fails. A `failed` row has no report: it returns 404 from `/api/audit-report/:token`, shows as "Failed" with no report link on `/audits`, is skipped by `scripts/replay-checks.mts`, and a re-click on its url inside 10 minutes gets a 409 saying the run failed, with no report link. Those readers take the statuses without a report from one exported list, `NO_REPORT_STATUSES`. No migration: `status` is free text.
