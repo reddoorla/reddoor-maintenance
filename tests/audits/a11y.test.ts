@@ -144,7 +144,7 @@ describe("audits/a11y", () => {
       spawn: async () => ({ code: 1, stdout: "", stderr: "spec failed to compile" }),
     });
     expect(result.status).toBe("fail");
-    expect(result.summary).toMatch(/no results|spec failed/i);
+    expect(result.summary).toBe("a11y: no results written (exit 1) — spec failed to compile");
   });
 
   // Verbatim from a run with an empty PLAYWRIGHT_BROWSERS_PATH (#905): the
@@ -194,7 +194,7 @@ describe("audits/a11y", () => {
       spawn: async () => ({
         code: 1,
         stdout: lineReporterFailure(
-          `browserType.launch: Executable doesn't exist at ${esc}[2m/cache/chromium_headless_shell-1243/chrome-headless-shell${esc}[22m${esc}[39m`,
+          `browserType.launch: Executable doesn't exist at ${esc}[1;2m/cache/chromium_headless_shell-1243/chrome-headless-shell${esc}[22m${esc}[39m`,
         ),
         stderr: "",
       }),
@@ -219,6 +219,42 @@ describe("audits/a11y", () => {
     expect(result.status).toBe("fail");
     expect(result.summary).toBe(
       "a11y: no results written (exit 1) — page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/",
+    );
+  });
+
+  it("keeps the web server's own failure from stderr beside stdout's generic line", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: "\nError: Process from config.webServer was not able to start. Exit code: 1\n",
+        stderr: [
+          NPM_WARN,
+          "[WebServer] error when starting dev server:",
+          "[WebServer] Error: Port 5173 is already in use",
+        ].join("\n"),
+      }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "a11y: no results written (exit 1) — Process from config.webServer was not able to start. Exit code: 1 — [WebServer] error when starting dev server: / [WebServer] Error: Port 5173 is already in use",
+    );
+  });
+
+  it("caps each half of the detail at 200 characters", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: lineReporterFailure(`locator.click: ${"a".repeat(400)}`),
+        stderr: "b".repeat(400),
+      }),
+    });
+    const expected = `locator.click: ${"a".repeat(400)}`.slice(0, 200);
+    expect(result.summary).toBe(
+      `a11y: no results written (exit 1) — ${expected} — ${"b".repeat(200)}`,
     );
   });
 

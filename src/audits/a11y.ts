@@ -1022,14 +1022,25 @@ const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
  */
 export function describeNoResults(raw: SpawnResult): string {
   const stdout = raw.stdout.replace(ANSI_SGR, "");
-  const missing = /Executable doesn't exist at (.+)$/m
-    .exec(`${stdout}\n${raw.stderr}`)?.[1]
-    ?.trim();
+  const stderr = raw.stderr.replace(ANSI_SGR, "");
+  const missing = /Executable doesn't exist at (.+)$/m.exec(`${stdout}\n${stderr}`)?.[1]?.trim();
   if (missing) {
     return `a11y: Playwright's browser is not installed (no ${missing}) — run \`npx playwright install chromium\` in the site`;
   }
-  const detail = /^\s*Error: (.+)$/m.exec(stdout)?.[1]?.trim() || raw.stderr;
-  return `a11y: no results written (exit ${raw.code})${detail ? ` — ${detail.slice(0, 200)}` : ""}`;
+  // stdout's error comes first, and stderr still follows it: when the web
+  // server itself fails, stdout says only "Process from config.webServer was
+  // not able to start" and the cause ("Port 5173 is already in use", a failed
+  // build) is on stderr. npm's config warnings are dropped as noise.
+  const stdoutError = /^\s*Error: (.+)$/m.exec(stdout)?.[1]?.trim() ?? "";
+  const stderrLines = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !/\bnpm warn\b/i.test(line))
+    .join(" / ");
+  const detail = [stdoutError.slice(0, 200), stderrLines.slice(0, 200)]
+    .filter((part) => part !== "")
+    .join(" — ");
+  return `a11y: no results written (exit ${raw.code})${detail ? ` — ${detail}` : ""}`;
 }
 
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {

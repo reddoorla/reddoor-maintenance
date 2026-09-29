@@ -1361,13 +1361,23 @@ describe("audits/a11y — each #888 finding fails the audit on its own (#916 rev
  *   - left running, the reveal pass would wait its 5 s on it and report it
  *     unsettled.
  *
+ * `#keyframes` is the other half of the sheet. Its colour is #aaa, and a 30 s
+ * keyframe animation holds it at #111; the page adopts that rule itself, as a
+ * constructed sheet, which is the one way this CSP lets a page style an
+ * element at all. It fails contrast only if `animation: none` applied AND the
+ * freeze kept the page's own adopted sheet beside its own.
+ *
  * The canary image, blocked by img-src, proves the report channel is live, so
  * "no style-src report" is a measurement and not silence.
  */
 const STRICT_STYLE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Strict styles</title></head>
 <body><main><h1>Strict styles</h1><p id="fade">${"Text that transitions to a pale grey. ".repeat(3)}</p>
+<p id="keyframes">${"Text whose keyframe animation holds it dark. ".repeat(3)}</p>
 <img src="CROSS_ORIGIN/canary.png" alt=""></main>
 <script>
+const own = new CSSStyleSheet();
+own.replaceSync("@keyframes hold-dark { from { color: #111 } to { color: #111 } } #keyframes { color: #aaa; animation: hold-dark 30s linear }");
+document.adoptedStyleSheets = [own];
 const p = document.getElementById("fade");
 p.style.transition = "color 30s linear";
 p.style.color = "#111";
@@ -1406,9 +1416,13 @@ describe("audits/a11y — a CSP without 'unsafe-inline' in style-src (#949)", ()
     );
   });
 
-  it("still freezes a running transition, so it is measured at its end state", () => {
+  it("still freezes a running transition and a keyframe animation, keeping the page's own adopted sheet", () => {
     expect(all().map((v) => `${v.id} on ${v.route}`)).toEqual(["color-contrast on /strict-styles"]);
-    expect(all()[0]?.nodes?.map((n) => (n.target ?? []).join(" "))).toEqual(["#fade"]);
+    expect(
+      all()[0]
+        ?.nodes?.map((n) => (n.target ?? []).join(" "))
+        .sort(),
+    ).toEqual(["#fade", "#keyframes"]);
     type Reveal = { route: string; unsettled?: number };
     const reveals = (result?.details as { reveals?: Reveal[] } | undefined)?.reveals ?? [];
     expect(reveals.find((r) => r.route === "/strict-styles")?.unsettled).toBe(0);
