@@ -5860,3 +5860,29 @@ The rule sits in one place. `shownChecklistLabels` in the template reads a new `
 **Beliefs corrected on contact.** The brief assumed a plain-text rendering to update. There is none. "Every row that can be n/a" turns out to be three rows, CMS, form and CI. Google never yields `n/a`, and every Maintenance row except CMS is gating, so it is `unknown` rather than absent. A whole list emptying is therefore unreachable today, but the headings are handled and pinned anyway.
 
 **Left for later.** A draft stored before this release keeps its old body, n/a rows included, until "refresh preview" is pressed, and its send already drops them. The Announcement email still lists every check, because it describes the service rather than reporting evidence and decision 17 does not name it. If the operator wants the rule there too, it is a new decision. This changes the client email, so the next [TEST] send is its first real check, per the streak table. No email was sent and nothing was written to Turso.
+
+## 2026-09-29 — #674: the operator's cut of the mined rules, and what the second pass needs (#1020)
+
+The operator answered #1012 the same evening. The decisions are recorded at the top of `docs/design-review-rules-2026-09.md`.
+
+- **Rule 23 (art-directed mobile crops) is not a rule.** It is worth flagging in review, but a crop's quality is taste. It now lives under Flags. Its number stays retired so that "rule 24" still means the blend rule.
+- **Single-site rules: six of nine kept.**
+  - The column-gutter rule was cut with a reason that corrects the mining. The starter's #56 and #57 read "never flush" as a rule, but "we want them flush for some designs". Four agreeing instances on one site were one site's house style, not a fleet rule.
+  - The scroll-follower that never jumps was cut.
+  - Mobile-is-not-the-comp-scaled-down was cut.
+- **Seen once: five of sixteen kept.** They are the one-control-per-corner rule, white or brand page transitions, a manual carousel turn animating like an automatic one, user navigation restarting the autoplay delay, and warming hidden images.
+- **The full-bleed opt-in is `data-bleed`.** Rules 1, 8 and 16 can now be specified exactly. Adding the attribute to the starters is a change in those repos, so it did not land here.
+
+**The second pass.** The file's last section now lists what it needs. `claude-skills` needs nothing more: it attached to this cloud session with read access on the first try, so "private and not attached" in #1012 was the state of that session, not a wall. Discord, Figma and MarkUp can each run on the laptop, where the Discord and MarkUp keys already are. They can also run in the cloud, given three read-only secrets and three allowed hosts. Figma additionally needs the team or project IDs, because its API cannot list every file. The one decision that is the operator's own is where the raw corpus lives. #674 forbids putting it in this public repo, and a cloud session keeps nothing it does not push.
+
+## 2026-09-29 — P1-3 PR 2, the roster-url surface, held after two review rounds (#1004, `490e6be2`)
+
+PR 1 (#986) stores whether each non-archived roster `url` resolves. Nothing read that verdict yet. #1004 makes it reach the operator.
+
+A fresh `fail` becomes `url-unresolved:<siteId>` in the digest. It names the url and the status, and it is keyed once per site, so a 404 that turns into a DNS error does not re-mail under #975's send-on-change rule. A stale stamp is caught as one fleet item, `url-probe-stale`, whose metric is the count. It is one item rather than thirty-four because a dead nightly stales every row at once. `url not deployed` mutes only the fresh failure. Maintained rows also watch on the cockpit, because a watch (not an attention item) is the only cockpit shape an accept key can mute.
+
+**What the fixtures said about the design.** Wiring the collector in turned twelve digest tests red. Every stock fixture row had a null `url_checked_at`, so the new staleness item fired on "clean" fleets. That was the collector doing exactly its job, and it showed that a null stamp is the most common state a row will ever be in: every row until tonight's first nightly, and every new site until its first probe. Round 1 caught the wording ("not checked in 3 days" for a row that was never checked). Round 2 caught the real cost. The workflows run late (fleet-lighthouse started at 14:41Z on 09-29, not at 08:00, and on 09-28 the digest ran while the nightly was still going), so a site added during the PT day reaches the next 09:23 digest before any probe has run. A never-stamped row would then send a NEW mail telling the operator to debug a working step, once per new site. The fix counts a never-stamped row only while no row in the fleet is fresh. Its cost is written into the collector and the Operator decisions line.
+
+**Mutations.** 12 were named before the code, and 20 more came from the two review rounds' survivors and the fixes. M5 (a window of 30 days instead of 3) survived the first pass because the tests built their stale date from the constant itself. It took a literal-hours test, and later a minute-exact one, to pin the window. All 32 now turn a test red.
+
+**Why it is held.** Both rounds found a real defect, so under the two-round rule #1004 is Operator decisions item 26 and does not go to a third round. The branch has both rounds' fixes, is merged with `main`, and passes the full suite. No production write, no dispatch.
