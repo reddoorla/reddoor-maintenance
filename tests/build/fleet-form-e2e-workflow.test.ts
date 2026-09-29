@@ -21,7 +21,7 @@ const execFileAsync = promisify(execFile);
  *
  *  1. A sweep that attempted NOTHING (`total=0`) exited 0. The pre-existing
  *     mass-flake gate is `failed * 4 > total`, which is `0 > 0` — false — so a
- *     run that swept an empty fleet reported success. fleet-lighthouse.yml:106
+ *     run that swept an empty fleet reported success. fleet-lighthouse.yml:109
  *     has carried `if [ "$wrote" -eq 0 ]` against exactly this for months.
  *  2. COVERAGE. A site whose /health does not declare `forms.testMode`
  *     self-skips, and a self-skip is written back like any other result — so
@@ -38,7 +38,7 @@ const execFileAsync = promisify(execFile);
  * to fail is an untested assertion, not an instrument.
  */
 
-const FORM_E2E_STEP = "Fleet form-e2e + Airtable write-back";
+const FORM_E2E_STEP = "Fleet form-e2e + write-back";
 
 let gate: string;
 
@@ -82,7 +82,7 @@ async function runGate(opts: {
 }
 
 /** The summary line in the shape the REAL formatter emits, including its
- *  invariant `total = wrote + failed` (src/audits/write-audits-to-airtable.ts).
+ *  invariant `total = wrote + failed` (src/audits/write-audits.ts).
  *  Honouring that invariant is load-bearing here: it is precisely because
  *  `wrote=0` forces `failed=total` that the mass-flake gate accidentally covers
  *  every zero-write case EXCEPT `total=0`. */

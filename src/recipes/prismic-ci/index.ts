@@ -109,7 +109,7 @@ function sameWorkflow(current: string, canonical: string): boolean {
  * exports no delete path.
  */
 export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<RecipeResult> {
-  // 1. Repo identity — from Airtable's 'Git repo' or, on a positional run, the
+  // 1. Repo identity — from the site's 'Git repo' or, on a positional run, the
   //    checkout's origin. `failed`, not `noop`: a rollout that silently skips a site
   //    is the failure this whole recipe is guarding against one level up. The
   //    strict shape check runs BEFORE the first `gh` call, so a typo'd or
@@ -126,13 +126,13 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
     return resultOf(
       site,
       "failed",
-      "could not determine a GitHub repo for this site — set Airtable 'Git repo', or give " +
+      "could not determine a GitHub repo for this site — set the site's 'Git repo' in its details, or give " +
         "the checkout an origin remote whose URL is a GitHub owner/repo",
     );
   }
 
   // 1b. The two identities must agree (#713). `gitPush` goes to the CHECKOUT's
-  //     origin; `openPullRequest` goes to `repo`, which Airtable's 'Git repo'
+  //     origin; `openPullRequest` goes to `repo`, which the site's 'Git repo'
   //     wins when set. When they name different repositories the branch lands
   //     in one and the PR is filed in the other with a head that does not
   //     exist there — a 422, but only AFTER a real push into a client repo,
@@ -153,7 +153,7 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
         site,
         "failed",
         `'Git repo' ${repo} does not match the checkout's origin ${originUrl} — refusing to ` +
-          "push into one repo and open the PR in another; fix the Airtable cell or the remote",
+          "push into one repo and open the PR in another; fix the site's 'Git repo' or the remote",
       );
     }
   }

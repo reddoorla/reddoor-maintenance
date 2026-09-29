@@ -1,4 +1,4 @@
-import { mapRow } from "../../../src/reports/airtable/reports.js";
+import { mapRow } from "../../../src/reports/report-fields.js";
 import type { ReportRow } from "../../../src/reports/report-row.js";
 import type { ReportMirror } from "../../../src/reports/report-mirror.js";
 import type { ReportMirrorPatch } from "../../../src/db/fleet-state.js";
@@ -7,8 +7,8 @@ import type { ReportMirrorPatch } from "../../../src/db/fleet-state.js";
  * An in-memory stand-in for the Turso report writer (`makeReportMirror`), for
  * suites that exercise the drafting/queue/recipe logic rather than the store.
  *
- * Inserted rows are mapped with the Airtable `mapRow`, not a bespoke mapper: the
- * creator hands the writer the same Airtable-column-keyed field set
+ * Inserted rows are mapped with report-fields' `mapRow`, not a bespoke mapper:
+ * the creator hands the writer the same column-keyed field set
  * (`draftFields`) that `mapReportRecord` turns into a `reports` row in
  * production, and `mapRow` / `reportRowFromDb` are pinned field-for-field to
  * each other by tests/db/fleet-state.test.ts. So what a test reads back here is
@@ -21,8 +21,6 @@ import type { ReportMirrorPatch } from "../../../src/db/fleet-state.js";
 export type FakeReportWriter = ReportMirror & {
   /** Every record handed to `create` (the PRIMARY insert), in order. */
   inserts: Array<{ id: string; fields: Record<string, unknown> }>;
-  /** Every record handed to the legacy Airtable-echo `created` mirror. */
-  mirroredCreates: Array<{ id: string; fields: Record<string, unknown> }>;
   bodies: Array<{ id: string; html: string }>;
   patches: Array<{ id: string; patch: ReportMirrorPatch }>;
   /** What `forSite` answers with: the seeded rows plus every inserted one. */
@@ -31,14 +29,12 @@ export type FakeReportWriter = ReportMirror & {
 
 export function makeFakeReportWriter(seed: ReportRow[] = []): FakeReportWriter {
   const inserts: FakeReportWriter["inserts"] = [];
-  const mirroredCreates: FakeReportWriter["mirroredCreates"] = [];
   const bodies: FakeReportWriter["bodies"] = [];
   const patches: FakeReportWriter["patches"] = [];
   const rows: ReportRow[] = [...seed];
 
   return {
     inserts,
-    mirroredCreates,
     bodies,
     patches,
     rows,
@@ -47,10 +43,6 @@ export function makeFakeReportWriter(seed: ReportRow[] = []): FakeReportWriter {
       const row = mapRow(rec);
       rows.push(row);
       return row;
-    },
-    created: async (rec) => {
-      mirroredCreates.push({ id: rec.id, fields: { ...rec.fields } });
-      rows.push(mapRow(rec));
     },
     forSite: async (siteId) => rows.filter((r) => r.siteId === siteId),
     body: async (id, html) => {

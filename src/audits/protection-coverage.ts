@@ -1,5 +1,7 @@
-import { rulesetGaps, type ExistingRuleset } from "../github/rulesets.js";
+import { requiresStatusChecks, rulesetGaps, type ExistingRuleset } from "../github/rulesets.js";
+import { isBranchPattern, readRenovateBaseBranches } from "./renovate-base-branches.js";
 import type {
+  BranchRequiredChecks,
   BranchTip,
   DependencyDashboard,
   RenovateMergeWindow,
@@ -11,11 +13,11 @@ import type {
  * docs/superpowers/specs/2026-08-02-ruleset-self-healing-design.md).
  *
  * The `self-updating` recipe HEALS fleet sites, but it runs only when someone
- * runs it, and only over Airtable-listed sites — which is exactly how the
- * `.github` repo (no Airtable row) sat with zero protection until 2026-08-01.
+ * runs it, and only over fleet-listed sites — which is exactly how the
+ * `.github` repo (no fleet row) sat with zero protection until 2026-08-01.
  * This sweep is the layer that would have caught that on its own: it
  * enumerates the org FROM THE GITHUB API — never a hand-typed or
- * Airtable-scoped list, both of which have already produced false "all
+ * fleet-scoped list, both of which have already produced false "all
  * clear"s — and judges every public repo's protection by SHAPE, not by name,
  * so a differently-named but sound ruleset (reddoor-maintenance's "Main
  * Protection") counts.
@@ -72,6 +74,14 @@ export type ProtectionCoverageDeps = {
   branchTip: (repo: string, branch: string) => Promise<BranchTip | null>;
   openSecretAlerts: (repo: string) => Promise<number | "unavailable">;
   renovateMergeWindow: (repo: string) => Promise<RenovateMergeWindow>;
+  /** The Renovate base-branch surface (#892): its config and presets are read
+   *  with repoTextFile, and each non-default base branch is judged with
+   *  branchRequiredChecks. REQUIRED, not optional, for the same reason as
+   *  ProtectionAuditDeps: an optional read a caller forgets is a check that
+   *  silently measures nothing. */
+  repoTextFile: (repo: string, path: string) => Promise<string | null>;
+  defaultBranch: (repo: string) => Promise<string>;
+  branchRequiredChecks: (repo: string, branch: string) => Promise<BranchRequiredChecks | null>;
 };
 
 export const RENOVATE_WORKFLOW_FILE = "renovate.yml";
@@ -449,11 +459,119 @@ export async function resolveBlockedBranches(
 }
 
 /**
+ * Every branch Renovate merges into must require a status check (#892).
+ *
+ * The ruleset floor above judges the default branch, and reports its CI gate
+ * as detail rather than judging it. A NON-default Renovate base branch is
+ * judged, because it has no other watcher: on 2026-09-21 reddoor-website's
+ * `baseBranchPatterns: ["staging"]` pointed Renovate at a branch whose only
+ * ruleset forbade deletion, and the fleet preset's `internalChecksAsSuccess:
+ * true` (.github#35) lets a branch read green before any CI check run has
+ * registered. A required status check is what makes GitHub refuse that merge.
+ *
+ * "Requires a status check" is the same predicate the default branch's detail
+ * uses (`requiresStatusChecks`), applied to GitHub's own evaluation of the
+ * rulesets that bind that branch, OR a classic-protection required context.
+ *
+ * What is NOT a gap, each deliberately:
+ *  - no Renovate config, or one naming no base branch — the default branch is
+ *    the only target, and it is judged above (the fleet's normal shape);
+ *  - `$default` or the default branch by name — already judged above;
+ *  - a base branch that does not exist — nothing can merge into it.
+ *
+ * A refused read of the repo's own config or of a base branch, or a config
+ * this audit cannot interpret, is reported in the sweep's existing
+ * "(unverified, not clean)" wording — the same way an unreadable
+ * secret-scanning state or package.json is — and never as "no required status
+ * check" on a branch it could not see. An unreadable PRESET is a note, not a
+ * gap (see renovate-base-branches.ts: one refused org-preset read must not
+ * become 27 gap rows).
+ *
+ * `notes` never gate. They ride in the row's detail so the nightly shows the
+ * check PASSING, not merely silent, and names any preset it had to skip.
+ */
+export async function renovateBaseBranchVerdict(
+  repo: string,
+  deps: Pick<ProtectionCoverageDeps, "repoTextFile" | "defaultBranch" | "branchRequiredChecks">,
+): Promise<{ gaps: string[]; notes: string[] }> {
+  const name = repo.slice(repo.indexOf("/") + 1);
+  const unverified = (what: string, why: string) =>
+    `renovate base ${what} unverified — ${why} (unverified, not clean)`;
+  const base = await readRenovateBaseBranches(repo, deps);
+  if (base.state === "unverified")
+    return { gaps: [unverified(`branches on ${name}`, base.reason)], notes: [] };
+  const notes = base.unreadPresets.map(
+    (p) => `renovate preset ${p} unread — base branches judged without it`,
+  );
+  if (base.state === "default-only") return { gaps: [], notes };
+  const gaps: string[] = [];
+  let defaultBranch: string | undefined;
+  for (const entry of new Set(base.patterns)) {
+    if (entry === "$default") continue;
+    if (isBranchPattern(entry)) {
+      gaps.push(
+        unverified(
+          `branch pattern "${entry}" on ${name}`,
+          `${base.source} is a pattern, and this audit judges literal branch names only`,
+        ),
+      );
+      continue;
+    }
+    try {
+      defaultBranch ??= await deps.defaultBranch(repo);
+      if (entry === defaultBranch) continue;
+      const checks = await deps.branchRequiredChecks(repo, entry);
+      if (checks === null) {
+        notes.push(`renovate base ${name}:${entry} does not exist`);
+      } else if (requiresStatusChecks(checks.rules) || checks.classicContexts.length > 0) {
+        notes.push(`renovate base ${name}:${entry} requires status checks`);
+      } else {
+        gaps.push(
+          `renovate merges into ${name}:${entry} (${base.source}), which has NO required ` +
+            `status check — Renovate can automerge there with no CI run. Fix: a ruleset on ` +
+            `${entry} with a required_status_checks rule for a check that already runs there, ` +
+            `or drop ${entry} from the Renovate base branches.`,
+        );
+      }
+    } catch (e) {
+      gaps.push(
+        unverified(
+          `branch ${name}:${entry}`,
+          `could not read what protects it: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
+    }
+  }
+  return { gaps, notes };
+}
+
+/** Cache SUCCESSFUL text reads for one sweep: 27 repos extend the same org
+ *  preset, which is then read once rather than 27 times. A failed read is not
+ *  cached, so one transient blip stays one repo's problem instead of being
+ *  replayed onto every repo that shares the preset. */
+function cacheTextReads(
+  read: (repo: string, path: string) => Promise<string | null>,
+): (repo: string, path: string) => Promise<string | null> {
+  const hits = new Map<string, Promise<string | null>>();
+  return (repo, path) => {
+    const key = `${repo}:${path}`;
+    const cached = hits.get(key);
+    if (cached) return cached;
+    const p = read(repo, path);
+    hits.set(key, p);
+    p.catch(() => hits.delete(key));
+    return p;
+  };
+}
+
+/**
  * One row per org repo. Coverage = SOME repo-sourced ruleset with zero
  * stage-1 gaps (active, empty bypass, default branch covered, deletion +
  * non_fast_forward + pull_request) AND secret scanning enabled AND a live
- * renovate workflow. Whether a covering ruleset also gates on CI is reported
- * as detail, not judged: each repo's required context differs (and
+ * renovate workflow AND a required status check on every NON-default branch
+ * Renovate merges into (renovateBaseBranchVerdict, #892). Whether a covering
+ * ruleset also gates the DEFAULT branch on CI is reported as detail, not
+ * judged: each repo's required context differs (and
  * reddoor-maintenance deliberately has none pending release-path review), so
  * the CI-gate invariant belongs to the per-site heal, which has the evidence
  * to require the RIGHT context safely.
@@ -471,6 +589,7 @@ export async function collectProtectionCoverage(
   accepted: AcceptedGap[] = ACCEPTED_GAPS,
 ): Promise<ProtectionCoverageRow[]> {
   const rows: ProtectionCoverageRow[] = [];
+  const baseBranchDeps = { ...deps, repoTextFile: cacheTextReads(deps.repoTextFile) };
   for (const r of await deps.listOrgRepos(org)) {
     const repo = `${org}/${r.name}`;
     if (r.archived || r.visibility !== "public") {
@@ -496,9 +615,7 @@ export async function collectProtectionCoverage(
         );
         const covering = judged.find((j) => j.gaps.length === 0);
         if (covering) {
-          const ciGated = (covering.full.rules ?? []).some(
-            (rule) => rule.type === "required_status_checks",
-          );
+          const ciGated = requiresStatusChecks(covering.full.rules);
           coveredDetail = `"${covering.name}"${ciGated ? "" : " — NO CI gate (refs rules only)"}`;
         } else {
           gaps.push(judged.map((j) => `"${j.name}": ${j.gaps.join("; ")}`).join(" | "));
@@ -513,6 +630,8 @@ export async function collectProtectionCoverage(
       const dash = await deps.dependencyDashboard(repo);
       gaps.push(...dashboardVocabularyGaps(dash));
       gaps.push(...renovateBlockedGaps(await resolveBlockedBranches(repo, dash, deps, now)));
+      const base = await renovateBaseBranchVerdict(repo, baseBranchDeps);
+      gaps.push(...base.gaps);
       // MEASUREMENT, not a gap: never pushed into `gaps`, so it cannot change
       // the exit code, the PROTECTION_AUDIT counts, or the tracking issue.
       const outcome = renovateOutcome(await deps.renovateMergeWindow(repo), now);
@@ -523,7 +642,7 @@ export async function collectProtectionCoverage(
         rows.push({
           repo,
           status: "gap",
-          detail: [...live, ...acked].join(" | "),
+          detail: [...live, ...acked, ...base.notes].join(" | "),
           renovateOutcome: outcome,
         });
       } else if (acked.length > 0) {
@@ -539,7 +658,7 @@ export async function collectProtectionCoverage(
         rows.push({
           repo,
           status: "covered",
-          detail: coveredDetail,
+          detail: [coveredDetail, ...base.notes].join("; "),
           renovateOutcome: outcome,
         });
       }

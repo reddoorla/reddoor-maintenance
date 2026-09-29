@@ -1,4 +1,4 @@
-import type { ReportRow } from "../reports/airtable/reports.js";
+import type { ReportRow } from "../reports/report-fields.js";
 
 /** Constant operator marker stamped into the audit trail (single operator). */
 export const APPROVED_BY = "dashboard";
@@ -22,7 +22,7 @@ export type ApproveResult =
 
 /**
  * Injected IO. The handler is pure w.r.t. these: the `.mts` adapter binds them
- * to a live Airtable base, tests bind fakes. `now` is injected so the audit
+ * to Turso, tests bind fakes. `now` is injected so the audit
  * timestamp is deterministic under test (matches the report-HTML/render split).
  */
 export type ApproveDeps = {

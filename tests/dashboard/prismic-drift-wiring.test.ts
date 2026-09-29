@@ -5,35 +5,27 @@ import {
   buildNeedsYouFeed,
 } from "../../src/dashboard/fleet-cockpit.js";
 import { collectAttention, runDigest } from "../../src/reports/digest.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { listWebsites } from "../../src/reports/airtable/websites.js";
-import { listAllReports } from "../../src/reports/airtable/reports.js";
-import {
-  makeFakeBase,
-  type FakeRecord,
-  type FakeAirtableBase,
-} from "../reports/_helpers/fake-airtable-base.js";
+import { websiteRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 
 /** #646 step 4: the digest reads its datasets from Turso, through injected readers;
- *  `collectAttention` takes the rows outright. The fixtures stay in a fake Airtable
- *  base — the row shapes are identical across the two stores. */
-const rowsOf = async (base: FakeAirtableBase) => ({
-  websites: await listWebsites(base),
-  reports: await listAllReports(base),
+ *  `collectAttention` takes the rows outright. */
+const rowsOf = (records: RawRow[]) => ({
+  websites: websiteRowsFrom(records),
+  reports: [],
 });
-const io = (base: FakeAirtableBase) => ({
-  roster: () => listWebsites(base),
-  allReports: () => listAllReports(base),
+const io = (records: RawRow[]) => ({
+  roster: async () => websiteRowsFrom(records),
+  allReports: async () => [],
 });
 
 /** #609: the digest reads its prior snapshot from Turso, and the read is
  *  deliberately NOT defensive — swallowing a failure would badge every item NEW.
  *  That makes libSQL a hard requirement of a real run, so the suite injects an
  *  in-memory store instead of pretending one exists. Fresh per call, so a test
- *  that does not seed it sees the empty-snapshot case (everything NEW), which is
- *  what these tests asserted against Airtable before.
+ *  that does not seed it sees the empty-snapshot case (everything NEW).
  */
 function memoryDigestState(
   seed: Record<string, { metric: number; firstFlaggedAt: string; exhausted?: boolean }> = {},
@@ -65,11 +57,11 @@ const site = (over: Partial<WebsiteRow> = {}): WebsiteRow =>
     ...over,
   });
 
-/** The same row as the Airtable API returns it — the fake base runs it back through
- *  the real `mapRow`, so this also proves the three column-name magic strings
- *  ("Prismic Models", "Prismic Models Checked At", "Prismic Models Drift") survive
- *  the trip. A collector wired to fields nothing populates is wired to nothing. */
-const siteRecord = (over: Partial<FakeRecord["fields"]> = {}): FakeRecord => ({
+/** The raw record, run back through the real `mapRow`, so this also proves the
+ *  three column-name magic strings ("Prismic Models", "Prismic Models Checked At",
+ *  "Prismic Models Drift") survive the trip. A collector wired to fields nothing
+ *  populates is wired to nothing. */
+const siteRecord = (over: Record<string, unknown> = {}): RawRow => ({
   id: "rec_espada",
   fields: {
     Name: "Espada",
@@ -163,10 +155,10 @@ describe("prismic drift wiring — the cockpit", () => {
 });
 
 describe("prismic drift wiring — the digest", () => {
-  it("collectAttention surfaces the item, mapped from the real Airtable columns", async () => {
-    const base = makeFakeBase({ Reports: [], Websites: [siteRecord()] });
+  it("collectAttention surfaces the item, mapped from the real columns", async () => {
+    const records = [siteRecord()];
     const items = await collectAttention({
-      ...(await rowsOf(base)),
+      ...rowsOf(records),
       baseUrl: BASE_URL,
       now: NOW,
       notifyBounces: new Map(),
@@ -175,30 +167,24 @@ describe("prismic drift wiring — the digest", () => {
   });
 
   it("collectAttention surfaces the unknown and staleness flavors", async () => {
-    const unknownBase = makeFakeBase({
-      Reports: [],
-      Websites: [siteRecord({ "Prismic Models": "unknown" })],
-    });
+    const unknownRecords = [siteRecord({ "Prismic Models": "unknown" })];
     const unknownItems = await collectAttention({
-      ...(await rowsOf(unknownBase)),
+      ...rowsOf(unknownRecords),
       baseUrl: BASE_URL,
       now: NOW,
       notifyBounces: new Map(),
     });
     expect(unknownItems.map((i) => i.key)).toContain("prismic-unknown:rec_espada");
 
-    const staleBase = makeFakeBase({
-      Reports: [],
-      Websites: [
-        siteRecord({
-          "Prismic Models": "pass",
-          "Prismic Models Checked At": ANCIENT,
-          "Prismic Models Drift": undefined,
-        }),
-      ],
-    });
+    const staleRecords = [
+      siteRecord({
+        "Prismic Models": "pass",
+        "Prismic Models Checked At": ANCIENT,
+        "Prismic Models Drift": undefined,
+      }),
+    ];
     const staleItems = await collectAttention({
-      ...(await rowsOf(staleBase)),
+      ...rowsOf(staleRecords),
       baseUrl: BASE_URL,
       now: NOW,
       notifyBounces: new Map(),
@@ -209,9 +195,9 @@ describe("prismic drift wiring — the digest", () => {
   it("a broken collector can never blank the section — it runs isolated", async () => {
     // runCollector's try/catch is the contract; passing a row array whose site
     // shape is intact proves the OTHER collectors still return alongside it.
-    const base = makeFakeBase({ Reports: [], Websites: [siteRecord({ pScore: 40 })] });
+    const records = [siteRecord({ pScore: 40 })];
     const items = await collectAttention({
-      ...(await rowsOf(base)),
+      ...rowsOf(records),
       baseUrl: BASE_URL,
       now: NOW,
       notifyBounces: new Map(),
@@ -236,12 +222,11 @@ describe("prismic drift wiring — the digest", () => {
   // next push to main with a message pointing at drift wording rather than at a
   // clock.
   it("the drift item actually lands in the operator's digest EMAIL", async () => {
-    const base = makeFakeBase({ Reports: [], Websites: [siteRecord()] });
+    const records = [siteRecord()];
     const { client, captured } = captureClient();
     const result = await runDigest({
       digestState: memoryDigestState(),
-      base,
-      ...io(base),
+      ...io(records),
       resend: client,
       baseUrl: BASE_URL,
       submissionCounts: null,
@@ -254,20 +239,16 @@ describe("prismic drift wiring — the digest", () => {
   });
 
   it("the unknown item lands in the email with SECRET-shaped wording, not model-shaped", async () => {
-    const base = makeFakeBase({
-      Reports: [],
-      Websites: [
-        siteRecord({
-          "Prismic Models": "unknown",
-          "Prismic Models Drift": "write token rejected (403)",
-        }),
-      ],
-    });
+    const records = [
+      siteRecord({
+        "Prismic Models": "unknown",
+        "Prismic Models Drift": "write token rejected (403)",
+      }),
+    ];
     const { client, captured } = captureClient();
     await runDigest({
       digestState: memoryDigestState(),
-      base,
-      ...io(base),
+      ...io(records),
       resend: client,
       baseUrl: BASE_URL,
       submissionCounts: null,
@@ -280,10 +261,7 @@ describe("prismic drift wiring — the digest", () => {
   });
 
   it("a clean fleet still skips — the collector adds no noise of its own", async () => {
-    const base = makeFakeBase({
-      Reports: [],
-      Websites: [siteRecord({ "Prismic Models": "pass", "Prismic Models Drift": undefined })],
-    });
+    const records = [siteRecord({ "Prismic Models": "pass", "Prismic Models Drift": undefined })];
     const { client, captured } = captureClient();
     // `now: NOW` is load-bearing, not decoration. The fixture's "Prismic Models Checked At"
     // is FRESH (2026-08-12T06:00Z); a `pass` older than PRISMIC_STALE_PASS_DAYS (7) raises
@@ -292,8 +270,7 @@ describe("prismic drift wiring — the digest", () => {
     // every run since — a time bomb, not a flake. Every sibling test here already freezes it.
     const result = await runDigest({
       digestState: memoryDigestState(),
-      base,
-      ...io(base),
+      ...io(records),
       resend: client,
       baseUrl: BASE_URL,
       submissionCounts: null,

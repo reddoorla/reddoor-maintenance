@@ -12,7 +12,6 @@ import { isHttpUrl } from "../../util/url.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 import { fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
-import type { AirtableBase } from "../../reports/airtable/client.js";
 import type { FleetRoster } from "../../fleet/roster.js";
 import type { HealthMirror } from "../../audits/health-mirror.js";
 import type { FleetEvent } from "../../db/fleet-events.js";
@@ -24,8 +23,8 @@ export type AuditCommandOptions = {
   workdir?: string;
   cwd?: string;
   /**
-   * After running, push the lighthouse scores to the matching Websites row
-   * in Airtable. `true` (no value) = derive slug from cwd/package.json#name;
+   * After running, push the lighthouse scores to the matching Websites row.
+   * `true` (no value) = derive slug from cwd/package.json#name;
    * string = explicit slug (e.g. "med-solutions-of-texas").
    */
   writeBack?: string | boolean;
@@ -166,7 +165,7 @@ function buildAuditTasks(
 }
 
 type WriteSummary = Awaited<
-  ReturnType<typeof import("../../audits/write-audits-to-airtable.js").writeAuditsToAirtable>
+  ReturnType<typeof import("../../audits/write-audits.js").writeBackOneSite>
 >;
 
 function formatWriteSummary(summary: WriteSummary): string {
@@ -338,15 +337,13 @@ export async function runAuditCommand(
     output += `\n\n${formatUnmeasuredSmokeSummary(results)}`;
   }
 
-  // Did any site fail to write back to Airtable? The fleet writer collects
+  // Did any site fail to write back? The fleet writer collects
   // per-site failures instead of throwing, so without this the command would
   // exit 0 while rows silently failed to persist — automation keying on `$?`
   // would see a clean run. (The single-site writer throws on failure, so it's
   // already non-zero via the propagated error.)
   let writeBackFailed = false;
   if (opts.writeBack !== undefined) {
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-
     if (opts.fleet !== undefined) {
       const wb = await runFleetWriteBack({ results, which });
       if (wb.anyFailed) writeBackFailed = true;
@@ -355,8 +352,8 @@ export async function runAuditCommand(
       // guard this way). The write itself still happens regardless of --json.
       if (!opts.json) output += `\n\n${wb.summary}`;
     } else {
-      const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
-      const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
+      const { resolveSlugFromCwd } = await import("../../audits/lighthouse-fields.js");
+      const { writeBackOneSite } = await import("../../audits/write-audits.js");
       const slug =
         typeof opts.writeBack === "string" && opts.writeBack.length > 0
           ? opts.writeBack
@@ -365,26 +362,22 @@ export async function runAuditCommand(
       await new Listr(
         [
           {
-            title: `Write to Airtable[${slug}]`,
+            title: `Write back[${slug}]`,
             task: async (_ctx, task) => {
-              const base = openBase(readAirtableConfig());
-              // #646 step 4: the row to write is found in Turso, which holds every
-              // site — a `site_<ULID>` site has no Airtable record to find. The
-              // Airtable write below stays as the shadow and skips non-`rec` ids.
               task.output = "loading the fleet roster…";
               const { readFleetRoster } = await import("../../fleet/roster.js");
               const websites = await readFleetRoster();
               task.output = "writing scores…";
-              writeSummary = await writeAuditsToAirtable({ base, websites, slug, results });
-              // #539 Phase 5: the FLEET path has mirrored since Phase 3, this
-              // single-site one never did — same write, same columns, reaching
-              // Turso only via the hourly sync. The summary already carries the
-              // exact FieldSet Airtable got, so no signature change is needed.
-              if (writeSummary.siteId && writeSummary.fields) {
-                const { makeSiteMirror } = await import("../../db/site-mirror.js");
-                await (await makeSiteMirror()).health(writeSummary.siteId, writeSummary.fields);
-              }
-              task.title = `Wrote to Websites[${writeSummary.siteName}] (${writeSummary.writes.length} audit type${writeSummary.writes.length === 1 ? "" : "s"})`;
+              const { makeSiteMirror } = await import("../../db/site-mirror.js");
+              const siteMirror = await makeSiteMirror();
+              const summary = await writeBackOneSite({
+                websites,
+                slug,
+                results,
+                mirrorHealth: (siteId, fields) => siteMirror.health(siteId, fields),
+              });
+              writeSummary = summary;
+              task.title = `Wrote to Websites[${summary.siteName}] (${summary.writes.length} audit type${summary.writes.length === 1 ? "" : "s"})`;
             },
           },
         ],
@@ -405,44 +398,27 @@ export async function runAuditCommand(
 }
 
 /** The fleet `--write-back` step: write every site's audits back to its
- *  Websites row, dual-write each just-written FieldSet into Turso (#539
- *  Phase 3), and record fleet-activity events. Extracted from runAuditCommand
- *  so the mirror WIRING itself is pinned by test — the mutation this seam
- *  kills is dropping the `...(mirror ? { mirror } : {})` pass-through, which
- *  would silently stop all five nightly sweeps from mirroring while every
- *  sweep stayed green (adversarial review of #566, finding 6). Deps default
- *  to the real fleet wiring; dynamic imports keep the no-write paths from
- *  loading Airtable/db clients. */
+ *  Websites row in Turso (#539 Phase 3), and record fleet-activity events.
+ *  Extracted from runAuditCommand so the mirror WIRING itself is pinned by
+ *  test — the mutation this seam kills is dropping the
+ *  `...(mirror ? { mirror } : {})` pass-through, which would silently stop all
+ *  five nightly sweeps from mirroring while every sweep stayed green
+ *  (adversarial review of #566, finding 6). Deps default to the real fleet
+ *  wiring; dynamic imports keep the no-write paths from loading db clients. */
 export async function runFleetWriteBack(args: {
   results: AuditResult[];
   which: AuditName[];
   deps?: {
-    openBase?: () => AirtableBase;
     /** #646 step 4: the rows results are matched against. Defaults to Turso
      *  (`readFleetRoster`); tests inject. */
     roster?: FleetRoster;
     makeMirror?: () => Promise<HealthMirror | null>;
     recordEvents?: (events: FleetEvent[], now: Date) => Promise<void>;
-    /** #612. `true` = post-freeze, where a mirror failure, a missed row or an
-     *  absent mirror are each fatal. Injected so both sides stay proven and the
-     *  freeze commit stays a one-line change. */
-    strict?: boolean;
   };
 }): Promise<{ summary: string; anyFailed: boolean }> {
   const { results, which, deps = {} } = args;
-  const { writeFleetAuditsToAirtable, formatFleetWriteSummary, fleetWriteFailed } =
-    await import("../../audits/write-audits-to-airtable.js");
-  let base: AirtableBase;
-  if (deps.openBase) {
-    base = deps.openBase();
-  } else {
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    base = openBase(readAirtableConfig());
-  }
-  // #646 step 4: match results against the TURSO roster. Every site is there,
-  // including a `site_<ULID>` site with no Airtable record — matched against
-  // Airtable it failed with "No Websites row matched". Airtable stays the
-  // shadow: updateAuditFields skips a non-`rec` id and logs the skip.
+  const { writeFleetAudits, formatFleetWriteSummary, fleetWriteFailed } =
+    await import("../../audits/write-audits.js");
   const roster =
     deps.roster ??
     (async () => {
@@ -450,18 +426,14 @@ export async function runFleetWriteBack(args: {
       return readFleetRoster();
     });
   const websites = await roster();
-  // Phase 3 dual-write (#539): mirror each site's written FieldSet into
-  // site_health. Null when libSQL creds are absent — Airtable write-back
-  // proceeds exactly as before.
   const makeMirror =
     deps.makeMirror ??
     (async () => {
-      const { makeHealthMirrorBestEffort } = await import("../../audits/health-mirror.js");
-      return makeHealthMirrorBestEffort();
+      const { makeHealthMirror } = await import("../../audits/health-mirror.js");
+      return makeHealthMirror();
     });
   const mirror = await makeMirror();
-  const fleetWrite = await writeFleetAuditsToAirtable({
-    base,
+  const fleetWrite = await writeFleetAudits({
     websites,
     results,
     ...(mirror ? { mirror } : {}),
@@ -470,19 +442,16 @@ export async function runFleetWriteBack(args: {
   // WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.
   const sweep = which.includes("security") ? "security" : "lighthouse";
   const now = new Date();
-  const auditEvents = fleetWrite.written.flatMap((w) => w.events ?? []);
+  const auditEvents = fleetWrite.events ?? fleetWrite.written.flatMap((w) => w.events ?? []);
   await (deps.recordEvents ?? recordFleetEventsBestEffort)(
     [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
     now,
   );
-  // #612: post-freeze a mirror failure, a missed row, or an absent mirror all
-  // become fatal — there is no hourly import left to converge them, so a sweep
-  // that wrote nothing into the only store would otherwise finish green.
+  // #612: a mirror failure, a missed row, or an absent mirror are all fatal —
+  // nothing converges them, so a sweep that wrote nothing into the only store
+  // would otherwise finish green.
   return {
     summary: formatFleetWriteSummary(fleetWrite),
-    anyFailed:
-      deps.strict === undefined
-        ? fleetWriteFailed(fleetWrite)
-        : fleetWriteFailed(fleetWrite, deps.strict),
+    anyFailed: fleetWriteFailed(fleetWrite),
   };
 }

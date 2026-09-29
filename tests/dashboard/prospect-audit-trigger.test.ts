@@ -11,9 +11,17 @@ import {
   type ProspectAuditDispatchResult,
   type ProspectAuditDispatchTarget,
   PROSPECT_AUDIT_DAILY_CAP,
-  DAILY_CAP_LOOKBACK,
 } from "../../src/dashboard/prospect-audit-trigger.js";
-import type { ProspectAuditListItem } from "../../src/db/prospect-audits.js";
+import {
+  claimProspectAuditReservation,
+  finishProspectAudit,
+  generateToken,
+  listRecentProspectAudits,
+  releaseProspectAuditReservation,
+  reserveProspectAudit,
+  type ProspectAuditListItem,
+} from "../../src/db/prospect-audits.js";
+import { openDb, type Db } from "../../src/db/client.js";
 
 function recentItem(over: Partial<ProspectAuditListItem> = {}): ProspectAuditListItem {
   return {
@@ -26,6 +34,7 @@ function recentItem(over: Partial<ProspectAuditListItem> = {}): ProspectAuditLis
     edited_at: null,
     opened_at: null,
     chosen_terms: null,
+    claimed_at: null,
     ...over,
   };
 }
@@ -33,6 +42,8 @@ function recentItem(over: Partial<ProspectAuditListItem> = {}): ProspectAuditLis
 function deps(over: Partial<ProspectAuditTriggerDeps> = {}): ProspectAuditTriggerDeps {
   return {
     listRecent: async () => [],
+    reserve: async () => ({ kind: "reserved", id: "pa_reserved", token: "R".repeat(22) }),
+    release: async () => {},
     dispatch: async () => ({ ok: true }),
     now: () => new Date("2026-08-25T12:10:00.000Z"),
     ...over,
@@ -400,86 +411,106 @@ describe("the default recipients label", () => {
  * This is a runaway brake, not a quota — it should never bind in normal use.
  */
 describe("the 24h daily cap", () => {
-  /** `n` distinct-url audits, all inside the last 24 hours. */
-  const recentRun = (n: number, at = "2026-08-25T09:00:00.000Z") =>
-    Array.from({ length: n }, (_, i) =>
-      recentItem({ url: `https://site-${i}.example/`, created_at: at }),
-    );
+  const NEW_URL = {
+    url: "https://brand-new.example/",
+    business: null,
+    requestedBy: "op@reddoorla.com",
+    goal: "enquire",
+  };
 
-  it("refuses once the cap is reached, and never dispatches", async () => {
+  it("refuses once the reservation is capped, and never dispatches", async () => {
     let dispatched = 0;
     const r = await triggerProspectAudit(
       deps({
-        listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP),
+        reserve: async () => ({ kind: "capped", count: PROSPECT_AUDIT_DAILY_CAP }),
         dispatch: async () => {
           dispatched++;
           return { ok: true };
         },
       }),
       TARGET,
-      {
-        url: "https://brand-new.example/",
-        business: null,
-        requestedBy: "op@reddoorla.com",
-        goal: "enquire",
-      },
+      NEW_URL,
     );
-    expect(r.status).toBe("daily-cap");
+    expect(r).toEqual({
+      status: "daily-cap",
+      count: PROSPECT_AUDIT_DAILY_CAP,
+      cap: PROSPECT_AUDIT_DAILY_CAP,
+    });
     expect(dispatched).toBe(0);
   });
 
-  it("still dispatches one below the cap (positive control)", async () => {
-    // Without this, a cap that refused unconditionally would pass the test above.
-    const r = await triggerProspectAudit(
-      deps({ listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP - 1) }),
-      TARGET,
-      {
-        url: "https://brand-new.example/",
-        business: null,
-        requestedBy: "op@reddoorla.com",
-        goal: "enquire",
-      },
-    );
-    expect(r.status).toBe("dispatched");
-  });
-
-  it("ignores audits older than 24h — the window rolls", async () => {
+  it("reserves BEFORE it dispatches, with what the listing needs", async () => {
+    const order: string[] = [];
+    const reserve = vi.fn(async () => {
+      order.push("reserve");
+      return { kind: "reserved" as const, id: "pa_1", token: "T".repeat(22) };
+    });
     const r = await triggerProspectAudit(
       deps({
-        listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP, "2026-08-23T09:00:00.000Z"),
+        reserve,
+        dispatch: async () => {
+          order.push("dispatch");
+          return { ok: true };
+        },
       }),
       TARGET,
-      {
-        url: "https://brand-new.example/",
-        business: null,
-        requestedBy: "op@reddoorla.com",
-        goal: "enquire",
-      },
+      { ...NEW_URL, business: " Acme ", terms: ["a", " "], questions: [] },
     );
     expect(r.status).toBe("dispatched");
+    expect(order).toEqual(["reserve", "dispatch"]);
+    expect(reserve).toHaveBeenCalledWith(
+      {
+        url: "https://brand-new.example/",
+        business: "Acme",
+        chosenTerms: ["a"],
+        chosenQuestions: null,
+        // The dispatched job's CLI claims this row, so it is NOT claimed here.
+        claimed: false,
+      },
+      new Date("2026-08-25T12:10:00.000Z"),
+    );
   });
 
-  it("reports a repeat of the SAME url as duplicate, not as cap", async () => {
+  it("gives the slot back when the dispatch fails — nothing will ever run to finish it", async () => {
+    const release = vi.fn(async () => {});
+    const r = await triggerProspectAudit(
+      deps({
+        reserve: async () => ({ kind: "reserved", id: "pa_9", token: "T".repeat(22) }),
+        release,
+        dispatch: async () => ({ ok: false, error: "403" }),
+      }),
+      TARGET,
+      NEW_URL,
+    );
+    expect(r).toEqual({ status: "dispatch-failed", error: "403" });
+    expect(release).toHaveBeenCalledWith("pa_9");
+  });
+
+  it("a release that throws still reports the dispatch failure, not a 500", async () => {
+    const r = await triggerProspectAudit(
+      deps({
+        release: async () => {
+          throw new Error("turso blip");
+        },
+        dispatch: async () => ({ ok: false, error: "403" }),
+      }),
+      TARGET,
+      NEW_URL,
+    );
+    expect(r).toEqual({ status: "dispatch-failed", error: "403" });
+  });
+
+  it("reports a repeat of the SAME url as duplicate, not as cap, and reserves nothing", async () => {
     // Order matters: a second click on one url is truthfully a duplicate, and
     // must not consume the day's budget or report a confusing limit.
+    const reserve = vi.fn(async () => ({ kind: "capped" as const, count: 25 }));
     const dup = recentItem({ url: "https://acme.example/" });
-    const r = await triggerProspectAudit(
-      deps({ listRecent: async () => [dup, ...recentRun(PROSPECT_AUDIT_DAILY_CAP)] }),
-      TARGET,
-      {
-        url: "https://acme.example/",
-        business: null,
-        requestedBy: "op@reddoorla.com",
-        goal: "enquire",
-      },
-    );
+    const r = await triggerProspectAudit(deps({ listRecent: async () => [dup], reserve }), TARGET, {
+      ...NEW_URL,
+      url: "https://acme.example/",
+    });
     expect(r.status).toBe("duplicate");
-  });
-
-  it("the lookback exceeds the cap, or the brake could never engage", () => {
-    // A lookback at or below the cap makes the limit unreachable — a guard that
-    // reads as working while doing nothing.
-    expect(DAILY_CAP_LOOKBACK).toBeGreaterThan(PROSPECT_AUDIT_DAILY_CAP);
+    expect(reserve).not.toHaveBeenCalled();
   });
 
   it("answers 429 with both numbers, not a bare refusal", () => {
@@ -489,6 +520,123 @@ describe("the 24h daily cap", () => {
     );
     expect(out.status).toBe(429);
     expect(String(out.body.message)).toContain("25");
+  });
+});
+
+/**
+ * #907, through the real SQL. The cockpit counted, then dispatched, and wrote
+ * no row at all — the row only appeared when the dispatched job finished — so
+ * a burst of clicks against distinct hostnames all passed the same count.
+ */
+describe("the 24h daily cap — a burst against the real reservation (#907)", () => {
+  const NOW = new Date("2026-08-25T12:10:00.000Z");
+
+  async function seeded(k: number): Promise<Db> {
+    const db = await openDb({ url: ":memory:" });
+    for (let i = 0; i < k; i++) {
+      await db
+        .insertInto("prospect_audits")
+        .values({
+          id: `pa_seed_${i}`,
+          token: generateToken(),
+          url: `https://seed-${i}.example/`,
+          business: null,
+          created_at: "2026-08-25T09:00:00.000Z",
+          status: "complete",
+          result_json: "{}",
+        })
+        .execute();
+    }
+    return db;
+  }
+
+  function sqlDeps(db: Db, dispatched: string[]): ProspectAuditTriggerDeps {
+    return {
+      listRecent: (limit) => listRecentProspectAudits(db, limit),
+      reserve: (req, now) => reserveProspectAudit(db, req, { now }),
+      release: (id) => releaseProspectAuditReservation(db, id, { onlyIfUnclaimed: true }),
+      dispatch: async (t) => {
+        dispatched.push(t.inputs.url);
+        return { ok: true };
+      },
+      now: () => NOW,
+    };
+  }
+
+  it("N concurrent clicks on distinct urls against cap C with K existing rows dispatch exactly C − K", async () => {
+    const K = PROSPECT_AUDIT_DAILY_CAP - 4;
+    const N = 12;
+    const db = await seeded(K);
+    const dispatched: string[] = [];
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        triggerProspectAudit(sqlDeps(db, dispatched), TARGET, {
+          url: `https://click-${i}.example/`,
+          business: null,
+          requestedBy: "op@reddoorla.com",
+          goal: "enquire",
+        }),
+      ),
+    );
+    expect(dispatched).toHaveLength(4);
+    expect(results.filter((r) => r.status === "daily-cap")).toHaveLength(N - 4);
+  });
+
+  it("a re-click within 10 minutes of the run FINISHING is still a duplicate, as before #907 (review P6)", async () => {
+    // Started 20 minutes ago, finished (and emailed) 5 minutes ago. Before
+    // #907 the row was born at the finish, so the 10-minute guard ran from
+    // there; measured from the start it would let this click spend again.
+    const db = await seeded(0);
+    const dispatched: string[] = [];
+    const input = {
+      url: "https://acme.example/",
+      business: null,
+      requestedBy: "op@reddoorla.com",
+      goal: "enquire",
+    };
+    const started = new Date(NOW.getTime() - 20 * 60 * 1000);
+    const finished = new Date(NOW.getTime() - 5 * 60 * 1000);
+    expect(
+      (
+        await triggerProspectAudit(
+          { ...sqlDeps(db, dispatched), now: () => started },
+          TARGET,
+          input,
+        )
+      ).status,
+    ).toBe("dispatched");
+    const claimed = await claimProspectAuditReservation(db, input.url, started);
+    if (!claimed) throw new Error("positive control: the job claims the cockpit's row");
+    await finishProspectAudit(
+      db,
+      claimed.id,
+      { url: input.url, business: null, status: "complete", resultJson: "{}" },
+      finished,
+    );
+    const again = await triggerProspectAudit(sqlDeps(db, dispatched), TARGET, input);
+    expect(again.status).toBe("duplicate");
+    expect(dispatched).toHaveLength(1);
+  });
+
+  it("a click on a url whose run is still going is a duplicate with NO report link", async () => {
+    const db = await seeded(0);
+    const dispatched: string[] = [];
+    const input = {
+      url: "https://acme.example/",
+      business: null,
+      requestedBy: "op@reddoorla.com",
+      goal: "enquire",
+    };
+    expect((await triggerProspectAudit(sqlDeps(db, dispatched), TARGET, input)).status).toBe(
+      "dispatched",
+    );
+    const again = await triggerProspectAudit(sqlDeps(db, dispatched), TARGET, input);
+    expect(again.status).toBe("duplicate");
+    const body = respondToProspectAuditTrigger(again, { recipientsLabel: "x" }).body;
+    // The row has no report yet, so a link would open a 404.
+    expect(body.reportUrl).toBeUndefined();
+    expect(String(body.message)).toMatch(/still running/i);
+    expect(dispatched).toHaveLength(1);
   });
 });
 

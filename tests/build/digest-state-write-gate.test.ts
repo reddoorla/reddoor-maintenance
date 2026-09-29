@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 /**
  * MED-13(a) — a marker built to catch a silent stop, that nothing read.
  *
- * `DIGEST_STATE_WRITE turso=… airtable=… rollup=…` exists because of #585: "a
+ * `DIGEST_STATE_WRITE turso=… rollup=…` exists because of #585: "a
  * dual-write that silently stopped running looked identical to a healthy one
  * for weeks". And `grep -rn DIGEST_STATE_WRITE .github/` returned NOTHING.
  * Rotate the token for the digest step and the email still sends, the workflow
@@ -60,36 +60,24 @@ async function runStep(out: string, code = 0): Promise<{ code: number; log: stri
 /** A real, verbatim-shaped healthy run: the CLI's own success line, then the marker. */
 const HEALTHY = [
   "Digest sent to tucker@reddoorla.com (msg_0193f1)",
-  "DIGEST_STATE_WRITE turso=1 airtable=1 rollup=1",
+  "DIGEST_STATE_WRITE turso=1 rollup=1",
 ].join("\n");
 
 describe("daily-reports digest gate — PASSES on a known-good line (prove the instrument)", () => {
   it("a healthy dual-write is green", async () => {
     const r = await runStep(HEALTHY);
     expect(r.code).toBe(0);
-    expect(r.log).toContain("PASS");
-    expect(r.log).toContain("DIGEST_STATE_WRITE turso=1 airtable=1 rollup=1");
+    expect(r.log).toContain("PASS: DIGEST_STATE_WRITE turso=1 rollup=1");
+    expect(r.log).not.toContain("::warning::");
   });
 
   it("is green on a QUIET day, where the digest skips itself but still snapshots", async () => {
     const r = await runStep(
       [
         "Digest skipped (nothing ready, nothing needs attention).",
-        "DIGEST_STATE_WRITE turso=1 airtable=1 rollup=1",
+        "DIGEST_STATE_WRITE turso=1 rollup=1",
       ].join("\n"),
     );
-    expect(r.code).toBe(0);
-  });
-
-  it("is green when AIRTABLE fails — Phase 6 is about to delete that half", async () => {
-    // The gate must never assert anything about the Airtable counter, or Phase 6
-    // removing the dual-write turns this into a false red on a deliberate change.
-    const r = await runStep("DIGEST_STATE_WRITE turso=1 airtable=0 rollup=1");
-    expect(r.code).toBe(0);
-  });
-
-  it("is green with NO airtable counter at all — the post-Phase-6 line", async () => {
-    const r = await runStep("DIGEST_STATE_WRITE turso=1 rollup=1");
     expect(r.code).toBe(0);
   });
 
@@ -98,7 +86,7 @@ describe("daily-reports digest gate — PASSES on a known-good line (prove the i
     // failure ... reporting it as `rollup=0` would train the eye to ignore the
     // number that is supposed to catch a dead writer." Reddening it here would
     // contradict the code's own description.
-    const r = await runStep("DIGEST_STATE_WRITE turso=1 airtable=1 rollup=absent");
+    const r = await runStep("DIGEST_STATE_WRITE turso=1 rollup=absent");
     expect(r.code).toBe(0);
     expect(r.log).toContain("::warning::");
   });
@@ -125,7 +113,7 @@ describe("daily-reports digest gate — FAILS on the silent stop it exists to ca
   });
 
   it("reds on turso=0 — the read side did not get the snapshot", async () => {
-    const r = await runStep("DIGEST_STATE_WRITE turso=0 airtable=1 rollup=1");
+    const r = await runStep("DIGEST_STATE_WRITE turso=0 rollup=1");
     expect(r.code).toBe(1);
     expect(r.log).toContain("turso=0");
   });
@@ -140,13 +128,13 @@ describe("daily-reports digest gate — FAILS on the silent stop it exists to ca
   });
 
   it("reds on rollup=0 — the write was attempted and threw", async () => {
-    const r = await runStep("DIGEST_STATE_WRITE turso=1 airtable=1 rollup=0");
+    const r = await runStep("DIGEST_STATE_WRITE turso=1 rollup=0");
     expect(r.code).toBe(1);
     expect(r.log).toContain("rollup");
   });
 
   it("reds when the turso counter is missing — a reworded marker cannot pass by omission", async () => {
-    const r = await runStep("DIGEST_STATE_WRITE airtable=1 rollup=1");
+    const r = await runStep("DIGEST_STATE_WRITE rollup=1");
     expect(r.code).toBe(1);
   });
 

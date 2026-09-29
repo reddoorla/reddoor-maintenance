@@ -16,9 +16,8 @@ function missing(name: string): Error {
   );
 }
 
-/** Read TURSO_DATABASE_URL (+ optional TURSO_AUTH_TOKEN) from the environment,
- *  mirroring readAirtableConfig. The token is optional so a local `file:`/`:memory:`
- *  url works with no token. */
+/** Read TURSO_DATABASE_URL (+ optional TURSO_AUTH_TOKEN) from the environment.
+ *  The token is optional so a local `file:`/`:memory:` url works with no token. */
 export function readDbConfig(): DbConfig {
   const url = process.env.TURSO_DATABASE_URL;
   if (!url) throw missing("TURSO_DATABASE_URL");

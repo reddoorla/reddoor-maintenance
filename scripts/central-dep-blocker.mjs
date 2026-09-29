@@ -2,14 +2,14 @@
 // consumer-facing entries (the CLI bin + ./forms + ./configs/*) never statically
 // import a "central-only" package.
 //
-// Those 11 packages are devDependencies of @reddoorla/maintenance: a consuming
+// Those 10 packages are devDependencies of @reddoorla/maintenance: a consuming
 // fleet site installs the package only for ./forms + ./configs/* and runs
 // `reddoor-maint audit --only a11y` in CI, so it never installs them. If any
 // consumer-facing entry eagerly (statically) imported one, it would crash at
 // load in the consumer's CI — the exact regression this guard exists to prevent.
 //
 // Registered via scripts/register-central-dep-blocker.mjs (`node --import …`),
-// this hook makes the 11 packages UNRESOLVABLE. Loading an entry under it then
+// this hook makes the 10 packages UNRESOLVABLE. Loading an entry under it then
 // reproduces a consumer's install exactly: if the entry's real static import
 // graph reaches a central-only dep, resolution throws; if it's clean, it loads.
 // Because it uses Node's actual resolver over the actual graph — not a source
@@ -18,7 +18,6 @@
 export const CENTRAL_ONLY_DEPS = [
   "mjml",
   "resend",
-  "airtable",
   "@google-analytics/data",
   "google-auth-library",
   "@libsql/client",

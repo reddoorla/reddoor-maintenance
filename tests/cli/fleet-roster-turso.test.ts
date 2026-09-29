@@ -1,12 +1,11 @@
 /**
- * #646 step 4: the batch jobs' roster is Turso's, so a `site_<ULID>` site — which
- * has NO Airtable record since step 3 (#856) — is finally visible to them.
+ * #646 step 4: the batch jobs' roster is Turso's, so a `site_<ULID>` site is
+ * visible to them.
  *
- * The other tests of these seams inject a roster built from a fake Airtable base,
- * because the writes they pin are Airtable SHADOW writes. This file drives the real
- * `readFleetRoster` against a REAL migrated libSQL database in a temp `file:` —
- * never `:memory:` and never a `TURSO_*` url from the environment — and includes
- * the CONTROL that fails: the same run against the roster Airtable could return.
+ * This file drives the real `readFleetRoster` against a REAL migrated libSQL
+ * database in a temp `file:` — never `:memory:` and never a `TURSO_*` url from the
+ * environment — and includes the CONTROL that fails: the same run against a roster
+ * of `rec…` ids only.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -18,7 +17,6 @@ import { readFleetRoster } from "../../src/fleet/roster.js";
 import { mintSiteId } from "../../src/fleet/site-id.js";
 import { runFleetWriteBack } from "../../src/cli/commands/audit.js";
 import { runRenovateDispatchCommand } from "../../src/cli/commands/renovate-dispatch.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import type { AuditResult } from "../../src/types.js";
 
 const NOW = "2026-09-17T00:00:00.000Z";
@@ -108,22 +106,18 @@ describe("readFleetRoster", () => {
 });
 
 describe("the audit fleet write-back, driven by the Turso roster", () => {
-  it("writes back a site_<ULID> site: Turso gets the fields, the Airtable shadow is skipped", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const base = makeFakeBase({ Websites: [] }); // Airtable has no such record — by design
+  it("writes back a site_<ULID> site: Turso gets the fields", async () => {
     const mirrored: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
     const res = await runFleetWriteBack({
       results: [lhResult("native-co")],
       which: ["lighthouse"],
       deps: {
-        openBase: () => base,
         roster,
         makeMirror: async () => async (siteId, fields) => {
           mirrored.push({ siteId, fields });
           return true;
         },
         recordEvents: async () => {},
-        strict: true,
       },
     });
     expect(res.anyFailed).toBe(false);
@@ -131,26 +125,16 @@ describe("the audit fleet write-back, driven by the Turso roster", () => {
     expect(mirrored).toHaveLength(1);
     expect(mirrored[0]!.siteId).toBe(NATIVE);
     expect(mirrored[0]!.fields).toMatchObject({ pScore: 90 });
-    // The shadow write is skipped by id shape (step 3), and says so.
-    expect(base.__calls.filter((c) => c.kind === "update")).toEqual([]);
-    expect(log.mock.calls.flat().join("\n")).toContain(
-      `AIRTABLE_SHADOW skipped=non-rec-id writer=updateAuditFields id=${NATIVE}`,
-    );
   });
 
-  it("CONTROL — the roster Airtable could return misses that site entirely, and the write-back fails", async () => {
-    const base = makeFakeBase({ Websites: [] });
+  it("CONTROL — a roster of rec ids only misses that site entirely, and the write-back fails", async () => {
     const res = await runFleetWriteBack({
       results: [lhResult("native-co")],
       which: ["lighthouse"],
       deps: {
-        // Exactly what `listWebsites` returns for a fleet whose only site was
-        // created in Turso: nothing. This is the state step 4 exists to end.
         roster: async () => (await roster()).filter((r) => r.id.startsWith("rec")),
-        openBase: () => base,
         makeMirror: async () => async () => true,
         recordEvents: async () => {},
-        strict: true,
       },
     });
     expect(res.anyFailed).toBe(true);
@@ -159,18 +143,13 @@ describe("the audit fleet write-back, driven by the Turso roster", () => {
 });
 
 describe("renovate-dispatch, driven by the Turso roster", () => {
-  it("clears a site_<ULID> site's stale auto-fix counter: Turso written, Airtable shadow skipped", async () => {
+  it("clears a site_<ULID> site's stale auto-fix counter in Turso", async () => {
     vi.stubEnv("GH_TOKEN", "tok");
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const base = makeFakeBase({ Websites: [] });
     const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
     const r = await runRenovateDispatchCommand({
       fleet: true,
-      base,
       roster,
       siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
         health: async (id, fields) => {
           mirrored.push({ id, fields });
         },
@@ -183,9 +162,5 @@ describe("renovate-dispatch, driven by the Turso roster", () => {
     expect(r.output).toContain("RENOVATE_DISPATCH_SUMMARY dispatched=0 skipped=0 failed=0");
     expect(r.output).toContain("AUTO_FIX_ATTEMPTS_SUMMARY written=1 failed=0");
     expect(mirrored).toEqual([{ id: NATIVE, fields: { "Security Auto-Fix Attempts": 0 } }]);
-    expect(base.__calls.filter((c) => c.kind === "update")).toEqual([]);
-    expect(log.mock.calls.flat().join("\n")).toContain(
-      `AIRTABLE_SHADOW skipped=non-rec-id writer=updateAutoFixAttempts id=${NATIVE}`,
-    );
   });
 });

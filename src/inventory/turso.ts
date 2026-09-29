@@ -9,15 +9,9 @@ export type TursoInventoryOptions = {
 };
 
 /**
- * The fleet roster, read from Turso (#646 step 4) — what `--fleet turso` (and its
- * deprecated alias `--fleet airtable`) resolves through.
- *
- * Why this exists: since step 3 a site created by `ensure-site` gets a
- * `site_<ULID>` id and NO Airtable record, so an Airtable-backed roster can never
- * see it. Turso holds every site, `rec…` and `site_…` alike.
- *
- * Same selection as the Airtable provider by construction (`selectFleetSites`),
- * and the same rows by proof (`tests/inventory/selection-parity.test.ts`).
+ * The fleet roster, read from Turso (#646 step 4) — what `--fleet turso` resolves
+ * through. Turso holds every site,
+ * `rec…` and `site_…` alike; the selection rule is `selectFleetSites`.
  *
  * `open` is a factory rather than a handle so the provider owns the connection it
  * opened and closes it once the roster is read — a sweep holds no Turso client

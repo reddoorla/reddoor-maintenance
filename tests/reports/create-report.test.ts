@@ -1,14 +1,13 @@
 /**
  * #646 step 4: creating a report is a TURSO write. These are the creator's own
- * rules — what it mints, what it writes, what it hands back, and the Airtable
- * shadow it deliberately does not attempt. The drafting path that calls it is
- * covered in draft.test.ts; the whole thing against a real libSQL database is
- * tests/reports/turso-native-report.e2e.test.ts.
+ * rules — what it mints, what it writes and what it hands back. The drafting
+ * path that calls it is covered in draft.test.ts; the whole thing against a
+ * real libSQL database is tests/reports/turso-native-report.e2e.test.ts.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { createReportDraft, findReportForPeriod } from "../../src/reports/create-report.js";
 import { draftFields, type DraftInput } from "../../src/reports/draft-fields.js";
-import { mapRow } from "../../src/reports/airtable/reports.js";
+import { mapRow } from "../../src/reports/report-fields.js";
 import { makeFakeReportWriter } from "./_helpers/fake-report-writer.js";
 
 function input(over: Partial<DraftInput> = {}): DraftInput {
@@ -37,14 +36,12 @@ describe("createReportDraft", () => {
   });
 
   it("drafts for a `site_<ULID>` site — the case that was impossible before", async () => {
-    // The Airtable creator refuses this by name: there is no Websites record for
-    // its `Site` link to point at. This is the whole reason the decision exists.
     const writer = makeFakeReportWriter();
     const row = await createReportDraft(input(), { create: writer.create });
     expect(row.siteId).toBe("site_01ARYZ6S41TSV4RRFFQ69G5FAV");
   });
 
-  it("writes exactly the shared field set, so the stored row matches the Airtable shape", async () => {
+  it("writes exactly the shared field set", async () => {
     const writer = makeFakeReportWriter();
     const spec = input();
     await createReportDraft(spec, { create: writer.create });
@@ -57,16 +54,6 @@ describe("createReportDraft", () => {
     const stored = mapRow({ id: "report_STUB", fields: { "Report ID": "from the store" } });
     const row = await createReportDraft(input(), { create: async () => stored });
     expect(row).toBe(stored);
-  });
-
-  it("logs the Airtable shadow skip rather than attempting a create", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const writer = makeFakeReportWriter();
-    const row = await createReportDraft(input(), { create: writer.create });
-    expect(log).toHaveBeenCalledWith(
-      `AIRTABLE_SHADOW skipped=non-rec-id writer=createReportDraft id=${row.id}`,
-    );
-    log.mockRestore();
   });
 
   it("propagates a store failure — a report that did not land must not look drafted", async () => {

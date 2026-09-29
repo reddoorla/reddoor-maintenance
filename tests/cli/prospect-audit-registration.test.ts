@@ -61,7 +61,7 @@ const FLAGS = {
 
 type Uncovered = Exclude<
   keyof ProspectAuditCliOptions,
-  "deps" | "listRecent" | "now" | (typeof FLAGS)[keyof typeof FLAGS]
+  "deps" | "openDb" | "now" | (typeof FLAGS)[keyof typeof FLAGS]
 >;
 const _everyOptionHasAFlag: [Uncovered] extends [never] ? true : Uncovered = true;
 

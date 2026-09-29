@@ -6,8 +6,8 @@ import {
   formatBlockers,
   healthBlockers,
 } from "../../src/reports/preflight.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
-import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
+import { autoTickChecklist, type EvidenceRecord } from "../../src/reports/auto-tick.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-07-02T12:00:00Z");
@@ -441,5 +441,45 @@ describe("approveBlockers folds in health-gate findings", () => {
     });
     const findings = approveBlockers(site, report);
     expect(findings.some((f) => f.check === "health-gate")).toBe(true);
+  });
+});
+
+// #911 end to end: the CMS evidence is computed from the site row by the real
+// `autoTickChecklist`, then judged by the real pre-send gate. Ticking the box by hand is
+// no workaround — the gate reads `autoEvidence`, never `checklist`.
+describe("approveBlockers — CMS Checked on a site with no CMS (#911)", () => {
+  const AT = "2026-07-02T06:00:00.000Z"; // fresh relative to NOW
+  const noCmsSite = (over: Parameters<typeof makeWebsiteRow>[0] = {}) =>
+    cleanSite({
+      functionHealth: "pass",
+      functionHealthCheckedAt: AT,
+      cmsReachable: null,
+      prismicModels: null,
+      prismicModelsCheckedAt: AT,
+      ...over,
+    });
+  const reportFor = (site: ReturnType<typeof cleanSite>, checklist: Record<string, boolean> = {}) =>
+    makeReportRow({
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
+      checklist,
+      autoEvidence: {
+        ...healthCleanEvidence(),
+        "Maint: CMS Checked": autoTickChecklist(site, "Maintenance", NOW, {
+          search: { value: null, softFailed: false, notConfigured: false },
+        }).get("Maint: CMS Checked")!,
+      },
+    });
+
+  it("does not block a site whose repository has no Prismic config", () => {
+    const site = noCmsSite();
+    expect(formatBlockers(approveBlockers(site, reportFor(site)))).toEqual([]);
+  });
+
+  it("blocks a site with a CMS whose /health reported no CMS verdict — even with the box ticked", () => {
+    const site = noCmsSite({ prismicModels: "pass" });
+    const fails = formatBlockers(
+      approveBlockers(site, reportFor(site, { "Maint: CMS Checked": true })),
+    ).join(" ");
+    expect(fails).toContain("Maint: CMS Checked: not yet green (unknown)");
   });
 });

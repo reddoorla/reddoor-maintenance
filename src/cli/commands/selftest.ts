@@ -25,7 +25,7 @@ function formatResult(r: SelftestEmailSiteResult): string {
 /**
  * `selftest <kind> [site]` — operator self-tests. The only kind today is `email`: preview a
  * report email for one site (or `--all` maintenance sites) to the operator/`--to`, with no
- * Airtable side effects. Validates kind/type and the site-xor-all rule before doing any work.
+ * store side effects. Validates kind/type and the site-xor-all rule before doing any work.
  */
 export async function runSelftestCommand(
   kind: string,

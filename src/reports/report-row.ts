@@ -1,20 +1,18 @@
 /**
  * The report-row model and its pure, vendor-neutral coercers.
  *
- * `ReportRow` is what BOTH readers return — `mapRow` over an Airtable record
- * (`src/reports/airtable/reports.ts`) and the Turso report reader in
- * `src/db/fleet-state.ts`. Moved out of the Airtable module in #539 Phase 6
- * step 1 (#646) so the Turso read path does not depend on the directory Phase 6
- * deletes. `src/reports/airtable/reports.ts` re-exports every name.
+ * `ReportRow` is what BOTH mappers return — `mapRow` over a column-named record
+ * (`src/reports/report-fields.ts`) and the Turso report reader in
+ * `src/db/fleet-state.ts`. `src/reports/report-fields.ts` re-exports every name.
  */
 import type { ReportType, LighthouseScores } from "./types.js";
 import type { EvidenceRecord } from "./auto-tick.js";
 
 const REPORT_TYPES: readonly ReportType[] = ["Maintenance", "Testing", "Launch", "Announcement"];
 
-/** Coerce the Airtable `Report type` (a single-select string) to a known
- *  ReportType. A bare `as ReportType` cast is a compile-time lie: if the
- *  single-select gains an unexpected option, the bad value flows to render.ts,
+/** Coerce the stored `Report type` string to a known ReportType. A bare
+ *  `as ReportType` cast is a compile-time lie: if the column holds an
+ *  unexpected value, the bad value flows to render.ts,
  *  where `reportType === "Launch"` silently falls through to the Maintenance
  *  template. Validate at the boundary; warn + default to "Maintenance" so an
  *  unknown type is VISIBLE in the logs rather than silently mis-templated. */
@@ -54,7 +52,7 @@ export type ReportRow = {
   renderedHtmlAttachment: { url: string; filename: string } | null;
   /** Read out of the Resend response and stored in a hidden field; needed for webhook reconciliation. */
   resendMessageId: string | null;
-  /** The 12 operator-checklist checkboxes, keyed by their Airtable column name (ALL_CHECKLIST_FIELDS);
+  /** The 12 operator-checklist checkboxes, keyed by their legacy column name (ALL_CHECKLIST_FIELDS);
    *  missing/false cells read false. Maintenance/Testing reports gate approve+send on the relevant
    *  subset (see src/reports/checklist.ts). */
   checklist: Record<string, boolean>;
@@ -74,9 +72,9 @@ export type ReportRow = {
 
 /**
  * The "Ready for your yes" gate: Draft ready ∧ ¬Approved to send ∧ Sent at BLANK.
- * The single source of truth for "pending the operator's approval" — `listPendingApproval`,
- * `runDigest`'s ready-list, the per-site dashboard, and the fleet cockpit all key off this
- * one predicate so the surfaces can't drift.
+ * The single source of truth for "pending the operator's approval" — `runDigest`'s
+ * ready-list, the draft queue, the per-site dashboard, and the fleet cockpit all key off
+ * this one predicate so the surfaces can't drift.
  */
 export function isPendingApproval(r: ReportRow): boolean {
   return r.draftReady && !r.approvedToSend && r.sentAt === null;

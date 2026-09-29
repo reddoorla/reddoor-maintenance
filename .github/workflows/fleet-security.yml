@@ -1,7 +1,7 @@
 name: fleet-security
 
 # Nightly fleet-wide security audit against each active site, writing the vuln counts + a freshness
-# timestamp back to its Airtable row so the "Security Updates" checklist box can auto-tick.
+# timestamp back to its row so the "Security Updates" checklist box can auto-tick.
 # Repo-backed sites use GitHub Dependabot alerts (prod+dev); sites with no repo / no token fall back
 # to `pnpm/npm audit`. UNLIKE fleet-lighthouse this stays checkout-FUL — the `pnpm audit` fallback
 # reads each repo's committed lockfile, so every site is cloned. Kept a SEPARATE job from
@@ -59,7 +59,7 @@ jobs:
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
           owner: reddoorla
 
-      - name: Fleet security + deps audit + Airtable write-back
+      - name: Fleet security + deps audit + write-back
         # Repo-backed sites are audited from GitHub Dependabot alerts (ground truth: prod+dev,
         # GitHub Advisory DB) via the REST API. Sites with no repo (or when the alerts API is
         # unreachable/forbidden) fall back to `pnpm audit` against the committed lockfile — which is
@@ -72,8 +72,6 @@ jobs:
         # (~12 sites, warm pnpm store via setup-node cache), on top of the existing security sweep.
         timeout-minutes: 45
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           # Reads Dependabot alerts. The minted reddoor-renovate App token is reused as
@@ -97,7 +95,7 @@ jobs:
           # substitution would abort the step before the explicit diagnostic below runs.
           summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/audit.out | tail -n1 || true)
           if [ -z "$summary" ]; then
-            echo "::error::fleet security printed no write summary — the run crashed before write-back (check Airtable creds / clone)."
+            echo "::error::fleet security printed no write summary — the run crashed before write-back (check the Turso creds / clone)."
             exit 1
           fi
           wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
@@ -114,7 +112,7 @@ jobs:
 
           # A site that couldn't even be prepared (bad/scheme-less URL + no repo, or a
           # private repo whose clone fails) is dropped rather than crashing the run
-          # (resilient fleet prep). Raise it so the misconfigured Airtable row gets fixed.
+          # (resilient fleet prep). Raise it so the misconfigured site row gets fixed.
           skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/audit.out | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet security: $skipped"
@@ -124,7 +122,7 @@ jobs:
           # is the silent-green hazard — every site's "Security Updates" box would stay
           # unticked while the job reported success.
           if [ "$wrote" -eq 0 ]; then
-            echo "::error::fleet security wrote 0 of $total site(s) — total write-back failure (check Airtable creds / API)."
+            echo "::error::fleet security wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
             exit 1
           fi
 
@@ -157,8 +155,6 @@ jobs:
       - name: Trigger Renovate for sites with actionable vulnerabilities
         timeout-minutes: 10
         env:
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           # #643 (the freeze): bin.ts builds this command's site mirror EAGERLY,
           # and post-flip the factory throws without Turso creds. This step's
           # `|| true` masks the exit code by design, so a creds gap here isn't a
@@ -179,7 +175,7 @@ jobs:
       # ruleset (active, EMPTY bypass list, PR-required — the layer that binds
       # admins, which classic protection's enforce_admins:false never did). The
       # self-updating recipe heals fleet sites, but it is cron-less and
-      # Airtable-scoped — exactly how six repos (one with NO protection at all)
+      # fleet-scoped — exactly how six repos (one with NO protection at all)
       # sat unprotected until the 2026-08-01 hand audit. This nightly sweep
       # enumerates the org from the API and alarms on any gap.
       #
@@ -207,7 +203,9 @@ jobs:
           node dist/cli/bin.js protection-audit --org reddoorla | tee "${RUNNER_TEMP:-/tmp}/protection.out"
 
       - name: Open/update the protection-gap tracking issue
-        if: steps.protection.outcome == 'failure'
+        # main only: a branch run's finding is not main's to file (and a green PR-branch
+        # dispatch of time-travel once closed #895 while main was still red).
+        if: steps.protection.outcome == 'failure' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -222,18 +220,33 @@ jobs:
           # zero hits), so anyone who ran it on the 2026-09-10 issue watched it
           # succeed and change nothing. An alarm prescribing a remedy that does
           # not exist is its own unproven instrument.
-          body=$(printf 'The nightly protection-coverage sweep found public repo(s) below the fleet posture floor — a sound branch ruleset, secret scanning + push protection enabled, no UNREAD secret-scanning alerts, a renovate workflow that actually runs, and a pnpm `packageManager` pin matching the fleet (or the sweep could not verify one of those):\n\n```\n%s\n```\n\nHeal by surface — the gap line says which one, and no single command covers them all:\n\n- **Ruleset gaps:** `reddoor-maint self-updating <site>` for fleet sites, or fix by hand for non-site repos (spec: docs/superpowers/specs/2026-08-02-ruleset-self-healing-design.md). That recipe heals RULESETS only; it has no secret-scanning step and cannot clear either line below.\n- **Secret scanning / push protection off:** `gh api -X PATCH repos/<repo> --input - <<< '\''{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}'\''`, then read it back with `gh api repos/<repo> --jq .security_and_analysis`. Public repos only on the Free plan.\n- **Open secret-scanning alerts:** rotate or restrict the leaked credential, then close the alert with a resolution at `https://github.com/<repo>/security/secret-scanning` (`used_in_tests`, `revoked`, …). Redacting the value at HEAD does NOT close the alert: on a public repo the history is still readable, which is why one alert survived redaction by 37 days.\n- **Renovate gaps:** a DISABLED workflow rejects dispatches — `gh workflow enable renovate.yml -R <repo>` first, then `gh workflow run`. A never-succeeded/stale one: dispatch once; if the gap returns in 3 days the schedule never registered — push a commit touching the workflow file.\n- **pnpm `packageManager` gaps:** the pin lives in `package.json` and is the single source of truth. A repo with NO field takes whatever pnpm the runner defaults to; a repo whose field disagrees with the fleet resolves its lockfile with a different pnpm than everything else. If the gap ALSO names a workflow pinning a pnpm `version:` input, fix both in the same change — `pnpm/action-setup` hard-errors on a field/input mismatch rather than preferring either, so adding the field on its own reds that repo CI.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next clean sweep._' "$detail" "$run_url")
+          body=$(printf 'The nightly protection-coverage sweep found public repo(s) below the fleet posture floor — a sound branch ruleset, secret scanning + push protection enabled, no UNREAD secret-scanning alerts, a renovate workflow that actually runs, a pnpm `packageManager` pin matching the fleet, and a required status check on every non-default branch Renovate merges into (or the sweep could not verify one of those):\n\n```\n%s\n```\n\nHeal by surface — the gap line says which one, and no single command covers them all:\n\n- **Ruleset gaps:** `reddoor-maint self-updating <site>` for fleet sites, or fix by hand for non-site repos (spec: docs/superpowers/specs/2026-08-02-ruleset-self-healing-design.md). That recipe heals RULESETS only; it has no secret-scanning step and cannot clear either line below.\n- **Secret scanning / push protection off:** `gh api -X PATCH repos/<repo> --input - <<< '\''{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}'\''`, then read it back with `gh api repos/<repo> --jq .security_and_analysis`. Public repos only on the Free plan.\n- **Open secret-scanning alerts:** rotate or restrict the leaked credential, then close the alert with a resolution at `https://github.com/<repo>/security/secret-scanning` (`used_in_tests`, `revoked`, …). Redacting the value at HEAD does NOT close the alert: on a public repo the history is still readable, which is why one alert survived redaction by 37 days.\n- **Renovate gaps:** a DISABLED workflow rejects dispatches — `gh workflow enable renovate.yml -R <repo>` first, then `gh workflow run`. A never-succeeded/stale one: dispatch once; if the gap returns in 3 days the schedule never registered — push a commit touching the workflow file.\n- **pnpm `packageManager` gaps:** the pin lives in `package.json` and is the single source of truth. A repo with NO field takes whatever pnpm the runner defaults to; a repo whose field disagrees with the fleet resolves its lockfile with a different pnpm than everything else. If the gap ALSO names a workflow pinning a pnpm `version:` input, fix both in the same change — `pnpm/action-setup` hard-errors on a field/input mismatch rather than preferring either, so adding the field on its own reds that repo CI.\n- **Renovate base-branch gaps** (the line names `repo:branch`): Renovate merges into that branch through `baseBranchPatterns`, and nothing requires CI there. Add a ruleset on that branch with a `required_status_checks` rule for a check already observed running on it (a required check that never fires blocks every merge, admins included), or drop the branch from the Renovate base branches. A line that says `unverified` means the sweep could not read the config or the branch; it is not a claim that the branch is open.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next clean sweep._' "$detail" "$run_url")
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            # Never onto a body with no GAP line: the close step below gates each
+            # issue on its own body's GAP lines and refuses one that has none, so a
+            # run whose audit broke before printing any ("see run output") keeps the
+            # last GAP-bearing body and only comments.
+            if printf '%s\n' "$detail" | grep -q '^GAP'; then
+              gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+                || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            else
+              echo "::warning::this run printed no GAP line; keeping the body of #$existing so a clean sweep can still close it"
+            fi
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
           fi
 
       - name: Close the protection-gap issue on a clean sweep
-        if: steps.protection.outcome == 'success'
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: steps.protection.outcome == 'success' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -298,25 +311,41 @@ jobs:
       # fleet-lighthouse's ("Nightly fleet audit failing") so the two workflows never
       # comment on or close each other's issue.
       - name: Open/update the nightly-failure tracking issue
-        if: failure()
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
+          JOB_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Nightly fleet security audit failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body=$(printf 'The nightly **fleet-security** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
           fi
 
       - name: Close the nightly-failure issue on recovery
-        if: success()
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

@@ -275,7 +275,7 @@ function renderRecentlyLane(model: CockpitModel): string {
 /** Neutral roster of archived (legacy/deprecated) rows — excluded from every
  *  fleet op, listed so rows can never silently vanish from the cockpit. Reuses
  *  the approve-row/muted styling; /s/<slug> works for archived rows because
- *  getWebsiteBySlug does not status-filter. Returns "" when there are none. */
+ *  getSiteBySlug does not status-filter. Returns "" when there are none. */
 function renderArchivedLane(model: CockpitModel): string {
   const rows = model.archived ?? [];
   if (rows.length === 0) return "";
@@ -483,7 +483,7 @@ const AUDIT_SCRIPT = `<script>
 </script>`;
 
 /**
- * Render the fleet cockpit as a single HTML document. Pure function: no Airtable
+ * Render the fleet cockpit as a single HTML document. Pure function: no store
  * access, no env reads, no I/O. The Netlify function handler builds the
  * CockpitModel (visible-site filter, tiering, NEW/WORSE badging, pending list)
  * and hands it here. Renders the doc shell + verdict bar + the per-site Needs-you

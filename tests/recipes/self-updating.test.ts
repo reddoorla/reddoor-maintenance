@@ -34,6 +34,8 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
     // the type: an optional dep is a check that silently measures nothing.
     repoTextFile: async () => null,
     listWorkflowPaths: async () => [],
+    // The Renovate base-branch read (#892) — likewise unused here.
+    branchRequiredChecks: async () => null,
     openPullRequest: async (repo) => {
       calls.push(`pr:${repo}`);
       return { url: "https://github.com/o/r/pull/1" };

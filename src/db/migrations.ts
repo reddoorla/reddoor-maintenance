@@ -82,12 +82,9 @@ export const MIGRATIONS: Migration[] = [
     sql: `ALTER TABLE submissions ADD COLUMN fanout_status TEXT;`,
   },
   {
-    // Phase 0 of the Airtable → Turso migration (#539): a lead whose SITE LOOKUP
-    // fails must still land somewhere durable. On 2026-08-17 the Airtable quota
-    // outage made `getWebsiteBySlug` throw before `createSubmission` ran, so every
-    // lead in the window 502'd away unrecorded — while THIS store (which holds
-    // submissions) was healthy the whole time. Rows here are written only on that
-    // path and replayed through the normal pipeline once the lookup recovers
+    // A lead whose SITE LOOKUP fails must still land somewhere durable rather
+    // than 502ing away unrecorded. Rows here are written only on that path and
+    // replayed through the normal pipeline once the lookup recovers
     // (`db replay-deadletters`), producing an ordinary submissions row with real
     // spam classification and notify. Deliberately a separate table rather than a
     // nullable `submissions.site_id`: site_id is NOT NULL, every reader assumes a
@@ -115,30 +112,27 @@ export const MIGRATIONS: Migration[] = [
     `,
   },
   {
-    // Phase 1.2 of the Airtable → Turso migration (#539): the fleet-state tables.
+    // The fleet-state tables.
     // Split by WRITER, not topic (design D2, confirmed by the 2026-08-23 writer
     // map — every code-written column has exactly one writer):
     //   sites         — operator (dashboard editor / console / launch flow)
     //   site_health   — the nightly audit write-back, one batched upsert
     //   site_schedule — updateNextDueDates (report cron, derived)
     //   reports       — report drafting + the operator approve flow
-    // PKs are the Airtable `rec…` ids (design D1): 278+ submissions rows already
-    // reference them, and the parity harness diffs the two stores row-for-row.
+    // PKs are the `rec…` ids (design D1): 278+ submissions rows already
+    // reference them.
     //
-    // Naming: snake_case throughout; Airtable's misspellings ("maintenence") and
-    // display quirks die here. `sites.legacy` is a JSON object holding the 33
-    // populated-but-code-unreferenced columns (launch-era checklist, hosting
-    // reference cells) keyed by their original Airtable column name — data kept,
-    // schema not fossilized. The plaintext DNS/cms credential cells deliberately
-    // do NOT migrate at all (operator ruling 2026-08-23); they live on only in
-    // the frozen base. `site_health.analytics_soft_fail_at` is the column code
-    // always wanted ("Analytics soft-fail at") but no operator ever created in
-    // Airtable — it ships real here.
+    // Naming: snake_case throughout; misspelled legacy column names
+    // ("maintenence") and display quirks die here. `sites.legacy` is a JSON
+    // object holding the 33 populated-but-code-unreferenced columns (launch-era
+    // checklist, hosting reference cells) keyed by their legacy column name —
+    // data kept, schema not fossilized. The plaintext DNS/cms credential cells
+    // deliberately do NOT migrate at all (operator ruling 2026-08-23).
+    // `site_health.analytics_soft_fail_at` backs "Analytics soft-fail at".
     //
     // reports.checklist is JSON keyed by the STABLE checklist key ("deploy",
-    // "cms", …, from src/reports/checklist.ts), not the Airtable column name —
-    // the importer translates, so "Test: Verified After Updates" stops leaking
-    // its legacy name into a second store.
+    // "cms", …, from src/reports/checklist.ts), not the legacy column name, so
+    // "Test: Verified After Updates" does not leak into the store.
     id: "0007_fleet_state",
     sql: `
       CREATE TABLE IF NOT EXISTS sites (
@@ -333,9 +327,7 @@ export const MIGRATIONS: Migration[] = [
     `,
   },
   {
-    // #609 (#539 Phase 5): the digest's prior-run snapshot moves off Airtable.
-    // Unlike the rest of Phase 5 this is a MIGRATION, not a dual-write — there
-    // is no Airtable counterpart left afterwards, so parity does not cover it.
+    // #609 (#539 Phase 5): the digest's prior-run snapshot.
     //
     // A single row holding the whole snapshot as JSON, keyed by a constant id.
     // Both readers (runDigest's diff and the fleet homepage's NEW badges) need
@@ -528,8 +520,7 @@ export const MIGRATIONS: Migration[] = [
     sql: `ALTER TABLE prospect_audits ADD COLUMN chosen_questions TEXT;`,
   },
   {
-    // #539 Phase 6 step 2 (#646): the resend-webhook's REPORT lookup moved from
-    // Airtable (`{Resend message ID} = "…"`) to Turso, as
+    // #539 Phase 6 step 2 (#646): the resend-webhook's REPORT lookup,
     // fleet-state's findReportByMessageId. Every Resend delivery/bounce event
     // that is not a lead notification runs it, so the EXPLAIN-query-plan gate
     // (tests/db/query-plans.test.ts) needs it served by an index rather than a
@@ -552,5 +543,15 @@ export const MIGRATIONS: Migration[] = [
     id: "0028_deadletter_slug_unreplayed_index",
     sql: `CREATE INDEX IF NOT EXISTS idx_deadletter_slug_unreplayed
             ON submission_deadletter (site_slug, replayed_at, abandoned_at);`,
+  },
+  {
+    // #907: the prospect-audit daily cap is a reservation — a `running` row is
+    // written before anything is spent. A cockpit dispatch reserves with this
+    // NULL; the dispatched job's CLI claims that row by setting it, instead of
+    // reserving a second one for the same audit. A CLI run started directly
+    // reserves with it already set. Single statement: SQLite has no
+    // ADD COLUMN IF NOT EXISTS, and a single-statement script cannot half-apply.
+    id: "0029_prospect_audits_claimed_at",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN claimed_at TEXT;`,
   },
 ];

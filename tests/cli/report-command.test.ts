@@ -12,7 +12,6 @@ import { runReportCommand, parseSingleSiteReportType } from "../../src/cli/comma
 // a one-line change, not a change plus eleven test files.
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({
-    created: async () => {},
     health: async () => {},
     site: async () => {},
   }),
@@ -20,7 +19,6 @@ vi.mock("../../src/db/site-mirror.js", () => ({
 vi.mock("../../src/reports/report-mirror.js", () => ({
   makeReportMirror: async () => ({
     create: async (rec: { id: string }) => ({ id: rec.id }),
-    created: async () => {},
     forSite: async () => [],
     body: async () => {},
     patch: async () => {},
@@ -29,30 +27,23 @@ vi.mock("../../src/reports/report-mirror.js", () => ({
 vi.mock("../../src/reports/draft.js", () => ({ draftReportForSite: vi.fn() }));
 import { draftReportForSite } from "../../src/reports/draft.js";
 import { draftDueReports } from "../../src/cli/commands/report.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import { makeFakeReportWriter } from "../reports/_helpers/fake-report-writer.js";
-import { mapRow as mapReportRow } from "../../src/reports/airtable/reports.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import { reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 
 /** The fleet, as the batch reads it from Turso (#646 step 4). Set per case. */
 let rosterRows: WebsiteRow[] = [];
 
 /** `draftDueReports` deps for a case. The two reads come from Turso in
- *  production; here they are the case's own fixtures — `allReports` from the same
- *  records the Airtable fake holds, so a case still seeds one fleet, not two. */
-function dueDeps(base: ReturnType<typeof makeFakeBase>, over: Record<string, unknown> = {}) {
+ *  production; here they are the case's own fixtures. */
+function dueDeps(reports: RawRow[] = [], over: Record<string, unknown> = {}) {
   return {
     roster: async () => rosterRows,
-    allReports: async () => (base.__records.get("Reports") ?? []).map(mapReportRow),
+    allReports: async () => reportRowsFrom(reports),
     reportMirror: makeFakeReportWriter(),
     ...over,
   };
 }
-
-beforeEach(() => {
-  process.env.AIRTABLE_PAT = "";
-  process.env.AIRTABLE_BASE_ID = "";
-});
 
 describe("runReportCommand", () => {
   it("throws a usage error when no slug, no --due, no --send-ready", async () => {
@@ -68,28 +59,43 @@ describe("runReportCommand", () => {
     }
   });
 
-  it("requires AIRTABLE_PAT for --due", async () => {
-    await expect(runReportCommand(undefined, { due: true })).rejects.toThrow(/AIRTABLE_PAT/);
+  it("requires TURSO_DATABASE_URL for --due", async () => {
+    await expect(runReportCommand(undefined, { due: true })).rejects.toThrow(/TURSO_DATABASE_URL/);
   });
 
-  it("requires AIRTABLE_PAT for <slug>", async () => {
-    await expect(runReportCommand("some-site", {})).rejects.toThrow(/AIRTABLE_PAT/);
+  it("requires TURSO_DATABASE_URL for <slug>", async () => {
+    await expect(runReportCommand("some-site", {})).rejects.toThrow(/TURSO_DATABASE_URL/);
   });
 
-  it("requires AIRTABLE_PAT for <slug> --preview (still reads Airtable for scores)", async () => {
-    await expect(runReportCommand("some-site", { preview: true })).rejects.toThrow(/AIRTABLE_PAT/);
+  it("requires TURSO_DATABASE_URL for <slug> --preview (still reads the Turso roster)", async () => {
+    await expect(runReportCommand("some-site", { preview: true })).rejects.toThrow(
+      /TURSO_DATABASE_URL/,
+    );
   });
 
-  it("requires AIRTABLE_PAT for --send-ready", async () => {
-    await expect(runReportCommand(undefined, { sendReady: true })).rejects.toThrow(/AIRTABLE_PAT/);
+  it("requires RESEND_API_KEY for --send-ready, before reading the queue", async () => {
+    await expect(runReportCommand(undefined, { sendReady: true })).rejects.toThrow(
+      /RESEND_API_KEY/,
+    );
   });
 
-  it("validates --type BEFORE touching Airtable (a bad type fails fast, no creds needed)", async () => {
-    // The single-site path parses --type before openBase, so this rejects with the
-    // type error — not AIRTABLE_PAT — even though no credentials are set.
+  it("requires TURSO_DATABASE_URL for --send-ready (the queue is Turso's)", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_fake");
+    try {
+      await expect(runReportCommand(undefined, { sendReady: true })).rejects.toThrow(
+        /TURSO_DATABASE_URL/,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("validates --type BEFORE touching the store (a bad type fails fast, no creds needed)", async () => {
+    // The single-site path parses --type before reading the roster, so this
+    // rejects with the type error even though no credentials are set.
     const p = runReportCommand("some-site", { type: "Launch" });
     await expect(p).rejects.toThrow(/launch <site>/);
-    await expect(p).rejects.not.toThrow(/AIRTABLE_PAT/);
+    await expect(p).rejects.not.toThrow(/TURSO_DATABASE_URL/);
   });
 });
 
@@ -160,7 +166,7 @@ function siteRow(over = {}) {
     securityVulnsModerate: null,
     securityVulnsLow: null,
     ...over,
-  } as unknown as Parameters<typeof draftReportForSite>[1];
+  } as unknown as Parameters<typeof draftReportForSite>[0];
 }
 
 const TODAY = new Date("2026-05-26T12:00:00Z");
@@ -181,12 +187,11 @@ describe("draftDueReports period guard", () => {
 
   it("drafts a due (site, type) when no Reports row exists for its period", async () => {
     rosterRows = [siteRow()];
-    const base = makeFakeBase({ Reports: [] }); // no prior reports → due now, period = 2026-05
-    const res = await draftDueReports(base, TODAY, dueDeps(base));
+    // no prior reports → due now, period = 2026-05
+    const res = await draftDueReports(TODAY, dueDeps());
     expect(draftReportForSite).toHaveBeenCalledTimes(1);
     // The guard's search key is passed down as the stamped Period (idempotency invariant).
     expect(draftReportForSite).toHaveBeenCalledWith(
-      base,
       expect.anything(),
       "Maintenance",
       expect.objectContaining({ period: "2026-05" }),
@@ -199,20 +204,18 @@ describe("draftDueReports period guard", () => {
     // A READY row already exists for this site+type with Period = 2026-05 (the dueDate's
     // YYYY-MM when no prior Sent at → dueDate is today, 2026-05-26). Draft ready = true
     // means it's truly done → skip.
-    const base = makeFakeBase({
-      Reports: [
-        {
-          id: "rec_already",
-          fields: {
-            Site: ["rec_site_acme"],
-            "Report type": "Maintenance",
-            Period: "2026-05",
-            "Draft ready": true,
-          },
+    const reports: RawRow[] = [
+      {
+        id: "rec_already",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-05",
+          "Draft ready": true,
         },
-      ],
-    });
-    const res = await draftDueReports(base, TODAY, dueDeps(base));
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
     expect(draftReportForSite).not.toHaveBeenCalled();
     expect(res.output).toMatch(/skipped|already drafted/i);
     // Cron contract: a skip is not an error; exit 0 so the scheduler doesn't page.
@@ -226,24 +229,21 @@ describe("draftDueReports period guard", () => {
     // new draft — the guard keys on YYYY-MM, and the pile-up guard (Fix #2) only blocks
     // when the prior draft is still UNSENT.
     rosterRows = [siteRow()];
-    const base = makeFakeBase({
-      Reports: [
-        {
-          id: "rec_prior_sent",
-          fields: {
-            Site: ["rec_site_acme"],
-            "Report type": "Maintenance",
-            Period: "2026-04", // previous month, already sent — must not block 2026-05
-            "Sent at": "2026-04-26T10:00:00.000Z",
-          },
+    const reports: RawRow[] = [
+      {
+        id: "rec_prior_sent",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-04", // previous month, already sent — must not block 2026-05
+          "Sent at": "2026-04-26T10:00:00.000Z",
         },
-      ],
-    });
+      },
+    ];
     // TODAY = 2026-05-26, so dueDate = today, period = 2026-05
-    const res = await draftDueReports(base, TODAY, dueDeps(base));
+    const res = await draftDueReports(TODAY, dueDeps(reports));
     expect(draftReportForSite).toHaveBeenCalledTimes(1);
     expect(draftReportForSite).toHaveBeenCalledWith(
-      base,
       expect.anything(),
       "Maintenance",
       expect.objectContaining({ period: "2026-05" }),
@@ -251,20 +251,12 @@ describe("draftDueReports period guard", () => {
     expect(res.code).toBe(0);
   });
 
-  it("reads every report ONCE, from the injected store — and selects nothing from Airtable", async () => {
-    // Was: "one unfiltered Airtable select, no per-site record-id formulas" —
-    // linked-record fields render as primary-field NAMES in filterByFormula, so a
-    // per-site formula matched NOTHING (live-proven). #646 step 4 moved the read
-    // to Turso, where the site scope IS the query; what survives from the old test
-    // is the shape that matters: ONE fleet-wide read, and no Airtable Reports
-    // traffic on this path at all.
+  it("reads every report ONCE, from the injected store", async () => {
     rosterRows = [siteRow(), siteRow({ id: "rec_site_two", name: "Two Co" })];
-    const base = makeFakeBase({ Reports: [] });
     let reads = 0;
     await draftDueReports(
-      base,
       TODAY,
-      dueDeps(base, {
+      dueDeps([], {
         allReports: async () => {
           reads++;
           return [];
@@ -272,27 +264,24 @@ describe("draftDueReports period guard", () => {
       }),
     );
     expect(reads).toBe(1);
-    expect(base.__calls.filter((c) => c.table === "Reports")).toHaveLength(0);
   });
 
   it("does NOT skip (same-period) when an existing SENT row is for a DIFFERENT period", async () => {
     rosterRows = [siteRow()];
-    const base = makeFakeBase({
-      Reports: [
-        {
-          id: "rec_old",
-          fields: {
-            Site: ["rec_site_acme"],
-            "Report type": "Maintenance",
-            Period: "2026-04",
-            // SENT so the pile-up guard (Fix #2) doesn't block — this test pins the
-            // SAME-period skip's period sensitivity, not the pending-pile-up rule.
-            "Sent at": "2026-04-26T10:00:00.000Z",
-          },
+    const reports: RawRow[] = [
+      {
+        id: "rec_old",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-04",
+          // SENT so the pile-up guard (Fix #2) doesn't block — this test pins the
+          // SAME-period skip's period sensitivity, not the pending-pile-up rule.
+          "Sent at": "2026-04-26T10:00:00.000Z",
         },
-      ],
-    });
-    await draftDueReports(base, TODAY, dueDeps(base));
+      },
+    ];
+    await draftDueReports(TODAY, dueDeps(reports));
     expect(draftReportForSite).toHaveBeenCalledTimes(1);
   });
 
@@ -301,24 +290,21 @@ describe("draftDueReports period guard", () => {
     // A row exists for THIS period (2026-05) but Draft ready is false — a crash
     // between createDraft and setDraftReady. It must be completed in place, not
     // skipped forever (skip → never sendable, since listSendable needs Draft ready).
-    const base = makeFakeBase({
-      Reports: [
-        {
-          id: "rec_halfmade",
-          fields: {
-            Site: ["rec_site_acme"],
-            "Report type": "Maintenance",
-            Period: "2026-05",
-            // no "Draft ready" → mapRow → draftReady false
-          },
+    const reports: RawRow[] = [
+      {
+        id: "rec_halfmade",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-05",
+          // no "Draft ready" → mapRow → draftReady false
         },
-      ],
-    });
-    const res = await draftDueReports(base, TODAY, dueDeps(base));
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
     expect(draftReportForSite).toHaveBeenCalledTimes(1);
     // Completed via the completeRowId path against the EXISTING row id — no createDraft.
     expect(draftReportForSite).toHaveBeenCalledWith(
-      base,
       expect.anything(),
       "Maintenance",
       expect.objectContaining({ period: "2026-05", completeRowId: "rec_halfmade" }),
@@ -332,24 +318,22 @@ describe("draftDueReports period guard", () => {
     // The not-ready Maintenance row looks like a crash, but it was deliberately un-queued by
     // queueDraft because a higher-tier Testing is still pending. Re-completing it would re-render
     // and APPEND a duplicate HTML attachment every run — so it must be skipped, not completed.
-    const base = makeFakeBase({
-      Reports: [
-        {
-          id: "rec_blocked_maint",
-          fields: { Site: ["rec_site_acme"], "Report type": "Maintenance", Period: "2026-05" },
+    const reports: RawRow[] = [
+      {
+        id: "rec_blocked_maint",
+        fields: { Site: ["rec_site_acme"], "Report type": "Maintenance", Period: "2026-05" },
+      },
+      {
+        id: "rec_pending_test",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Testing",
+          Period: "2026-05",
+          "Draft ready": true, // higher tier, pending approval
         },
-        {
-          id: "rec_pending_test",
-          fields: {
-            Site: ["rec_site_acme"],
-            "Report type": "Testing",
-            Period: "2026-05",
-            "Draft ready": true, // higher tier, pending approval
-          },
-        },
-      ],
-    });
-    const res = await draftDueReports(base, TODAY, dueDeps(base));
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
     expect(draftReportForSite).not.toHaveBeenCalled(); // not re-completed → no re-render/append
     expect(res.output).toMatch(/superseded — a higher-or-equal-tier report is pending/i);
     expect(res.code).toBe(0);
@@ -365,8 +349,7 @@ describe("draftDueReports period guard", () => {
       queued: false,
       supersededIds: [],
     } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
-    const empty = makeFakeBase({ Reports: [] });
-    const res = await draftDueReports(empty, TODAY, dueDeps(empty));
+    const res = await draftDueReports(TODAY, dueDeps());
     expect(res.output).toMatch(/NOT queued/);
     expect(res.code).toBe(0);
   });
@@ -381,8 +364,7 @@ describe("draftDueReports period guard", () => {
       queued: true,
       supersededIds: ["a", "b"],
     } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
-    const empty = makeFakeBase({ Reports: [] });
-    const res = await draftDueReports(empty, TODAY, dueDeps(empty));
+    const res = await draftDueReports(TODAY, dueDeps());
     expect(res.output).toMatch(/superseded 2 lower-tier drafts/);
     expect(res.code).toBe(0);
   });
@@ -391,20 +373,18 @@ describe("draftDueReports period guard", () => {
     rosterRows = [siteRow()];
     // Site is due now (2026-05) but already has an UNSENT 2026-04 draft pending
     // approval. Don't accrue another — skip the new-period draft.
-    const base = makeFakeBase({
-      Reports: [
-        {
-          id: "rec_pending",
-          fields: {
-            Site: ["rec_site_acme"],
-            "Report type": "Maintenance",
-            Period: "2026-04",
-            "Draft ready": true, // ready but never approved/sent (sentAt null)
-          },
+    const reports: RawRow[] = [
+      {
+        id: "rec_pending",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-04",
+          "Draft ready": true, // ready but never approved/sent (sentAt null)
         },
-      ],
-    });
-    const res = await draftDueReports(base, TODAY, dueDeps(base));
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
     expect(draftReportForSite).not.toHaveBeenCalled();
     expect(res.output).toMatch(/already has an unsent 2026-04 draft pending approval/i);
     expect(res.code).toBe(0);
@@ -412,24 +392,21 @@ describe("draftDueReports period guard", () => {
 
   it("DOES create the new-period draft once the earlier pending draft has been sent (Fix #2 boundary)", async () => {
     rosterRows = [siteRow()];
-    const base = makeFakeBase({
-      Reports: [
-        {
-          id: "rec_prior",
-          fields: {
-            Site: ["rec_site_acme"],
-            "Report type": "Maintenance",
-            Period: "2026-04",
-            "Draft ready": true,
-            "Sent at": "2026-04-26T10:00:00.000Z", // sent → no longer pending
-          },
+    const reports: RawRow[] = [
+      {
+        id: "rec_prior",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-04",
+          "Draft ready": true,
+          "Sent at": "2026-04-26T10:00:00.000Z", // sent → no longer pending
         },
-      ],
-    });
-    const res = await draftDueReports(base, TODAY, dueDeps(base));
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
     expect(draftReportForSite).toHaveBeenCalledTimes(1);
     expect(draftReportForSite).toHaveBeenCalledWith(
-      base,
       expect.anything(),
       "Maintenance",
       expect.objectContaining({ period: "2026-05" }),
@@ -444,23 +421,20 @@ describe("draftDueReports period guard", () => {
     // approval, so it must NOT block the new 2026-05 Maintenance draft. Before the fix,
     // the pile-up guard matched ANY unsent earlier-period row (sentAt null + period <
     // current) and wedged the site's Maintenance reports forever (Reddoor's live failure).
-    const base = makeFakeBase({
-      Reports: [
-        {
-          id: "rec_superseded",
-          fields: {
-            Site: ["rec_site_acme"],
-            "Report type": "Maintenance",
-            Period: "2026-04",
-            // no "Draft ready" → draftReady false (superseded); no "Sent at" → sentAt null
-          },
+    const reports: RawRow[] = [
+      {
+        id: "rec_superseded",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-04",
+          // no "Draft ready" → draftReady false (superseded); no "Sent at" → sentAt null
         },
-      ],
-    });
-    const res = await draftDueReports(base, TODAY, dueDeps(base));
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
     expect(draftReportForSite).toHaveBeenCalledTimes(1);
     expect(draftReportForSite).toHaveBeenCalledWith(
-      base,
       expect.anything(),
       "Maintenance",
       expect.objectContaining({ period: "2026-05" }),
@@ -475,10 +449,11 @@ describe("draftDueReports next-due write-back", () => {
     rosterRows = [];
   });
 
-  it("writes each site's code-computed next-due dates, even on a run where nothing is due", async () => {
+  it("writes each site's code-computed next-due dates through the schedule mirror, even on a run where nothing is due", async () => {
     // Quarterly maintenance anchored Jun 30 → next due Sep 30 (FUTURE vs TODAY, so nothing
     // drafts), Testing None → no schedule. The write-back must still fire before the
-    // "No reports due" early return.
+    // "No reports due" early return, and draftDueReports must forward its
+    // scheduleMirror to writeNextDueDates — the pass-through is load-bearing.
     rosterRows = [
       siteRow({
         id: "rec_a",
@@ -487,44 +462,14 @@ describe("draftDueReports next-due write-back", () => {
         testingFreq: "None",
       }),
     ];
-    const base = makeFakeBase({ Reports: [] });
-    const res = await draftDueReports(base, TODAY, dueDeps(base));
-    expect(res.output).toBe("No reports due.");
-    const websiteUpdates = base.__calls.filter(
-      (c) => c.kind === "update" && c.table === "Websites",
-    );
-    expect(websiteUpdates).toContainEqual({
-      kind: "update",
-      table: "Websites",
-      records: [
-        { id: "rec_a", fields: { "Next maintenance at": "2026-09-30", "Next testing at": null } },
-      ],
-    });
-  });
-
-  it("forwards the schedule mirror through to the write-back (the pass-through is load-bearing)", async () => {
-    // Same not-due fixture as above: the write-back fires (no stored dates yet),
-    // nothing drafts, and the mirror must receive the exact FieldSet Airtable got.
-    // Every other draftDueReports test calls 2-arg, so ONLY this test would catch
-    // draftDueReports dropping its scheduleMirror forwarding to writeNextDueDates.
-    rosterRows = [
-      siteRow({
-        id: "rec_a",
-        maintenanceFreq: "Quarterly",
-        maintenanceDay: "2026-06-30",
-        testingFreq: "None",
-      }),
-    ];
-    const base = makeFakeBase({ Reports: [] });
     const mirrored: Array<{
       siteId: string;
       fields: Record<string, unknown>;
       computedAt: string;
     }> = [];
     const res = await draftDueReports(
-      base,
       TODAY,
-      dueDeps(base, {
+      dueDeps([], {
         scheduleMirror: async (
           siteId: string,
           fields: Record<string, unknown>,
@@ -549,8 +494,7 @@ describe("draftDueReports next-due write-back", () => {
     // The create-side twin of the schedule-mirror pass-through above, and it
     // fails the same way if dropped: the nightly batch is the ONLY caller that
     // creates report rows unattended, so a lost pass-through means every
-    // drafted row is Turso-invisible until the next hourly sync — and at the
-    // freeze, invisible full stop.
+    // drafted row is written nowhere.
     rosterRows = [siteRow()]; // Monthly, no anchor → due now
     vi.mocked(draftReportForSite).mockResolvedValue({
       reportRow: { reportId: "Acme Co — Maintenance — 2026-05-26" },
@@ -560,14 +504,13 @@ describe("draftDueReports next-due write-back", () => {
       queued: true,
       supersededIds: [],
     } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
-    const base = makeFakeBase({ Reports: [] });
     const reportMirror = makeFakeReportWriter();
 
-    await draftDueReports(base, TODAY, dueDeps(base, { reportMirror }));
+    await draftDueReports(TODAY, dueDeps([], { reportMirror }));
 
     const calls = vi.mocked(draftReportForSite).mock.calls;
     expect(calls.length).toBeGreaterThan(0);
-    for (const call of calls) expect(call[3]?.reportMirror).toBe(reportMirror);
+    for (const call of calls) expect(call[2]?.reportMirror).toBe(reportMirror);
   });
 
   it("swallows a per-site write-back failure and still drafts the due report", async () => {
@@ -582,26 +525,20 @@ describe("draftDueReports next-due write-back", () => {
       supersededIds: [],
     } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
 
-    // A base whose Websites.update throws (simulating a missing `Next … at` column);
-    // the Reports select still works so drafting can proceed.
-    const fake = makeFakeBase({ Reports: [] });
-    const base = ((table: string) => {
-      const t = (fake as unknown as (table: string) => Record<string, unknown>)(table);
-      return table === "Websites"
-        ? {
-            ...t,
-            update: async () => {
-              throw new Error("UNKNOWN_FIELD_NAME");
-            },
-          }
-        : t;
-    }) as unknown as typeof fake;
-
-    const res = await draftDueReports(base, TODAY, dueDeps(fake));
+    const res = await draftDueReports(
+      TODAY,
+      dueDeps([], {
+        scheduleMirror: async () => {
+          throw new Error("turso down");
+        },
+      }),
+    );
     // The write-back threw but was isolated per-site: the due report still drafted.
     expect(draftReportForSite).toHaveBeenCalledTimes(1);
     expect(res.output).toMatch(/drafted/);
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/next-due write skipped/));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/\[schedule-mirror\] Acme Co: turso down/),
+    );
     warn.mockRestore();
   });
 });

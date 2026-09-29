@@ -1,0 +1,560 @@
+import { describe, it, expect } from "vitest";
+import { writeBackOneSite } from "../../src/audits/write-audits.js";
+import type { AuditResult } from "../../src/types.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
+
+type MirrorCall = { id: string; fields: Record<string, unknown> };
+
+function recordingMirror(): {
+  mirrorHealth: (siteId: string, fields: Record<string, unknown>) => Promise<boolean>;
+  calls: MirrorCall[];
+} {
+  const calls: MirrorCall[] = [];
+  const mirrorHealth = async (siteId: string, fields: Record<string, unknown>) => {
+    calls.push({ id: siteId, fields });
+    return true;
+  };
+  return { mirrorHealth, calls };
+}
+
+function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
+  return makeWebsiteRow({
+    id: "recACME",
+    name: "Acme",
+    maintenanceFreq: "Monthly",
+    testingFreq: "Quarterly",
+    ...over,
+  });
+}
+
+const lhResult = (summary: Record<string, number>): AuditResult =>
+  ({
+    audit: "lighthouse",
+    site: "acme",
+    status: "pass",
+    summary: "ok",
+    details: { summary },
+  }) as unknown as AuditResult;
+
+const a11yResult = (totalViolations: number): AuditResult =>
+  ({
+    audit: "a11y",
+    site: "acme",
+    status: totalViolations === 0 ? "pass" : "warn",
+    summary: "ok",
+    details: { totalViolations, byImpact: {} },
+  }) as unknown as AuditResult;
+
+const depsResult = (
+  drifts: Array<"same" | "patch" | "minor" | "major" | "newer">,
+  outdated: { outdated: number; major: number } | null = null,
+): AuditResult =>
+  ({
+    audit: "deps",
+    site: "acme",
+    status: "pass",
+    summary: "ok",
+    details: {
+      entries: drifts.map((drift, i) => ({
+        pkg: `pkg${i}`,
+        baseline: "1.0.0",
+        actual: "1.0.0",
+        drift,
+      })),
+      outdated,
+    },
+  }) as unknown as AuditResult;
+
+const secResult = (counts: {
+  low: number;
+  moderate: number;
+  high: number;
+  critical: number;
+}): AuditResult =>
+  ({
+    audit: "security",
+    site: "acme",
+    status: counts.critical + counts.high > 0 ? "fail" : "pass",
+    summary: "ok",
+    details: { counts, advisories: [] },
+  }) as unknown as AuditResult;
+
+const smokeResult = (ok: "pass" | "fail"): AuditResult =>
+  ({
+    audit: "smoke",
+    site: "acme",
+    status: ok === "pass" ? "pass" : "fail",
+    summary: "ok",
+    details: { ok, checkedAt: "2026-07-06T00:00:00.000Z" },
+  }) as unknown as AuditResult;
+
+const formE2eResult = (ok: "pass" | "fail" | null): AuditResult =>
+  ({
+    audit: "form-e2e",
+    site: "acme",
+    status: ok === "pass" ? "pass" : ok === "fail" ? "warn" : "skip",
+    summary: "ok",
+    details: { ok, formPresent: ok !== null, checkedAt: "2026-07-06T00:00:00.000Z" },
+  }) as unknown as AuditResult;
+
+const domResult = (certDaysRemaining: number | null): AuditResult =>
+  ({
+    audit: "domain",
+    site: "acme",
+    status: certDaysRemaining !== null && certDaysRemaining > 14 ? "pass" : "warn",
+    summary: "ok",
+    details: {
+      resolved: certDaysRemaining !== null,
+      certDaysRemaining,
+      checkedAt: "2026-06-18T00:00:00.000Z",
+    },
+  }) as unknown as AuditResult;
+
+describe("writeBackOneSite", () => {
+  it("writes lighthouse scores when a real-scores lighthouse result is present", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.87, accessibility: 0.95, "best-practices": 0.78, seo: 1 }),
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.fields).toMatchObject({
+      pScore: 87,
+      rScore: 95,
+      bpScore: 78,
+      seoScore: 100,
+    });
+    expect(calls[0]?.fields["Last lighthouse audit at"]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(summary.siteName).toBe("Acme");
+    expect(summary.writes.map((w) => w.audit)).toEqual(["lighthouse"]);
+  });
+
+  it("writes a11y / deps / security counts alongside lighthouse when all four ran", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        a11yResult(3),
+        depsResult(["same", "patch", "minor", "major", "newer"]),
+        secResult({ low: 4, moderate: 3, high: 2, critical: 1 }),
+      ],
+    });
+    expect(summary.writes.map((w) => w.audit)).toEqual(["lighthouse", "a11y", "deps", "security"]);
+    // ONE atomic write carrying every audit's fields (not four separate writes).
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      pScore: 90,
+      "A11y Violations": 3,
+      "Deps Drifted": 4,
+      "Deps Major Behind": 1,
+      "Security Vulns Critical": 1,
+      "Security Vulns High": 2,
+      "Security Vulns Moderate": 3,
+      "Security Vulns Low": 4,
+    });
+  });
+
+  it("persists the advisory list (severity-sorted, capped) alongside the security counts", async () => {
+    const advisories = [
+      // Deliberately out of severity order + 26 entries to exercise sort + the 25 cap.
+      { module: "low-pkg", severity: "low", title: "minor", cves: [], url: null },
+      { module: "crit-pkg", severity: "critical", title: "rce", cves: ["CVE-9"], url: "https://a" },
+      ...Array.from({ length: 24 }, (_, i) => ({
+        module: `mod${i}`,
+        severity: "moderate" as const,
+        title: `m${i}`,
+        cves: [],
+        url: null,
+      })),
+    ];
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        {
+          audit: "security",
+          site: "acme",
+          status: "fail",
+          summary: "vulns",
+          details: { counts: { low: 1, moderate: 24, high: 0, critical: 1 }, advisories },
+        } as unknown as AuditResult,
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    const written = JSON.parse(calls[0]!.fields["Security advisories"] as string);
+    expect(written).toHaveLength(25); // capped
+    expect(written[0].module).toBe("crit-pkg"); // critical sorts first
+    expect(written.some((a: { module: string }) => a.module === "low-pkg")).toBe(false); // the low one fell off the cap
+  });
+
+  it("writes an empty advisory list ('[]') on a clean security run so a stale list clears", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [secResult({ low: 0, moderate: 0, high: 0, critical: 0 })],
+    });
+    expect(calls[0]!.fields["Security advisories"]).toBe("[]");
+  });
+
+  it("merges the domain result into the single atomic write (cert days + checked-at)", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        domResult(73),
+      ],
+    });
+    // One atomic update carrying BOTH lighthouse scores AND domain fields — the shared-write
+    // path that the missing-field regression would have broken.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      pScore: 90,
+      "Cert days remaining": 73,
+      "Domain checked at": "2026-06-18T00:00:00.000Z",
+    });
+  });
+
+  it("CLEARS Cert days remaining (writes null) when the domain probe found no cert / didn't resolve", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        domResult(null),
+      ],
+    });
+    expect(calls[0]!.fields["Domain checked at"]).toBe("2026-06-18T00:00:00.000Z");
+    // Present AND null — null clears the stored value so the Domain/DNS/SSL auto-tick reads
+    // null → fail. The old "omit" behavior left a STALE prior value (e.g. 90) next to a fresh
+    // "Domain checked at", which then false-passed the box for a site that's actually down.
+    expect(calls[0]!.fields).toHaveProperty("Cert days remaining");
+    expect(calls[0]!.fields["Cert days remaining"]).toBeNull();
+  });
+
+  it("merges the browser verdicts into the single atomic write", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    const browserResult: AuditResult = {
+      audit: "browser",
+      site: "acme",
+      status: "warn",
+      summary: "ok",
+      details: {
+        desktopOk: true,
+        mobileOk: false,
+        linksOk: true,
+        reachableOk: true,
+        titleMetaOk: false,
+        brokenLinks: 0,
+        checkedAt: "2026-06-18T00:00:00.000Z",
+      },
+    } as unknown as AuditResult;
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        browserResult,
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      pScore: 90,
+      "Crossbrowser OK": true,
+      "Mobile OK": false,
+      "Links OK": true,
+      "Broken links": 0,
+      "Browser checked at": "2026-06-18T00:00:00.000Z",
+      "Uptime Reachable": "pass",
+      "Titles & Meta OK": "fail",
+    });
+  });
+
+  it("writes the real outdated-install count to the Deps Outdated field when determined", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], { outdated: 4, major: 1 }),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect(merged["Deps Outdated"]).toBe(4);
+    expect(merged["Deps Major Outdated"]).toBe(1);
+  });
+
+  it("omits Deps Major Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], null),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect("Deps Major Outdated" in merged).toBe(false);
+  });
+
+  it("omits Deps Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], null),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect("Deps Outdated" in merged).toBe(false);
+  });
+
+  it("skips audit types whose result is missing or skipped (predicate false)", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        // a11y missing entirely (e.g. --only lighthouse,deps)
+        depsResult([]),
+        // security skipped (no audit tool)
+        {
+          audit: "security",
+          site: "acme",
+          status: "skip",
+          summary: "cannot run audit",
+        } as unknown as AuditResult,
+      ],
+    });
+    expect(summary.writes.map((w) => w.audit)).toEqual(["lighthouse", "deps"]);
+    // One merged write carrying only the audits that ran (lighthouse + deps).
+    expect(calls).toHaveLength(1);
+    expect(Object.keys(calls[0]!.fields)).toEqual([
+      "pScore",
+      "rScore",
+      "bpScore",
+      "seoScore",
+      "Last lighthouse audit at",
+      "Deps Drifted",
+      "Deps Major Behind",
+    ]);
+  });
+
+  it("throws exit-code-1 with hasRealScores message when lighthouse has no scores", async () => {
+    const { mirrorHealth } = recordingMirror();
+    await expect(
+      writeBackOneSite({
+        mirrorHealth,
+        websites: [row()],
+        slug: "acme",
+        results: [
+          {
+            audit: "lighthouse",
+            site: "acme",
+            status: "fail",
+            summary: "lighthouse: no lhr-*.json written (exit 1)",
+          } as unknown as AuditResult,
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/Lighthouse audit produced no scores/),
+      exitCode: 1,
+    });
+  });
+
+  // morning-brief 2026-06-10 MEDIUM-E: a Lighthouse Chrome-timeout (erp's
+  // nightly fate) used to throw BEFORE any write, discarding that site's valid
+  // a11y/deps/security results. The non-Lighthouse audits must be persisted
+  // first; the function still throws exit-code-1 so the site is flagged.
+  it("persists a11y/deps/security even when lighthouse has no scores, then still throws exit-code-1", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    await expect(
+      writeBackOneSite({
+        mirrorHealth,
+        websites: [row()],
+        slug: "acme",
+        results: [
+          {
+            audit: "lighthouse",
+            site: "acme",
+            status: "fail",
+            summary: "lighthouse: no lhr-*.json written (exit 1)",
+          } as unknown as AuditResult,
+          a11yResult(3),
+          depsResult(["minor", "major"]),
+          secResult({ low: 1, moderate: 2, high: 1, critical: 0 }),
+        ],
+      }),
+    ).rejects.toMatchObject({
+      // The thrown error enumerates what WAS persisted, so the single-site CLI
+      // operator (who sees `console.error(e.message)`) doesn't read the failure
+      // as "nothing written".
+      message: expect.stringMatching(
+        /produced no scores; wrote a11y\/deps\/security but refused Lighthouse/,
+      ),
+      exitCode: 1,
+    });
+    // The good non-Lighthouse data was written despite the Lighthouse miss — and
+    // ATOMICALLY: exactly one update carries all of it (no half-written row).
+    expect(calls).toHaveLength(1);
+    const merged = calls[0]!.fields;
+    expect(merged).toMatchObject({
+      "A11y Violations": 3,
+      "Deps Drifted": 2,
+      "Security Vulns High": 1,
+      "Security Vulns Moderate": 2,
+    });
+    // ...but no Lighthouse scores were written.
+    expect("pScore" in merged).toBe(false);
+  });
+
+  it("writes present audits when lighthouse is absent (standalone non-lighthouse sweep), no throw", async () => {
+    // A `--only security` sweep legitimately has no lighthouse result. It must still persist the
+    // audits it ran (no exitCode-2), so a security-only nightly can write back.
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [secResult({ low: 0, moderate: 0, high: 0, critical: 0 })],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      "Security Vulns Critical": 0,
+      "Security Vulns High": 0,
+    });
+    expect(summary.writes.map((w) => w.audit)).toEqual(["security"]);
+  });
+
+  it("throws exit-code-2 when no Websites row matches the slug", async () => {
+    const { mirrorHealth } = recordingMirror();
+    await expect(
+      writeBackOneSite({
+        mirrorHealth,
+        websites: [row({ name: "Beta" })], // slugs to "beta", not "acme"
+        slug: "acme",
+        results: [lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 })],
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/No Websites row matched slug "acme"/),
+      exitCode: 2,
+    });
+  });
+
+  it("merges the function-health verdicts into the single atomic write", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    const fhResult: AuditResult = {
+      audit: "function-health",
+      site: "acme",
+      status: "pass",
+      summary: "health ok (prismic ok)",
+      details: { ok: true, prismic: "ok", forms: null, checkedAt: "2026-07-06T00:00:00.000Z" },
+    } as unknown as AuditResult;
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        fhResult,
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      "Function health": "pass",
+      "CMS Reachable": "pass",
+      "Function health checked at": "2026-07-06T00:00:00.000Z",
+    });
+    // Must NOT touch Deploy status — function-health is separate from the Netlify build state.
+    expect(calls[0]!.fields).not.toHaveProperty("Deploy status");
+  });
+
+  it("does NOT write a function-health verdict when the audit self-skipped (no details)", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    const skipped: AuditResult = {
+      audit: "function-health",
+      site: "acme",
+      status: "skip",
+      summary: "health endpoint unreachable / not JSON",
+    } as unknown as AuditResult;
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        skipped,
+      ],
+    });
+    expect(calls[0]!.fields).not.toHaveProperty("Function health");
+  });
+
+  it("writes the Smoke OK verdict + Last Smoke At from a smoke result", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    const summary = await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [smokeResult("fail")],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.fields).toMatchObject({
+      "Smoke OK": "fail",
+      "Last Smoke At": "2026-07-06T00:00:00.000Z",
+    });
+    expect(summary.writes.map((w) => w.audit)).toEqual(["smoke"]);
+  });
+
+  it("writes the Form E2E OK verdict + checked-at from a form-e2e result", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [formE2eResult("pass")],
+    });
+    expect(calls[0]?.fields).toMatchObject({
+      "Form E2E OK": "pass",
+      "Form E2E checked at": "2026-07-06T00:00:00.000Z",
+    });
+  });
+
+  it("clears Form E2E OK (n/a) but stamps checked-at when there is no contact form", async () => {
+    const { mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [formE2eResult(null)],
+    });
+    // null verdict clears the cell; a fresh checked-at distinguishes n/a from never-ran.
+    expect(calls[0]?.fields["Form E2E OK"]).toBeNull();
+    expect(calls[0]?.fields["Form E2E checked at"]).toBe("2026-07-06T00:00:00.000Z");
+  });
+});

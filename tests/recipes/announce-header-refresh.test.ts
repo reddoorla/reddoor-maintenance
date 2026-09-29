@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { announce } from "../../src/recipes/announce.js";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import { makeFakeReportWriter } from "../reports/_helpers/fake-report-writer.js";
-import { mapRow as mapSiteRow } from "../../src/reports/airtable/websites.js";
+import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 
 // No network: GA/Search enrichment stubbed to "not configured".
 vi.mock("../../src/reports/draft.js", async (orig) => ({
@@ -25,16 +24,6 @@ import { generateHeaderImage } from "../../src/reports/header-image/index.js";
 const NOW = new Date("2026-06-17T12:00:00.000Z");
 
 beforeEach(() => {
-  // uploadAttachment POSTs to content.airtable.com via global fetch.
-  global.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    statusText: "OK",
-    text: async () => "",
-    json: async () => ({ fields: {} }),
-  }) as unknown as typeof global.fetch;
-  process.env.AIRTABLE_PAT = "pat_test";
-  process.env.AIRTABLE_BASE_ID = "app_test";
   delete process.env.GA_SUBJECT;
   vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: false });
   vi.mocked(fetchSearch).mockResolvedValue({
@@ -47,25 +36,20 @@ beforeEach(() => {
   vi.mocked(generateHeaderImage).mockClear();
 });
 
-function baseWithOneSite() {
-  return makeFakeBase({
-    Websites: [
-      {
-        id: "rec1",
-        fields: {
-          Name: "Acme Co",
-          url: "https://acme.example.com",
-          Status: "maintained",
-          pScore: 87,
-          rScore: 91,
-          bpScore: 100,
-          seoScore: 95,
-        },
-      },
-    ],
-    Reports: [],
-  });
-}
+const ONE_SITE = websiteRowsFrom([
+  {
+    id: "rec1",
+    fields: {
+      Name: "Acme Co",
+      url: "https://acme.example.com",
+      Status: "maintained",
+      pScore: 87,
+      rScore: 91,
+      bpScore: 100,
+      seoScore: 95,
+    },
+  },
+]);
 
 /**
  * Announce never refreshed the header at all, so a site whose stored header predated a
@@ -73,25 +57,21 @@ function baseWithOneSite() {
  * draft happened to heal it — which is how eleven sites sat on a header reading "Your
  * website maintenance is complete." regardless of report type.
  *
- * `refreshHeader` exists so unit suites (which all pass a fake base) don't pay a real
- * chromium launch per case. But an opt-out that reads `undefined` as "off" would
+ * `refreshHeader` exists so unit suites don't pay a real chromium launch per case. But an opt-out that reads `undefined` as "off" would
  * silently disable the refresh on the operator path, where nothing would notice. So:
  * unset MUST refresh, `false` MUST NOT.
  */
-/** #646 step 4: the roster is a Turso read and the report row is a Turso write.
- *  Both are derived from the same fake base this suite already seeds. */
-function deps(base: ReturnType<typeof makeFakeBase>) {
+function deps() {
   return {
-    base,
     now: NOW,
-    roster: async () => (base.__records.get("Websites") ?? []).map(mapSiteRow),
+    roster: async () => ONE_SITE,
     reportMirror: makeFakeReportWriter(),
   };
 }
 
 describe("announce header-refresh wiring", () => {
   it("refreshes when refreshHeader is unset — the operator default", async () => {
-    await announce(deps(baseWithOneSite()));
+    await announce(deps());
     expect(generateHeaderImage).toHaveBeenCalledTimes(1);
     expect(generateHeaderImage).toHaveBeenCalledWith({
       url: "https://acme.example.com",
@@ -100,13 +80,13 @@ describe("announce header-refresh wiring", () => {
   });
 
   it("skips the refresh when refreshHeader is false", async () => {
-    await announce({ ...deps(baseWithOneSite()), refreshHeader: false });
+    await announce({ ...deps(), refreshHeader: false });
     expect(generateHeaderImage).not.toHaveBeenCalled();
   });
 
   it("still drafts when the capture fails — the refresh is best-effort", async () => {
     vi.mocked(generateHeaderImage).mockRejectedValueOnce(new Error("net::ERR_TIMED_OUT"));
-    const res = await announce(deps(baseWithOneSite()));
+    const res = await announce(deps());
     expect(res.results[0]?.status).toBe("drafted");
   });
 });

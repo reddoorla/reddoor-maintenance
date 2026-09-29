@@ -23,7 +23,7 @@ import type { SpawnFn } from "../../src/audits/util/spawn.js";
 // Mirrors githubSignalsExitCode: a nightly sweep must go non-zero when failures
 // are the MAJORITY, not only on a total wipeout — 11/12 unreadable repos is an
 // outage that used to report success. DRIFT is not a failure: a site that reads
-// fine and diverges is a finding to write to Airtable, not a broken sweep.
+// fine and diverges is a finding to write back, not a broken sweep.
 describe("prismicSweepExitCode", () => {
   it("exits 0 when every site was checked", () => {
     expect(prismicSweepExitCode(11, 0)).toBe(0);
@@ -415,11 +415,11 @@ const deps = (
   spawn: vi.fn<SpawnFn>(async () => {
     throw new Error("the fleet sweep must never spawn a process");
   }),
-  // No test in this file writes to Airtable. Required (not optional) on the deps
+  // No test here writes to the fleet store. Required (not optional) on the deps
   // type precisely so that stays true by construction: a stub that throws is the
   // only way this path can be reached from here.
   openVerdictSink: async () => {
-    throw new Error("this test never opens Airtable");
+    throw new Error("this test never opens the fleet store");
   },
 });
 
@@ -823,8 +823,7 @@ describe("runPrismicModelsCommand — fleet sweep", () => {
   });
 
   // An inventory that resolves to nothing compared nothing. Exit 0 there is a
-  // green tick for a run that learned nothing — and the Airtable inventory is
-  // view-filtered, so one filter change empties it without any error at all.
+  // green tick for a run that learned nothing.
   it("exits 1 when the inventory resolves to zero sites", async () => {
     const fleet = await inventory([]);
     const r = await runPrismicModelsCommand(undefined, { cwd: root, fleet, workdir }, deps({}, {}));
@@ -962,7 +961,7 @@ describe("runPrismicModelsCommand — fleet sweep", () => {
   });
 
   // Task 20 built `--write-back`, so the nightly's real invocation
-  // (`--fleet airtable --write-back`) must now SWEEP rather than refuse — the
+  // (`--fleet turso --write-back`) must now SWEEP rather than refuse — the
   // inverse of what this case asserted while the mode was unbuilt, and worth
   // keeping in that form: a refusal that outlives its reason is a nightly that
   // silently stops sweeping.

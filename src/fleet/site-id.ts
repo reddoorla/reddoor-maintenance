@@ -1,11 +1,11 @@
 /**
- * Site ids after Airtable (#646 step 3, operator decision 2026-09-17).
+ * Site ids (#646 step 3, operator decision 2026-09-17).
  *
  * Two shapes coexist PERMANENTLY:
  *
  *   - `rec…`          every site that existed before the Turso-native creator. The
- *                     Airtable record id became the Turso primary key at import
- *                     (design D1), and it is never rewritten: `submissions.site_id`,
+ *                     imported record id is the primary key (design D1), and it
+ *                     is never rewritten: `submissions.site_id`,
  *                     `reports.site_id`, `fleet_events`, `spam_screenouts`,
  *                     `digest_state` keys and event ids all hold it by convention.
  *   - `site_<ULID>`   every site created since, minted here.
@@ -74,38 +74,7 @@ export function mintSiteId(now: number = Date.now()): string {
   return `site_${encodeUlid(now, random)}`;
 }
 
-/** A `rec…` id — the only shape Airtable can address. Deliberately a PREFIX test,
- *  the decision's own wording ("skip non-`rec` ids"): real Airtable ids are
- *  `rec` + 14 alphanumerics, but the suite's fixtures use readable ones like
- *  `rec_site_acme`, and in production the only other shape that exists is
- *  `site_<ULID>`, which this rejects either way. */
-export function isAirtableRecordId(id: string): boolean {
-  return id.length > 3 && id.startsWith("rec");
-}
-
 /** A site id minted by {@link mintSiteId}. */
 export function isMintedSiteId(id: string): boolean {
   return /^site_[0-9A-HJKMNP-TV-Z]{26}$/.test(id);
-}
-
-/**
- * The one decision every Airtable SHADOW writer makes before touching Airtable:
- * is this a record Airtable could possibly hold? A `site_` id never is — the site
- * was created in Turso and Airtable has never heard of it — so the write is
- * skipped ON PURPOSE rather than sent to 404.
- *
- * Returns `true` when the caller must skip, after logging exactly one stable,
- * greppable line:
- *
- *     AIRTABLE_SHADOW skipped=non-rec-id writer=<name> id=<id>
- *
- * Logged rather than silent because a skip is a decision someone may need to
- * audit: "why does Airtable not have this site's scores" should be one grep away.
- * Lives outside `src/reports/airtable/` so the Turso-native creator can use it
- * without importing the layer Phase 6 deletes.
- */
-export function skipsAirtableShadow(writer: string, id: string): boolean {
-  if (isAirtableRecordId(id)) return false;
-  console.log(`AIRTABLE_SHADOW skipped=non-rec-id writer=${writer} id=${id}`);
-  return true;
 }

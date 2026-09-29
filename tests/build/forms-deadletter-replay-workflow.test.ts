@@ -154,11 +154,10 @@ describe("forms-deadletter-replay — wiring", () => {
     expect(live).toContain("cancel-in-progress: false");
   });
 
-  it("carries the Turso credentials and NO Airtable ones (Phase 6)", () => {
+  it("carries the Turso credentials", () => {
     const env = stepEnv(workflow, STEP);
     expect(env.TURSO_DATABASE_URL).toBe("${{ secrets.TURSO_DATABASE_URL }}");
     expect(env.TURSO_AUTH_TOKEN).toBe("${{ secrets.TURSO_AUTH_TOKEN }}");
-    expect(Object.keys(env).filter((k) => k.startsWith("AIRTABLE"))).toEqual([]);
   });
 
   it("runs on a schedule at all — the whole point of MED-10(a)", () => {

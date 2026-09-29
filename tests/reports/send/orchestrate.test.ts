@@ -1,24 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { sendApprovedReports } from "../../../src/reports/send/orchestrate.js";
 import type { ResendClient, ResendSendInput } from "../../../src/reports/send/resend.js";
-import { makeFakeBase, type FakeRecord } from "../_helpers/fake-airtable-base.js";
+import { reportRowsFrom, websiteRowsFrom, type RawRow } from "../../_helpers/raw-rows.js";
 
-beforeEach(() => {
-  // Stub global fetch — Airtable attachment fetch + bundled image loader read
-  // (the latter via fs, but if anyone adds a fetch path it's covered).
-  global.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    statusText: "OK",
-    text: async () => "",
-    headers: { get: () => "image/jpeg" },
-    arrayBuffer: async () => new ArrayBuffer(8),
-  }) as unknown as typeof global.fetch;
-  process.env.AIRTABLE_PAT = "pat_test";
-  process.env.AIRTABLE_BASE_ID = "app_test";
-});
-
-function siteRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
+function siteRow(over: Record<string, unknown> = {}): RawRow {
   return {
     id: "rec_site_acme",
     fields: {
@@ -28,9 +13,6 @@ function siteRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
       "maintenence freq": "Monthly",
       "testing freq": "None",
       "Report recipients (To)": "explicit@acme.example.com",
-      "Header image": [
-        { url: "https://example.com/header.jpg", filename: "acme.jpg", type: "image/jpeg" },
-      ],
       pScore: 87,
       rScore: 91,
       bpScore: 100,
@@ -40,7 +22,7 @@ function siteRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
   };
 }
 
-function reportRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
+function reportRow(over: Record<string, unknown> = {}): RawRow {
   return {
     id: "rec_report_1",
     fields: {
@@ -140,7 +122,7 @@ function genericErrorClient(): { client: ResendClient; captured: ResendSendInput
 
 // Header image processing is exercised in header-image.test.ts. Here we stub it so the
 // orchestrator runs against deterministic prepared output without real sharp work (the
-// fetch stub returns placeholder bytes, not a decodable image).
+// stored plate below is placeholder bytes, not a decodable image).
 vi.mock("../../../src/reports/maintenance-email/header-image.js", () => ({
   prepareHeaderImage: vi.fn(async () => ({
     bytes: new Uint8Array([255, 216, 255]),
@@ -151,202 +133,183 @@ vi.mock("../../../src/reports/maintenance-email/header-image.js", () => ({
   })),
 }));
 
-// Helper: openBase reads from env; tests need to inject a fake. Patch via vi.mock.
-vi.mock("../../../src/reports/airtable/client.js", async () => {
-  const actual = await vi.importActual<typeof import("../../../src/reports/airtable/client.js")>(
-    "../../../src/reports/airtable/client.js",
-  );
-  return {
-    ...actual,
-    openBase: vi.fn(),
-  };
-});
-
 vi.mock("../../../src/audits/fleet-events-writer.js", () => ({
   recordFleetEventsBestEffort: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { openBase } from "../../../src/reports/airtable/client.js";
-import { readAirtableConfig } from "../../../src/reports/airtable/client.js";
-import { listWebsites } from "../../../src/reports/airtable/websites.js";
-import { listSendableReports } from "../../../src/reports/airtable/reports.js";
+import { recordFleetEventsBestEffort } from "../../../src/audits/fleet-events-writer.js";
+
+type Seed = { Reports: RawRow[]; Websites: RawRow[] };
+
+const PLATE = new Uint8Array([1, 2, 3]);
 
 /**
  * #646 step 4: the send reads its queue, its roster and its header plate from
- * TURSO, through the three readers below.
- *
- * Injected here from the SAME fake base every test already seeds — `openBase` is
- * mocked, so this reads the fixture rather than a store — because what this file
- * pins is the send behaviour (gates, recipients, stamping, mirrors), all of which
- * still write Airtable. `loadHeaderPlate` returns null on purpose: that is the
- * Airtable-attachment FALLBACK path, which is what these fixtures' `Header image`
- * cells and the stubbed `global.fetch` describe. The Turso-plate path and the
- * Turso-backed queue are driven end to end in send-turso.test.ts.
+ * TURSO, and writes the sent stamp and the Launch flip there. `plates` lists
+ * the site ids Turso holds a header plate for (default: every seeded site).
+ * The Turso-backed queue is driven end to end in send-turso.test.ts.
  */
-const io = () => {
-  const base = openBase(readAirtableConfig());
+function harness(seed: Seed, plates: string[] = seed.Websites.map((w) => w.id)) {
+  const stamps: Array<{ id: string; sentAt: Date; messageId: string | null }> = [];
+  const siteWrites: Array<{ id: string; fields: Record<string, unknown> }> = [];
+  const plateReads: string[] = [];
   return {
-    sendable: () => listSendableReports(base),
-    roster: () => listWebsites(base),
-    loadHeaderPlate: async () => null,
+    seed,
+    stamps,
+    siteWrites,
+    plateReads,
+    io: {
+      sendable: async () =>
+        reportRowsFrom(seed.Reports).filter((r) => r.draftReady && r.approvedToSend && !r.sentAt),
+      roster: async () => websiteRowsFrom(seed.Websites),
+      loadHeaderPlate: async (siteId: string) => {
+        plateReads.push(siteId);
+        return plates.includes(siteId) ? PLATE : null;
+      },
+      reportSentMirror: async (id: string, sentAt: Date, messageId: string | null) => {
+        stamps.push({ id, sentAt, messageId });
+      },
+      siteMirror: {
+        health: async () => {},
+        site: async (id: string, fields: Record<string, unknown>) => {
+          siteWrites.push({ id, fields });
+        },
+      },
+    },
   };
-};
-import { recordFleetEventsBestEffort } from "../../../src/audits/fleet-events-writer.js";
+}
 
 describe("sendApprovedReports", () => {
   it("returns 0 and 'No reports ready' when nothing is sendable", async () => {
-    vi.mocked(openBase).mockReturnValue(makeFakeBase({ Reports: [], Websites: [siteRow()] }));
+    const h = harness({ Reports: [], Websites: [siteRow()] });
     const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res).toEqual({ output: "No reports ready to send.", code: 0 });
   });
 
-  it("sends one report and stamps Sent at + Resend message ID (NOT Delivery status — H4)", async () => {
-    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
-    vi.mocked(openBase).mockReturnValue(base);
+  it("sends one report and stamps Sent at + Resend message ID through reportSentMirror", async () => {
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(0);
     expect(res.output).toContain("✓ sent:");
     expect(captured).toHaveLength(1);
-
-    // The stamp update must NOT touch Delivery status (H4: createDraft owns
-    // that field; webhook overwrites later).
-    const updates = base.__calls.filter((c) => c.kind === "update");
-    const stamp = updates.find((u) => u.records[0]!.fields["Sent at"] !== undefined);
-    expect(stamp).toBeDefined();
-    expect(stamp!.records[0]!.fields["Resend message ID"]).toBe("msg_1");
-    expect(stamp!.records[0]!.fields["Delivery status"]).toBeUndefined();
+    expect(h.stamps).toEqual([
+      { id: "rec_report_1", sentAt: expect.any(Date), messageId: "msg_1" },
+    ]);
   });
 
   it("uses explicit Report recipients (To) over point-of-contact fallback", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
-    );
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     expect(captured[0]!.to).toEqual(["explicit@acme.example.com"]);
   });
 
   it("falls back to point-of-contact when Report recipients (To) is empty", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow()],
-        Websites: [siteRow({ "Report recipients (To)": "" })],
-      }),
-    );
+    const h = harness({
+      Reports: [reportRow()],
+      Websites: [siteRow({ "Report recipients (To)": "" })],
+    });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     expect(captured[0]!.to).toEqual(["ops@acme.example.com"]);
   });
 
   it("CCs info@reddoorla.com on every send, after any per-site CC", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow()],
-        Websites: [siteRow({ "Report recipients (CC)": "cc@acme.example.com" })],
-      }),
-    );
+    const h = harness({
+      Reports: [reportRow()],
+      Websites: [siteRow({ "Report recipients (CC)": "cc@acme.example.com" })],
+    });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     expect(captured[0]!.cc).toEqual(["cc@acme.example.com", "info@reddoorla.com"]);
   });
 
   it("CCs info@reddoorla.com even when the site has no per-site CC", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow()],
-        Websites: [siteRow({ "Report recipients (CC)": "" })],
-      }),
-    );
+    const h = harness({
+      Reports: [reportRow()],
+      Websites: [siteRow({ "Report recipients (CC)": "" })],
+    });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     expect(captured[0]!.cc).toEqual(["info@reddoorla.com"]);
   });
 
   it("fails the report when no recipients exist", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow()],
-        Websites: [siteRow({ "Report recipients (To)": "", "point of contact": null })],
-      }),
-    );
+    const h = harness({
+      Reports: [reportRow()],
+      Websites: [siteRow({ "Report recipients (To)": "", "point of contact": null })],
+    });
     const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("no recipients");
   });
 
-  it("validates recipients BEFORE the expensive header fetch/render (fails fast, no fetch)", async () => {
+  it("validates recipients BEFORE the expensive header load/render (fails fast, no load)", async () => {
     // A misconfigured-recipients site is a guaranteed failure; recipient resolution
-    // now runs before fetchAttachmentBytes + sharp + MJML render, so the header is
-    // never fetched. Assert global.fetch (the header fetch) is not called.
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow()],
-        Websites: [siteRow({ "Report recipients (To)": "", "point of contact": null })],
-      }),
-    );
+    // runs before the header plate load + sharp + MJML render, so the plate is
+    // never read.
+    const h = harness({
+      Reports: [reportRow()],
+      Websites: [siteRow({ "Report recipients (To)": "", "point of contact": null })],
+    });
     const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("no recipients");
-    // The expensive path (header fetch) never ran for the bad-recipients site.
-    expect(global.fetch).not.toHaveBeenCalled();
+    // The expensive path (header load) never ran for the bad-recipients site.
+    expect(h.plateReads).toEqual([]);
   });
 
-  it("rejects a malformed recipient BEFORE fetching the header (no expensive work)", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow()],
-        Websites: [siteRow({ "Report recipients (To)": "Acme Ops <ops@acme.example.com>" })],
-      }),
-    );
+  it("rejects a malformed recipient BEFORE loading the header (no expensive work)", async () => {
+    const h = harness({
+      Reports: [reportRow()],
+      Websites: [siteRow({ "Report recipients (To)": "Acme Ops <ops@acme.example.com>" })],
+    });
     const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("malformed");
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(h.plateReads).toEqual([]);
   });
 
-  it("fails the report when Header image is missing", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow()],
-        Websites: [siteRow({ "Header image": [] })],
-      }),
-    );
-    const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+  it("fails the report by name when Turso holds no header plate", async () => {
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] }, []);
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(1);
-    expect(res.output).toContain("no Header image");
+    expect(res.output).toContain(
+      "✗ Acme Co — Maintenance — 2026-05-26 — Site 'Acme Co' has no Header image: " +
+        "no header plate in Turso — run `reddoor-maint header-image acme-co --write-back`",
+    );
+    expect(h.plateReads).toEqual(["rec_site_acme"]);
+    expect(captured).toHaveLength(0);
+    expect(h.stamps).toEqual([]);
   });
 
   it("explains that a malformed recipient must be a bare address (no `Name <addr>`)", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow()],
-        Websites: [siteRow({ "Report recipients (To)": "Acme Ops <ops@acme.example.com>" })],
-      }),
-    );
+    const h = harness({
+      Reports: [reportRow()],
+      Websites: [siteRow({ "Report recipients (To)": "Acme Ops <ops@acme.example.com>" })],
+    });
     const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("malformed");
     expect(res.output).toMatch(/bare address only/i);
   });
 
   it("names the four Lighthouse cells when one is non-numeric", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        // A non-numeric cell nulls the whole LighthouseScores object — the send-time
-        // error should point the operator at the four cells, not just say "no scores".
-        Reports: [reportRow({ "Lighthouse — Performance": "n/a" })],
-        Websites: [siteRow()],
-      }),
-    );
+    const h = harness({
+      // A non-numeric cell nulls the whole LighthouseScores object — the send-time
+      // error should point the operator at the four cells, not just say "no scores".
+      Reports: [reportRow({ "Lighthouse — Performance": "n/a" })],
+      Websites: [siteRow()],
+    });
     const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toMatch(/Lighthouse/);
     expect(res.output).toMatch(/numeric/i);
@@ -355,10 +318,10 @@ describe("sendApprovedReports", () => {
   // ── health gate: a Maintenance/Testing report can't escape with unmeasured/failing evidence ──
   it("does NOT send a Maintenance report whose health gate is not clear (no Resend call, Sent at not stamped)", async () => {
     // No auto-evidence recorded at all → every gating field reads "unknown" → the health gate
-    // blocks, even though the row is approved-to-send (e.g. ticked directly in Airtable, with
-    // the operator checklist booleans ticked too — those no longer drive the gate). The send
+    // blocks, even though the row is approved-to-send (with the operator checklist booleans
+    // ticked too — those no longer drive the gate). The send
     // gate must skip it as a failure, leaving Sent at blank so at-least-once retry is preserved.
-    const base = makeFakeBase({
+    const h = harness({
       Reports: [
         reportRow({
           "Checklist auto-evidence": JSON.stringify({}),
@@ -366,9 +329,8 @@ describe("sendApprovedReports", () => {
       ],
       Websites: [siteRow()],
     });
-    vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
 
     expect(res.code).toBe(1);
     expect(res.output).toContain("✗");
@@ -376,17 +338,13 @@ describe("sendApprovedReports", () => {
     // No email went out.
     expect(captured).toHaveLength(0);
     // Sent at stays blank → the row replays next run once the evidence is fresh and green.
-    const stamp = base.__calls
-      .filter((c) => c.kind === "update")
-      .find((u) => u.records[0]!.fields["Sent at"] !== undefined);
-    expect(stamp).toBeUndefined();
+    expect(h.stamps).toEqual([]);
   });
 
   it("sends a Maintenance report once its checklist is complete (default fixture is complete)", async () => {
-    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
-    vi.mocked(openBase).mockReturnValue(base);
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);
   });
@@ -396,7 +354,7 @@ describe("sendApprovedReports", () => {
     // re-derive them from the Websites row (via announcementSiteExtras), else the sent email
     // drops the cadence copy (and the checklist sections it heads) + the improvement callouts.
     // This is also the only place a fully-populated announcement is strict-rendered end to end.
-    const base = makeFakeBase({
+    const h = harness({
       Reports: [
         reportRow({
           "Report ID": "Acme Co — Announcement — 2026-06",
@@ -405,9 +363,8 @@ describe("sendApprovedReports", () => {
       ],
       Websites: [siteRow({ "testing freq": "Monthly" })],
     });
-    vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);
     const html = captured[0]!.html;
@@ -417,7 +374,7 @@ describe("sendApprovedReports", () => {
   });
 
   it("does NOT send a Maintenance report whose health gate is not clear, with a by-name message", async () => {
-    const base = makeFakeBase({
+    const h = harness({
       Reports: [
         reportRow({
           "Checklist auto-evidence": JSON.stringify({
@@ -451,9 +408,8 @@ describe("sendApprovedReports", () => {
       ],
       Websites: [siteRow()],
     });
-    vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(1);
     expect(captured).toHaveLength(0);
     expect(res.output).toContain("Maint: CMS Checked");
@@ -492,10 +448,9 @@ describe("sendApprovedReports", () => {
       "Override reason": "client verbally signed off",
       "Override by": "dashboard",
     });
-    const base = makeFakeBase({ Reports: [overriddenReport], Websites: [siteRow()] });
-    vi.mocked(openBase).mockReturnValue(base);
+    const h = harness({ Reports: [overriddenReport], Websites: [siteRow()] });
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);
     expect(vi.mocked(recordFleetEventsBestEffort)).toHaveBeenCalled();
@@ -507,7 +462,7 @@ describe("sendApprovedReports", () => {
   it("sends a Launch report regardless of checklist (Launch has no checklist gate)", async () => {
     // A Launch report has all 13 checkbox cells absent (false) — but gatingFields(Launch)
     // is [] so isHealthGateClear is vacuously true and the gate never fires.
-    const base = makeFakeBase({
+    const h = harness({
       Reports: [
         {
           ...reportRow({ "Report type": "Launch" }),
@@ -517,43 +472,36 @@ describe("sendApprovedReports", () => {
       Websites: [siteRow({ Status: "launch" })],
     });
     // Strip the 6 maintenance cells so the report has a genuinely empty checklist.
-    const fields = base.__records.get("Reports")![0]!.fields;
+    const fields = h.seed.Reports[0]!.fields;
     for (const k of Object.keys(fields)) if (k.startsWith("Maint: ")) delete fields[k];
-    vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);
   });
 
   it("uses Subject override when present", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow({ "Subject override": "Custom Subject" })],
-        Websites: [siteRow()],
-      }),
-    );
+    const h = harness({
+      Reports: [reportRow({ "Subject override": "Custom Subject" })],
+      Websites: [siteRow()],
+    });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     expect(captured[0]!.subject).toBe("Custom Subject");
   });
 
   it("defaults Subject to `{Site name} — {Month YYYY} {Report type} Report`", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
-    );
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     // reportRow fixture: Completed on = 2026-05-26 → "May 2026".
     expect(captured[0]!.subject).toBe("Acme Co — May 2026 Maintenance Report");
   });
 
   it("attaches the per-site header with the expected CID + bundled images (B1 contract)", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
-    );
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     const atts = captured[0]!.attachments ?? [];
     const header = atts.find((a) => a.inlineContentId === "acme-co-header");
     const check = atts.find((a) => a.inlineContentId === "rd-check-png");
@@ -570,97 +518,95 @@ describe("sendApprovedReports", () => {
     // The blurred-tests image (cid:rd-blurred-tests-jpg) is referenced only by the Maintenance
     // template. A Testing report must not carry it as a dangling inline attachment. The check
     // image IS referenced by the testing checklist, so it stays.
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [
-          reportRow({
-            "Report ID": "Acme Co — Testing — 2026-05-26",
-            "Report type": "Testing",
-            // checklistFor(Testing) = Maintenance + Testing cells; the operator-checklist
-            // booleans below are advisory only now — gatingFields(Testing) is all 13 cells
-            // (including Maint: Google Indexed), so the evidence override supplies pass for
-            // all 13 to satisfy the health gate.
-            "Test: Desktop Browsers": true,
-            "Test: Mobile Browsers": true,
-            "Test: Page Titles & Meta": true,
-            "Test: Links & Navigation": true,
-            "Test: Form Functionality": true,
-            "Test: Interactions & Animations": true,
-            "Test: Verified After Updates": true,
-            "Checklist auto-evidence": JSON.stringify({
-              "Maint: Deploy & Function Health": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Maint: CMS Checked": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Maint: Domain, DNS & SSL": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Maint: Google Indexed": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Maint: Security Updates": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Maint: Uptime Checked": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Test: Desktop Browsers": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Test: Mobile Browsers": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Test: Page Titles & Meta": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Test: Links & Navigation": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Test: Form Functionality": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Test: Interactions & Animations": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-              "Test: Verified After Updates": {
-                result: "pass",
-                checkedAt: "2026-05-26T00:00:00.000Z",
-                note: "",
-              },
-            }),
+    const h = harness({
+      Reports: [
+        reportRow({
+          "Report ID": "Acme Co — Testing — 2026-05-26",
+          "Report type": "Testing",
+          // checklistFor(Testing) = Maintenance + Testing cells; the operator-checklist
+          // booleans below are advisory only now — gatingFields(Testing) is all 13 cells
+          // (including Maint: Google Indexed), so the evidence override supplies pass for
+          // all 13 to satisfy the health gate.
+          "Test: Desktop Browsers": true,
+          "Test: Mobile Browsers": true,
+          "Test: Page Titles & Meta": true,
+          "Test: Links & Navigation": true,
+          "Test: Form Functionality": true,
+          "Test: Interactions & Animations": true,
+          "Test: Verified After Updates": true,
+          "Checklist auto-evidence": JSON.stringify({
+            "Maint: Deploy & Function Health": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Maint: CMS Checked": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Maint: Domain, DNS & SSL": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Maint: Google Indexed": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Maint: Security Updates": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Maint: Uptime Checked": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Test: Desktop Browsers": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Test: Mobile Browsers": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Test: Page Titles & Meta": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Test: Links & Navigation": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Test: Form Functionality": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Test: Interactions & Animations": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Test: Verified After Updates": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
           }),
-        ],
-        Websites: [siteRow({ "testing freq": "Monthly" })],
-      }),
-    );
+        }),
+      ],
+      Websites: [siteRow({ "testing freq": "Monthly" })],
+    });
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(0);
     const atts = captured[0]!.attachments ?? [];
     expect(atts.find((a) => a.inlineContentId === "rd-blurred-tests-jpg")).toBeUndefined();
@@ -669,19 +615,17 @@ describe("sendApprovedReports", () => {
   });
 
   it("does NOT attach the blurred-tests image to an Announcement report (keeps check + header)", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [
-          reportRow({
-            "Report ID": "Acme Co — Announcement — 2026-06",
-            "Report type": "Announcement",
-          }),
-        ],
-        Websites: [siteRow({ "testing freq": "Monthly" })],
-      }),
-    );
+    const h = harness({
+      Reports: [
+        reportRow({
+          "Report ID": "Acme Co — Announcement — 2026-06",
+          "Report type": "Announcement",
+        }),
+      ],
+      Websites: [siteRow({ "testing freq": "Monthly" })],
+    });
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(0);
     const atts = captured[0]!.attachments ?? [];
     expect(atts.find((a) => a.inlineContentId === "rd-blurred-tests-jpg")).toBeUndefined();
@@ -689,136 +633,89 @@ describe("sendApprovedReports", () => {
   });
 
   it("attaches ONLY the header to a Launch report (no check, no blurred)", async () => {
-    const base = makeFakeBase({
+    const h = harness({
       Reports: [reportRow({ "Report type": "Launch" })],
       Websites: [siteRow({ Status: "launch" })],
     });
     // Launch has an empty checklist gate; strip the Maint cells so it's genuinely empty.
-    const fields = base.__records.get("Reports")![0]!.fields;
+    const fields = h.seed.Reports[0]!.fields;
     for (const k of Object.keys(fields)) if (k.startsWith("Maint: ")) delete fields[k];
-    vi.mocked(openBase).mockReturnValue(base);
     const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(0);
     const atts = captured[0]!.attachments ?? [];
     expect(atts.map((a) => a.inlineContentId)).toEqual(["acme-co-header"]);
   });
 
   it("passes idempotencyKey=report:<id> to Resend (B2 contract)", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
-    );
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     expect(captured[0]!.idempotencyKey).toBe("report:rec_report_1");
   });
 
   it("re-renders the stored page-1 rank into the sent email", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow({ "Search found page 1": true, "Search position": 4 })],
-        Websites: [siteRow()],
-      }),
-    );
+    const h = harness({
+      Reports: [reportRow({ "Search found page 1": true, "Search position": 4 })],
+      Websites: [siteRow()],
+    });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     expect(captured[0]!.html).toContain("Page 1 Google Result (#4)");
   });
 
   it("labels the analytics trend with the stored period window length on re-render", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        // Default fixture period is 2026-04-26 → 2026-05-26 = 30 days.
-        Reports: [reportRow({ "GA users (period)": 679, "GA users (prev period)": 549 })],
-        Websites: [siteRow()],
-      }),
-    );
+    const h = harness({
+      // Default fixture period is 2026-04-26 → 2026-05-26 = 30 days.
+      Reports: [reportRow({ "GA users (period)": 679, "GA users (prev period)": 549 })],
+      Websites: [siteRow()],
+    });
     const { client, captured } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
+    await sendApprovedReports({ ...h.io, resend: client });
     expect(captured[0]!.html).toContain("vs the previous 30 days");
   });
 
   it("logs site-not-found failure when a report's siteId has no matching Website", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [reportRow({ Site: ["rec_orphan"] })],
-        Websites: [siteRow()],
-      }),
-    );
+    const h = harness({
+      Reports: [reportRow({ Site: ["rec_orphan"] })],
+      Websites: [siteRow()],
+    });
     const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain("Site row not found for id=rec_orphan");
   });
 
-  it("flips Status → maintained + stamps Launched at after a Launch report sends (M6b)", async () => {
-    const base = makeFakeBase({
+  it("flips Status → maintained + stamps Launched at in ONE Turso write after a Launch report sends (M6b)", async () => {
+    // Status and `Launched at` must travel together: mirroring them as two
+    // updates would open a window where Turso says a site is maintained but
+    // never launched — and the cockpit reads both.
+    const h = harness({
       Reports: [reportRow({ "Report type": "Launch" })],
       Websites: [siteRow({ Status: "launch" })],
     });
-    vi.mocked(openBase).mockReturnValue(base);
     const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
     expect(res.code).toBe(0);
     expect(res.output).toContain("✓ sent:");
     expect(res.output).toContain("flipped to maintained");
 
-    // The flip writes Status + Launched at to the Websites row (NOT the Reports row).
-    const flip = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Websites" &&
-        c.records[0]!.fields["Status"] !== undefined,
-    );
-    expect(flip).toBeDefined();
-    expect(flip!.kind === "update" && flip!.records[0]!.id).toBe("rec_site_acme");
-    expect(flip!.kind === "update" && flip!.records[0]!.fields["Status"]).toBe("maintained");
-    expect(flip!.kind === "update" && flip!.records[0]!.fields["Launched at"]).toBeDefined();
-  });
-
-  it("mirrors the launch flip into Turso as ONE write (#539 Phase 5)", async () => {
-    // Status and `Launched at` must travel together: mirroring them as two
-    // updates would open a window where Turso says a site is maintained but
-    // never launched — and the cockpit reads both.
-    const base = makeFakeBase({
-      Reports: [reportRow({ "Report type": "Launch" })],
-      Websites: [siteRow({ Status: "launch" })],
+    // The flip writes Status + Launched at to the site row (NOT the report row).
+    expect(h.siteWrites).toHaveLength(1);
+    expect(h.siteWrites[0]!.id).toBe("rec_site_acme");
+    expect(h.siteWrites[0]!.fields["Status"]).toBe("maintained");
+    expect(h.siteWrites[0]!.fields["Launched at"]).toBeDefined();
+    expect(h.siteWrites[0]!.fields).toEqual({
+      Status: "maintained",
+      "Launched at": expect.any(String),
     });
-    vi.mocked(openBase).mockReturnValue(base);
-    const { client } = captureClient();
-    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
-
-    await sendApprovedReports({
-      ...io(),
-      resend: client,
-      siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
-        health: async () => {},
-        site: async (id, fields) => {
-          mirrored.push({ id, fields });
-        },
-      },
-    });
-
-    expect(mirrored).toHaveLength(1);
-    expect(mirrored[0]!.id).toBe("rec_site_acme");
-    expect(mirrored[0]!.fields["Status"]).toBe("maintained");
-    expect(mirrored[0]!.fields["Launched at"]).toBeDefined();
   });
 
   it("does NOT flip Status for a non-Launch (Maintenance) report", async () => {
-    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
-    vi.mocked(openBase).mockReturnValue(base);
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client } = captureClient();
-    await sendApprovedReports({ ...io(), resend: client });
-    const flip = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Websites" &&
-        c.records[0]!.fields["Status"] !== undefined,
-    );
-    expect(flip).toBeUndefined();
+    await sendApprovedReports({ ...h.io, resend: client });
+    expect(h.siteWrites).toEqual([]);
   });
 
   // ── send-durability: Resend 409 idempotency-conflict in sendOne ──────────────
@@ -827,10 +724,9 @@ describe("sendApprovedReports", () => {
     // row replayed with a changed body and Resend rejected the same-key/different-body
     // re-send with a 409. sendOne must NOT re-throw and must NOT re-send: instead it
     // stamps the row (so it stops replaying) and reports success.
-    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
-    vi.mocked(openBase).mockReturnValue(base);
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client, captured } = idempotencyConflictClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
 
     expect(res.code).toBe(0);
     // Treated as a success by the caller (so the Launch flip runs); the
@@ -841,151 +737,82 @@ describe("sendApprovedReports", () => {
     expect(captured).toHaveLength(1);
 
     // The row got stamped (Sent at written) so listSendableReports won't replay it.
-    const updates = base.__calls.filter((c) => c.kind === "update");
-    const stamp = updates.find((u) => u.records[0]!.fields["Sent at"] !== undefined);
-    expect(stamp).toBeDefined();
-    expect(stamp!.records[0]!.id).toBe("rec_report_1");
-    // The message id is unrecoverable on the 409 path, so the column must be left
-    // unset — NOT stamped with a sentinel that would masquerade as a real Resend
-    // id and orphan findReportByMessageId webhook lookups.
-    expect(stamp!.records[0]!.fields["Resend message ID"]).toBeUndefined();
+    // The message id is unrecoverable on the 409 path, so it must be left null —
+    // NOT stamped with a sentinel that would masquerade as a real Resend id and
+    // orphan findReportByMessageId webhook lookups.
+    expect(h.stamps).toEqual([{ id: "rec_report_1", sentAt: expect.any(Date), messageId: null }]);
   });
 
   it("re-throws a generic (non-409) send error so the run reds and the row is NOT stamped", async () => {
-    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
-    vi.mocked(openBase).mockReturnValue(base);
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client } = genericErrorClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
 
     expect(res.code).toBe(1);
     expect(res.output).toContain("✗");
     expect(res.output).toContain("Internal server error");
 
     // A genuine failure must leave Sent at blank so the row replays next run.
-    const updates = base.__calls.filter((c) => c.kind === "update");
-    const stamp = updates.find((u) => u.records[0]!.fields["Sent at"] !== undefined);
-    expect(stamp).toBeUndefined();
+    expect(h.stamps).toEqual([]);
   });
 
   it("self-heals a stranded Launch on the 409 path: the conflict-resolved send still flips Status → maintained", async () => {
-    const base = makeFakeBase({
+    const h = harness({
       Reports: [reportRow({ "Report type": "Launch" })],
       Websites: [siteRow({ Status: "launch" })],
     });
-    vi.mocked(openBase).mockReturnValue(base);
     const { client } = idempotencyConflictClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({ ...h.io, resend: client });
 
     expect(res.code).toBe(0);
     expect(res.output).toContain("flipped to maintained");
 
     // The Launch flip runs after the (conflict-resolved) success, so a launch that
     // sent-but-never-flipped on the prior run reconciles here.
-    const flip = base.__calls.find(
-      (c) =>
-        c.kind === "update" &&
-        c.table === "Websites" &&
-        c.records[0]!.fields["Status"] !== undefined,
-    );
-    expect(flip).toBeDefined();
-    expect(flip!.kind === "update" && flip!.records[0]!.fields["Status"]).toBe("maintained");
+    expect(h.siteWrites).toHaveLength(1);
+    expect(h.siteWrites[0]!.fields["Status"]).toBe("maintained");
   });
 
   it("still sends when the launch flip errors, but REDS the run (M6b, inverted at the freeze)", async () => {
-    const base = makeFakeBase({
+    const h = harness({
       Reports: [reportRow({ "Report type": "Launch" })],
       Websites: [siteRow({ Status: "launch" })],
     });
-    // Wrap the table factory so only the Websites update (the Status flip) throws.
-    // The send + Reports stamp must still succeed — the email already went out and
-    // the row must not replay. But post-freeze (#643) the flip failure can no
-    // longer be a green-run warning: nothing converges it, and Turso — the store
-    // lead routing reads — would keep the site in launch-period forever.
-    const inner = base as unknown as (t: string) => Record<string, unknown>;
-    const patched = ((t: string) => {
-      const tbl = inner(t);
-      if (t === "Websites") {
-        return {
-          ...tbl,
-          update: async () => {
-            throw new Error("Status field write blew up");
-          },
-        };
-      }
-      return tbl;
-    }) as unknown as typeof base;
-    patched.__calls = base.__calls;
-    patched.__records = base.__records;
-    vi.mocked(openBase).mockReturnValue(patched);
+    // Only the site write (the Status flip) throws. The send + sent stamp must
+    // still succeed — the email already went out and the row must not replay. But
+    // the flip failure can no longer be a green-run warning (#643): nothing
+    // converges it, and Turso — the store lead routing reads — would keep the
+    // site in launch-period forever.
     const { client } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+    const res = await sendApprovedReports({
+      ...h.io,
+      resend: client,
+      siteMirror: {
+        ...h.io.siteMirror,
+        site: async () => {
+          throw new Error("Status field write blew up");
+        },
+      },
+    });
     expect(res.code).toBe(1);
     expect(res.output).toContain("✓ sent:");
     expect(res.output).toContain("launch flip failed");
+    expect(h.stamps).toHaveLength(1);
     expect(res.output).toContain("Status field write blew up");
-  });
-
-  // #643 (the freeze): stampSent's Turso write-through. The stamp is what
-  // removes a row from listSendableReports, so once it lands there is no replay
-  // left to converge a lost mirror — these pin that the mirror gets the exact
-  // values Airtable got, and that losing it cannot hide in a green run.
-  it("mirrors the Sent-at stamp: reportSentMirror gets the report id and the messageId", async () => {
-    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
-    vi.mocked(openBase).mockReturnValue(base);
-    const { client } = captureClient();
-    const stamps: Array<{ id: string; sentAt: Date; messageId: string | null }> = [];
-    const res = await sendApprovedReports({
-      ...io(),
-      resend: client,
-      reportSentMirror: async (id, sentAt, messageId) => {
-        stamps.push({ id, sentAt, messageId });
-      },
-    });
-    expect(res.code).toBe(0);
-    expect(stamps).toEqual([{ id: "rec_report_1", sentAt: expect.any(Date), messageId: "msg_1" }]);
-  });
-
-  it("mirrors the 409 recovery stamp with a NULL messageId, exactly as Airtable got it", async () => {
-    // The conflict path stamps `Sent at` but leaves `Resend message ID`
-    // untouched (the original id is unrecoverable on a 409) — the shadow must
-    // not invent one either.
-    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
-    vi.mocked(openBase).mockReturnValue(base);
-    const { client } = idempotencyConflictClient();
-    const stamps: Array<string | null> = [];
-    const res = await sendApprovedReports({
-      ...io(),
-      resend: client,
-      reportSentMirror: async (_id, _sentAt, messageId) => {
-        stamps.push(messageId);
-      },
-    });
-    expect(res.code).toBe(0);
-    expect(stamps).toEqual([null]);
   });
 
   it("reds the run when the sent-stamp mirror fails — but still runs the Launch flip", async () => {
     // The stamp mirror and the launch flip are independent recoveries: one
     // failing must not rob the other of its attempt, and neither may hide in a
     // green run.
-    const base = makeFakeBase({
+    const h = harness({
       Reports: [reportRow({ "Report type": "Launch" })],
       Websites: [siteRow({ Status: "launch" })],
     });
-    vi.mocked(openBase).mockReturnValue(base);
     const { client } = captureClient();
-    const mirrored: string[] = [];
     const res = await sendApprovedReports({
-      ...io(),
+      ...h.io,
       resend: client,
-      siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
-        health: async () => {},
-        site: async (id) => {
-          mirrored.push(id);
-        },
-      },
       reportSentMirror: async () => {
         throw new Error("SQLITE_BUSY");
       },
@@ -995,6 +822,6 @@ describe("sendApprovedReports", () => {
     expect(res.output).toContain("sent-stamp mirror failed");
     expect(res.output).toContain("SQLITE_BUSY");
     expect(res.output).toContain("launched:");
-    expect(mirrored).toEqual(["rec_site_acme"]);
+    expect(h.siteWrites.map((w) => w.id)).toEqual(["rec_site_acme"]);
   });
 });

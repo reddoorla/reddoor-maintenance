@@ -1,20 +1,8 @@
 /**
  * The fleet roster for batch jobs — every site row, read from Turso (#646 step 4).
  *
- * Until step 4 each batch job (the audit write-back, `github-signals`,
- * `renovate-dispatch`, `header-image`, the Prismic verdict sink) listed sites
- * with the Airtable `listWebsites` and matched its results against that list.
- * Since step 3 a site created by `ensure-site` has a `site_<ULID>` id and no
- * Airtable record, so an Airtable roster is silently short: the site is never
- * swept, or it is swept and then fails its write-back with "no Websites row
- * matched". Turso holds every site.
- *
- * Same contract as `listWebsites` — every site, one `WebsiteRow` each — and the
- * rows are the ones the reader-equivalence instrument pins field-for-field to
- * Airtable's `mapRow` (tests/db/fleet-state.test.ts).
- *
- * The Airtable SHADOW writes these jobs still make are untouched: each Airtable
- * writer skips a non-`rec` id itself (`AIRTABLE_SHADOW skipped=non-rec-id`).
+ * Every site, one `WebsiteRow` each — the rows the reader-equivalence
+ * instrument pins field-for-field to `mapRow` (tests/db/fleet-state.test.ts).
  *
  * `open` defaults to `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`; tests inject a temp
  * `file:` db or a whole `FleetRoster`. The connection this opens is closed before

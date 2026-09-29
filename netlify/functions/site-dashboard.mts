@@ -27,7 +27,7 @@ import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../../src/alerts/digest-collectors.js
 export const config: Config = {
   path: ["/s/:slug", "/.netlify/functions/site-dashboard"],
   // Same shape as the fleet homepage: a Basic-auth-gated read endpoint, capped
-  // per-IP so a credential-guessing or scraping loop can't hammer Airtable.
+  // per-IP so a credential-guessing or scraping loop can't hammer Turso.
   rateLimit: {
     windowSize: 60,
     windowLimit: 60,
@@ -73,9 +73,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   // Operator-only: gate the per-site dashboard with the same shared password as
   // the fleet homepage, and the SAME Basic realm so the browser reuses creds
   // when the operator clicks through from /. The per-site token model is retired
-  // — cockpit visibility is now Status-based. Gate BEFORE any Airtable read so an
-  // unauthenticated probe can't fetch a site — and before the Airtable/Turso env
-  // guards so a probe can't tell which backend env is unset (only the password
+  // — cockpit visibility is now Status-based. Gate BEFORE any Turso read so an
+  // unauthenticated probe can't fetch a site — and before the Turso env
+  // guard so a probe can't tell which backend env is unset (only the password
   // check, which auth itself needs, precedes).
   const auth = requireOperator(req, { wants: "redirect" });
   if (!auth.ok) return denialResponse(auth.denial);
@@ -93,7 +93,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
     const site = await getSiteBySlug(db, slug);
     if (!site) {
-      // A genuine miss returns inside the try — only a THROWN Airtable failure
+      // A genuine miss returns inside the try — only a THROWN Turso failure
       // reaches handlerError below, so "not found" stays a 404, not a 502.
       return plainText(`No site found for slug '${slug}'.`, 404);
     }

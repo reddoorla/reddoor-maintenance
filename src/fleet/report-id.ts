@@ -1,12 +1,12 @@
 /**
- * Report ids after Airtable (#646 step 4, operator decision 2026-09-17).
+ * Report ids (#646 step 4, operator decision 2026-09-17).
  *
- * The site decision (`site-id.ts`), applied to the other table Airtable used to
- * mint for us. Two shapes coexist PERMANENTLY:
+ * The site decision (`site-id.ts`), applied to reports. Two shapes coexist
+ * PERMANENTLY:
  *
- *   - `rec…`            every report drafted before this. Airtable's record id
- *                       became the Turso primary key at import (design D1) and is
- *                       never rewritten — `reports.id` is what the approve route,
+ *   - `rec…`            every report drafted before this. The imported record id
+ *                       is the primary key (design D1) and is never rewritten —
+ *                       `reports.id` is what the approve route,
  *                       the preview url, the re-render and the send all address.
  *   - `report_<ULID>`   every report drafted since, minted here.
  *
@@ -44,10 +44,7 @@ export function isMintedReportId(id: string): boolean {
  * query string, so the route answers 404 for anything that is not one of the two
  * minters' output shapes. The `rec` half is the routes' own `/^rec[A-Za-z0-9]+$/`
  * kept EXACTLY as it was — widening it here would quietly relax three request
- * paths that this change is only supposed to teach a second shape. That is also
- * why it is stricter than `isAirtableRecordId`, which is the SHADOW-WRITE
- * question ("could Airtable hold this row at all") and answers it for readable
- * test fixtures like `rec_report_1` too.
+ * paths that this change is only supposed to teach a second shape.
  */
 export function isReportId(id: string): boolean {
   return /^rec[A-Za-z0-9]+$/.test(id) || isMintedReportId(id);

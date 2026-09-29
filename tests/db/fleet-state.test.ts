@@ -1,19 +1,20 @@
-/** The reader-equivalence instrument for Phase 2 (#539): for the same Airtable
- *  record, the Turso read layer must produce EXACTLY the WebsiteRow the
- *  Airtable module's mapRow produces — proven by deep-equal over the whole row,
+/** The reader-equivalence instrument for Phase 2 (#539): for the same raw
+ *  record, the Turso read layer must produce EXACTLY the WebsiteRow that
+ *  site-fields' mapRow produces — proven by deep-equal over the whole row,
  *  so every one of the 76 fields is pinned and a NEW WebsiteRow field fails
  *  here until fleet-state.ts carries it. Three fixtures: rich (every kind of
  *  field populated), sparse (Name only — every default exercised), and weird
  *  (unknown enum values, padded strings, malformed JSON — the coercion edges).
  *
- *  headerImage is asserted separately: per design D5 its source MOVED to Turso
- *  (Airtable's attachment is deliberately not imported), so equivalence with
+ *  headerImage is asserted separately: per design D5 its source is Turso (the
+ *  record's attachment is deliberately not imported), so equivalence with
  *  mapRow is not the contract — "null until the Phase 3 writer lands" is.
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
+import type { RawRecord } from "../../src/db/field-map.js";
 import {
+  mirrorSiteInsert,
   getSiteBySlug,
   getSiteById,
   listSites,
@@ -23,19 +24,27 @@ import {
   mirrorReportPatch,
   mirrorReportInsert,
   storeRenderedHtml,
+  storeChecklistEvidence,
+  getReportById,
   getReportHtml,
   listAllReports,
 } from "../../src/db/fleet-state.js";
 import { openCapturingDb } from "./query-plan-harness.js";
-import { EDITABLE_SITE_FIELDS } from "../../src/dashboard/site-details.js";
+import { EDITABLE_SITE_FIELDS, setSiteDetail } from "../../src/dashboard/site-details.js";
+import {
+  analyticsOptedOut,
+  onboardingStatus,
+  searchConsoleOptedOut,
+} from "../../src/dashboard/onboarding.js";
+import type { CellValue } from "../../src/fleet/site-fields.js";
 import {
   SITE_FIELDS,
   HEALTH_FIELDS,
   HEALTH_BOOLEAN,
   SCHEDULE_FIELDS,
   healthColumnFor,
-} from "../../src/db/import-airtable.js";
-import { mapRow, siteSlug } from "../../src/reports/airtable/websites.js";
+} from "../../src/db/field-map.js";
+import { mapRow, siteSlug } from "../../src/fleet/site-fields.js";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
 
@@ -146,30 +155,21 @@ const WEIRD: RawRecord = {
   },
 };
 
-const io = (records: RawRecord[]): ImportIo => ({
-  listWebsiteRecords: async () => records,
-  listReportRecords: async () => [],
-  fetchAttachment: async () => null,
-  now: () => NOW,
-});
-
-async function importOf(records: RawRecord[]) {
+async function seeded(records: RawRecord[]) {
   const db = await openDb({ url: ":memory:" });
-  await importFleetState(db, io(records));
+  for (const rec of records) await mirrorSiteInsert(db, rec, NOW.toISOString());
   return db;
 }
 
 /** Deep-equal against mapRow with headerImage split out (D5 — see header). */
 async function expectEquivalent(rec: RawRecord) {
-  const db = await importOf([rec]);
+  const db = await seeded([rec]);
   const got = await getSiteBySlug(db, siteSlug(String(rec.fields.Name)));
   expect(got).not.toBeNull();
   const expected = mapRow(rec);
   const { headerImage: _e, ...expectedRest } = expected;
   const { headerImage: gotHeader, ...gotRest } = got!;
   expect(gotRest).toEqual(expectedRest);
-  // Nothing writes sites.header_image* yet (verified empty in prod 2026-08-24);
-  // approve-report stays on the Airtable reader until the Phase 3 writer lands.
   expect(gotHeader).toBeNull();
 }
 
@@ -190,8 +190,8 @@ describe("fleet-state read layer ≡ mapRow (the Phase 2 equivalence instrument)
   // equivalence, so a one-sided change fails here. `archived` was the riskiest
   // value while the alias map lived: it was the ONE many-to-one merge, with
   // `legacy` and `deprecated` both landing on it while `statusRaw` kept them
-  // apart. Since stage 3 those two names cannot be entered in Airtable at all,
-  // so `archived` is the only archived fixture production can produce.
+  // apart. Since stage 3 those two names cannot be entered at all, so
+  // `archived` is the only archived fixture production can produce.
   it("archived record: the archived status pairs identically through either reader", async () => {
     await expectEquivalent({
       id: "recARCH",
@@ -200,24 +200,24 @@ describe("fleet-state read layer ≡ mapRow (the Phase 2 equivalence instrument)
   });
 
   it("getSiteBySlug returns null for an unknown slug", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     expect(await getSiteBySlug(db, "nope")).toBeNull();
   });
 
   it("getSiteById finds by rec id and returns null for unknown", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     expect((await getSiteById(db, "recRICH"))?.name).toBe("Acme Gallery");
     expect(await getSiteById(db, "recNOPE")).toBeNull();
   });
 
   it("listSites returns every site, name-ordered", async () => {
-    const db = await importOf([RICH, SPARSE, WEIRD]);
+    const db = await seeded([RICH, SPARSE, WEIRD]);
     const names = (await listSites(db)).map((s) => s.name);
     expect(names).toEqual(["Acme Gallery", "Bare Site", "Weird Site"]);
   });
 
   it("a site row without health/schedule rows still reads (LEFT JOIN, not INNER)", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await db.deleteFrom("site_health").execute();
     await db.deleteFrom("site_schedule").execute();
     const row = await getSiteBySlug(db, "acme-gallery");
@@ -240,11 +240,10 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
   });
 
   it("mirrors an edit into sites immediately, storing the cell VERBATIM", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await mirrorSiteField(db, "recRICH", "Status", "archived");
     const mirrored = await getSiteBySlug(db, "acme-gallery");
-    // Stored raw, canonicalized on read — the Turso half of the #539 Phase 4
-    // status-vocabulary seam (mapRow does the same on the Airtable half).
+    // Stored raw, canonicalized on read, as mapRow does.
     //
     // This used to mirror "legacy" and assert it read back as "archived", which
     // demonstrated the seam by making the two halves DIFFER. Stage 3 deleted the
@@ -256,13 +255,42 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
     expect(mirrored?.status).toBe("archived");
   });
 
+  it("editor 'no analytics' and 'no search console' opt-outs land in Turso and satisfy both setup checks", async () => {
+    const db = await seeded([RICH]);
+    const deps = {
+      getSite: (slug: string) => getSiteBySlug(db, slug),
+      updateField: (id: string, col: string, val: CellValue) => mirrorSiteField(db, id, col, val),
+    };
+    expect(
+      (
+        await setSiteDetail(
+          deps,
+          "acme-gallery",
+          "acceptedWatchConditions",
+          "no analytics, no search console",
+        )
+      ).status,
+    ).toBe("updated");
+    const after = (await getSiteBySlug(db, "acme-gallery"))!;
+    expect(after.acceptedWatchConditions).toEqual(["no analytics", "no search console"]);
+    expect(analyticsOptedOut(after)).toBe(true);
+    expect(searchConsoleOptedOut(after)).toBe(true);
+    const checks = onboardingStatus({
+      ...after,
+      ga4PropertyId: null,
+      searchConsoleProperty: null,
+    }).checks;
+    expect(checks.analytics).toBe(true);
+    expect(checks.searchConsole).toBe(true);
+  });
+
   it("mirrors a value the code does NOT recognize, rather than normalizing it away", async () => {
     // The half of the retired test that still bites. The write-through must not
     // filter or coerce what it is given — a stale or hand-entered cell has to
-    // land verbatim so the cockpit can flag it, exactly as the Airtable reader
-    // does. `legacy` is the realistic instance: a retired option name that no
+    // land verbatim so the cockpit can flag it, exactly as mapRow does.
+    // `legacy` is the realistic instance: a retired option name that no
     // longer exists in the field and must now read as an anomaly, not as archived.
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await mirrorSiteField(db, "recRICH", "Status", "legacy");
     const mirrored = await getSiteBySlug(db, "acme-gallery");
     expect(mirrored?.statusRaw).toBe("legacy");
@@ -270,13 +298,13 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
   });
 
   it("an emptied value clears to null — the importer's empty-clears semantics", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await mirrorSiteField(db, "recRICH", "GA4 property ID", "  ");
     expect((await getSiteBySlug(db, "acme-gallery"))?.ga4PropertyId).toBeNull();
   });
 
   it("throws on a column the importer does not claim", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await expect(mirrorSiteField(db, "recRICH", "No Such Column", "x")).rejects.toThrow(
       "importer claims no sites column",
     );
@@ -299,7 +327,7 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
     // Mirror all of RICH's health cells onto the SPARSE site's (all-null) row:
     // it must converge to byte-equality with the row the importer built from
     // the same cells. One coercion diverging fails on that column.
-    const db = await importOf([RICH, SPARSE]);
+    const db = await seeded([RICH, SPARSE]);
     const healthFields = Object.fromEntries(
       Object.entries(RICH.fields).filter(([k]) => healthColumnFor(k) !== null),
     );
@@ -318,7 +346,7 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
   });
 
   it("is partial: absent fields stay untouched (updateGitHubSignals' null-lastCommitAt contract)", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     const before = await db
       .selectFrom("site_health")
       .selectAll()
@@ -335,7 +363,7 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
   });
 
   it("throws on a field no site_health column claims — and writes nothing for it", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await expect(mirrorHealthFields(db, "recRICH", { "No Such Column": 1 })).rejects.toThrow(
       "importer claims no site_health column",
     );
@@ -349,19 +377,18 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
   });
 
   it("reports whether a site_health row matched: true on a known-good site, false on one the hourly sync hasn't imported", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     // Instrument proof first: the known-good path must return true before the
     // false branch below may be read as a finding (a check that has only ever
     // failed is an untested assertion).
     await expect(mirrorHealthFields(db, "recRICH", { "Smoke OK": "pass" })).resolves.toBe(true);
-    // A site created in Airtable after the last import has no site_health row:
-    // the UPDATE matches 0 rows and the caller must be told — counting it as
-    // "mirrored" is the honesty gap Phase 5 cutover confidence would inherit.
+    // A site with no site_health row: the UPDATE matches 0 rows and the caller
+    // must be told, not count it as "mirrored".
     await expect(mirrorHealthFields(db, "recGHOST", { "Smoke OK": "pass" })).resolves.toBe(false);
   });
 
   it("schedule mirror reports the same matched/missed distinction", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await expect(
       mirrorScheduleFields(db, "recRICH", { "Next testing at": "2026-12-01" }, NOW.toISOString()),
     ).resolves.toBe(true);
@@ -371,11 +398,11 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
   });
 
   it("schedule lockstep: mirrored next-due dates equal the importer's schedule row", async () => {
-    const db = await importOf([RICH, SPARSE]);
+    const db = await seeded([RICH, SPARSE]);
     const scheduleFields = Object.fromEntries(
       Object.entries(RICH.fields).filter(([k]) => k in SCHEDULE_FIELDS),
     );
-    // importOf stamps computed_at with NOW — pass the same stamp so the whole
+    // seeded stamps computed_at with NOW — pass the same stamp so the whole
     // row (not all-but-one column) must match.
     await mirrorScheduleFields(db, "recSPARSE", scheduleFields, NOW.toISOString());
     const imported = await db
@@ -392,7 +419,7 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
   });
 
   it("schedule mirror clears a date to null, stamps computed_at, rejects unclaimed fields", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     // A stamp DISTINCT from the import's NOW, so a mirror that forgets to
     // write computed_at cannot hide behind the import's identical value.
     const later = "2026-08-25T03:00:00.000Z";
@@ -467,7 +494,7 @@ describe("report LIST reads never haul the rendered_html body", () => {
 
   it("still reports whether a body exists, in both states", async () => {
     // A guard that only ever saw one state would pass while returning a constant.
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await db
       .insertInto("reports")
       .values({
@@ -489,7 +516,7 @@ describe("report LIST reads never haul the rendered_html body", () => {
 
 describe("mirrorReportPatch (approve/webhook write-through)", () => {
   it("an approve patch is visible on the very next read", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await db
       .insertInto("reports")
       .values({
@@ -539,7 +566,7 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
   });
 
   it("an empty patch is a no-op, not invalid SQL", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     // Nothing to write is not a miss: there is no row it could have failed to
     // match, so it reports matched rather than sending a strict caller to throw.
     await expect(mirrorReportPatch(db, "recX", {})).resolves.toBe(true);
@@ -549,7 +576,7 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
     // Before #647 the row count was discarded, so a report row that never
     // reached Turso mirrored "successfully" — the one outcome the freeze calls
     // a bug (`mirrored=missed`) was indistinguishable from a landed write.
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await mirrorReportInsert(db, { id: "recRPT1", fields: { "Report ID": "R1" } });
     await expect(mirrorReportPatch(db, "recRPT1", { draft_ready: 0 })).resolves.toBe(true);
     await expect(mirrorReportPatch(db, "recNEVER", { draft_ready: 0 })).resolves.toBe(false);
@@ -559,7 +586,7 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
     // re-renders straight after the write. Without commentary in the patch the
     // operator would save, see the OLD text, and reasonably conclude the save
     // had failed — up to an hour, until the sync caught up.
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await db
       .insertInto("reports")
       .values({
@@ -588,13 +615,10 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
 /**
  * #539 Phase 4: `Require Turnstile` (checkbox) and `Accepted Watch Conditions`
  * (multipleSelects) are the two editor fields that CANNOT be written as strings.
- * The mirror's whole risk is coercing them differently from the importer — the
- * hourly parity check compares raw-to-raw, so a mirror that stores `"true"`
- * where the importer stores `1` reds every run until the next import papers
- * over it.
+ * The mirror's whole risk is coercing them differently from the importer.
  */
 describe("mirrorSiteField — the non-text editor columns", () => {
-  const storedOf = async (db: Awaited<ReturnType<typeof importOf>>) =>
+  const storedOf = async (db: Awaited<ReturnType<typeof seeded>>) =>
     (await db
       .selectFrom("sites")
       .select(["require_turnstile", "accepted_watch_conditions"])
@@ -602,7 +626,7 @@ describe("mirrorSiteField — the non-text editor columns", () => {
       .executeTakeFirst())!;
 
   it("stores a checkbox as the importer's 1/0, not a string", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await mirrorSiteField(db, "recRICH", "Require Turnstile", false);
     expect((await storedOf(db)).require_turnstile).toBe(0);
     await mirrorSiteField(db, "recRICH", "Require Turnstile", true);
@@ -610,7 +634,7 @@ describe("mirrorSiteField — the non-text editor columns", () => {
   });
 
   it("stores a multi-select as the importer's trimmed JSON array", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await mirrorSiteField(db, "recRICH", "Accepted Watch Conditions", ["Performance", "  SEO  "]);
     expect((await storedOf(db)).accepted_watch_conditions).toBe(
       JSON.stringify(["Performance", "SEO"]),
@@ -620,15 +644,15 @@ describe("mirrorSiteField — the non-text editor columns", () => {
     expect((await storedOf(db)).accepted_watch_conditions).toBeNull();
   });
 
-  it("MATCHES the importer byte-for-byte — the property parity actually checks", async () => {
-    // The instrument that matters: mirror a value, then import a record whose
-    // Airtable cell holds that same value, and require the stored columns to be
-    // identical. Any divergence here is an hourly red run.
-    const mirrored = await importOf([RICH]);
+  it("MATCHES the importer byte-for-byte", async () => {
+    // The instrument that matters: mirror a value, then insert a record whose
+    // cell holds that same value, and require the stored columns to be
+    // identical.
+    const mirrored = await seeded([RICH]);
     await mirrorSiteField(mirrored, "recRICH", "Require Turnstile", false);
     await mirrorSiteField(mirrored, "recRICH", "Accepted Watch Conditions", ["SEO", "stale repo"]);
 
-    const imported = await importOf([
+    const imported = await seeded([
       {
         ...RICH,
         fields: {
@@ -648,8 +672,63 @@ describe("mirrorSiteField — the non-text editor columns", () => {
  * is deliberately NOT in `ReportMirrorPatch` — that patch is for request-path
  * writers, and a rendered body is produced by a batch job, not a dashboard POST.
  */
+describe("storeChecklistEvidence (#890)", () => {
+  const insert = async (
+    db: Awaited<ReturnType<typeof seeded>>,
+    id: string,
+    over: { approved_to_send?: number; sent_at?: string | null } = {},
+  ) =>
+    db
+      .insertInto("reports")
+      .values({
+        id,
+        site_id: "recRICH",
+        report_id: "EV",
+        report_type: "Maintenance",
+        draft_ready: 1,
+        approved_to_send: 0,
+        send_override: 0,
+        checklist: JSON.stringify({ deploy: false, cms: false }),
+        checklist_auto_evidence: JSON.stringify({
+          "Maint: CMS Checked": { result: "unknown", checkedAt: null, note: "Not yet measured" },
+        }),
+        ...over,
+      })
+      .execute();
+  const EVIDENCE = {
+    "Maint: CMS Checked": {
+      result: "pass" as const,
+      checkedAt: "2026-09-27T13:40:57.214Z",
+      note: "Prismic reachable (server-side)",
+    },
+  };
+
+  it("writes evidence and ticks where the reader reads them back", async () => {
+    const db = await seeded([RICH]);
+    await insert(db, "recEV1");
+    const before = (await getReportById(db, "recEV1"))!;
+    const checklist = { ...before.checklist, "Maint: CMS Checked": true };
+    expect(await storeChecklistEvidence(db, "recEV1", checklist, EVIDENCE)).toBe(true);
+    const after = (await getReportById(db, "recEV1"))!;
+    expect(after.autoEvidence).toEqual(EVIDENCE);
+    expect(after.checklist).toEqual(checklist);
+  });
+
+  it("refuses an approved or a sent row, leaving it as it was", async () => {
+    const db = await seeded([RICH]);
+    await insert(db, "recEV2", { approved_to_send: 1 });
+    await insert(db, "recEV3", { sent_at: "2026-09-20T09:23:00.000Z" });
+    for (const id of ["recEV2", "recEV3"]) {
+      const before = (await getReportById(db, id))!;
+      expect(await storeChecklistEvidence(db, id, before.checklist, EVIDENCE)).toBe(false);
+      expect((await getReportById(db, id))!.autoEvidence).toEqual(before.autoEvidence);
+    }
+    expect(await storeChecklistEvidence(db, "recNOPE", {}, EVIDENCE)).toBe(false);
+  });
+});
+
 describe("storeRenderedHtml", () => {
-  const insert = async (db: Awaited<ReturnType<typeof importOf>>, id: string) =>
+  const insert = async (db: Awaited<ReturnType<typeof seeded>>, id: string) =>
     db
       .insertInto("reports")
       .values({
@@ -664,7 +743,7 @@ describe("storeRenderedHtml", () => {
       .execute();
 
   it("stores a freshly rendered body where the preview route reads it", async () => {
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await insert(db, "recRPT_H");
     await storeRenderedHtml(db, "recRPT_H", "<html>fresh</html>");
     expect((await getReportHtml(db, "recRPT_H"))?.html).toBe("<html>fresh</html>");
@@ -673,7 +752,7 @@ describe("storeRenderedHtml", () => {
   it("REPLACES a previous body rather than appending or skipping", async () => {
     // A refresh whose whole purpose is showing the newest commentary must
     // overwrite; a when-missing style skip would silently serve the stale one.
-    const db = await importOf([RICH]);
+    const db = await seeded([RICH]);
     await insert(db, "recRPT_H2");
     await storeRenderedHtml(db, "recRPT_H2", "<html>old</html>");
     await storeRenderedHtml(db, "recRPT_H2", "<html>new</html>");

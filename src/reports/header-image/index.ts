@@ -13,7 +13,7 @@ const HEADLINE_INK_TOLERANCE = 500;
 export type GenerateInput = {
   /** The site's production URL. */
   url: string;
-  /** Airtable site slug; drives the attachment filename. */
+  /** Site slug; drives the attachment filename. */
   slug?: string;
   /** Injected browser IO (tests). */
   shooter?: Shooter;

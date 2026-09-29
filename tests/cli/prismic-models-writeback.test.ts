@@ -16,12 +16,12 @@ import { join } from "node:path";
 import {
   runPrismicModelsCommand,
   sweepRowWriteback,
-  writeSweepToAirtable,
+  writeSweep,
   type PrismicModelsDeps,
   type PrismicVerdictSink,
   type SweepRow,
 } from "../../src/cli/commands/prismic-models.js";
-import type { PrismicModelsWriteback } from "../../src/reports/airtable/websites.js";
+import type { PrismicModelsWriteback } from "../../src/fleet/site-fields.js";
 import type { RemoteEntry } from "../../src/prismic/models/index.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
@@ -113,10 +113,10 @@ describe("sweepRowWriteback", () => {
 // ---------------------------------------------------------------------------
 // The write itself: joining rows to records, and never losing one silently.
 // ---------------------------------------------------------------------------
-describe("writeSweepToAirtable", () => {
+describe("writeSweep", () => {
   it("writes pass with a null drift for a clean site", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable([row()], websites, update, "2026-08-12T06:00:00.000Z");
+    const res = await writeSweep([row()], websites, update, "2026-08-12T06:00:00.000Z");
     expect(written(update)).toEqual([
       "rec1",
       { verdict: "pass", checkedAt: "2026-08-12T06:00:00.000Z", detail: null },
@@ -127,12 +127,7 @@ describe("writeSweepToAirtable", () => {
 
   it("writes fail with the report as the drift detail", async () => {
     const update = recorder();
-    await writeSweepToAirtable(
-      [row({ clean: false, detail: "CHANGED  slice hero" })],
-      websites,
-      update,
-      "t",
-    );
+    await writeSweep([row({ clean: false, detail: "CHANGED  slice hero" })], websites, update, "t");
     expect(written(update)[1]).toMatchObject({ verdict: "fail", detail: "CHANGED  slice hero" });
   });
 
@@ -140,7 +135,7 @@ describe("writeSweepToAirtable", () => {
   // this file.
   it("writes unknown — not nothing — for a site whose check failed", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       [row({ status: "failed", clean: null, detail: "cannot read this checkout" })],
       websites,
       update,
@@ -151,12 +146,12 @@ describe("writeSweepToAirtable", () => {
     expect(res.written).toHaveLength(1);
   });
 
-  // Airtable's Name is the fleet's join key everywhere else in this repo, via
+  // The site Name is the fleet's join key everywhere else in this repo, via
   // siteSlug — so "Espada" and "espada" are one site, exactly as they are for
   // `audit --write-back`.
   it("joins on the slug, not on an exact name match", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       [row({ site: "espada" })],
       [{ id: "rec1", name: "Espada" }],
       update,
@@ -168,7 +163,7 @@ describe("writeSweepToAirtable", () => {
 
   it("reports a row with no matching Websites record instead of dropping it", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable([row({ site: "Ghost" })], websites, update, "t");
+    const res = await writeSweep([row({ site: "Ghost" })], websites, update, "t");
     expect(update).not.toHaveBeenCalled();
     expect(res.failed.map((f) => f.slug)).toEqual(["ghost"]);
     expect(res.failed[0]!.error).toMatch(/no Websites row/i);
@@ -178,7 +173,7 @@ describe("writeSweepToAirtable", () => {
   // written to the wrong client's row is worse than a verdict not written.
   it("refuses to guess when two Websites rows match one site", async () => {
     const update = recorder();
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       [row()],
       // Two rows that differ only in case slug identically — the realistic shape
       // of a duplicated site in the Websites table.
@@ -193,14 +188,13 @@ describe("writeSweepToAirtable", () => {
     expect(res.failed[0]!.error).toMatch(/2 Websites rows/i);
   });
 
-  // The columns are operator-added. Until they exist Airtable throws
-  // UNKNOWN_FIELD_NAME on every row — that must not stop the sweep, and it must
-  // not vanish either.
+  // A write that throws on a row must not stop the sweep, and it must not
+  // vanish either.
   it("records an UNKNOWN_FIELD_NAME as a soft failure and keeps going", async () => {
     const update = vi.fn<PrismicVerdictSink["update"]>(async () => {
       throw new Error("UNKNOWN_FIELD_NAME: Prismic Models");
     });
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       [row(), row({ site: "Hedloc" })],
       [
         { id: "rec1", name: "Espada" },
@@ -221,7 +215,7 @@ describe("writeSweepToAirtable", () => {
     const update = vi.fn<PrismicVerdictSink["update"]>(async () => {
       throw "rate limited";
     });
-    const res = await writeSweepToAirtable([row()], websites, update, "t");
+    const res = await writeSweep([row()], websites, update, "t");
     expect(res.failed[0]!.error).toContain("rate limited");
   });
 
@@ -236,7 +230,7 @@ describe("writeSweepToAirtable", () => {
       row({ site: "Skipped", status: "skipped", clean: null }),
       row({ site: "Broken", status: "failed", clean: null }),
     ];
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       rows,
       [
         { id: "rec1", name: "Espada" },
@@ -252,7 +246,7 @@ describe("writeSweepToAirtable", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The flag, end to end through the command — no network, no git, no Airtable.
+// The flag, end to end through the command — no network, no git, no database.
 // ---------------------------------------------------------------------------
 
 let root: string;
@@ -305,7 +299,7 @@ const deps = (
   remote: Record<string, RemoteEntry[]>,
   env: Record<string, string | undefined>,
   openVerdictSink: PrismicModelsDeps["openVerdictSink"] = async () => {
-    throw new Error("this test never opens Airtable");
+    throw new Error("this test never opens the fleet store");
   },
 ): PrismicModelsDeps => ({
   remoteModels: vi.fn(async (repo: string) => {
@@ -380,8 +374,8 @@ describe("runPrismicModelsCommand — --write-back", () => {
     expect(r.code).toBe(0);
   });
 
-  // The control for the test above: without the flag, nothing may touch Airtable.
-  it("opens no Airtable connection without the flag", async () => {
+  // The control for the test above: without the flag, the sink is never opened.
+  it("opens no verdict sink without the flag", async () => {
     await makeSite("espada", "espada", ["page"]);
     const fleet = await inventory(["espada"]);
     const sink = fakeSink([{ id: "rec1", name: "espada" }]);
@@ -394,7 +388,7 @@ describe("runPrismicModelsCommand — --write-back", () => {
     expect(r.output).not.toContain("FLEET_WRITE_SUMMARY");
   });
 
-  // A site nobody could read reaches Airtable as `unknown`, through the whole
+  // A site nobody could read is persisted as `unknown`, through the whole
   // command — the end-to-end form of the mapping test above.
   it("persists unknown for a site whose check failed", async () => {
     await makeSite("espada", "espada", ["page"]);
@@ -459,18 +453,18 @@ describe("runPrismicModelsCommand — --write-back", () => {
   // "Asked to write and wrote nothing" must never exit 0 — that is the silent
   // no-op the flag guard existed to prevent, arriving by another door. The report
   // is kept: it is the only thing this run produced.
-  it("keeps the report and goes non-zero when Airtable cannot be opened at all", async () => {
+  it("keeps the report and goes non-zero when the verdict sink cannot be opened at all", async () => {
     await makeSite("espada", "espada", ["page"]);
     const fleet = await inventory(["espada"]);
     const r = await runPrismicModelsCommand(
       undefined,
       { cwd: root, fleet, workdir, writeBack: true },
       deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" }, async () => {
-        throw new Error("AIRTABLE_PAT is not set");
+        throw new Error("TURSO_DATABASE_URL is not set");
       }),
     );
     expect(r.code).not.toBe(0);
-    expect(r.output).toContain("AIRTABLE_PAT is not set");
+    expect(r.output).toContain("TURSO_DATABASE_URL is not set");
     expect(r.output).toContain("[espada]");
     expect(r.output).toMatch(/nothing was written/i);
   });

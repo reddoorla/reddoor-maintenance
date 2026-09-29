@@ -1,15 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
-import { createDraft } from "../../src/reports/airtable/reports.js";
+import { describe, it, expect } from "vitest";
+import { createReportDraft } from "../../src/reports/create-report.js";
+import { mapRow } from "../../src/reports/report-fields.js";
 
-/** Minimal Airtable base stub: captures the fields passed to create(), echoes them back. */
-function stubBase(captured: { fields?: Record<string, unknown> }) {
-  const table = {
-    create: vi.fn(async (recs: Array<{ fields: Record<string, unknown> }>) => {
-      captured.fields = recs[0]!.fields;
-      return [{ id: "recNEW", fields: recs[0]!.fields }];
-    }),
+function capturingCreate(captured: { fields?: Record<string, unknown> }) {
+  return async (rec: { id: string; fields: Record<string, unknown> }) => {
+    captured.fields = rec.fields;
+    return mapRow(rec);
   };
-  return Object.assign(() => table, { _table: table }) as never;
 }
 
 const baseInput = {
@@ -23,14 +20,13 @@ const baseInput = {
   lastTestedDate: null,
 };
 
-describe("createDraft search fields", () => {
+describe("createReportDraft search fields", () => {
   it("writes the checkbox true and the position when found on page 1", async () => {
     const cap: { fields?: Record<string, unknown> } = {};
-    const row = await createDraft(stubBase(cap), {
-      ...baseInput,
-      searchFoundPage1: true,
-      searchPosition: 2,
-    });
+    const row = await createReportDraft(
+      { ...baseInput, searchFoundPage1: true, searchPosition: 2 },
+      { create: capturingCreate(cap), mintId: () => "report_NEW" },
+    );
     expect(cap.fields!["Search found page 1"]).toBe(true);
     expect(cap.fields!["Search position"]).toBe(2);
     expect(row.searchFoundPage1).toBe(true);
@@ -39,14 +35,20 @@ describe("createDraft search fields", () => {
 
   it("writes the checkbox false and omits position when checked but not on page 1", async () => {
     const cap: { fields?: Record<string, unknown> } = {};
-    await createDraft(stubBase(cap), { ...baseInput, searchFoundPage1: false });
+    await createReportDraft(
+      { ...baseInput, searchFoundPage1: false },
+      { create: capturingCreate(cap), mintId: () => "report_NEW" },
+    );
     expect(cap.fields!["Search found page 1"]).toBe(false);
     expect("Search position" in cap.fields!).toBe(false);
   });
 
   it("omits both fields when the check did not run", async () => {
     const cap: { fields?: Record<string, unknown> } = {};
-    await createDraft(stubBase(cap), baseInput);
+    await createReportDraft(baseInput, {
+      create: capturingCreate(cap),
+      mintId: () => "report_NEW",
+    });
     expect("Search found page 1" in cap.fields!).toBe(false);
     expect("Search position" in cap.fields!).toBe(false);
   });

@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { runFleetWriteBack } from "../../src/cli/commands/audit.js";
-import { makeFakeBase, type FakeAirtableBase } from "../reports/_helpers/fake-airtable-base.js";
-import { listWebsites } from "../../src/reports/airtable/websites.js";
+import { planAuditWrite } from "../../src/audits/write-audits.js";
+import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import type { AuditResult } from "../../src/types.js";
 import type { FleetEvent } from "../../src/db/fleet-events.js";
 
@@ -11,14 +11,13 @@ import type { FleetEvent } from "../../src/db/fleet-events.js";
  *  spread silently stopped all five nightly sweeps from mirroring while every
  *  test stayed green (adversarial review of #566, finding 6). */
 
-const websites = [{ id: "recA", fields: { Name: "Acme Co", Status: "maintenance" } }];
+const websites = websiteRowsFrom([
+  { id: "recA", fields: { Name: "Acme Co", Status: "maintenance" } },
+]);
 
-/** #646 step 4: the roster is Turso's, injected here. These fixtures keep living in
- *  the fake Airtable base because the Airtable SHADOW write is half of what this
- *  file pins, and `listWebsites`' rows are the same `WebsiteRow`s Turso returns
- *  (pinned field-for-field by tests/db/fleet-state.test.ts). A Turso-backed roster
+/** #646 step 4: the roster is Turso's, injected here. A Turso-backed roster
  *  driving this seam end to end is tests/cli/fleet-roster-turso.test.ts. */
-const rosterOf = (base: FakeAirtableBase) => () => listWebsites(base);
+const roster = async () => websites;
 
 function lhResult(siteSlug: string): AuditResult {
   return {
@@ -33,16 +32,20 @@ function lhResult(siteSlug: string): AuditResult {
 }
 
 describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
-  it("hands the built mirror to writeFleetAuditsToAirtable — kills the wiring-deleted mutation", async () => {
-    const base = makeFakeBase({ Websites: websites });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("hands the built mirror to writeFleetAudits — kills the wiring-deleted mutation", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-28T12:00:00.000Z"));
     const calls: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
     const events: FleetEvent[] = [];
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co")],
       which: ["lighthouse"],
       deps: {
-        openBase: () => base,
-        roster: rosterOf(base),
+        roster,
         makeMirror: async () => async (siteId: string, fields: Record<string, unknown>) => {
           calls.push({ siteId, fields });
           return true;
@@ -50,15 +53,14 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
         recordEvents: async (ev) => {
           events.push(...ev);
         },
-        strict: false,
       },
     });
-    // Channel 1: the mirror saw exactly what the sweep wrote to Airtable.
-    const updates = base.__calls.filter((c) => c.kind === "update");
-    expect(updates).toHaveLength(1);
+    // Channel 1: the mirror saw exactly the FieldSet the planner built.
+    const planned = planAuditWrite({ websites, slug: "acme-co", results: [lhResult("acme-co")] });
+    expect(Object.keys(planned.summary.fields ?? {}).length).toBeGreaterThan(0);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.siteId).toBe("recA");
-    expect(calls[0]!.fields).toEqual(updates[0]!.records[0]!.fields);
+    expect(calls[0]!.fields).toEqual(planned.summary.fields);
     // Channel 2: the mirror counts surface on the summary the CLI prints.
     expect(res.anyFailed).toBe(false);
     expect(res.summary).toContain(
@@ -68,77 +70,45 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
     expect(events.some((e) => e.type === "fleet_swept")).toBe(true);
   });
 
-  it("makeMirror resolving null (no libSQL creds): Airtable-only write-back, no mirror keys", async () => {
-    const base = makeFakeBase({ Websites: websites });
+  it("makeMirror resolving null: the site fails, anyFailed flips, no mirror keys (#612)", async () => {
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co")],
       which: ["lighthouse"],
       deps: {
-        openBase: () => base,
-        roster: rosterOf(base),
+        roster,
         makeMirror: async () => null,
         recordEvents: async () => {},
-        strict: false,
-      },
-    });
-    expect(res.anyFailed).toBe(false);
-    expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=1 failed=0 total=1");
-    expect(res.summary).not.toContain("mirrored=");
-  });
-
-  it("post-freeze: a null mirror flips anyFailed — the sweep wrote to nothing (#612)", async () => {
-    // Pre-freeze this exact case is GREEN (the test above), because the hourly
-    // import converges what the missing mirror skipped. Post-freeze there is no
-    // import, so a sweep with no mirror wired wrote the fleet's health into the
-    // one store that no longer exists to be reconciled — and it would have
-    // finished green on a line reading `wrote=1 failed=0`.
-    const base = makeFakeBase({ Websites: websites });
-    const res = await runFleetWriteBack({
-      results: [lhResult("acme-co")],
-      which: ["lighthouse"],
-      deps: {
-        openBase: () => base,
-        roster: rosterOf(base),
-        makeMirror: async () => null,
-        recordEvents: async () => {},
-        strict: true,
       },
     });
     expect(res.anyFailed).toBe(true);
-    // The Airtable write still happened and still reports honestly — this gates
-    // the RUN, it does not abort the loop.
-    expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=1 failed=0 total=1");
+    expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=0 failed=1 total=1");
+    expect(res.summary).toContain("acme-co (no Turso store configured)");
+    expect(res.summary).not.toContain("mirrored=");
   });
 
-  it("post-freeze: a wired mirror that landed everything still passes (positive control)", async () => {
-    const base = makeFakeBase({ Websites: websites });
+  it("a wired mirror that landed everything still passes (positive control)", async () => {
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co")],
       which: ["lighthouse"],
       deps: {
-        openBase: () => base,
-        roster: rosterOf(base),
+        roster,
         makeMirror: async () => async () => true,
         recordEvents: async () => {},
-        strict: true,
       },
     });
     expect(res.anyFailed).toBe(false);
   });
 
-  it("post-freeze: a per-site mirror FAILURE flips anyFailed without aborting the sweep", async () => {
-    const base = makeFakeBase({ Websites: websites });
+  it("a per-site mirror FAILURE flips anyFailed without aborting the sweep", async () => {
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co")],
       which: ["lighthouse"],
       deps: {
-        openBase: () => base,
-        roster: rosterOf(base),
+        roster,
         makeMirror: async () => async () => {
           throw new Error("turso down");
         },
         recordEvents: async () => {},
-        strict: true,
       },
     });
     expect(res.anyFailed).toBe(true);
@@ -146,16 +116,13 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
   });
 
   it("a per-site write failure flips anyFailed without aborting the step", async () => {
-    const base = makeFakeBase({ Websites: websites });
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co"), lhResult("ghost-site")],
       which: ["lighthouse"],
       deps: {
-        openBase: () => base,
-        roster: rosterOf(base),
-        makeMirror: async () => null,
+        roster,
+        makeMirror: async () => async () => true,
         recordEvents: async () => {},
-        strict: false,
       },
     });
     expect(res.anyFailed).toBe(true);

@@ -4,7 +4,7 @@ import type { EvidenceResult, EvidenceRecord } from "./auto-tick.js";
 /**
  * One operator checklist item: a stable `key`, its display `label` (which mirrors
  * the client email's checklist line — kept in sync by a test against DEFAULT_COPY),
- * and the exact Airtable checkbox column `field` it reads/writes.
+ * and the exact checkbox column `field` it reads/writes.
  */
 export type ChecklistItem = { key: string; label: string; field: string };
 
@@ -34,13 +34,13 @@ export const TESTING_CHECKLIST: ChecklistItem[] = [
     label: "Interactions & Animations",
     field: "Test: Interactions & Animations",
   },
-  // `field` keeps its original Airtable column name ("…Verified After Updates") even though
+  // `field` keeps its legacy column name ("…Verified After Updates") even though
   // the client-facing label is now "Tested After Updates" — the column holds operator data,
-  // so renaming the label is display-only and avoids a live-base column migration.
+  // so renaming the label is display-only and avoids a column migration.
   { key: "updates", label: "Tested After Updates", field: "Test: Verified After Updates" },
 ];
 
-/** All 13 Airtable checkbox column names. mapRow reads exactly these into the row's checklist. */
+/** All 13 checkbox column names. mapRow reads exactly these into the row's checklist. */
 export const ALL_CHECKLIST_FIELDS: string[] = [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map(
   (i) => i.field,
 );

@@ -72,6 +72,7 @@ describe("report-rerender workflow gate", () => {
       reportId: "recREP",
       bytes: 95138,
       headerSource: "turso",
+      evidence: "reticked",
     });
     expect((await runGate({ out: `${real}\n` })).code).toBe(0);
   });
@@ -90,7 +91,11 @@ describe("report-rerender workflow gate", () => {
   it("FAILS on a zero-exit refusal too — the grep does not trust the exit code", async () => {
     // Belt and braces: if the CLI's exit mapping ever regresses, the gate still
     // refuses a run that rendered nothing.
-    const refused = formatRerenderResult({ status: "no-header", reportId: "recREP" });
+    const refused = formatRerenderResult({
+      status: "no-header",
+      reportId: "recREP",
+      evidence: "reticked",
+    });
     expect((await runGate({ out: `${refused}\n`, exit: 0 })).code).not.toBe(0);
   });
 
@@ -103,12 +108,7 @@ describe("report-rerender workflow gate", () => {
     expect(withoutComments(workflow)).toContain("workflow_dispatch:");
     const env = stepEnv(workflow, STEP);
     expect(Object.keys(env)).toEqual(
-      expect.arrayContaining([
-        "AIRTABLE_PAT",
-        "AIRTABLE_BASE_ID",
-        "TURSO_DATABASE_URL",
-        "TURSO_AUTH_TOKEN",
-      ]),
+      expect.arrayContaining(["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN", "REPORT_ID"]),
     );
   });
 });

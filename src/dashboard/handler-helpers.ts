@@ -28,12 +28,12 @@ export function resolveSlug(
 }
 
 /**
- * Build a 502 for an UNEXPECTED handler failure (an Airtable 429/500, a network
+ * Build a 502 for an UNEXPECTED handler failure (a Turso error, a network
  * timeout). Logs the real error server-side so the operator sees it in the
  * function logs, but returns a generic, retry-able body — never the error/stack
  * itself — so a transient backend hiccup degrades to a clean "try again" rather
  * than an unhandled rejection (whose surfaced status/body we don't control).
- * Use in each handler's top-level catch around the Airtable + render section.
+ * Use in each handler's top-level catch around the store + render section.
  */
 export function handlerError(service: string, err: unknown): Response {
   const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);

@@ -635,6 +635,8 @@ its test; no change to `packageRules`.
   `loadCredentialsIntoEnv` reads only the canonical path and **nothing loads
   that file today**. **[M✓]**
 
+  > Corrected by #874 (2026-09-18): `FIGMA_PAT` is not unused. `reddoor-starter`'s `scripts/figma-compare/pull-figma.mjs` reads it, and so does every site generated from the starter. Do not delete it.
+
 ---
 
 # DO NEXT, NOT THIS WEEK

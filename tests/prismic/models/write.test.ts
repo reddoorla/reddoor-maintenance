@@ -386,7 +386,8 @@ describe("writeModelFile", () => {
   // leaves the repo untouched. Staging a complete file and renaming it over the
   // target makes the model path hold the old model or the new one, never a
   // fragment.
-  it("leaves the existing model intact when the replacement cannot be staged", async () => {
+  const itNonRoot = it.skipIf(process.getuid?.() === 0);
+  itNonRoot("leaves the existing model intact when the replacement cannot be staged", async () => {
     const rel = "customtypes/frozen_page/index.json";
     const modelDir = join(dir, "customtypes/frozen_page");
     const before = JSON.stringify({ id: "frozen_page", label: "Live" }, null, 2) + "\n";

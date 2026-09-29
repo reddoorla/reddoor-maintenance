@@ -74,8 +74,8 @@ export async function runFormsNotifyTargetCommand(
     return { output: `--set must be 'on' or 'off' (got '${opts.set}')`, code: 2 };
   }
   try {
-    // #539 Phase 5: the flip writes Status on the Websites row; mirror it so the
-    // console (which reads Turso) shows the new routing immediately.
+    // #539 Phase 5: the flip writes Status on the Websites row in Turso, which
+    // the console reads, so it shows the new routing immediately.
     const { makeSiteMirror } = await import("../../db/site-mirror.js");
     // #646 step 4: the fleet roster — and the flip's read-back — come from Turso,
     // which is the store `/api/forms/:slug` reads to decide who a submission

@@ -57,19 +57,19 @@ Eleven scheduled workflows, all in `.github/workflows/`, all in this repo — it
 scheduler for the whole fleet. Times are UTC. Every one of them also has a
 `workflow_dispatch`, so you can re-run any of them by hand from the Actions tab.
 
-| cron           | workflow                  | what it does                                                                                                         | tracking issue it files on failure                                                                |
-| -------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `30 4 * * *`   | `fleet-db-backup`         | Dumps Turso, rehearses the restore, decrypts and re-verifies the `.gpg` it uploads, then checks plan-quota headroom  | "Nightly Turso backup failing"; the quota job files "Turso plan quota needs attention" separately |
-| `0 5 * * *`    | `fleet-prismic-drift`     | Read-only: does each repo's content model still match the models registered in its Prismic repository                | "Nightly Prismic model drift sweep failing"                                                       |
-| `0 6 * * *`    | `fleet-security`          | Vuln counts + dependency drift per site → store; dispatches Renovate; org-wide protection-coverage audit             | "Nightly fleet security audit failing"; the coverage audit files "Fleet protection coverage gap"  |
-| `0 8 * * *`    | `fleet-lighthouse`        | Lighthouse + domain + browser + Netlify-deploy + function-health against each site's **deployed** URL (no checkout)  | "Nightly fleet audit failing"                                                                     |
-| `23 9 * * *`   | `daily-reports`           | Drafts due reports, sends already-**approved** ones, emails the operator digest                                      | "Daily reports run failing"                                                                       |
-| `0 10 * * *`   | `fleet-smoke`             | Clones each active site and runs that site's own `pnpm test:smoke`                                                   | "Nightly fleet smoke failing"                                                                     |
-| `15 10 * * *`  | `fleet-form-e2e`          | Playwright drives each deployed `/contact` form with the `testMode` marker (reaches no real inbox, DB or webhook)    | "Nightly fleet form-e2e failing"                                                                  |
-| `30 14 * * *`  | `release-health`          | npm `latest` vs `main`'s version, **and** the release workflow's own redness                                         | "npm registry is behind main" / "Release workflow is failing on main"                             |
-| `0 11 * * 1`   | `time-travel`             | Runs the whole test suite on a clock shifted forward, to catch tests that secretly depend on "today"                 | "Time-travel suite failing"                                                                       |
-| `47 */6 * * *` | `forms-deadletter-replay` | Replays the form dead-letter queue back through the normal ingest pipeline (section 3.1)                             | "Form dead-letter replay failing"                                                                 |
-| `0 */12 * * *` | `renovate`                | Dependency PR creation **and merge** — platform auto-merge is off fleet-wide, so Renovate merges from inside the run | none                                                                                              |
+| cron           | workflow                  | what it does                                                                                                         | tracking issue it files on failure                                                                                                                    |
+| -------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `30 4 * * *`   | `fleet-db-backup`         | Dumps Turso, rehearses the restore, decrypts and re-verifies the `.gpg` it uploads, then checks plan-quota headroom  | "Nightly Turso backup failing"; the quota job files "Turso plan quota needs attention" separately                                                     |
+| `0 5 * * *`    | `fleet-prismic-drift`     | Read-only: does each repo's content model still match the models registered in its Prismic repository                | "Nightly Prismic model drift sweep failing"                                                                                                           |
+| `0 6 * * *`    | `fleet-security`          | Vuln counts + dependency drift per site → store; dispatches Renovate; org-wide protection-coverage audit             | "Nightly fleet security audit failing"; the coverage audit files "Fleet protection coverage gap"                                                      |
+| `0 8 * * *`    | `fleet-lighthouse`        | Lighthouse + domain + browser + Netlify-deploy + function-health against each site's **deployed** URL (no checkout)  | "Nightly fleet audit failing"                                                                                                                         |
+| `23 9 * * *`   | `daily-reports`           | Drafts due reports, sends already-**approved** ones, emails the operator digest                                      | "Daily reports run failing"                                                                                                                           |
+| `0 10 * * *`   | `fleet-smoke`             | Clones each active site and runs that site's own `pnpm test:smoke`                                                   | "Nightly fleet smoke failing"                                                                                                                         |
+| `15 10 * * *`  | `fleet-form-e2e`          | Playwright drives each deployed `/contact` form with the `testMode` marker (reaches no real inbox, DB or webhook)    | "Nightly fleet form-e2e failing"                                                                                                                      |
+| `30 14 * * *`  | `release-health`          | npm `latest` vs `main`'s version, **and** the release workflow's own redness                                         | "npm registry is behind main" / "Release workflow is failing on main"; the check itself failing or hanging files "Daily release-health check failing" |
+| `0 11 * * 1`   | `time-travel`             | Runs the whole test suite on a clock shifted forward, to catch tests that secretly depend on "today"                 | "Time-travel suite failing"; a failure or hang before the suite (install, browser install) files "Time-travel run failing outside the suite"          |
+| `47 */6 * * *` | `forms-deadletter-replay` | Replays the form dead-letter queue back through the normal ingest pipeline (section 3.1)                             | "Form dead-letter replay failing"                                                                                                                     |
+| `0 */12 * * *` | `renovate`                | Dependency PR creation **and merge** — platform auto-merge is off fleet-wide, so Renovate merges from inside the run | none                                                                                                                                                  |
 
 Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`), and
 `report-rerender` (dispatch only).
@@ -81,7 +81,7 @@ Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`),
    signal — the `if: failure()` step is `continue-on-error`, so the alert machinery can never
    turn a green run red. Start here: `gh issue list --repo reddoorla/reddoor-maintenance`.
 2. **A best-effort GitHub email to the last pusher.** That is you only if you pushed last. Do
-   not rely on it (`.github/workflows/fleet-lighthouse.yml:158`).
+   not rely on it (`.github/workflows/fleet-lighthouse.yml:183`).
 3. **The daily digest email** from the `daily-reports` run at 09:23 UTC. It goes to
    `OPERATOR_EMAIL` (a GitHub Actions repo variable), falling back to `tucker@reddoorla.com` —
    deliberately the operator's monitored personal inbox, **never** `info@reddoorla.com`, which
@@ -90,14 +90,14 @@ Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`),
 
 **The cockpit.** The dashboard served by this repo's Netlify deploy: cockpit at `/`, per-site
 at `/s/:slug`, behind Basic auth (`DASHBOARD_PASSWORD`). It sorts every visible site into four
-tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:35`) —
+tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:36`) —
 worst-band-wins, with the watch band being the soft zone beneath the alert floor (a Lighthouse
 score in [75, 85), a check stale past 30 days). A watch reason the operator has explicitly
 accepted is routed to `acceptedReasons` and leaves the band rather than raising it
-(`fleet-cockpit.ts:181`, `:288–290`).
+(`fleet-cockpit.ts:176`, `:345–347`).
 
 **The "Needs you" feed** is real and is the thing to read first
-(`src/dashboard/fleet-cockpit.ts:391–413`, rendered by `renderNeedsYouFeed`,
+(`src/dashboard/fleet-cockpit.ts:459–482`, rendered by `renderNeedsYouFeed`,
 `src/dashboard/fleet-render.ts:209–228`).
 One row per site, every reason combined, ordered `broken` → `watch` → `approval`, critical-first
 within `broken`. A vuln the fleet is still auto-patching is amber `watch`; a vuln whose
@@ -111,11 +111,11 @@ empty, nothing needs you.
 **Almost everything — and the reason is a feature, not an accident: no client-facing report can
 go out without a human approval.** Two independent gates:
 
-- `netlify/functions/approve-report.mts:81` — `requireOperator(req, { wants: "json" })`. Every
-  approval runs through one Basic-auth credential, checked before any Airtable read, behind a
+- `netlify/functions/approve-report.mts:78` — `requireOperator(req, { wants: "json" })`. Every
+  approval runs through one Basic-auth credential, checked before any store read, behind a
   CSRF check. No credential, no approval.
-- `src/reports/send/orchestrate.ts:211–232` — `sendOne` **throws** rather than send when the health
-  gate is not clear, _even if "Approved to send" was set directly in Airtable_. The row is
+- `src/reports/send/orchestrate.ts:178–197` — `sendOne` **throws** rather than send when the health
+  gate is not clear, _even if "Approved to send" was set directly in the database_. The row is
   skipped, `Sent at` stays null, and the at-least-once retry is preserved.
 
 So the worst case for the report pipeline over a week is that drafts pile up unsent. Nothing
@@ -131,7 +131,7 @@ Everything below degrades harmlessly. Leave it:
 | A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:609–613`, consulted at `:677`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
 | A red nightly that goes green on the next run  | Every tracking issue in section 1 auto-closes on recovery. One red night in a week is noise; the same issue still open on day three is not.                                                                                                                                                                                       |
 | Drafts accumulating in the approve queue       | See the two gates above. This is the system working.                                                                                                                                                                                                                                                                              |
-| Lighthouse scores drifting into the watch band | Watch is the soft band beneath the alert floor, by design (`src/dashboard/fleet-cockpit.ts:37–39`).                                                                                                                                                                                                                               |
+| Lighthouse scores drifting into the watch band | Watch is the soft band beneath the alert floor, by design (`src/dashboard/fleet-cockpit.ts:38–40`).                                                                                                                                                                                                                               |
 
 ---
 
@@ -146,12 +146,12 @@ It no longer does, but it now needs someone to finish the recovery.
 [#785](https://github.com/reddoorla/reddoor-maintenance/pull/785), merged 2026-09-14). A public
 form POST reaches `src/forms/ingest.ts`. If the site lookup **throws** (the store is down) or
 **resolves to null** (a real fleet site with no row — a half-finished `ensure-site`, a deleted
-row), the one writer `captureDeadLetter` (`src/forms/ingest.ts:185–196`) writes the whole raw
+row), the one writer `captureDeadLetter` (`src/forms/ingest.ts:183–194`) writes the whole raw
 payload, the Turnstile verification and the error into the `submission_deadletter` table and
 logs `[ingest] lead for '<slug>' dead-lettered as <id>`. The throw path returns an honest
 `accepted`; the unknown-slug path keeps its `unknown-site` status so the submitting site still
 learns its slug does not resolve, but **the lead now exists somewhere**
-(`src/forms/ingest.ts:202–231`). Probes (`testMode`) are never dead-lettered.
+(`src/forms/ingest.ts:200–229`). Probes (`testMode`) are never dead-lettered.
 
 **What a week-long break looks like now.** The queue grows and the alarm gets louder, not
 quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:452–477`) raises one
@@ -180,9 +180,9 @@ node dist/cli/bin.js db replay-deadletters
 ```
 
 It re-runs each queued payload through the same ingest function, resolving sites through the
-same lookup the live path uses (Turso first; Airtable is opened but not called under the
-freeze, so a missing Airtable PAT no longer refuses the whole replay). It prints one line per
-row and then a summary:
+same lookup the live path uses — Turso's `getSiteBySlug`, and nothing else — so it needs only
+the Turso credentials (plus `RESEND_API_KEY` to email
+the recovered leads). It prints one line per row and then a summary:
 
 ```
 DEADLETTER_REPLAY replayed=<n> still_failing=<n> unmarked=<n> unreadable=<n>
@@ -202,7 +202,7 @@ Exit code is 1 while anything is still **owed**, which is three different things
 
 If Resend is unconfigured the replay still
 runs and the recovered leads land un-emailed (`notify=failed`) rather than blocking — you can
-re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:94–227`). If the
+re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:64–185`). If the
 alarm named an unresolvable slug, run `ensure-site <slug>` **first**, then replay.
 
 ### 3.2 Turnstile stops minting tokens on a site
@@ -231,10 +231,9 @@ not the leads — unless the site has `Require Turnstile` on.
 ### 3.3 Turso quota
 
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
-writes rather than billing for them** — and since the Airtable freeze, Turso is the only store
-there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
-pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:490`,
-`.github/workflows/fleet-db-backup.yml:160`).
+writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
+pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
+`.github/workflows/fleet-db-backup.yml:176`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
 needs attention"** if it does not return `verdict=ok`. Treat that issue as urgent — it is the
@@ -256,14 +255,14 @@ A spam complaint from a client is worth a same-day human reply; do not let it si
 
 Names and locations only. Nothing below is a value, and you should not need to print one.
 
-| Where                                     | What lives there                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `~/.config/reddoor-maint/credentials.env` | **Everything except Discord.** Loaded into `process.env` by `loadCredentialsIntoEnv`, which never overwrites a variable already set (`src/util/credentials.ts:51–67`). Path respects `$XDG_CONFIG_HOME`. Names in use across the codebase include `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `TURSO_FLEET_USAGE`, `TURSO_ORG`, `TURNSTILE_SECRET_KEY{,_2,_3}`, `FORMS_INGEST_TOKEN`, `PROSPECT_EDIT_TOKEN`, `DASHBOARD_PASSWORD`, `DASHBOARD_BASE_URL`, `GH_TOKEN`, `GITHUB_TOKEN`, `NETLIFY_PAT`, `PRISMIC_ACCESS_TOKEN`, `PRISMIC_WRITE_TOKEN`, `GA_SA_KEY_PATH`, `GA_SUBJECT`, `OPERATOR_EMAIL`. `GITHUB_TOKEN` may be left OUT: `readGitHubConfig` (`src/github/config.ts`) falls back to `gh auth token` when it is unset, and a set-but-dead file value actively overrides the working keyring (#665) — `gh auth login` once is the single source of truth. |
-| The repo `.env`                           | **Discord only.** `DISCORD_BOT_KEY` **is** the bot token — use it directly as `Authorization: Bot $DISCORD_BOT_KEY`. There is no `DISCORD_BOT_TOKEN` anywhere; do not hunt for one (`CLAUDE.md` §"Discord is the tone reference").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| GitHub Actions secrets + variables        | The nightlies read the same names as repo **secrets**, plus `BACKUP_PASSPHRASE`, which exists only here and on the operator's machine. `OPERATOR_EMAIL` is an Actions **variable** — set in CI and nowhere else, which is exactly how a fleet digest once landed in the client inbox from a local run (`src/util/operator.ts`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Netlify site env                          | The central deploy's own copy: the full list with purposes is the table in `README.md` §"Site deployment (Netlify + Resend)". These are set in the Netlify UI, not from this repo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| 1Password (Personal vault)                | Six **client** credential items, imported during the Airtable retirement and verified byte-for-byte; the four credential fields were then cleared from all nine Airtable site rows (`docs/meta-week/04-journal-beat-by-beat.md:3230–3235`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| GitHub org                                | `reddoorla`. Repo admin, Actions secrets, branch protection and the secret-scanning alerts all live at the org or per-repo level here.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Where                                     | What lives there                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `~/.config/reddoor-maint/credentials.env` | **Everything except Discord.** Loaded into `process.env` by `loadCredentialsIntoEnv`, which never overwrites a variable already set (`src/util/credentials.ts:51–67`). Path respects `$XDG_CONFIG_HOME`. Names in use across the codebase include `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `TURSO_FLEET_USAGE`, `TURSO_ORG`, `TURNSTILE_SECRET_KEY{,_2,_3}`, `FORMS_INGEST_TOKEN`, `PROSPECT_EDIT_TOKEN`, `DASHBOARD_PASSWORD`, `DASHBOARD_BASE_URL`, `GH_TOKEN`, `GITHUB_TOKEN`, `NETLIFY_PAT`, `PRISMIC_ACCESS_TOKEN`, `PRISMIC_WRITE_TOKEN`, `GA_SA_KEY_PATH`, `GA_SUBJECT`, `OPERATOR_EMAIL`. `GITHUB_TOKEN` may be left OUT: `readGitHubConfig` (`src/github/config.ts`) falls back to `gh auth token` when it is unset, and a set-but-dead file value actively overrides the working keyring (#665) — `gh auth login` once is the single source of truth. |
+| The repo `.env`                           | **Discord only.** `DISCORD_BOT_KEY` **is** the bot token — use it directly as `Authorization: Bot $DISCORD_BOT_KEY`. There is no `DISCORD_BOT_TOKEN` anywhere; do not hunt for one (`CLAUDE.md` §"Discord is the tone reference").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| GitHub Actions secrets + variables        | The nightlies read the same names as repo **secrets**, plus `BACKUP_PASSPHRASE`, which exists only here and on the operator's machine. `OPERATOR_EMAIL` is an Actions **variable** — set in CI and nowhere else, which is exactly how a fleet digest once landed in the client inbox from a local run (`src/util/operator.ts`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Netlify site env                          | The central deploy's own copy: the full list with purposes is the table in `README.md` §"Site deployment (Netlify + Resend)". These are set in the Netlify UI, not from this repo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 1Password (Personal vault)                | Six **client** credential items, imported and verified byte-for-byte (`docs/meta-week/04-journal-beat-by-beat.md:3230–3235`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| GitHub org                                | `reddoorla`. Repo admin, Actions secrets, branch protection and the secret-scanning alerts all live at the org or per-repo level here.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 **`TURSO_FLEET_USAGE` is not `TURSO_AUTH_TOKEN`.** The first is an account-level Platform API
 token that can read plan quota; the second is a database-level token that cannot. A third,
@@ -280,7 +279,6 @@ week would need, per system:
 - Turso — access to the org that owns the database, plus the two token kinds above.
 - Resend — access to the sending domain and the webhook endpoint config.
 - Cloudflare — access to the account holding the Turnstile widgets.
-- Airtable — access to the (now frozen) base, if a historical lookup is needed.
 - 1Password — the client-credential items, which are currently in a Personal vault.
 - Discord — membership in the **reddoor creative** guild.
 - The operator's machine — `~/.config/reddoor-maint/credentials.env` and the repo `.env`.
@@ -331,11 +329,11 @@ Delivery outcomes come back through the Resend webhook
 bounce/complaint attention items in §3.4.
 
 **The per-site recipient field.** Who a report actually reaches is configured per site, not per
-message: `Report recipients (To)` and `Report recipients (CC)` on the Websites row, mirrored to
-`sites.report_recipients_to` / `report_recipients_cc` in Turso
-(`src/reports/airtable/websites.ts:88–89`, `src/db/fleet-state.ts:111–112`). Form
+message: `Report recipients (To)` and `Report recipients (CC)` in the site details on its console
+page (`/s/<slug>`), stored in Turso as `sites.report_recipients_to` / `report_recipients_cc`
+(`src/dashboard/site-details.ts:87–88`, `src/db/fleet-state.ts:102–103`). Form
 notifications have their own per-site routing, including field-value → recipient routes with a
-fallback (`NotifyRouting`, `src/fleet/site-row.ts:26–44`).
+fallback (`NotifyRouting`, `src/fleet/site-row.ts:23–41`).
 
 > **Known trap — MSOT and Revogen resolve to the same recipient.** The Lane 2 preflight found
 > both sites pointing at `accounting@revogenbiologics.com`, which means an MSOT report would
@@ -347,9 +345,9 @@ fallback (`NotifyRouting`, `src/fleet/site-row.ts:26–44`).
 
 ## 6. Restoring the database (Turso)
 
-Promoted here from `docs/superpowers/plans/2026-08-17-airtable-to-turso-migration.md`, Phase 5
-("Rollback is rehearsed") and Phase 1.5. **Since the Airtable freeze, Turso is the only store
-there is** — this is the procedure that gets the fleet back.
+Promoted here from the 2026-08-17 store-migration plan in `docs/superpowers/plans/`, Phase 5
+("Rollback is rehearsed") and Phase 1.5. **Turso is the only store there is** — this is the
+procedure that gets the fleet back.
 
 **The backup.** `fleet-db-backup` runs nightly at 04:30 UTC
 (`.github/workflows/fleet-db-backup.yml`). It dumps Turso over plain SQL through the same
@@ -410,7 +408,7 @@ written in.
    ```
 
    `--url` never defaults — production is deliberately out of reach
-   (`src/cli/commands/db.ts:434`). Expect a line of this shape, and exit 0:
+   (`src/cli/commands/db.ts:235`). Expect a line of this shape, and exit 0:
 
    ```
    RESTORE loaded=true tables=11 rows=803 blob_bytes=7777769 mismatches=0
@@ -419,14 +417,14 @@ written in.
    The row and byte figures are whatever the dump carried (those are the 2026-08-31 values);
    what you are checking is `mismatches=0`. Row and byte counts are compared against the
    dump's origin manifest, so a restore that "succeeded" with fewer rows than the origin held
-   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:473–486`). Three
+   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:274–287`). Three
    refusals you may see instead, each naming itself: `RESTORE refused=auth-token-absent` (a
    remote url with no token), `RESTORE refused=manifest-absent` (not a dump this tool
    produced), and `RESTORE refused=target-not-empty`.
 
 5. **Repoint `TURSO_DATABASE_URL` at the new database.** This is the step the rehearsals never
    needed and the one most likely to be missed. `db restore` refuses a non-empty target
-   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:458–460`) — a restore is for an
+   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:259–261`) — a restore is for an
    EMPTY target, so a real recovery **always lands on a new database**, and nothing points at it
    until you say so. Set two names, `TURSO_DATABASE_URL` (the url from step 3) and
    `TURSO_AUTH_TOKEN` (the token from step 3 — the same value you passed as
@@ -468,7 +466,7 @@ written in.
 ### Why you can trust this
 
 The rollback has been rehearsed **three times**, not once
-(`docs/superpowers/plans/2026-08-17-airtable-to-turso-migration.md`, Phase 5): once into a
+(the 2026-08-17 store-migration plan in `docs/superpowers/plans/`, Phase 5): once into a
 local `turso dev` target; once into a real hosted database — which is what exposed that
 `db restore` sent no auth token, a defect neither `:memory:` nor `turso dev` could show; and
 once on 2026-08-31 against the **actual nightly artifact**, decrypted locally with

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { PreparedHeader } from "../../src/reports/send/render-email.js";
 
 // Mock the live GA/Search enrichment (no network in tests). Default: configured + returns data.

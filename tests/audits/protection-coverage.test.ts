@@ -21,6 +21,7 @@ import {
   isMachineAuthor,
 } from "../../src/github/gh.js";
 import type {
+  BranchRequiredChecks,
   BranchTip,
   DependencyDashboard,
   RenovateMergeWindow,
@@ -60,12 +61,47 @@ function makeDeps(
   // therefore doubles as a PASS control for it — a regression that turned a
   // delivering repo into a gap would redden the whole suite.
   mergeWindowByRepo: Record<string, RenovateMergeWindow> = {},
-): ProtectionCoverageDeps & { healthCalls: string[]; alertCalls: string[] } {
+  // Default: no Renovate config file anywhere, i.e. Renovate targets the
+  // default branch alone — the state of every fixture written before #892, so
+  // each of them doubles as the "unchanged behaviour" control. Files are keyed
+  // `owner/repo:path` (presets live in OTHER repos); branch reads are keyed
+  // `owner/repo:branch`. An Error value is a read that THROWS (a refusal).
+  renovate: {
+    files?: Record<string, string | Error>;
+    branches?: Record<string, BranchRequiredChecks | null | Error>;
+    defaultBranch?: string;
+  } = {},
+): ProtectionCoverageDeps & {
+  healthCalls: string[];
+  alertCalls: string[];
+  fileReads: string[];
+  branchCalls: string[];
+} {
   const healthCalls: string[] = [];
   const alertCalls: string[] = [];
+  const fileReads: string[] = [];
+  const branchCalls: string[] = [];
   return {
     healthCalls,
     alertCalls,
+    fileReads,
+    branchCalls,
+    repoTextFile: async (repo, path) => {
+      fileReads.push(`${repo}:${path}`);
+      const hit = renovate.files?.[`${repo}:${path}`];
+      if (hit instanceof Error) throw hit;
+      return hit ?? null;
+    },
+    defaultBranch: async () => renovate.defaultBranch ?? "main",
+    branchRequiredChecks: async (repo, branch) => {
+      branchCalls.push(`${repo}:${branch}`);
+      const key = `${repo}:${branch}`;
+      if (!renovate.branches || !(key in renovate.branches))
+        throw new Error(`fixture has no branch ${key}`);
+      const hit = renovate.branches[key]!;
+      if (hit instanceof Error) throw hit;
+      return hit;
+    },
     openSecretAlerts: async (repo) => {
       alertCalls.push(repo);
       return alertsByRepo[repo] ?? 0;
@@ -779,5 +815,308 @@ describe("the renovate outcome metric rides along but never becomes a gap", () =
     const rows = await collectProtectionCoverage(ORG, deps, NOW);
     expect(rows[0]!.status).toBe("skipped");
     expect(rows[0]!.renovateOutcome).toBeUndefined();
+  });
+});
+
+/**
+ * #892. The ruleset floor above judges the DEFAULT branch, but Renovate merges
+ * into whatever `baseBranchPatterns` names. On 2026-09-21 exactly one repo
+ * differed — reddoor-website, `"baseBranchPatterns": ["staging"]` — and its
+ * `staging` carried a deletion-only ruleset: nothing required CI there, so a
+ * Renovate automerge could land with no check run at all. These fixtures are
+ * that repo's shape, plus the controls that prove the check PASSES on a
+ * protected base and stays silent where there is nothing to judge.
+ */
+describe("Renovate base branches are judged too (#892)", () => {
+  const WEBSITE = "reddoorla/reddoor-website";
+  const PRESET = "github>reddoorla/.github:renovate-config";
+  const cfg = (o: Record<string, unknown>) => JSON.stringify({ extends: [PRESET], ...o });
+  // What reddoor-website's staging carried when #892 was filed: a ruleset that
+  // forbids deletion and nothing else.
+  const deletionOnly: BranchRequiredChecks = { rules: [{ type: "deletion" }], classicContexts: [] };
+  const rulesetGated: BranchRequiredChecks = {
+    rules: [{ type: "deletion" }, { type: "required_status_checks" }],
+    classicContexts: [],
+  };
+  const classicGated: BranchRequiredChecks = { rules: [], classicContexts: ["ci / ci"] };
+
+  function website(
+    files: Record<string, string | Error>,
+    branches: Record<string, BranchRequiredChecks | null | Error> = {},
+  ) {
+    return makeDeps(
+      [{ name: "reddoor-website" }],
+      { [WEBSITE]: [sound(1)] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      { files, branches },
+    );
+  }
+
+  it("FAIL: Renovate targets staging and nothing requires CI there — a gap naming reddoor-website:staging", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("NO required status check");
+    expect(rows[0]!.detail).toContain("baseBranchPatterns in renovate.json");
+    // The default branch is still judged by the ruleset floor, not re-probed.
+    expect(deps.branchCalls).toEqual([`${WEBSITE}:staging`]);
+  });
+
+  it("FAIL: the pre-rename `baseBranches` key is read the same way", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranches: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("baseBranches in renovate.json");
+  });
+
+  it("PASS control: staging gated by a ruleset's required_status_checks rule is covered", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: rulesetGated },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toBe(
+      `"${FLEET_RULESET_NAME}"; renovate base reddoor-website:staging requires status checks`,
+    );
+  });
+
+  it("PASS control: staging gated by CLASSIC branch protection is covered too", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: classicGated },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+  });
+
+  it("UNCHANGED: no Renovate config at all is not a gap, and probes no branch", async () => {
+    const deps = website({});
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toBe(`"${FLEET_RULESET_NAME}"`);
+    expect(deps.branchCalls).toEqual([]);
+  });
+
+  it("UNCHANGED: a config that names no base branch (the fleet's shape) judges the default branch alone", async () => {
+    const deps = website({
+      [`${WEBSITE}:renovate.json`]: cfg({}),
+      "reddoorla/.github:renovate-config.json": JSON.stringify({ extends: ["config:recommended"] }),
+    });
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toBe(`"${FLEET_RULESET_NAME}"`);
+    expect(deps.branchCalls).toEqual([]);
+  });
+
+  it("the default branch named as a base (by name or `$default`) is not probed a second time", async () => {
+    const deps = website({
+      [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["$default", "main"] }),
+    });
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(deps.branchCalls).toEqual([]);
+  });
+
+  it("config lives on the DEFAULT branch only: it is read there, first file wins, and staging is still judged", async () => {
+    // Renovate reads its repo config (and therefore baseBranchPatterns) from
+    // the default branch; `staging` carrying no renovate.json of its own is
+    // the normal case and must not read as "no config". The first file in
+    // Renovate's own search order wins, so a stale .github/renovate.json is
+    // never consulted.
+    const deps = website(
+      {
+        [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }),
+        [`${WEBSITE}:.github/renovate.json`]: cfg({}),
+      },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(deps.fileReads).toEqual([`${WEBSITE}:renovate.json`]);
+  });
+
+  it("reads renovate.jsonc — Renovate 44's SECOND config name — so a base branch there is not missed", async () => {
+    // JSONC is JSON with comments (and, in practice, trailing commas).
+    const jsonc = `{
+  // staging is where integration happens
+  "extends": ["${PRESET}"],
+  "baseBranchPatterns": ["staging"], /* the one non-default base */
+}
+`;
+    const deps = website(
+      { [`${WEBSITE}:renovate.jsonc`]: jsonc },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("baseBranchPatterns in renovate.jsonc");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+  });
+
+  it("reads .github/renovate.json and renovate.json5 (comments, bare keys, trailing commas)", async () => {
+    const json5 = `// staging is the integration branch
+{
+  extends: ['${PRESET}'],
+  baseBranchPatterns: ['staging',], /* trailing comma */
+}
+`;
+    for (const path of [".github/renovate.json", "renovate.json5"]) {
+      const text = path.endsWith("5") ? json5 : cfg({ baseBranchPatterns: ["staging"] });
+      const deps = website(
+        { [`${WEBSITE}:${path}`]: text },
+        { [`${WEBSITE}:staging`]: deletionOnly },
+      );
+      const rows = await collectProtectionCoverage(ORG, deps, NOW);
+      expect(rows[0]!.status, path).toBe("gap");
+      expect(rows[0]!.detail, path).toContain(`baseBranchPatterns in ${path}`);
+      expect(rows[0]!.detail, path).toContain("reddoor-website:staging");
+    }
+  });
+
+  it("a base branch set only in a resolvable org preset is judged; the repo's own value wins over it", async () => {
+    const preset = {
+      "reddoorla/.github:renovate-config.json": JSON.stringify({ baseBranchPatterns: ["staging"] }),
+    };
+    const fromPreset = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({}), ...preset },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, fromPreset, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain(`baseBranchPatterns in ${PRESET}`);
+
+    const overridden = website({
+      [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["$default"] }),
+      ...preset,
+    });
+    const rows2 = await collectProtectionCoverage(ORG, overridden, NOW);
+    expect(rows2[0]!.status).toBe("covered");
+    expect(overridden.branchCalls).toEqual([]);
+  });
+
+  it("a base branch that does not exist is not a gap (Renovate cannot merge into it)", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: null },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging does not exist");
+  });
+
+  it("a REFUSED config read is unverified — never 'no required status check', and never sinks the other surfaces", async () => {
+    const deps = website({
+      [`${WEBSITE}:renovate.json`]: new Error("repoTextFile failed: HTTP 403"),
+    });
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("unverified, not clean");
+    expect(rows[0]!.detail).toContain("HTTP 403");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+    expect(rows[0]!.detail).not.toContain("probe failed");
+    expect(deps.branchCalls).toEqual([]);
+  });
+
+  it("a REFUSED org-preset read is a NOTE, not a gap — one refusal must not gap every repo that extends it", async () => {
+    // Measured, not hypothesised: the first live run of this check, from a
+    // session that could not see reddoorla/.github, returned exactly this
+    // refusal for reddoor-maintenance. 27 repos extend that one preset.
+    const refusal = new Error(
+      "repoTextFile(reddoorla/.github/renovate-config.json) failed: gh: GitHub access to this repository is not enabled for this session. (HTTP 403)",
+    );
+    const deps = makeDeps(
+      [{ name: "espada" }, { name: "caltex-landing" }],
+      { "reddoorla/espada": [sound(1)], "reddoorla/caltex-landing": [sound(2)] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      {
+        files: {
+          "reddoorla/espada:renovate.json": cfg({}),
+          "reddoorla/caltex-landing:renovate.json": cfg({}),
+          "reddoorla/.github:renovate-config.json": refusal,
+        },
+      },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows.map((r) => r.status)).toEqual(["covered", "covered"]);
+    expect(rows[0]!.detail).toBe(
+      `"${FLEET_RULESET_NAME}"; renovate preset ${PRESET} (HTTP 403) unread — base branches judged without it`,
+    );
+    // A failed read is not cached: the second repo asks again rather than
+    // inheriting the first repo's blip.
+    expect(
+      deps.fileReads.filter((f) => f === "reddoorla/.github:renovate-config.json"),
+    ).toHaveLength(2);
+  });
+
+  it("a readable org preset is read ONCE per sweep, however many repos extend it", async () => {
+    const deps = makeDeps(
+      [{ name: "espada" }, { name: "caltex-landing" }],
+      { "reddoorla/espada": [sound(1)], "reddoorla/caltex-landing": [sound(2)] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      {
+        files: {
+          "reddoorla/espada:renovate.json": cfg({}),
+          "reddoorla/caltex-landing:renovate.json": cfg({}),
+          "reddoorla/.github:renovate-config.json": JSON.stringify({
+            extends: ["config:recommended"],
+          }),
+        },
+      },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows.map((r) => r.status)).toEqual(["covered", "covered"]);
+    expect(
+      deps.fileReads.filter((f) => f === "reddoorla/.github:renovate-config.json"),
+    ).toHaveLength(1);
+  });
+
+  it("a REFUSED branch read is unverified and names the branch — never 'no required status check'", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: new Error("branchRequiredChecks failed: HTTP 403") },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("unverified, not clean");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+  });
+
+  it("an unparseable config and an unexpanded pattern are unverified, not silently default-only", async () => {
+    const broken = website({ [`${WEBSITE}:renovate.json`]: "{ nope" });
+    const r1 = await collectProtectionCoverage(ORG, broken, NOW);
+    expect(r1[0]!.status).toBe("gap");
+    expect(r1[0]!.detail).toContain("unverified, not clean");
+
+    const pattern = website({
+      [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["/^release\\/.*/"] }),
+    });
+    const r2 = await collectProtectionCoverage(ORG, pattern, NOW);
+    expect(r2[0]!.status).toBe("gap");
+    expect(r2[0]!.detail).toContain("/^release\\/.*/");
+    expect(r2[0]!.detail).toContain("unverified, not clean");
+    expect(pattern.branchCalls).toEqual([]);
   });
 });

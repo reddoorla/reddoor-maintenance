@@ -160,6 +160,8 @@ async function sweepOutput(
     repoTextFile: async () => null,
     listWorkflowPaths: async () => [],
     branchTip: async () => null,
+    defaultBranch: async () => "main",
+    branchRequiredChecks: async () => null,
   };
   return runProtectionAuditCommand({ org: "reddoorla" }, deps);
 }
@@ -343,7 +345,9 @@ describe("no tracking-issue query anywhere in .github/workflows is unbounded", (
         sites.push(`${f}: ${m[0].replace(/\s+/g, " ").trim()}`);
       }
     }
-    expect(sites.length).toBe(26);
+    // 13 open/close pairs, two more since P1-15 (release-health's run-failing
+    // issue and time-travel's outside-the-suite issue).
+    expect(sites.length).toBe(30);
     expect(sites.filter((s) => !s.includes("--limit "))).toEqual([]);
     expect(sites.filter((s) => !s.includes("--search "))).toEqual([]);
   });

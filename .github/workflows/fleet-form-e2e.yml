@@ -4,7 +4,7 @@ name: fleet-form-e2e
 # `Form E2E OK` signal. Checkout-free (like fleet-lighthouse): Playwright drives
 # each site's DEPLOYED prod URL, fills the /contact form, submits it with the
 # `testMode` marker, and writes Form E2E OK + Form E2E checked at back to the
-# Airtable row. Central ingest's testMode short-circuit routes the submission
+# site's row. Central ingest's testMode short-circuit routes the submission
 # away from every real sink (no inbox/DB/webhook, Turnstile bypassed).
 #
 # REDDOOR_FORM_E2E_LIVE=1 arms the live runner — this workflow is the intended
@@ -16,7 +16,7 @@ name: fleet-form-e2e
 # one deploy.
 on:
   schedule:
-    - cron: "15 10 * * *" # 10:15 UTC — clear of 06:00 security / 08:00 lighthouse / 10:00 smoke (separate runners; the offset just staggers Airtable writes)
+    - cron: "15 10 * * *" # 10:15 UTC — clear of 06:00 security / 08:00 lighthouse / 10:00 smoke (separate runners; the offset just staggers store writes)
   workflow_dispatch: {} # manual run from the Actions tab
 
 # Never overlap a manual run with the scheduled one.
@@ -49,15 +49,13 @@ jobs:
       # a bare ubuntu runner.
       - run: pnpm exec playwright install --with-deps chromium
 
-      - name: Fleet form-e2e + Airtable write-back
+      - name: Fleet form-e2e + write-back
         # Checkout-free and preflight-gated: undeclared sites cost one /health
         # fetch each, declared sites one browser session — far lighter than
         # fleet-smoke. 30 min is generous headroom.
         timeout-minutes: 30
         env:
           REDDOOR_FORM_E2E_LIVE: "1"
-          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
@@ -87,7 +85,7 @@ jobs:
           # substitution would abort the step before the diagnostic below runs.
           summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" "$out" | tail -n1 || true)
           if [ -z "$summary" ]; then
-            echo "::error::fleet form-e2e printed no write summary — the run crashed before write-back (check Airtable creds / API)."
+            echo "::error::fleet form-e2e printed no write summary — the run crashed before write-back (check the Turso creds / API)."
             exit 1
           fi
           wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
@@ -126,7 +124,7 @@ jobs:
           fi
 
           # A site that couldn't be prepared (bad URL/repo) is dropped from the run
-          # rather than crashing it; raise it so the misconfigured Airtable row is fixed.
+          # rather than crashing it; raise it so the misconfigured site row is fixed.
           skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "$out" | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet form-e2e: $skipped"
@@ -146,7 +144,7 @@ jobs:
           fi
 
           # Total write-back failure: nothing landed at all (creds/API/inventory).
-          # Byte-for-byte the check fleet-lighthouse.yml:106 has carried for
+          # Byte-for-byte the check fleet-lighthouse.yml:109 has carried for
           # months, and this was the only fleet nightly without it.
           #
           # The mass-flake gate below is NOT a substitute, and the gap is narrow
@@ -162,7 +160,7 @@ jobs:
           # would fire, and "0 of 13 written" sends the reader to the creds and
           # the API, where the cause is, rather than hunting a per-site flake.
           if [ "$wrote" -eq 0 ]; then
-            echo "::error::fleet form-e2e wrote 0 of $total site(s) — total write-back failure (check Airtable creds / API)."
+            echo "::error::fleet form-e2e wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
             exit 1
           fi
 
@@ -177,25 +175,41 @@ jobs:
       # and auto-close it once the run goes green again. continue-on-error so the alert
       # machinery can NEVER turn a run's status red.
       - name: Open/update the nightly-form-e2e-failure tracking issue
-        if: failure()
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
+          JOB_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Nightly fleet form-e2e failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body=$(printf 'The nightly **fleet-form-e2e** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
           fi
 
       - name: Close the nightly-form-e2e-failure issue on recovery
-        if: success()
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

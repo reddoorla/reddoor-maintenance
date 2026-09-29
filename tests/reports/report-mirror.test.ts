@@ -6,66 +6,29 @@
  * in production for weeks: the helper returned null without creds and the write
  * silently no-opped, so a DEAD dual-write and a healthy one produced identical
  * output. The tell there was an ABSENT suffix — something nobody was looking
- * for. So this mirror never returns null: creds-absent is a state it REPORTS
- * (`mirrored=absent`), which makes a missing REPORT_MIRROR line mean the wiring
- * itself is gone rather than "probably fine".
+ * for. So this mirror never returns null: an unreachable store refuses to
+ * build, and every write logs one REPORT_MIRROR line before it succeeds or
+ * throws, which makes a missing line mean the wiring itself is gone rather than
+ * "probably fine".
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { createDraft } from "../../src/reports/airtable/reports.js";
 import { makeReportMirror } from "../../src/reports/report-mirror.js";
-import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
 import { openDb } from "../../src/db/client.js";
-
-const INPUT = {
-  reportId: "Acme — Maintenance — 2026-08-31",
-  siteId: "rec_site_acme",
-  reportType: "Maintenance" as const,
-  periodStart: new Date("2026-08-01T00:00:00Z"),
-  periodEnd: new Date("2026-08-31T00:00:00Z"),
-  completedOn: new Date("2026-08-31T00:00:00Z"),
-  lighthouse: { performance: 87, accessibility: 91, bestPractices: 100, seo: 95 },
-  lastTestedDate: null,
-};
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("createDraft hands the created record to an injected mirror", () => {
-  it("passes the id and the fields Airtable echoed back, not the caller's input", async () => {
-    // The mirror must see what Airtable STORED. Mapping the caller's DraftInput
-    // instead would diverge the moment Airtable normalises a value, and parity
-    // compares against the stored record.
-    const base = makeFakeBase({ Reports: [] });
-    const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
-
-    const row = await createDraft(base, { ...INPUT, period: "2026-08" }, async (rec) => {
-      seen.push(rec);
-    });
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0]!.id).toBe(row.id);
-    expect(seen[0]!.fields["Report ID"]).toBe(INPUT.reportId);
-    expect(seen[0]!.fields["Period"]).toBe("2026-08");
-    expect(seen[0]!.fields["Delivery status"]).toBe("pending");
-  });
-
-  it("still creates the row when no mirror is injected (the pre-Phase-5 callers)", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await expect(createDraft(base, INPUT)).resolves.toMatchObject({ reportType: "Maintenance" });
-  });
-});
-
-describe("makeReportMirror (best-effort, always observable)", () => {
+describe("makeReportMirror (always observable, never swallows)", () => {
   const logged = (spy: ReturnType<typeof vi.spyOn>) =>
     (spy.mock.calls as unknown[][]).flat().join("\n");
 
-  it("created: writes the row and reports op=created mirrored=1", async () => {
+  it("create: writes the row and reports op=create mirrored=1", async () => {
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db, false);
-    await mirror.created({ id: "recNEW", fields: { "Report ID": "acme-2026-08" } });
+    const mirror = await makeReportMirror(async () => db);
+    await mirror.create({ id: "recNEW", fields: { "Report ID": "acme-2026-08" } });
 
     const stored = await db
       .selectFrom("reports")
@@ -73,18 +36,17 @@ describe("makeReportMirror (best-effort, always observable)", () => {
       .where("id", "=", "recNEW")
       .executeTakeFirst();
     expect(stored?.report_id).toBe("acme-2026-08");
-    expect(logged(log)).toContain("REPORT_MIRROR report=recNEW op=created mirrored=1");
+    expect(logged(log)).toContain("REPORT_MIRROR report=recNEW op=create mirrored=1");
   });
 
   it("body: stores the rendered HTML the console preview serves", async () => {
     // Without this the preview route 404s ("No rendered body stored") on every
-    // freshly drafted report until the next hourly sync re-downloads the
-    // Airtable attachment — the row exists, the page it links to does not.
+    // freshly drafted report — the row exists, the page it links to does not.
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db, false);
-    await mirror.created({ id: "recNEW", fields: {} });
+    const mirror = await makeReportMirror(async () => db);
+    await mirror.create({ id: "recNEW", fields: {} });
     await mirror.body("recNEW", "<p>the report</p>");
 
     const stored = await db
@@ -100,8 +62,8 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db, false);
-    await mirror.created({ id: "recNEW", fields: { "Draft ready": true } });
+    const mirror = await makeReportMirror(async () => db);
+    await mirror.create({ id: "recNEW", fields: { "Draft ready": true } });
     await mirror.patch("recNEW", { draft_ready: 0, lighthouse_seo: 71 });
 
     const stored = await db
@@ -114,50 +76,27 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     expect(logged(log)).toContain("REPORT_MIRROR report=recNEW op=patch mirrored=1");
   });
 
-  it("#647: patch on a row Turso never held reports mirrored=missed, like makeSiteMirror", async () => {
-    // Distinct from success on purpose: the UPDATE matched nothing, and
-    // reporting mirrored=1 would claim a write that never landed.
+  it("#647: patch on a row Turso never held reports mirrored=missed, and THROWS", async () => {
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db, false);
-    await expect(mirror.patch("recGHOST", { draft_ready: 0 })).resolves.toBeUndefined();
-
-    expect(logged(log)).toContain("REPORT_MIRROR report=recGHOST op=patch mirrored=missed");
-    expect(logged(log)).not.toContain("op=patch mirrored=1");
-  });
-
-  it("#647: under strict a missed patch THROWS — post-freeze nothing converges it", async () => {
-    const db = await openDb({ url: ":memory:" });
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-
-    const mirror = await makeReportMirror(async () => db, true);
+    const mirror = await makeReportMirror(async () => db);
     await expect(mirror.patch("recGHOST", { draft_ready: 0 })).rejects.toThrow(
       /REPORT_MIRROR report=recGHOST op=patch: no such row in Turso/,
     );
-    // The log line still lands before the throw, so the run log reads the same
-    // in both worlds.
     expect(logged(log)).toContain("REPORT_MIRROR report=recGHOST op=patch mirrored=missed");
 
-    // Positive control: the same strict mirror is transparent when the row exists.
-    await mirror.created({ id: "recREAL", fields: { "Report ID": "R" } });
+    // Positive control: the same mirror is transparent when the row exists.
+    await mirror.create({ id: "recREAL", fields: { "Report ID": "R" } });
     await expect(mirror.patch("recREAL", { draft_ready: 0 })).resolves.toBeUndefined();
   });
 
-  it("without libSQL creds every operation reports mirrored=absent instead of returning null", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-
-    const mirror = await makeReportMirror(async () => {
-      throw new Error("no TURSO_DATABASE_URL");
-    }, false);
-    await expect(mirror.created({ id: "recNEW", fields: {} })).resolves.toBeUndefined();
-    await expect(mirror.body("recNEW", "<p>x</p>")).resolves.toBeUndefined();
-    await expect(mirror.patch("recNEW", { draft_ready: 1 })).resolves.toBeUndefined();
-
-    const out = logged(log);
-    for (const op of ["created", "body", "patch"]) {
-      expect(out).toContain(`REPORT_MIRROR report=recNEW op=${op} mirrored=absent`);
-    }
+  it("without libSQL creds it refuses to build instead of returning null", async () => {
+    await expect(
+      makeReportMirror(async () => {
+        throw new Error("no TURSO_DATABASE_URL");
+      }),
+    ).rejects.toThrow(/REPORT_MIRROR unavailable: no TURSO_DATABASE_URL/);
   });
 
   it("create: inserts the row, logs op=create mirrored=1, and returns what Turso STORED", async () => {
@@ -167,7 +106,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db, false);
+    const mirror = await makeReportMirror(async () => db);
     const row = await mirror.create({
       id: "report_01ARYZ6S41TSV4RRFFQ69G5FAV",
       fields: { "Report ID": "acme-2026-09", Site: ["site_01ARYZ6S41TSV4RRFFQ69G5FAV"] },
@@ -187,7 +126,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     // just minted, so a conflict means something is wrong.
     const db = await openDb({ url: ":memory:" });
     vi.spyOn(console, "log").mockImplementation(() => {});
-    const mirror = await makeReportMirror(async () => db, true);
+    const mirror = await makeReportMirror(async () => db);
     const rec = { id: "report_DUPE", fields: { "Report ID": "first" } };
     await mirror.create(rec);
     await expect(mirror.create({ ...rec, fields: { "Report ID": "second" } })).rejects.toThrow(
@@ -205,7 +144,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
   it("forSite: answers with that site's reports — the drafting path's read", async () => {
     const db = await openDb({ url: ":memory:" });
     vi.spyOn(console, "log").mockImplementation(() => {});
-    const mirror = await makeReportMirror(async () => db, true);
+    const mirror = await makeReportMirror(async () => db);
     await mirror.create({ id: "report_A", fields: { Site: ["site_1"], "Report type": "Testing" } });
     await mirror.create({ id: "report_B", fields: { Site: ["site_2"] } });
 
@@ -215,17 +154,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     await db.destroy();
   });
 
-  it("forSite: refuses to answer 'no reports' when there is no store at all", async () => {
-    // A read that silently answered [] would break the single-queue rule and the
-    // period derivation without a trace — the failure mode the write side reports
-    // as mirrored=absent.
-    const mirror = await makeReportMirror(async () => {
-      throw new Error("no TURSO_DATABASE_URL");
-    }, false);
-    await expect(mirror.forSite("site_1")).rejects.toThrow(/op=forSite unavailable/);
-  });
-
-  it("a write failure is reported as mirrored=0 and never breaks the draft", async () => {
+  it("a write failure is reported as mirrored=0 and thrown to the caller", async () => {
     // The failure is injected at the db handle rather than by closing a real
     // one: an in-memory Kysely instance keeps answering after `destroy()`, so
     // that version of this test passed while asserting the opposite of what it
@@ -238,13 +167,12 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     >;
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db, false);
-    await expect(mirror.created({ id: "recNEW", fields: {} })).resolves.toBeUndefined();
-    await expect(mirror.body("recNEW", "<p>x</p>")).resolves.toBeUndefined();
-    await expect(mirror.patch("recNEW", { draft_ready: 1 })).resolves.toBeUndefined();
+    const mirror = await makeReportMirror(async () => db);
+    await expect(mirror.body("recNEW", "<p>x</p>")).rejects.toThrow(/SQLITE_BUSY/);
+    await expect(mirror.patch("recNEW", { draft_ready: 1 })).rejects.toThrow(/SQLITE_BUSY/);
 
     const out = logged(log);
-    for (const op of ["created", "body", "patch"]) {
+    for (const op of ["body", "patch"]) {
       expect(out).toContain(`REPORT_MIRROR report=recNEW op=${op} mirrored=0 error=SQLITE_BUSY`);
     }
   });

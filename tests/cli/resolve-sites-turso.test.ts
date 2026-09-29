@@ -1,12 +1,6 @@
 /**
- * #646 step 4: `--fleet turso` reads the fleet roster from the database, and the
- * old `--fleet airtable` keyword is a deprecated ALIAS for it — it reads Turso too,
- * and says so on stderr every time.
- *
- * Both are driven against a temp `file:` db through the `openDb` seam. The
- * `AIRTABLE_*` variables are stubbed EMPTY: a keyword that still reached for
- * Airtable would throw "AIRTABLE_PAT not set" rather than quietly succeed, and
- * no real base is ever reachable from here.
+ * #646 step 4: `--fleet turso` reads the fleet roster from the database, driven
+ * here against a temp `file:` db through the `openDb` seam.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -22,8 +16,6 @@ let url: string;
 const NATIVE = mintSiteId(Date.parse("2026-09-17T00:00:00.000Z"));
 
 beforeEach(async () => {
-  vi.stubEnv("AIRTABLE_PAT", "");
-  vi.stubEnv("AIRTABLE_BASE_ID", "");
   dir = mkdtempSync(join(tmpdir(), "resolve-sites-turso-"));
   url = `file:${join(dir, "fleet.db")}`;
   const db = await openDb({ url });
@@ -61,7 +53,7 @@ afterEach(() => {
 });
 
 describe("resolveSites --fleet turso", () => {
-  it("returns the Turso roster, including a site_<ULID> site that has no Airtable record", async () => {
+  it("returns the Turso roster, including a site_<ULID> site", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const sites = await resolveSites({
       fleet: "turso",
@@ -72,27 +64,6 @@ describe("resolveSites --fleet turso", () => {
     expect(sites.map((s) => s.name).sort()).toEqual(["legacy-co", "native-co"]);
     expect(sites.find((s) => s.name === "native-co")?.meta?.siteId).toBe(NATIVE);
     expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("--fleet airtable is a deprecated alias: the SAME Turso roster, plus a warning naming the store read", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const viaAlias = await resolveSites({
-      fleet: "airtable",
-      workdir: "/w",
-      cwd: "/nonexistent",
-      openDb: () => openDb({ url }),
-    });
-    const viaTurso = await resolveSites({
-      fleet: "turso",
-      workdir: "/w",
-      cwd: "/nonexistent",
-      openDb: () => openDb({ url }),
-    });
-    expect(viaAlias).toEqual(viaTurso);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]![0])).toMatch(
-      /--fleet airtable is deprecated.*read from Turso.*--fleet turso/,
-    );
   });
 
   it("still refuses a positional site combined with the keyword", async () => {

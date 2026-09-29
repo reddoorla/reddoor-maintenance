@@ -1,19 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
+import { websiteRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { OPERATOR_FALLBACK } from "../../src/util/operator.js";
 
-// No network: GA/Search enrichment and the header fetch/downscale are stubbed.
+// No network: GA/Search enrichment and the header downscale are stubbed.
 vi.mock("../../src/reports/draft.js", async (orig) => ({
   ...(await orig<typeof import("../../src/reports/draft.js")>()),
   fetchGaUsers: vi.fn().mockResolvedValue({ value: null, softFailed: false }),
   fetchSearch: vi.fn().mockResolvedValue({ value: null, softFailed: false }),
-}));
-vi.mock("../../src/reports/airtable/attachments.js", async (orig) => ({
-  ...(await orig<typeof import("../../src/reports/airtable/attachments.js")>()),
-  fetchAttachmentBytes: vi
-    .fn()
-    .mockResolvedValue({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }),
 }));
 vi.mock("../../src/reports/maintenance-email/header-image.js", async (orig) => ({
   ...(await orig<typeof import("../../src/reports/maintenance-email/header-image.js")>()),
@@ -26,7 +20,7 @@ vi.mock("../../src/reports/maintenance-email/header-image.js", async (orig) => (
   }),
 }));
 // The stamp is the step a preview exists to show; stub it so the wiring — not sharp —
-// is what's under test. Returns bytes distinct from the fetched header so the assertion
+// is what's under test. Returns bytes distinct from the stored plate so the assertion
 // below can prove prepareHeaderImage received the STAMPED image, not the raw one.
 vi.mock("../../src/reports/header-image/index.js", async (orig) => ({
   ...(await orig<typeof import("../../src/reports/header-image/index.js")>()),
@@ -43,8 +37,23 @@ function scored(over: Record<string, unknown> = {}): Record<string, unknown> {
     rScore: 91,
     bpScore: 100,
     seoScore: 95,
-    "Header image": [{ url: "https://x/h.jpg", filename: "h.jpg", type: "image/jpeg" }],
     ...over,
+  };
+}
+
+const PLATE = new Uint8Array([1]);
+
+/** The Turso reads selftest makes: the roster, and each site's stored header plate.
+ *  `plates` lists the site ids that have one. */
+function reads(websites: RawRow[], plates: string[] = websites.map((w) => w.id)) {
+  const plateReads: string[] = [];
+  return {
+    plateReads,
+    roster: async () => websiteRowsFrom(websites),
+    loadHeaderPlate: async (siteId: string) => {
+      plateReads.push(siteId);
+      return plates.includes(siteId) ? PLATE : null;
+    },
   };
 }
 
@@ -64,29 +73,25 @@ function captureResend(): { client: ResendClient; sent: ResendSendInput[] } {
 const NOW = new Date("2026-06-26T12:00:00Z");
 
 beforeEach(() => {
-  process.env.AIRTABLE_PAT = "pat";
-  process.env.AIRTABLE_BASE_ID = "app";
   delete process.env.OPERATOR_EMAIL;
 });
 
 describe("selftestEmail", () => {
-  it("sends one announcement to the operator default and writes NOTHING to Airtable", async () => {
-    const base = makeFakeBase({
-      Websites: [
-        {
-          id: "rec1",
-          fields: {
-            Name: "Acme Co",
-            url: "https://acme.example.com",
-            Status: "maintained",
-            ...scored(),
-          },
+  it("sends one announcement to the operator default", async () => {
+    const websites: RawRow[] = [
+      {
+        id: "rec1",
+        fields: {
+          Name: "Acme Co",
+          url: "https://acme.example.com",
+          Status: "maintained",
+          ...scored(),
         },
-      ],
-      Reports: [],
-    });
+      },
+    ];
     const { client, sent } = captureResend();
-    const res = await selftestEmail({ base, resend: client, site: "acme-co", now: NOW });
+    const { plateReads, ...store } = reads(websites);
+    const res = await selftestEmail({ ...store, resend: client, site: "acme-co", now: NOW });
 
     expect(res.results).toEqual([
       {
@@ -100,28 +105,24 @@ describe("selftestEmail", () => {
     expect(sent[0]!.to).toEqual([OPERATOR_FALLBACK]);
     expect(sent[0]!.cc).toBeUndefined(); // private: no global ops CC
     expect(sent[0]!.subject).toContain("Your testing & maintenance report for Acme Co");
-    // The core guarantee: zero Airtable mutations.
-    expect(base.__calls.filter((c) => c.kind === "create" || c.kind === "update")).toHaveLength(0);
+    expect(plateReads).toEqual(["rec1"]);
   });
 
   it("honors --to (comma-separated) and the requested type", async () => {
-    const base = makeFakeBase({
-      Websites: [
-        {
-          id: "rec1",
-          fields: {
-            Name: "Acme Co",
-            url: "https://acme.example.com",
-            Status: "maintained",
-            ...scored(),
-          },
+    const websites: RawRow[] = [
+      {
+        id: "rec1",
+        fields: {
+          Name: "Acme Co",
+          url: "https://acme.example.com",
+          Status: "maintained",
+          ...scored(),
         },
-      ],
-      Reports: [],
-    });
+      },
+    ];
     const { client, sent } = captureResend();
     await selftestEmail({
-      base,
+      ...reads(websites),
       resend: client,
       site: "acme-co",
       type: "Testing",
@@ -133,30 +134,26 @@ describe("selftestEmail", () => {
   });
 
   it("--all sends one email per report-eligible site (maintained + hosted-only); a scores-less site is skipped", async () => {
-    const base = makeFakeBase({
-      Websites: [
-        {
-          id: "r1",
-          fields: { Name: "Good Co", url: "https://good.com", Status: "maintained", ...scored() },
+    const websites: RawRow[] = [
+      {
+        id: "r1",
+        fields: { Name: "Good Co", url: "https://good.com", Status: "maintained", ...scored() },
+      },
+      {
+        id: "r2",
+        fields: {
+          Name: "No Scores",
+          url: "https://ns.com",
+          Status: "maintained",
         },
-        {
-          id: "r2",
-          fields: {
-            Name: "No Scores",
-            url: "https://ns.com",
-            Status: "maintained",
-            "Header image": [{ url: "u", filename: "f", type: "image/jpeg" }],
-          },
-        },
-        {
-          id: "r3",
-          fields: { Name: "Hosting Co", url: "https://h.com", Status: "hosted-only", ...scored() },
-        },
-      ],
-      Reports: [],
-    });
+      },
+      {
+        id: "r3",
+        fields: { Name: "Hosting Co", url: "https://h.com", Status: "hosted-only", ...scored() },
+      },
+    ];
     const { client, sent } = captureResend();
-    const res = await selftestEmail({ base, resend: client, all: true, now: NOW });
+    const res = await selftestEmail({ ...reads(websites), resend: client, all: true, now: NOW });
     const byName = new Map(res.results.map((r) => [r.site, r.status]));
     expect(byName.get("Good Co")).toBe("sent");
     expect(byName.get("No Scores")).toBe("skipped");
@@ -165,23 +162,20 @@ describe("selftestEmail", () => {
   });
 
   it("--dry-run renders without sending", async () => {
-    const base = makeFakeBase({
-      Websites: [
-        {
-          id: "rec1",
-          fields: {
-            Name: "Acme Co",
-            url: "https://acme.example.com",
-            Status: "maintained",
-            ...scored(),
-          },
+    const websites: RawRow[] = [
+      {
+        id: "rec1",
+        fields: {
+          Name: "Acme Co",
+          url: "https://acme.example.com",
+          Status: "maintained",
+          ...scored(),
         },
-      ],
-      Reports: [],
-    });
+      },
+    ];
     const { client, sent } = captureResend();
     const res = await selftestEmail({
-      base,
+      ...reads(websites),
       resend: client,
       site: "acme-co",
       dryRun: true,
@@ -199,26 +193,54 @@ describe("selftestEmail", () => {
   it("stamps the requested type's headline before downscaling, like a real send", async () => {
     vi.mocked(applyReportTypeHeadline).mockClear();
     vi.mocked(prepareHeaderImage).mockClear();
-    const base = makeFakeBase({
-      Websites: [
-        {
-          id: "rec1",
-          fields: {
-            Name: "Acme Co",
-            url: "https://acme.example.com",
-            Status: "maintained",
-            ...scored(),
-          },
+    const websites: RawRow[] = [
+      {
+        id: "rec1",
+        fields: {
+          Name: "Acme Co",
+          url: "https://acme.example.com",
+          Status: "maintained",
+          ...scored(),
         },
-      ],
-      Reports: [],
-    });
+      },
+    ];
     const { client } = captureResend();
-    await selftestEmail({ base, resend: client, site: "acme-co", type: "Launch", now: NOW });
+    await selftestEmail({
+      ...reads(websites),
+      resend: client,
+      site: "acme-co",
+      type: "Launch",
+      now: NOW,
+    });
 
-    // Stamped with the type the operator asked to preview, from the fetched bytes...
+    // Stamped with the type the operator asked to preview, from the stored plate...
     expect(applyReportTypeHeadline).toHaveBeenCalledWith(new Uint8Array([1]), "Launch");
     // ...and the downscale consumed the STAMPED result, not the raw header.
     expect(prepareHeaderImage).toHaveBeenCalledWith(new Uint8Array([9, 9]));
+  });
+
+  it("skips a site with no stored header plate, without sending", async () => {
+    const websites: RawRow[] = [
+      {
+        id: "rec1",
+        fields: {
+          Name: "Acme Co",
+          url: "https://acme.example.com",
+          Status: "maintained",
+          ...scored(),
+        },
+      },
+    ];
+    const { client, sent } = captureResend();
+    const res = await selftestEmail({
+      ...reads(websites, []),
+      resend: client,
+      site: "acme-co",
+      now: NOW,
+    });
+    expect(res.results).toEqual([
+      { site: "Acme Co", status: "skipped", reason: "no Header image" },
+    ]);
+    expect(sent).toHaveLength(0);
   });
 });

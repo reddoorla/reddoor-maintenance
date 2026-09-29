@@ -1,4 +1,4 @@
-import type { ReportRow } from "../reports/airtable/reports.js";
+import type { ReportRow } from "../reports/report-fields.js";
 
 /**
  * "Refresh preview" for one report, from the console (#539 Phase 4).

@@ -1,34 +1,24 @@
-/** Phase 2 of the Airtable → Turso migration (#539): the fleet-state READ layer.
+/** The fleet-state READ layer.
  *
- *  Returns the exact `WebsiteRow` shape the Airtable module returns, so every
- *  repoint is an import-only swap at a composition root — the same trick
- *  listSubmissionsForSite used for the hybrid-db cutover. The raw values live
- *  in `sites`/`site_health`/`site_schedule` (written by the importer / hourly
- *  sync); coercion to `WebsiteRow` happens HERE, reusing the same coercers the
- *  Airtable module's `mapRow` applies (`toVerdict`, `toFrequency`,
- *  `parseNotifyRouting`, `parseSecurityAdvisories`, `trimToNull`) so there is one
- *  truth for each. Those live in `src/fleet/site-row.ts` — outside the Airtable
- *  directory Phase 6 deletes (#646 step 1; pinned by
- *  tests/db/no-airtable-value-imports.test.ts).
+ *  The raw values live in `sites`/`site_health`/`site_schedule`; coercion to
+ *  `WebsiteRow` happens HERE, reusing the same coercers `mapRow`
+ *  (`src/fleet/site-fields.ts`) applies (`toVerdict`, `toFrequency`,
+ *  `parseNotifyRouting`, `parseSecurityAdvisories`, `trimToNull`, all in
+ *  `src/fleet/site-row.ts`) so there is one truth for each.
  *
  *  The equivalence instrument (tests/db/fleet-state.test.ts) pins this module
- *  to `mapRow` field-by-field: for a fixture record, `mapRow(rec)` must deep-
- *  equal the row read back through here after an import. A new WebsiteRow
- *  field fails that test until this module carries it.
+ *  to `mapRow` field-by-field: for a fixture record, `mapRow(rec)` must
+ *  deep-equal the row read back through here after `mirrorSiteInsert` has
+ *  written it. A new WebsiteRow field fails that test until this module
+ *  carries it.
  *
- *  `headerImage` is the ONE deliberate exception (design D5): Airtable stopped
- *  being its source — the bytes belong in `sites.header_image*`. Those columns
- *  ARE now written: the header-image CLI dual-writes on every generation and the
- *  one-shot backfill copied the rest, so as of 2026-08-25 production carries a
- *  BLOB for 12 of the 13 maintained sites (the 13th, LA Homelessness Youth, has
- *  no header image in Airtable either — its reports are blocked at approve for
- *  exactly that). An earlier version of this comment said the columns were empty
- *  fleet-wide; that was true when written and is no longer.
+ *  `headerImage` is the ONE deliberate exception (design D5): the bytes live in
+ *  `sites.header_image*`, which the header-image CLI writes on every generation.
  *
  *  The `url` is "" because the bytes live in the row itself, not behind a signed
  *  URL — which is why `url` is NOT a usable handle. A consumer that needs the
- *  image calls `loadHeaderImage(db, siteId)` for the bytes; the send path still
- *  fetches the Airtable attachment, and moving it over is its own change.
+ *  image calls `loadHeaderImage(db, siteId)` for the bytes; the send path does
+ *  exactly that.
  */
 import { sql, type Selectable, type Updateable } from "kysely";
 import type { Db } from "./client.js";
@@ -41,8 +31,8 @@ import {
   mapReportRecord,
   mapWebsiteRecord,
   type RawRecord,
-} from "./import-airtable.js";
-import type { AirtableCellValue } from "../reports/airtable/websites.js";
+} from "./field-map.js";
+import type { CellValue } from "../fleet/site-fields.js";
 import {
   toReportType,
   parseAutoEvidence,
@@ -50,6 +40,7 @@ import {
   type DeliveryStatus,
 } from "../reports/report-row.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
+import type { EvidenceRecord } from "../reports/auto-tick.js";
 import { canonicalizeStatus } from "../fleet/site-status.js";
 import {
   parseNotifyRouting,
@@ -65,10 +56,10 @@ type JoinedRow = Record<string, unknown>;
 
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
-/** Stored 1/0/null (importer's b01n) → boolean | null. */
+/** Stored 1/0/null (field-map's b01n) → boolean | null. */
 const bool = (v: unknown): boolean | null => (typeof v === "number" ? v !== 0 : null);
 
-/** Stored JSON array (importer-normalized) → the trimmed string[] mapRow yields. */
+/** Stored JSON array (siteValueFor-normalized) → the trimmed string[] mapRow yields. */
 function parseAwc(raw: unknown): string[] {
   if (typeof raw !== "string" || raw.trim() === "") return [];
   try {
@@ -91,9 +82,9 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     id: String(r.id),
     name,
     url: str(r.url) ?? "",
-    // `sites.status` holds the RAW Airtable cell (the importer stores it verbatim
-    // so the hourly parity check compares raw-to-raw). Canonicalizing HERE — the
-    // twin of mapRow's seam — is what keeps the #558 equivalence instrument green.
+    // `sites.status` holds the RAW cell verbatim (field-map's `siteValueFor`
+    // stores it as given). Canonicalizing HERE — the twin of mapRow's seam — is
+    // what keeps the #558 equivalence instrument green.
     status: canonicalizeStatus(r.status),
     statusRaw: str(r.status),
     pointOfContact: str(r.point_of_contact),
@@ -219,7 +210,7 @@ const SITE_COLUMNS = [
 ] as const;
 
 /** The three-table join every read composes from. site_health/site_schedule
- *  rows are upserted alongside sites by the importer, but LEFT JOIN anyway —
+ *  rows are inserted alongside sites by insertSiteRows, but LEFT JOIN anyway —
  *  a site row must never vanish from a surface because a health row is absent. */
 function joined(db: Db) {
   return db
@@ -230,52 +221,47 @@ function joined(db: Db) {
     .selectAll(["site_health", "site_schedule"]);
 }
 
-/** Write-through for the site-detail editor (Phase 2): after the Airtable
- *  write (still the Phase 2 source of truth), mirror the same cell into
- *  `sites` so a Turso-reading page renders the edit immediately instead of
- *  waiting for the next hourly sync. The column mapping is the IMPORTER's own
- *  map — one truth — and the value gets the importer's empty-clears-to-null
- *  semantics. Throws on a column the importer doesn't claim (the lockstep
- *  test makes that unreachable for the editor's allowlist); the caller treats
- *  a mirror failure as non-fatal — the hourly sync converges it.
+/** The site-detail editor's write (Phase 2): the cell into `sites`, so a
+ *  Turso-reading page renders the edit immediately. The column mapping is the
+ *  field map's own `SITE_FIELDS` — one truth — and the value gets its
+ *  empty-clears-to-null semantics. Throws on a column the field map doesn't
+ *  claim (the lockstep test makes that unreachable for the editor's
+ *  allowlist); the caller routes a failure through `mirrorWrite`.
  *
  *  Handles the non-text columns too (`Require Turnstile` is a checkbox,
  *  `Accepted Watch Conditions` a multi-select): the coercion is NOT repeated
- *  here, it is delegated to the importer's own `siteValueFor`. That delegation
- *  is the whole safety property — parity compares raw-to-raw, so a mirror that
- *  stored `"true"` where the importer stores `1` would red every hourly run. */
+ *  here, it is delegated to the field map's own `siteValueFor`, the same path
+ *  `mapWebsiteRecord` takes. */
 export async function mirrorSiteField(
   db: Db,
   siteId: string,
-  airtableColumn: string,
-  value: AirtableCellValue,
+  column: string,
+  value: CellValue,
 ): Promise<void> {
-  await mirrorSiteFields(db, siteId, { [airtableColumn]: value });
+  await mirrorSiteFields(db, siteId, { [column]: value });
 }
 
 /** The multi-column form, and where the work actually happens (#539 Phase 5).
  *
- *  `updateLaunched` is why it exists: it flips `Status` AND stamps `Launched at`
- *  in one Airtable update, and mirroring those as two separate UPDATEs would
+ *  The launch stamp is why it exists: `launchedFields` flips `Status` AND stamps
+ *  `Launched at` in one FieldSet, and writing those as two separate UPDATEs would
  *  open a window where Turso says a site is maintained but never launched.
  *
- *  Same contract as {@link mirrorHealthFields}, deliberately — it takes the
- *  EXACT FieldSet just written to Airtable (the writers return it, so the mirror
- *  cannot carry a different payload), and returns whether a `sites` row matched:
- *  a site the hourly sync hasn't imported yet updates 0 rows → false, so the
- *  caller can count it honestly instead of claiming it mirrored. An empty
- *  FieldSet runs no SQL and returns true — nothing to mirror is not a miss. */
+ *  Same contract as {@link mirrorHealthFields}, deliberately — it takes a
+ *  column-named FieldSet from the pure builders, and returns whether a `sites`
+ *  row matched: a site with no row updates 0 rows → false, so the caller can
+ *  count it honestly instead of claiming it mirrored. An empty FieldSet runs no
+ *  SQL and returns true — nothing to mirror is not a miss. */
 export async function mirrorSiteFields(
   db: Db,
   siteId: string,
   fields: Record<string, unknown>,
 ): Promise<boolean> {
   const patch: Record<string, string | number | null> = {};
-  for (const [airtableColumn, value] of Object.entries(fields)) {
-    const col = SITE_FIELDS[airtableColumn];
-    if (!col)
-      throw new Error(`mirrorSiteFields: importer claims no sites column for '${airtableColumn}'`);
-    // Empty text still clears to null (the importer's `s()` does the same); the
+  for (const [column, value] of Object.entries(fields)) {
+    const col = SITE_FIELDS[column];
+    if (!col) throw new Error(`mirrorSiteFields: importer claims no sites column for '${column}'`);
+    // Empty text still clears to null (the field map's `s()` does the same); the
     // non-text columns get their own coercion inside siteValueFor.
     patch[col] = siteValueFor(col, value);
   }
@@ -289,32 +275,26 @@ export async function mirrorSiteFields(
   return res.numUpdatedRows > 0n;
 }
 
-/** Mirror a NEWLY CREATED Airtable Websites record into Turso (#539 Phase 5).
+/** Upsert a site's three rows from a column-named record (#539 Phase 5). It
+ *  served the #645 heal's ADOPT; since #646 step 3 a new site is created by
+ *  {@link insertSiteRows} instead.
  *
- *  Since #646 step 3 a new site is created in Turso by {@link insertSiteRows}
- *  instead; this survives as the #645 heal's ADOPT — an Airtable site with no
- *  Turso row is inserted under its own `rec` id by `ensure-site`.
- *
- *  `ensure-site` CREATES a row, and every other site mirror is an UPDATE, which
+ *  `ensure-site` CREATED a row, and every other site mirror is an UPDATE, which
  *  does nothing at all for a row that does not exist yet — so a site
  *  bootstrapped at 09:05 was invisible until the 09:20 sync, and every mirror
  *  the rest of the bootstrap fired reported `mirrored=missed` with nothing to
  *  update.
  *
- *  Maps with the IMPORTER's own `mapWebsiteRecord`, which is also exactly what
- *  parity diffs against: that delegation is what makes the mirrored rows
- *  parity-clean by construction rather than by a column list someone has to
- *  remember to extend.
+ *  Maps with `mapWebsiteRecord`, so the rows are exactly what that one mapping
+ *  produces rather than a column list someone has to remember to extend.
  *
- *  All THREE rows, not just `sites`. Parity reverse-checks `site_health` and
- *  `site_schedule` per site and reports a missing one as `(row) ABSENT`, and a
- *  later `mirrorHealthFields` would return `missed` forever with no row to hit.
+ *  All THREE rows, not just `sites`: a later `mirrorHealthFields` would return
+ *  `missed` forever with no row to hit.
  *
- *  Upserts rather than inserts because `ensure-site` is re-run to RESUME a
- *  bootstrap. The header_image* columns survive that by construction —
- *  `mapWebsiteRecord` does not carry them (Airtable stopped being their source,
- *  design D5), so the conflict branch cannot blank a stored plate whose bytes
- *  live in no other store. */
+ *  Upserts rather than inserts. The header_image* columns survive a re-run by
+ *  construction — `mapWebsiteRecord` does not carry them (design D5), so the
+ *  conflict branch cannot blank a stored plate whose bytes live in no other
+ *  store. */
 export async function mirrorSiteInsert(db: Db, rec: RawRecord, computedAt: string): Promise<void> {
   const { site, health, schedule } = mapWebsiteRecord(rec, computedAt);
   await db
@@ -334,19 +314,16 @@ export async function mirrorSiteInsert(db: Db, rec: RawRecord, computedAt: strin
     .execute();
 }
 
-/** Write-through mirror for the nightly health writers (#539 Phase 3). Takes
- *  the EXACT FieldSet just written to Airtable (updateAuditFields /
- *  updateGitHubSignals return it), so the mirror can never carry a different
- *  payload than the Airtable write it shadows. Resolution + coercion come from
- *  the importer's healthColumnFor — one truth; an Airtable column no
- *  site_health column claims throws (same contract as mirrorSiteField).
- *  Partial by design: absent fields stay untouched, matching
- *  updateGitHubSignals' deliberate omission of a null lastCommitAt. Returns
- *  whether a site_health row matched: a site the hourly sync hasn't imported
- *  yet updates 0 rows → false, so the caller can count it honestly
- *  (mirror_missed) instead of claiming it mirrored — it still converges on the
- *  next sync, like every mirror. An empty FieldSet runs no SQL and returns
- *  true: nothing to mirror is not a miss. */
+/** The nightly health writers' Turso write (#539 Phase 3). Takes the
+ *  column-named FieldSet from the pure builders (`auditFields` /
+ *  `gitHubSignalsFields`). Resolution + coercion come from the field map's
+ *  healthColumnFor — one truth; a column no site_health column claims throws
+ *  (same contract as mirrorSiteField). Partial by design: absent fields stay
+ *  untouched, matching gitHubSignalsFields' deliberate omission of a null
+ *  lastCommitAt. Returns whether a site_health row matched: a site with no row
+ *  updates 0 rows → false, so the caller can count it honestly
+ *  (mirror_missed) instead of claiming it mirrored. An empty FieldSet runs no
+ *  SQL and returns true: nothing to mirror is not a miss. */
 export async function mirrorHealthFields(
   db: Db,
   siteId: string,
@@ -354,7 +331,7 @@ export async function mirrorHealthFields(
 ): Promise<boolean> {
   // Per-column value types (number vs text) are guaranteed by healthColumnFor's
   // coercion — the numeric/text split lives there, once — so the patch builds
-  // untyped and casts at the .set() boundary (the importer's own idiom).
+  // untyped and casts at the .set() boundary (mapWebsiteRecord's own idiom).
   const patch: Record<string, string | number | null> = {};
   for (const [field, value] of Object.entries(fields)) {
     const m = healthColumnFor(field);
@@ -374,8 +351,7 @@ export async function mirrorHealthFields(
 
 /** A site as the Turso-native creator INSERTS it (#646 step 3). Only the columns
  *  `ensure-site` owns; everything else starts at its schema default (null, or 0
- *  for `require_turnstile`) exactly as an imported Airtable row with blank cells
- *  did. */
+ *  for `require_turnstile`). */
 export type NewSiteRow = {
   id: string;
   slug: string;
@@ -394,8 +370,8 @@ export type NewSiteRow = {
  *  create.ts` runs this inside one transaction (a Kysely `Transaction` is a
  *  `Db`), so a failure on the third insert leaves none of the three behind.
  *  Why all three: every reader LEFT JOINs the companions, but the nightly health
- *  and schedule writers are UPDATEs, and under the freeze an UPDATE that matches
- *  no row throws (`mirrored=missed`). */
+ *  and schedule writers are UPDATEs, and an UPDATE that matches no row throws
+ *  (`mirrored=missed`). */
 export async function insertSiteRows(db: Db, site: NewSiteRow, computedAt: string): Promise<void> {
   await db
     .insertInto("sites")
@@ -452,12 +428,11 @@ export async function updateSiteIdentity(
 }
 
 /** The site_schedule twin of {@link mirrorHealthFields}, for the nightly
- *  next-due write-back. `computedAt` stamps when THIS computation ran — the
- *  hourly sync overwrites it with its own import stamp, same as every mirrored
- *  value. Empty fields → full no-op (no lone computed_at stamp for a write
- *  that carried nothing). Same return contract as mirrorHealthFields: false
- *  when the UPDATE matched no site_schedule row (site not yet imported), true
- *  otherwise — including the empty-fields no-op. */
+ *  next-due write-back. `computedAt` stamps when THIS computation ran. Empty
+ *  fields → full no-op (no lone computed_at stamp for a write that carried
+ *  nothing). Same return contract as mirrorHealthFields: false when the UPDATE
+ *  matched no site_schedule row, true otherwise — including the empty-fields
+ *  no-op. */
 export async function mirrorScheduleFields(
   db: Db,
   siteId: string,
@@ -483,33 +458,21 @@ export async function mirrorScheduleFields(
   return res.numUpdatedRows > 0n;
 }
 
-/** Same contract as the Airtable getWebsiteBySlug: slug is siteSlug(Name),
- *  precomputed into the UNIQUE sites.slug column at import time. */
+/** By slug: siteSlug(Name), stored in the UNIQUE sites.slug column. */
 export async function getSiteBySlug(db: Db, slug: string): Promise<WebsiteRow | null> {
   const r = await joined(db).where("sites.slug", "=", slug).executeTakeFirst();
   return r ? rowFromJoined(r as JoinedRow) : null;
 }
 
-/** #645. Does `sites` hold this row at all? One column, no join, no row mapping —
- *  `getSiteById` would answer the same question (its joins are LEFT, so a site
- *  missing its site_health/site_schedule companions still resolves) but it pays
- *  for a full `rowFromJoined` to return a boolean, and it would tie the heal's
- *  decision to whatever that mapper does next. `sites.id` is the PK and it is
- *  exactly what `mirrorSiteInsert` conflicts on. */
-export async function siteRowExists(db: Db, siteId: string): Promise<boolean> {
-  const r = await db.selectFrom("sites").select("id").where("id", "=", siteId).executeTakeFirst();
-  return r !== undefined;
-}
-
-/** By Airtable rec id (the PK) — approve-report's lookup shape. */
+/** By site id (the PK) — approve-report's lookup shape. */
 export async function getSiteById(db: Db, id: string): Promise<WebsiteRow | null> {
   const r = await joined(db).where("sites.id", "=", id).executeTakeFirst();
   return r ? rowFromJoined(r as JoinedRow) : null;
 }
 
-/** Same contract as the Airtable listWebsites: every site, one row each.
- *  Name-ordered for determinism (Airtable returned table order; no consumer
- *  is order-sensitive — the cockpit groups and sorts itself). */
+/** Every site, one row each.
+ *  Name-ordered for determinism (no consumer is order-sensitive — the cockpit
+ *  groups and sorts itself). */
 export async function listSites(db: Db): Promise<WebsiteRow[]> {
   const rows = await joined(db).orderBy("sites.name").execute();
   return rows.map((r) => rowFromJoined(r as JoinedRow));
@@ -517,8 +480,8 @@ export async function listSites(db: Db): Promise<WebsiteRow[]> {
 
 // ————————————————————————— reports —————————————————————————
 
-/** stable checklist key → Airtable column name. The importer stores stable keys
- *  (mapReportRecord); `ReportRow.checklist` exposes Airtable column names — one
+/** stable checklist key → `field` name. The store keeps stable keys
+ *  (mapReportRecord); `ReportRow.checklist` exposes `field` names — one
  *  derived map, built from the checklist definitions themselves. */
 const CHECKLIST_FIELD_BY_KEY: ReadonlyMap<string, string> = new Map(
   [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.key, i.field]),
@@ -586,8 +549,7 @@ function reportRowFromDb(
     approvedBy: r.approved_by,
     deliveryStatus: (r.delivery_status ?? "pending") as DeliveryStatus,
     // The body lives IN the row (rendered_html) — the link points at the
-    // dashboard's own preview route instead of an EXPIRING Airtable signed URL.
-    // Strictly better for the operator: the old link 404'd once the URL aged out.
+    // dashboard's own preview route.
     renderedHtmlAttachment: hasRenderedHtml
       ? { url: `/api/reports/${r.id}/preview`, filename: `${r.report_id ?? r.id}.html` }
       : null,
@@ -646,8 +608,7 @@ export const REPORT_LIST_COLUMNS = [
  *  Computed in SQLite so the bytes never cross the wire. */
 const HAS_RENDERED_HTML = sql<number>`(rendered_html is not null)`.as("has_rendered_html");
 
-/** Same contract as the Airtable listAllReports. Newest-period-first (Airtable
- *  returned manual table order; every consumer filters/sorts itself). */
+/** Newest-period-first (every consumer filters/sorts itself). */
 export async function listAllReports(db: Db): Promise<ReportRow[]> {
   const rows = await db
     .selectFrom("reports")
@@ -659,7 +620,7 @@ export async function listAllReports(db: Db): Promise<ReportRow[]> {
   return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
-/** Same contract as the Airtable listReportsForSite — served by idx_reports_site.
+/** Served by idx_reports_site.
  *  Body-free for the same reason as listAllReports: the site-detail page renders
  *  a link, never the HTML. */
 export async function listReportsForSite(db: Db, siteId: string): Promise<ReportRow[]> {
@@ -674,10 +635,8 @@ export async function listReportsForSite(db: Db, siteId: string): Promise<Report
   return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
-/** Same contract as the Airtable `listSendableReports`: the send queue —
- *  `Draft ready` ∧ `Approved to send` ∧ `Sent at` BLANK, which is exactly the
- *  filterByFormula that reader sends. Airtable evaluated the predicate server-side;
- *  here it is a WHERE, so the three-part rule is stated once, in SQL, and
+/** The send queue — `Draft ready` ∧ `Approved to send` ∧ `Sent at` BLANK, as a
+ *  WHERE, so the three-part rule is stated once, in SQL, and
  *  tests/reports/send/sendable-predicate.test.ts drives every combination of the
  *  three columns through it.
  *
@@ -699,7 +658,7 @@ export async function listSendableReports(db: Db): Promise<ReportRow[]> {
   return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
-/** Columns a report writer mirrors after its Airtable write (same pattern as
+/** Columns a report writer patches into Turso (same pattern as
  *  mirrorSiteField): the approve/override flow, the resend-webhook's delivery
  *  status, and — since #539 Phase 5 — the drafting path's queue flag and a
  *  re-run's refreshed scores.
@@ -720,11 +679,11 @@ export type ReportMirrorPatch = Partial<
     | "delivery_status"
     // Phase 4 report review: the console edits commentary and re-renders the
     // page immediately after the write, so the mirror has to carry it or the
-    // operator sees their own save as a no-op until the next hourly sync.
+    // operator sees their own save as a no-op.
     | "commentary"
     // Phase 5 drafting path. `draft_ready` is the queue flag `queueDraft`
     // writes — for the new draft AND for every row it supersedes, so without it
-    // the console shows a site with two queued reports until the next sync.
+    // the console shows a site with two queued reports.
     | "draft_ready"
     // A re-run (announce/launch reuse) refreshes an existing row's scores so the
     // eventually-sent email is not stale; the console reads the same numbers.
@@ -747,19 +706,18 @@ export type ReportMirrorPatch = Partial<
   >
 >;
 
-/** Mirror an Airtable report write into Turso so the page re-render after an
+/** Write a report patch into Turso so the page re-render after an
  *  approve/override/bounce shows the new state immediately. Callers route
- *  failures through `mirrorWrite`, which decides fatal vs swallowed by the
- *  freeze switch; an empty patch is a no-op, never invalid SQL.
+ *  failures through `mirrorWrite`, which throws on a failure or a missed row;
+ *  an empty patch is a no-op, never invalid SQL.
  *
  *  Returns whether the UPDATE matched a row (#647). Same contract as
  *  `mirrorSiteFields`: this module has no error policy of its own, so the
  *  count is REPORTED and the boundary (`mirrorWrite`, `makeReportMirror`)
- *  decides what a miss means — logged before the freeze, fatal after it, when
- *  no importer exists to converge a row that was never inserted. Discarding
- *  the count is what let a stamp for a row Turso never held mirror
- *  "successfully". An empty patch reports `true`: nothing to write is not a
- *  miss. */
+ *  makes a miss fatal, because no importer exists to converge a row that was
+ *  never inserted. Discarding the count is what let a stamp for a row Turso
+ *  never held mirror "successfully". An empty patch reports `true`: nothing to
+ *  write is not a miss. */
 export async function mirrorReportPatch(
   db: Db,
   reportId: string,
@@ -775,20 +733,18 @@ export async function mirrorReportPatch(
   return res.numUpdatedRows > 0n;
 }
 
-/** Mirror a NEWLY CREATED Airtable Reports record into Turso (#539 Phase 5).
+/** Upsert a report row from a column-named record (#539 Phase 5; a new draft
+ *  is inserted by {@link insertReportRow} since #646 step 4).
  *
  *  Every other report mirror is an UPDATE, which silently does nothing for a row
  *  that does not exist yet — so a draft created at 09:05 was invisible to the
- *  Turso-backed console until the 09:20 sync. Takes the raw record Airtable
- *  echoed back from the create, and maps it with the IMPORTER's own
- *  `mapReportRecord`: parity diffs Turso against exactly that function, so
- *  delegating is what makes the mirrored row parity-clean by construction rather
- *  than by a column list someone has to remember to extend.
+ *  Turso-backed console until the 09:20 sync. Maps with `mapReportRecord`, so the
+ *  row is exactly what that one mapping produces rather than a column list
+ *  someone has to remember to extend.
  *
- *  Upsert, not insert, and the conflict branch drops `rendered_html` for the
- *  same reason the importer's does: the body is written later by a separate
- *  sharp-bearing step, so a re-mirror carrying null would blank a render that
- *  had already succeeded. */
+ *  Upsert, not insert, and the conflict branch drops `rendered_html`: the body is
+ *  written later by a separate sharp-bearing step, so a re-mirror carrying null
+ *  would blank a render that had already succeeded. */
 export async function mirrorReportInsert(db: Db, rec: RawRecord): Promise<void> {
   const row = mapReportRecord(rec, null);
   const { rendered_html: _rh, ...rowSansHtml } = row;
@@ -801,17 +757,14 @@ export async function mirrorReportInsert(db: Db, rec: RawRecord): Promise<void> 
 }
 
 /** Insert a BRAND-NEW report row (#646 step 4). The report id was just minted
- *  (`report_<ULID>`), Turso owns the row, and no Airtable record exists for it.
+ *  (`report_<ULID>`) and Turso owns the row.
  *
- *  A plain INSERT, deliberately not `mirrorReportInsert`'s upsert: that one
- *  resolves a conflict because it re-mirrors a record Airtable already holds,
- *  whereas a conflict HERE means the freshly minted id already exists — which
- *  must fail loudly, never silently overwrite a report. Same reasoning as
- *  `insertSiteRows`.
+ *  A plain INSERT, deliberately not `mirrorReportInsert`'s upsert: a conflict
+ *  HERE means the freshly minted id already exists — which must fail loudly,
+ *  never silently overwrite a report. Same reasoning as `insertSiteRows`.
  *
- *  Maps with the importer's `mapReportRecord`, like the create mirror it replaces:
- *  the parity harness diffs Turso against exactly that function, so a drafted row
- *  is parity-clean by construction rather than by a second column list. The caller
+ *  Maps with `mapReportRecord`, like the create mirror it replaces, so a drafted
+ *  row is shaped by that one mapping rather than by a second column list. The caller
  *  builds the record's fields with `draftFields` (`src/reports/draft-fields.ts`),
  *  whose keys are that mapper's own vocabulary. */
 export async function insertReportRow(db: Db, rec: RawRecord): Promise<void> {
@@ -826,26 +779,47 @@ export async function insertReportRow(db: Db, rec: RawRecord): Promise<void> {
  * produced by a batch job with sharp, never by a dashboard POST. Keeping it out
  * means a handler cannot accidentally write megabytes of HTML from a request.
  *
- * It REPLACES unconditionally. The importer's `when-missing` mode skips a report
- * that already has a body — correct for an import, wrong here: a refresh whose
+ * It REPLACES unconditionally. The importer's `when-missing` mode skipped a report
+ * that already had a body — correct for an import, wrong here: a refresh whose
  * entire purpose is showing the newest commentary must overwrite.
  */
 export async function storeRenderedHtml(db: Db, reportId: string, html: string): Promise<void> {
   await db.updateTable("reports").set({ rendered_html: html }).where("id", "=", reportId).execute();
 }
 
-/** By rec id (the PK) — approve-report's read. */
+export async function storeChecklistEvidence(
+  db: Db,
+  reportId: string,
+  checklist: Record<string, boolean>,
+  autoEvidence: Record<string, EvidenceRecord>,
+): Promise<boolean> {
+  const stored: Record<string, boolean> = {};
+  for (const [key, field] of CHECKLIST_FIELD_BY_KEY) stored[key] = checklist[field] === true;
+  const res = await db
+    .updateTable("reports")
+    .set({
+      checklist: JSON.stringify(stored),
+      checklist_auto_evidence: JSON.stringify(autoEvidence),
+    })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("approved_to_send", "=", 0)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** By report id (the PK) — approve-report's read. */
 export async function getReportById(db: Db, id: string): Promise<ReportRow | null> {
   const r = await db.selectFrom("reports").selectAll().where("id", "=", id).executeTakeFirst();
   return r ? reportRowFromDb(r, r.rendered_html !== null) : null;
 }
 
 /** By Resend message id — the resend-webhook's report lookup (#539 Phase 6 step 2,
- *  #646). Same contract as the Airtable `findReportByMessageId` it replaces: the
- *  first matching row, or null. Served by idx_reports_resend_message (0027), and
- *  body-free like the list reads — the webhook needs the row's id and current
- *  delivery status, never the HTML. `resend_message_id` is stamped by the send
- *  path's `reportSentMirror` (#643) and was imported for historical rows. */
+ *  #646): the first matching row, or null. Served by idx_reports_resend_message
+ *  (0027), and body-free like the list reads — the webhook needs the row's id
+ *  and current delivery status, never the HTML. `resend_message_id` is stamped
+ *  by the send path's `reportSentMirror` (#643) and was imported for historical
+ *  rows. */
 export async function findReportByMessageId(db: Db, messageId: string): Promise<ReportRow | null> {
   const r = await db
     .selectFrom("reports")

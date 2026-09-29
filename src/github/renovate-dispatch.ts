@@ -2,7 +2,7 @@ import {
   allActionableVulnsTransitive,
   isDashboardVisible,
   type WebsiteRow,
-} from "../reports/airtable/websites.js";
+} from "../fleet/site-row.js";
 import { isRenovatePR } from "../alerts/renovate.js";
 import type { PullRequestSummary } from "./gh.js";
 
@@ -10,7 +10,7 @@ import type { PullRequestSummary } from "./gh.js";
  * On-demand Renovate trigger for fleet sites.
  *
  * The nightly security sweep (`fleet-security.yml`) writes each active site's
- * vulnerability counts to Airtable. This module turns that into action: for the
+ * vulnerability counts to Turso. This module turns that into action: for the
  * sites the sweep just flagged with *actionable* (critical or high) vulns, it
  * dispatches that repo's `renovate.yml` `workflow_dispatch` so Renovate runs off
  * its twice-daily schedule. Renovate's OSV vulnerability alerts bypass the
@@ -182,7 +182,7 @@ export function computeAutoFixAttemptUpdates(
 
 /**
  * Apply the planned counter updates with an injected writer, BEST-EFFORT: a writer
- * that throws (e.g. the Airtable field not yet created, or a transient error) is
+ * that throws (e.g. a transient error) is
  * counted in `failed` and never propagates — the security sweep must not fail over
  * counter bookkeeping. Returns the applied/failed tallies for the summary line.
  */
