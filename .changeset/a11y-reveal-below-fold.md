@@ -47,6 +47,18 @@ sites. Every mutation below turns it red:
   Animation.
 - Waiting on infinite animations too: a spinner eats the whole budget.
 
+A second group of mutations holds the attribution rules above:
+
+- Classifying errors by stack URL fails a library crash's test.
+- No downgrade at all fails a lazy embed's error test.
+- Calling every frame cross-origin fails the same-origin frame and srcdoc
+  facade tests.
+- Checking only the outermost frame, or reading the `src` attribute, fails the
+  wrapper-frame and facade tests.
+
+The exact length of the waits between steps and between settle reads, two
+frames and a task, is a margin that no test holds.
+
 **What each route's pass did is recorded.** The artifact gains
 `reveals: [{ route, steps, stepPx, capped, scrollHeight, finalScrollY,
 unsettled }]` beside `skipped`. A route whose pass hit the 400-step cap, left
@@ -57,18 +69,31 @@ that fights the return produces that warn from the pass's own measurements.
 The step cap is held by unit tests only, because reaching it takes a page some
 200 screens tall.
 
-**Violations inside cross-origin frames are counted, not failed.** The pass
-brings lazy third-party iframes into load range, such as a Google Maps footer
-embed or a YouTube player. Those documents' violations are not the site's to
-fix, and whether axe reached them at all depended on injecting into them within
-a 1 s window. axe still runs in its default mode, as on main. Afterwards, a
-violation node whose target is nested inside a frame whose `src` is on another
-origin is dropped. Every `frame-focusable-content` node is kept, because that
-rule is the site's own defect: an `<iframe tabindex="-1">` whose document still
-has something to focus, which axe can only see from inside the frame. Frames
-with no `src`, `about:`/`data:`/`srcdoc` frames, and targets that cannot be
-resolved stay the site's. The artifact gains `frameNodesDropped: [{ route,
-count, rules }]`, and the summary names them as information
+**The rule for anything not counted against the site: positive evidence only.**
+The pass brings lazy third-party iframes into load range, such as a Google Maps
+footer embed or a YouTube player. What happens inside them is not the site's to
+fix. But a thing is treated as the third party's only on positive evidence that
+it happened inside a cross-origin frame. "Cannot tell" is always the site's,
+and nothing moved out of the site's count is silent.
+
+**Violations inside cross-origin frames are counted, not failed.** axe still
+runs in its default mode, as on main. Afterwards, the spec walks each nested
+violation node's frame path, stepping into shadow roots and through same-origin
+wrapper frames. It asks each frame for the URL it actually loaded, so redirects
+are followed and a srcdoc facade reads as `about:srcdoc`. A node is dropped only
+if a frame on that path loaded an http(s) document from another origin.
+
+Kept as the site's:
+
+- every `frame-focusable-content` node. That rule is the site's own defect: an
+  `<iframe tabindex="-1">` whose document still has something to focus, which
+  axe can only see from inside the frame;
+- a srcdoc facade over a cross-origin `src`;
+- `about:`, `data:` and `blob:` frames;
+- anything that cannot be resolved.
+
+The artifact gains `frameNodesDropped: [{ route, count, rules }]`, and the
+summary names them as information
 (`N violation nodes inside cross-origin frames not counted: …`). This never
 changes the status.
 
@@ -77,15 +102,32 @@ by @axe-core/playwright 4.13's default mode (verified: identical results).
 Legacy mode skips cross-origin frames, but it also drops
 `frame-focusable-content`.
 
-**Uncaught errors from another origin are named, not failed.** Playwright
-reports an exception thrown inside an out-of-process iframe as a `pageerror`
-on the page, so a lazy embed that throws on load would have failed the site as
-a critical `client-error`. Each error is now classified by the first `at <url>`
-in its stack. An error whose URL is on another origin than the route being
-visited goes into `thirdPartyErrors: [{ route, source, message }]`. It does not
-fail; the summary names it by route and origin, and it moves a clean run to
-`warn`. An error whose stack names no URL stays the site's. Every `client-error`
-entry now carries `source`, the stack's first URL.
+**Uncaught errors thrown inside cross-origin frames are named, not failed.**
+Playwright reports an exception thrown inside an out-of-process iframe as a
+`pageerror` on the page, so a lazy embed that throws on load would have failed
+the site as a critical `client-error`.
+
+Every frame now keeps its own log of uncaught errors and rejections. The spec
+installs it with `page.addInitScript`, before each frame's first script runs.
+A route's errors are settled against those logs when the route ends. An error
+goes into `thirdPartyErrors: [{ route, frame, source, message }]` only when a
+cross-origin frame's own log recorded the same message, and only as many times
+as that frame recorded it beyond the site's own frames. The error does not
+fail; the summary names it by route and by the origin of the frame that logged
+it, and it moves a clean run to `warn`.
+
+**Where the stack starts is never evidence.** A site that crashes inside a
+library it loaded into its own page from another origin (Vimeo's `player.js`,
+Turnstile's `api.js`, Google Maps) has a stack that starts on that origin, and
+it is still the site's crash and still fails. Every `client-error` entry
+carries `source`, the stack's first URL, for the reader only.
+
+Two cases move nothing, because the message a frame's log sees can be hidden:
+
+- if a site frame logged a hidden `Script error.`, nothing on that route
+  moves;
+- an embed's error that its own window saw only as `Script error.` cannot be
+  matched, so it stays the site's and fails.
 
 **Each route ends on `about:blank`.** Navigating to route B keeps route A's
 document alive until B commits. An error that A's timers threw late therefore
@@ -107,7 +149,7 @@ hits:
   pass triggers through async work can land after it.
 
 **New ways a clean site can move to `warn`:** a reveal pass that stopped short,
-and an uncaught error from another origin.
+and an uncaught error that a cross-origin frame's own log recorded.
 
 **Still audited hidden, as before:**
 

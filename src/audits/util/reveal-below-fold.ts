@@ -38,11 +38,13 @@ export type RevealPass = {
  * The injected `transition:none` sheet could not help: there was no transition
  * to snap, because nothing had asked the element to reveal.
  *
- * Choices, each forced by a way the simpler version is wrong. Every one below
- * is held by a mutation in tests/audits/a11y-live-spec.test.ts — undo it and
- * a named test there goes red. (The 400-step cap is not: reaching it takes a
- * page some 200 screens tall, so `capped` is held by unit tests on the
- * summary only.)
+ * Choices, each forced by a way the simpler version is wrong. Each is held by
+ * a mutation in tests/audits/a11y-live-spec.test.ts — undo it and a named test
+ * there goes red — EXCEPT where a bullet says otherwise. Two things are not
+ * held: the exact length of the waits (two frames and a task is a margin; one
+ * frame, or two without the task, also passes today), and the 400-step cap
+ * (reaching it takes a page some 200 screens tall, so `capped` is held by unit
+ * tests on the summary only).
  *
  *   - **Half-viewport steps, not whole ones.** A reveal observed with a negative
  *     bottom `rootMargin` (`"0px 0px -25% 0px"` is common) only counts the top
@@ -59,9 +61,10 @@ export type RevealPass = {
  *   - **Back to the top before axe.** A header that changes once scrolled, or a
  *     fixed element that would overlap content at some other offset, is then
  *     measured where the old audit measured it.
- *   - **Two frames and a task at every stop.** IntersectionObserver entries
- *     are computed during a rendering update and delivered in a task after it,
- *     so a stop's reveals have run only once both have passed.
+ *   - **A wait at every stop.** IntersectionObserver entries are computed
+ *     during a rendering update and delivered in a task after it, so a stop's
+ *     reveals have run only once both have passed. Deleting the wait is held;
+ *     its length (two frames and a task) is a margin, not held.
  *   - **Settle last, in a loop.** CSS transitions are already snapped, and CSS
  *     animations cancelled, by the spec's injected sheet, which must be added
  *     BEFORE this runs. What that sheet cannot reach is the Web Animations API,
@@ -72,9 +75,11 @@ export type RevealPass = {
  *         own;
  *       - re-reads the running animations after every wait, until none are
  *         left or the 5 s budget is spent;
- *       - lets two frames and a task pass after each wait before it looks
- *         again, because `onfinish` is dispatched at the next rendering
- *         update, after the `finished` promise the wait resolved on;
+ *       - yields past the current rendering update after each wait before it
+ *         looks again, because `onfinish` is dispatched at the next rendering
+ *         update, after the `finished` promise the wait resolved on. Deleting
+ *         the yield is held; its length (two frames and a task) is a margin,
+ *         not held;
  *       - waits on finite animations only, so an infinite one (a marquee)
  *         cannot eat the budget.
  *

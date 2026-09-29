@@ -347,8 +347,9 @@ const THIRD_PARTY_PAGE = `<!doctype html>
  * (text #111 → #aaa over 3 s). Alone, the placeholder is the last animation to
  * finish in the settle's first wait — and `onfinish` is dispatched at the next
  * rendering update, AFTER the `finished` promise the wait resolved on. So the
- * settle sees the real animation only if it lets a frame pass before looking
- * again. (On the main page other, longer animations used to hide that.)
+ * settle sees the real animation only if it yields past the current rendering
+ * update before looking again. (On the main page other, longer animations used
+ * to hide that.)
  */
 const DELAYED_PAGE = `<!doctype html>
 <html lang="en">
