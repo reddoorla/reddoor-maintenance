@@ -116,17 +116,17 @@ safe:
    gap in recent work).
 3. **Small, single-purpose PRs** — one concern each, so any one is revertable
    without unwinding the arc.
-4. **Journal** — append what + why to [`docs/autonomy-journal.md`](docs/autonomy-journal.md)
+4. **Journal** — append what + why to [`docs/workJournal.md`](docs/workJournal.md)
    so the whole run is reviewable fast.
 
 ## Permissions & sandbox
 
-`.claude/settings.json` (local, gitignored) encodes these tiers as allow / ask /
-deny rules: GREEN commands are `allow`ed (a broad `Bash(*)`, so command _shape_ —
-e.g. `&&`-chains — never reintroduces prompts); RED commands are in `ask`
-(publish / release / deploy / secrets — forces a prompt, so they pause for a human
-while the operator is away) or `deny` (force-push, `reset --hard`, `rm -rf`,
-credential reads — blocked).
+`.claude/settings.json` (tracked and reviewed since #788) encodes these tiers as
+allow / ask / deny rules: GREEN commands are `allow`ed (a broad `Bash(*)`, so
+command _shape_ — e.g. `&&`-chains — never reintroduces prompts); RED commands
+are in `ask` (publish / release / deploy / secrets — forces a prompt, so they
+pause for a human while the operator is away) or `deny` (force-push,
+`reset --hard`, `rm -rf`, credential reads — blocked).
 
 The OS-level **sandbox is enabled** (`sandbox.enabled: true`, macOS Seatbelt;
 enabled purely via settings — the `/sandbox` panel is a terminal TUI the VS Code
