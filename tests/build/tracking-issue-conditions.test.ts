@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   isScheduled,
+  stepEnv,
   stepRunScript,
   workflowPath,
   workflowSteps,
@@ -455,5 +456,93 @@ exit 1
       expect(body.startsWith(CANCELLED), id(s)).toBe(true);
       expect(body, id(s)).toContain("Run: ");
     }
+  });
+});
+
+describe("fleet-lighthouse — the GitHub-signals sweep runs every night that is not cancelled", () => {
+  // Moving mint + sweep off `always()` is only safe if they still run on a
+  // green night AND after a failed audit. Nothing else notices if they stop:
+  // the digest's CI/Renovate collectors silently skip a site whose
+  // githubSignalsAt is >3 days old (src/alerts/digest-collectors.ts), so
+  // `if: failure()` on the sweep would drop those alerts without a word, and a
+  // mint that skips after a failed audit hands the sweep an empty token.
+  const lh = () => all.filter((s) => s.file === "fleet-lighthouse.yml");
+  const mint = () => lh().find((s) => s.label === "id: app-token");
+  const sweep = () => lh().find((s) => s.label === "Sweep GitHub signals to Turso");
+
+  it("finds both steps (a missing step must not pass as a correct one)", () => {
+    expect(mint()?.if).toBeDefined();
+    expect(sweep()?.if).toBeDefined();
+  });
+
+  it("runs both on a green night and after a failed audit, and neither on a cancelled run", () => {
+    const wrong: string[] = [];
+    for (const s of [mint()!, sweep()!]) {
+      for (const [scenario, want] of [
+        [MAIN_GREEN, true],
+        [MAIN_FAILED, true],
+        [MAIN_CANCELLED, false],
+      ] as const) {
+        const got = evaluate(s.if!, scenario);
+        if (got !== want)
+          wrong.push(`${id(s)}: \`if: ${s.if}\` is ${got} when ${scenario.name} (want ${want})`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("gives the mint exactly the sweep's condition, so the sweep never runs untokened", () => {
+    expect(mint()!.if).toBe(sweep()!.if);
+  });
+});
+
+describe("the run-failure open steps read the job's real status", () => {
+  // The body test above sets JOB_STATUS itself, so a typo in the workflow's
+  // mapping (`${{ job.state }}` renders empty) would leave every cancelled
+  // issue unprefixed with that test still green. Pin the mapping.
+  it("maps JOB_STATUS to exactly ${{ job.status }} in every run-failure open step", async () => {
+    const wrong: string[] = [];
+    for (const s of opens(all).filter((o) => !FINDING_KEYED.has(id(o)))) {
+      const env = stepEnv(await readFile(workflowPath(s.file), "utf-8"), s.label);
+      if (env["JOB_STATUS"] !== "${{ job.status }}") {
+        wrong.push(`${id(s)}: JOB_STATUS is ${JSON.stringify(env["JOB_STATUS"])}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+});
+
+describe("no `if:` is a YAML construct instead of a string", () => {
+  // STOPGAP for a real YAML parse. js-yaml is only a transitive dependency
+  // (via @lhci/utils and @changesets), not importable from this package, so a
+  // full load of every workflow waits on adding it as a devDependency. Until
+  // then, this catches the one shape the review showed passing everything
+  // above: `if: !cancelled()` unwrapped. In YAML a plain scalar starting with
+  // `!` is a TAG (js-yaml: "unknown tag !<!cancelled()>"), GitHub rejects the
+  // workflow, and the nightly never runs at all. `& * % @ \` { [` are the other
+  // indicators that make a plain scalar something other than a string.
+  /** Lines whose `if:` value is a plain scalar starting with a YAML indicator. */
+  const indicatorIfs = (file: string, text: string): string[] =>
+    text.split("\n").flatMap((l, i) => {
+      const m = /^\s*(?:- )?if:\s*(\S.*)$/.exec(l);
+      return m && /^[!&*%@`{[]/.test(m[1]!) ? [`${file}:${i + 1}: ${l.trim()}`] : [];
+    });
+
+  // Positive control first, on the exact shape the review's mutation used.
+  it("flags an unwrapped `if: !cancelled()` and passes the wrapped form", () => {
+    const step = (cond: string) =>
+      `jobs:\n  a:\n    steps:\n      - name: x\n        if: ${cond}\n`;
+    expect(indicatorIfs("m3.yml", step("!cancelled()"))).toEqual(["m3.yml:5: if: !cancelled()"]);
+    expect(indicatorIfs("ok.yml", step("${{ !cancelled() }}"))).toEqual([]);
+    expect(indicatorIfs("ok.yml", step("(failure() || cancelled())"))).toEqual([]);
+  });
+
+  it("every `if:` value that starts with a YAML indicator is quoted or ${{ }}-wrapped", async () => {
+    const dir = workflowPath(".");
+    const bad: string[] = [];
+    for (const f of (await readdir(dir)).filter((x) => x.endsWith(".yml")).sort()) {
+      bad.push(...indicatorIfs(f, await readFile(join(dir, f), "utf-8")));
+    }
+    expect(bad).toEqual([]);
   });
 });

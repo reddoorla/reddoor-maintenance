@@ -151,8 +151,13 @@ jobs:
         # 40-42 s on a green night (36323063369, 35615432191). With no budget it
         # hung from 17:51 to 22:38 in 36451921171 — past the 6-hour job limit,
         # which cancelled the run and so filed no tracking issue. At 10 minutes a
-        # hang is a step failure: continue-on-error keeps the job's verdict, and
-        # the tracking issue still gets its turn.
+        # hang is a step failure that continue-on-error absorbs, so the job keeps
+        # the verdict the AUDIT gave it: after a failed audit the run is red and
+        # the tracking issue gets its turn, but a sweep-only hang ends GREEN and
+        # files nothing. The signals then go stale, and after 3 days the digest's
+        # CI/Renovate collectors silently skip the site (GITHUB_SIGNALS_STALE_DAYS
+        # in src/alerts/digest-collectors.ts). The step's timed-out annotation on
+        # an otherwise green run is the only trace of it.
         timeout-minutes: 10
         continue-on-error: true
         env:
