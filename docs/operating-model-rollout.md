@@ -82,3 +82,4 @@ inbox; it carried a real robots.txt block this month.
 - 2026-09-29 — **B3**: roalson-interests#196 (`8ecd279`) is on `^0.101.0`; its a11y gate passed with 0 violations across 5 routes. roalson-interests#100 closed.
 - 2026-09-29 — **B4 prepared**: `markup-review` made path-independent (claude-skills#11); both zips handed to the operator.
 - 2026-09-29 — **W6**: done by another session in #971.
+- 2026-09-29 — **W2, W3, W4** and the Monday paragraph (#973): worker rules in `CLAUDE.md`, `docs/worker-brief.md` with a checked P1-12 example, the [H] tag in BACKLOG and `pm-pass.md`, the Monday pass. W2's proof ("the next three worker sessions follow them") and W4's (an [H] item exists) are still to come.
