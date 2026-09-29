@@ -405,6 +405,13 @@ const frameOnPathIsForeign = ${frameOnPathIsForeign.toString()};
 // Every read of a frame is bounded: a lazy iframe that never loaded is listed
 // with no document, and waiting on it hung the whole run (#100 review).
 const FRAME_READ_TIMEOUT_MS = 2000;
+// Every navigation to about:blank is bounded too, and its failure swallowed. A
+// renderer kept permanently busy (a cross-origin embed in an endless loop
+// shares the page's renderer under Playwright's Chromium) never finishes the
+// navigation, and an unbounded one would hang the run to the spawn timeout
+// with the crash unnamed. Bounded, the run goes on: the final settle reads
+// what is left and results.json is written.
+const ABOUT_BLANK_TIMEOUT_MS = 10_000;
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
 const REVEAL_PASS_ERROR_PREFIX = ${JSON.stringify(REVEAL_PASS_ERROR_PREFIX)};
@@ -654,7 +661,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // then end on about:blank, so an error that route A's timers or pending
       // work throw late can never be charged to route B.
       await settleErrors();
-      await page.goto("about:blank");
+      await page.goto("about:blank", { timeout: ABOUT_BLANK_TIMEOUT_MS }).catch(() => {});
     }
   }
 
@@ -670,7 +677,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
     // Let hydration + first effects run so a TDZ/ReferenceError surfaces.
     await page.waitForTimeout(2000);
     await settleErrors();
-    await page.goto("about:blank");
+    await page.goto("about:blank", { timeout: ABOUT_BLANK_TIMEOUT_MS }).catch(() => {});
   }
   // Anything still held -- an error that arrived after its route's settle --
   // is the site's: with no frame left to read, nothing can move it. Nothing

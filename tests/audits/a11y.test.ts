@@ -1899,42 +1899,63 @@ describe("audits/a11y — an error is a cross-origin frame's only on that frame'
 describe("audits/a11y — frame reads are bounded, and unreadable is the site's", () => {
   const TOP = "http://localhost:5173";
   const NEVER = () => new Promise<never>(() => undefined);
+  // These tests hold time limits, so an unbounded regression must fail them
+  // fast, not at the suite's 120 s test timeout.
+  const FAST = 5_000;
   const logFrame = (url: string, read: () => Promise<unknown>) => ({
     url: () => url,
     evaluate: read,
   });
 
-  it("skips a frame with no document, and never waits on one", async () => {
-    const main = logFrame(`${TOP}/`, async () => ["site broke"]);
-    const unloaded = logFrame("", NEVER);
-    const started = Date.now();
-    const logs = await collectFrameErrorLogs([main, unloaded], main, TOP, isForeignUrl, 60_000);
-    expect(Date.now() - started).toBeLessThan(1000);
-    expect(logs).toEqual([{ url: `${TOP}/`, foreign: false, messages: ["site broke"] }]);
-  });
+  it(
+    "skips a frame with no document, and never waits on one",
+    async () => {
+      const main = logFrame(`${TOP}/`, async () => ["site broke"]);
+      const unloaded = logFrame("", NEVER);
+      const started = Date.now();
+      const logs = await collectFrameErrorLogs([main, unloaded], main, TOP, isForeignUrl, 60_000);
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(logs).toEqual([{ url: `${TOP}/`, foreign: false, messages: ["site broke"] }]);
+    },
+    FAST,
+  );
 
-  it("gives up on a frame that does not answer: no evidence from a cross-origin one, a hidden entry for the site's", async () => {
-    const main = logFrame(`${TOP}/`, NEVER);
-    const embed = logFrame("https://embed.example.com/w", NEVER);
-    const answering = logFrame("https://other.example.com/x", async () => ["embed broke"]);
-    const logs = await collectFrameErrorLogs([main, embed, answering], main, TOP, isForeignUrl, 50);
-    expect(logs).toEqual([
-      { url: `${TOP}/`, foreign: false, messages: [null] },
-      { url: "https://other.example.com/x", foreign: true, messages: ["embed broke"] },
-    ]);
-  });
+  it(
+    "gives up on a frame that does not answer: no evidence from a cross-origin one, a hidden entry for the site's",
+    async () => {
+      const main = logFrame(`${TOP}/`, NEVER);
+      const embed = logFrame("https://embed.example.com/w", NEVER);
+      const answering = logFrame("https://other.example.com/x", async () => ["embed broke"]);
+      const logs = await collectFrameErrorLogs(
+        [main, embed, answering],
+        main,
+        TOP,
+        isForeignUrl,
+        50,
+      );
+      expect(logs).toEqual([
+        { url: `${TOP}/`, foreign: false, messages: [null] },
+        { url: "https://other.example.com/x", foreign: true, messages: ["embed broke"] },
+      ]);
+    },
+    FAST,
+  );
 
-  it("treats a read that throws like one that does not answer", async () => {
-    const main = logFrame(`${TOP}/`, async () => {
-      throw new Error("detached");
-    });
-    const embed = logFrame("https://embed.example.com/w", async () => {
-      throw new Error("detached");
-    });
-    expect(await collectFrameErrorLogs([main, embed], main, TOP, isForeignUrl, 50)).toEqual([
-      { url: `${TOP}/`, foreign: false, messages: [null] },
-    ]);
-  });
+  it(
+    "treats a read that throws like one that does not answer",
+    async () => {
+      const main = logFrame(`${TOP}/`, async () => {
+        throw new Error("detached");
+      });
+      const embed = logFrame("https://embed.example.com/w", async () => {
+        throw new Error("detached");
+      });
+      expect(await collectFrameErrorLogs([main, embed], main, TOP, isForeignUrl, 50)).toEqual([
+        { url: `${TOP}/`, foreign: false, messages: [null] },
+      ]);
+    },
+    FAST,
+  );
 
   type Walkable = Parameters<typeof frameOnPathIsForeign>[0];
   const walkFrame = (url: string, children: Record<string, Walkable | null> = {}): Walkable => ({
@@ -1966,38 +1987,65 @@ describe("audits/a11y — frame reads are bounded, and unreadable is the site's"
     expect(await walk(main, ["#facade"])).toBe(false);
   });
 
-  it("keeps anything unresolvable the site's: no element, no frame, a throw, or no answer", async () => {
-    const main = walkFrame(`${TOP}/`, { [JSON.stringify("#gone")]: null });
-    // The selector no longer resolves (a frame removed before the walk).
-    expect(await walk(main, ["#missing"])).toBe(false);
-    // It resolves, but to something with no frame.
-    expect(await walk(main, ["#gone"])).toBe(false);
-    const throwing: Walkable = {
-      url: () => `${TOP}/`,
-      evaluateHandle: async () => {
-        throw new Error("Frame was detached");
-      },
-    };
-    expect(await walk(throwing, ["#x"])).toBe(false);
-    const silent: Walkable = { url: () => `${TOP}/`, evaluateHandle: NEVER };
-    const started = Date.now();
-    expect(await walk(silent, ["#x"], 50)).toBe(false);
-    expect(Date.now() - started).toBeLessThan(1000);
-  });
+  it(
+    "keeps anything unresolvable the site's: no element, no frame, a throw, or no answer",
+    async () => {
+      const main = walkFrame(`${TOP}/`, { [JSON.stringify("#gone")]: null });
+      // The selector no longer resolves (a frame removed before the walk).
+      expect(await walk(main, ["#missing"])).toBe(false);
+      // It resolves, but to something with no frame.
+      expect(await walk(main, ["#gone"])).toBe(false);
+      const throwing: Walkable = {
+        url: () => `${TOP}/`,
+        evaluateHandle: async () => {
+          throw new Error("Frame was detached");
+        },
+      };
+      expect(await walk(throwing, ["#x"])).toBe(false);
+      const silent: Walkable = { url: () => `${TOP}/`, evaluateHandle: NEVER };
+      const started = Date.now();
+      expect(await walk(silent, ["#x"], 50)).toBe(false);
+      expect(Date.now() - started).toBeLessThan(1000);
+    },
+    FAST,
+  );
 
-  it("the generated spec runs these exact functions, bounded, and flushes what is still held", async () => {
+  it("the generated spec runs these exact functions and passes FRAME_READ_TIMEOUT_MS at both call sites", async () => {
     const spec = await specOf();
     for (const fn of [collectFrameErrorLogs, frameOnPathIsForeign]) {
       expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
     }
     expect(spec).toContain("const FRAME_READ_TIMEOUT_MS = 2000;");
-    // After the smoke loop, one last settle: nothing held is ever dropped.
-    const smokeLoop = spec.indexOf("for (const { path, name } of smokePages)");
-    const finalSettle = spec.indexOf(
-      "await settleErrors();",
-      spec.indexOf("}\n", spec.indexOf('await page.goto("about:blank");', smokeLoop)),
+    // The limit is only as good as the calls that pass it: the settle's log
+    // read, and the frame-path walk.
+    expect(spec).toMatch(
+      /collectFrameErrorLogs\(\s*page\.frames\(\),\s*page\.mainFrame\(\),\s*currentOrigin,\s*isForeignUrl,\s*FRAME_READ_TIMEOUT_MS,?\s*\)/,
     );
-    expect(smokeLoop).toBeGreaterThan(-1);
-    expect(finalSettle).toBeGreaterThan(smokeLoop);
+    expect(spec).toMatch(
+      /frameOnPathIsForeign\(\s*page\.mainFrame\(\),\s*path,\s*currentOrigin,\s*isForeignUrl,\s*resolveTargetElement,\s*FRAME_READ_TIMEOUT_MS,?\s*\)/,
+    );
+  });
+
+  it("bounds every navigation to about:blank, and never lets one throw", async () => {
+    const spec = await specOf();
+    const navigations = spec.match(/page\.goto\("about:blank"[^\n]*/g) ?? [];
+    // One per axe route and one per smoke route.
+    expect(navigations).toHaveLength(2);
+    for (const line of navigations) {
+      expect(line).toBe(
+        'page.goto("about:blank", { timeout: ABOUT_BLANK_TIMEOUT_MS }).catch(() => {});',
+      );
+    }
+    expect(spec).toContain("const ABOUT_BLANK_TIMEOUT_MS = 10_000;");
+  });
+
+  it("settles once more after the smoke loop: nothing held is ever dropped", async () => {
+    const spec = await specOf();
+    const smokeStart = spec.indexOf("for (const { path, name } of smokePages)");
+    const loopEnd = spec.indexOf("\n  }\n", smokeStart);
+    const byImpact = spec.indexOf("const byImpact = {};");
+    expect(smokeStart).toBeGreaterThan(-1);
+    expect(loopEnd).toBeGreaterThan(smokeStart);
+    expect(spec.slice(loopEnd, byImpact)).toContain("await settleErrors();");
   });
 });

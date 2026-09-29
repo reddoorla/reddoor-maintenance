@@ -930,8 +930,13 @@ describe("audits/a11y — a real reveal pass that cannot finish cleanly warns (#
 });
 
 describe("audits/a11y — a frame that never loads cannot stall the run (#100 review)", () => {
-  // The whole run normally takes seconds. Unbounded, it hung to the 5-minute
-  // spawn timeout; this cap makes that failure take under a minute instead.
+  // The whole run normally takes seconds. What this site holds is the skip of
+  // frames with no document (url ""): without it, an unbounded read hangs to
+  // the spawn timeout — this cap makes that fail in under a minute — and a
+  // bounded one reads the unloaded frame as a silent SITE frame, so nothing
+  // moves and the embed's error is charged to the site. The 2 s read limit
+  // itself is held by the fake-frame unit tests in a11y.test.ts, not here: no
+  // frame on this site has a document and fails to answer.
   const SPAWN_CAP_MS = 45_000;
   let site = "";
   let result: AuditResult | undefined;
