@@ -264,7 +264,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
     checklist is unchanged, since it is not evidence and not named here.
 18. **Standing product calls** — answered 2026-09-29, except #773:
     - #943 (what "Search Console set up" means): evidence-based. Built in
-      #1016, which waits on the freshness window in item 27.
+      #1016, which waits on the freshness window in item 28.
     - #948 (hydration signal): audit the built preview (`vite preview`), not
       the dev server; queued until the a11y PRs in flight land.
     - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
@@ -414,7 +414,26 @@ Ordered by what unblocks the most. Each line is the exact ask.
     both sides of BACKLOG), CI green, `node scripts/land-prs.mjs 1004`. The
     first stamp comes from tonight's nightly (item 20). Item 21's url fix
     clears the-pointe-burbank's item.
-27. **#943, the Search Console freshness window (PR #1016)**: how long does a
+27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
+    #1003)** — two review rounds each found a real defect, so #1003 is held for
+    your call, not a third round.
+    - Round 1 (`a9565ac3`) found a major: stdout's generic "Process from
+      config.webServer was not able to start" line displaced the web server's
+      own cause on stderr ("Port 5173 is already in use"). It also found four
+      test gaps. All are fixed in `8dc2405e`.
+    - Round 2 found no defect in the #949 fix or the missing-browser line, and
+      the full suite passed (7769 tests). Its one confirmed defect is minor: a
+      stdout failure that does not start with `Error:` (a `TypeError`, a test
+      timeout) gets no detail once stderr is only npm warnings. The rest were
+      test gaps. All are filed as #1018; every such case still fails.
+    - All 17 mutations turn a test red. Head `d9dc1ede` is merged with `main`,
+      with CI green.
+    - The ask: land #1003 as it is, with #1018 as the follow-up, or run a
+      third round first. My pick is to land: the round-2 finding narrows a
+      summary's detail, and `freezeMotion` has not changed since round 1.
+    - Landing: `git merge origin/main` (keep both sides of BACKLOG and the
+      journal), CI green, then `node scripts/land-prs.mjs 1003`.
+28. **#943, the Search Console freshness window (PR #1016)**: how long does a
     resolved Search Console lookup count as evidence for the launch check?
     #943 says "N days" and leaves N open. My pick: the site's shorter report
     cadence plus 14 days, which is 45 days for monthly, 106 for quarterly and

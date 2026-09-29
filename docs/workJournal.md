@@ -5887,13 +5887,44 @@ A fresh `fail` becomes `url-unresolved:<siteId>` in the digest. It names the url
 
 **Why it is held.** Both rounds found a real defect, so under the two-round rule #1004 is Operator decisions item 26 and does not go to a third round. The branch has both rounds' fixes, is merged with `main`, and passes the full suite. No production write, no dispatch.
 
+## 2026-09-29 — a11y audit under a strict CSP and without a browser (#905, #949): PR #1003 held after two review rounds
+
+Both issues reproduced on `1b1c52fd` before any change, in the live-spec harness: a throwaway Node server and real Chromium. The harness passed 35 of 35 in the cloud container first.
+
+**#949.** On a page whose CSP has `style-src 'self'`, `page.addStyleTag` threw "Applying inline style violates … 'style-src 'self''". The whole audit then failed with no results.
+
+**#905.** An empty `PLAYWRIGHT_BROWSERS_PATH` makes Playwright print `browserType.launch: Executable doesn't exist at …/chromium_headless_shell-1234/…`.
+
+**One summary hid both.** Both runs reported `a11y: no results written (exit 1) — [WebServer] npm warn Unknown env config …`. Playwright's `line` reporter prints the error to stdout, and the summary read only stderr, which held the web server's npm warning. So #905's defect was also the reason #949's cause went unseen. The two issues share code and ship as one PR.
+
+**The #949 fix.** The freeze sheet is now a constructed `CSSStyleSheet`, adopted after the page's own adopted sheets (`src/audits/util/freeze-motion.ts`). CSP does not govern CSSOM. `bypassCSP: true` was rejected: it would switch the site's CSP off for everything the audit measures, including #52's evidence. Mutation M4 (bypassCSP plus addStyleTag) is caught only by the live test asserting that the page's CSP still fires its `img-src` canary report.
+
+**How the live fixture proves the sheet applied.** Proof means the sheet applied, not merely that nothing threw.
+
+- A 30 s colour transition to `#aaa`.
+- A keyframe animation that holds a `#aaa` rule at `#111`; the page adopts that rule itself, the only way that CSP lets a page style anything.
+- Each fails contrast only if the freeze applied.
+
+**The #905 fix.** `describeNoResults` names a missing executable, with `npx playwright install chromium`. Otherwise it gives the first stdout `Error:` line, then the stderr lines minus npm warnings.
+
+**Beliefs corrected on contact.**
+
+- **My first version let stdout's error replace stderr entirely.** Round 1 found this (major, verified twice). When the web server itself fails, stdout carries only "Process from config.webServer was not able to start", and the real cause ("Port 5173 is already in use", a failed preview build) is on stderr. The fix moved the #905 shape to a different failure, which is the #905 lesson again: a summary must not pick one channel.
+- **Round 2 found the stdout match too narrow.** A `TypeError`, or a bare test timeout, with npm-only stderr now gives no detail at all. Every such case still fails.
+
+**Held after two rounds.** That round-2 defect, and its test gaps, are filed as #1018. Per "Two dirty review rounds, then stop", #1003 is held at Operator decisions 27, with land-as-is as my pick. Its head `d9dc1ede` is merged with main and CI is green.
+
+**Numbers.** 17 mutations, all red. Round 1's reviewer ran 12 mutations of its own, and round 2's ran 15; their survivors are what became the tests in `8dc2405e` and #1018.
+
+**Conflict.** A BACKLOG conflict with #989's Done line stopped CI running on `8dc2405e` at all. GitHub does not run `pull_request` workflows on a conflicted PR. The merge that fixed it is `d9dc1ede`.
+
 ## 2026-09-29 — The Search Console launch check is built on evidence, held on its freshness window (#943, PR #1016)
 
 On 2026-09-29 the operator decided that the "Search Console set up" setup check becomes evidence-based. Until now it passed when the site row _recorded_ a property, which says nothing about whether Search Console answers for the site. The draft already computed the answer on every run and threw it away (`propertyMissing`, #942). #1016 keeps it. Every draft or announcement whose lookup actually runs writes three `site_health` cells beside the `Analytics soft-fail at` stamp, in the same upsert: `search_console_outcome` (`resolved` / `no-property` / `soft-fail`), `search_console_resolved` (the property the query ran against, NULL unless resolved), and `search_console_checked_at`. These are migrations 0035–0037; 0033/0034 are #1005's. `fetchSearchPresence` now returns `property`: the candidate that returned data, or the first one queried when none did. A lookup that did not run writes nothing, so an environment without GA credentials cannot erase evidence. That covers not enrolled, opted out, no credentials, and preview.
 
 The check reads the evidence through one function, `searchConsoleEvidence`, which the setup line and the cockpit share. Only `verified` (a resolved lookup inside the window) and `opted-out` pass, and the opt-out is checked first, so Sonder's wins over any stored outcome. A soft-fail, or a stored outcome with an unreadable timestamp, reads as `unknown`. The cockpit's `search-console-unrecorded` watch is gone. In its place `search-console-no-property` is raised only when a maintained site's last lookup matched nothing, and it names the host and the lookup date. A blank record is not evidence either way.
 
-**Why it did not land.** The brief named the freshness window as the fork #943 leaves open, and it is item 27 under Operator decisions. My pick, cadence plus 14 days, came from a trap this repo has already hit: evidence only arrives when a report drafts, so a fixed 45-day window would fail every quarterly and yearly site most of the time. That is an instrument that cannot pass. The review found a related trap that holds whatever the window is. The `--due` pile-up guard stops new drafts while an older one waits for approval, so a site whose draft sits unapproved goes stale too. The skeptic judged that correct, not a defect: no lookup has run, so there is no evidence, and the label says exactly that.
+**Why it did not land.** The brief named the freshness window as the fork #943 leaves open, and it is item 28 under Operator decisions. My pick, cadence plus 14 days, came from a trap this repo has already hit: evidence only arrives when a report drafts, so a fixed 45-day window would fail every quarterly and yearly site most of the time. That is an instrument that cannot pass. The review found a related trap that holds whatever the window is. The `--due` pile-up guard stops new drafts while an older one waits for approval, so a site whose draft sits unapproved goes stale too. The skeptic judged that correct, not a defect: no lookup has run, so there is no evidence, and the label says exactly that.
 
 **Measured.** 19 mutations were named before the behaviour code, and every one went red. The 3-lens review ran 18 more. Four survived, and three of those mattered: announce skipping the soft-fail write (which would let an old `resolved` keep passing), and the draft or announce write gate narrowed to a GA4 property (which would leave a site enrolled only through its Search Console property with no evidence, ever). Both were test gaps, not code defects, and three new tests kill all three. The fourth was a one-millisecond `>`/`>=` boundary. The cockpit now also requires a readable timestamp before it raises the watch, so it agrees with the setup line's `unknown`. Full suite after merging `main`: 8098 passed, 5 skipped. Lint and typecheck clean. No Turso writes, no dispatches.
 
