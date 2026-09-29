@@ -307,6 +307,43 @@ describe("prospect-audit CLI — a burst of concurrent runs (#907)", () => {
     expect(rows).toEqual([{ id: cockpit.id, status: "partial" }]);
   });
 
+  it("#907 review P6: the finished row carries the FINISH time from a clock that moved on", async () => {
+    // Every other CLI test injects a constant clock, so a finish stamped with
+    // the START time would pass them all — and in production would put P6
+    // back: the cockpit's 10-minute duplicate guard would run from the start.
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await seededDb(0);
+    const started = new Date("2026-09-17T12:00:00.000Z");
+    const finished = new Date("2026-09-17T12:17:00.000Z");
+    const cockpit = await reserveProspectAudit(
+      db,
+      { url: "https://acme.example/", business: null, claimed: false },
+      { now: started },
+    );
+    if (cockpit.kind !== "reserved") throw new Error("positive control");
+    let reads = 0;
+    const { code } = await runProspectAuditCommand("https://acme.example/", {
+      probes: false,
+      deps: stubDeps().deps,
+      openDb: async () => db,
+      // The first read is the reservation's; every later read is the run
+      // having moved on.
+      now: () => (reads++ === 0 ? started : finished),
+    });
+    expect(code).toBe(0);
+    const row = await db
+      .selectFrom("prospect_audits")
+      .select(["id", "status", "created_at"])
+      .executeTakeFirstOrThrow();
+    expect(row).toEqual({
+      id: cockpit.id,
+      status: "partial",
+      created_at: finished.toISOString(),
+    });
+    // The clock was actually consulted again, not merely advanced by luck.
+    expect(reads).toBeGreaterThanOrEqual(2);
+  });
+
   it("a run whose pipeline throws before spending gives its slot back", async () => {
     // The crawl is the pipeline's one fatal stage, and it runs before any model
     // call. A slot held by a run that spent nothing would be a leak.

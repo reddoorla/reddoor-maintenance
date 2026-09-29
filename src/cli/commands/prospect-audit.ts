@@ -189,13 +189,39 @@ type DailyCapCheck =
    *  must see, because a guard that quietly abstains is worse than none. */
   | { kind: "unchecked"; warning: string };
 
-/** The stages that pay a third party per call: `analyze` (the model),
- *  `probes` (the answer engines) and `accuracy` (the model again). Everything
- *  before them — the crawl, the local checks, the HTTP and DNS probes of the
- *  prospect's own site, Lighthouse — costs runner time only. `analyze` alone
- *  would not do as the line: a failed checks stage skips it, and `probes`
- *  still runs and pays. */
-const PAID_STAGES: ReadonlySet<StageName> = new Set<StageName>(["analyze", "probes", "accuracy"]);
+/** Every pipeline stage, classified by whether it pays a third party per call.
+ *
+ *  `paid`: `analyze` (the model), `probes` (the answer engines) and `accuracy`
+ *  (the model again). `free`: everything else — the crawl, the local checks,
+ *  the HTTP and DNS probes of the prospect's own site, Lighthouse — costs
+ *  runner time only (`basics` names Anthropic and Perplexity only as the bot
+ *  user-agents it fetches the prospect's site with). `analyze` alone would not
+ *  do as the line: a failed checks stage skips it, and `probes` still runs and
+ *  pays.
+ *
+ *  A record over `StageName`, not a hand-kept set of the paid ones, so that a
+ *  stage added to the pipeline without a verdict here fails `tsc` (a missing
+ *  key); tests/cli/prospect-audit-stage-cost.test.ts checks the same thing
+ *  against the union in `pipeline.ts` at test time. */
+export const STAGE_COST = {
+  crawl: "free",
+  checks: "free",
+  lighthouse: "free",
+  analyze: "paid",
+  probes: "paid",
+  assets: "free",
+  basics: "free",
+  stack: "free",
+  siteChecks: "free",
+  dns: "free",
+  http: "free",
+  accessibility: "free",
+  accuracy: "paid",
+} as const satisfies Record<StageName, "paid" | "free">;
+
+const PAID_STAGES: ReadonlySet<StageName> = new Set(
+  (Object.keys(STAGE_COST) as StageName[]).filter((name) => STAGE_COST[name] === "paid"),
+);
 
 const NO_DB_CAP_WARNING =
   "No TURSO_DATABASE_URL, so prior audits cannot be counted — the 24h runaway brake " +
@@ -357,8 +383,14 @@ export async function runProspectAuditCommand(
   // "the pipeline threw", because the pipeline still runs unwrapped code after
   // the paid stages (goal checklist, fix merging and reconciling, scoring): a
   // deterministic bug there throws after every run has paid, and releasing on
-  // it would leave the cap unable to bind on exactly that runaway (review of
-  // #907). A call that fails can still bill, so "start" is the line, not "ok".
+  // it would hand every slot straight back (review of #907). A call that fails
+  // can still bill, so "start" is the line, not "ok".
+  //
+  // What NOT releasing buys is a bound, not the daily cap: the row is left
+  // `running` and stops counting after PROSPECT_AUDIT_STALE_AFTER_MS (2h), so
+  // a run that pays and then throws every time is held to about 25 per 2 hours
+  // — roughly 300 a day, not 25. A terminal `failed` status that keeps
+  // counting for the full window would close that; it is a separate change.
   let spendStarted = false;
   const onStage = (name: StageName, status: "start" | "ok" | "fail", detail?: string): void => {
     if (status === "start" && PAID_STAGES.has(name)) spendStarted = true;
