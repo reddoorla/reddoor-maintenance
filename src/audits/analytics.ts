@@ -39,6 +39,14 @@ import { hostnameOf, isHttpUrl } from "../util/url.js";
  * wrapper), so a value it cannot see is reported as unknown and never turned
  * into a confident fail. That was the root cause of most review findings on
  * this module across six rounds.
+ *
+ * ADVISORY in this release (operator, 2026-09-29): the audit's returned status
+ * is never `fail`. `analyticsAudit` maps it to `warn` at its one return point,
+ * so a site's CI cannot go red on it. Round seven found the probe's "saw
+ * nothing" failing reddoor, a working site with 92 real users whose loader
+ * waits for the first interaction a probe never makes. Tightening any verdict
+ * back to a hard fail waits for a week of fleet data. `classifyAnalytics`
+ * still says `fail` where a case would fail, so that data can be read off it.
  */
 
 /** What the site's own checkout declares it will emit. */
@@ -228,6 +236,21 @@ export type Emission = {
  * fail every correctly-migrated site the moment no browser was available.
  */
 export function determineEmission(ev: EmissionEvidence): Emission {
+  // The probe saw no loader arrive, but the served HTML names one. A loader
+  // gated on the first interaction (reddoor's) never loads for a probe that
+  // does not interact, so this is conflicting evidence, not an observed absence.
+  if (ev.probe !== null && ev.probe.loadedIds.length === 0 && (ev.htmlIds ?? []).length > 0) {
+    return {
+      emitting: null,
+      ids: [],
+      source:
+        `conflicting evidence: the served HTML names ${(ev.htmlIds ?? []).join(", ")}, but the ` +
+        "probe saw no gtag loader arrive (a loader gated on interaction never loads for a probe " +
+        "that does not interact)",
+      authoritative: false,
+      failed: ev.probe.failed ?? [],
+    };
+  }
   if (ev.probe !== null) {
     return {
       emitting: ev.probe.loadedIds.length > 0,
@@ -365,6 +388,42 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
 
   const cfg = facts.config;
   const declared = cfg.measurementId;
+
+  /**
+   * The GA read saw real users. Every absence claim below ("can only ever
+   * answer zero", "not firing", "dead", "recording nothing") is then
+   * contradicted by the one measurement that counts, so it is reported as a
+   * conflict that names both sides, never as the claim.
+   */
+  const gaUsers =
+    facts.property !== null && facts.property.ok && facts.property.users > 0
+      ? facts.property.users
+      : null;
+  const conflicts = (claim: string): AnalyticsVerdict => {
+    const probeSaw =
+      facts.evidence.probe === null
+        ? "no browser probe ran"
+        : facts.evidence.probe.loadedIds.length > 0
+          ? `the probe saw ${[...new Set(facts.evidence.probe.loadedIds)].join(", ")} arrive`
+          : "the probe saw no gtag loader arrive" +
+            ((facts.evidence.probe.failed ?? []).length > 0
+              ? ` (${(facts.evidence.probe.failed ?? []).map((f) => `${f.id}: ${f.reason}`).join("; ")})`
+              : "");
+    const htmlSaw =
+      facts.evidence.htmlIds === null
+        ? "the page was not fetched"
+        : facts.evidence.htmlIds.length > 0
+          ? `the served HTML names ${[...new Set(facts.evidence.htmlIds)].join(", ")}`
+          : "the served HTML names no loader";
+    return {
+      status: "warn",
+      summary:
+        `analytics: the evidence conflicts. Property ${facts.propertyId} recorded ${gaUsers} ` +
+        `users on this site's hostnames in ${facts.windowDays} days, but ${claim}; ${probeSaw}; ` +
+        `${htmlSaw}. Which tag feeds the property is not settled here.`,
+      unchecked: [...unchecked, "which tag feeds the property"],
+    };
+  };
   const unreadable = cfg.unreadableCall;
   const foreign = cfg.foreignAnalytics === true;
   const scanIncomplete = cfg.scanIncomplete === true;
@@ -414,20 +473,35 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
       };
     }
     if (foreign && emission.emitting !== false) {
+      if (gaUsers !== null) {
+        return conflicts(
+          `${cfg.foreignFile ?? "the checkout"} loads a tag manager outside initAnalytics, so ` +
+            "which property it feeds cannot be read here",
+        );
+      }
       return {
         status: "warn",
         summary:
           `analytics: the fleet row carries GA4 property ${facts.propertyId} and ` +
           `${cfg.foreignFile ?? "the checkout"} references a tag manager, but not through ` +
           "initAnalytics — so whether the two describe the same property cannot be told from " +
-          "here. Re-run with REDDOOR_ANALYTICS_PROBE=1, or REMOVE that loader and then run " +
-          "`reddoor-maint analytics-tag` (it refuses while one is present).",
+          "here. " +
+          (facts.evidence.probe === null ? "Re-run with REDDOOR_ANALYTICS_PROBE=1, or " : "") +
+          "REMOVE that loader and then run `reddoor-maint analytics-tag` (it refuses while one " +
+          "is present).",
         unchecked: [...unchecked, "which property the site's own loader uses"],
       };
     }
     if (foreign) {
       // The probe authoritatively saw nothing load, yet the checkout DOES
-      // reference a tag manager — a blocked or dead legacy snippet.
+      // reference a tag manager — a blocked or dead legacy snippet, unless the
+      // GA read says otherwise.
+      if (gaUsers !== null) {
+        return conflicts(
+          `${cfg.foreignFile ?? "the checkout"} references a tag manager and the probe saw no ` +
+            "loader arrive",
+        );
+      }
       return {
         status: "fail",
         summary:
@@ -437,6 +511,9 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
           "legacy snippet. Remove it, then run `reddoor-maint analytics-tag`.",
         unchecked,
       };
+    }
+    if (gaUsers !== null) {
+      return conflicts("the site declares no tag and nothing in its checkout references one");
     }
     return {
       // Hard only once every known mechanism has been checked; otherwise the
@@ -533,6 +610,12 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
   if (configuredHost !== null && facts.siteUrl !== null && isHttpUrl(facts.siteUrl)) {
     const liveHost = hostnameOf(facts.siteUrl);
     if (!isSiteHost(liveHost, configuredHost)) {
+      if (gaUsers !== null) {
+        return conflicts(
+          `${cfg.declaredIn ?? "the checkout"} gates its tag on ${configuredHost} while the site ` +
+            `is served from ${liveHost}`,
+        );
+      }
       return {
         status: "fail",
         summary:
@@ -557,6 +640,9 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
   // when the observation was not authoritative.
   if (emission.emitting === false) {
     const blocked = emission.failed.filter((f) => f.id === id);
+    if (gaUsers !== null) {
+      return conflicts(`${id} is declared and the probe saw no ${id} loader arrive`);
+    }
     return {
       status: observed("fail"),
       summary:
@@ -575,6 +661,11 @@ export function classifyAnalytics(facts: AnalyticsFacts): AnalyticsVerdict {
   if (emission.emitting === true) {
     const distinct = [...new Set(emission.ids)];
     if (!distinct.includes(id)) {
+      if (gaUsers !== null) {
+        return conflicts(
+          `the live site loads ${distinct.join(", ")} while the checkout declares ${id}`,
+        );
+      }
       return {
         status: observed("fail"),
         summary:
@@ -1025,6 +1116,38 @@ export type ProbePage = {
   on(event: "response", handler: (res: ProbeResponse) => void): unknown;
   on(event: "requestfailed", handler: (req: ProbeRequest) => void): unknown;
 };
+
+/** Enough of Playwright's `Page` to drive one probe: events, navigation, wait. */
+export type ProbeNavigablePage = ProbePage & {
+  goto(
+    url: string,
+    opts: { waitUntil: "load"; timeout: number },
+  ): Promise<{ ok(): boolean; status(): number } | null>;
+  waitForTimeout(ms: number): Promise<void>;
+};
+
+/**
+ * One probe of `url` on `page`. THROWS when the navigation did not answer 2xx
+ * (a 503 during a deploy, a 401 behind basic auth) or answered nothing: that
+ * page never ran the site's code, so "no loader arrived" would be a statement
+ * about an error page. A throw is what makes the audit list "whether the tag
+ * fires" as not checked.
+ */
+export async function probePage(
+  page: ProbeNavigablePage,
+  url: string,
+  settleMs: number,
+): Promise<TagProbe> {
+  const seen = collectLoaderIds(page);
+  const nav = await page.goto(url, { waitUntil: "load", timeout: 45_000 });
+  if (nav === null || !nav.ok()) {
+    throw new Error(
+      `the probe's navigation to ${url} answered ${nav === null ? "nothing" : `HTTP ${nav.status()}`}`,
+    );
+  }
+  await page.waitForTimeout(settleMs);
+  return { loadedIds: [...seen.loadedIds], failed: [...seen.failed] };
+}
 export type ProbeRequest = { url(): string; failure(): { errorText: string } | null };
 export type ProbeResponse = { url(): string; status(): number; ok(): boolean };
 
@@ -1073,11 +1196,7 @@ export async function defaultTagProbe(
     const browser = await chromium.launch();
     try {
       const context = await browser.newContext();
-      const page = await context.newPage();
-      const seen = collectLoaderIds(page);
-      await page.goto(url, { waitUntil: "load", timeout: 45_000 });
-      await page.waitForTimeout(settleMs);
-      return { loadedIds: [...seen.loadedIds], failed: [...seen.failed] };
+      return await probePage(await context.newPage(), url, settleMs);
     } finally {
       await browser.close();
     }
@@ -1215,7 +1334,27 @@ function result(
   return { audit: "analytics", site: siteLabel(site), status, summary, details };
 }
 
+/**
+ * THE one place this audit returns, so nothing can bypass the advisory cap:
+ * a `fail` from any path — the classifier, the malformed-property check, or an
+ * unexpected throw — is returned as `warn`. See the module header for why.
+ */
 export async function analyticsAudit(ctx: AuditContext): Promise<AuditResult> {
+  let r: AuditResult;
+  try {
+    r = await classifySite(ctx);
+  } catch (e) {
+    r = result(
+      ctx.site,
+      "warn",
+      `analytics: the audit could not complete (${(e as Error).message}), so nothing was checked.`,
+      { error: (e as Error).message },
+    );
+  }
+  return r.status === "fail" ? { ...r, status: "warn" } : r;
+}
+
+async function classifySite(ctx: AuditContext): Promise<AuditResult> {
   const site = ctx.site;
   // Spec D8 (#936): a site that accepts `no analytics` runs its own analytics,
   // or none, by the operator's decision. Neither end is ours to pair, so this
