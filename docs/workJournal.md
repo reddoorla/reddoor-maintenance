@@ -5672,3 +5672,55 @@ Beliefs corrected on contact:
 
 - The container runs as root, and the old mocked tests read the real `ps` for fake pid 4242. That is harmless only because they also inject `killImpl`. The new mocked tests always pass a table. The brief kept the old ones unchanged, so they stay as they were.
 - My first mutation loop reverted each mutation with `git checkout spawn.ts`. I started it once against uncommitted round-1 fixes, which it would have silently reverted. I stopped it after it had applied its first mutation but before any revert, restored that line by hand, and committed before running it again. A `pkill -f` on the vitest pattern then killed my own shell, because the pattern matched the shell's command line. Commit before mutating, and never `pkill -f` a pattern that your own command contains.
+
+## 2026-09-29 — Search Console properties matched and verified for the fleet; the VLF launch recorded; Sonder's GA tag is not ours
+
+**VLF's launch, as the fleet database records it.** The previous session launched Vida Legacy Foundation (`vida-legacy-foundation`) today and wrote no journal entry, so this one records it. The Turso row was edited directly. `url` became `https://vidalegacy.org`. `name` changed from `vida-legacy-foundation` to `Vida Legacy Foundation`, with the same slug. The header image was stored with `header-image --write-back`. `ga4_property_id` is 556595961: the operator first gave 15868715457, which is the web data stream id, not the property. `netlify_id` is `b99da9d3-d708-4f15-8f8b-adb954b21f53` and `search_console_property` is `sc-domain:vidalegacy.org`. The launch email is approved and goes out in the 09:23 UTC daily-reports run on 2026-09-30. It is the only approved-unsent report in the fleet.
+
+The Lighthouse baseline `launch` stored was 52/100/100/61, and it was wrong in kind, not just low. A `launching` site has no `deployedUrl`, so `launch` audited a local Vite dev server. It was replaced by hand, in the Launch report row and in `site_health`, with 85/100/100/100: desktop preset, devtools throttling, `uses-http2` skipped, 3 runs averaged. Those are the fleet's deployed settings. A single mobile run had given 72. Two defects were filed as suggested tasks, not fixed:
+
+- `branchProtectionContexts` (`src/github/gh.ts`) returns `[]` on any failure. A 403 read therefore leads to a protection PUT that would drop the existing contexts and PR reviews.
+- `launch` audits a dev server instead of the live URL.
+
+`launch` cannot finish from a cloud session at all. The GitHub integration cannot read `branches/main/protection` (403), and the proxy refuses the PUT, so the operator ran it from the laptop.
+
+**Search Console: the instrument first.** The newly added `GA_SA_KEY_B64` and `GA_SUBJECT` resolved: `readGaConfig()` returned one subject, and the hook-written key is the `reddoor-reports@` service account. `sites.list`, called through the same JWT/DWD path as `src/reports/search/client.ts`, returned 10 properties. `sc-domain:reddoorla.com` was among them and read back 5 clicks and 473 impressions over 2026-09-21..27, so the listing was proven before anything was matched against it. `sc-domain:vidalegacy.org` is listed and reads 0/0 without error on launch day. Eight of the 13 missing sites match exactly one URL-prefix property (none has an `sc-domain:` form), and every one of them returned real rows on the same 7-day query:
+
+| Site       | Clicks / impressions |
+| ---------- | -------------------- |
+| Beachfront | 5/710                |
+| CalTex     | 1/11                 |
+| ERP        | 19/510               |
+| Espada     | 14/169               |
+| MSOT       | 8/256                |
+| Revogen    | 19/120               |
+| Sonder     | 40/647               |
+| Vineyard   | 45/104               |
+
+Five sites have no property the account can see, and so get none: 1836dig, 29 Navy, Data Dynamiq, LA Homelessness Initiative, and LA Homelessness Youth, which is still on netlify.app. Each needs the property added and verified in Search Console first.
+
+**The writes did not happen from this session.** The operator confirmed writing the eight values, plus Revogen's GA4 id and a `no analytics` opt-out for Sonder. The cloud session's permission classifier then refused the production write, and it was not routed around. At the time of this entry, the eight rows still read `search_console_property = NULL` unless the operator has since applied them. The next session should read them back before believing either state.
+
+**GA4.** VLF's `report --preview --enrich` exited 0 with no soft-failure, but its preview had no ANALYTICS section. So did Sonder's, a site live for over a year, and that pointed at the check rather than at VLF. Calling the draft's own `fetchGaUsers` settled which was wrong. Reddoor returned 99 users against 128, so the GA path works. VLF and Sonder both returned a clean `{0,0}`, and `analyticsSection` hides a block whose previous period is 0. An empty section is therefore not evidence of broken credentials. The `>ANALYTICS<` gate in `daily-reports.yml` would call both of these a credential failure, and for these two sites it would be wrong.
+
+The Admin API told the zeros apart. Property 556595961 owns `G-34GXWCZ315`, which is the id in VLF's live SvelteKit bundle, and the realtime report showed 11 active users. VLF's 0 is GA's processing lag on launch day, not a fault. Sonder's stored property 480126732 owns `G-832GNRHGGY` and had no rows on any hostname for 30 days. The live site's `GTM-5FVCTMK7` fires `G-KF2C19YMQX`, a property this account cannot see. The operator says Sonder runs analytics in house, so Sonder is "no analytics".
+
+Before any of that was trusted, the tag-to-stream comparison was checked on known-good sites. CalTex, ERP, Espada, MSOT, Revogen, Reddoor, Vineyard and Beachfront each ship exactly the tag of their own stream.
+
+Two more rows are wrong in ways this session did not fix:
+
+- **LA Homelessness Youth's `ga4_property_id` 500039567 names a property whose stream is `www.lahomelessnessawareness.org`**, the Initiative's domain, and which has no data. Neither live site carries a detectable GA tag.
+- **Revogen's live tag `G-Y0VSL1KFNT` belongs to property 545817747, named "Revogen"**, which is the id the operator approved writing.
+
+1836dig, 29 Navy, Data Dynamiq and LA Homelessness Initiative have no GA4 property visible to the account and no GA tag on their live pages.
+
+**Beliefs corrected on contact.** An empty ANALYTICS block means only that "GA returned a zero previous period", not that "credentials failed". A GA4 property id on a row does not mean that site sends data to that property; the site's live tag has to name the property's stream.
+
+**What the operator decided next, and what the rows already said.** The operator asked for three changes: clear Sonder's `ga4_property_id`, since Sonder handles its analytics in house; add Sonder's `no analytics` opt-out; and re-aim the misplaced GA4 id. Reading the rows before writing turned up two things the probe had missed:
+
+- **Sonder already carries a `no search console` opt-out** in `accepted_watch_conditions`. `searchEnrolled` returns false for it, so the matched `https://gallerysonder.com/` would be recorded but never read. It was dropped from the write set.
+- **The two LA rows are two Netlify sites serving the same "Hearts and Minds" page.** Their `netlify_id`s differ: `c4473d34…` belongs to the Initiative, which owns `www.lahomelessnessawareness.org`, and `442e3569…` to Youth, which is marked `no custom domain`. Property 500039567, although GA names it "LA Youth Homelessness", has its stream on the Initiative's domain. The id therefore moves to `la-homelessness-initiative`, and `la-homelessness-youth` becomes NULL.
+
+Neither LA site ships a GA tag today, so the move corrects the record but produces no numbers until one is installed. The classifier refused this write as well. The full write set is 7 Search Console values, Revogen 545817747, Sonder GA4 NULL plus `no analytics`, Initiative 500039567 and Youth NULL. It waits for the operator.
+
+**The writes landed at ~21:15 UTC.** The operator switched the session out of auto mode and had an allow rule added for the one write script, in the container's uncommitted `.claude/settings.local.json`. The script had in fact never existed on disk. Each refused attempt had written it and run it in the same command, so each refusal also discarded the file. All ten rows were updated, one row per update, and read back exactly as intended. Through the draft's own `fetchGaUsers` and `fetchSearch`, Revogen now reads 694 users against 675 on property 545817747, its first GA numbers in a report. It is on page 1 at position 1 through the stored `https://revogen.com/`. Espada reads position 2 through its newly stored property.
