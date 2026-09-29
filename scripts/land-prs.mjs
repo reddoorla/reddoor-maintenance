@@ -51,6 +51,15 @@
 // The first stop ends the run (`LAND #N stopped reason=…`, exit 1); later PRs are not
 // touched. --dry-run only views, and prints what it would do.
 //
+// A READ that fails in transport — the connection reset, EOF, a timeout, or a 502/503/504
+// with no JSON body — is tried again, up to `readAttempts` times in all, 2 s then 4 s
+// apart (see `isTransientReadFailure`). Landing #957 from a cloud session stopped on one
+// `read: connection reset by peer` from the egress proxy on a check-runs GET, and an
+// immediate re-run landed it cleanly. Any answer GitHub actually gave (a 4xx, or a JSON
+// body) is final, and a WRITE — merge, update-branch, branch delete — is never repeated
+// automatically, whatever it failed with: only a call `isReadOnlyApiCall` recognises
+// as a plain GET is ever re-issued.
+//
 // The gh/git runner, the sleep and the clock are injected (see `landPrs`), which is how
 // tests/scripts/land-prs.test.ts drives every branch of this without a network.
 import { spawn } from "node:child_process";
@@ -83,6 +92,10 @@ export const DEFAULT_TIMING = {
   mergeVerifyIntervalMs: 5_000,
   branchGoneRetries: 3,
   branchGoneIntervalMs: 5_000,
+  // A read that failed in transport is issued at most this many times in all, the n-th
+  // retry after readRetryMs × 2^(n-1): 2 s, then 4 s.
+  readAttempts: 3,
+  readRetryMs: 2_000,
 };
 
 const GH_TIMEOUT_MS = 60_000;
@@ -219,11 +232,86 @@ function isWithin(parent, child) {
 
 // ── GitHub, over REST ────────────────────────────────────────────────────────────────
 
+/** Whether the flags after a `gh api` path leave it a plain GET — the only kind of call that
+ *  is ever re-issued. An allowlist, not a denylist: nothing but `--jq <expr>` is accepted,
+ *  so `--method` of any kind, and `-f`/`-F`/`--input` (which switch gh's default method
+ *  from GET to POST), all make it a write — as does any flag nobody has thought about yet. */
+export function isReadOnlyApiCall(args) {
+  for (let i = 0; i < args.length; i += 2) {
+    if (args[i] !== "--jq" || i + 1 >= args.length) return false;
+  }
+  return true;
+}
+
+const TRANSIENT_HTTP = new Set([502, 503, 504]);
+// Go's net/http transport errors, as gh prints them: `Get "<url>": <cause>`. The reset is
+// the line the proxy gave on #957 (`read tcp …: read: connection reset by peer`); it, `EOF`
+// and `net/http: TLS handshake timeout` were also read from gh 2.101.0 itself, pointed at a
+// local server made to fail each way. `unexpected EOF` and `i/o timeout` are Go's spellings
+// of a body cut short and a read deadline, not yet seen from gh. gh sets no client timeout,
+// so a server that never answers hangs it until the runner's kill (`timedOut`, below).
+const TRANSPORT_CAUSE =
+  /connection reset by peer|(?:^|: )(?:unexpected )?EOF$|TLS handshake timeout|i\/o timeout/;
+
+/** Whether a failed `gh api` GET was a failure to hear GitHub, not an answer from it.
+ *
+ *  Transient, and so worth another attempt:
+ *  - the runner killed gh at its timeout (gh has no response timeout of its own, so a
+ *    silent server just hangs it);
+ *  - stderr is a transport error, `Get "<url>": …`, ending in a reset, EOF, or a timeout;
+ *  - HTTP 502, 503 or 504 whose body is not a JSON object (gh prints `gh: HTTP 502` for
+ *    those): the API answers in JSON, so an HTML, text or empty body is almost certainly
+ *    something between us and it — the egress proxy or a load balancer.
+ *  Everything else is final. Any 4xx is GitHub's decision about the request, and asking
+ *  again gets the same one. A 5xx WITH a JSON body (`gh: Server Error (HTTP 502)`) came from
+ *  GitHub's API itself, which is not the flake this is for. `connection refused` means
+ *  nothing is listening at all, and a few seconds do not usually change that. */
+export function isTransientReadFailure(r) {
+  if (r.code === 0) return false;
+  if (r.timedOut) return true;
+  const stderr = String(r.stderr ?? "");
+  const status = /\bHTTP (\d{3})\b/.exec(stderr);
+  if (status) {
+    const body = parseJson(r.stdout ?? "");
+    return TRANSIENT_HTTP.has(Number(status[1])) && (body === null || typeof body !== "object");
+  }
+  return stderr
+    .split("\n")
+    .some((l) => /^Get "[^"]*": /.test(l.trim()) && TRANSPORT_CAUSE.test(l.trim()));
+}
+
+/** Run `call` again while it fails transiently, up to `t.readAttempts` times in all. The
+ *  result carries `attempts` so a stop can say how many it took. `call` must be a read. */
+async function withReadRetries(call, sleep, t, onRetry = () => {}) {
+  for (let attempt = 1; ; attempt++) {
+    const r = await call();
+    // `!(a < b)`, not `a >= b`: a budget that is not a number ends the loop, never extends it.
+    if (!(attempt < t.readAttempts) || !isTransientReadFailure(r)) {
+      return { ...r, attempts: attempt };
+    }
+    const wait = t.readRetryMs * 2 ** (attempt - 1);
+    onRetry(r, attempt, wait);
+    await sleep(wait);
+  }
+}
+
+/** " after N attempts" when a read was retried, so a stop says the retries were spent. */
+const afterAttempts = (r) => (r.attempts > 1 ? ` after ${r.attempts} attempts` : "");
+
 function api(ctx, path, args = [], timeoutMs = GH_TIMEOUT_MS) {
-  return ctx.run("gh", ["api", `repos/${ctx.repo}/${path}`, ...args], {
-    cwd: ctx.cwd,
-    timeoutMs,
-  });
+  const call = () =>
+    ctx.run("gh", ["api", `repos/${ctx.repo}/${path}`, ...args], {
+      cwd: ctx.cwd,
+      timeoutMs,
+    });
+  // A write is issued exactly once, whatever it failed with: a merge PUT whose response
+  // was lost may well have merged, and the view afterwards — not a second PUT — says so.
+  if (!isReadOnlyApiCall(args)) return call();
+  return withReadRetries(call, ctx.sleep, ctx.t, (r, attempt, wait) =>
+    ctx.log(
+      `LAND note: gh api ${path} failed in transport (attempt ${attempt} of ${ctx.t.readAttempts}), retrying in ${wait / 1000} s: ${ghFailureDetail(r)}`,
+    ),
+  );
 }
 
 /** Why a `gh` call failed, in a form that is never empty.
@@ -251,7 +339,9 @@ function parseJson(text) {
 
 async function apiJson(ctx, path) {
   const r = await api(ctx, path);
-  if (r.code !== 0) throw new Stop(`gh api ${path} failed: ${ghFailureDetail(r)}`);
+  if (r.code !== 0) {
+    throw new Stop(`gh api ${path} failed${afterAttempts(r)}: ${ghFailureDetail(r)}`);
+  }
   const body = parseJson(r.stdout);
   if (body === null || typeof body !== "object") {
     throw new Stop(`gh api ${path} returned no JSON: ${firstLine(r.stdout) || "an empty body"}`);
@@ -780,7 +870,11 @@ export function repoFromRemoteUrl(url) {
 }
 
 /** The repo `origin` points at, as GitHub names it (`gh api repos/…` follows a rename). */
-export async function resolveRepo({ run = realRunner, cwd = process.cwd() } = {}) {
+export async function resolveRepo({
+  run = realRunner,
+  cwd = process.cwd(),
+  sleep = realSleep,
+} = {}) {
   const remote = await run("git", ["remote", "get-url", "origin"], {
     cwd,
     timeoutMs: GIT_TIMEOUT_MS,
@@ -790,13 +884,15 @@ export async function resolveRepo({ run = realRunner, cwd = process.cwd() } = {}
   }
   const guess = repoFromRemoteUrl(remote.stdout);
   if (!guess) return { error: `origin ${firstLine(remote.stdout)} does not name owner/repo` };
-  const r = await run("gh", ["api", `repos/${guess}`, "--jq", ".full_name"], {
-    cwd,
-    timeoutMs: GH_TIMEOUT_MS,
-  });
+  const r = await withReadRetries(
+    () =>
+      run("gh", ["api", `repos/${guess}`, "--jq", ".full_name"], { cwd, timeoutMs: GH_TIMEOUT_MS }),
+    sleep,
+    DEFAULT_TIMING,
+  );
   const repo = r.stdout.trim();
   if (r.code !== 0 || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-    return { error: `gh api repos/${guess} failed: ${ghFailureDetail(r)}` };
+    return { error: `gh api repos/${guess} failed${afterAttempts(r)}: ${ghFailureDetail(r)}` };
   }
   return { repo };
 }
