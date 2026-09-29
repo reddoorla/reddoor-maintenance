@@ -209,6 +209,20 @@ describe("draftReportForSite", () => {
       expect(result.html).not.toContain("Uptime Checked");
     });
 
+    it("completing a half-made row with no stored evidence renders every row, as its send will", async () => {
+      const result = await draftReportForSite(noCms(), "Maintenance", {
+        ...NO_HEADER,
+        period: "2026-05",
+        completeRowId: "rec_halfmade",
+        existingRow: {
+          id: "rec_halfmade",
+          reportId: "Acme Co — Maintenance — 2026-05-26",
+          autoEvidence: null,
+        } as never,
+      });
+      expect(result.html).toContain("CMS Checked");
+    });
+
     it("a site with a reachable CMS keeps the row", async () => {
       const result = await draftReportForSite(
         siteFixture({ functionHealthCheckedAt: recent(), cmsReachable: "pass" }),

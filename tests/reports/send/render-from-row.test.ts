@@ -146,6 +146,29 @@ describe("renderReportFromRow", () => {
     expect(r.html).toContain("Deploy &amp; Function Health");
   });
 
+  it("a Testing send drops every n/a row, beside a fail and an unknown row that still render", async () => {
+    const at = "2026-08-31T00:00:00Z";
+    const r = await renderReportFromRow(
+      site(),
+      report({
+        reportType: "Testing",
+        autoEvidence: {
+          "Maint: CMS Checked": { result: "n/a", checkedAt: at, note: "no CMS" },
+          "Test: Form Functionality": { result: "n/a", checkedAt: at, note: "no form" },
+          "Test: Verified After Updates": { result: "n/a", checkedAt: at, note: "no CI" },
+          "Maint: Uptime Checked": { result: "fail", checkedAt: at, note: "down" },
+          "Test: Mobile Browsers": { result: "unknown", checkedAt: at, note: "stale" },
+        },
+      }),
+      PLATE,
+    );
+    for (const gone of ["CMS Checked", "Form Functionality", "Tested After Updates"]) {
+      expect(r.html).not.toContain(gone);
+    }
+    expect(r.html).toContain("Uptime Checked");
+    expect(r.html).toContain("Mobile Browsers");
+  });
+
   it("a row with no stored evidence still renders", async () => {
     const r = await renderReportFromRow(site(), report({ autoEvidence: null }), PLATE);
     expect(r.html).toContain("CMS Checked");

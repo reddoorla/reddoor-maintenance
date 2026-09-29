@@ -275,6 +275,33 @@ describe("selftestEmail", () => {
     expect(sent[0]!.html).toContain("Mobile Browsers");
   });
 
+  it("a Maintenance selftest drops the n/a CMS row too", async () => {
+    const stamp = "2026-06-26T06:00:00Z";
+    const websites: RawRow[] = [
+      {
+        id: "rec1",
+        fields: {
+          Name: "Acme Co",
+          url: "https://acme.example.com",
+          Status: "maintained",
+          "Function health checked at": stamp,
+          "Prismic Models Checked At": stamp,
+          ...scored(),
+        },
+      },
+    ];
+    const { client, sent } = captureResend();
+    await selftestEmail({
+      ...reads(websites),
+      resend: client,
+      site: "acme-co",
+      type: "Maintenance",
+      now: NOW,
+    });
+    expect(sent[0]!.html).not.toContain("CMS Checked");
+    expect(sent[0]!.html).toContain("Uptime Checked");
+  });
+
   it("keeps every row when nothing is n/a", async () => {
     const websites: RawRow[] = [
       {
