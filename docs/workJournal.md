@@ -5356,6 +5356,8 @@ re-measure it.
 
 ## 2026-09-29 — The morning loop's worker rules, brief and streak land; the digest fix parks after two dirty rounds (#973, #974, #975)
 
+> Superseded in part by 2026-09-29 (evening) — The digest sends on news, after two sessions built the same "go".
+
 This session was split off the afternoon PM session to build the agent side of the new operating model before the operator leaves for a month. Two of its three PRs landed. The third is the first PR to go through the rule the first one wrote.
 
 #973 (`071e804`) puts the worker rules into `CLAUDE.md`. A worker that reaches a stop condition writes the question under "Operator decisions" and ends. Two dirty review rounds send a PR there instead of into a third. A brief names its mutations before any code is written. It also adds `docs/worker-brief.md`, with a P1-12 example whose _Verify_ command was run first (`grep -rl sync-configs .github/workflows/` exits 1), the [H] tag, and a Monday paragraph in `pm-pass.md`. It also stopped `pm-pass.md` and the rollout plan from assuming the operator's pronouns. The fresh-branch rule the rollout plan asked for named `git ls-remote --heads origin 'refs/heads/claude/*' 'refs/heads/fix/*'`. Run, that prints 32 SHAs with no dates, most of them months-old `fix/*` branches, so "under a day old" cannot be read from it. The rule now fetches those refs and sorts them with `for-each-ref --sort=-committerdate`. The same read showed that `pm-pass.md` said "every weekday" of a Routine whose cron is `48 4 * * *`.
@@ -5391,6 +5393,33 @@ Beliefs corrected on contact:
 - The brief's "at most 5 sends" for the jitter replay holds only when the day-1 send is at the band's worst value. Under free jitter from day 1 (six items uniform over 30–34, seeds 1, 2, 3 and 975), the exact rule sends 8, 9, 9 and 9 times in 28 days. That is 5–7 "worse" days per seed, all before day 16 as each item finds its floor, plus the heartbeats. Round 2 counted 20 of 28 on the old rule. So `f6d5ee8c`'s tolerance buys something real on a noisy band, at the price of a quiet 1–4 point slide. The replay test pins both cases, and the free-jitter one pins the invariant (a send exactly on each new-high day) rather than a count.
 
 Not done: the third review round (neither version has had one), `land-prs`, and moving P1-20 to Done. All three wait on the operator's pick.
+
+## 2026-09-29 (evening) — The digest sends on news, after two sessions built the same "go" (#975, #978)
+
+The operator answered "Operator decisions" item 19 with "go", and the 29 Navy [TEST] email of 09-28 with "clean". #978 recorded the verdict, so the clean-send streak stands at 1.
+
+**The collision.** A worker session was started from item 19. It claimed #975 in a PR comment at 18:47Z, then built the operator's rule exactly on `claude/digest-send-exact-rule` (`7925133d`). This session pushed its own version, `f6d5ee8c`, to #975 at 18:54Z without re-reading the PR's comments. That is the rule #973 wrote into `CLAUDE.md` that morning, broken by the session that wrote it. The worker stood down at 18:57Z with a side-by-side table and reopened item 19. That table is what turned the collision into a decision. The operator picked this session's version ("do yours"); `7925133d` did not land.
+
+**What the rule became, and what each round found.** Every round was a day-by-day replay of the real functions, not a unit test. Each simpler rule fixed one direction by breaking the other:
+
+- **Compare with yesterday** (round 1): a one-point Lighthouse dip read as WORSE.
+- **Compare with the last send** (round 2): every send reset every baseline, and six jittering scores sent on 20 of 28 days. A fixed item that recurred was silent until the heartbeat.
+- **Prune, high-water, 5-point tolerance** (the "go"): the final review found a dead letter back after one clean run silent for 6 days, and a score sliding 4 points a night never mailed.
+- **One more review on the chosen version** found that a score hovering at the 75 floor was forgotten after two runs above it and re-mailed as "added" on each dip. A simulated year with four such scores gave 168 mails.
+
+What landed:
+
+- A Lighthouse item is remembered 28 days after it clears, and is judged against a 5-point tolerance.
+- A warning is forgotten after two absent runs.
+- A critical item gets no grace, and its baseline follows its count down between sends.
+- A health ask is compared by field, not by failing/unknown.
+
+In a simulated year (359 days, per-night score N(mean, 3)), sends were 52 to 55 in every scenario tried (floor-centred, 3 above, 5 below), against 52 for the weekly heartbeat alone. The full suite passed in a fresh worktree (7630 passed). Each rule has a test that goes red when the rule is removed: 12 mutations over the last two commits, all killed.
+
+Beliefs corrected on contact:
+
+- "Send on change" sounded like one rule. It needed five parameters: memory per kind, tolerance per kind, grace per severity, baseline direction, heartbeat. Each came from a replay, not from reading the code.
+- The two-dirty-rounds rule worked as written: it put a real design fork in front of the operator. What it did not prevent was two sessions answering the same "go". The claim check has to be re-run after every pause, including the author's own pause while waiting for the operator.
 
 ## 2026-09-29 — A protection read that failed can no longer become a protection write (`claude/awesome-maxwell-79q59o`, `58b8d3c`)
 
