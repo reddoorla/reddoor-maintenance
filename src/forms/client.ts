@@ -57,7 +57,7 @@ export type SubmitToIngestOptions = {
  *  The old 8s was calibrated against a 10s Netlify sync limit; the envelope is
  *  now 30s (`SYNCHRONOUS_FUNCTION_TIMEOUT`), so that headroom argument no
  *  longer binds. It also did not clear a COLD central call: measured
- *  2026-08-03, cold start ~1.9s + Airtable slug lookup ~2.4s + Turso
+ *  2026-08-03, cold start ~1.9s + slug lookup ~2.4s + Turso
  *  open/migrate + insert + Resend ~0.8s lands at ~5-7s, leaving 8s with no real
  *  margin. 20s is ~3x that path and still leaves 10s of the envelope for the
  *  action to render. A visitor waiting is recoverable; a visitor wrongly told

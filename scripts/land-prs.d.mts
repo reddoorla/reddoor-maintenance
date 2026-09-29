@@ -20,6 +20,7 @@ export interface Timing {
   headPollIntervalMs: number;
   headPollMaxMs: number;
   maxCheckRounds: number;
+  checksPollIntervalMs: number;
   noChecksRetries: number;
   noChecksIntervalMs: number;
   freshHeadMaxAgeMs: number;
@@ -28,6 +29,10 @@ export interface Timing {
   settleIntervalMs: number;
   mergeVerifyRetries: number;
   mergeVerifyIntervalMs: number;
+  branchGoneRetries: number;
+  branchGoneIntervalMs: number;
+  readAttempts: number;
+  readRetryMs: number;
 }
 
 export interface LandOptions {
@@ -53,7 +58,6 @@ export interface LandResult {
   head?: string;
 }
 
-export const VIEW_FIELDS: string;
 export const DEFAULT_TIMING: Timing;
 
 export function parseArgs(argv: string[]): {
@@ -67,7 +71,6 @@ export function parseArgs(argv: string[]): {
 export const realRunner: Runner;
 export function realSleep(ms: number): Promise<void>;
 export function isReleasePr(pr: { title?: string; headRefName?: string }): boolean;
-export function isWorktreeNoise(text: string): boolean;
 export function parseWorktreeList(porcelain: string): Array<{
   path: string;
   head: string;
@@ -82,6 +85,18 @@ export function ghFailureDetail(r: {
   stderr: string;
   timedOut?: boolean;
 }): string;
+
+/** True when the flags after a `gh api` path leave it a plain GET (only `--jq <expr>`). */
+export function isReadOnlyApiCall(args: string[]): boolean;
+
+/** True when a failed `gh api` GET failed in transport (reset, EOF, timeout, or a
+ *  502/503/504 without a JSON body) rather than being answered. */
+export function isTransientReadFailure(r: {
+  code: number;
+  stdout: string;
+  stderr: string;
+  timedOut?: boolean;
+}): boolean;
 
 /** How many "no checks reported" rounds to tolerate, from the head's age. */
 export function noChecksRetriesFor(
@@ -102,5 +117,43 @@ export function refusal(
   },
   allowedBase?: string,
 ): string;
+
+export interface Pr {
+  number: number;
+  title: string;
+  state: string;
+  isDraft: boolean;
+  baseRefName: string;
+  headRefName: string;
+  headRefOid: string;
+  mergeStateStatus: string;
+  mergeCommit: { oid: string } | null;
+  sameRepo: boolean;
+}
+
+/** A REST pull request (`GET repos/{o}/{r}/pulls/{n}`) in the shape the gates read. */
+export function prFromRest(p: Record<string, unknown>): Pr;
+
+export type CheckBucket = "pass" | "fail" | "pending" | "skipping" | "cancel";
+
+/** The bucket `gh pr checks` puts a check run's conclusion/status or a commit status in. */
+export function checkBucket(state: string | null | undefined): CheckBucket;
+
+export function checksFromRest(
+  checkRuns: Array<{ name: string; status: string; conclusion: string | null }>,
+  statuses: Array<{ context: string; state: string }>,
+): Array<{ name: string; bucket: CheckBucket }>;
+
+/** A branch name as a REST path: only `%`, `#`, `?` and space are percent-encoded. */
+export function refPath(branch: string): string;
+
+/** `owner/repo` from a git remote URL, or "" when it names none. */
+export function repoFromRemoteUrl(url: string): string;
+
+export function resolveRepo(opts?: {
+  run?: Runner;
+  cwd?: string;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<{ repo: string; error?: undefined } | { repo?: undefined; error: string }>;
 
 export function landPrs(opts: LandOptions): Promise<{ code: number; results: LandResult[] }>;

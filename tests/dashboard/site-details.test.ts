@@ -44,10 +44,9 @@ describe("setSiteDetail", () => {
     // A site's url is the target every deployed audit drives — function-health,
     // lighthouse, browser, form-e2e all read it as `deployedUrl`
     // (src/inventory/select.ts). It was writable ONLY at creation
-    // (`ensure-site`), and post-#643 Airtable hand-editing is retired, so a site
-    // that moved — a rename, a staging host, a custom domain at launch — could
-    // not be corrected anywhere. Found on vida-legacy-foundation, whose row
-    // pointed at a hostname that 404s.
+    // (`ensure-site`), so a site that moved — a rename, a staging host, a custom
+    // domain at launch — could not be corrected anywhere. Found on
+    // vida-legacy-foundation, whose row pointed at a hostname that 404s.
 
     it("writes to the `url` column", async () => {
       const { deps, writes } = harness();
@@ -80,7 +79,7 @@ describe("setSiteDetail", () => {
     });
   });
 
-  it("writes an enum field to its exact Airtable column", async () => {
+  it("writes an enum field to its exact column", async () => {
     const { deps, writes } = harness();
     const r = await setSiteDetail(deps, "acme", "status", "hosted-only");
     expect(r.status).toBe("updated");
@@ -94,7 +93,7 @@ describe("setSiteDetail", () => {
     expect(writes).toEqual([]);
   });
 
-  it("writes maintenanceFreq to the misspelled Airtable column", async () => {
+  it("writes maintenanceFreq to the misspelled legacy column", async () => {
     const { deps, writes } = harness();
     await setSiteDetail(deps, "acme", "maintenanceFreq", "Monthly");
     expect(writes[0]!.column).toBe("maintenence freq");
@@ -155,7 +154,7 @@ describe("setSiteDetail", () => {
     expect(r.status).toBe("not-found");
   });
 
-  it("EDITABLE_SITE_FIELDS column strings match the Airtable mapRow columns", () => {
+  it("EDITABLE_SITE_FIELDS column strings match the site mapRow columns", () => {
     expect(EDITABLE_SITE_FIELDS.status!.column).toBe("Status");
     expect(EDITABLE_SITE_FIELDS.pointOfContact!.column).toBe("point of contact");
     expect(EDITABLE_SITE_FIELDS.copyIntro!.column).toBe("Copy — Intro");
@@ -164,8 +163,7 @@ describe("setSiteDetail", () => {
 
 /**
  * #539 Phase 4: the fields the design lists as "the eight nothing renders
- * today". Each `column` here was taken from the LIVE base schema, not inferred
- * from the reader — the Airtable types drive what a valid value even is
+ * today". The column types drive what a valid value even is
  * (`maintenance day`/`testing day` are `date`, `Notify Routing` is
  * `multilineText`, the rest `singleLineText`).
  *
@@ -174,7 +172,7 @@ describe("setSiteDetail", () => {
  * its stored value. It needs a write-only kind first.
  */
 describe("setSiteDetail — Phase 4 field coverage", () => {
-  it("writes each newly-covered field to its exact Airtable column", async () => {
+  it("writes each newly-covered field to its exact column", async () => {
     const cases: Array<[field: string, value: string, column: string]> = [
       ["netlifyId", "nlf-abc123", "Netlify ID"],
       ["searchConsoleProperty", "sc-domain:acme.com", "Search Console property"],
@@ -236,6 +234,30 @@ describe("setSiteDetail — Phase 4 field coverage", () => {
     expect(await ok('{"field":"Department"}')).toBe("invalid");
   });
 
+  it("searchConsoleProperty: accepts only the two shapes Search Console names a property by", async () => {
+    const { deps, writes } = harness();
+    const put = async (v: string) =>
+      (await setSiteDetail(deps, "acme", "searchConsoleProperty", v)).status;
+    expect(await put("sc-domain:acme.com")).toBe("updated");
+    expect(await put("https://www.acme.com/")).toBe("updated");
+    expect(await put("https://www.acme.com")).toBe("updated");
+    expect(writes.map((w) => w.value)).toEqual([
+      "sc-domain:acme.com",
+      "https://www.acme.com/",
+      "https://www.acme.com/",
+    ]);
+    for (const bad of [
+      "acme.com",
+      "none",
+      "sc-domain:",
+      "sc-domain:https://acme.com",
+      "ftp://acme.com/",
+      "https://acme.com/?q=1",
+    ]) {
+      expect(await put(bad), bad).toBe("invalid");
+    }
+  });
+
   it("every newly-covered field can be CLEARED to empty", async () => {
     // Every one of these is optional in production; a field that can be set but
     // not unset traps an operator in whatever they first typed.
@@ -267,8 +289,8 @@ describe("setSiteDetail — Phase 4 field coverage", () => {
 });
 
 /**
- * The two editor fields Airtable will not accept as strings: `Require Turnstile`
- * is a checkbox and `Accepted Watch Conditions` a multipleSelects. They travel
+ * The two editor fields that are not strings: `Require Turnstile` is a checkbox
+ * and `Accepted Watch Conditions` a multipleSelects. They travel
  * as a boolean and a string[] rather than being stringified here and coerced
  * back later (#539 Phase 4).
  */
@@ -301,10 +323,7 @@ describe("setSiteDetail — the non-text fields", () => {
   });
 
   it("REFUSES a watch condition that is not an option in the field", async () => {
-    // `Accepted Watch Conditions` is a multipleSelects, and the Airtable API
-    // creates a missing option as a side effect only with `typecast` — the exact
-    // silent-option-creation hazard this codebase refuses everywhere. Writing an
-    // unknown value must fail here rather than mint a junk option.
+    // Writing an unknown value must fail here rather than mint a junk option.
     const { deps, writes } = harness();
     expect(
       (await setSiteDetail(deps, "acme", "acceptedWatchConditions", "Performance, Nonsense"))
@@ -321,10 +340,7 @@ describe("setSiteDetail — the non-text fields", () => {
     expect(writes[0]!.value).toEqual([]);
   });
 
-  it("offers exactly the options the live Airtable field carries", () => {
-    // Read off the base schema on 2026-08-25. The API cannot add options to a
-    // select (422 — proven during the status migration), so offering one that
-    // does not exist would produce a write Airtable rejects.
+  it("offers exactly the accepted watch-condition options", () => {
     expect([...WATCH_CONDITION_OPTIONS]).toEqual([
       "Performance",
       "Accessibility",
@@ -334,6 +350,8 @@ describe("setSiteDetail — the non-text fields", () => {
       "no custom domain",
       "no analytics",
       "no search console",
+      "no git repo",
+      "no netlify id",
     ]);
   });
 });
@@ -345,7 +363,7 @@ describe("setSiteDetail — the non-text fields", () => {
  * KIND rather than another entry in the list (#539 Phase 4).
  */
 describe("setSiteDetail — the write-only secret", () => {
-  it("writes a new key through to its Airtable column", async () => {
+  it("writes a new key through to its column", async () => {
     const { deps, writes } = harness();
     const r = await setSiteDetail(deps, "acme", "mailchimpApiKey", "  abc123-us21  ");
     expect(r.status).toBe("updated");
@@ -373,8 +391,7 @@ describe("setSiteDetail — the write-only secret", () => {
 /**
  * #612: the console could REPLACE a secret but never CLEAR one — empty means
  * "leave unchanged", deliberately, so an unrelated save cannot destroy a key
- * that is blank on every page load. Airtable was the escape hatch, and the
- * freeze removes it.
+ * that is blank on every page load.
  *
  * A typed sentinel rather than a new control: the secret input is the one field
  * whose save listener already fires on any keystroke, so this needs no change to

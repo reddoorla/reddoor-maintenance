@@ -243,7 +243,7 @@ export async function pushModels(diff: ModelDiff, opts: PushOptions): Promise<Pu
         error: messageOf(e),
         // Spread, so the key is ABSENT rather than present-and-undefined when
         // there was no status (a network failure has none). `PushReport` is
-        // serialised into PR comments and Airtable; a blank `status` key reads
+        // serialised into PR comments and stored; a blank `status` key reads
         // as "there was one and it was empty".
         ...(status === undefined ? {} : { status }),
       });

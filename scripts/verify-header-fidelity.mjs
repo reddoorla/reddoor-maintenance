@@ -12,7 +12,7 @@
 // network.
 //
 // ---------------------------------------------------------------------------
-// WHICH ORIGINALS ARE VALID REFERENCES  (census, 2026-07-31, all 10 Airtable
+// WHICH ORIGINALS ARE VALID REFERENCES  (census, 2026-07-31, all 10 stored
 // headers; do not re-derive this)
 //
 // The plate is built by scripts/build-header-plate.mjs from the LIVE Figma

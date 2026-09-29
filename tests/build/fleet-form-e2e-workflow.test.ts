@@ -21,7 +21,7 @@ const execFileAsync = promisify(execFile);
  *
  *  1. A sweep that attempted NOTHING (`total=0`) exited 0. The pre-existing
  *     mass-flake gate is `failed * 4 > total`, which is `0 > 0` — false — so a
- *     run that swept an empty fleet reported success. fleet-lighthouse.yml:106
+ *     run that swept an empty fleet reported success. fleet-lighthouse.yml:109
  *     has carried `if [ "$wrote" -eq 0 ]` against exactly this for months.
  *  2. COVERAGE. A site whose /health does not declare `forms.testMode`
  *     self-skips, and a self-skip is written back like any other result — so

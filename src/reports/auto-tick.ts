@@ -177,6 +177,10 @@ function securityEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
  * fixed by wiring a secret. An un-enrolled site (`value: null`, not configured, not failed)
  * emits nothing so the box stays manual.
  *
+ * No matching Search Console property (`propertyFound: false`) is `unknown`: no query ran, so
+ * the site's ranking was never measured, and "Not on page 1" would be a false SEO verdict.
+ * Only an explicit `false` counts; an absent flag keeps the page-1 verdict below (#942).
+ *
  * Page-1 is `pass` (with the position in the note); off page 1 is `fail`.
  */
 function googleEvidence(now: Date, search: AutoTickSignals["search"]): EvidenceRecord | null {
@@ -192,6 +196,13 @@ function googleEvidence(now: Date, search: AutoTickSignals["search"]): EvidenceR
     };
   }
   if (search.value === null) return null;
+  if (search.value.propertyFound === false) {
+    return {
+      result: "unknown",
+      checkedAt: at,
+      note: "No Search Console property matched this site",
+    };
+  }
   if (search.value.foundOnPage1) {
     const pos = search.value.position;
     return {
@@ -274,7 +285,23 @@ function deployEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
  * CMS Checked: the server-side `/health` Prismic probe reported reachable. Freshness rides the
  * function-health check stamp (one `/health` fetch feeds both Deploy and CMS). Never measured →
  * null; stale → unknown; pass/fail mirror the stored verdict; a fresh stamp with no verdict →
- * unknown.
+ * `n/a` when the site has no live CMS (below), otherwise unknown.
+ *
+ * What discriminates a site WITH a CMS is `/health`'s own verdict: a site that really probes
+ * Prismic answers `pass` or `fail`, and both are returned above, before n/a is considered. n/a
+ * therefore needs `/health` fresh and SILENT about the CMS (`prismic: "skipped"`, flattened to
+ * null on write) AND the nightly Prismic model sweep's blank verdict under a FRESH
+ * `prismicModelsCheckedAt` (`sweepRowWriteback`'s `skipped`). Neither half is "no CMS" alone:
+ * `/health` says "skipped" for a Prismic site on a placeholder repository too, and the sweep
+ * writes the same blank for a repository with NO Prismic config and for one whose config names
+ * only a placeholder repository (`your-prismic-repo-name`, `reddoor-wireframer` — see
+ * `readPrismicConfig`). data-dynamiq is that second shape and a real Prismic site: its row
+ * matches LAHI's in the sweep columns, and only its `/health` answering `ok` (→ `pass`, above)
+ * keeps it out of n/a. A sweep that failed (`unknown`), never ran (no stamp) or has gone stale
+ * keeps the item `unknown`.
+ *
+ * The record's `checkedAt` is the SWEEP's stamp, because that is the evidence n/a rests on;
+ * `/health`'s freshness has already been required above.
  */
 function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (!site.functionHealthCheckedAt) return null;
@@ -287,6 +314,15 @@ function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   }
   if (site.cmsReachable === "fail") {
     return { result: "fail", checkedAt: at, note: "Prismic unreachable (server-side)" };
+  }
+  if (site.prismicModels === null && isFresh(site.prismicModelsCheckedAt, now)) {
+    return {
+      result: "n/a",
+      checkedAt: site.prismicModelsCheckedAt,
+      note:
+        "No CMS verdict from /health, and the nightly Prismic sweep found no live Prismic config" +
+        " (none, or only a placeholder) in this site's repository",
+    };
   }
   return { result: "unknown", checkedAt: at, note: "CMS reachability not reported" };
 }

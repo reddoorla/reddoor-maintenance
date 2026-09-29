@@ -145,7 +145,7 @@ describe("selectRenovateTargets", () => {
     expect(selectRenovateTargets([site])).toEqual([]);
   });
 
-  it("trims the repo so a padded Airtable value still dispatches cleanly", () => {
+  it("trims the repo so a padded value still dispatches cleanly", () => {
     const site = makeWebsiteRow({
       name: "pad",
       status: "maintained",

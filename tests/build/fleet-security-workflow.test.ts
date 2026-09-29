@@ -29,12 +29,11 @@ describe("fleet-security workflow", () => {
     );
   });
 
-  it("gives the renovate-dispatch step its app token (positive control) and no Airtable creds", () => {
+  it("gives the renovate-dispatch step its app token (positive control)", () => {
     // Proves stepEnv is reading the real block, so the assertion above cannot
     // be passing against an empty or mis-parsed map.
     const env = stepEnv(workflow, DISPATCH_STEP);
     expect(Object.keys(env)).toEqual(expect.arrayContaining(["GH_TOKEN"]));
-    expect(Object.keys(env).filter((k) => k.startsWith("AIRTABLE_"))).toEqual([]);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { draftReportForSite, fetchSearch } from "../../src/reports/draft.js";
+import { analyticsEnrolled, draftReportForSite, fetchSearch } from "../../src/reports/draft.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeFakeReportWriter, type FakeReportWriter } from "./_helpers/fake-report-writer.js";
 import { mapRow } from "../../src/reports/report-fields.js";
@@ -155,7 +155,7 @@ describe("draftReportForSite", () => {
     }
   });
 
-  // `base === null` used to mean BOTH "never write to Airtable" and "do no IO at all",
+  // `base === null` used to mean BOTH "never write" and "do no IO at all",
   // so a preview could never contain an ANALYTICS section however good the credentials
   // were. A CI job built to prove the GA secrets on top of `--preview` therefore failed
   // 100% of the time and reported it as a credential outage (2026-08-12). These two cases
@@ -215,9 +215,7 @@ describe("draftReportForSite", () => {
     // The prior report already covered through its periodEnd inclusively, so this
     // report starts the next day. Without the +1 the boundary day (here 2026-04-26)
     // is double-counted in both reports' inclusive GA/Search windows.
-    // Seeded in TURSO, which is where the derivation reads its prior reports
-    // since #646 step 4 — the Airtable read it replaces could not see one at all
-    // for a site created after step 3.
+    // Seeded in TURSO, which is where the derivation reads its prior reports.
     writer.rows.push(
       mapRow({
         id: "rec_old",
@@ -447,6 +445,29 @@ describe("draftReportForSite", () => {
     });
   });
 
+  describe("analyticsEnrolled — the one per-site gate the draft, announce and the fleet alert share", () => {
+    it.each<[Partial<WebsiteRow>, boolean]>([
+      [{ ga4PropertyId: "471880366" }, true],
+      [{ ga4PropertyId: "471880366", acceptedWatchConditions: ["no search console"] }, true],
+      [{ searchQuery: "erp funds" }, true],
+      [{ searchQuery: "erp funds", acceptedWatchConditions: ["no search console"] }, false],
+      [{ searchConsoleProperty: "sc-domain:acme.example.com" }, true],
+      [{ searchConsoleProperty: "  " }, false],
+      [{}, false],
+    ])("%j → %s", (over, want) => {
+      expect(
+        analyticsEnrolled(
+          siteFixture({
+            ga4PropertyId: null,
+            searchQuery: null,
+            searchConsoleProperty: null,
+            ...over,
+          }),
+        ),
+      ).toBe(want);
+    });
+  });
+
   describe("fetchSearch — default query + name-default miss flag", () => {
     const period = { start: new Date("2026-05-01"), end: new Date("2026-05-31") };
     const lastQuery = () => vi.mocked(fetchSearchPresence).mock.calls[0]![0].query;
@@ -510,6 +531,48 @@ describe("draftReportForSite", () => {
       expect(res.defaultQueryMissed).toBe(false);
       // Nothing to measure on an un-enrolled site — that is not an environment gap.
       expect(res.notConfigured).toBe(false);
+    });
+
+    it("reads a recorded Search Console property even when the site has no GA4 property or query", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 2,
+        propertyFound: true,
+      });
+      const res = await fetchSearch(
+        siteFixture({
+          searchQuery: null,
+          ga4PropertyId: null,
+          searchConsoleProperty: "sc-domain:acme.example.com",
+        }),
+        period.start,
+        period.end,
+      );
+      expect(vi.mocked(fetchSearchPresence).mock.calls[0]![0].property).toBe(
+        "sc-domain:acme.example.com",
+      );
+      expect(res.value).toEqual({ foundOnPage1: true, position: 2, propertyFound: true });
+    });
+
+    it("skips search for a site that opted out with 'no search console', even with GA4 enrolled", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      const res = await fetchSearch(
+        siteFixture({
+          searchQuery: "erp funds",
+          ga4PropertyId: "471880366",
+          acceptedWatchConditions: ["No Search Console"],
+        }),
+        period.start,
+        period.end,
+      );
+      expect(fetchSearchPresence).not.toHaveBeenCalled();
+      expect(res).toMatchObject({
+        value: null,
+        softFailed: false,
+        propertyMissing: false,
+        notConfigured: false,
+      });
     });
 
     it("flags notConfigured when the site IS enrolled but no GA/SC credentials exist here", async () => {
@@ -663,6 +726,23 @@ describe("draftReportForSite", () => {
       await draftReportForSite(siteFixture({ searchQuery: "acme co" }), "Maintenance", NO_HEADER);
       const fields = writer.inserts[0]!.fields;
       expect(fields["Maint: Google Indexed"]).toBeUndefined();
+    });
+
+    it("records unknown, not fail, when no Search Console property matched (#942)", async () => {
+      // End to end: the client's propertyFound:false has to survive fetchSearch and reach the
+      // stored evidence, not just the pure function.
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: false,
+      });
+      await draftReportForSite(siteFixture({ searchQuery: "acme co" }), "Maintenance", NO_HEADER);
+      const fields = writer.inserts[0]!.fields;
+      expect(fields["Maint: Google Indexed"]).toBeUndefined();
+      const ev = JSON.parse(fields["Checklist auto-evidence"] as string);
+      expect(ev["Maint: Google Indexed"].result).toBe("unknown");
+      expect(ev["Maint: Google Indexed"].note).toBe("No Search Console property matched this site");
     });
   });
 });

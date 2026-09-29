@@ -20,8 +20,6 @@ function authHeader(password: string): Record<string, string> {
 
 describe("fleet-homepage adapter — env + auth gating", () => {
   beforeEach(() => {
-    delete process.env.AIRTABLE_PAT;
-    delete process.env.AIRTABLE_BASE_ID;
     delete process.env.TURSO_DATABASE_URL;
     delete process.env.DASHBOARD_PASSWORD;
   });
@@ -30,16 +28,7 @@ describe("fleet-homepage adapter — env + auth gating", () => {
     process.env = { ...ORIGINAL_ENV };
   });
 
-  it("500s when Airtable env is missing — but only AFTER auth passes", async () => {
-    process.env.DASHBOARD_PASSWORD = "s3cret";
-    // @ts-expect-error — minimal Context
-    const res = await fleetHomepage(get(authHeader("s3cret")), {});
-    expect(res.status).toBe(500);
-  });
-
   it("500s when Turso env is missing — but only AFTER auth passes", async () => {
-    process.env.AIRTABLE_PAT = "pat";
-    process.env.AIRTABLE_BASE_ID = "appX";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     // @ts-expect-error — minimal Context
     const res = await fleetHomepage(get(authHeader("s3cret")), {});
@@ -47,7 +36,7 @@ describe("fleet-homepage adapter — env + auth gating", () => {
   });
 
   it("does NOT leak backend env state to an UNAUTHENTICATED probe (auth precedes env guards)", async () => {
-    // Password set but no creds + Airtable/Turso unset: must be the auth
+    // Password set but no creds + Turso unset: must be the auth
     // redirect, not a differentiated 500/503 disclosing which backend is missing.
     process.env.DASHBOARD_PASSWORD = "s3cret";
     // @ts-expect-error — minimal Context
@@ -56,8 +45,6 @@ describe("fleet-homepage adapter — env + auth gating", () => {
   });
 
   it("503s with a setup hint when DASHBOARD_PASSWORD is unset", async () => {
-    process.env.AIRTABLE_PAT = "pat";
-    process.env.AIRTABLE_BASE_ID = "appX";
     process.env.TURSO_DATABASE_URL = "libsql://x";
     // @ts-expect-error — minimal Context
     const res = await fleetHomepage(get(), {});
@@ -66,8 +53,6 @@ describe("fleet-homepage adapter — env + auth gating", () => {
   });
 
   it("redirects an unauthenticated navigation to the login page", async () => {
-    process.env.AIRTABLE_PAT = "pat";
-    process.env.AIRTABLE_BASE_ID = "appX";
     process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     // @ts-expect-error — minimal Context

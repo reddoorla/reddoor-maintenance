@@ -34,13 +34,13 @@ export const TESTING_CHECKLIST: ChecklistItem[] = [
     label: "Interactions & Animations",
     field: "Test: Interactions & Animations",
   },
-  // `field` keeps its original Airtable column name ("…Verified After Updates") even though
+  // `field` keeps its legacy column name ("…Verified After Updates") even though
   // the client-facing label is now "Tested After Updates" — the column holds operator data,
   // so renaming the label is display-only and avoids a column migration.
   { key: "updates", label: "Tested After Updates", field: "Test: Verified After Updates" },
 ];
 
-/** All 13 Airtable checkbox column names. mapRow reads exactly these into the row's checklist. */
+/** All 13 checkbox column names. mapRow reads exactly these into the row's checklist. */
 export const ALL_CHECKLIST_FIELDS: string[] = [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map(
   (i) => i.field,
 );

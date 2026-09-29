@@ -1409,6 +1409,9 @@ were read; these are key-name enumerations.
    `FIGMA_PAT` (0 references anywhere), `GOOGLE_SEARCH_API_KEY` (referenced only
    in two 2026-06 design docs that call it obsolete), `TURNSTILE_SECRET_KEY_1`
    (the code reads the unsuffixed name).
+
+   > Corrected by #874 (2026-09-18): `FIGMA_PAT` is not unused. `reddoor-starter`'s `scripts/figma-compare/pull-figma.mjs` reads it, and so does every site generated from the starter. Do not delete it.
+
 4. **Two names per service, repeatedly.** Netlify: code reads `NETLIFY_PAT` from
    the repo `.env`; `credentials.env` holds `NETLIFY_AUTH_TOKEN`, the name the
    Netlify CLI reads natively, which no code in this repo reads. Same pattern for

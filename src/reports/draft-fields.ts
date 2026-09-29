@@ -1,15 +1,12 @@
 /** The fields a new report row carries, as ONE pure function (#646 step 4).
  *
- *  This used to live inside `createDraft` in the Airtable layer, because Airtable
- *  was the primary write. Turso mints the report id and owns the row now; the
- *  consumer is the Turso creator (`createReportDraft`, via `mapReportRecord` in
- *  `src/db/field-map.ts`).
+ *  The consumer is the Turso creator (`createReportDraft`, via `mapReportRecord`
+ *  in `src/db/field-map.ts`).
  *
- *  The keys are Airtable COLUMN NAMES and stay that way on purpose: they are the
+ *  The keys are legacy COLUMN NAMES and stay that way on purpose: they are the
  *  vocabulary `mapReportRecord` reads, so a draft maps to a `reports` row through
  *  the one column map rather than a second column list someone has to remember to
- *  extend. The column names outlived the Airtable client (design D1 kept them as
- *  the import vocabulary).
+ *  extend.
  */
 import type { ReportType, LighthouseScores } from "./types.js";
 import type { EvidenceRecord } from "./auto-tick.js";

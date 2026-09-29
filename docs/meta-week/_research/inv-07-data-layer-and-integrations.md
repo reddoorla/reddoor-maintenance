@@ -727,6 +727,9 @@ outputs, cross-checked against the files' `=`-line counts (26 and 33).
    `GOOGLE_SEARCH_API_KEY`: referenced only in two 2026-06 design docs that say
    it is **obsolete and removed**. `TURNSTILE_SECRET_KEY_1`: the code reads
    `TURNSTILE_SECRET_KEY`/`_2`/`_3`.
+
+   > Corrected by #874 (2026-09-18): `FIGMA_PAT` is not unused. `reddoor-starter`'s `scripts/figma-compare/pull-figma.mjs` reads it, and so does every site generated from the starter. Do not delete it.
+
 4. **`TURSO_FLEET_USAGE` exists only in the repo `.env`.** The nightly reads it
    from an Actions secret, so a local `db usage` works only from the repo root.
 5. **Known-bad:** #650 (open, 2026-09-01) — _"credentials.env `GITHUB_TOKEN`
