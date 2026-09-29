@@ -302,6 +302,32 @@ describe("selftestEmail", () => {
     expect(sent[0]!.html).toContain("Uptime Checked");
   });
 
+  it("judges freshness at the selftest's own clock: a sweep 4 days old keeps the row", async () => {
+    const stale = "2026-06-22T12:00:00Z";
+    const websites: RawRow[] = [
+      {
+        id: "rec1",
+        fields: {
+          Name: "Acme Co",
+          url: "https://acme.example.com",
+          Status: "maintained",
+          "Function health checked at": stale,
+          "Prismic Models Checked At": stale,
+          ...scored(),
+        },
+      },
+    ];
+    const { client, sent } = captureResend();
+    await selftestEmail({
+      ...reads(websites),
+      resend: client,
+      site: "acme-co",
+      type: "Maintenance",
+      now: NOW,
+    });
+    expect(sent[0]!.html).toContain("CMS Checked");
+  });
+
   it("keeps every row when nothing is n/a", async () => {
     const websites: RawRow[] = [
       {
