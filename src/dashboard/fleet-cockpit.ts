@@ -72,8 +72,8 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * needs the watch band). A FAILED latest production deploy (`deployStatus === "failed"`/
  * "error") is the same severity → 🔴 attention. Otherwise 🟡 watch when a Lighthouse
  * category sits in [75,85), the last commit to `main` is older than 30 days, a
- * maintained site is still on `*.netlify.app`, records no GA4 property, records no
- * Search Console property, or requires Turnstile without a browser-verified widget.
+ * maintained site is on `*.netlify.app`, records no GA4 / Search Console property, no Git
+ * repo or Netlify ID (#889), or requires Turnstile without a browser-verified widget.
  * Else 🟢 healthy.
  *
  * Each active watch condition is a structured candidate with a set of accept keys
@@ -224,6 +224,37 @@ export function assignTier(
       signal: "search-console-unrecorded",
       acceptKeys: SEARCH_CONSOLE_OPT_OUT_KEYS,
       reason: "Search Console property not recorded",
+    });
+  }
+  // #889. The roster identities the nightly sweeps need. A `maintained` site is
+  // exactly the set `selectFleetSites` sweeps, and every sweep that lacks the
+  // identity it needs SKIPS the site while the run still concludes success: the
+  // checkout sweeps (smoke / security / prismic-drift) cannot clone without
+  // `gitRepo`, and `netlify-deploy` skips "no netlify id". The site's report then
+  // blocks on checklist items nothing will ever measure (29 Navy, 2026-09-17;
+  // beachfront-dentistry, 2026-09-29). Only `maintained`: `hosted-only` is
+  // report-eligible but no sweep covers it and the cockpit shows no card for it,
+  // so filling these cells would not get it measured. Watch, not an attention
+  // item, because "not on Netlify" is a legitimate state the operator must be
+  // able to accept. The Netlify keys deliberately avoid the no-custom-domain
+  // keys ("netlify", "on netlify", …), which would otherwise mute both at once.
+  // The reasons say what cannot happen, not which code path runs: a blank repo
+  // skips at prepare ("no repoUrl or gitRepo"), a whitespace one throws there
+  // ("unsafe gitRepo") — both unmeasured. Both readers trim `netlify_id` to null,
+  // so the deploy audit skips; were a raw " " ever to reach it, the API read
+  // would fail and write nothing, which "cannot read" still describes.
+  if (site.status === "maintained" && !site.gitRepo?.trim()) {
+    candidates.push({
+      signal: "no-git-repo",
+      acceptKeys: ["no git repo", "no-git-repo", "no repo", "git repo"],
+      reason: "Git repo not recorded (checkout sweeps cannot clone this site)",
+    });
+  }
+  if (site.status === "maintained" && !site.netlifyId?.trim()) {
+    candidates.push({
+      signal: "no-netlify-id",
+      acceptKeys: ["no netlify id", "no-netlify-id", "not on netlify", "netlify id"],
+      reason: "Netlify ID not recorded (the deploy check cannot read this site)",
     });
   }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less

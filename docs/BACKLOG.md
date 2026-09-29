@@ -113,20 +113,38 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                        | Tier | Effort | Start here                                                                                            | Done when                                                                                                                                |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| P1-2  | _(in progress 09-29, `wip/sc942`)_ **#942**: a Search Console lookup that finds no property is recorded as `unknown`, not "fail: Not on page 1"                                                             | 🟢   | S      | `src/reports/auto-tick.ts:182-208`, `src/reports/draft.ts`, `src/reports/search/client.ts:226`        | `propertyFound:false` → `unknown` "No Search Console property matched this site"; mutation-tested both ways                              |
-| P1-3  | _(in progress 09-29, `wip/roster889`)_ **#889 + #912**: one "roster fields are valid" collector — maintained site with blank repo/Netlify ID; roster URL that 404s                                          | 🟢   | S–M    | a new collector beside the cockpit's alarm context (`src/dashboard/`), with the pre-launch exclusions | Names Beachfront (blank `netlify_id` [M]) and the-pointe-burbank (URL 404 = bogus-host fingerprint [M]) today, and passes a healthy site |
-| P1-4  | _(in progress 09-29, `wip/chips941`)_ **#941**: watch filter chips drop sites that also have an attention item                                                                                              | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:164-180`                                                              | A site with one attention item and one watch condition carries both tags; tier stays `attention`                                         |
-| P1-6  | **#892**: protection-audit judges the branch Renovate merges into, not only the default branch (reddoor-website `staging` has no required check)                                                            | 🟢   | S–M    | `src/audits/protection*`, `tests/audits/protection-coverage.test.ts`                                  | reddoor-website's `staging` shows as a gap. Applying the staging ruleset stays 🔴.                                                       |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                         | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts`  | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                                                     |
-| P1-8  | **#907**: the prospect-audit daily cap binds before the spend                                                                                                                                               | 🟢   | M      | `src/db/prospect-audits.ts:27`, `src/dashboard/prospect-audit-trigger.ts`                             | N concurrent starts admit only cap − count; a crashed run frees its slot after the stale window                                          |
-| P1-10 | **#874 (docs half)**: forward pointers on the three meta-week docs that still recommend deleting `FIGMA_PAT`                                                                                                | 🟢   | S      | `docs/meta-week/06-priorities-system.md:630`, `01-fleet-current-state.md:1409`, `_research/inv-07-…`  | Each carries a pointer to #874                                                                                                           |
-| P1-11 | Tracking-issue bodies are never rewritten (S2 leftover): the issue body keeps the first failure's run URL forever (#895's body still named 09-21's run when it closed)                                      | 🟢   | S      | the open steps in `.github/workflows/*.yml`                                                           | Body updated with `gh issue edit` on each failure                                                                                        |
-| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                          | 🟢   | S–M    | `.github/workflows/`                                                                                  | A weekly run posts drift to a tracking issue, with a positive control                                                                    |
-| P1-13 | `land-prs.mjs` stops on one transient proxy error (`read: connection reset by peer` on a check-runs GET, seen landing #957). Retry idempotent GETs a bounded number of times; never retry a PUT             | 🟢   | S      | `scripts/land-prs.mjs` (`apiJson`), `tests/scripts/land-prs.test.ts`                                  | One reset then success lands; a persistent failure still stops with a reason; no PUT is ever retried                                     |
-| P1-14 | _(done 09-29, `wip/alarms2`)_ Add `js-yaml` as a devDependency and parse every workflow in `tests/build/tracking-issue-conditions.test.ts` (today a stopgap only catches unquoted YAML indicators in `if:`) | 🟢   | S      | `package.json`, `tests/build/_helpers/workflow-source.ts`                                             | An invalid workflow fails the test; all 14 load                                                                                          |
-| P1-15 | _(done 09-29, `wip/alarms2`)_ Alarms that still cannot fire: release-health hitting its 5-min job timeout, and time-travel hanging before its suite step, file nothing (#956 follow-ups)                    | 🟢   | S      | `.github/workflows/release-health.yml`, `time-travel.yml`                                             | Each files (or its gap is written into the workflow as accepted) with a test                                                             |
+| #     | Item                                                                                                                                                                                                        | Tier | Effort | Start here                                                                                           | Done when                                                                                                   |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| P1-2  | _(in progress 09-29, `wip/sc942`)_ **#942**: a Search Console lookup that finds no property is recorded as `unknown`, not "fail: Not on page 1"                                                             | 🟢   | S      | `src/reports/auto-tick.ts:182-208`, `src/reports/draft.ts`, `src/reports/search/client.ts:226`       | `propertyFound:false` → `unknown` "No Search Console property matched this site"; mutation-tested both ways |
+| P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done, #962 `wip/roster889`                                                                                 | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts                |
+| P1-4  | _(in progress 09-29, `wip/chips941`)_ **#941**: watch filter chips drop sites that also have an attention item                                                                                              | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:164-180`                                                             | A site with one attention item and one watch condition carries both tags; tier stays `attention`            |
+| P1-6  | **#892**: protection-audit judges the branch Renovate merges into, not only the default branch (reddoor-website `staging` has no required check)                                                            | 🟢   | S–M    | `src/audits/protection*`, `tests/audits/protection-coverage.test.ts`                                 | reddoor-website's `staging` shows as a gap. Applying the staging ruleset stays 🔴.                          |
+| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                         | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                        |
+| P1-8  | **#907**: the prospect-audit daily cap binds before the spend                                                                                                                                               | 🟢   | M      | `src/db/prospect-audits.ts:27`, `src/dashboard/prospect-audit-trigger.ts`                            | N concurrent starts admit only cap − count; a crashed run frees its slot after the stale window             |
+| P1-10 | **#874 (docs half)**: forward pointers on the three meta-week docs that still recommend deleting `FIGMA_PAT`                                                                                                | 🟢   | S      | `docs/meta-week/06-priorities-system.md:630`, `01-fleet-current-state.md:1409`, `_research/inv-07-…` | Each carries a pointer to #874                                                                              |
+| P1-11 | Tracking-issue bodies are never rewritten (S2 leftover): the issue body keeps the first failure's run URL forever (#895's body still named 09-21's run when it closed)                                      | 🟢   | S      | the open steps in `.github/workflows/*.yml`                                                          | Body updated with `gh issue edit` on each failure                                                           |
+| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                          | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                       |
+| P1-13 | `land-prs.mjs` stops on one transient proxy error (`read: connection reset by peer` on a check-runs GET, seen landing #957). Retry idempotent GETs a bounded number of times; never retry a PUT             | 🟢   | S      | `scripts/land-prs.mjs` (`apiJson`), `tests/scripts/land-prs.test.ts`                                 | One reset then success lands; a persistent failure still stops with a reason; no PUT is ever retried        |
+| P1-14 | _(done 09-29, `wip/alarms2`)_ Add `js-yaml` as a devDependency and parse every workflow in `tests/build/tracking-issue-conditions.test.ts` (today a stopgap only catches unquoted YAML indicators in `if:`) | 🟢   | S      | `package.json`, `tests/build/_helpers/workflow-source.ts`                                            | An invalid workflow fails the test; all 14 load                                                             |
+| P1-15 | _(done 09-29, `wip/alarms2`)_ Alarms that still cannot fire: release-health hitting its 5-min job timeout, and time-travel hanging before its suite step, file nothing (#956 follow-ups)                    | 🟢   | S      | `.github/workflows/release-health.yml`, `time-travel.yml`                                            | Each files (or its gap is written into the workflow as accepted) with a test                                |
+
+### P1-3 start here (#912)
+
+The data is not stored. The browser audit's `uptime_reachable` covers
+`maintained` sites only (`selectFleetSites`) and measures sampled routes, not
+the roster URL, so it can never see a `building` site like the-pointe-burbank.
+
+1. **A roster-URL pass over every non-archived row**, not `selectFleetSites`:
+   for example a new `--only` audit in the `fleet-lighthouse` nightly.
+2. **Migration 0029** adding `url_resolves` (pass/fail), `url_status` and
+   `url_checked_at`, plus `schema.ts`, `field-map.ts`, `fleet-state.ts` and the
+   `WebsiteRow` fields.
+3. **The Netlify 404 fingerprint**: status 404 with `server: Netlify`, proven
+   against a bogus-host control (`no-such-site-zz9q.netlify.app` returns the
+   same 206-byte page) and a known-good one (`the-tower-burbank-rd.netlify.app`).
+4. **A surface for building sites.** They get no cockpit card
+   (`isDashboardVisible`), so use a digest collector or an off-fleet lane, with
+   an "expected, not deployed yet" accept key so the check stays two-sided.
 
 ### Blocked behind another PR (do not start early)
 
@@ -137,6 +155,11 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
   `hydrationMarker: "footer"`, which cannot prove hydration. It is agent-ready,
   but pairs with #948's hydration-signal decision.
 - **#921 persistence**: do it the #910 way once #918 merges.
+
+### Watching, owned elsewhere
+
+- **#960**: the `spawn.test` zombie flake (`kill ESRCH`, about 1 in 180 cloud
+  runs). Another session filed it and has a tested patch.
 
 ---
 
@@ -228,6 +251,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-29 — P1-3's #889 half: a maintained site with a blank Git repo or
+  Netlify ID is a cockpit watch item, acceptable as `no git repo` /
+  `no netlify id` (#962). #912 stays in P1-3.
 
 - 2026-09-29 — `land-prs.mjs` is REST-only and proven from the cloud: it landed
   itself (#953), then #902 and #896 through update-branch (adopted from the
