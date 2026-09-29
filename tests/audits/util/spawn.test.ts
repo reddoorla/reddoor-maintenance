@@ -248,6 +248,33 @@ describe("defaultSpawn detached descendant groups (mocked table)", () => {
     expect(await seen).toBeInstanceOf(SpawnTimeoutError);
   });
 
+  it("terminates on a table whose parent links loop back through the leader", async () => {
+    vi.useFakeTimers();
+    const looped = [
+      self,
+      { pid: 4242, ppid: 5070, pgid: 4242 },
+      { pid: 5070, ppid: 4242, pgid: 5070 },
+    ];
+    const { seen } = start([looped]);
+    vi.advanceTimersByTime(500);
+    expect(kills).toContainEqual({ pid: -5070, sig: "SIGTERM" });
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  }, 5000);
+
+  it("leaves the leader's own group to the leader's kill, which close still cancels", async () => {
+    vi.useFakeTimers();
+    const table = [self, leader, { pid: 5080, ppid: 4242, pgid: 4242 }];
+    const { seen } = start([table]);
+    vi.advanceTimersByTime(500);
+    expect(kills).toEqual([{ pid: -4242, sig: "SIGTERM" }]);
+    child.emit("close", 143);
+    vi.advanceTimersByTime(2000);
+    expect(kills).toEqual([{ pid: -4242, sig: "SIGTERM" }]);
+    vi.useRealTimers();
+    expect(await seen).toBeInstanceOf(SpawnTimeoutError);
+  });
+
   it("skips the escalation quietly when the re-read throws", async () => {
     vi.useFakeTimers();
     const before = [self, leader, { pid: 5050, ppid: 4242, pgid: 5050 }];

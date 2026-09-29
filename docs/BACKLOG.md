@@ -172,11 +172,6 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
   the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
   holds zombies past ~4 s (the test then fails its assertion cleanly). The flake
   itself is fixed; see _Done_.
-- **#969**: a11y audit's `SpawnTimeoutError` kills Playwright's process group
-  but orphans its `webServer` (the site's dev server). Filed from #950's review
-  by the same session; its fix touches `src/audits/util/spawn.ts`. #972 (#960's
-  flake fix) changed only `tests/audits/util/spawn.test.ts`, so the two no
-  longer collide beyond that test file.
 
 ---
 
@@ -335,6 +330,11 @@ verdict is its only input, because no client and no check sees the email.
 
 ## Done (move items here when they land)
 
+- 2026-09-29 — #969: a timed-out spawn reaps the process groups its
+  descendants detached into (Playwright's webServer, Chrome under
+  chrome-launcher), found from a `ps -A -o pid=,ppid=,pgid=` snapshot taken
+  before the first SIGTERM (#PR_NUMBER). The Verify probe went from
+  `Sl; accepting=true` 7 s after the timeout to `gone; accepting=false`.
 - 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
   4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its
   final wait, counts only ESRCH as reaped, and its cleanup kill ignores `ESRCH`
