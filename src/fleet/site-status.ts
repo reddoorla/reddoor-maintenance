@@ -3,14 +3,14 @@
  *
  * It lived at `src/reports/airtable/site-status.ts` until #539 Phase 6 step 1
  * (#646) moved it here: `canonicalizeStatus` runs on every Turso lead read, so
- * it cannot sit in the directory Phase 6 deletes. The Airtable write seam
- * `toAirtableStatus`, discussed below, stayed behind in that file, which also
- * re-exports everything here.
+ * it could not sit in the directory Phase 6 deleted. The Airtable write seam
+ * `toAirtableStatus`, discussed below, stayed behind in that file until both
+ * were deleted — by then it was the identity.
  *
  * The fleet's lifecycle names were inherited from an Airtable single-select
  * written by hand years ago ("probably not our problem"). The operator approved
- * a canonical vocabulary, and the migration is now COMPLETE in both stores:
- * Airtable's "Status" single-select carries exactly the six canonical options
+ * a canonical vocabulary, and the migration was COMPLETE in both stores:
+ * Airtable's "Status" single-select carried exactly the six canonical options
  * and nothing else. This module no longer knows the old names at all.
  *
  * The retired mapping, kept as the record of what was merged into what:
@@ -37,9 +37,7 @@
  *
  * The merge had NO clean reverse map while both vocabularies coexisted, which
  * is why `toAirtableStatus` had to pick one archived name deliberately. With the
- * old names retired there is nothing left to pick between, and no code path
- * feeds operator-supplied text through it anyway (see
- * `src/recipes/forms-notify-target.ts`, which writes `--restore` verbatim).
+ * old names retired there is nothing left to pick between.
  *
  * THE SHAPE OF THE TRANSITION (three stages):
  *
@@ -47,8 +45,8 @@
  *                   at the two Airtable/Turso seams; writes still emit the OLD
  *                   Airtable option names. Airtable untouched. No SELECTION
  *                   change — every predicate picks exactly the sites it picked
- *                   before (pinned row-by-row in tests/reports/airtable/
- *                   site-status.test.ts). Displayed labels come from `statusRaw`.
+ *                   before (pinned row-by-row in
+ *                   tests/fleet/site-status.test.ts). Displayed labels come from `statusRaw`.
  *   stage 2 (DONE)  the Airtable "Status" single-select gained the 6 new options
  *                   and all 44 cells were migrated (verified live: maintained=13,
  *                   archived=12, external=9, building=6, hosted-only=2,
@@ -78,12 +76,10 @@
  * caller with a stale constant — and the fleet should say so rather than absorb
  * it into a status nobody chose.
  *
- * Canonicalization happens on READ, never at rest: `src/db/import-airtable.ts`
- * still stores the raw Airtable cell verbatim in `sites.status`, so the hourly
- * parity check keeps comparing raw-to-raw and the importer stays honest to its
- * source. Both readers — `mapRow` (Airtable) and `rowFromJoined` (Turso) — run
- * the raw value through `canonicalizeStatus`, which is what keeps the #558
- * reader-equivalence instrument green.
+ * Canonicalization happens on READ, never at rest: `sites.status` holds the raw
+ * cell verbatim. Both readers — `mapRow` (`src/fleet/site-fields.ts`) and
+ * `rowFromJoined` (Turso) — run the raw value through `canonicalizeStatus`,
+ * which is what keeps the #558 reader-equivalence instrument green.
  */
 
 /** The canonical site lifecycle vocabulary. */
@@ -105,7 +101,7 @@ export const CANONICAL_STATUSES: readonly Status[] = [
 const CANONICAL_SET: ReadonlySet<string> = new Set<string>(CANONICAL_STATUSES);
 
 /**
- * Map a raw Status cell (Airtable field value, or the `sites.status` column) to
+ * Map a raw Status cell (a record's field value, or the `sites.status` column) to
  * the canonical vocabulary. Applied at BOTH read seams so the rest of the code
  * only ever sees canonical names.
  *
@@ -129,7 +125,7 @@ const CANONICAL_SET: ReadonlySet<string> = new Set<string>(CANONICAL_STATUSES);
  * `statusRaw` now hold the same value for any present cell. The two fields are
  * kept distinct deliberately — the read/display split is the architecture that
  * made this migration survivable, and collapsing it would have to be undone the
- * next time Airtable's vocabulary and the code's diverge.
+ * next time the stored vocabulary and the code's diverge.
  */
 export function canonicalizeStatus(raw: unknown): Status | null {
   if (typeof raw !== "string") return null;

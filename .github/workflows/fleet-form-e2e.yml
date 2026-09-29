@@ -4,7 +4,7 @@ name: fleet-form-e2e
 # `Form E2E OK` signal. Checkout-free (like fleet-lighthouse): Playwright drives
 # each site's DEPLOYED prod URL, fills the /contact form, submits it with the
 # `testMode` marker, and writes Form E2E OK + Form E2E checked at back to the
-# Airtable row. Central ingest's testMode short-circuit routes the submission
+# site's row. Central ingest's testMode short-circuit routes the submission
 # away from every real sink (no inbox/DB/webhook, Turnstile bypassed).
 #
 # REDDOOR_FORM_E2E_LIVE=1 arms the live runner — this workflow is the intended

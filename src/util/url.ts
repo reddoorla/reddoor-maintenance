@@ -2,7 +2,7 @@
  * True when `s` parses as an absolute URL whose scheme is `http:` or `https:`.
  *
  * The single allowlist gate for any value we hand to Chrome/Lighthouse. A
- * deployed-audit URL flows in from Airtable's `url` column (or a JSON
+ * deployed-audit URL flows in from the site's `url` column (or a JSON
  * inventory's `deployedUrl`), so a `file://`/`gopher://`/`data:` value — or a
  * value pointing at an internal host — would otherwise become a local-file read
  * or SSRF when lhci drives a headless browser at it. Restricting to http(s)
@@ -104,7 +104,7 @@ export function isPrivateOrLoopbackHost(hostname: string): boolean {
 /**
  * True when `s` is an `https:` URL whose host is NOT an obviously-internal target
  * (loopback / private / link-local / unique-local / CGNAT). The newsletter
- * webhook URL is operator-set in Airtable but fires server-side, so this blocks
+ * webhook URL is operator-set in the site details but fires server-side, so this blocks
  * the SSRF vector of pointing it at `127.0.0.1` / `10.x` / `169.254.x` / `::1`.
  *
  * Best-effort by host literal — it does NOT resolve DNS, so a hostname that

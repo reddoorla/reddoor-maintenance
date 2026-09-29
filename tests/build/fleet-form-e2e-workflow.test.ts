@@ -82,7 +82,7 @@ async function runGate(opts: {
 }
 
 /** The summary line in the shape the REAL formatter emits, including its
- *  invariant `total = wrote + failed` (src/audits/write-audits-to-airtable.ts).
+ *  invariant `total = wrote + failed` (src/audits/write-audits.ts).
  *  Honouring that invariant is load-bearing here: it is precisely because
  *  `wrote=0` forces `failed=total` that the mass-flake gate accidentally covers
  *  every zero-write case EXCEPT `total=0`. */

@@ -1,4 +1,4 @@
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import { analyticsOptedOut, searchConsoleOptedOut } from "../fleet/opt-outs.js";
 
 export {

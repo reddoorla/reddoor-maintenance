@@ -1,5 +1,5 @@
-import type { WebsiteRow, Frequency, Status } from "./airtable/websites.js";
-import type { ReportRow } from "./airtable/reports.js";
+import type { WebsiteRow, Frequency, Status } from "../fleet/site-row.js";
+import type { ReportRow } from "./report-fields.js";
 import type { ReportType } from "./types.js";
 
 /** Statuses where recurring Maintenance/Testing reports are appropriate. Only
@@ -48,7 +48,7 @@ function addMonths(d: Date, n: number): Date {
   return out;
 }
 
-/** Truncate to UTC midnight. Avoids local-TZ skew when comparing Airtable date-only fields. */
+/** Truncate to UTC midnight. Avoids local-TZ skew when comparing date-only fields. */
 function startOfDay(d: Date): Date {
   const out = new Date(d);
   out.setUTCHours(0, 0, 0, 0);
@@ -66,9 +66,9 @@ function lastSentForType(reports: ReportRow[], siteId: string, type: ReportType)
 /**
  * The next-due date for one (site, type): the date the next report of that type is
  * scheduled to draft, whether or not it's due yet. `null` when there's no schedule —
- * an ineligible status or a "None" frequency. Unrecognized/blank raw Airtable values
- * never reach here: mapRow's `toFrequency` trims, warns LOUDLY, and coerces them to
- * "None" at the read boundary.
+ * an ineligible status or a "None" frequency. Unrecognized/blank raw values never
+ * reach here: `toFrequency` trims, warns LOUDLY, and coerces them to "None" at the
+ * read boundary.
  *
  * baseDate = the last `Sent at` for this (site, type), else the site's
  * `maintenance day`/`testing day` anchor. With no baseDate at all the next report is
@@ -120,9 +120,9 @@ export function findDueReports(
     for (const type of ["Maintenance", "Testing"] as const) {
       const freq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
       // Intentional silent skip — "None" (also the coerced default for blank cells)
-      // means "no schedule", not a mistake. A trailing-space or typo'd raw Airtable
-      // value never reaches here: mapRow's `toFrequency` trims (so "Quarterly "
-      // schedules) and warns LOUDLY on anything still unrecognized before coercing
+      // means "no schedule", not a mistake. A trailing-space or typo'd raw value
+      // never reaches here: `toFrequency` trims (so "Quarterly " schedules) and
+      // warns LOUDLY on anything still unrecognized before coercing
       // it to "None" — the guard lives at the read boundary, not in this loop.
       if (freq === "None") continue;
 

@@ -1,4 +1,4 @@
-import { gitHubSignalsFields, siteSlug } from "../../reports/airtable/websites.js";
+import { gitHubSignalsFields, siteSlug } from "../../fleet/site-fields.js";
 import type { FleetRoster } from "../../fleet/roster.js";
 import type { Site } from "../../types.js";
 import { collectGitHubSignals } from "../../audits/github-signals.js";
@@ -7,7 +7,7 @@ import {
   formatFleetWriteSummary,
   tursoWriteFailed,
   type FleetWriteResult,
-} from "../../audits/write-audits-to-airtable.js";
+} from "../../audits/write-audits.js";
 import { detectSignalEvents, fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 import type { FleetEvent } from "../../db/fleet-events.js";
@@ -22,7 +22,7 @@ type GhProbes = Pick<
 /** Injectable wiring for {@link runGitHubSignalsCommand}. Every default is the
  *  real fleet path; tests override to reach the per-row write loop (a mirror
  *  throw stays out of `failed`, and the counters increment the right way
- *  round). Same seam shape as `writeFleetAuditsToAirtable`'s `mirror` argument. */
+ *  round). Same seam shape as `writeFleetAudits`'s `mirror` argument. */
 export type GitHubSignalsDeps = {
   /** #646 step 4: the fleet roster this sweep walks. Default: Turso
    *  (`readFleetRoster`). */

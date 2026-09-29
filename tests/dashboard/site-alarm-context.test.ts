@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildSiteAlarmContext, buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { NotifyBounceCounts } from "../../src/db/submissions.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 

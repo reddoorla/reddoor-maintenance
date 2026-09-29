@@ -4,7 +4,7 @@ import {
   isArchivedStatus,
   isUnrecognizedStatus,
   type Status,
-} from "../../src/reports/airtable/websites.js";
+} from "../../src/fleet/site-fields.js";
 
 describe("mapRow frequency coercion", () => {
   afterEach(() => {

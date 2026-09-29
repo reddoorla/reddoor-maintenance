@@ -12,7 +12,6 @@ import { runReportCommand, parseSingleSiteReportType } from "../../src/cli/comma
 // a one-line change, not a change plus eleven test files.
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({
-    created: async () => {},
     health: async () => {},
     site: async () => {},
   }),
@@ -20,7 +19,6 @@ vi.mock("../../src/db/site-mirror.js", () => ({
 vi.mock("../../src/reports/report-mirror.js", () => ({
   makeReportMirror: async () => ({
     create: async (rec: { id: string }) => ({ id: rec.id }),
-    created: async () => {},
     forSite: async () => [],
     body: async () => {},
     patch: async () => {},
@@ -31,7 +29,7 @@ import { draftReportForSite } from "../../src/reports/draft.js";
 import { draftDueReports } from "../../src/cli/commands/report.js";
 import { makeFakeReportWriter } from "../reports/_helpers/fake-report-writer.js";
 import { reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 
 /** The fleet, as the batch reads it from Turso (#646 step 4). Set per case. */
 let rosterRows: WebsiteRow[] = [];

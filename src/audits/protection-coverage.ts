@@ -11,11 +11,11 @@ import type {
  * docs/superpowers/specs/2026-08-02-ruleset-self-healing-design.md).
  *
  * The `self-updating` recipe HEALS fleet sites, but it runs only when someone
- * runs it, and only over Airtable-listed sites — which is exactly how the
- * `.github` repo (no Airtable row) sat with zero protection until 2026-08-01.
+ * runs it, and only over fleet-listed sites — which is exactly how the
+ * `.github` repo (no fleet row) sat with zero protection until 2026-08-01.
  * This sweep is the layer that would have caught that on its own: it
  * enumerates the org FROM THE GITHUB API — never a hand-typed or
- * Airtable-scoped list, both of which have already produced false "all
+ * fleet-scoped list, both of which have already produced false "all
  * clear"s — and judges every public repo's protection by SHAPE, not by name,
  * so a differently-named but sound ruleset (reddoor-maintenance's "Main
  * Protection") counts.

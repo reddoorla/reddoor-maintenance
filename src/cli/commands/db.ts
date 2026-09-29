@@ -289,9 +289,9 @@ export async function runDbCommand(
 
   // How much of the plan's quota the fleet has burned this billing cycle
   // (#539 HIGH-10). The starter plan carries `overages: false`, so crossing a
-  // quota BLOCKS reads and writes rather than billing for them — and once the
-  // Airtable cutover lands, Turso is the only store there is. This is the one
-  // alarm that fires before a wall rather than after it.
+  // quota BLOCKS reads and writes rather than billing for them — and Turso is
+  // the only store there is. This is the one alarm that fires before a wall
+  // rather than after it.
   //
   // Needs a PLATFORM token, which is a different credential from the
   // database-level TURSO_AUTH_TOKEN the rest of the fleet runs on: the database

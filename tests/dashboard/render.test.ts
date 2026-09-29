@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { SubmissionRow } from "../../src/reports/submission-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import {
@@ -1208,11 +1208,11 @@ describe("renderSiteDashboardHtml — editable site details", () => {
     // cell nobody edited. The correct render is the disabled "— select —"
     // placeholder: the operator must actively pick.
     //
-    // "legacy" stays a REAL case until stage 3 deletes the old options: a human
-    // can still pick it in the Airtable UI, so reads must keep tolerating it.
+    // "legacy" stays a REAL case: `sites.status` is free text, so a stored
+    // pre-migration name can still reach a read, and reads must keep tolerating it.
     //
     // Post-stage-2 the leaked value would be the CANONICAL name, not "deprecated"
-    // — `toAirtableStatus("archived")` is now "archived", which IS an offered
+    // — status is stored verbatim, so it would be "archived", which IS an offered
     // option. So the assertion that bites is `archived`-selected, not
     // `deprecated`-selected; the old "deprecated" assertions became unfalsifiable
     // the moment that option left the dropdown and were replaced, not dropped.

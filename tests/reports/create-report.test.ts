@@ -7,7 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { createReportDraft, findReportForPeriod } from "../../src/reports/create-report.js";
 import { draftFields, type DraftInput } from "../../src/reports/draft-fields.js";
-import { mapRow } from "../../src/reports/airtable/reports.js";
+import { mapRow } from "../../src/reports/report-fields.js";
 import { makeFakeReportWriter } from "./_helpers/fake-report-writer.js";
 
 function input(over: Partial<DraftInput> = {}): DraftInput {

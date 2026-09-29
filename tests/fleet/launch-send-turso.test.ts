@@ -22,8 +22,8 @@ vi.mock("../../src/audits/fleet-events-writer.js", () => ({
 
 import { sendApprovedReports } from "../../src/reports/send/orchestrate.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
-import { mapRow as mapReport } from "../../src/reports/airtable/reports.js";
-import { mapRow as mapSite } from "../../src/reports/airtable/websites.js";
+import { mapRow as mapReport } from "../../src/reports/report-fields.js";
+import { mapRow as mapSite } from "../../src/fleet/site-fields.js";
 
 const SITE = mapSite({
   id: "rec_site_acme",
@@ -93,8 +93,6 @@ describe("report --send-ready sends a Launch entirely through Turso", () => {
         stamps.push({ id, sentAt, messageId });
       },
       siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
         health: async () => {},
         site: async (id, fields) => {
           sites.push({ id, fields });

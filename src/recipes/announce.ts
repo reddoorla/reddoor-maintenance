@@ -1,7 +1,7 @@
-import { analyticsHealthFields, siteSlug } from "../reports/airtable/websites.js";
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { analyticsHealthFields, siteSlug } from "../fleet/site-fields.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import { readGaConfig } from "../reports/ga/config.js";
-import type { ReportEnrichment } from "../reports/airtable/reports.js";
+import type { ReportEnrichment } from "../reports/report-fields.js";
 import { createReportDraft, findReportForPeriod } from "../reports/create-report.js";
 import type { DraftInput } from "../reports/draft-fields.js";
 import type { ReportMirror } from "../reports/report-mirror.js";
@@ -98,7 +98,7 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
       }
 
       // Refresh BEFORE the render so a queued announcement always has a current header
-      // stored — the send re-reads the attachment, so a stale one here reaches the
+      // stored — the send re-reads it, so a stale one here reaches the
       // client. Best-effort by construction: refreshHeaderImage returns false and never
       // throws, so a capture failure leaves the stored image and the draft continues.
       if (deps.refreshHeader !== false) {
@@ -143,7 +143,7 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
       // Dedupe: reuse an existing Announcement row for this (site, period) rather than
       // stacking a second draft. The reuse path refreshes the stored scores + traffic/search
       // (and Completed on) so the eventually-sent email — which reads the row — isn't stale.
-      // The create path writes them via createDraft.
+      // The create path writes them via createReportDraft.
       let report;
       let statusKind: "drafted" | "reused";
       const existing = await findReportForPeriod(writer, w.id, "Announcement", period);

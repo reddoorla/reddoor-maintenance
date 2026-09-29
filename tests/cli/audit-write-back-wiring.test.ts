@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { runFleetWriteBack } from "../../src/cli/commands/audit.js";
-import { planAuditWrite } from "../../src/audits/write-audits-to-airtable.js";
+import { planAuditWrite } from "../../src/audits/write-audits.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import type { AuditResult } from "../../src/types.js";
 import type { FleetEvent } from "../../src/db/fleet-events.js";
@@ -36,7 +36,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
     vi.useRealTimers();
   });
 
-  it("hands the built mirror to writeFleetAuditsToAirtable — kills the wiring-deleted mutation", async () => {
+  it("hands the built mirror to writeFleetAudits — kills the wiring-deleted mutation", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-28T12:00:00.000Z"));
     const calls: Array<{ siteId: string; fields: Record<string, unknown> }> = [];

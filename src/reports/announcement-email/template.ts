@@ -1,5 +1,5 @@
 import type { ReportData, ReportFrequency } from "../types.js";
-import type { WebsiteRow } from "../airtable/websites.js";
+import type { WebsiteRow } from "../../fleet/site-row.js";
 import { DEFAULT_COPY, type ResolvedCopy } from "../copy.js";
 import { escapeXml, headerImageTag, headerStyleBlock } from "../maintenance-email/template.js";
 import {

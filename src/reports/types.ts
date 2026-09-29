@@ -1,7 +1,7 @@
 export type ReportType = "Maintenance" | "Testing" | "Launch" | "Announcement";
 
-/** Recurrence pace. Mirrors `Frequency` in airtable/websites.ts — inlined here so
- *  the base types stay free of an airtable-layer import (avoids a type cycle). */
+/** Recurrence pace. Mirrors `Frequency` in src/fleet/site-row.ts — inlined here so
+ *  the base types stay free of a fleet-layer import. */
 export type ReportFrequency = "None" | "Monthly" | "Quarterly" | "Yearly";
 export type ReportCadence = { maintenance: ReportFrequency; testing: ReportFrequency };
 
@@ -12,11 +12,11 @@ export type LighthouseScores = {
   seo: number;
 };
 
-/** Scores as extracted from a single audit run for Airtable write-back. Unlike
+/** Scores as extracted from a single audit run for write-back. Unlike
  *  {@link LighthouseScores} (which the report/email path needs fully populated),
  *  a category is `null` when that run produced no score for it — e.g. Lighthouse
  *  errors the LCP audit (NO_LCP) and nulls the whole performance category. The
- *  write path persists `null` (clears the Airtable cell → dashboard "—") rather
+ *  write path persists `null` (clears the cell → dashboard "—") rather
  *  than a misleading 0 that reads as a real, catastrophic score. */
 export type LighthouseScoreWriteback = {
   performance: number | null;
@@ -28,7 +28,7 @@ export type LighthouseScoreWriteback = {
 export type HeaderImage = {
   /** Stable filename, used as the CID inside the email and as the attachment name in Resend. */
   filename: string;
-  /** Bytes of the image, fetched once from Airtable before render+send. */
+  /** Bytes of the image, fetched once before render+send. */
   bytes: Uint8Array;
   /** MIME, e.g. "image/jpeg". */
   contentType: string;

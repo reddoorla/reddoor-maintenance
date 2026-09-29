@@ -1,5 +1,5 @@
 import type { SiteMirror } from "../../db/site-mirror.js";
-import { autoFixAttemptsFields } from "../../reports/airtable/websites.js";
+import { autoFixAttemptsFields } from "../../fleet/site-fields.js";
 import type { FleetRoster } from "../../fleet/roster.js";
 import { makeGitHub } from "../../github/gh.js";
 import {

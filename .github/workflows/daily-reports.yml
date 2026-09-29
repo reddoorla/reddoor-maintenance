@@ -15,8 +15,8 @@ on:
     # `preview_site` turns the run into a read-only credential proof instead:
     # `report <slug> --preview --enrich` renders one site's report through the
     # very same draft path AND runs the real GA / Search Console fetches, but
-    # takes previewOnly, so it never queues a draft, never writes an Airtable
-    # Reports row, and never consumes the (site, period) idempotency guard. The
+    # takes previewOnly, so it never queues a draft, never writes a Reports row,
+    # and never consumes the (site, period) idempotency guard. The
     # send and digest steps are skipped, so no email leaves the runner either.
     # `--enrich` is load-bearing: a plain `--preview` does no IO whatsoever, so
     # the verify step below could never pass however good the secrets were.
@@ -35,8 +35,8 @@ on:
         default: ""
 
 # Single-flight: a once-daily job can't realistically overlap, but this closes
-# the search-then-create drafting race (Airtable has no atomic upsert) and stops
-# a manual run colliding with the scheduled one.
+# the search-then-create drafting race and stops a manual run colliding with
+# the scheduled one.
 concurrency:
   group: m3-daily
   cancel-in-progress: false
@@ -101,12 +101,12 @@ jobs:
           GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
           GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
           PREVIEW_SITE: ${{ inputs.preview_site }}
-          # `report --due` is a Phase 3 dual-writer: writeNextDueDates mirrors
-          # each next-due write into site_schedule. The mirror is best-effort, so
-          # without these it returns null and the dual-write silently never runs —
-          # no warning, no nonzero exit, just an absent `mirrored=` suffix. That
-          # is what shipped, and the hourly sync re-importing site_schedule from
-          # Airtable is what hid it. Pinned by tests/build/daily-reports-workflow.
+          # `report --due` writes each next-due date into site_schedule
+          # (writeNextDueDates). As a Phase 3 dual-write it was best-effort, so
+          # without these it returned null and silently never ran — no warning,
+          # no nonzero exit, just an absent `mirrored=` suffix. That is what
+          # shipped, and the hourly sync re-importing site_schedule from Airtable
+          # is what hid it. Pinned by tests/build/daily-reports-workflow.
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
@@ -119,7 +119,7 @@ jobs:
             # `report <slug>` matches on siteSlug(name), NOT the display name, so
             # the input is slugified here rather than handed over raw. Otherwise
             # the obvious input ("Sonder", the name the operator actually sees in
-            # Airtable) dies with `No Websites row matched slug "Sonder"`.
+            # the console) dies with `No Websites row matched slug "Sonder"`.
             slug=$(printf '%s' "$PREVIEW_SITE" | tr '[:upper:]' '[:lower:]' \
               | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')
             echo "resolving '$PREVIEW_SITE' -> slug '$slug'"

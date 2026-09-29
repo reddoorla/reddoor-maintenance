@@ -13,7 +13,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { mapWebsiteRecord, type RawRecord } from "../../src/db/import-airtable.js";
+import { mapWebsiteRecord, type RawRecord } from "../../src/db/field-map.js";
 import { mirrorSiteInsert } from "../../src/db/fleet-state.js";
 
 const NOW = "2026-08-25T12:00:00.000Z";

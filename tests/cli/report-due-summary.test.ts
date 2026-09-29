@@ -14,7 +14,6 @@ vi.mock("../../src/audits/health-mirror.js", () => ({
 }));
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({
-    created: async () => {},
     health: async () => {},
     site: async () => {},
   }),
@@ -22,7 +21,6 @@ vi.mock("../../src/db/site-mirror.js", () => ({
 vi.mock("../../src/reports/report-mirror.js", () => ({
   makeReportMirror: async () => ({
     create: async (rec: { id: string }) => ({ id: rec.id }),
-    created: async () => {},
     forSite: async () => [],
     body: async () => {},
     patch: async () => {},
@@ -43,7 +41,7 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   ],
   listAllReports: async () => [],
 }));
-vi.mock("../../src/reports/airtable/websites.js", () => ({
+vi.mock("../../src/fleet/site-fields.js", () => ({
   siteSlug: (n: string) => n,
 }));
 vi.mock("../../src/reports/due.js", () => ({

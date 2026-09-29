@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapRow, parseAutoEvidence } from "../../src/reports/airtable/reports.js";
+import { mapRow, parseAutoEvidence } from "../../src/reports/report-fields.js";
 import { createReportDraft } from "../../src/reports/create-report.js";
 import type { DraftInput } from "../../src/reports/draft-fields.js";
 

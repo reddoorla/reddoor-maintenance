@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { collectPrismicDriftAlerts } from "../../src/alerts/digest-collectors.js";
 import { selectFleetSites } from "../../src/inventory/select.js";
-import type { Status, WebsiteRow } from "../../src/reports/airtable/websites.js";
-import { CANONICAL_STATUSES } from "../../src/reports/airtable/site-status.js";
+import type { Status, WebsiteRow } from "../../src/fleet/site-row.js";
+import { CANONICAL_STATUSES } from "../../src/fleet/site-status.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 /**

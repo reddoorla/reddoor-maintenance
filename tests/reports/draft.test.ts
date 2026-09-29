@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { analyticsEnrolled, draftReportForSite, fetchSearch } from "../../src/reports/draft.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeFakeReportWriter, type FakeReportWriter } from "./_helpers/fake-report-writer.js";
-import { mapRow } from "../../src/reports/airtable/reports.js";
+import { mapRow } from "../../src/reports/report-fields.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 // The GA client talks to Google over the network; mock it. readGaConfig is NOT mocked —
@@ -802,8 +802,6 @@ describe("draftReportForSite → the Turso report writer", () => {
     await draftReportForSite(siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
       ...NO_HEADER,
       siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
         health: async (id, fields) => {
           mirrored.push({ id, fields });
         },
@@ -834,8 +832,6 @@ describe("draftReportForSite → the Turso report writer", () => {
     await draftReportForSite(siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
       ...NO_HEADER,
       siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
         health: async (_id, fields) => {
           mirrored.push(fields);
         },

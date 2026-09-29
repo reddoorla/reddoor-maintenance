@@ -45,7 +45,7 @@ function timedSpawn(timeoutMs: number): SpawnFn {
 export async function runOneAudit(site: Site, name: AuditName): Promise<AuditResult> {
   if (!(name in REGISTRY)) throw new Error(`unknown audit: ${name}`);
   const spawn = timedSpawn(DEFAULT_AUDIT_TIMEOUT_MS);
-  // `||` not `??`: an empty-string slug (Airtable Name with no slug-able chars)
+  // `||` not `??`: an empty-string slug (a Name with no slug-able chars)
   // must fall back to the path, not render a blank `AuditResult.site` that would
   // then collapse fleet write-back grouping under the "" key.
   const label = site.name || site.path;

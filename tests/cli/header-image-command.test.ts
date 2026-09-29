@@ -8,7 +8,7 @@ import {
   generateForTargets,
   parseSettleMs,
 } from "../../src/cli/commands/header-image.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { StoredHeaderImage } from "../../src/db/header-images.js";
 
 function row(over: Partial<WebsiteRow>): WebsiteRow {

@@ -46,11 +46,11 @@ export async function runLaunchCommand(
     return { output: `No site resolved for "${site}".`, code: 1 };
   }
 
-  // #539 Phase 5: create-side Turso dual-write, wired at the composition root
+  // #539 Phase 5: create-side Turso write, wired at the composition root
   // (see runAnnounceCommand for why it is not defaulted inside the recipe).
   const { makeReportMirror } = await import("../../reports/report-mirror.js");
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
-  // #646 step 4: the fleet roster comes from Turso — an Airtable roster cannot
+  // #646 step 4: the fleet roster comes from Turso — an Airtable roster could not
   // see a `site_<ULID>` site, so launching one failed at "no site row matched".
   const { readFleetRoster } = await import("../../fleet/roster.js");
   const result = await launch(target, {

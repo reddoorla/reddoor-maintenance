@@ -7,10 +7,10 @@ import {
   type SiteDetailDeps,
 } from "../../src/dashboard/site-details.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import type { AirtableCellValue } from "../../src/reports/airtable/websites.js";
+import type { CellValue } from "../../src/fleet/site-fields.js";
 
 function harness(over: Partial<SiteDetailDeps> = {}) {
-  const writes: Array<{ id: string; column: string; value: AirtableCellValue }> = [];
+  const writes: Array<{ id: string; column: string; value: CellValue }> = [];
   const deps: SiteDetailDeps = {
     getSite: async () => makeWebsiteRow({ id: "recA", name: "Acme" }),
     updateField: async (id, column, value) => {

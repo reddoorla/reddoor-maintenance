@@ -1,4 +1,4 @@
-import { launchedFields } from "../airtable/websites.js";
+import { launchedFields } from "../../fleet/site-fields.js";
 import { siteSlug, type WebsiteRow } from "../../fleet/site-row.js";
 import type { ReportRow } from "../report-row.js";
 import { renderReportFromRow, requireLighthouse } from "./render-from-row.js";

@@ -6,7 +6,7 @@ import {
 } from "../../src/dashboard/onboarding.js";
 import { assignTier } from "../../src/dashboard/fleet-cockpit.js";
 import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../../src/fleet/opt-outs.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function row(over: Partial<WebsiteRow> = {}): WebsiteRow {

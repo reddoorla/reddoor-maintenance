@@ -152,8 +152,6 @@ describe("renovate-dispatch, driven by the Turso roster", () => {
       fleet: true,
       roster,
       siteMirror: {
-        created: async () => {},
-        hasRow: async () => true,
         health: async (id, fields) => {
           mirrored.push({ id, fields });
         },

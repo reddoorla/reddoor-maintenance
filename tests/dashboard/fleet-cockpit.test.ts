@@ -11,11 +11,11 @@ import type {
   CockpitSummary,
   PendingEntry,
 } from "../../src/dashboard/fleet-cockpit.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
-import { siteSlug } from "../../src/reports/airtable/websites.js";
+import { siteSlug } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");

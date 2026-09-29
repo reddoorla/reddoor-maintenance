@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { findDueReports, nextDueDate, reportPeriodKey } from "../../src/reports/due.js";
-import { mapRow, type WebsiteRow } from "../../src/reports/airtable/websites.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import { mapRow, type WebsiteRow } from "../../src/fleet/site-fields.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {

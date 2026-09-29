@@ -4,8 +4,8 @@ import {
   formatNotifyTarget,
   runFormsNotifyTargetCommand,
 } from "../../src/cli/commands/forms-notify-target.js";
-import type { Status, WebsiteRow } from "../../src/reports/airtable/websites.js";
-import { canonicalizeStatus, toAirtableStatus } from "../../src/reports/airtable/site-status.js";
+import type { Status, WebsiteRow } from "../../src/fleet/site-row.js";
+import { canonicalizeStatus } from "../../src/fleet/site-status.js";
 
 /** Stands in for the Turso fleet. `writesLand` is the knob that matters:
  *  with it off, the Status write succeeds and the row does NOT change — the
@@ -48,11 +48,9 @@ function applyStatus(
 // freeze constant refuses to build without libSQL creds. Mocked so the flip
 // stays a one-line change rather than a change plus a sweep of test files.
 vi.mock("../../src/db/site-mirror.js", async () => {
-  const { canonicalizeStatus: canon } = await import("../../src/reports/airtable/site-status.js");
+  const { canonicalizeStatus: canon } = await import("../../src/fleet/site-status.js");
   return {
     makeSiteMirror: async () => ({
-      created: async () => {},
-      hasRow: async () => true,
       health: async () => {},
       // #646 step 4: this is the write that decides, so the CLI path must land it
       // in the fake fleet the read-back reads.
@@ -75,8 +73,7 @@ function row(status: Status | null, statusRaw?: string | null): WebsiteRow {
     // that is the same string, so the default suffices for every canonical
     // value; callers exercising a cell the code does not recognize pass it
     // explicitly.
-    statusRaw:
-      statusRaw !== undefined ? statusRaw : status === null ? null : toAirtableStatus(status),
+    statusRaw: statusRaw !== undefined ? statusRaw : status,
     pointOfContact: "owner@client.com",
     notifyRouting: null,
     reportRecipientsTo: null,
@@ -90,8 +87,6 @@ function D(over: Partial<Parameters<typeof formsNotifyTarget>[0]> & { site: stri
   return {
     roster: async () => fake.rows.map((r) => ({ ...r })),
     siteMirror: {
-      created: async () => {},
-      hasRow: async () => true,
       health: async () => {},
       site: async (id: string, fields: Record<string, unknown>) =>
         applyStatus(canonicalizeStatus, id, String(fields.Status ?? "")),
@@ -146,8 +141,6 @@ describe("formsNotifyTarget", () => {
         site: "1836dig",
         set: "on",
         siteMirror: {
-          created: async () => {},
-          hasRow: async () => true,
           health: async () => {},
           site: async (id: string, fields: Record<string, unknown>) => {
             mirrored.push({ id, fields });

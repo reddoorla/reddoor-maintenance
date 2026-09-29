@@ -9,8 +9,8 @@ export type TursoInventoryOptions = {
 };
 
 /**
- * The fleet roster, read from Turso (#646 step 4) — what `--fleet turso` (and its
- * deprecated alias `--fleet airtable`) resolves through. Turso holds every site,
+ * The fleet roster, read from Turso (#646 step 4) — what `--fleet turso` resolves
+ * through. Turso holds every site,
  * `rec…` and `site_…` alike; the selection rule is `selectFleetSites`.
  *
  * `open` is a factory rather than a handle so the provider owns the connection it

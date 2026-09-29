@@ -2,10 +2,9 @@ import { openDb, readDbConfig, type Db } from "../db/client.js";
 import { mirrorHealthFields, mirrorScheduleFields } from "../db/fleet-state.js";
 import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 
-/** One site's just-written Airtable FieldSet, mirrored into site_health.
+/** One site's FieldSet, written into site_health.
  *  Resolves true when a site_health row matched; false when the UPDATE touched
- *  0 rows (site created in Airtable after the last hourly import) — callers
- *  count that as mirror_missed, never as mirrored. */
+ *  0 rows — callers count that as mirror_missed, never as mirrored. */
 export type HealthMirror = (siteId: string, fields: Record<string, unknown>) => Promise<boolean>;
 
 /** The site_schedule twin, for the nightly next-due write-back. Same
@@ -17,14 +16,11 @@ export type ScheduleMirror = (
   computedAt: string,
 ) => Promise<boolean>;
 
-/** Build the Turso write-through for the nightly writers (#539 Phase 3
- *  dual-write), or null when libSQL creds are absent — mirroring NOT attempted
- *  is a different outcome than mirroring failed, and the caller's summary line
- *  reports mirror counts only when a mirror existed. Same contract as
- *  recordFleetEventsBestEffort: the mirror must never fail the sweep that
- *  produced the data (per-site failures are the caller's to count; Airtable
- *  stays authoritative and the hourly sync converges whatever the mirror
- *  missed). `open` is injectable for tests. */
+/** Build the Turso write for the nightly writers (#539 Phase 3), or null when
+ *  libSQL creds are absent — mirroring NOT attempted is a different outcome
+ *  than mirroring failed, and the caller's summary line reports mirror counts
+ *  only when a mirror existed. Per-site failures are the caller's to count.
+ *  `open` is injectable for tests. */
 export async function makeHealthMirrorBestEffort(
   open: () => Promise<Db> = () => openDb(readDbConfig()),
   /** #612. `true` = Turso is the only store, so "mirroring disabled" is no
@@ -45,7 +41,7 @@ export async function makeHealthMirrorBestEffort(
 }
 
 /** {@link makeHealthMirrorBestEffort}'s schedule twin — same null-without-creds
- *  contract, for `writeNextDueDates`' site_schedule write-through. */
+ *  contract, for `writeNextDueDates`' site_schedule write. */
 export async function makeScheduleMirrorBestEffort(
   open: () => Promise<Db> = () => openDb(readDbConfig()),
   /** #612 — same contract as {@link makeHealthMirrorBestEffort}'s. */

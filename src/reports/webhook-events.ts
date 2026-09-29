@@ -1,10 +1,10 @@
-import type { DeliveryStatus } from "./airtable/reports.js";
+import type { DeliveryStatus } from "./report-fields.js";
 import type { BounceDetail } from "./submission-row.js";
 
 export type { BounceDetail };
 
 /**
- * Resend webhook event type → Airtable Delivery status value.
+ * Resend webhook event type → `Delivery status` value.
  * Imported by both `netlify/functions/resend-webhook.mts` and its test, so the
  * mapping has a single source of truth.
  */
@@ -48,9 +48,9 @@ export function isStatusDowngrade(current: DeliveryStatus, incoming: DeliverySta
 
 /**
  * How long after an event was created we keep retrying an UNMATCHED Reports
- * lookup. Inside this window an unmatched event is almost always the stampSent
- * race (delivery beat the orchestrator's Airtable write) → 500 so svix retries.
- * Past it the race has resolved, so an unmatched event is a genuine orphan
+ * lookup. Inside this window an unmatched event is almost always the sent-stamp
+ * race (delivery beat the orchestrator's `reportSentMirror` stamp) → 500 so svix
+ * retries. Past it the race has resolved, so an unmatched event is a genuine orphan
  * (email sent outside this pipeline, or a deleted Reports row) → 200 to stop
  * svix hammering the function for hours/days.
  */

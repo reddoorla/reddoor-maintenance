@@ -1,5 +1,5 @@
 import type { Context, Config } from "@netlify/functions";
-import { siteSlug } from "../../src/reports/airtable/websites.js";
+import { siteSlug } from "../../src/fleet/site-row.js";
 import { listSites } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
@@ -49,9 +49,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   // Only the password check — unavoidable, since auth needs it — precedes.
   const auth = requireOperator(req, { wants: "redirect" });
   if (!auth.ok) return denialResponse(auth.denial);
-  // No Airtable guard: this page is a Turso read that imports one pure string
-  // helper from the Airtable module, so the check could only refuse a page it
-  // does not need. Same removal as form-ingest and fleet-homepage.
+  // No Airtable guard: this page is a Turso read, so the check could only
+  // refuse a page it does not need. Same removal as form-ingest and fleet-homepage.
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[submissions-page] TURSO_DATABASE_URL missing");
     return plainText("Turso env missing", 500);

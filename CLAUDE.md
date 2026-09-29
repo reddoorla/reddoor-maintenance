@@ -270,7 +270,8 @@ blocked it. Any drift it would have found is still in the archive.
   workspace is on Airtable's Free plan (1,000 API calls a month). The
   2026-08-17 "quota raise" did not move it off Free, and the block recurred on
   2026-09-27 and hung four nightlies.
-- Column names in `src/reports/airtable/` and `src/db/import-airtable.ts` are
-  still the Airtable ones. The fleet-state mirrors take Airtable-column-named
-  FieldSets. Relocating those pure modules out of the `airtable` directory is
-  follow-up work, not a sign that anything there still calls Airtable.
+- The stored column names are still the ones the Airtable base used
+  (`"maintenence freq"`, `"Report recipients (To)"`, …). The pure builders in
+  `src/fleet/site-fields.ts` and `src/reports/report-fields.ts` produce FieldSets
+  keyed by those names, and `src/db/field-map.ts` maps them to Turso columns.
+  That vocabulary is all that is left of Airtable in the code.

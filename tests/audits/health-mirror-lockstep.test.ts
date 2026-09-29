@@ -10,8 +10,8 @@ import {
   auditFields,
   gitHubSignalsFields,
   nextDueDatesFields,
-} from "../../src/reports/airtable/websites.js";
-import { healthColumnFor, scheduleColumnFor } from "../../src/db/import-airtable.js";
+} from "../../src/fleet/site-fields.js";
+import { healthColumnFor, scheduleColumnFor } from "../../src/db/field-map.js";
 import {
   makeHealthMirrorBestEffort,
   makeScheduleMirrorBestEffort,

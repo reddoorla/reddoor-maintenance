@@ -13,8 +13,6 @@ vi.mock("../../src/fleet/roster.js", () => ({
 
 vi.mock("../../src/db/site-mirror.js", () => ({
   makeSiteMirror: async () => ({
-    created: async () => {},
-    hasRow: async () => true,
     health: async (siteId: string, fields: Record<string, unknown>) => {
       h.health.push({ siteId, fields });
     },
@@ -23,11 +21,7 @@ vi.mock("../../src/db/site-mirror.js", () => ({
 }));
 
 import { runRenovateDispatchCommand } from "../../src/cli/commands/renovate-dispatch.js";
-import {
-  defaultDeps,
-  writeSweepToAirtable,
-  type SweepRow,
-} from "../../src/cli/commands/prismic-models.js";
+import { defaultDeps, writeSweep, type SweepRow } from "../../src/cli/commands/prismic-models.js";
 import { writeNextDueDates } from "../../src/cli/commands/report.js";
 import type { SiteMirror } from "../../src/db/site-mirror.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
@@ -61,8 +55,6 @@ describe("the renovate-dispatch auto-fix counter lands in Turso", () => {
     vi.stubEnv("GH_TOKEN", "tok");
     const mirrored: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
     const siteMirror: SiteMirror = {
-      created: async () => {},
-      hasRow: async () => true,
       health: async (siteId, fields) => {
         mirrored.push({ siteId, fields });
       },
@@ -100,7 +92,7 @@ describe("the real prismic-models verdict sink lands in Turso", () => {
 
   it("lands every verdict in Turso and files none as failed", async () => {
     const sink = await defaultDeps().openVerdictSink();
-    const res = await writeSweepToAirtable(
+    const res = await writeSweep(
       [row("Espada"), row("Beacon", { clean: false, detail: "CHANGED  slice hero" })],
       sink.websites,
       sink.update,

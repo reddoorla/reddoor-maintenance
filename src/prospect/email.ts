@@ -7,7 +7,7 @@ import type { ProspectAuditResult } from "./types.js";
  * Mirrors `reports/send/orchestrate.ts`'s `FROM_ADDRESS` (its line 18) — copied,
  * not imported, exactly like `digest.ts` and `recipes/selftest-email.ts` already
  * do. orchestrate.ts's own `FROM_ADDRESS` isn't exported, and importing it would
- * drag its whole Airtable/MJML dependency chain into this module's graph, which
+ * drag its whole MJML dependency chain into this module's graph, which
  * stays lazy-loaded on purpose (see bin.ts's central-dep-blocker comment — this
  * module reaches `resend`, a devDependency, and must only ever be reached via a
  * dynamic `import()` from the CLI).

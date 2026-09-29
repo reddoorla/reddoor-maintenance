@@ -1,14 +1,14 @@
 // src/dashboard/fleet-cockpit.ts
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import {
   siteSlug,
   isDashboardVisible,
   isArchivedStatus,
   isUnrecognizedStatus,
-} from "../reports/airtable/websites.js";
+} from "../fleet/site-row.js";
 import type { AttentionItem } from "../alerts/attention.js";
-import { isPendingApproval } from "../reports/airtable/reports.js";
-import type { ReportRow } from "../reports/airtable/reports.js";
+import { isPendingApproval } from "../reports/report-fields.js";
+import type { ReportRow } from "../reports/report-fields.js";
 import type { ReportType } from "../reports/types.js";
 import type { SubmissionRow, FormType } from "../reports/submission-row.js";
 import { isLeadFormType } from "../forms/types.js";
@@ -369,8 +369,8 @@ export type RecentEntry = {
 /** A Websites row surfaced OUTSIDE the fleet cards: archived (legacy/deprecated)
  *  or holding an unrecognized Status cell.
  *
- *  `status` is the RAW Airtable cell, not the canonical status (#539 Phase 4).
- *  These two lanes exist to mirror what Airtable holds so a row can never
+ *  `status` is the RAW stored cell, not the canonical status (#539 Phase 4).
+ *  These two lanes exist to mirror what the store holds so a row can never
  *  silently vanish, and both of them survive on the distinction the canonical
  *  vocabulary erases: `legacy` and `deprecated` both canonicalize to `archived`,
  *  so labelling the lane canonically would render 12 live rows identically and
@@ -636,7 +636,7 @@ export function buildSiteAlarmContext(
 }
 
 /**
- * Assemble the render-ready cockpit model from already-fetched Airtable rows. PURE
+ * Assemble the render-ready cockpit model from already-fetched fleet rows. PURE
  * (`now` injected). Filters to dashboard-visible sites (maintenance or launch period),
  * runs the M5 collectors
  * over them, tags NEW/WORSE via diffAttention against the prior digest snapshot
@@ -679,7 +679,7 @@ export function buildCockpitModel(
   // read-only surfacing — neither joins `visible`, so no fleet op gains a site.
   //
   // Membership is decided on the CANONICAL status; the label is the RAW cell.
-  // These lanes are the fleet's mirror of Airtable, and `legacy`/`deprecated` are
+  // These lanes are the fleet's mirror of the store, and `legacy`/`deprecated` are
   // the one pair the canonical vocabulary merges — labelling them `archived`
   // would collapse 12 distinguishable live rows into one indistinguishable
   // label and disagree with the cell it mirrors.

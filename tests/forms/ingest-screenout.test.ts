@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { parseScreenOut, ingestScreenOut } from "../../src/forms/ingest.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 describe("parseScreenOut", () => {

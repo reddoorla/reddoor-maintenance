@@ -1,6 +1,6 @@
 import type { SiteMirror } from "../db/site-mirror.js";
-import { siteSlug, type Status, type WebsiteRow } from "../reports/airtable/websites.js";
-import { canonicalizeStatus, toAirtableStatus } from "../reports/airtable/site-status.js";
+import { siteSlug, type Status, type WebsiteRow } from "../fleet/site-row.js";
+import { canonicalizeStatus } from "../fleet/site-status.js";
 import { describeNotifyTarget, type NotifyTarget } from "../forms/notify.js";
 
 /** The (Airtable-named) column the pre-launch guard lives in. */
@@ -42,36 +42,6 @@ export type FormsNotifyTargetResult = {
    *  it comes from RE-READING the row, not from the write call returning. */
   flip?: { from: Status | null; to: Status; confirmed: boolean };
 };
-
-/**
- * The exact Airtable cell to write for an operator-supplied `--restore` value:
- * the operator's own string, verbatim.
- *
- * This is the ONE non-revertible surface in the #539 Phase 4 stage-1 rename —
- * every other change is code, and `git revert` undoes code. It cannot undo a
- * rewritten Airtable cell. So the rule here is stricter than everywhere else:
- * substitute only when the substitution is provably lossless, i.e. when
- * canonicalizing and mapping back ROUND-TRIPS to the operator's own string.
- *
- * That condition is, today, never false in a way that changes the answer — which
- * is the point. `toAirtableStatus(canonicalizeStatus(raw))` either equals `raw`
- * (so writing it is writing `raw`) or it does not (so we must write `raw`). The
- * function therefore reduces to "write raw", and it is written this way so the
- * reduction is visible rather than assumed. The case that made it matter:
- * `--restore legacy` canonicalizes to `archived`, which maps back to
- * "deprecated" — a different, real, operator-visible Airtable option that nobody
- * asked for. `hosting` → `hosted-only` → "hosting" round-trips and is safe.
- *
- * Airtable, not this module, is the authority on which option strings the
- * "Status" single-select accepts. Writing verbatim delegates to it: a typo is
- * rejected loudly at the API, exactly as it was before the rename.
- */
-export function restoreCell(raw: string): string {
-  const canonical = canonicalizeStatus(raw);
-  if (canonical === null) return raw;
-  const roundTripped = toAirtableStatus(canonical);
-  return roundTripped === raw ? roundTripped : raw;
-}
 
 function findSite(rows: WebsiteRow[], site: string): WebsiteRow | undefined {
   const wanted = site.trim().toLowerCase();
@@ -119,7 +89,7 @@ export async function formsNotifyTarget(
 
   // `--restore` is operator free text. It is canonicalized for what this command
   // REPORTS (`flip.to`, and the predicates downstream), but NEVER for what it
-  // WRITES — see `restoreCell` below.
+  // WRITES — it writes the operator's string verbatim.
   const restoreRaw = deps.restore?.trim();
   const to = deps.set === "on" ? VERIFY_STATUS : (canonicalizeStatus(restoreRaw) ?? undefined);
   if (deps.set === "off" && !to) {
@@ -147,10 +117,10 @@ export async function formsNotifyTarget(
     );
   }
 
-  // `--set on` writes a status this MODULE owns (VERIFY_STATUS), so mapping it to
-  // the current status vocabulary is correct. `--set off` writes the operator's
-  // own string — see restoreCell.
-  const cell = deps.set === "on" ? toAirtableStatus(VERIFY_STATUS) : restoreCell(restoreRaw!);
+  // `--set on` writes a status this MODULE owns (VERIFY_STATUS). `--set off`
+  // writes the operator's own `--restore` string verbatim, never a canonicalized
+  // stand-in: `--restore legacy` must not quietly become `archived`.
+  const cell = deps.set === "on" ? VERIFY_STATUS : restoreRaw!;
   // The write that DECIDES: `/api/forms/:slug` reads this cell from Turso, and
   // the console reads it there too.
   await deps.siteMirror.site(row.id, { [STATUS_COLUMN]: cell });

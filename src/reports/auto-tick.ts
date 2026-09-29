@@ -1,5 +1,5 @@
 import type { ReportType } from "./types.js";
-import type { WebsiteRow } from "./airtable/websites.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
 import type { SearchPresence } from "./search/client.js";
 import { checklistFor, gatingFields } from "./checklist.js";
 import { isNetlifyAppUrl } from "../util/url.js";

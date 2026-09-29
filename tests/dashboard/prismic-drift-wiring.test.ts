@@ -5,7 +5,7 @@ import {
   buildNeedsYouFeed,
 } from "../../src/dashboard/fleet-cockpit.js";
 import { collectAttention, runDigest } from "../../src/reports/digest.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { websiteRowsFrom, type RawRow } from "../_helpers/raw-rows.js";

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import type { WebsiteRow } from "../../../src/reports/airtable/websites.js";
-import type { ReportRow } from "../../../src/reports/airtable/reports.js";
+import type { WebsiteRow } from "../../../src/fleet/site-row.js";
+import type { ReportRow } from "../../../src/reports/report-fields.js";
 import { makeWebsiteRow } from "../../_helpers/website-row.js";
 
 /**

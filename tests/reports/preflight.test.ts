@@ -6,7 +6,7 @@ import {
   formatBlockers,
   healthBlockers,
 } from "../../src/reports/preflight.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 

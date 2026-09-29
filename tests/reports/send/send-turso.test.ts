@@ -143,8 +143,6 @@ const io = () => ({
     });
   },
   siteMirror: {
-    created: async () => {},
-    hasRow: async () => true,
     health: async () => {},
     site: async () => {
       throw new Error("no Launch report here — the launch flip must not run");

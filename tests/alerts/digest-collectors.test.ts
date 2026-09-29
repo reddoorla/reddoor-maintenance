@@ -12,8 +12,8 @@ import {
   collectPreflightBlocked,
   collectDeadLetterAlerts,
 } from "../../src/alerts/digest-collectors.js";
-import type { WebsiteRow, SecurityAdvisory } from "../../src/reports/airtable/websites.js";
-import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { WebsiteRow, SecurityAdvisory } from "../../src/fleet/site-row.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 /** Minimal persisted advisory; override severity/relationship per case. */

@@ -22,12 +22,12 @@ describe("makeReportMirror (best-effort, always observable)", () => {
   const logged = (spy: ReturnType<typeof vi.spyOn>) =>
     (spy.mock.calls as unknown[][]).flat().join("\n");
 
-  it("created: writes the row and reports op=created mirrored=1", async () => {
+  it("create: writes the row and reports op=create mirrored=1", async () => {
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     const mirror = await makeReportMirror(async () => db, false);
-    await mirror.created({ id: "recNEW", fields: { "Report ID": "acme-2026-08" } });
+    await mirror.create({ id: "recNEW", fields: { "Report ID": "acme-2026-08" } });
 
     const stored = await db
       .selectFrom("reports")
@@ -35,7 +35,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
       .where("id", "=", "recNEW")
       .executeTakeFirst();
     expect(stored?.report_id).toBe("acme-2026-08");
-    expect(logged(log)).toContain("REPORT_MIRROR report=recNEW op=created mirrored=1");
+    expect(logged(log)).toContain("REPORT_MIRROR report=recNEW op=create mirrored=1");
   });
 
   it("body: stores the rendered HTML the console preview serves", async () => {
@@ -45,7 +45,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     const mirror = await makeReportMirror(async () => db, false);
-    await mirror.created({ id: "recNEW", fields: {} });
+    await mirror.create({ id: "recNEW", fields: {} });
     await mirror.body("recNEW", "<p>the report</p>");
 
     const stored = await db
@@ -62,7 +62,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     const mirror = await makeReportMirror(async () => db, false);
-    await mirror.created({ id: "recNEW", fields: { "Draft ready": true } });
+    await mirror.create({ id: "recNEW", fields: { "Draft ready": true } });
     await mirror.patch("recNEW", { draft_ready: 0, lighthouse_seo: 71 });
 
     const stored = await db
@@ -101,7 +101,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     expect(logged(log)).toContain("REPORT_MIRROR report=recGHOST op=patch mirrored=missed");
 
     // Positive control: the same strict mirror is transparent when the row exists.
-    await mirror.created({ id: "recREAL", fields: { "Report ID": "R" } });
+    await mirror.create({ id: "recREAL", fields: { "Report ID": "R" } });
     await expect(mirror.patch("recREAL", { draft_ready: 0 })).resolves.toBeUndefined();
   });
 
@@ -111,12 +111,11 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     const mirror = await makeReportMirror(async () => {
       throw new Error("no TURSO_DATABASE_URL");
     }, false);
-    await expect(mirror.created({ id: "recNEW", fields: {} })).resolves.toBeUndefined();
     await expect(mirror.body("recNEW", "<p>x</p>")).resolves.toBeUndefined();
     await expect(mirror.patch("recNEW", { draft_ready: 1 })).resolves.toBeUndefined();
 
     const out = logged(log);
-    for (const op of ["created", "body", "patch"]) {
+    for (const op of ["body", "patch"]) {
       expect(out).toContain(`REPORT_MIRROR report=recNEW op=${op} mirrored=absent`);
     }
   });
@@ -200,12 +199,11 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     const mirror = await makeReportMirror(async () => db, false);
-    await expect(mirror.created({ id: "recNEW", fields: {} })).resolves.toBeUndefined();
     await expect(mirror.body("recNEW", "<p>x</p>")).resolves.toBeUndefined();
     await expect(mirror.patch("recNEW", { draft_ready: 1 })).resolves.toBeUndefined();
 
     const out = logged(log);
-    for (const op of ["created", "body", "patch"]) {
+    for (const op of ["body", "patch"]) {
       expect(out).toContain(`REPORT_MIRROR report=recNEW op=${op} mirrored=0 error=SQLITE_BUSY`);
     }
   });

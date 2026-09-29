@@ -5,7 +5,7 @@ import {
   type RerenderDeps,
 } from "../../../src/reports/send/rerender.js";
 import { makeWebsiteRow } from "../../_helpers/website-row.js";
-import type { ReportRow } from "../../../src/reports/airtable/reports.js";
+import type { ReportRow } from "../../../src/reports/report-fields.js";
 
 /**
  * On-demand refresh of a report's stored body (#539 Phase 4).

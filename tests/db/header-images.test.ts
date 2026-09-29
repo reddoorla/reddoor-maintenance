@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import type { RawRecord } from "../../src/db/import-airtable.js";
+import type { RawRecord } from "../../src/db/field-map.js";
 import { storeHeaderImage, loadHeaderImage } from "../../src/db/header-images.js";
 import { getSiteBySlug, mirrorSiteInsert } from "../../src/db/fleet-state.js";
 

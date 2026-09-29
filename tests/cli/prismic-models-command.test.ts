@@ -356,7 +356,7 @@ describe("runPrismicModelsCommand — in-repo", () => {
     expect(r.output).not.toContain("match Prismic");
   });
 
-  // The nightly's real invocation, `--fleet airtable --write-back`, was
+  // The nightly's real invocation, `--fleet turso --write-back`, was
   // refused outright until Task 20 and now runs. That case moved to the suites
   // that own fleet fixtures — prismic-models-fleet.test.ts (the sweep still
   // happens) and prismic-models-writeback.test.ts (the verdicts land) — rather

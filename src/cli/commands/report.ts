@@ -1,6 +1,6 @@
 import type { Db } from "../../db/client.js";
-import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../reports/airtable/websites.js";
-import type { ReportRow } from "../../reports/airtable/reports.js";
+import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../fleet/site-fields.js";
+import type { ReportRow } from "../../reports/report-fields.js";
 import { findDueReports, nextDueDate, reportPeriodKey } from "../../reports/due.js";
 import { analyticsEnrolled, draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
@@ -227,7 +227,7 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
   // Phase 3 (#539): next-due writes land in site_schedule. Null when libSQL
   // creds are absent, reported as `mirror=absent` on the NEXT_DUE_WRITE line.
   const { makeScheduleMirrorBestEffort } = await import("../../audits/health-mirror.js");
-  // Phase 5 dual-write (#539): mirror this batch's report writes — the created
+  // Phase 5 (#539): mirror this batch's report writes — the created
   // rows, their bodies, and the queue flags. Unlike the schedule mirror this is
   // never null — creds-absent is reported on the REPORT_MIRROR line rather than
   // being indistinguishable from success, the failure mode that hid #585.
@@ -288,7 +288,7 @@ async function alertOnFleetAnalyticsFailure(health: AnalyticsRunHealth): Promise
  * write while only the handful whose schedule actually moved needed one (a
  * never-maintained site re-wrote null over null forever). This also scopes the
  * write to maintained sites by construction: no schedule → computed null →
- * equal to the stored null → skipped. Each real write dual-writes through
+ * equal to the stored null → skipped. Each real write goes through
  * `scheduleMirror` into site_schedule (null mirror = Turso creds absent). The
  * NEXT_DUE_WRITE line is observability, not a CI gate — nothing greps it yet.
  */
@@ -358,8 +358,7 @@ export async function writeNextDueDates(
  *  stop seeing last night's drafts and the period guard would re-draft every
  *  site every night. */
 export type DraftDueDeps = {
-  /** Every site in the fleet — `site_<ULID>` sites included, which an Airtable
-   *  roster cannot see at all. */
+  /** Every site in the fleet — `site_<ULID>` sites included. */
   roster: () => Promise<WebsiteRow[]>;
   /** Every report, unfiltered: the period/idempotency guard and `findDueReports`
    *  both match on siteId in memory. */
@@ -425,20 +424,20 @@ export async function draftDueReports(
 
     // A row already exists for THIS period. Two cases:
     //   - Draft ready → truly done, skip (the idempotent re-run path).
-    //   - NOT ready → a crash between createDraft and setDraftReady wedged it: the
+    //   - NOT ready → a crash between the create and the queue flag wedged it: the
     //     row exists (so we never re-draft) yet it's never sendable (listSendable
     //     needs Draft ready). COMPLETE it in place instead of skipping forever —
-    //     re-render → re-upload the HTML → flip Draft ready on the EXISTING row.
+    //     re-render → re-store the HTML → flip Draft ready on the EXISTING row.
     if (existing) {
       if (existing.draftReady) {
         skipped++;
         lines.push(`• skipped (already drafted ${period}): ${item.site.name} ${item.reportType}`);
         continue;
       }
-      // A not-ready row is normally a crash between createDraft and setDraftReady — re-complete
+      // A not-ready row is normally a crash between the create and the queue flag — re-complete
       // it in place. BUT queueDraft also clears Draft ready on rows it supersedes/blocks, and
-      // those must NOT be re-completed: doing so would re-render and APPEND a duplicate HTML
-      // attachment every nightly run, only to be re-blocked. Distinguish the two: if a
+      // those must NOT be re-completed: doing so would re-render every nightly run, only to
+      // be re-blocked. Distinguish the two: if a
       // higher-or-equal-tier report is still pending for this site, this row was intentionally
       // un-queued (not crashed) — skip it until the blocker is sent/approved or the month rolls.
       const blockedByPending = reports.some(

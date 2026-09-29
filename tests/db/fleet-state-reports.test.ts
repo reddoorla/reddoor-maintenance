@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import type { RawRecord } from "../../src/db/import-airtable.js";
+import type { RawRecord } from "../../src/db/field-map.js";
 import {
   insertReportRow,
   listAllReports,
@@ -19,7 +19,7 @@ import {
   mirrorSiteInsert,
   storeRenderedHtml,
 } from "../../src/db/fleet-state.js";
-import { mapRow as mapReportAirtable } from "../../src/reports/airtable/reports.js";
+import { mapRow as mapReportAirtable } from "../../src/reports/report-fields.js";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
 

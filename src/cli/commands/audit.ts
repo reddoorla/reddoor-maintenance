@@ -23,8 +23,8 @@ export type AuditCommandOptions = {
   workdir?: string;
   cwd?: string;
   /**
-   * After running, push the lighthouse scores to the matching Websites row
-   * in Airtable. `true` (no value) = derive slug from cwd/package.json#name;
+   * After running, push the lighthouse scores to the matching Websites row.
+   * `true` (no value) = derive slug from cwd/package.json#name;
    * string = explicit slug (e.g. "med-solutions-of-texas").
    */
   writeBack?: string | boolean;
@@ -165,7 +165,7 @@ function buildAuditTasks(
 }
 
 type WriteSummary = Awaited<
-  ReturnType<typeof import("../../audits/write-audits-to-airtable.js").writeBackOneSite>
+  ReturnType<typeof import("../../audits/write-audits.js").writeBackOneSite>
 >;
 
 function formatWriteSummary(summary: WriteSummary): string {
@@ -337,7 +337,7 @@ export async function runAuditCommand(
     output += `\n\n${formatUnmeasuredSmokeSummary(results)}`;
   }
 
-  // Did any site fail to write back to Airtable? The fleet writer collects
+  // Did any site fail to write back? The fleet writer collects
   // per-site failures instead of throwing, so without this the command would
   // exit 0 while rows silently failed to persist — automation keying on `$?`
   // would see a clean run. (The single-site writer throws on failure, so it's
@@ -352,8 +352,8 @@ export async function runAuditCommand(
       // guard this way). The write itself still happens regardless of --json.
       if (!opts.json) output += `\n\n${wb.summary}`;
     } else {
-      const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
-      const { writeBackOneSite } = await import("../../audits/write-audits-to-airtable.js");
+      const { resolveSlugFromCwd } = await import("../../audits/lighthouse-fields.js");
+      const { writeBackOneSite } = await import("../../audits/write-audits.js");
       const slug =
         typeof opts.writeBack === "string" && opts.writeBack.length > 0
           ? opts.writeBack
@@ -398,14 +398,13 @@ export async function runAuditCommand(
 }
 
 /** The fleet `--write-back` step: write every site's audits back to its
- *  Websites row, dual-write each just-written FieldSet into Turso (#539
- *  Phase 3), and record fleet-activity events. Extracted from runAuditCommand
- *  so the mirror WIRING itself is pinned by test — the mutation this seam
- *  kills is dropping the `...(mirror ? { mirror } : {})` pass-through, which
- *  would silently stop all five nightly sweeps from mirroring while every
- *  sweep stayed green (adversarial review of #566, finding 6). Deps default
- *  to the real fleet wiring; dynamic imports keep the no-write paths from
- *  loading Airtable/db clients. */
+ *  Websites row in Turso (#539 Phase 3), and record fleet-activity events.
+ *  Extracted from runAuditCommand so the mirror WIRING itself is pinned by
+ *  test — the mutation this seam kills is dropping the
+ *  `...(mirror ? { mirror } : {})` pass-through, which would silently stop all
+ *  five nightly sweeps from mirroring while every sweep stayed green
+ *  (adversarial review of #566, finding 6). Deps default to the real fleet
+ *  wiring; dynamic imports keep the no-write paths from loading db clients. */
 export async function runFleetWriteBack(args: {
   results: AuditResult[];
   which: AuditName[];
@@ -422,8 +421,8 @@ export async function runFleetWriteBack(args: {
   };
 }): Promise<{ summary: string; anyFailed: boolean }> {
   const { results, which, deps = {} } = args;
-  const { writeFleetAuditsToAirtable, formatFleetWriteSummary, fleetWriteFailed } =
-    await import("../../audits/write-audits-to-airtable.js");
+  const { writeFleetAudits, formatFleetWriteSummary, fleetWriteFailed } =
+    await import("../../audits/write-audits.js");
   const roster =
     deps.roster ??
     (async () => {
@@ -438,7 +437,7 @@ export async function runFleetWriteBack(args: {
       return makeHealthMirrorBestEffort();
     });
   const mirror = await makeMirror();
-  const fleetWrite = await writeFleetAuditsToAirtable({
+  const fleetWrite = await writeFleetAudits({
     websites,
     results,
     ...(mirror ? { mirror } : {}),

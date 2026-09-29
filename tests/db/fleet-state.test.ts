@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import type { RawRecord } from "../../src/db/import-airtable.js";
+import type { RawRecord } from "../../src/db/field-map.js";
 import {
   mirrorSiteInsert,
   getSiteBySlug,
@@ -36,15 +36,15 @@ import {
   onboardingStatus,
   searchConsoleOptedOut,
 } from "../../src/dashboard/onboarding.js";
-import type { AirtableCellValue } from "../../src/reports/airtable/websites.js";
+import type { CellValue } from "../../src/fleet/site-fields.js";
 import {
   SITE_FIELDS,
   HEALTH_FIELDS,
   HEALTH_BOOLEAN,
   SCHEDULE_FIELDS,
   healthColumnFor,
-} from "../../src/db/import-airtable.js";
-import { mapRow, siteSlug } from "../../src/reports/airtable/websites.js";
+} from "../../src/db/field-map.js";
+import { mapRow, siteSlug } from "../../src/fleet/site-fields.js";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
 
@@ -260,8 +260,7 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
     const db = await seeded([RICH]);
     const deps = {
       getSite: (slug: string) => getSiteBySlug(db, slug),
-      updateField: (id: string, col: string, val: AirtableCellValue) =>
-        mirrorSiteField(db, id, col, val),
+      updateField: (id: string, col: string, val: CellValue) => mirrorSiteField(db, id, col, val),
     };
     expect(
       (
