@@ -133,7 +133,6 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 | P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                            |
 | P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review) | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested |
 | P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                              | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap              |
-| P1-19 | `search_found_page1 = 0` is still stored when no Search Console property matched (`src/reports/draft.ts:359`, `src/recipes/announce.ts:120`), while the evidence now says `unknown` (#959). Pairs with #943                                                                         | 🟢   | S      | as named                                                                                             | A no-property result stores NULL, not 0                                                          |
 
 ### P1-3 start here (#912)
 
@@ -311,6 +310,10 @@ verdict is its only input, because no client and no check sees the email.
 
 ## Done (move items here when they land)
 
+- 2026-09-29 — P1-19 / #982: a report whose site matched no Search Console
+  property stores `search_found_page1` NULL, not 0, on the draft create path and
+  the announce create and reuse paths (#990). A property-found miss still
+  stores 0; soft-fail keeps the last value. No reader renders the two differently.
 - 2026-09-29 — P1-20: the digest sends only when an item or ask part the
   record does not hold appears, a metric beats its high-water baseline (a
   Lighthouse score by more than 5 points), or weekly; what is gone two runs is
