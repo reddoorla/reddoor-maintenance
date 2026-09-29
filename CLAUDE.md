@@ -144,13 +144,11 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   reach GitHub.
 - **Land PRs from the cloud with `node scripts/land-prs.mjs`.** It has been
   REST-only since 2026-09-28, with the same gates on the laptop and in the
-  cloud. What proves the port so far is its tests (REST-shaped fakes) and live
-  runs from a cloud session that stopped before the first write: `--dry-run`s,
-  and one full run with every PUT and DELETE withheld. No real merge,
-  update-branch or branch delete has yet been made from the cloud, so the first
-  real cloud landing is the remaining proof — read that run's raw output, not
-  just its verdict line. The one known difference is the branch delete, which
-  the proxy refuses: the script then checks whether GitHub already removed the
+  cloud. It is proven live: on 2026-09-29 one cloud session landed sixteen PRs
+  with it (listed in that day's `docs/workJournal.md` entry), two of them
+  through update-branch (#902, #896), each merge pinned to the head it had
+  watched go green. The one known difference is the branch delete, which the
+  proxy refuses: the script then checks whether GitHub already removed the
   branch (it does when the repo has "Automatically delete head branches" on, as
   reddoor-maintenance does) and prints a `note:` only when the branch is still
   there. A branch name is percent-encoded only where it must be (`#`, `%`), so
