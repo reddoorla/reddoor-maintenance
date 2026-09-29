@@ -141,6 +141,9 @@ export interface WorkflowStep {
   if?: string | undefined;
   timeoutMinutes?: number | undefined;
   jobTimeoutMinutes?: number | undefined;
+  /** The raw `continue-on-error:` value (`true`, or an expression); undefined
+   *  when absent. A step that carries it cannot turn `failure()` true. */
+  continueOnError?: string | undefined;
   /** The step's comment-stripped source, for "does it run X" questions. */
   source: string;
 }
@@ -239,6 +242,7 @@ function parseStep(job: string, lines: string[], jobTimeoutMinutes?: number): Wo
     if: cond,
     timeoutMinutes: timeout === undefined ? undefined : Number(timeout),
     jobTimeoutMinutes,
+    continueOnError: keys["continue-on-error"],
     source: lines.join("\n"),
   };
 }

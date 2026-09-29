@@ -173,6 +173,12 @@ describe("release-health — a close needs positive evidence, not the absence of
   it("writes no healthy marker when the latest decisive run FAILED", async () => {
     const check = await runStep(RELSTATE_STEP, { GH_API_OUT: decisiveRun("failure") });
     expect(check.out).toContain("::error::");
+    // A FINDING, not a crash: the step exits 0 and hands `red=yes` on. The
+    // run-failure pair keys on `failure()` ahead of "Fail when unhealthy", which
+    // is only "the checker broke" while a finding exits 0. An `exit 1` here
+    // would skip the release-failing issue and file "check failing" instead.
+    expect(check.code).toBe(0);
+    expect(await readFile(join(check.dir, "github_output"), "utf-8")).toContain("red=yes\n");
 
     const close = await runStep(RELSTATE_CLOSE, { GH_ISSUES: "42" }, check.dir);
     expect(close.out).not.toContain("CLOSED");
@@ -200,6 +206,10 @@ describe("release-health — a close needs positive evidence, not the absence of
   it("writes no drift marker while npm is behind main", async () => {
     const check = await runStep(DRIFT_STEP, { NPM_VERSION: "1.2.2" });
     expect(check.out).toContain("::error::");
+    // Same invariant as guard 2 above: a finding exits 0 and sets `behind=yes`,
+    // so the npm-drift issue files and the run-failure issue does not.
+    expect(check.code).toBe(0);
+    expect(await readFile(join(check.dir, "github_output"), "utf-8")).toContain("behind=yes\n");
 
     const close = await runStep(DRIFT_CLOSE, { GH_ISSUES: "7" }, check.dir);
     expect(close.out).not.toContain("CLOSED");

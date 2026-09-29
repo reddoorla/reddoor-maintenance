@@ -555,6 +555,57 @@ describe("a step that runs past a failure is bounded", () => {
   });
 });
 
+/**
+ * Non-issue steps that may carry `continue-on-error` ahead of a run-failure
+ * open step, each with the reason its failure is still accounted for. Every
+ * other one is refused: the evaluator above models `failure()` as "some step
+ * failed", and a continue-on-error step failing leaves `failure()` false.
+ */
+const CONTINUE_ON_ERROR_ALLOWED = new Map<string, string>([
+  [
+    "daily-reports.yml › Draft due reports",
+    'a draft failure must not block sending approved reports; "Fail the run if drafting failed" re-fails the run on its outcome before the open step',
+  ],
+  [
+    "daily-reports.yml › Keep the scheduled workflow alive",
+    "hygiene only (resets the 60-day auto-disable timer); its failure is not the run's",
+  ],
+  [
+    "fleet-lighthouse.yml › Sweep GitHub signals to Turso",
+    "a sweep-only hang deliberately ends green so the run keeps the AUDIT's verdict (see the step's comment)",
+  ],
+  [
+    "fleet-security.yml › Protection coverage audit (org-wide)",
+    "a gap files its own finding-keyed issue; a red job would misdirect triage at the vuln sweep",
+  ],
+]);
+
+describe("nothing ahead of a run-failure open step can fail without failing the run", () => {
+  // Every `if:` verdict above assumes a step that breaks turns `failure()`
+  // true. `continue-on-error` breaks that, and nothing modelled it: the review's
+  // mutation M3b, `continue-on-error: true` on time-travel's
+  // `pnpm install --frozen-lockfile`, passed every rule. A lockfile break then
+  // lets the suite run and fail on a missing module, and files the WALL-CLOCK
+  // issue — exactly what the suite scoping and P1-15's outside-the-suite issue
+  // exist to prevent.
+  it("no non-issue step ahead of one carries continue-on-error, unless allow-listed with a reason", () => {
+    const found = new Set<string>();
+    for (const open of opens(all).filter((s) => !FINDING_KEYED.has(id(s)))) {
+      const jobSteps = all.filter((s) => s.file === open.file && s.job === open.job);
+      for (const s of jobSteps.slice(0, jobSteps.indexOf(open))) {
+        const isIssueStep = /\bgh issue (create|close)\b/.test(s.source);
+        if (!isIssueStep && s.continueOnError !== undefined && s.continueOnError !== "false") {
+          found.add(id(s));
+        }
+      }
+    }
+    expect([...found].filter((f) => !CONTINUE_ON_ERROR_ALLOWED.has(f))).toEqual([]);
+    // Pinned both ways: an allow-list entry whose step no longer exists or no
+    // longer carries the flag is stale and must go.
+    expect([...CONTINUE_ON_ERROR_ALLOWED.keys()].filter((k) => !found.has(k))).toEqual([]);
+  });
+});
+
 describe("a cancelled run's issue says it was cancelled", () => {
   // The open steps now fire on a cancelled run, but their bodies were written
   // for a failure ("the nightly X run failed", time-travel's wall-clock
@@ -684,6 +735,7 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
     if?: unknown;
     timeoutMinutes?: unknown;
     jobTimeoutMinutes?: unknown;
+    continueOnError?: string | undefined;
   }
 
   /** What Actions evaluates from an `if:` value: the string with any `${{ }}`
@@ -716,6 +768,8 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
           if: unwrap(s["if"]),
           timeoutMinutes: s["timeout-minutes"],
           jobTimeoutMinutes: body["timeout-minutes"],
+          continueOnError:
+            s["continue-on-error"] === undefined ? undefined : String(s["continue-on-error"]),
         });
       }
     }
@@ -731,6 +785,7 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
       if: s.if,
       timeoutMinutes: s.timeoutMinutes,
       jobTimeoutMinutes: s.jobTimeoutMinutes,
+      continueOnError: s.continueOnError,
     }));
 
   const fixture = (stepKeys: string) =>

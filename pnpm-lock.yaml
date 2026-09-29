@@ -117,7 +117,7 @@ importers:
         specifier: ^10.6.2
         version: 10.9.1
       js-yaml:
-        specifier: ^4.3.2
+        specifier: '>=4.3.2 <5'
         version: 4.3.2
       kysely:
         specifier: ^0.29.2

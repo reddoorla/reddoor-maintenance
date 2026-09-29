@@ -247,7 +247,7 @@ jobs:
         run: |
           title="Daily release-health check failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The daily **release-health** check could not finish, so neither of its guards (npm drift, release-workflow redness) was judged this run. This is the checker failing, not a finding about releases: open the run and read the step that broke.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next run whose checks complete._' "$run_url")
+          body=$(printf 'The daily **release-health** check did not run to completion: a setup step or one of its two guards (npm drift, release-workflow redness) failed or hung. A guard that did not finish was not judged this run; one that finished before the break may have filed its own issue alongside this one. This issue is about the checker, not a finding about releases: open the run and read the step that broke.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next run whose checks complete._' "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
