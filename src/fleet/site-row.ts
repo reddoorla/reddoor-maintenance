@@ -100,6 +100,11 @@ export type WebsiteRow = {
    *  `audit --write-back`. `null` = never audited (or this audit
    *  type was skipped on the last run). 0 = audited, clean. */
   a11yViolations: number | null;
+  /** How many of the a11y audit's routes that run scanned, and how many it was
+   *  given (#910). Scanned below total is a partial run: the violation count
+   *  covers only the scanned routes. null = not stored by that run. */
+  a11yRoutesScanned: number | null;
+  a11yRoutesTotal: number | null;
   /** Declared-range drift vs the Reddoor baseline (what package.json asks for). */
   depsDrifted: number | null;
   depsMajorBehind: number | null;

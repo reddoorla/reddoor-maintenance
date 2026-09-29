@@ -31,7 +31,7 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
   it("auditFields with EVERY slice populated emits only healthColumnFor-resolvable keys", () => {
     const fields = auditFields({
       scores: { performance: 98, accessibility: null, bestPractices: 96, seo: 92 },
-      a11y: { violations: 0 },
+      a11y: { violations: 0, routesScanned: 1, routesTotal: 2 },
       deps: { drifted: 2, majorBehind: 1, outdated: 3, majorOutdated: 0 },
       security: { critical: 0, high: 0, moderate: 1, low: 2 },
       securityAdvisories: [
