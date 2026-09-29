@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-09-29 ~06:00Z** (cloud PM session, `claude/lucid-wozniak-wj8gaj`).
+**Last full re-rank: 2026-09-29 ~06:00Z; state updated ~17:30Z** (cloud PM session, `claude/lucid-wozniak-wj8gaj`).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -63,6 +63,10 @@ that cannot fire makes every other item invisible when it breaks).
 mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
   write-back path is proven; the other nightlies still have to run on their
   own schedules.
+- **Done (2026-09-29).** All seven scheduled nightlies went green on their own
+  schedules: db-backup, prismic-drift, security (closed #927), lighthouse
+  (`wrote=14`, evidence renewed about 15:00Z), daily-reports (closed #931),
+  smoke and form-e2e (each `wrote=14 failed=0`) [M, run logs].
 
 ### P0-2 · Alarms fire on a cancelled or hung run, and only for `main` 🟢
 
@@ -113,17 +117,15 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                        | Tier | Effort | Start here                                                                                           | Done when                                                                                                   |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| P1-2  | _(in progress 09-29, `wip/sc942`)_ **#942**: a Search Console lookup that finds no property is recorded as `unknown`, not "fail: Not on page 1"                                                             | 🟢   | S      | `src/reports/auto-tick.ts:182-208`, `src/reports/draft.ts`, `src/reports/search/client.ts:226`       | `propertyFound:false` → `unknown` "No Search Console property matched this site"; mutation-tested both ways |
-| P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done, #962 `wip/roster889`                                                                                 | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts                |
-| P1-4  | _(in progress 09-29, `wip/chips941`)_ **#941**: watch filter chips drop sites that also have an attention item                                                                                              | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:164-180`                                                             | A site with one attention item and one watch condition carries both tags; tier stays `attention`            |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                         | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                        |
-| P1-11 | _(done 09-29, `wip/issuebody`)_ Tracking-issue bodies are never rewritten (S2 leftover): the issue body keeps the first failure's run URL forever (#895's body still named 09-21's run when it closed)      | 🟢   | S      | the open steps in `.github/workflows/*.yml`                                                          | Body updated with `gh issue edit` on each failure                                                           |
-| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                          | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                       |
-| P1-13 | `land-prs.mjs` stops on one transient proxy error (`read: connection reset by peer` on a check-runs GET, seen landing #957). Retry idempotent GETs a bounded number of times; never retry a PUT             | 🟢   | S      | `scripts/land-prs.mjs` (`apiJson`), `tests/scripts/land-prs.test.ts`                                 | One reset then success lands; a persistent failure still stops with a reason; no PUT is ever retried        |
-| P1-14 | _(done 09-29, `wip/alarms2`)_ Add `js-yaml` as a devDependency and parse every workflow in `tests/build/tracking-issue-conditions.test.ts` (today a stopgap only catches unquoted YAML indicators in `if:`) | 🟢   | S      | `package.json`, `tests/build/_helpers/workflow-source.ts`                                            | An invalid workflow fails the test; all 14 load                                                             |
-| P1-15 | _(done 09-29, `wip/alarms2`)_ Alarms that still cannot fire: release-health hitting its 5-min job timeout, and time-travel hanging before its suite step, file nothing (#956 follow-ups)                    | 🟢   | S      | `.github/workflows/release-health.yml`, `time-travel.yml`                                            | Each files (or its gap is written into the workflow as accepted) with a test                                |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                       | Tier | Effort | Start here                                                                                           | Done when                                                                                        |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                                                                                                                                                              | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts     |
+| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                                                                                                                                                        | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso             |
+| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                                                                                                                                                         | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                            |
+| P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review)                                                                                                                                        | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested |
+| P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                                                                                                                                                                     | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap              |
+| P1-19 | `search_found_page1 = 0` is still stored when no Search Console property matched (`src/reports/draft.ts:359`, `src/recipes/announce.ts:120`), while the evidence now says `unknown` (#959). Pairs with #943                                                                                                                                                                                                                | 🟢   | S      | as named                                                                                             | A no-property result stores NULL, not 0                                                          |
+| P1-20 | Digest: a day whose pending set is unchanged still sends (`src/reports/digest.ts:563-660` skips only empty days and same-day duplicates); 09-18→09-28 repeated the same "29 Navy … health-gate (+4 more)" line for 11 days [M, mailbox]. Send on change (or weekly heartbeat), carry the age of a repeated item, and carry the exact ask ("set `Report recipients (To)` on `/s/29-navy`, then approve") linked to the cell | 🟢   | S–M    | `src/reports/digest.ts`, `tests/reports/digest*`                                                     | An unchanged pending set sends nothing; a repeated item shows its age and the concrete action    |
 
 ### P1-3 start here (#912)
 
@@ -133,7 +135,7 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
 
 1. **A roster-URL pass over every non-archived row**, not `selectFleetSites`:
    for example a new `--only` audit in the `fleet-lighthouse` nightly.
-2. **Migration 0029** adding `url_resolves` (pass/fail), `url_status` and
+2. **The next migration** (0029 is taken by #968's `claimed_at`) adding `url_resolves` (pass/fail), `url_status` and
    `url_checked_at`, plus `schema.ts`, `field-map.ts`, `fleet-state.ts` and the
    `WebsiteRow` fields.
 3. **The Netlify 404 fingerprint**: status 404 with `server: Netlify`, proven
@@ -146,19 +148,26 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
 ### Blocked behind another PR (do not start early)
 
 - **#905, #949** (a11y spec: missing-browser message, `addStyleTag` under strict
-  CSP): both edit the spec that open PR **#950** (another session) rewrites. Wait
-  for #950.
+  CSP): **unblocked**. #950 (another session) merged 2026-09-29 12:39Z and
+  rewrote the spec both edit, so start from `main` after it, not from either
+  issue's line numbers. Claim on the issue first; the session that filed #949
+  may pick it up.
 - **#947 (recipe half)**: `src/recipes/smoke-suite/template.ts:32` scaffolds
   `hydrationMarker: "footer"`, which cannot prove hydration. It is agent-ready,
   but pairs with #948's hydration-signal decision.
 - **#921 persistence**: do it the #910 way once #918 merges.
 
-### Watching, owned elsewhere
+### Watching (owned elsewhere, or parked)
 
 - **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
-  the `spawn.test` reap test. Unowned, and needed only if a reaper ever holds
-  zombies past ~4 s (the test then fails its assertion cleanly). The flake
+  the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
+  holds zombies past ~4 s (the test then fails its assertion cleanly). The flake
   itself is fixed; see _Done_.
+- **#969**: a11y audit's `SpawnTimeoutError` kills Playwright's process group
+  but orphans its `webServer` (the site's dev server). Filed from #950's review
+  by the same session; its fix touches `src/audits/util/spawn.ts`. #972 (#960's
+  flake fix) changed only `tests/audits/util/spawn.test.ts`, so the two no
+  longer collide beyond that test file.
 
 ---
 
@@ -176,44 +185,55 @@ Ordered by what unblocks the most. Each line is the exact ask.
 3. **MSOT / Revogen recipients** — fix the cells before approving either report.
 4. **Revogen GA4** — look up the numeric property ID in GA and set
    `ga4_property_id` (site editor), so its 10-05 report carries analytics (#921).
-5. **Release PR #952** (0.100.1, the #944 changeset) — merge when you want it.
-   It publishes to npm.
-6. **Airtable residue** — PR #954 (another session, at your request, opened
+5. **Release PR #952** — merged by the operator 2026-09-29 16:45Z; 0.101.0 on npm 17:01Z.
+6. **Operating-model review — answered 2026-09-29** (`docs/operating-model-review-2026-09-29.md` §7):
+   (a) zero-blocker Maintenance reports **keep the click**; revisit only after
+   several consecutive [TEST] sends with nothing wrong (every test send so far
+   has found something); (b) PM-pass model: recommendation is Opus, waiting on
+   the operator's go-ahead to pin it; (c) evening-review is retired (the PM pass
+   replaces it); `new-site` and `markup-review` go to cloud sessions as account
+   skills; (d) the three cloud secrets: walkthrough given, the operator adds
+   them; (e) **any reaction from the operator on a Discord message closes it**.
+7. **Webflow, hard date 2026-10-19** [M, Discord #website-maintenance 09-17]:
+   two sites still to convert before the license renews; Domaru must stay up
+   to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19.
+
+8. **Airtable residue** — PR #954 (another session, at your request, opened
    2026-09-29 05:52Z) removes the `settings.json` pre-approval and network allow
    and AUTONOMY.md's Airtable tiers, and keeps `AIRTABLE_PAT` by your choice.
    Not in #954: AUTONOMY.md still calls `settings.json` "local, gitignored"
    (false since #788), and its working loop names `docs/autonomy-journal.md`,
    which has had no row since 2026-09-09.
-7. **Changesets v3** — #897 (action v2) and #901 (CLI v3) must land together as
-   one hand-written PR, or be closed. Merged alone, #897 reds the release job on
-   every push to main, and #901 publishes to npm while silently skipping the
-   `v*` tag and GitHub Release, which leaves the match-harness snapshot guard
-   comparing against v0.100.0 forever [M, upstream source]. Details:
-   #955.
-8. **#918 / #920** (GA4 tag mechanism + recipe) — their author stopped after
-   four dirty review rounds with "the merge is yours". #918 is 16 behind main
-   and predates #936's `no analytics` opt-out.
-9. **#916 vs #950** — both rewrite the a11y spec and conflict. #916 would turn
-   9 of 12 sampled sites red until their palettes are fixed. Pick the order.
-10. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
+9. **Changesets v3** — done: #901 (merged by the operator 17:07Z) carries
+   both halves, and its first release run was a clean no-op. The version-only
+   path is proven by the first changeset that lands after it. #897 closes itself
+   on Renovate's next run.
+10. **#918 / #920** — in a fix round after a four-lens independent review
+    (2026-09-29): nine majors, the sixth round with majors. They ship in 0.102.0
+    if that round is clean. If it is not, they come back here as a design
+    decision rather than a seventh round.
+11. **#916** — still wanted: #950 removes none of what it catches, and it passes
+    roalson-interests. In a fix round for 0.102.0, with a `reddoor-starter`
+    palette fix staged beside it, because the starter's Hero would go red.
+12. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
-11. **Google Maps keys (#754)** — add referrer and API restrictions to the three
+13. **Google Maps keys (#754)** — add referrer and API restrictions to the three
     keys in GCP, then close the four alerts.
-12. **Promotion authority (#623 → #545)** — pick identity A/B/C, apply the
+14. **Promotion authority (#623 → #545)** — pick identity A/B/C, apply the
     prepared staging ruleset, and promote reddoor-website `staging` → `main`.
-13. **Renovate delivery (#898)** — pick among `prCreation: "immediate"`, a
+15. **Renovate delivery (#898)** — pick among `prCreation: "immediate"`, a
     priority on the grouped rule, wider or staggered windows, and a separate App
     identity for `release.yml`. `renovate/pnpm-12.x` is rate-limited on #490 now.
-14. **#779** — go-ahead for the form-e2e central widening. Seven maintained
+16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
-15. **Client email copy (#957 follow-up).** The Maintenance email draws a green
+17. **Client email copy (#957 follow-up).** The Maintenance email draws a green
     ✓ beside every checklist row whatever the evidence says
     (`maintenance-email/template.ts` → `email-sections.ts`). With #957, LAHI's
     email will say "CMS Checked ✓" for a site with no CMS, as Form Functionality
     already does for sites without a form. Decide whether `n/a` rows render
     differently or drop out.
-16. **Standing product calls** — #943 (what "Search Console set up" means),
+18. **Standing product calls** — #943 (what "Search Console set up" means),
     #948 (hydration signal), #690 (pnpm pin questions), #672 (cockpit design),
     #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
     #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
@@ -256,6 +276,12 @@ Ordered by what unblocks the most. Each line is the exact ask.
   final wait, counts only ESRCH as reaped, and its cleanup kill ignores `ESRCH`
   (#972). The test only; `spawn.ts` is unchanged. #960 stays open for its first
   suggestion, counting a zombie as dead via `ps` (see _Watching_).
+- 2026-09-29 — P1-18: #967 proven live. fleet-security run 36564241156
+  rewrote #754's body to name that run, including the new
+  `reddoor-website:staging` gap from #966, which also proves #966 live.
+- 2026-09-29 — P1-2 / #942 (#959), P1-4 / #941 (#961), P1-11 tracking-issue
+  bodies rewritten on every failure (#967), P1-13 `land-prs` retries transient
+  reads (#963), P1-14 / P1-15 (#964).
 
 - 2026-09-29 — P1-8 / #907: the prospect-audit daily cap reserves a `running`
   row before the spend, atomically, and counts finished plus non-stale running
@@ -284,12 +310,15 @@ Ordered by what unblocks the most. Each line is the exact ask.
   (upload-artifact v7; proven by backup artifact `turso-backup-36530796403`).
 - 2026-09-29 — P0-2 alarms (#956) and P0-3 / #911 (#957).
 - 2026-09-29 — P1-14: `js-yaml` is a devDependency and all 14 workflows are
-  parsed, with `workflowSteps` cross-checked against the parse (`wip/alarms2`).
+  parsed, with `workflowSteps` cross-checked against the parse (#964).
 - 2026-09-29 — P1-15: release-health files "Daily release-health check failing"
   when the checker itself fails or hangs, and time-travel files "Time-travel run
   failing outside the suite" for a red run whose suite step did not fail
-  (`wip/alarms2`).
+  (#964).
 
+- 2026-09-29 — P1-21: AUTONOMY.md's settings and journal lines fixed by #971
+  (another session).
+- 2026-09-29 — P0-1: all seven nightlies green on post-Airtable `main`.
 - 2026-09-29 — #895 time-travel red since 09-21: shallow checkout, not a clock
   (#951, `33c01b3`).
 - 2026-09-29 — Closed as resolved, with evidence comments: #717 (every exposed
