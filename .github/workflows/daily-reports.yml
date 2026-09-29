@@ -105,7 +105,7 @@ jobs:
           # (writeNextDueDates). As a Phase 3 dual-write it was best-effort, so
           # without these it returned null and silently never ran — no warning,
           # no nonzero exit, just an absent `mirrored=` suffix. That is what
-          # shipped, and the hourly sync re-importing site_schedule from Airtable
+          # shipped, and an hourly re-import of site_schedule
           # is what hid it. Pinned by tests/build/daily-reports-workflow.
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}

@@ -289,7 +289,7 @@ describe("prismicCi", () => {
     // `reddoor-maint prismic-ci <path>` builds a Site with no gitRepo at all
     // (src/inventory/local.ts:11). Before resolveOwnerRepo this ALWAYS failed
     // with "no Git repo on this site", which is why /new-site could never install
-    // model delivery on a site that has no Airtable row yet.
+    // model delivery on a site that has no row yet.
     await prismicSite();
     git(["remote", "add", "origin", "https://github.com/reddoorla/espada.git"]);
     const { d } = deps();
@@ -317,9 +317,9 @@ describe("prismicCi", () => {
   it("reports an undetermined identity, not an absent one, when origin has no owner", async () => {
     // parseOwnerRepo returns null for a URL with fewer than two path segments —
     // a separate null path from the catch (see #712). The operator here HAS an
-    // origin remote and has no Airtable row, so "add an origin remote" and "set
-    // Airtable 'Git repo'" were both dead ends. The message must not assert that
-    // no repo exists, only that one could not be determined.
+    // origin remote and no site row, so "add an origin remote" and "set 'Git
+    // repo'" were both dead ends. The message must not assert that no repo
+    // exists, only that one could not be determined.
     await prismicSite();
     git(["remote", "add", "origin", "git@github.com:espada.git"]);
     const { d } = deps();
@@ -329,9 +329,9 @@ describe("prismicCi", () => {
     expect(d.github!.secretExists).not.toHaveBeenCalled();
   });
 
-  it("refuses, before any write, when Airtable's gitRepo names a different repo than origin", async () => {
+  it("refuses, before any write, when the site's gitRepo names a different repo than origin", async () => {
     // #713: `gitPush` goes to the CHECKOUT's origin; `openPullRequest` goes to
-    // `repo`, which `resolveOwnerRepo` takes from Airtable's 'Git repo' when set.
+    // `repo`, which `resolveOwnerRepo` takes from the site's 'Git repo' when set.
     // When the two disagree (stale cell after a rename, a fork as origin, a row
     // copy-pasted from another client) the branch lands in one repository and
     // the PR is filed in another with a head that does not exist there — 422,
@@ -355,7 +355,7 @@ describe("prismicCi", () => {
     expect(git(["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe(before);
   });
 
-  it("proceeds when Airtable's gitRepo and origin agree (case-insensitively, .git or not)", async () => {
+  it("proceeds when the site's gitRepo and origin agree (case-insensitively, .git or not)", async () => {
     // The PASS control for the guard above: agreement must not be mistaken for
     // disagreement by case or the `.git` suffix — sameOwnerRepo normalises both.
     await prismicSite();

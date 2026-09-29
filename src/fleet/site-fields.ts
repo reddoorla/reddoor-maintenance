@@ -59,7 +59,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
   const name = String(f["Name"] ?? "");
   const attachments =
     (f["Header image"] as Array<{ url: string; filename: string; type: string }> | undefined) ?? [];
-  // LAST, not first: Airtable's attachment upload APPENDED, so the newest file is the
+  // LAST, not first: attachment uploads APPEND, so the newest file is the
   // tail. Reading [0] served the OLDEST forever whenever a field held more than one —
   // which is how a pre-clean-plate header reached a live announcement (#574/#577).
   const header = attachments.at(-1) ?? null;
@@ -389,7 +389,7 @@ function formE2eFields(r: FormE2eResult): FieldSet {
 
 // ————————————————————————— Websites FieldSet builders —————————————————————————
 //
-// Pure builders for the Airtable-column-named FieldSets the Turso mirrors take.
+// Pure builders for the column-named FieldSets the Turso mirrors take.
 
 /** The `Analytics soft-fail at` FieldSet, as a pure function of the stamp (#782).
  *  Drafting writes THIS into Turso. `at` is an ISO timestamp when
@@ -492,10 +492,9 @@ export type PrismicModelsWriteback = {
   detail: string | null;
 };
 
-/** The detail column was sized for Airtable's ~100k-character long-text cell, and the sweep's report runs
- *  long on a badly drifted site (an empty Prismic repository sorts every local
- *  model into `toCreate`, with a line per field). Half the cell is the budget;
- *  the rest is headroom for whatever renders it. */
+/** The sweep's report runs long on a badly drifted site (an empty Prismic
+ *  repository sorts every local model into `toCreate`, with a line per field),
+ *  so the detail is capped, with headroom for whatever renders it. */
 const MAX_PRISMIC_DETAIL_CHARS = 50_000;
 
 /**

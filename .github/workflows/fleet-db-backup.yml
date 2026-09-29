@@ -2,8 +2,8 @@ name: fleet-db-backup
 
 # Nightly dump of the Turso database + a restore REHEARSAL on every run.
 #
-# Phase 1.5 of the Airtable → Turso migration (#539), closing the backup gap
-# open since the 2026-08-02 architecture review. Two properties are load-bearing:
+# Closes the backup gap open since the 2026-08-02 architecture review (#539).
+# Two properties are load-bearing:
 #
 # 1. Platform-auth-free. `turso db dump` needs a browser-OAuth platform login a
 #    workflow cannot do; `db dump` instead speaks plain SQL through the same
@@ -158,8 +158,8 @@ jobs:
   #
   # Why this alarm exists at all: the org runs on the starter plan with
   # `"overages": false`, which means crossing a quota BLOCKS reads and writes
-  # rather than billing for them. After the Airtable cutover, Turso is the only
-  # store the fleet has, so quota exhaustion is a total outage with no warning
+  # rather than billing for them. Turso is the only store the fleet has, so
+  # quota exhaustion is a total outage with no warning
   # shot. As of 2026-08-26 the worst metric sits at 0.36% of its ceiling, so this
   # is a smoke detector, not a running concern.
   #

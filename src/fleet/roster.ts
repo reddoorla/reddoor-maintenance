@@ -1,14 +1,6 @@
 /**
  * The fleet roster for batch jobs — every site row, read from Turso (#646 step 4).
  *
- * Until step 4 each batch job (the audit write-back, `github-signals`,
- * `renovate-dispatch`, `header-image`, the Prismic verdict sink) listed sites
- * with the Airtable `listWebsites` and matched its results against that list.
- * Since step 3 a site created by `ensure-site` has a `site_<ULID>` id and no
- * Airtable record, so an Airtable roster was silently short: the site was never
- * swept, or it was swept and then failed its write-back with "no Websites row
- * matched". Turso holds every site.
- *
  * Every site, one `WebsiteRow` each — the rows the reader-equivalence
  * instrument pins field-for-field to `mapRow` (tests/db/fleet-state.test.ts).
  *

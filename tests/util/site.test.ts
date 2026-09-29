@@ -11,7 +11,7 @@ describe("siteLabel", () => {
   });
 
   it("falls back to the path when name is the EMPTY string (|| not ??)", () => {
-    // An Airtable Name that slugs to "" must not render a blank label — `??`
+    // A Name that slugs to "" must not render a blank label — `??`
     // would have let the empty string through.
     expect(siteLabel({ path: "/tmp/site", name: "" })).toBe("/tmp/site");
   });

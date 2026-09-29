@@ -3,9 +3,7 @@
  *
  * `ReportRow` is what BOTH mappers return — `mapRow` over a column-named record
  * (`src/reports/report-fields.ts`) and the Turso report reader in
- * `src/db/fleet-state.ts`. Moved out of the Airtable module in #539 Phase 6
- * step 1 (#646) so the Turso read path would not depend on the directory Phase 6
- * deleted. `src/reports/report-fields.ts` re-exports every name.
+ * `src/db/fleet-state.ts`. `src/reports/report-fields.ts` re-exports every name.
  */
 import type { ReportType, LighthouseScores } from "./types.js";
 import type { EvidenceRecord } from "./auto-tick.js";
@@ -54,7 +52,7 @@ export type ReportRow = {
   renderedHtmlAttachment: { url: string; filename: string } | null;
   /** Read out of the Resend response and stored in a hidden field; needed for webhook reconciliation. */
   resendMessageId: string | null;
-  /** The 12 operator-checklist checkboxes, keyed by their Airtable column name (ALL_CHECKLIST_FIELDS);
+  /** The 12 operator-checklist checkboxes, keyed by their legacy column name (ALL_CHECKLIST_FIELDS);
    *  missing/false cells read false. Maintenance/Testing reports gate approve+send on the relevant
    *  subset (see src/reports/checklist.ts). */
   checklist: Record<string, boolean>;

@@ -7,8 +7,7 @@ import { isHttpUrl } from "../util/url.js";
  *
  * Every `--fleet` sweep — the four nightly audits, the Prismic drift sweep,
  * `prismic-ci`, `init`, `sync-configs` and the rest — visits exactly the sites this
- * returns. It lived inside the Airtable inventory provider until step 4 moved
- * the roster to Turso.
+ * returns.
  *
  * Only LIVE `maintained` sites that have a `url` are included — pre-launch
  * stages ("launching" / "building", via isPreLaunch) are excluded so a

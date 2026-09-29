@@ -1,6 +1,6 @@
 /**
- * #646 step 4: the batch jobs' roster is Turso's, so a `site_<ULID>` site — which
- * has NO Airtable record since step 3 (#856) — is finally visible to them.
+ * #646 step 4: the batch jobs' roster is Turso's, so a `site_<ULID>` site is
+ * visible to them.
  *
  * This file drives the real `readFleetRoster` against a REAL migrated libSQL
  * database in a temp `file:` — never `:memory:` and never a `TURSO_*` url from the

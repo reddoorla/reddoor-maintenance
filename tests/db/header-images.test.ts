@@ -44,10 +44,7 @@ describe("storeHeaderImage + the read layer", () => {
 });
 
 /**
- * The reader half of D5. `storeHeaderImage` has been dual-writing since the
- * header-image CLI landed — 12 of the 13 maintained sites carry a BLOB in
- * production — but nothing could READ the bytes back, so every consumer still
- * fetched Airtable's signed attachment URL. That is the gap this closes.
+ * The reader half of D5: reading back the BLOB `storeHeaderImage` writes.
  *
  * Deliberately a separate query from the site read: `getSiteBySlug` excludes the
  * BLOB on purpose (it is 0.6–0.8 MB per site in production, and a selectAll

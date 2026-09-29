@@ -49,8 +49,6 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   // Only the password check — unavoidable, since auth needs it — precedes.
   const auth = requireOperator(req, { wants: "redirect" });
   if (!auth.ok) return denialResponse(auth.denial);
-  // No Airtable guard: this page is a Turso read, so the check could only
-  // refuse a page it does not need. Same removal as form-ingest and fleet-homepage.
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[submissions-page] TURSO_DATABASE_URL missing");
     return plainText("Turso env missing", 500);
@@ -67,8 +65,6 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       req.method === "POST" ? new URLSearchParams(await req.text()) : new URL(req.url).searchParams;
     const { filter, rawFilter, siteSlug: slugParam, page } = parseSubmissionsQuery(params);
 
-    // Phase 2 (#539): the fleet list is a Turso read — this page no longer
-    // touches Airtable at all.
     const websites = await listSites(db);
     if (slugParam) {
       const match = websites.find((w) => siteSlug(w.name) === slugParam);

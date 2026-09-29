@@ -1,23 +1,13 @@
 /** #609 (#539 Phase 5): the digest's prior-run snapshot, on Turso.
  *
- *  Unlike every other Phase 5 slice this is a MIGRATION, not a mirror — there
- *  was no Turso table to dual-write into, so these REPLACED the Airtable pair in
- *  `src/alerts/digest-state.ts` rather than shadowing them. Nothing writes the
- *  Airtable "Digest State" table after this.
- *
  *  The pure half — `diffAttention`, and the `DigestSnapshot` type it is written
- *  against — stays exactly where it is. Only the IO moved.
+ *  against — lives in `src/alerts/digest-state.ts`. Only the IO is here.
  *
  *  Stored as ONE row holding the whole snapshot as JSON. Both readers
  *  (`runDigest`'s diff and the fleet homepage's NEW badges) need the entire map,
  *  so a keyed table would buy nothing on reads and its "give me everything"
  *  query would be a raw scan needing a justified entry in the EXPLAIN gate's
  *  allowlist. One row by primary key needs neither.
- *
- *  Worth stating plainly: the homepage's read of this used to be an AIRTABLE
- *  call on a request path — a Phase 2 leftover, since digest state was never in
- *  that phase's scope. Moving it removes a live dependency, which is the same
- *  failure class as the 2026-08-17 quota outage.
  */
 import type { Db } from "./client.js";
 import type { DigestSnapshot } from "../alerts/digest-state.js";
@@ -30,9 +20,9 @@ export const DIGEST_STATE_ID = "default";
 /**
  * The prior snapshot, or `{}` when there is none.
  *
- * A missing row and a malformed blob BOTH read as `{}` — the Airtable reader's
- * contract, kept verbatim. The digest runs unattended on a cron, so a bad blob
- * must cost accurate NEW badges for one run, never the whole send.
+ * A missing row and a malformed blob BOTH read as `{}`. The digest runs
+ * unattended on a cron, so a bad blob must cost accurate NEW badges for one
+ * run, never the whole send.
  */
 export async function readDigestState(db: Db): Promise<DigestSnapshot> {
   const row = await db
@@ -51,9 +41,9 @@ export async function readDigestState(db: Db): Promise<DigestSnapshot> {
 /**
  * Persist the next snapshot, replacing whatever was there.
  *
- * An upsert on the constant id rather than a get-then-create: the Airtable
- * version needed two round-trips to decide, and here the singleton invariant is
- * enforced by the primary key instead of by the code that happens to run.
+ * An upsert on the constant id rather than a get-then-create: the singleton
+ * invariant is enforced by the primary key instead of by the code that happens
+ * to run.
  */
 export async function writeDigestState(
   db: Db,

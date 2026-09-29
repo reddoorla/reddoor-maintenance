@@ -1,10 +1,10 @@
 /** Reader-equivalence instrument for the REPORTS read layer (#539 Phase 2):
- *  for the same Airtable record, the Turso read-back must deep-equal the
- *  Airtable module's mapRow — every ReportRow field pinned, same discipline as
- *  the sites instrument (fleet-state.test.ts).
+ *  for the same raw record, the Turso read-back must deep-equal report-fields'
+ *  mapRow — every ReportRow field pinned, same discipline as the sites
+ *  instrument (fleet-state.test.ts).
  *
- *  `renderedHtmlAttachment` is the one deliberate exception: the Airtable row
- *  links an EXPIRING signed URL; the Turso row carries the body itself and
+ *  `renderedHtmlAttachment` is the one deliberate exception: mapRow links an
+ *  EXPIRING signed URL; the Turso row carries the body itself and
  *  links the dashboard's own /api/reports/:id/preview route — asserted
  *  separately, present exactly when a body is stored.
  */
@@ -19,7 +19,7 @@ import {
   mirrorSiteInsert,
   storeRenderedHtml,
 } from "../../src/db/fleet-state.js";
-import { mapRow as mapReportAirtable } from "../../src/reports/report-fields.js";
+import { mapRow as mapReportRow } from "../../src/reports/report-fields.js";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
 
@@ -65,7 +65,7 @@ const RICH: RawRecord = {
     "Override reason": "client asked",
     "Override by": "op",
     "Override at": "2026-08-21T08:30:00.000Z",
-    "Rendered HTML": [{ url: "https://airtable.example/signed/r1", filename: "r1.html" }],
+    "Rendered HTML": [{ url: "https://files.example/signed/r1", filename: "r1.html" }],
   },
 };
 
@@ -101,7 +101,7 @@ async function expectEquivalent(rec: RawRecord, bodies: Record<string, string> =
   const db = await seeded([rec], bodies);
   const rows = await listAllReports(db);
   expect(rows).toHaveLength(1);
-  const expected = mapReportAirtable(rec);
+  const expected = mapReportRow(rec);
   const { renderedHtmlAttachment: _e, ...expectedRest } = expected;
   const { renderedHtmlAttachment: gotAttachment, ...gotRest } = rows[0]!;
   expect(gotRest).toEqual(expectedRest);
@@ -112,7 +112,7 @@ describe("reports read layer ≡ mapRow (the Phase 2 equivalence instrument)", (
   it("rich record: every populated field round-trips, incl. the string auto-evidence cell", async () => {
     const attachment = await expectEquivalent(RICH, { recRPT1: BODY });
     // Body stored → the link is the dashboard's OWN preview route, not an
-    // expiring Airtable URL.
+    // expiring signed URL.
     expect(attachment).toEqual({
       url: "/api/reports/recRPT1/preview",
       filename: "ACME-2026-08-M.html",

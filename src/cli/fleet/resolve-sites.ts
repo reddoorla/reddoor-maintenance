@@ -9,11 +9,6 @@ import type { Db } from "../../db/client.js";
 /** The `--fleet` keyword that reads the fleet roster from the database (#646 step 4). */
 export const FLEET_KEYWORD = "turso";
 
-/** The keyword every sweep used until #646 step 4, retired with the Airtable
- *  layer. Refused by name rather than read as an inventory file called
- *  "airtable", so shell history gets the fix instead of a file-not-found. */
-export const RETIRED_FLEET_KEYWORD = "airtable";
-
 /** A dynamic .js/.mjs/.cjs inventory returns arbitrary Site objects; apply the
  *  same `deployedUrl` scheme-allowlist the JSON + Turso providers enforce, so
  *  a module returning `file:///…`/`gopher://…` can't reach Chrome/lhci. Drop the
@@ -49,13 +44,6 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
     throw Object.assign(new Error("cannot combine a positional [site] with --fleet"), {
       exitCode: 2,
     });
-  }
-
-  if (input.fleet === RETIRED_FLEET_KEYWORD) {
-    throw Object.assign(
-      new Error("--fleet airtable was removed with the Airtable layer — use --fleet turso"),
-      { exitCode: 2 },
-    );
   }
 
   if (input.fleet === FLEET_KEYWORD) {

@@ -550,8 +550,6 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.listAllReports(db),
     },
     {
-      // #646 step 4: the nightly send's queue read, moved off Airtable (where the
-      // same three-part predicate was a filterByFormula).
       name: "listSendableReports (the send queue)",
       covers: ["listSendableReports"],
       run: (db) => fleetState.listSendableReports(db),
@@ -567,8 +565,8 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.getReportById(db, "recA"),
     },
     {
-      // #646 (Phase 6 step 2): the resend-webhook's report lookup, moved off
-      // Airtable. Runs on every Resend delivery/bounce event for a report, so
+      // #646 (Phase 6 step 2): the resend-webhook's report lookup. Runs on
+      // every Resend delivery/bounce event for a report, so
       // the plan must land on idx_reports_resend_message (0027), not a scan of
       // the HTML-bearing reports table.
       name: "findReportByMessageId (resend-webhook report lookup)",

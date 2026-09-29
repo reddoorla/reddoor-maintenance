@@ -20,7 +20,7 @@ const SITE = makeWebsiteRow({
   id: "recSITE",
   name: "Acme Co",
   headerImage: {
-    url: "https://airtable.example/signed/plate.jpg",
+    url: "https://files.example/signed/plate.jpg",
     filename: "p.jpg",
     type: "image/jpeg",
   },
