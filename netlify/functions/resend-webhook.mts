@@ -8,7 +8,7 @@ import {
 } from "../../src/reports/webhook-events.js";
 import { findReportByMessageId, mirrorReportPatch } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { mirrorWrite } from "../../src/db/freeze.js";
+import { mirrorWrite } from "../../src/db/mirror-write.js";
 import { markNotifyBouncedByMessageId } from "../../src/db/submissions.js";
 
 // Modest per-IP cap. The legitimate caller is svix (Resend) at low volume; this

@@ -53,7 +53,6 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
         recordEvents: async (ev) => {
           events.push(...ev);
         },
-        strict: false,
       },
     });
     // Channel 1: the mirror saw exactly the FieldSet the planner built.
@@ -71,7 +70,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
     expect(events.some((e) => e.type === "fleet_swept")).toBe(true);
   });
 
-  it("makeMirror resolving null (no libSQL creds), even non-strict: the site fails, no mirror keys", async () => {
+  it("makeMirror resolving null: the site fails, anyFailed flips, no mirror keys (#612)", async () => {
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co")],
       which: ["lighthouse"],
@@ -79,7 +78,6 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
         roster,
         makeMirror: async () => null,
         recordEvents: async () => {},
-        strict: false,
       },
     });
     expect(res.anyFailed).toBe(true);
@@ -88,22 +86,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
     expect(res.summary).not.toContain("mirrored=");
   });
 
-  it("post-freeze: a null mirror flips anyFailed — the sweep wrote to nothing (#612)", async () => {
-    const res = await runFleetWriteBack({
-      results: [lhResult("acme-co")],
-      which: ["lighthouse"],
-      deps: {
-        roster,
-        makeMirror: async () => null,
-        recordEvents: async () => {},
-        strict: true,
-      },
-    });
-    expect(res.anyFailed).toBe(true);
-    expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=0 failed=1 total=1");
-  });
-
-  it("post-freeze: a wired mirror that landed everything still passes (positive control)", async () => {
+  it("a wired mirror that landed everything still passes (positive control)", async () => {
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co")],
       which: ["lighthouse"],
@@ -111,13 +94,12 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
         roster,
         makeMirror: async () => async () => true,
         recordEvents: async () => {},
-        strict: true,
       },
     });
     expect(res.anyFailed).toBe(false);
   });
 
-  it("post-freeze: a per-site mirror FAILURE flips anyFailed without aborting the sweep", async () => {
+  it("a per-site mirror FAILURE flips anyFailed without aborting the sweep", async () => {
     const res = await runFleetWriteBack({
       results: [lhResult("acme-co")],
       which: ["lighthouse"],
@@ -127,7 +109,6 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
           throw new Error("turso down");
         },
         recordEvents: async () => {},
-        strict: true,
       },
     });
     expect(res.anyFailed).toBe(true);
@@ -142,7 +123,6 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
         roster,
         makeMirror: async () => async () => true,
         recordEvents: async () => {},
-        strict: false,
       },
     });
     expect(res.anyFailed).toBe(true);

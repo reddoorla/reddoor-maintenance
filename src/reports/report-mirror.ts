@@ -10,13 +10,13 @@
  *  visible to the operator: a fresh draft's row did not exist, and its preview
  *  route answered "No rendered body stored" for up to an hour.
  *
- *  Deliberately UNLIKE `makeHealthMirrorBestEffort`, this never returns null.
- *  #585 is the reason: Phase 3's next-due mirror silently no-opped in production
- *  for weeks because the factory returned null without creds, and a dead
- *  dual-write then looked exactly like a healthy one — the only tell was an
- *  ABSENT log suffix nobody was watching for. Here creds-absent is a state the
- *  mirror REPORTS, so every write emits one REPORT_MIRROR line and an absent
- *  line means the wiring is gone, not that conditions were quiet.
+ *  This never returns null. #585 is the reason: Phase 3's next-due mirror
+ *  silently no-opped in production for weeks because the factory returned null
+ *  without creds, and a dead dual-write then looked exactly like a healthy one —
+ *  the only tell was an ABSENT log suffix nobody was watching for. Here an
+ *  unreachable store throws at construction and every write emits one
+ *  REPORT_MIRROR line, so an absent line means the wiring is gone, not that
+ *  conditions were quiet.
  */
 import { openDb, readDbConfig, type Db } from "../db/client.js";
 import {
@@ -28,7 +28,6 @@ import {
   type ReportMirrorPatch,
 } from "../db/fleet-state.js";
 import type { ReportRow } from "./report-row.js";
-import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 
 /** The drafting path's whole report surface. Injected as ONE object rather than
  *  as separate parameters because they share a db handle and always travel
@@ -60,21 +59,15 @@ export type ReportMirror = {
  *  for tests. */
 export async function makeReportMirror(
   open: () => Promise<Db> = () => openDb(readDbConfig()),
-  /** #612. `true` = Turso is the store that must succeed, so every failure
-   *  throws instead of being logged and swallowed. Defaulted from the shipped
-   *  constant and injected by tests, so both sides stay proven. */
-  strict: boolean = TURSO_IS_AUTHORITATIVE,
 ): Promise<ReportMirror> {
-  let db: Db | null = null;
-  let why = "";
+  let db: Db;
   try {
     db = await open();
   } catch (e) {
-    why = (e as Error).message;
+    // Refuse to hand back a mirror that cannot write — see makeSiteMirror for
+    // why this fails at construction rather than per write.
+    throw new Error(`REPORT_MIRROR unavailable: ${(e as Error).message}`, { cause: e });
   }
-  // Frozen: refuse to hand back a mirror that cannot write — see makeSiteMirror
-  // for why this fails at construction rather than per write.
-  if (strict && !db) throw new Error(`REPORT_MIRROR unavailable: ${why}`);
 
   const run = async (
     reportId: string,
@@ -82,12 +75,8 @@ export async function makeReportMirror(
     /** `false` = the UPDATE matched no row; void = a writer that reports no count. */
     work: (db: Db) => Promise<void | boolean>,
   ) => {
-    if (!db) {
-      console.log(`REPORT_MIRROR report=${reportId} op=${op} mirrored=absent reason=${why}`);
-      return;
-    }
-    // Every path below logs EXACTLY ONE line, then strict adds a throw — the
-    // run log reads the same in both worlds, not just a stack.
+    // Every path below logs EXACTLY ONE line before it throws, so a failed run
+    // leaves a trace in the run log, not just a stack.
     let matched: boolean;
     try {
       matched = (await work(db)) !== false;
@@ -95,29 +84,15 @@ export async function makeReportMirror(
       console.log(
         `REPORT_MIRROR report=${reportId} op=${op} mirrored=0 error=${(e as Error).message}`,
       );
-      if (strict) throw e;
-      return;
+      throw e;
     }
-    // `missed` is its own outcome (#647), the same one `makeSiteMirror` already
-    // reports: the UPDATE matched no row. Before the freeze the hourly sync
-    // would import the row — a transient; after it no importer exists, so an
-    // absent row stays absent and reporting mirrored=1 would claim a write
-    // that never landed.
+    // `missed` is its own outcome (#647), the same one `makeSiteMirror`
+    // reports: the UPDATE matched no row. No importer exists, so an absent row
+    // stays absent and reporting mirrored=1 would claim a write that never landed.
     console.log(`REPORT_MIRROR report=${reportId} op=${op} mirrored=${matched ? "1" : "missed"}`);
-    if (strict && !matched) {
+    if (!matched) {
       throw new Error(`REPORT_MIRROR report=${reportId} op=${op}: no such row in Turso`);
     }
-  };
-
-  /** The two READS. They take the same handle but none of `run`'s write
-   *  semantics: there is no `mirrored=` outcome to report for a read, and a read
-   *  that cannot reach the store is never something to swallow — under the freeze
-   *  a missing handle already threw at construction, so this only restates it for
-   *  the non-strict world, where a drafting read silently answering "no reports"
-   *  would break the single-queue rule instead of failing. */
-  const reading = (op: string): Db => {
-    if (!db) throw new Error(`REPORT_MIRROR op=${op} unavailable: ${why}`);
-    return db;
   };
 
   return {
@@ -127,15 +102,12 @@ export async function makeReportMirror(
       // so a coercion in the mapper can never diverge the returned row from the
       // persisted one. The same rule the Airtable create followed by returning
       // Airtable's echo.
-      const row = await getReportById(reading("create"), rec.id);
+      const row = await getReportById(db, rec.id);
       if (!row)
         throw new Error(`REPORT_MIRROR report=${rec.id} op=create: row not found after insert`);
       return row;
     },
-    // `async` so a missing handle REJECTS rather than throwing synchronously —
-    // every caller awaits this, and a synchronous throw would escape a
-    // `.catch()` written around the await.
-    forSite: async (siteId) => listReportsForSite(reading("forSite"), siteId),
+    forSite: (siteId) => listReportsForSite(db, siteId),
     body: (reportId, html) => run(reportId, "body", (d) => storeRenderedHtml(d, reportId, html)),
     patch: (reportId, patch) =>
       run(reportId, "patch", (d) => mirrorReportPatch(d, reportId, patch)),

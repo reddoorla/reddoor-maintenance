@@ -56,7 +56,7 @@ export type OrchestrateOptions = {
   /** #643 (the freeze): the `Sent at` / `Resend message ID` stamp, the only
    *  thing that removes a row from the send queue. The console's already-sent guards (approve, the commentary lock,
    *  re-render) read `sent_at` from Turso. Injected like siteMirror; the CLI wires it
-   *  through `mirrorWrite` so the freeze switch owns the error semantics. */
+   *  through `mirrorWrite`, so a failed stamp throws. */
   reportSentMirror: (reportId: string, sentAt: Date, messageId: string | null) => Promise<void>;
 };
 

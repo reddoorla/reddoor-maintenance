@@ -106,7 +106,7 @@ describe("a Turso-only site receives a report end to end (#646 step 4)", () => {
     //    moved); the report row is MINTED and written there too.
     const siteRow = await getSiteBySlug(db, "e2e-co");
     expect(siteRow).not.toBeNull();
-    const writer = await makeReportMirror(async () => db, true);
+    const writer = await makeReportMirror(async () => db);
     const draft = await draftReportForSite(siteRow!, "Maintenance", {
       refreshHeader: false,
       reportMirror: writer,

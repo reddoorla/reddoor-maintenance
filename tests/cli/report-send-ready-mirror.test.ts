@@ -2,10 +2,9 @@
  * #647: the send batch's sent-stamp mirror (`report --send-ready`) hands
  * `mirrorReportPatch`'s row count to `mirrorWrite`, so a stamp for a report row
  * Turso never held is `missed` rather than a green no-op. `mirrorWrite`'s own
- * strict/loose behaviour on a `false` result is proven in
- * `tests/db/mirror-write-freeze.test.ts`; this suite pins only the WIRING —
- * that the closure the CLI builds actually surfaces the count — independent of
- * which way the freeze constant points.
+ * behaviour on a `false` result is proven in `tests/db/mirror-write.test.ts`;
+ * this suite pins only the WIRING — that the closure the CLI builds actually
+ * surfaces the count.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mirrorReportInsert } from "../../src/db/fleet-state.js";
@@ -29,10 +28,10 @@ vi.mock("../../src/db/client.js", async (orig) => {
   const real = await orig<typeof import("../../src/db/client.js")>();
   return { ...real, readDbConfig: () => ({ url: ":memory:" }), openDb: vi.fn() };
 });
-// Record what the CLI's `run` closure RESOLVES to, whatever the switch says.
+// Record what the CLI's `run` closure RESOLVES to, before mirrorWrite judges it.
 const results: unknown[] = [];
-vi.mock("../../src/db/freeze.js", async (orig) => {
-  const real = await orig<typeof import("../../src/db/freeze.js")>();
+vi.mock("../../src/db/mirror-write.js", async (orig) => {
+  const real = await orig<typeof import("../../src/db/mirror-write.js")>();
   return {
     ...real,
     mirrorWrite: vi.fn(async (_label: string, run: () => Promise<unknown>) => {

@@ -1,6 +1,5 @@
 import type { AuditResult } from "../types.js";
 import type { HealthMirror } from "./health-mirror.js";
-import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 import {
   type AuditFieldInputs,
   type WebsiteRow,
@@ -251,39 +250,32 @@ export type FleetWriteResult = {
   events?: FleetEvent[];
 };
 
+/** Did this sweep fail, for exit-code purposes (#612)?
+ *
+ *  Turso is the only store, so a mirror failure, a missed row and an ABSENT
+ *  mirror are all fatal — the absent one is the easiest to misread as success:
+ *  no counters at all means no mirror was wired, which means the sweep wrote
+ *  nothing.
+ *
+ *  `writeFleetAudits` still catches per-site failures rather than
+ *  throwing. One bad site must not abort a 44-site sweep. This gates the RUN,
+ *  not the loop. */
+export function fleetWriteFailed(result: FleetWriteResult): boolean {
+  if (result.failed.length > 0) return true;
+  return tursoWriteFailed(result);
+}
+
+export function tursoWriteFailed(result: FleetWriteResult): boolean {
+  if (result.mirrored === undefined) return true; // no mirror was wired at all
+  return (result.mirrorFailed ?? 0) > 0 || (result.mirrorMissed ?? 0) > 0;
+}
+
 /** Render the fleet write-back outcome for the CLI/CI. Beyond the human-readable
  *  lines, it emits a single deterministic, machine-parseable line —
  *  `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` — that the nightly workflow
  *  greps to decide pass/fail. Keying CI on this line (not the prose, and not a
  *  "wrote ≥ 1" heuristic) lets the gate tolerate a single known flake while
  *  still reding on a total or mass write-back failure. */
-/** Did this sweep fail, for exit-code purposes (#612)?
- *
- *  Turso is the only store, so a mirror failure, a missed row and an ABSENT
- *  mirror are all fatal under `strict` — the absent one is the easiest to
- *  misread as success: no counters at all means no libSQL creds, which means
- *  the sweep wrote nothing.
- *
- *  `writeFleetAudits` still catches per-site failures rather than
- *  throwing. One bad site must not abort a 44-site sweep. This gates the RUN,
- *  not the loop. */
-export function fleetWriteFailed(
-  result: FleetWriteResult,
-  strict: boolean = TURSO_IS_AUTHORITATIVE,
-): boolean {
-  if (result.failed.length > 0) return true;
-  return tursoWriteFailed(result, strict);
-}
-
-export function tursoWriteFailed(
-  result: FleetWriteResult,
-  strict: boolean = TURSO_IS_AUTHORITATIVE,
-): boolean {
-  if (!strict) return false;
-  if (result.mirrored === undefined) return true; // no mirror was wired at all
-  return (result.mirrorFailed ?? 0) > 0 || (result.mirrorMissed ?? 0) > 0;
-}
-
 export function formatFleetWriteSummary(result: FleetWriteResult): string {
   const wrote = result.written.length;
   const failed = result.failed.length;

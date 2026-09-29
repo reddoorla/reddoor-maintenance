@@ -39,7 +39,6 @@ async function sweep(mirrorLands: boolean) {
       recordEvents: async (events) => {
         recorded.push(...events);
       },
-      strict: true,
     },
   });
   return { res, recorded, mirrored };

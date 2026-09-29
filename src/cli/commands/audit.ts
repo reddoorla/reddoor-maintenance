@@ -414,10 +414,6 @@ export async function runFleetWriteBack(args: {
     roster?: FleetRoster;
     makeMirror?: () => Promise<HealthMirror | null>;
     recordEvents?: (events: FleetEvent[], now: Date) => Promise<void>;
-    /** #612. `true` = post-freeze, where a mirror failure, a missed row or an
-     *  absent mirror are each fatal. Injected so both sides stay proven and the
-     *  freeze commit stays a one-line change. */
-    strict?: boolean;
   };
 }): Promise<{ summary: string; anyFailed: boolean }> {
   const { results, which, deps = {} } = args;
@@ -433,8 +429,8 @@ export async function runFleetWriteBack(args: {
   const makeMirror =
     deps.makeMirror ??
     (async () => {
-      const { makeHealthMirrorBestEffort } = await import("../../audits/health-mirror.js");
-      return makeHealthMirrorBestEffort();
+      const { makeHealthMirror } = await import("../../audits/health-mirror.js");
+      return makeHealthMirror();
     });
   const mirror = await makeMirror();
   const fleetWrite = await writeFleetAudits({
@@ -451,14 +447,11 @@ export async function runFleetWriteBack(args: {
     [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
     now,
   );
-  // #612: post-freeze a mirror failure, a missed row, or an absent mirror all
-  // become fatal — there is no hourly import left to converge them, so a sweep
-  // that wrote nothing into the only store would otherwise finish green.
+  // #612: a mirror failure, a missed row, or an absent mirror are all fatal —
+  // nothing converges them, so a sweep that wrote nothing into the only store
+  // would otherwise finish green.
   return {
     summary: formatFleetWriteSummary(fleetWrite),
-    anyFailed:
-      deps.strict === undefined
-        ? fleetWriteFailed(fleetWrite)
-        : fleetWriteFailed(fleetWrite, deps.strict),
+    anyFailed: fleetWriteFailed(fleetWrite),
   };
 }
