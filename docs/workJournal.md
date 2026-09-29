@@ -5748,7 +5748,7 @@ Each survivor got a test, and each test was shown red under its mutation before 
 
 **Beliefs corrected on contact.** The instrument works. What it measured is that every site on the roster has drifted from the templates, with nothing clean and nothing skipped. Counting DRIFT lines per file: `.gitignore` 13 of 15 repos, `playwright.config.ts` 9, `eslint.config.js` 8, `lighthouserc.json` 7, `.prettierrc.json` 6, `netlify.toml` 4, `renovate.json` 3, `.prettierignore` 1. So the weekly report starts as a standing backlog of 15 per-repo `sync-configs` PRs, not an exception feed. Healing it is a per-repo PR each time; a fleet-wide push is 🔴 and was not attempted. Until those land, #1007 stays open every week by design.
 
-## 2026-09-29 — Three standing product calls closed: #711 into CLAUDE.md, #690 verified and closed, BACKLOG item 18 answered (#PRNUM)
+## 2026-09-29 — Three standing product calls closed: #711 into CLAUDE.md, #690 verified and closed, BACKLOG item 18 answered (#1010)
 
 The operator answered BACKLOG Operator decisions 18 in the PM pass, and this worker carried out the three parts that were docs: #711 closes into `CLAUDE.md`, #690 is verified against the fleet before it closes, and item 18 records each answer. No code changed, and nothing was dispatched.
 
