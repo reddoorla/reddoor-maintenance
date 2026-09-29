@@ -100,14 +100,14 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
-      # changesets/action v2 needs @changesets/cli v3 and refuses to start on v2;
-      # CLI v3 under action v1 publishes but never tags or creates the GitHub
-      # Release (v1 looks for a `New tag:` line CLI v3 no longer prints). The two
-      # move together (#955). With changesets pending, this runs version-script
-      # and pushes `changeset-release/main`, opening or updating the version PR;
-      # with none, it runs publish-script, then pushes a `v<version>` tag and
-      # creates the GitHub Release for each package the CLI reports through the
-      # CHANGESETS_OUTPUT file the action hands it.
+      # changesets/action v2 needs @changesets/cli v3 and refuses to start with
+      # CLI v2; CLI v3 under action v1 publishes but never tags or creates the
+      # GitHub Release (v1 looks for a `New tag:` line CLI v3 no longer prints).
+      # The two move together (#955). With changesets pending, this runs
+      # version-script and pushes `changeset-release/main`, opening or updating
+      # the version PR; with none, it runs publish-script, then pushes a
+      # `v<version>` tag and creates the GitHub Release for each package the CLI
+      # reports through the CHANGESETS_OUTPUT file the action hands it.
       #
       # No NPM_TOKEN: trusted publishing uses the OIDC token from id-token: write.
       # When npm CLI 11.5+ detects the GitHub Actions OIDC env and a trusted
