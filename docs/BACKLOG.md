@@ -311,7 +311,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
     PR sit red until that is decided, since nothing reaches vida's `main`
     unreviewed.
 
-23. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** — two
+24. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** — two
     review rounds each found a real defect, so #989 is held for your call, not a
     third round. Round 1 (on `ce4cb9db`) found a behaviour defect: the walk
     trusted `child.pid` after an early-exiting wrapper could have been reaped,
