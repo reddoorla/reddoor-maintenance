@@ -38,7 +38,8 @@ export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
  * `no analytics` is the first option added after that constraint lapsed: since
  * #933 turned the Airtable shadow off (and #937 deleted the layer) the editor
  * writes Turso only, so a value Airtable's select lacks is never sent to it. It is the explicit opt-out
- * from the GA4 setup requirement (`src/dashboard/onboarding.ts`).
+ * from the GA4 setup requirement (`src/dashboard/onboarding.ts`); `no search console` is the same
+ * for the Search Console requirement.
  *
  * KNOWN GAP, operator-owned: `fleet-cockpit.ts` also supports a
  * `turnstile-unverified` accept key, and this field has no option for it — so
@@ -53,6 +54,7 @@ export const WATCH_CONDITION_OPTIONS: readonly string[] = [
   "stale repo",
   "no custom domain",
   "no analytics",
+  "no search console",
 ] as const;
 
 type FieldKind =

@@ -24,6 +24,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     pointOfContact: "Tucker",
     ga4PropertyId: "123456789",
+    searchConsoleProperty: "sc-domain:acme.example.com",
     maintenanceFreq: "Monthly",
     reportRecipientsTo: "t@x.com",
     pScore: 95,
@@ -362,6 +363,50 @@ describe("assignTier", () => {
     expect(assignTier(site({ status: "launching", ga4PropertyId: null }), [], NOW).tier).toBe(
       "pre-launch",
     );
+  });
+
+  it("watches a maintained site with no Search Console property, and names the opt-out key", () => {
+    const r = assignTier(site({ status: "maintained", searchConsoleProperty: null }), [], NOW);
+    expect(r.tier).toBe("watch");
+    expect(r.watchReasons).toEqual(["no Search Console property"]);
+    expect(r.watchAcceptKeys).toEqual(["no search console"]);
+    expect(r.watchSignals).toEqual(["no-search-console"]);
+  });
+
+  it("an explicit 'no search console' opt-out leaves the band as a muted chip, and does not opt out of GA4", () => {
+    const optedOut = assignTier(
+      site({
+        status: "maintained",
+        searchConsoleProperty: null,
+        acceptedWatchConditions: ["no search console"],
+      }),
+      [],
+      NOW,
+    );
+    expect(optedOut.tier).toBe("healthy");
+    expect(optedOut.acceptedReasons).toEqual(["no Search Console property"]);
+    const wrongKey = assignTier(
+      site({
+        status: "maintained",
+        searchConsoleProperty: null,
+        acceptedWatchConditions: ["no analytics"],
+      }),
+      [],
+      NOW,
+    );
+    expect(wrongKey.tier).toBe("watch");
+  });
+
+  it("treats a blank Search Console property as missing", () => {
+    expect(
+      assignTier(site({ status: "maintained", searchConsoleProperty: "  " }), [], NOW).tier,
+    ).toBe("watch");
+  });
+
+  it("does not ask a launching site for Search Console before go-live", () => {
+    expect(
+      assignTier(site({ status: "launching", searchConsoleProperty: null }), [], NOW).tier,
+    ).toBe("pre-launch");
   });
 
   it("matches accepted conditions case-insensitively", () => {

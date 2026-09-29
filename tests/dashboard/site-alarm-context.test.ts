@@ -12,6 +12,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     pointOfContact: "Tucker",
     ga4PropertyId: "123456789",
+    searchConsoleProperty: "sc-domain:acme.example.com",
     maintenanceFreq: "Monthly",
     reportRecipientsTo: "t@x.com",
     pScore: 95,

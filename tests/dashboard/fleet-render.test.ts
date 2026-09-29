@@ -33,6 +33,7 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     pointOfContact: "Tucker",
     ga4PropertyId: "123456789",
+    searchConsoleProperty: "sc-domain:acme.example.com",
     // Send-clean: the cockpit now runs collectPreflightBlocked, so a pending
     // report on a site missing its header image would tier the site "watch"
     // and change the verdict these tests assert.
@@ -99,16 +100,16 @@ describe("renderCockpitHtml — card per site", () => {
 });
 
 describe("renderCockpitHtml — header row (setup + audited)", () => {
-  it("shows '5/5' when the site is fully onboarded", () => {
+  it("shows '6/6' when the site is fully onboarded", () => {
     const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain(">5/5<");
+    expect(html).toContain(">6/6<");
   });
 
   it("shows the partial fraction when the site is missing some onboarding signals", () => {
     const html = renderCockpitHtml(
       model([siteRow({ pointOfContact: null, reportRecipientsTo: null })]),
     );
-    expect(html).toContain(">3/5<");
+    expect(html).toContain(">4/6<");
   });
 
   it("renders the lighthouse-audited timestamp as a relative-time string", () => {
@@ -813,6 +814,17 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toMatch(/data-signals="[^"]*no-analytics[^"]*"/);
     expect(html).toContain('data-filter="no-analytics"');
     expect(html).toContain("no GA4 property");
+  });
+
+  it("tags a maintained site with no Search Console property with its signal, and offers the filter", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "g", name: "NoGsc", status: "maintained", searchConsoleProperty: null }),
+      ]),
+    );
+    expect(html).toMatch(/data-signals="[^"]*no-search-console[^"]*"/);
+    expect(html).toContain('data-filter="no-search-console"');
+    expect(html).toContain("no Search Console property");
   });
 
   it("tags a maintenance site still on *.netlify.app with the no-domain signal", () => {
