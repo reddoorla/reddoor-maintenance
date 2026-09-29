@@ -122,17 +122,7 @@ const THROWS_ON_LOAD_PAGE = plainPage(
  * `#throws` at 150vh throws from its IntersectionObserver callback, so the
  * error happens only because the pass scrolled to it, and must be labelled so.
  *
- * `#xo-frame` is a lazy, title-less iframe from the second origin, at 330vh:
- * the shape of a Google Maps footer embed that the pass now brings into load
- * range. Its document has an `<img>` with no `alt`. The `<iframe>` element must
- * still fail `frame-title` in the top document; the `image-alt` inside is a
- * third party's and must not count — but must be counted as dropped, which is
- * also the proof that axe reached the frame at all.
- *
- * `#xo-tab` is an eager cross-origin iframe with `tabindex="-1"` whose
- * document has a button: the site's own defect, `frame-focusable-content`
- * (serious, WCAG 2.1.1), which axe can only see from inside the frame. The
- * filter that drops third-party nodes must keep it.
+ * (The frame fixtures live on `/frames`; see FRAMES_PAGE.)
  *
  * `#outside-landmarks` fails axe's `region` rule, which is tagged
  * `best-practice` only. The gate asks for WCAG tags, so it must never appear;
@@ -159,8 +149,6 @@ const FIXTURE_PAGE = `<!doctype html>
   #spinner { width: 8px; height: 8px; }
   #grow { top: 390vh; height: 1px; }
   #grown { top: 560vh; }
-  #xo-frame { position: absolute; top: 330vh; left: 0; width: 300px; height: 150px; border: 0; }
-  #xo-tab { width: 300px; height: 150px; border: 0; }
   #bar { position: fixed; right: 0; bottom: 0; background: #fff; padding: 4px; }
   #bar-text { color: #aaa; margin: 0; }
   #bar.scrolled #bar-text { color: #111; }
@@ -170,7 +158,6 @@ const FIXTURE_PAGE = `<!doctype html>
 <main>
   <h1>Reveal fixture</h1>
   <img src="CROSS_ORIGIN/canary.png" alt="">
-  <iframe id="xo-tab" tabindex="-1" title="Player" src="CROSS_ORIGIN/player.html"></iframe>
   <p id="top-fade">Greys out when the page comes back to the top</p>
   <div id="spinner" aria-hidden="true"></div>
   <div class="reveal" id="below-fold"><p class="faint" id="below-fold-text">Revealed once scrolled to</p></div>
@@ -179,7 +166,6 @@ const FIXTURE_PAGE = `<!doctype html>
   <div class="reveal" id="waapi"><p id="waapi-text">Fades to a failing grey over two seconds</p></div>
   <div class="reveal" id="grow"></div>
   <div class="reveal" id="grown" hidden><p class="faint" id="grown-text">Only exists once the page has grown</p></div>
-  <iframe id="xo-frame" loading="lazy" src="CROSS_ORIGIN/frame.html"></iframe>
   <div id="bar"><p id="bar-text">Legible only while scrolled</p></div>
 </main>
 <div id="outside-landmarks">Outside every landmark</div>
@@ -254,7 +240,86 @@ const CROSS_PAGES: Record<string, string> = {
     "Widget",
     `<p>Widget</p><script>throw new Error("fixture: a third-party embed threw");</script>`,
   ),
+  // A library the SITE loads into its own document, from another origin (the
+  // shape of Vimeo's player.js, Turnstile's api.js, Google Maps). It throws,
+  // and rejects, when the site calls it badly.
+  "/lib.js": `window.fixtureLib = {
+    render(el) { if (!el) throw new Error("fixture: lib.render was given no element"); },
+    load() { return Promise.reject(new Error("fixture: lib.load rejected")); },
+  };`,
 };
+
+/**
+ * A site crashing inside a library it loaded from another origin. Both errors'
+ * stacks START on the library's origin, and both are the site's crash: the
+ * site called the library with nothing to render into. They must stay
+ * `client-error`s and fail.
+ */
+const LIB_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Library</title>
+<script src="CROSS_ORIGIN/lib.js"></script></head>
+<body><main><h1>Library</h1></main>
+<script>
+  fixtureLib.load();
+  fixtureLib.render(null);
+</script>
+</body>
+</html>`;
+
+/**
+ * Every shape of frame the node filter has to decide, on one page:
+ *
+ *   - `#xo-tab`: eager, cross-origin, `tabindex="-1"`, with a button inside —
+ *     the site's own defect, `frame-focusable-content` (serious, WCAG 2.1.1),
+ *     which axe sees only from inside the frame. Must be KEPT.
+ *   - `#so-frame`: the site's own same-origin page, with an unnamed button
+ *     (`button-name`). Must be KEPT.
+ *   - `#facade`: a lazy-video facade — `src` on the third party, but a
+ *     `srcdoc` of the site's markup, which is what actually loads. Its `<img>`
+ *     has no `alt`. Must be KEPT.
+ *   - `#redir`: a same-origin `src` that 302s to the third party. DROPPED.
+ *   - `#wrap`: a same-origin wrapper page holding a third-party frame. The
+ *     inner frame's `image-alt` is DROPPED.
+ *   - a third-party frame inside `#host`'s shadow root. DROPPED.
+ *   - `#xo-frame`: lazy, title-less, third-party, at 1000vh — beyond the
+ *     lazy-frame load distance, so only the reveal pass loads it. Its
+ *     `image-alt` is DROPPED; the `<iframe>` element's own missing title is
+ *     the site's and is KEPT (`frame-title`).
+ *
+ * The four drops are counted, and that count is also the proof that axe
+ * reached each third-party document at all.
+ */
+const FRAMES_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Frames</title>
+<style>
+  body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; }
+  main { position: relative; height: 1100vh; }
+  iframe { width: 300px; height: 150px; border: 0; }
+  #xo-frame { position: absolute; top: 1000vh; left: 0; }
+</style></head>
+<body><main><h1>Frames</h1>
+<iframe id="xo-tab" tabindex="-1" title="Player" src="CROSS_ORIGIN/player.html"></iframe>
+<iframe id="so-frame" title="Own page" src="/own-frame"></iframe>
+<iframe id="facade" title="Video" src="CROSS_ORIGIN/frame.html" srcdoc="<img src='/thumb.png'>"></iframe>
+<iframe id="redir" title="Redirected embed" src="/go-embed"></iframe>
+<iframe id="wrap" title="Wrapper" src="/wrapper"></iframe>
+<div id="host"></div>
+<iframe id="xo-frame" loading="lazy" src="CROSS_ORIGIN/frame.html"></iframe>
+</main>
+<script>
+  document.getElementById("host").attachShadow({ mode: "open" }).innerHTML =
+    '<iframe id="shadow-frame" title="Shadowed embed" src="CROSS_ORIGIN/frame.html"></iframe>';
+</script>
+</body>
+</html>`;
+
+/** The site's own page, framed by `#so-frame`: one unnamed button. */
+const OWN_FRAME_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Own</title></head><body><main><button type="button"></button></main></body></html>`;
+
+/** The site's own wrapper page, framing a third party's document. */
+const WRAPPER_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Wrapper</title></head><body><main><iframe title="Inner embed" src="CROSS_ORIGIN/frame.html"></iframe></main></body></html>`;
 
 /**
  * A page whose only content below the fold is a lazy third-party embed, at
@@ -357,6 +422,8 @@ type SiteConfig = {
   a11yRoutes?: string[];
   /** Milliseconds to hold a path's response. */
   delaysMs?: Record<string, number>;
+  /** 302 targets by path. `CROSS_ORIGIN` is replaced. */
+  redirects?: Record<string, string>;
 };
 
 const serverSource = (config: SiteConfig): string => `
@@ -369,9 +436,11 @@ const log = (file, entry) => appendFileSync(file, JSON.stringify(entry) + "\\n")
 const cross = createServer((req, res) => {
   log("cross-origin.jsonl", { url: req.url, mode: req.headers["sec-fetch-mode"] ?? null });
   const crossPages = ${JSON.stringify(CROSS_PAGES)};
-  const doc = crossPages[(req.url ?? "/").split("?")[0]];
+  const crossPath = (req.url ?? "/").split("?")[0];
+  const doc = crossPages[crossPath];
   if (doc !== undefined) {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    const type = crossPath.endsWith(".js") ? "text/javascript" : "text/html; charset=utf-8";
+    res.writeHead(200, { "content-type": type });
     res.end(doc);
     return;
   }
@@ -383,7 +452,7 @@ const crossOrigin = "http://127.0.0.1:" + cross.address().port;
 
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' " + crossOrigin,
   "style-src 'self' 'unsafe-inline' " + crossOrigin,
   "img-src 'self'",
   "frame-src 'self' " + crossOrigin,
@@ -398,6 +467,7 @@ const pages = Object.fromEntries(
   ]),
 );
 const delaysMs = ${JSON.stringify(config.delaysMs ?? {})};
+const redirects = ${JSON.stringify(config.redirects ?? {})};
 
 createServer((req, res) => {
   if (req.method === "POST" && req.url === "/csp-report") {
@@ -419,6 +489,11 @@ createServer((req, res) => {
     return;
   }
   const path = (req.url ?? "/").split("?")[0];
+  if (redirects[path] !== undefined) {
+    res.writeHead(302, { location: redirects[path].replaceAll("CROSS_ORIGIN", crossOrigin) });
+    res.end();
+    return;
+  }
   const html = pages[path];
   if (html === undefined) {
     res.writeHead(404, { "content-type": "text/plain" });
@@ -480,9 +555,14 @@ const SITE_F: SiteConfig = {
     "/late-b": THROWS_ON_LOAD_PAGE,
     "/third-party": THIRD_PARTY_PAGE,
     "/delayed": DELAYED_PAGE,
+    "/lib": LIB_PAGE,
+    "/frames": FRAMES_PAGE,
+    "/own-frame": OWN_FRAME_PAGE,
+    "/wrapper": WRAPPER_PAGE,
   },
-  a11yRoutes: ["/late-b", "/third-party", "/delayed"],
+  a11yRoutes: ["/late-b", "/third-party", "/delayed", "/lib", "/frames"],
   delaysMs: { "/late-b": 4000 },
+  redirects: { "/go-embed": "CROSS_ORIGIN/frame.html" },
 };
 
 async function readJsonl(path: string): Promise<Array<Record<string, unknown>>> {
@@ -525,16 +605,20 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     // crashed, a route reported missing, or a client error would each leave
     // the contrast assertions measuring nothing.
     expect(result?.summary).toMatch(
-      /^a11y: \d+ violations across 5 routes \(2 fixtures \+ 3 from package\.json\)/,
+      /^a11y: \d+ violations across 7 routes \(2 fixtures \+ 5 from package\.json\)/,
     );
     const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
     expect(all.map((v) => `${v.id} on ${v.route}`).sort()).toEqual([
+      "button-name on /frames",
       "client-error on /late-b",
+      "client-error on /lib",
+      "client-error on /lib",
       "client-error on a11y fixtures",
       "color-contrast on /delayed",
       "color-contrast on a11y fixtures",
-      "frame-focusable-content on a11y fixtures",
-      "frame-title on a11y fixtures",
+      "frame-focusable-content on /frames",
+      "frame-title on /frames",
+      "image-alt on /frames",
     ]);
   });
 
@@ -553,6 +637,8 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
       "/late-b",
       "/third-party",
       "/delayed",
+      "/lib",
+      "/frames",
     ]);
     const fixture = reveals[0];
     // 600vh in half-viewport steps is a dozen stops; 1 would mean it never scrolled.
@@ -613,29 +699,13 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     );
   });
 
-  it("audits a third-party iframe element, but does not count the third party's document", () => {
-    const frameTitle = violations().filter((v) => v.id === "frame-title");
-    expect(frameTitle.flatMap((v) => (v.nodes ?? []).map((n) => n.target))).toEqual([
-      ["#xo-frame"],
-    ]);
-    expect(violations().map((v) => v.id)).not.toContain("image-alt");
-    // Not absence alone: axe DID reach the frame, and its image-alt node was
-    // dropped and counted — in the artifact and, by name, in the summary.
-    type Dropped = { route: string; count: number; rules: string[] };
-    const dropped = (result?.details as { frameNodesDropped?: Dropped[] } | undefined)
-      ?.frameNodesDropped;
-    expect(dropped?.find((d) => d.route === "a11y fixtures")).toEqual({
-      route: "a11y fixtures",
-      count: 1,
-      rules: ["image-alt"],
-    });
-    expect(result?.summary).toContain(
-      "1 violation node inside cross-origin frames not counted: a11y fixtures (1: image-alt)",
-    );
-  });
-
   it("names an error thrown inside a third-party embed, and does not fail the site on it", () => {
-    type ThirdPartyError = { route: string; source: string | null; message: string };
+    type ThirdPartyError = {
+      route: string;
+      frame?: string;
+      source: string | null;
+      message: string;
+    };
     const errors =
       (result?.details as { thirdPartyErrors?: ThirdPartyError[] } | undefined)?.thirdPartyErrors ??
       [];
@@ -645,12 +715,14 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
       route: "/third-party",
       message: "fixture: a third-party embed threw",
     });
+    // The evidence: the frame whose own log recorded it.
+    expect(errors[0]?.frame).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/throws\.html$/);
     expect(errors[0]?.source).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/throws\.html/);
     // Not a client-error on the site's route.
     const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
     expect(all.filter((v) => v.route === "/third-party")).toEqual([]);
     expect(result?.summary).toMatch(
-      /1 uncaught error from another origin, not counted: \/third-party \(http:\/\/127\.0\.0\.1:\d+\)/,
+      /1 uncaught error thrown inside cross-origin frames, not counted: \/third-party \(http:\/\/127\.0\.0\.1:\d+\)/,
     );
   });
 
@@ -661,9 +733,57 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     ]);
   });
 
+  it("keeps a crash inside a library the site loaded from another origin as the site's", () => {
+    const onLib = violations("/lib").filter((v) => v.id === "client-error");
+    expect(onLib.map((v) => v.help).sort()).toEqual([
+      "fixture: lib.load rejected",
+      "fixture: lib.render was given no element",
+    ]);
+    // Both stacks START on the library's origin — and that is not evidence.
+    for (const v of onLib) {
+      expect((v as Violation & { source?: string }).source).toMatch(
+        /^http:\/\/127\.0\.0\.1:\d+\/lib\.js/,
+      );
+    }
+    type ThirdPartyError = { route: string };
+    const thirdParty =
+      (result?.details as { thirdPartyErrors?: ThirdPartyError[] } | undefined)?.thirdPartyErrors ??
+      [];
+    expect(thirdParty.filter((e) => e.route === "/lib")).toEqual([]);
+  });
+
+  const nodeTargets = (route: string, rule: string): unknown[] =>
+    violations(route)
+      .filter((v) => v.id === rule)
+      .flatMap((v) => (v.nodes ?? []).map((n) => n.target));
+
+  it("counts the site's own frames: a same-origin page, and a srcdoc facade over a cross-origin src", () => {
+    expect(nodeTargets("/frames", "button-name")).toEqual([["#so-frame", "button"]]);
+    expect(nodeTargets("/frames", "image-alt")).toEqual([["#facade", "img"]]);
+  });
+
+  it("drops a third party's document wherever its frame sits: behind a redirect, in a wrapper, in a shadow root, lazy", () => {
+    type Dropped = { route: string; count: number; rules: string[] };
+    const dropped = (result?.details as { frameNodesDropped?: Dropped[] } | undefined)
+      ?.frameNodesDropped;
+    // Four documents, each one image-alt: #redir, #wrap's inner frame, the
+    // shadow-root frame, and the lazy #xo-frame that only the pass loads.
+    expect(dropped?.find((d) => d.route === "/frames")).toEqual({
+      route: "/frames",
+      count: 4,
+      rules: ["image-alt"],
+    });
+    expect(result?.summary).toContain(
+      "4 violation nodes inside cross-origin frames not counted: /frames (4: image-alt)",
+    );
+  });
+
+  it("still audits the <iframe> element itself: a third-party frame's missing title is the site's", () => {
+    expect(nodeTargets("/frames", "frame-title")).toEqual([["#xo-frame"]]);
+  });
+
   it("still reports frame-focusable-content from inside a cross-origin frame", () => {
-    const ffc = violations().filter((v) => v.id === "frame-focusable-content");
-    expect(ffc.flatMap((v) => (v.nodes ?? []).map((n) => n.target))).toEqual([["#xo-tab", "html"]]);
+    expect(nodeTargets("/frames", "frame-focusable-content")).toEqual([["#xo-tab", "html"]]);
   });
 
   it("does not re-fetch the page's cross-origin stylesheet, so the site's CSP is not tripped (#52)", async () => {

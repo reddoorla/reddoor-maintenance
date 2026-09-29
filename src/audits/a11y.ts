@@ -14,9 +14,12 @@ import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
 import {
-  classifyPageError,
-  crossOriginFrameSelectors,
+  firstStackUrl,
+  isForeignUrl,
+  recordFrameErrors,
+  resolveTargetElement,
   splitCrossOriginFrameNodes,
+  splitThirdPartyErrors,
 } from "./util/cross-origin.js";
 
 type Impact = "minor" | "moderate" | "serious" | "critical";
@@ -51,9 +54,15 @@ export type RevealRecord = RevealPass & { route: string };
  *  count (#100 review): how many, and under which rules. */
 export type FrameNodesDropped = { route: string; count: number; rules: string[] };
 
-/** An uncaught error whose stack starts on another origin than the page (#100
- *  review): recorded and named, never failed. */
-export type ThirdPartyError = { route: string; source: string | null; message: string };
+/** An uncaught error that a cross-origin frame's own log recorded (#100
+ *  review): recorded and named, never failed. `frame` is that frame's URL —
+ *  the evidence; `source` is the stack's first URL, for the reader only. */
+export type ThirdPartyError = {
+  route: string;
+  frame?: string;
+  source: string | null;
+  message: string;
+};
 
 type NormalizedA11y = {
   totalViolations: number;
@@ -383,9 +392,12 @@ const classifyRouteResponse = ${classifyRouteResponse.toString()};
 // Injected the same way, and run in the page — see src/audits/util/reveal-below-fold.ts.
 const revealBelowFold = ${revealBelowFold.toString()};
 // Injected the same way — see src/audits/util/cross-origin.ts.
+const isForeignUrl = ${isForeignUrl.toString()};
+const resolveTargetElement = ${resolveTargetElement.toString()};
 const splitCrossOriginFrameNodes = ${splitCrossOriginFrameNodes.toString()};
-const crossOriginFrameSelectors = ${crossOriginFrameSelectors.toString()};
-const classifyPageError = ${classifyPageError.toString()};
+const recordFrameErrors = ${recordFrameErrors.toString()};
+const splitThirdPartyErrors = ${splitThirdPartyErrors.toString()};
+const firstStackUrl = ${firstStackUrl.toString()};
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
 const REVEAL_PASS_ERROR_PREFIX = ${JSON.stringify(REVEAL_PASS_ERROR_PREFIX)};
@@ -417,10 +429,17 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
   // One entry per scanned route: violation nodes inside cross-origin frames
   // that were not counted against the site, and under which rules.
   const frameNodesDropped = [];
-  // Uncaught errors whose stack starts on another origin -- a third-party
-  // embed's own script, which the reveal pass may be what loaded. Named in the
-  // summary, never failed: the site cannot fix them.
+  // Uncaught errors that a cross-origin frame's own log recorded -- a
+  // third-party embed's script, which the reveal pass may be what loaded.
+  // Named in the summary, never failed: the site cannot fix them.
   const thirdPartyErrors = [];
+  // This route's uncaught errors, held until the route ends and each frame's
+  // own error log can say where they were thrown.
+  const pendingErrors = [];
+  // Every frame, out-of-process ones included, keeps a log of its own
+  // uncaught errors from before its first script runs. That log -- not the
+  // stack -- is the evidence of which frame an error was thrown in.
+  await page.addInitScript(recordFrameErrors);
 
   // Capture uncaught client-side exceptions across every route we visit. A page
   // that builds + SSRs cleanly can still throw on hydrate and blank itself
@@ -432,26 +451,77 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
   // still be the previous page).
   let currentOrigin = "";
   const originOf = (url) => new URL(url, baseURL ?? "http://localhost").origin;
+
+  // Settle this route's pending errors. An error moves to thirdPartyErrors
+  // only when a cross-origin frame's own log recorded it (see
+  // splitThirdPartyErrors); everything else is the site's client-error.
+  // A frame that cannot be read contributes no evidence.
+  const settleErrors = async () => {
+    if (pendingErrors.length === 0) return;
+    const frameLogs = [];
+    for (const frame of page.frames()) {
+      let messages = null;
+      try {
+        messages = await frame.evaluate(() => window[Symbol.for("reddoor.a11y.frameErrors")] ?? null);
+      } catch {
+        messages = null;
+      }
+      if (!Array.isArray(messages)) continue;
+      frameLogs.push({
+        url: frame.url(),
+        foreign: frame !== page.mainFrame() && isForeignUrl(frame.url(), currentOrigin),
+        messages,
+      });
+    }
+    const errors = pendingErrors.splice(0, pendingErrors.length);
+    const split = splitThirdPartyErrors(errors, frameLogs);
+    for (const e of split.site) {
+      violations.push({
+        id: "client-error",
+        impact: "critical",
+        route: e.route,
+        help: e.help,
+        source: e.source,
+      });
+    }
+    for (const e of split.thirdParty) {
+      thirdPartyErrors.push({ route: e.route, frame: e.frame, source: e.source, message: e.message });
+    }
+  };
+
+  // Is there positive evidence that this frame path (axe's target minus its
+  // last element) runs through a cross-origin document? Walk it frame by
+  // frame -- stepping into shadow roots, through same-origin wrapper frames --
+  // and ask each frame for the URL it actually loaded (redirects followed; a
+  // srcdoc facade is about:srcdoc, the site's). Anything unresolvable: no.
+  const frameOnPathIsForeign = async (path) => {
+    let frame = page.mainFrame();
+    for (const selector of path) {
+      let child = null;
+      try {
+        const handle = await frame.evaluateHandle(resolveTargetElement, selector);
+        const element = handle.asElement();
+        child = element ? await element.contentFrame() : null;
+      } catch {
+        child = null;
+      }
+      if (child === null) return false;
+      if (isForeignUrl(child.url(), currentOrigin)) return true;
+      frame = child;
+    }
+    return false;
+  };
   // True only while the reveal pass is running on this route (#100). An
   // error caught then is labelled with that time window -- which is all the
   // label claims: not that the pass caused it.
   let inRevealPass = false;
   page.on("pageerror", (err) => {
     const message = String(err && err.message ? err.message : err);
-    const { source, thirdParty } = classifyPageError(
-      err && err.stack ? String(err.stack) : "",
-      currentOrigin,
-    );
-    if (thirdParty) {
-      thirdPartyErrors.push({ route: currentRoute, source, message });
-      return;
-    }
-    violations.push({
-      id: "client-error",
-      impact: "critical",
+    pendingErrors.push({
       route: currentRoute,
+      message,
       help: (inRevealPass ? REVEAL_PASS_ERROR_PREFIX : "") + message,
-      source,
+      source: firstStackUrl(err && err.stack ? String(err.stack) : ""),
     });
   });
 
@@ -555,27 +625,28 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // pass brings lazy third-party iframes (a Google Maps footer, a YouTube
       // player) into load range; their documents' violations are not the
       // site's to fix, and whether axe reached them at all depended on
-      // injecting into them inside a 1 s window. So a node whose target is
-      // nested inside a frame whose src is on another origin is dropped here,
-      // counted, and named in the summary -- never silently.
+      // injecting into them inside a 1 s window. So a node is dropped here --
+      // counted, and named in the summary, never silently -- only on positive
+      // evidence: a frame on its path loaded a document from another origin.
       //
       // Default mode, deliberately. Legacy mode (setLegacyMode) skips those
       // frames too, but it also drops frame-focusable-content, which axe can
       // only evaluate INSIDE the frame and which is the site's own defect (an
       // iframe given tabindex=-1 whose document still has something to focus).
       // splitCrossOriginFrameNodes keeps every frame-focusable-content node.
-      const outerFrames = [];
+      const foreignPaths = [];
+      const checkedPaths = [];
       for (const v of results.violations) {
         for (const n of v.nodes) {
           const t = n.target;
-          if (Array.isArray(t) && t.length > 1 && typeof t[0] === "string" && !outerFrames.includes(t[0])) {
-            outerFrames.push(t[0]);
-          }
+          if (!Array.isArray(t) || t.length < 2) continue;
+          const key = JSON.stringify(t.slice(0, -1));
+          if (checkedPaths.includes(key)) continue;
+          checkedPaths.push(key);
+          if (await frameOnPathIsForeign(t.slice(0, -1))) foreignPaths.push(key);
         }
       }
-      const crossOriginFrames =
-        outerFrames.length === 0 ? [] : await page.evaluate(crossOriginFrameSelectors, outerFrames);
-      const split = splitCrossOriginFrameNodes(results.violations, crossOriginFrames);
+      const split = splitCrossOriginFrameNodes(results.violations, foreignPaths);
       frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });
       for (const v of split.kept) {
         violations.push({
@@ -588,8 +659,10 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
         });
       }
     } finally {
-      // End every route on about:blank, so an error that route A's timers or
-      // pending work throw late can never be charged to route B.
+      // Say whose this route's errors were while its frames can still be read,
+      // then end on about:blank, so an error that route A's timers or pending
+      // work throw late can never be charged to route B.
+      await settleErrors();
       await page.goto("about:blank");
     }
   }
@@ -605,6 +678,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
     await page.goto(SMOKE_ORIGIN + path);
     // Let hydration + first effects run so a TDZ/ReferenceError surfaces.
     await page.waitForTimeout(2000);
+    await settleErrors();
     await page.goto("about:blank");
   }
 
@@ -792,12 +866,14 @@ export function describeFrameNodesDropped(dropped: FrameNodesDropped[]): string 
 }
 
 /**
- * The third-party clause of the summary: uncaught errors whose stack starts on
- * another origin than the page, by route and origin. They do not fail the
- * audit — a third party's embed is not the site's to fix — but they move a
+ * The third-party clause of the summary: uncaught errors that a cross-origin
+ * frame's own log recorded, by route and that frame's origin. They do not fail
+ * the audit — a third party's embed is not the site's to fix — but they move a
  * clean run to `warn`, because an error the site's page shows its readers is
- * worth knowing about even when it is not the site's code. Empty when there
- * are none.
+ * worth knowing about even when it is not the site's code. An error whose
+ * stack merely STARTS on another origin is not one of these: a site crashing
+ * inside a library it loaded from a CDN is still the site's `client-error`.
+ * Empty when there are none.
  */
 export function describeThirdPartyErrors(errors: ThirdPartyError[]): string {
   if (errors.length === 0) return "";
@@ -805,7 +881,7 @@ export function describeThirdPartyErrors(errors: ThirdPartyError[]): string {
   for (const e of errors) {
     let origin = "unknown origin";
     try {
-      if (e.source) origin = new URL(e.source).origin;
+      if (e.frame) origin = new URL(e.frame).origin;
     } catch {
       // keep "unknown origin"
     }
@@ -818,7 +894,7 @@ export function describeThirdPartyErrors(errors: ThirdPartyError[]): string {
     .map((g) => `${g.route} (${g.origin}${g.n > 1 ? ` ×${g.n}` : ""})`)
     .join(", ");
   const n = errors.length;
-  return `${n} uncaught error${n === 1 ? "" : "s"} from another origin, not counted: ${where}`;
+  return `${n} uncaught error${n === 1 ? "" : "s"} thrown inside cross-origin frames, not counted: ${where}`;
 }
 
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {

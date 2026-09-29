@@ -15,9 +15,12 @@ import {
 } from "../../src/audits/a11y.js";
 import { revealBelowFold } from "../../src/audits/util/reveal-below-fold.js";
 import {
-  classifyPageError,
-  crossOriginFrameSelectors,
+  firstStackUrl,
+  isForeignUrl,
+  recordFrameErrors,
+  resolveTargetElement,
   splitCrossOriginFrameNodes,
+  splitThirdPartyErrors,
 } from "../../src/audits/util/cross-origin.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
@@ -32,7 +35,12 @@ type A11yArtifact = {
   skipped?: Array<{ route: string; path: string; status: number | null; reason: string }>;
   reveals?: RevealRecord[];
   frameNodesDropped?: Array<{ route: string; count: number; rules: string[] }>;
-  thirdPartyErrors?: Array<{ route: string; source: string | null; message: string }>;
+  thirdPartyErrors?: Array<{
+    route: string;
+    frame?: string;
+    source: string | null;
+    message: string;
+  }>;
 };
 
 /**
@@ -1642,25 +1650,29 @@ describe("audits/a11y — the reveal pass is recorded, and an incomplete one war
 });
 
 /**
- * Round-2 review of #100: cross-origin frame contents are audited (default
- * mode) and then not counted. What the filter keeps and drops, as a table —
- * this is the function the spec runs (see the identity test).
+ * #100 review, rounds 2 and 3: cross-origin frame contents are audited
+ * (default mode) and then not counted — but only on positive evidence. The
+ * spec walks each nested node's frame path and asks every frame for the URL it
+ * actually loaded (a11y-live-spec.test.ts holds that walk against redirects,
+ * wrapper frames, shadow roots and a srcdoc facade). What the filter then
+ * keeps and drops, as a table — this is the function the spec runs.
  */
 describe("audits/a11y — nodes inside cross-origin frames are counted, not failed", () => {
   const XO = "#xo";
+  const path = (...frames: unknown[]) => JSON.stringify(frames);
   const v = (id: string, ...targets: unknown[][]) => ({
     id,
     nodes: targets.map((target) => ({ target })),
   });
 
-  it("drops a nested node whose outer frame is cross-origin, and keeps everything else", () => {
+  it("drops a node only when its whole frame path was found foreign, and keeps everything else", () => {
     const split = splitCrossOriginFrameNodes(
       [
-        v("image-alt", [XO, "img"], ["#own", "img"], ["img.top"]),
+        v("image-alt", [XO, "img"], ["#own", "img"], ["img.top"], ["#own", "iframe", "img"]),
         v("color-contrast", [XO, "p"]),
         v("frame-title", [XO]),
       ],
-      [XO],
+      [path(XO), path("#own", "iframe")],
     );
     expect(split.kept).toEqual([
       // A same-origin frame's node and a top-document node stay.
@@ -1669,32 +1681,49 @@ describe("audits/a11y — nodes inside cross-origin frames are counted, not fail
       v("frame-title", [XO]),
     ]);
     // A violation left with no nodes is gone, and every dropped node is counted.
-    expect(split.dropped).toBe(2);
+    expect(split.dropped).toBe(3);
     expect(split.rules).toEqual(["image-alt", "color-contrast"]);
   });
 
   it("keeps every frame-focusable-content node — the site's defect, seen from inside the frame", () => {
-    const split = splitCrossOriginFrameNodes([v("frame-focusable-content", [XO, "html"])], [XO]);
+    const split = splitCrossOriginFrameNodes(
+      [v("frame-focusable-content", [XO, "html"])],
+      [path(XO)],
+    );
     expect(split.kept).toEqual([v("frame-focusable-content", [XO, "html"])]);
     expect(split.dropped).toBe(0);
   });
 
-  it("keeps a node whose outer target is not a plain selector (shadow DOM), since it cannot be resolved", () => {
-    const shadow = v("image-alt", [["host-el", "#xo"], "img"]);
-    expect(splitCrossOriginFrameNodes([shadow], [XO]).kept).toEqual([shadow]);
+  it("matches a shadow-root frame by its whole selector array", () => {
+    const shadow = v("image-alt", [["#host", "iframe"], "img"]);
+    expect(splitCrossOriginFrameNodes([shadow], [path(["#host", "iframe"])]).dropped).toBe(1);
+    expect(splitCrossOriginFrameNodes([shadow], [path("#host")]).kept).toEqual([shadow]);
+  });
+
+  it("calls a document foreign only when it is http(s) on another origin", () => {
+    const TOP = "http://localhost:5173";
+    expect(isForeignUrl("https://www.youtube.com/embed/x", TOP)).toBe(true);
+    expect(isForeignUrl("http://127.0.0.1:5173/x", TOP)).toBe(true);
+    expect(isForeignUrl("http://localhost:5173/own", TOP)).toBe(false);
+    // A srcdoc facade, a script-filled blank frame, data: and blob: documents
+    // hold the site's markup; an unparsable URL is "cannot tell".
+    expect(isForeignUrl("about:srcdoc", TOP)).toBe(false);
+    expect(isForeignUrl("about:blank", TOP)).toBe(false);
+    expect(isForeignUrl("data:text/html,<p>x</p>", TOP)).toBe(false);
+    expect(isForeignUrl("blob:http://localhost:5173/abc", TOP)).toBe(false);
+    expect(isForeignUrl("not a url", TOP)).toBe(false);
   });
 
   it("the generated spec runs these exact functions, not copies of them", async () => {
     const spec = await specOf();
-    expect(spec).toContain(
-      `const splitCrossOriginFrameNodes = ${splitCrossOriginFrameNodes.toString()};`,
-    );
-    expect(spec).toContain(
-      `const crossOriginFrameSelectors = ${crossOriginFrameSelectors.toString()};`,
-    );
+    for (const fn of [isForeignUrl, resolveTargetElement, splitCrossOriginFrameNodes]) {
+      expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
+    }
     expect(spec).toContain(
       "frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });",
     );
+    // The decision is made from the URL each frame actually loaded.
+    expect(spec).toContain("if (isForeignUrl(child.url(), currentOrigin)) return true;");
   });
 
   it("names dropped nodes in the summary as information: empty when there are none", () => {
@@ -1728,68 +1757,111 @@ describe("audits/a11y — nodes inside cross-origin frames are counted, not fail
 });
 
 /**
- * Round-2 review of #100: an error thrown inside a third-party iframe reaches
- * `pageerror` too, and the reveal pass is what loads lazy embeds. Where an
- * error came from is read from its stack; another origin is named, not failed.
+ * #100 review, rounds 2 and 3: an error thrown inside a third-party iframe
+ * reaches `pageerror` too, and the reveal pass is what loads lazy embeds. An
+ * error is the third party's ONLY on positive evidence — a cross-origin
+ * frame's own error log recorded it. Where the stack starts is never
+ * evidence: a site crashing inside a library it loaded from a CDN has a stack
+ * that starts on the CDN, and it is still the site's crash.
  */
-describe("audits/a11y — an error from another origin is named, not failed", () => {
-  const PAGE = "http://localhost:5173";
+describe("audits/a11y — an error is a cross-origin frame's only on that frame's own evidence", () => {
+  const TOP = { url: "http://localhost:5173/", foreign: false };
+  const EMBED = { url: "https://embed.example.com/widget", foreign: true };
+  const err = (message: string) => ({ message, route: "/" });
 
-  it("reads the first `at <url>` in the stack and compares its origin with the page's", () => {
+  it("moves an error a cross-origin frame's log recorded, and names that frame", () => {
+    const split = splitThirdPartyErrors(
+      [err("embed broke"), err("site broke")],
+      [
+        { ...TOP, messages: ["site broke"] },
+        { ...EMBED, messages: ["embed broke"] },
+      ],
+    );
+    expect(split.site).toEqual([err("site broke")]);
+    expect(split.thirdParty).toEqual([{ ...err("embed broke"), frame: EMBED.url }]);
+  });
+
+  it("keeps an error no cross-origin frame recorded — whatever its stack says", () => {
+    // The library case: the site's own frame logged it (or logged it hidden),
+    // no embed did. Nothing in this function reads a stack.
+    const split = splitThirdPartyErrors(
+      [err("lib.render was given no element")],
+      [
+        { ...TOP, messages: ["lib.render was given no element"] },
+        { ...EMBED, messages: [] },
+      ],
+    );
+    expect(split.site).toEqual([err("lib.render was given no element")]);
+    expect(split.thirdParty).toEqual([]);
+  });
+
+  it("with the same message on both sides, counts the site's first", () => {
+    const split = splitThirdPartyErrors(
+      [err("boom"), err("boom"), err("boom")],
+      [
+        { ...TOP, messages: ["boom", "boom"] },
+        { ...EMBED, messages: ["boom", "boom"] },
+      ],
+    );
+    expect(split.site).toHaveLength(2);
+    expect(split.thirdParty).toHaveLength(1);
+  });
+
+  it("moves nothing when a site frame logged a hidden error, which could be any of them", () => {
+    const split = splitThirdPartyErrors(
+      [err("embed broke")],
+      [
+        { ...TOP, messages: [null] },
+        { ...EMBED, messages: ["embed broke"] },
+      ],
+    );
+    expect(split.site).toEqual([err("embed broke")]);
+    expect(split.thirdParty).toEqual([]);
+  });
+
+  it("does not match a cross-origin frame's hidden error to anything", () => {
+    const split = splitThirdPartyErrors(
+      [err("maps broke")],
+      [
+        { ...TOP, messages: [] },
+        { ...EMBED, messages: [null] },
+      ],
+    );
+    expect(split.site).toEqual([err("maps broke")]);
+  });
+
+  it("records the stack's first URL for the reader, reading only `at` lines", () => {
+    expect(firstStackUrl("Error: x\n    at http://127.0.0.1:9/lib.js:1:20")).toBe(
+      "http://127.0.0.1:9/lib.js:1:20",
+    );
     expect(
-      classifyPageError("Error: boom\n    at http://127.0.0.1:9000/throws.html:1:20", PAGE),
-    ).toEqual({ source: "http://127.0.0.1:9000/throws.html:1:20", thirdParty: true });
-    expect(
-      classifyPageError(
-        "Error: boom\n    at IntersectionObserver.<anonymous> (http://localhost:5173/dev/a11y-fixtures:88:11)",
-        PAGE,
+      firstStackUrl(
+        "Error: failed https://cdn.example/x\n    at <anonymous>:1:5\n    at f (http://localhost:5173/app.js:3:1)",
       ),
-    ).toEqual({ source: "http://localhost:5173/dev/a11y-fixtures:88:11", thirdParty: false });
+    ).toBe("http://localhost:5173/app.js:3:1");
+    expect(firstStackUrl("Error: x\n    at <anonymous>:1:1")).toBeNull();
+    expect(firstStackUrl("")).toBeNull();
   });
 
-  it("uses the FIRST frame that has a URL, skipping frames that have none", () => {
-    expect(
-      classifyPageError(
-        "TypeError: x\n    at <anonymous>:1:5\n    at https://www.youtube.com/s/player.js:9:9\n    at http://localhost:5173/app.js:1:1",
-        PAGE,
-      ),
-    ).toEqual({ source: "https://www.youtube.com/s/player.js:9:9", thirdParty: true });
-  });
-
-  it("does not read a URL out of the message line", () => {
-    expect(
-      classifyPageError(
-        "Error: failed to load https://maps.example.com/tile\n    at http://localhost:5173/map.js:3:1",
-        PAGE,
-      ).thirdParty,
-    ).toBe(false);
-  });
-
-  it("keeps a stack with no URL — or no stack — as the site's", () => {
-    expect(classifyPageError("Error: boom\n    at <anonymous>:1:1", PAGE)).toEqual({
-      source: null,
-      thirdParty: false,
-    });
-    expect(classifyPageError("", PAGE)).toEqual({ source: null, thirdParty: false });
-  });
-
-  it("the generated spec runs this exact function, and keeps the source on the site's own errors", async () => {
+  it("the generated spec runs these exact functions, and never classifies by stack", async () => {
     const spec = await specOf();
-    expect(spec).toContain(`const classifyPageError = ${classifyPageError.toString()};`);
-    expect(spec).toContain("thirdPartyErrors.push({ route: currentRoute, source, message });");
-    expect(spec).toMatch(/id: "client-error",[\s\S]*?source,\n/);
+    for (const fn of [recordFrameErrors, splitThirdPartyErrors, firstStackUrl]) {
+      expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
+    }
+    expect(spec).toContain("await page.addInitScript(recordFrameErrors);");
+    expect(spec).toContain("const split = splitThirdPartyErrors(errors, frameLogs);");
   });
 
   it("names third-party errors by route and origin, folding repeats", () => {
     expect(describeThirdPartyErrors([])).toBe("");
     expect(
       describeThirdPartyErrors([
-        { route: "/", source: "https://www.youtube.com/a.js:1:1", message: "a" },
-        { route: "/", source: "https://www.youtube.com/b.js:2:2", message: "b" },
-        { route: "/contact", source: null, message: "c" },
+        { route: "/", frame: "https://www.youtube.com/embed/a", source: null, message: "a" },
+        { route: "/", frame: "https://www.youtube.com/embed/b", source: null, message: "b" },
+        { route: "/contact", source: "https://cdn.example/x.js:1:1", message: "c" },
       ]),
     ).toBe(
-      "3 uncaught errors from another origin, not counted: / (https://www.youtube.com ×2), /contact (unknown origin)",
+      "3 uncaught errors thrown inside cross-origin frames, not counted: / (https://www.youtube.com ×2), /contact (unknown origin)",
     );
   });
 
@@ -1800,13 +1872,18 @@ describe("audits/a11y — an error from another origin is named, not failed", ()
         totalViolations: 0,
         byImpact: {},
         thirdPartyErrors: [
-          { route: "/", source: "https://maps.example.com/x.js:1:1", message: "boom" },
+          {
+            route: "/",
+            frame: "https://maps.example.com/embed",
+            source: "https://maps.example.com/x.js:1:1",
+            message: "boom",
+          },
         ],
       }),
     });
     expect(result.status).toBe("warn");
     expect(result.summary).toContain(
-      "1 uncaught error from another origin, not counted: / (https://maps.example.com)",
+      "1 uncaught error thrown inside cross-origin frames, not counted: / (https://maps.example.com)",
     );
   });
 });
