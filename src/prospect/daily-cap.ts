@@ -68,6 +68,12 @@ export const DAILY_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
  * long: a crashed run holds its slot a while longer. Neither can make the
  * brake looser than it was before #907, when a running audit counted for
  * nothing at all.
+ *
+ * A run that THROWS does not rely on this window (P1-16). Before any paid
+ * stage it deletes its row; after one, it marks the row `failed`, a terminal
+ * status that counts for the full 24h like a finished report. What this
+ * window still catches is a run no code outlived to mark: a runner killed by
+ * the step timeout, a lost machine, or a mark that itself failed.
  */
 export const PROSPECT_AUDIT_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 

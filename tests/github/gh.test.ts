@@ -258,7 +258,7 @@ describe("makeGitHub", () => {
   });
 
   it("fileContentsOnBranch returns null when the file is absent (404)", async () => {
-    const { spawn } = fakeSpawn({ code: 1, stderr: "Not Found" });
+    const { spawn } = fakeSpawn({ code: 1, stderr: "gh: Not Found (HTTP 404)" });
     const content = await makeGitHub({ token: "T", spawn }).fileContentsOnBranch(
       "o/r",
       "main",
@@ -267,7 +267,18 @@ describe("makeGitHub", () => {
     expect(content).toBeNull();
   });
 
-  it("branchProtectionContexts parses required contexts; [] on 404", async () => {
+  it.each([
+    ["a refusal", "gh: Resource not accessible by integration (HTTP 403)", /HTTP 403/],
+    ["a server error", "gh: Server Error (HTTP 500)", /HTTP 500/],
+    ["a network failure", "error connecting to api.github.com", /error connecting/],
+  ])("fileContentsOnBranch throws on %s instead of reading it as absent", async (_, stderr, re) => {
+    const { spawn } = fakeSpawn({ code: 1, stderr });
+    await expect(
+      makeGitHub({ token: "T", spawn }).fileContentsOnBranch("o/r", "main", "renovate.json"),
+    ).rejects.toThrow(re);
+  });
+
+  it("branchProtectionContexts parses required contexts; [] only on 404 Branch not protected", async () => {
     const ok = fakeSpawn({ code: 0, stdout: "ci\nbuild\n" });
     expect(
       await makeGitHub({ token: "T", spawn: ok.spawn }).branchProtectionContexts("o/r", "main"),
@@ -278,14 +289,36 @@ describe("makeGitHub", () => {
       "--jq",
       ".required_status_checks.contexts[]?",
     ]);
-    const missing = fakeSpawn({ code: 1, stderr: "Not Found" });
+    const unprotected = fakeSpawn({ code: 1, stderr: "gh: Branch not protected (HTTP 404)" });
     expect(
-      await makeGitHub({ token: "T", spawn: missing.spawn }).branchProtectionContexts(
+      await makeGitHub({ token: "T", spawn: unprotected.spawn }).branchProtectionContexts(
         "o/r",
         "main",
       ),
     ).toEqual([]);
   });
+
+  it.each([
+    ["an integration refusal", "gh: Resource not accessible by integration (HTTP 403)", /HTTP 403/],
+    [
+      "a proxy refusal",
+      "gh: Write access to this GitHub API path is not permitted through this proxy. (HTTP 403)",
+      /HTTP 403/,
+    ],
+    ["a server error", "gh: Server Error (HTTP 500)", /HTTP 500/],
+    ["a rate limit", "gh: API rate limit exceeded for installation. (HTTP 429)", /HTTP 429/],
+    ["a hidden repo", "gh: Not Found (HTTP 404)", /Not Found/],
+    ["a missing branch", "gh: Branch not found (HTTP 404)", /Branch not found/],
+    ["a network failure", "error connecting to api.github.com", /error connecting/],
+  ])(
+    "branchProtectionContexts throws on %s instead of reading it as unprotected",
+    async (_, stderr, re) => {
+      const { spawn } = fakeSpawn({ code: 1, stderr });
+      await expect(
+        makeGitHub({ token: "T", spawn }).branchProtectionContexts("o/r", "main"),
+      ).rejects.toThrow(re);
+    },
+  );
 
   it("secretExists checks the secret name list", async () => {
     const has = fakeSpawn({ code: 0, stdout: "SOME_SECRET\nOTHER\n" });

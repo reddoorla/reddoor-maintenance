@@ -59,8 +59,9 @@ async function runStep(out: string, code = 0): Promise<{ code: number; log: stri
 
 /** A real, verbatim-shaped healthy run: the CLI's own success line, then the marker. */
 const HEALTHY = [
-  "Digest sent to tucker@reddoorla.com (msg_0193f1)",
   "DIGEST_STATE_WRITE turso=1 rollup=1",
+  "DIGEST_SEND_LOG write=1 decision=changed",
+  "Digest sent (changed) to tucker@reddoorla.com (msg_0193f1)",
 ].join("\n");
 
 describe("daily-reports digest gate — PASSES on a known-good line (prove the instrument)", () => {
@@ -74,8 +75,9 @@ describe("daily-reports digest gate — PASSES on a known-good line (prove the i
   it("is green on a QUIET day, where the digest skips itself but still snapshots", async () => {
     const r = await runStep(
       [
-        "Digest skipped (nothing ready, nothing needs attention).",
         "DIGEST_STATE_WRITE turso=1 rollup=1",
+        "DIGEST_SEND_LOG write=1 decision=empty",
+        "Digest skipped (nothing ready, nothing needs attention).",
       ].join("\n"),
     );
     expect(r.code).toBe(0);
@@ -86,7 +88,11 @@ describe("daily-reports digest gate — PASSES on a known-good line (prove the i
     // failure ... reporting it as `rollup=0` would train the eye to ignore the
     // number that is supposed to catch a dead writer." Reddening it here would
     // contradict the code's own description.
-    const r = await runStep("DIGEST_STATE_WRITE turso=1 rollup=absent");
+    const r = await runStep(
+      ["DIGEST_STATE_WRITE turso=1 rollup=absent", "DIGEST_SEND_LOG write=1 decision=first"].join(
+        "\n",
+      ),
+    );
     expect(r.code).toBe(0);
     expect(r.log).toContain("::warning::");
   });
@@ -136,6 +142,22 @@ describe("daily-reports digest gate — FAILS on the silent stop it exists to ca
   it("reds when the turso counter is missing — a reworded marker cannot pass by omission", async () => {
     const r = await runStep("DIGEST_STATE_WRITE rollup=1");
     expect(r.code).toBe(1);
+  });
+
+  it("reds when the send-log line is absent — P1-20's record of what was sent", async () => {
+    const r = await runStep("DIGEST_STATE_WRITE turso=1 rollup=1");
+    expect(r.code).toBe(1);
+    expect(r.log).toContain("send-log");
+  });
+
+  it("reds on a failed send-log write", async () => {
+    const r = await runStep(
+      ["DIGEST_STATE_WRITE turso=1 rollup=1", "DIGEST_SEND_LOG write=0 decision=changed"].join(
+        "\n",
+      ),
+    );
+    expect(r.code).toBe(1);
+    expect(r.log).toContain("write=0");
   });
 
   it("reds when the CLI itself failed", async () => {

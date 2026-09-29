@@ -3,10 +3,11 @@ import { OPERATOR_GOALS } from "../prospect/goals.js";
 import { makeGitHubRest } from "../github/gh-rest.js";
 import { isHttpUrl, isPrivateOrLoopbackHost, hostnameOf } from "../util/url.js";
 import { PROSPECT_AUDIT_DAILY_CAP, dailyCapMessage } from "../prospect/daily-cap.js";
-import type {
-  ProspectAuditListItem,
-  ProspectAuditReservation,
-  ProspectAuditReservationRequest,
+import {
+  hasNoReport,
+  type ProspectAuditListItem,
+  type ProspectAuditReservation,
+  type ProspectAuditReservationRequest,
 } from "../db/prospect-audits.js";
 
 /**
@@ -364,7 +365,20 @@ export function respondToProspectAuditTrigger(
     case "duplicate":
       // #907. The existing row may be a run that has not finished — a
       // reservation with no report behind it, whose `/r/` link would 404.
-      if (result.existing.status === "running") {
+      // P1-16. A run that failed after it paid has no report either; its
+      // slot is held under the daily cap, and a retry is refused like any
+      // other duplicate inside the window.
+      if (result.existing.status === "failed") {
+        return {
+          status: 409,
+          body: {
+            ok: false,
+            error: "duplicate",
+            message: `${hostnameOf(result.existing.url)} failed in the last 10 minutes, so there is no report — try again after that, and check the run's log for the error.`,
+          },
+        };
+      }
+      if (hasNoReport(result.existing.status)) {
         return {
           status: 409,
           body: {

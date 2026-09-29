@@ -36,6 +36,9 @@ describe("runMigrations", () => {
       "0027_reports_resend_message_index",
       "0028_deadletter_slug_unreplayed_index",
       "0029_prospect_audits_claimed_at",
+      "0030_site_health_url_resolves",
+      "0031_site_health_url_status",
+      "0032_site_health_url_checked_at",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -83,6 +86,9 @@ describe("runMigrations", () => {
       "0027_reports_resend_message_index",
       "0028_deadletter_slug_unreplayed_index",
       "0029_prospect_audits_claimed_at",
+      "0030_site_health_url_resolves",
+      "0031_site_health_url_status",
+      "0032_site_health_url_checked_at",
     ]);
   });
 
@@ -134,6 +140,9 @@ describe("runMigrations", () => {
       "0027_reports_resend_message_index",
       "0028_deadletter_slug_unreplayed_index",
       "0029_prospect_audits_claimed_at",
+      "0030_site_health_url_resolves",
+      "0031_site_health_url_status",
+      "0032_site_health_url_checked_at",
     ]);
   });
 
@@ -188,6 +197,9 @@ describe("runMigrations", () => {
       "0027_reports_resend_message_index",
       "0028_deadletter_slug_unreplayed_index",
       "0029_prospect_audits_claimed_at",
+      "0030_site_health_url_resolves",
+      "0031_site_health_url_status",
+      "0032_site_health_url_checked_at",
     ]);
   });
 });

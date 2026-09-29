@@ -128,7 +128,7 @@ Everything below degrades harmlessly. Leave it:
 | Signal                                         | What actually happens over a week                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Renovate PRs sitting open, green and unmerged  | Renovate runs every 12 hours and merges from inside its own run. Green + unmerged is far more often a rule working than a rule broken — under a grouped preset a single held package makes the whole branch non-automergeable. Naming the rule that would have to permit the merge is a prerequisite to calling anything stuck.   |
-| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:609–613`, consulted at `:677`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
+| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:674–678`, consulted at `:742`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
 | A red nightly that goes green on the next run  | Every tracking issue in section 1 auto-closes on recovery. One red night in a week is noise; the same issue still open on day three is not.                                                                                                                                                                                       |
 | Drafts accumulating in the approve queue       | See the two gates above. This is the system working.                                                                                                                                                                                                                                                                              |
 | Lighthouse scores drifting into the watch band | Watch is the soft band beneath the alert floor, by design (`src/dashboard/fleet-cockpit.ts:38–40`).                                                                                                                                                                                                                               |
@@ -154,7 +154,7 @@ learns its slug does not resolve, but **the lead now exists somewhere**
 (`src/forms/ingest.ts:200–229`). Probes (`testMode`) are never dead-lettered.
 
 **What a week-long break looks like now.** The queue grows and the alarm gets louder, not
-quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:452–477`) raises one
+quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:517–542`) raises one
 `deadletter` attention item per slug, counting unreplayed rows, and it reaches both the cockpit
 and the digest. Two shapes:
 
@@ -245,7 +245,7 @@ right direction but means a red quota job is sometimes the probe, not the plan.
 
 ### 3.4 A bounced or complained-on report
 
-`collectDeliveryFailures` (`src/alerts/digest-collectors.ts:209–229`) raises an attention item
+`collectDeliveryFailures` (`src/alerts/digest-collectors.ts:274–294`) raises an attention item
 for any report row whose `deliveryStatus` is `bounced` (warning) or `complained` (**critical**).
 A spam complaint from a client is worth a same-day human reply; do not let it sit a week.
 

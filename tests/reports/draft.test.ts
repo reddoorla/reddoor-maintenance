@@ -744,6 +744,45 @@ describe("draftReportForSite", () => {
       expect(ev["Maint: Google Indexed"].result).toBe("unknown");
       expect(ev["Maint: Google Indexed"].note).toBe("No Search Console property matched this site");
     });
+
+    it("stores no search fields when no Search Console property matched, so the column is NULL (P1-19)", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: false,
+      });
+      await draftReportForSite(siteFixture({ searchQuery: "acme co" }), "Maintenance", NO_HEADER);
+      const fields = writer.inserts[0]!.fields;
+      expect("Search found page 1" in fields).toBe(false);
+      expect("Search position" in fields).toBe(false);
+    });
+
+    it("still stores false when a property was found and the query returned no rows (P1-19)", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+      });
+      await draftReportForSite(siteFixture({ searchQuery: "acme co" }), "Maintenance", NO_HEADER);
+      const fields = writer.inserts[0]!.fields;
+      expect(fields["Search found page 1"]).toBe(false);
+      expect("Search position" in fields).toBe(false);
+    });
+
+    it("still stores false when a property was found and the site is off page 1 (P1-19)", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: 22,
+        propertyFound: true,
+      });
+      await draftReportForSite(siteFixture({ searchQuery: "acme co" }), "Maintenance", NO_HEADER);
+      const fields = writer.inserts[0]!.fields;
+      expect(fields["Search found page 1"]).toBe(false);
+      expect("Search position" in fields).toBe(false);
+    });
   });
 });
 

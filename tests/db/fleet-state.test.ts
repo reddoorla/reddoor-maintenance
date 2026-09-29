@@ -130,6 +130,9 @@ const RICH: RawRecord = {
     "Prismic Models": "pass",
     "Prismic Models Checked At": "2026-08-23T05:23:00.000Z",
     "Prismic Models Drift": "- old_slice",
+    "URL Resolves": "fail",
+    "URL Status": "404 netlify-site-not-found",
+    "URL Checked At": "2026-08-23T07:30:00.000Z",
     "Next maintenance at": "2026-09-01",
     "Next testing at": "2026-11-01",
   },
@@ -150,6 +153,7 @@ const WEIRD: RawRecord = {
     "Accepted Watch Conditions": "cert-warning,  , prismic\nsmoke", // delimited string + empty entry
     "Function health": "maybe", // not pass/fail → null
     "Prismic Models": "unknown", // the third state must SURVIVE (never null)
+    "URL Resolves": "maybe", // not pass/fail → null on both sides
     "Crossbrowser OK": true,
     "Broken links": 7,
   },
@@ -563,6 +567,52 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
     const [row] = await listAllReports(db);
     expect(row!.approvedToSend).toBe(true);
     expect(row!.approvedBy).toBe("op");
+  });
+
+  it("an explicit-null search patch clears a stored page-1 result (P1-19 announce reuse)", async () => {
+    const db = await seeded([RICH]);
+    await db
+      .insertInto("reports")
+      .values({
+        id: "recRPT9",
+        site_id: "recRICH",
+        report_id: "R9",
+        report_type: "Maintenance",
+        period: null,
+        period_start: "2026-08-01",
+        period_end: null,
+        completed_on: null,
+        lighthouse_performance: null,
+        lighthouse_accessibility: null,
+        lighthouse_best_practices: null,
+        lighthouse_seo: null,
+        ga_users_current: null,
+        ga_users_previous: null,
+        search_found_page1: 1,
+        search_position: 3,
+        last_tested_date: null,
+        commentary: null,
+        subject_override: null,
+        draft_ready: 1,
+        approved_to_send: 0,
+        approved_at: null,
+        approved_by: null,
+        send_override: 0,
+        override_reason: null,
+        override_by: null,
+        override_at: null,
+        sent_at: null,
+        delivery_status: "pending",
+        resend_message_id: null,
+        checklist: null,
+        checklist_auto_evidence: null,
+        rendered_html: null,
+      })
+      .execute();
+    await mirrorReportPatch(db, "recRPT9", { search_found_page1: null, search_position: null });
+    const [row] = await listAllReports(db);
+    expect(row!.searchFoundPage1).toBeNull();
+    expect(row!.searchPosition).toBeNull();
   });
 
   it("an empty patch is a no-op, not invalid SQL", async () => {

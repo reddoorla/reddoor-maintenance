@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { selfUpdating } from "../../src/recipes/self-updating/index.js";
-import type { GitHub } from "../../src/github/gh.js";
+import { makeGitHub, type GitHub } from "../../src/github/gh.js";
+import type { SpawnFn, SpawnResult } from "../../src/audits/util/spawn.js";
 import { templatesByName } from "../../src/recipes/sync-configs/templates.js";
 import { FLEET_RULESET_NAME, desiredRuleset } from "../../src/github/rulesets.js";
 
@@ -710,5 +711,100 @@ describe("selfUpdating: the commit must carry the configs", () => {
     // The operator is back where they started, and the refused file is gone.
     expect(currentBranchOf(dir)).toBe(startBranch);
     expect(existsSync(join(dir, RENOVATE_CONFIG_PATH))).toBe(false);
+  });
+});
+
+describe("selfUpdating: a protection read that failed never becomes a protection write", () => {
+  function ghAnswering(answer: Partial<SpawnResult>): GitHub {
+    const spawn: SpawnFn = async () => ({ code: 0, stdout: "", stderr: "", ...answer });
+    return makeGitHub({ token: "T", spawn });
+  }
+
+  function wiredExceptProtection(protectionRead: Partial<SpawnResult>) {
+    const repoVisibility = vi.fn(async () => "public");
+    return {
+      ...fakeGitHub({
+        fileContentsOnBranch: upToDate,
+        autoMergeEnabled: async () => false,
+        branchProtectionContexts: ghAnswering(protectionRead).branchProtectionContexts,
+        repoVisibility,
+        ...WIRED_RULESET,
+      }),
+      repoVisibility,
+    };
+  }
+
+  it("404 Branch not protected: protection is applied", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = wiredExceptProtection({
+      code: 1,
+      stderr: "gh: Branch not protected (HTTP 404)",
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["protect:o/r:main:ci / ci"]);
+  });
+
+  it.each([
+    ["403", "gh: Resource not accessible by integration (HTTP 403)"],
+    ["500", "gh: Server Error (HTTP 500)"],
+    ["404 Not Found", "gh: Not Found (HTTP 404)"],
+  ])("%s: failed, and protectBranch is never called", async (_, stderr) => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls, repoVisibility } = wiredExceptProtection({ code: 1, stderr });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain(stderr);
+    expect(r.notes).toMatch(/could not read branch protection on main/);
+    expect(calls.filter((c) => c.startsWith("protect:"))).toEqual([]);
+    expect(repoVisibility).not.toHaveBeenCalled();
+  });
+
+  it("an unreadable default branch fails instead of protecting a guessed 'main'", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      defaultBranch: async () => {
+        throw new Error("gh api failed (code 1): gh: Server Error (HTTP 502)");
+      },
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/could not read the default branch of o\/r/);
+    expect(r.notes).toContain("HTTP 502");
+    expect(calls).toEqual([]);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("a refused config read fails instead of opening a PR that overwrites the config", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: ghAnswering({
+        code: 1,
+        stderr: "gh: Resource not accessible by integration (HTTP 403)",
+      }).fileContentsOnBranch,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain("HTTP 403");
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
   });
 });

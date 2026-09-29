@@ -262,6 +262,16 @@ jobs:
           fi
           echo "PASS: $line"
 
+          # P1-20. The digest sends only when its item set changed (or weekly), and
+          # the record of what it last sent is this write. If it stops landing, every
+          # run reads "never sent" and the daily nag comes back without an error.
+          sendlog=$(grep -a '^DIGEST_SEND_LOG ' "$out/digest.out" | tail -1 || true)
+          if [ "$(printf '%s\n' "$sendlog" | sed -nE 's/.* write=([0-9]+).*/\1/p')" != "1" ]; then
+            echo "::error::digest: send-log write missing or failed (${sendlog:-no DIGEST_SEND_LOG line}) — tomorrow's digest cannot tell what it already sent."
+            exit 1
+          fi
+          echo "PASS: $sendlog"
+
       # Keepalive (inline, dependency-free): re-enabling an already-enabled
       # workflow is a no-op that still resets GitHub's 60-day auto-disable
       # timer for scheduled workflows on quiet repos. continue-on-error so

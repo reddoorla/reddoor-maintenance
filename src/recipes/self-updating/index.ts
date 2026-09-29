@@ -91,7 +91,16 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
   if (!deps.github && !cfg) return resultOf(site, "failed", "GITHUB_TOKEN not set");
   const github = deps.github ?? makeGitHub({ token: cfg!.token });
 
-  const base = await github.defaultBranch(repo).catch(() => "main");
+  let base: string;
+  try {
+    base = await github.defaultBranch(repo);
+  } catch (err) {
+    return resultOf(
+      site,
+      "failed",
+      `could not read the default branch of ${repo}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   const actions: string[] = [];
   const commits: string[] = [];
   // Hoisted so the `finally` can restore the operator's branch even when a
@@ -233,7 +242,15 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
       await github.disableRepoAutoMerge(repo);
       actions.push("disabled auto-merge (platform auto-merge is not permitted fleet-wide)");
     }
-    const existingContexts = await github.branchProtectionContexts(repo, base);
+    const existingContexts = await github
+      .branchProtectionContexts(repo, base)
+      .catch((err: unknown) => {
+        throw new Error(
+          `could not read branch protection on ${base}, so it was not written: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
     if (!existingContexts.includes(REQUIRED_CHECK)) {
       // protectBranch issues a full PUT that REPLACES required-status-check contexts.
       // Send the UNION of the branch's existing required contexts + our REQUIRED_CHECK
