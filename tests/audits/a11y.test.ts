@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, chmod } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -1391,31 +1392,32 @@ describe("audits/a11y — describeSkipped pairs routes with reasons once reasons
   });
 });
 
+/** The spec a default site gets, captured as text. */
+async function specOf(): Promise<string> {
+  const cwd = await tmpSite();
+  const sink = { spec: "" };
+  await a11yAudit({
+    site: { path: cwd },
+    spawn: async (_cmd, args, opts) => {
+      sink.spec = await readFile(args[args.length - 1] as string, "utf-8");
+      const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
+      await mkdir(out, { recursive: true });
+      await writeFile(
+        join(out, "results.json"),
+        JSON.stringify({ totalViolations: 0, byImpact: {} }),
+      );
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  });
+  return sink.spec;
+}
+
 /**
  * #100. What the reveal DOES is proven in a real Chromium by
  * a11y-live-spec.test.ts; this pins where it sits in the spec, which a browser
  * run alone would not name if it went wrong.
  */
 describe("audits/a11y — the page is scrolled through before axe runs (#100)", () => {
-  async function specOf(): Promise<string> {
-    const cwd = await tmpSite();
-    const sink = { spec: "" };
-    await a11yAudit({
-      site: { path: cwd },
-      spawn: async (_cmd, args, opts) => {
-        sink.spec = await readFile(args[args.length - 1] as string, "utf-8");
-        const out = join(opts?.cwd ?? process.cwd(), ".reddoor-a11y");
-        await mkdir(out, { recursive: true });
-        await writeFile(
-          join(out, "results.json"),
-          JSON.stringify({ totalViolations: 0, byImpact: {} }),
-        );
-        return { code: 0, stdout: "", stderr: "" };
-      },
-    });
-    return sink.spec;
-  }
-
   it("the generated spec runs the exported function, not a copy of it", async () => {
     expect(await specOf()).toContain(`const revealBelowFold = ${revealBelowFold.toString()};`);
   });
@@ -1435,5 +1437,67 @@ describe("audits/a11y — the page is scrolled through before axe runs (#100)", 
     expect(axeAt).toBeGreaterThan(revealAt);
     // Once, in the axe loop — not in the hydration smoke, which runs no axe.
     expect(spec.split("page.evaluate(revealBelowFold)").length - 1).toBe(1);
+  });
+});
+
+/**
+ * #52. That the preload is really off in a browser — no connect-src report
+ * from the site's CSP — is proven by a11y-live-spec.test.ts. This pins the
+ * option and its position in the chain.
+ */
+describe("audits/a11y — axe runs without its CSSOM preload (#52)", () => {
+  const axeChain = (spec: string): string => {
+    const start = spec.indexOf("new AxeBuilder({ page })");
+    const end = spec.indexOf(".analyze()", start);
+    // Not a soft fallback: a chain this cannot find would pass both checks below.
+    if (start < 0 || end < 0) throw new Error("generated spec has no AxeBuilder chain");
+    return spec.slice(start, end);
+  };
+
+  it("the axe config carries preload: false", async () => {
+    expect(axeChain(await specOf())).toContain(".options({ preload: false })");
+  });
+
+  // AxeBuilder.options() REPLACES the options object that withTags() writes
+  // runOnly into. After withTags(), it would drop the WCAG filter silently.
+  it("sets the options before the tags, so the tag filter survives", async () => {
+    const chain = axeChain(await specOf());
+    expect(chain.indexOf(".options(")).toBeGreaterThan(-1);
+    expect(chain.indexOf(".withTags(")).toBeGreaterThan(chain.indexOf(".options("));
+  });
+
+  // The claim the spec's comment makes, as code: turning the preload off costs
+  // the gate no violation it could have raised. A rule that reads preloaded
+  // assets is harmless here only if these tags never run it, or if it can only
+  // ever report `incomplete`. Read against the axe-core that
+  // @axe-core/playwright resolves in THIS repo — a site's own install may
+  // differ, and a new axe-core that adds a preload rule the gate would run
+  // fails here and forces the decision to be made again.
+  it("no rule the gate runs needs the preload to raise a violation", async () => {
+    type AxeRule = { id: string; tags: string[]; preload?: boolean; reviewOnFail?: boolean };
+    const fromAxePlaywright = createRequire(
+      createRequire(import.meta.url).resolve("@axe-core/playwright"),
+    );
+    const axe = fromAxePlaywright("axe-core") as {
+      _audit: { rules: AxeRule[]; tagExclude: string[] };
+    };
+    const tags = JSON.parse(
+      axeChain(await specOf()).match(/\.withTags\((\[[^\]]*\])\)/)?.[1] ?? "null",
+    ) as string[] | null;
+    if (tags === null) throw new Error("generated spec has no withTags([...]) call");
+
+    // axe's own tag matching: run when any tag matches, unless the rule carries
+    // a default-excluded tag ("experimental", "deprecated") the gate did not ask for.
+    const excluded = axe._audit.tagExclude.filter((t) => !tags.includes(t));
+    const runs = (rule: AxeRule) =>
+      rule.tags.some((t) => tags.includes(t)) && !rule.tags.some((t) => excluded.includes(t));
+
+    const preloading = axe._audit.rules.filter((r) => r.preload === true);
+    // Not vacuous: axe-core 4.13 has two such rules. If this ever reads zero,
+    // the property below is being checked over nothing.
+    expect(preloading.length).toBeGreaterThan(0);
+    expect(preloading.filter((r) => runs(r) && r.reviewOnFail !== true).map((r) => r.id)).toEqual(
+      [],
+    );
   });
 });

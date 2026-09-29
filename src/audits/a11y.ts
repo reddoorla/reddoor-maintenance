@@ -451,7 +451,20 @@ test("a11y + hydration across configured routes", async ({ page }) => {
     // through that -- the text fell out of the result instead of failing it.
     // After the sheet above, so each reveal snaps to its final state as it fires.
     await page.evaluate(revealBelowFold);
+    // preload: false (#52). axe's CSSOM preload re-fetches every cross-origin
+    // stylesheet with an XHR, which a site's CSP judges under connect-src, not
+    // style-src. A site allowing fonts.googleapis.com for styles only got a
+    // real connect-src report posted on every audit, and the failed preload
+    // was dropped anyway. Nothing the gate can fail on is lost: in axe-core
+    // 4.13 only css-orientation-lock (tagged experimental, so these tags never
+    // run it) and no-autoplay-audio (reviewOnFail, so it can only ever be
+    // incomplete) read preloaded assets.
+    //
+    // .options() comes FIRST: it replaces the whole options object, and
+    // withTags() writes runOnly into it. Called after, it would drop the tag
+    // filter without a word and axe would run every rule it has.
     const results = await new AxeBuilder({ page })
+      .options({ preload: false })
       .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
       .analyze();
     for (const v of results.violations) {

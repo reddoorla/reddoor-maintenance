@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -77,6 +77,12 @@ function plainPage(title: string): string {
  *
  * Both reveals hold `#aaa` text on white (2.32:1), so a `color-contrast`
  * violation naming them exists only if axe measured them revealed.
+ *
+ * `#outside-landmarks` fails axe's `region` rule, which is tagged
+ * `best-practice` only. The gate asks for WCAG tags, so it must never appear;
+ * if it does, the tag filter was lost. `AxeBuilder.options()` REPLACES the
+ * options object `withTags()` writes into, so the wrong call order drops the
+ * filter silently and axe runs every rule it has.
  */
 const FIXTURE_PAGE = `<!doctype html>
 <html lang="en">
@@ -101,6 +107,7 @@ const FIXTURE_PAGE = `<!doctype html>
   <div class="reveal" id="below-fold"><p class="faint" id="below-fold-text">Revealed once scrolled to</p></div>
   <div class="reveal" id="gap-band"><p class="faint" id="gap-band-text">Revealed in the top three quarters of the viewport</p></div>
 </main>
+<div id="outside-landmarks">Outside every landmark</div>
 <script>
   for (const [id, rootMargin] of [["below-fold", "0px"], ["gap-band", "0px 0px -25% 0px"]]) {
     const el = document.getElementById(id);
@@ -203,7 +210,20 @@ type Violation = {
   nodes?: Array<{ target?: string[] }>;
 };
 
-describe("audits/a11y — the generated spec, run in a real Chromium (#100)", () => {
+async function readJsonl(path: string): Promise<Array<Record<string, unknown>>> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf-8");
+  } catch {
+    return [];
+  }
+  return raw
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)", () => {
   let site = "";
   let result: AuditResult | undefined;
 
@@ -240,5 +260,16 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100)", ()
 
   it("reaches a reveal that only observes the top three quarters of the viewport", () => {
     expect(contrastTargets()).toContain("#gap-band-text");
+  });
+
+  it("does not re-fetch the page's cross-origin stylesheet, so the site's CSP is not tripped (#52)", async () => {
+    const hits = await readJsonl(join(site, "cross-origin.jsonl"));
+    const reports = await readJsonl(join(site, "csp-reports.jsonl"));
+    // The scenario was live: the page itself loaded the cross-origin sheet …
+    expect(hits.filter((h) => h.url === "/fonts.css").length).toBeGreaterThan(0);
+    // … and reports reach the server: the canary image's img-src report arrived.
+    expect(reports.map((r) => String(r.directive).split(" ")[0])).toContain("img-src");
+    // Only with both shown does the missing connect-src report mean anything.
+    expect(reports.filter((r) => String(r.directive).startsWith("connect-src"))).toEqual([]);
   });
 });
