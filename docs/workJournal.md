@@ -5173,7 +5173,7 @@ Beliefs corrected on contact:
 
 The spawn reap-test race from the #954 entry is being handled in a separate session the operator started.
 
-## 2026-09-29 — The spawn reap test waits out PID 1, and its cleanup can no longer be the failure (#960, `claude/charming-meitner-28381c`)
+## 2026-09-29 — The spawn reap test waits out PID 1, and its cleanup can no longer be the failure (#960, PR #972)
 
 `tests/audits/util/spawn.test.ts` › "kills a non-detached grandchild in the timed-out child's
 group" failed once under full-suite load that day with `Error: kill ESRCH` at l.261. It passed
@@ -5196,27 +5196,41 @@ The mechanism, measured in a cloud container:
   unguarded `process.kill(grandPid, "SIGKILL")` threw ESRCH. A reap landing later failed
   `expected true to be false` instead.
 
-The fix: poll to a 5 s deadline, always probing after the last wait, and wrap the cleanup kill
-in try/catch. `testTimeout` is 120 s, so the longer poll fits. A passing run still ends at the
-1.5 s spawn timeout plus the reap: 2.6–3.5 s here.
+The fix has three parts:
+
+- **A deadline poll.** The test polls to a 4 s deadline, and always probes after the last wait.
+- **A guarded cleanup.** The cleanup kill is wrapped in try/catch.
+- **A two-sided probe.** Only ESRCH counts as reaped; any other error from the probe is thrown,
+  so the probe cannot pass vacuously.
+
+A passing run still ends at the 1.5 s spawn timeout plus the reap: 2.6–3.5 s here.
+
+**Why 4 s and not 5.** The first push used 5 s, and the adversarial review caught it. 5 s equals
+`defaultSpawn`'s SIGKILL grace (`killGraceMs ?? 5000`), so the poll outlived the escalation.
+With a mutation that sends SIGTERM to the child only and SIGKILL to the group, and a reaper that
+clears zombies at once (standing in for a runner or the laptop), the 5 s test passed 2/2 at
+6.54 s. The grandchild had died only to the late SIGKILL, a timer that is `unref()`'d and may
+never fire in the real CLI. At 4 s the same mutation fails 3/3 under the instant reaper and 1/1
+under the container's own PID 1. The mocked unit tests already caught that mutation; the
+integration test now catches it too. 4 s leaves 2.0× headroom over the slowest reap measured
+(1991 ms).
 
 To prove that the test still discriminates, and to find each version's edge, a Python harness
 (`prctl(PR_SET_CHILD_SUBREAPER)`) ran vitest as its child. It adopted the orphaned `sleep`s and
 held each zombie for a set time before reaping it:
 
-| zombie held         | old test                                        | new test                                                    |
-| ------------------- | ----------------------------------------------- | ----------------------------------------------------------- |
-| 300 ms              | pass                                            | pass                                                        |
-| 2030 ms             | `kill ESRCH` at l.261, the incident's signature | pass                                                        |
-| 2060, 2500, 4500 ms | `expected true to be false`                     | pass                                                        |
-| 4960, 4990, 5010 ms | (not run)                                       | pass; at 5010 the reap landed in the final wait and counted |
-| 5030, 5060, 6000 ms | at 6000 only: `expected true to be false`       | `expected true to be false` at l.275, never ESRCH           |
+| zombie held               | old test                                        | new test (4 s deadline)                                     |
+| ------------------------- | ----------------------------------------------- | ----------------------------------------------------------- |
+| 300 ms                    | pass                                            | pass (measured on the 5 s version)                          |
+| 2030 ms                   | `kill ESRCH` at l.261, the incident's signature | pass                                                        |
+| 2060, 2500 ms             | `expected true to be false`                     | pass (measured on the 5 s version)                          |
+| 3500, 3960, 3990, 4010 ms | not run                                         | pass; at 4010 the reap landed in the final wait and counted |
+| 4030, 4060 ms             | not run                                         | `expected true to be false` at l.278, never ESRCH           |
 
 Reverting `spawn.ts` to the pre-fix shape (`detached: false`, and `killImpl(child.pid, …)`
-instead of the group) turns the test red after 6.5 s on its assertion. The cleanup killed the
+instead of the group) turns the test red after 5.5 s on its assertion. The cleanup killed the
 orphaned `sleep 100`, so none leaked. The three mocked group-kill unit tests go red as well.
-Restored, the file passed 8/8 alone, and the full suite passed once (531 files, 7587 tests,
-exit 0).
+Restored, the file passed 5/5 alone against the container's PID 1.
 
 Beliefs corrected on contact:
 
@@ -5224,16 +5238,23 @@ Beliefs corrected on contact:
   kill is not slow; PID 1's reaping of the zombie is, and it is slow with no load at all. The
   container's reaper alone spans about 1.0–2.0 s against a 2.0 s window. #960 had already said
   the failure "depends on the reaper, not on load", and these measurements agree.
+- "A longer deadline only makes the test more patient." It also changes what the test can
+  prove: a poll that outlives the SIGKILL grace cannot tell the group SIGTERM from the
+  escalation. The deadline has to stay under `killGraceMs`.
 - BACKLOG listed #960 as owned by another session that "has a tested patch". No pushed branch
   changed `spawn.test.ts`, so that patch lived only in that session's container. This session
   claimed the issue before starting.
 
-Not taken: #960's proposal to count a zombie as dead via `ps -o stat= -p <pid>`. It would make
-the test independent of the reaper; the deadline only gives 2.5× headroom over the slowest reap
-measured. If a reaper ever holds zombies past about 5 s, the test fails its assertion, cleanly,
-and that proposal is the change to revive. Its costs are a `ps` subprocess per probe and a stat
-format that differs by platform.
+Not taken: #960's first proposal, counting a zombie as dead via `ps -o stat= -p <pid>`. It would
+make the test independent of the reaper; the deadline only gives 2.0× headroom over the slowest
+reap measured. If a reaper ever holds zombies past about 4 s, the test fails its assertion,
+cleanly, and that proposal is the change to revive. Its costs are a `ps` subprocess per probe and
+a stat format that differs by platform. #960 stays open for it.
 
-Honest accounting: the old test passed on GitHub runners and on the laptop because their init
-reaps promptly, so this flake is shaped by the cloud container. The rate #960 estimated (about
-1 in 180 runs) is its own; this session did not re-measure it.
+Also not taken: the test's `mkdtemp` directory is never removed (45 `reddoor-spawn-int-*` dirs in
+this container). That predates this change.
+
+Honest accounting: the old test is presumed to pass on GitHub runners and the laptop because
+their init reaps promptly. That is inferred, not measured here; #960 says only that the failure
+is "rarer there". The rate #960 estimated (about 1 in 180 runs) is its own; this session did not
+re-measure it.

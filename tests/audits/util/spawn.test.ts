@@ -251,15 +251,18 @@ describe("defaultSpawn real process-group reap (integration)", () => {
     // Poll for the reap against a deadline, and always probe AFTER the last wait:
     // the killed sleep lingers as a zombie until PID 1 reaps it (up to ~2 s in a
     // cloud container), so a reap landing in the final wait must count as reaped.
+    // The deadline stays under defaultSpawn's 5 s SIGKILL grace, so only the
+    // SIGTERM group kill can pass this, never the escalation.
     const isAlive = (pid: number): boolean => {
       try {
         process.kill(pid, 0); // signal 0 = liveness probe
         return true;
-      } catch {
-        return false; // ESRCH → the grandchild was reaped
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ESRCH") return false; // reaped
+        throw e;
       }
     };
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 4000;
     let alive = isAlive(grandPid);
     while (alive && Date.now() < deadline) {
       await delay(50);

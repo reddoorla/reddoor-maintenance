@@ -155,7 +155,10 @@ the roster URL, so it can never see a `building` site like the-pointe-burbank.
 
 ### Watching, owned elsewhere
 
-- None. #960 (the `spawn.test` zombie flake) moved to _Done_ on 2026-09-29.
+- **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
+  the `spawn.test` reap test. Unowned, and needed only if a reaper ever holds
+  zombies past ~4 s (the test then fails its assertion cleanly). The flake
+  itself is fixed; see _Done_.
 
 ---
 
@@ -248,11 +251,11 @@ Ordered by what unblocks the most. Each line is the exact ask.
 
 ## Done (move items here when they land)
 
-- 2026-09-29 — #960: the `spawn.test` grandchild-reap test polls to a 5 s
-  deadline, probes after its final wait, and its cleanup kill ignores `ESRCH`
-  (`claude/charming-meitner-28381c`). The test only; `spawn.ts` is unchanged.
-  The issue's third suggestion, counting a zombie as dead via `ps`, was not
-  taken, so a reaper slower than ~5 s would still fail the test.
+- 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
+  4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its
+  final wait, counts only ESRCH as reaped, and its cleanup kill ignores `ESRCH`
+  (#972). The test only; `spawn.ts` is unchanged. #960 stays open for its first
+  suggestion, counting a zombie as dead via `ps` (see _Watching_).
 
 - 2026-09-29 — P1-8 / #907: the prospect-audit daily cap reserves a `running`
   row before the spend, atomically, and counts finished plus non-stale running
