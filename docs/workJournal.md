@@ -5816,20 +5816,35 @@ Discord, Figma comments and the MarkUp boards could not be reached from a cloud 
 
 **Honest accounting.** The rule counts are distinct instances as the miners reported them, not a deduplicated census. One fix PR, its journal entry and its commit subject can describe the same event, and some rules count all three. The ranking is frequency × testability, judged per rule, and is not a formula. Nothing here has been run against a page. Every "check" line is a proposal until a fixture shows it passing on a known-good page and failing on the real past defect it cites.
 
-## 2026-09-29 — The a11y audit stores the routes it covered, not only its violation count (P1-7, #910, #1005)
+## 2026-09-29 — Beachfront's self-comparing matching scripts deleted: 101, not 33 (#728, beachfront#69 `e3547dfe`)
 
-#910's complaint was that `2 of 2 routes, 0 violations` and `1 of 2 routes, 0 violations` were byte-identical everywhere outside one log line. The only a11y number that reached Turso was `a11y_violations`. So a site that lost half its a11y coverage kept reporting the same number. This change stores the other two numbers.
+The operator's call on #728 was to delete, not to route through the read
+layer. The issue's premise had moved since it was filed: beachfront#54 deleted
+the 16 `sweep*.sh`, and beachfront#65 put 17 probes behind `assertRef`,
+which is fail-closed, so those now refuse where they used to match. Re-measured
+on beachfront `5221c02`, 147 tracked top-level scripts hard-code
+`https://[www.]beachfrontdentistry.com` or `beachfront-dentistry.webflow.io`.
+The 101 deleted were the ones that also load a candidate, carry no guard, and
+are named nowhere but LEDGER. The guard grep was first shown to hit on
+`probe-cut.mjs`, a known-guarded probe. #728's 33 does not reproduce from any
+grep shape tried, so the shape is recorded in beachfront's journal, not the
+number.
 
-The audit result now carries `details.routes = { scanned, total }`. They are computed with the very expression the summary's count phrase already uses: `total` is `axePages.length`, the list that actually ran, fixtures plus `package.json#reddoor.a11yRoutes`, and `scanned` is that minus the spec's skip list. `audit --write-back` writes them to `site_health.a11y_routes_scanned` / `a11y_routes_total`. Those are migrations 0033 and 0034, one ADD COLUMN each like #986's, with 0033 checked against every origin branch first. `fleet-state` and `mapRow` read them into `WebsiteRow`. The site page's Accessibility tile says "only 1 of 2 routes scanned" or "2 of 2 routes scanned". The cockpit card reads `0 (1/2 routes)` for a partial run and stays `0` for a complete one. A result without route counts writes NULL, which clears the previous run's counts instead of inheriting them. The done-when is pinned end to end by `tests/audits/a11y-routes-turso.test.ts`: a 1-of-2 run and a 2-of-2 run go through `writeBackOneSite` → `mirrorHealthFields` → `getSiteBySlug` on in-memory libSQL, both with 0 violations, and read back `[1,2]` and `[2,2]`.
+**The brief was wrong about `gate.sh`, and the brief's own keep rule caught
+it.** #728 described gate.sh's REF as the dead webflow host. It now reads REF
+from harness.json and refuses through `--check-ref`. Beachfront is also the
+source `gen-match-harness-template.mjs` cuts the recipe from (`SRC` defaults to
+the laptop's beachfront checkout), so deleting gate.sh there would have left the
+next template regeneration without its upstream. Also kept: the recipe harness,
+the 17 guarded probes, config-driven tools, 37 reference-only measurement
+scripts (they compare nothing), 7 scripts cited from `src/` or `SPEC.md`, and
+`probe-markup-i2-z3`/`-z4`/`-z5` (localhost only), which the brief's
+`probe-markup-i2-z*` glob would otherwise have swept in.
 
-**Mutations.** I named eleven before writing the code. Nine went red. One survived because it is equivalent: dropping the column from `HEALTH_NUMERIC` changes nothing, since an INTEGER column's type affinity turns the text "1" back into 1. The other survivor was real: a negative count was accepted, which got its own test. Round 1 of the 3-lens review workflow found no correctness or integration defect, but its test lens ran eighteen more mutations and three survived. Each would have let a wrong value ship:
-
-- `total` counting only the fixtures, the #697 regression, reborn in the stored column, because every #910 test used a fixtures-only site;
-- `scanned` subtracting only absent-fixture skips, because the only skip in those tests was the absent `animate-in` fixture, so a placeholder-repo skip went untested;
-- `count()` rejecting 0, which would have made a run that scanned nothing read as unknown rather than as the worst partial run.
-
-The existing placeholder test now also pins `{ scanned: 2, total: 3 }`, and 0-of-2 is pinned in the fields, Turso and render tests. Round 2 was clean on all three lenses: thirteen further mutations, twelve red, and the survivor needs a state the writer cannot produce. The full suite passed on both rounds (8042 tests), always run with the Turso variables unset.
-
-**Honest accounting.** This closes the smaller half of #910. No fleet sweep runs the a11y audit, so these columns fill only when someone runs `audit --write-back` from a site checkout. Until the issue's other half lands, the surfaces show nothing new on any row. The report gate does not read the counts. Whether a partial run should make the report's a11y evidence "unknown" is a product call, and this PR did not make it.
-
-**Worth knowing before the surface gets noisy.** Round 2's correctness lens pointed out that a site which declares a fixture absent on purpose, or runs on the placeholder Prismic repo, stores scanned below total every time. So its tile will always read "only N of M routes scanned". That is the #863 rule the summary already follows: a skipped route never reads as scanned. Whether a declared absence should count against "complete" is the obvious refinement if the marker turns out to be noise.
+Re-probed: webflow.io 404 (906 bytes). `www.` 301 to the apex. The apex is 200
+and carries `candMark` 29 times, which proves by fingerprint that it is our
+build. Beachfront lint, check, 812/812 unit tests and build were green. The
+manual `node --test matching/probe-ref.test.mjs` is 24/25 on both the branch and
+`main`; the failure is `probe-footer-chrome.mjs` exiting 1 where 2 is expected.
+It predates the change and is not in CI, and it is left for whoever next touches
+beachfront matching.
