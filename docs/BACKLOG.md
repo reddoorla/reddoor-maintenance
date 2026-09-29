@@ -280,8 +280,11 @@ Ordered by what unblocks the most. Each line is the exact ask.
       operator's markup:
       [`docs/cockpit-design-brief-2026-09.md`](cockpit-design-brief-2026-09.md).
     - #674 (design-review tool): mine the rules only. Rules mined in
-      `docs/design-review-rules-2026-09.md` (#1012); awaiting the operator's
-      accept/cut, plus a call on a `data-bleed`-style full-bleed opt-in.
+      `docs/design-review-rules-2026-09.md` (#1012). Answered 2026-09-29:
+      rule 23 became a flag, six single-site rules and five seen-once rules
+      kept, and the full-bleed opt-in is `data-bleed`. The second pass (Discord,
+      Figma, MarkUp) waits on credentials, Figma team or project IDs, and a
+      private home for the corpus; the file's last section lists them.
     - Still open, on the laptop: #773 (local-only git objects).
 19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
     rule, then, after two sessions built it in parallel (`f6d5ee8c` on #975,

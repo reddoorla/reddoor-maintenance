@@ -5,6 +5,14 @@ look and behave. Each rule is mined from review notes that already exist and eac
 stated so that a running page could be checked against it. **No code yet** (operator, 2026-09-29).
 This file is the list to accept or cut. It is not a spec.
 
+## Operator decisions, 2026-09-29
+
+- **Full-bleed opt-in: `data-bleed`.** Accepted. Rules 1, 8 and 16 read it, and nothing else counts as full-bleed.
+- **Rule 23 (art-directed crops) is not a rule.** It moves to Flags, as something worth raising in review. The number stays retired so the other rule numbers keep their meaning.
+- **No other numbered rule was cut.**
+- **Single-site rules:** six kept, three cut. The cuts are the scroll-follower that must never jump, the column gutter ("we want them flush for some designs"), and mobile-is-not-the-comp-scaled-down.
+- **Seen once:** five kept, the rest left out.
+
 ## How it was mined, and what it could not see
 
 A cloud session could read these sources, and they are what this list is built from:
@@ -71,9 +79,10 @@ is full-bleed when it sits in a band's `<section>` but outside that band's conte
   overshooting `100vw` element is clipped rather than scrolled. A horizontal-scroll check therefore
   cannot see an overhang; only comparing boxes against the content box can.
 
-So rule 1 comes with a prerequisite that is itself an operator decision: **an explicit full-bleed opt-in**
-(e.g. `data-bleed`) in both starters. Without one, the checker has to infer intent from `w-screen`, and #674
-says full-bleed should never be inferred.
+So rule 1 comes with a prerequisite: an explicit full-bleed opt-in in both starters. **Decided on 2026-09-29:
+`data-bleed`.** Until the starters carry it, a checker would have to infer intent from `w-screen`, and #674 says
+full-bleed should never be inferred. Adding it to the starters is a change to those repos, so it lands there,
+not here.
 
 ---
 
@@ -557,23 +566,7 @@ Also:
   at 116. **Fully testable.**
 - **False-positive risk:** medium. This is in tension with rule 1 and with Tucker's "kill the maxwidths" (reddoor-website audit report, which deliberately runs full width). Captions and legal text are exceptions.
 
-### 23. Each image is art-directed per breakpoint: a phone gets a portrait crop anchored on the subject, not the CMS auto-crop or the desktop master
-
-**≈15 instances on 4 sites.**
-
-- vida-legacy-foundation `src/lib/components/HeroBackgroundImage.svelte:6`: "on a phone a full-bleed hero is PORTRAIT while the master is landscape (hence the optional art-directed <source>"
-- reddoor-website `docs/workJournal.md:332`, 2026-09-14: "The smoke test that refuses an untouched auto-crop as the phone backdrop is what makes the distinct mobile crop a requirement rather than a habit."
-- meta-week `_research/proj-04-client-sites-quiet.md:323`, 2026-08-10, Erik (hedloc): "Anchor the image so that we either see more of the bookshelf or more of the coffee table, whichever one is more pleasing?"
-
-- **Check:**
-  - On a full-bleed hero at 390×664, assert that the image served is a distinct portrait-ratio rendition (from a
-    `<picture><source media>` or a Prismic thumbnail other than the main one), not the landscape master scaled
-    by `object-cover`.
-  - Assert that `object-position` is set, not the default `50% 50%`, wherever the author provided a focal point.
-
-  **Partly testable.** Whether the crop is _good_ (the face, the couch) is judgment.
-
-- **False-positive risk:** medium. A band that keeps the comp's landscape shape at every width needs no portrait source (vida `docs/layout.md:209`).
+### 23. (Moved to Flags: not a rule. Operator, 2026-09-29.)
 
 ### 24. A blend layer is isolated, and nothing above it inside its stacking context carries transform, opacity or filter
 
@@ -606,9 +599,9 @@ The issue's seed rule.
 
 ---
 
-## Single-site clusters (strong on one site; confirm they generalise before encoding)
+## Single-site rules (kept by the operator, 2026-09-29)
 
-Each of these is well evidenced on one site. Each is also cheap to test, so it could be encoded early if the operator thinks it holds across the fleet.
+Each is evidenced mainly on one site. The operator kept these six and cut three: the scroll-follower that must never jump, the column gutter ("we want them flush for some designs"), and mobile-is-not-the-comp-scaled-down.
 
 - **Labels sit on the baseline of the text beside them, then 1px higher.** Seen 4× on reddoor-website: #213, #217, and
   `RailRow.svelte:39` quoting Tim: "the baseline of this text should align to the baseline of the headline to the right".
@@ -626,15 +619,6 @@ Each of these is well evidenced on one site. Each is also cheap to test, so it c
 - **The wave divider is one clean period, and nothing touches it.** Seen 5+4× on beachfront (`LEDGER.md:3534`, "sine should be only
   up/down on each page landing at the same height"; `tests/interaction/wave-divider.spec.ts` `MIN_CLEARANCE = 8`)
   and once on gallerysonder (#27). The clearance half is really rule 6.
-- **A scroll-following element glides or sticks; it never jumps.** Seen 6× on beachfront, where a single behaviour went through 7 directives
-  (`LEDGER.md:4118`, "I still don't like how jittery the doctor's photo … moves down from one question to the next").
-  _Partly testable:_ sample its y per scroll step and fail on any step larger than the scroll delta.
-- **Side-by-side columns always have a gutter, taken out of each column's width.** Seen 4× in reddoor-starter
-  (#56: "the aerial photo and the glass-tower photo render **flush** (measured meeting at exactly x=823)").
-  _Fully testable._
-- **Mobile is not the comp scaled down: %-of-width geometry is re-derived for portrait.** Seen 6× on vida (#33: "The comp's
-  187.2% is a percentage of _width_, which on a 390×664 phone is 730px wide and 637px tall — it never covered").
-  In practice rules 7, 10 and 23 cover it.
 - **Modals are centred, keep a side gutter, scroll-lock the page, and show a cue when the sheet scrolls.** Seen on the starter and on vida
   (reddoor-starter #142: "the open modal's gaps were **16px left and 737px right**"; vida #28, #43).
   _Fully testable_ (`tests/interaction/modal-centring.spec.ts` exists in both starters). This could be promoted to the main list.
@@ -668,24 +652,35 @@ These go in the starter's written guide, per #674. A model can read them but can
 - **Alignment and size are judged on painted ink, not CSS boxes.** Seen on the-pointe (Nicole, meta-week `04-journal:868`: "equal width
   in that row is not equal size to the eye") and reddoor-website `commits.jsonl:1968` ("centre step numerals on their ink").
 
-## Seen once
+## Seen once (kept by the operator, 2026-09-29)
+
+The operator kept five of the sixteen and left the rest.
 
 - **Only one floating control holds a screen corner at a time,** inset 24px (reddoor-website #174, `workJournal.md:914`, 2026-09-09).
 - **Page transitions flash white or brand colour, never black.** beachfront `LEDGER.md:2940`, 2026-08-10: "it goes black and then loads the next page".
-- **The active item is featured and the rest step back.** roalson, the operator, `workJournal.md:12219`, 2026-09-29: "whatever the active pin is should stay full opacity and the rest should be slightly reduced opacity".
 - **A manual carousel turn animates like an automatic one.** roalson, the operator, `workJournal.md:9122`, 2026-09-23.
 - **User navigation on a carousel restarts the autoplay delay.** 29-navy #22, 2026-09-11.
 - **Hidden images (popups, floor plans) are warmed after load so they do not pop in.** 29-navy #17, 2026-09-10.
-- **Images fade in once decoded; they never pop in.** gallerysonder #30, 2026-06-18.
-- **Hero text sits on the bottom edge however many lines the title wraps to.** gallerysonder #60, 2026-07-31.
-- **Nested fades must not multiply.** roalson `workJournal.md:5931`, 2026-09-22; also the-pointe, meta-week `04-journal:892`.
-- **A busy button stays at full strength (no dimming while the user waits).** reddoor-starter #139, 2026-09-16.
-- **Form text is at least 16px (iOS zooms otherwise), and an invalid state is never colour-only.** roalson `workJournal.md:3465`.
-- **A number coloured as an alarm tracks its value (a red zero is a false alarm).** reddoor-website #142, 2026-08-26.
-- **Only real font cuts; no faux weights.** reddoor-website #35, 2026-06-16.
-- **Every page offers a route into the site.** gallerysonder `/rsvp/*`, meta-week `04-journal:516`. Left as a design decision.
-- **Primary CTAs sit above the fold.** Erik, hedloc, meta-week `proj-04:318`. The audit backlog already cut this as an automated check ("'the fold' are both judgments").
-- **Continuous motion is one compositor-driven transform transition.** roalson #204, the operator: "can it be one clean transform scale with a transition? this seems overbuilt".
+
+## Flags (worth raising in review, not rules)
+
+### F1 (was rule 23). Each image is art-directed per breakpoint: a phone gets a portrait crop anchored on the subject, not the CMS auto-crop or the desktop master
+
+**≈15 instances on 4 sites.**
+
+- vida-legacy-foundation `src/lib/components/HeroBackgroundImage.svelte:6`: "on a phone a full-bleed hero is PORTRAIT while the master is landscape (hence the optional art-directed <source>"
+- reddoor-website `docs/workJournal.md:332`, 2026-09-14: "The smoke test that refuses an untouched auto-crop as the phone backdrop is what makes the distinct mobile crop a requirement rather than a habit."
+- meta-week `_research/proj-04-client-sites-quiet.md:323`, 2026-08-10, Erik (hedloc): "Anchor the image so that we either see more of the bookshelf or more of the coffee table, whichever one is more pleasing?"
+
+- **Check:**
+  - On a full-bleed hero at 390×664, assert that the image served is a distinct portrait-ratio rendition (from a
+    `<picture><source media>` or a Prismic thumbnail other than the main one), not the landscape master scaled
+    by `object-cover`.
+  - Assert that `object-position` is set, not the default `50% 50%`, wherever the author provided a focal point.
+
+  **Partly testable.** Whether the crop is _good_ (the face, the couch) is judgment.
+
+- **False-positive risk:** medium. A band that keeps the comp's landscape shape at every width needs no portrait source (vida `docs/layout.md:209`).
 
 ## What the seeds turned into
 
@@ -713,11 +708,36 @@ These go in the starter's written guide, per #674. A model can read them but can
   `focus-floor.test.ts` (roalson). Each is one site's version of a rule above, and a ready-made fixture for
   "fails on a real past page".
 
-## Asks for the operator
+## The second pass: what it needs
 
-1. **Accept or cut** each numbered rule (1–25), and say whether any single-site cluster should be promoted.
-2. **The full-bleed opt-in.** Rules 1, 8 and 16 need an explicit marker in both starters (e.g. `data-bleed`) rather
-   than inferring intent from `w-screen`. The name and the mechanism are a design call.
-3. **The second pass:** a laptop session over Discord (the project channels, for notes that never became a PR),
-   Figma comments, the MarkUp boards, and `reddoorla/claude-skills`. It should add instances to these rules and
-   look specifically for the gutter-collapse seed.
+The pass reads Discord, Figma comments and the MarkUp boards, and it re-reads `reddoorla/claude-skills`.
+`claude-skills` is no longer blocked: it attached to a cloud session on 2026-09-29. The other three need
+credentials, network access, and one decision about where the corpus lives.
+
+**Where it runs.** There are two options:
+
+- **On the laptop.** Everything is already there: `DISCORD_BOT_KEY` in the repo `.env`, and `MARKUP_API_KEY` in
+  `~/.config/reddoor-maint/credentials.env`. Discord calls have to run unsandboxed, because `discord.com` is off
+  the sandbox allowlist. Figma still needs a token.
+- **In the cloud.** The environment needs three read-only secrets and matching network access:
+  - `DISCORD_BOT_KEY`, with `discord.com` allowed;
+  - `FIGMA_TOKEN`, with `api.figma.com` allowed. It is a personal access token with `file_content:read` and
+    `file_comments:read`.
+  - `MARKUP_API_KEY`, with MarkUp's API host allowed.
+
+**Inputs from the operator:**
+
+1. **Which Figma files.** The Figma API cannot list every file. It needs the team ID, or the project IDs, that
+   hold the client comps. Pinned comments are read per file.
+2. **Scope of Discord.** The default is every project channel in the guild, over its whole history. A date floor
+   would cut the cost. The five members are all Reddoor, so the corpus is colleague notes, not client voice.
+3. **Where the raw corpus lives.** #674 says the mined corpus cannot go in a public repo, and this repo is
+   public. Only rules and synthetic fixtures are committed here. On the laptop the corpus can live in
+   `~/.config/reddoor-maint/`. A cloud session keeps nothing, so from the cloud it needs a private repo to push
+   to.
+
+**What it produces:**
+
+- new instances added to the existing rules;
+- rules that surface for the first time;
+- a specific search for the gutter-collapse seed, which has no instance in any source read so far.
