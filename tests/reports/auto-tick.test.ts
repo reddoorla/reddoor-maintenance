@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { autoTickChecklist, type AutoTickSignals } from "../../src/reports/auto-tick.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { gatingFields } from "../../src/reports/checklist.js";
+import { gatingFields, isHealthGateClear } from "../../src/reports/checklist.js";
 
 const NOW = new Date("2026-06-18T12:00:00.000Z");
 const GOOGLE = "Maint: Google Indexed";
@@ -314,6 +314,7 @@ describe("autoTickChecklist — the semantic inversion (a status for every gatin
 const STALE = "2026-06-01T00:00:00.000Z"; // > 3 days before NOW
 const DEPLOY = "Maint: Deploy & Function Health";
 const CMS = "Maint: CMS Checked";
+const PASS_EV = { result: "pass" as const, checkedAt: FRESH, note: "" };
 const UPTIME = "Maint: Uptime Checked";
 const TITLES = "Test: Page Titles & Meta";
 const FORMS = "Test: Form Functionality";
@@ -380,6 +381,81 @@ describe("autoTickChecklist — CMS Checked evidence", () => {
   it("is unknown when the check is stale", () => {
     const site = makeWebsiteRow({ cmsReachable: "pass", functionHealthCheckedAt: STALE });
     expect(autoTickChecklist(site, "Maintenance", NOW, signals()).get(CMS)!.result).toBe("unknown");
+  });
+});
+
+// #911. "This site has no CMS" is known from ONE place: the nightly Prismic model sweep read
+// the site's checkout and found no Prismic config (blank `prismicModels`, fresh
+// `prismicModelsCheckedAt`). /health's `prismic: "skipped"` alone is NOT that fact — it is
+// also what a Prismic site on a placeholder repo, or one whose module lacks `createClient`,
+// answers — and it is flattened to null on write anyway. Each "has a CMS" row below differs
+// from the no-CMS row in exactly one field, so the n/a branch cannot pass on a proxy.
+describe("autoTickChecklist — CMS Checked on a site with no CMS (#911)", () => {
+  /** LAHI's measured shape: /health answered fresh with no CMS verdict (`prismic: "skipped"`
+   *  → null), and the drift sweep found no Prismic config in its repository. */
+  const noCms = (over: Parameters<typeof makeWebsiteRow>[0] = {}) =>
+    makeWebsiteRow({
+      functionHealth: "pass",
+      functionHealthCheckedAt: FRESH,
+      cmsReachable: null,
+      prismicModels: null,
+      prismicModelsCheckedAt: FRESH,
+      prismicModelsDrift: "not a Prismic site (no repositoryName) — skipped",
+      ...over,
+    });
+  const cms = (site: ReturnType<typeof makeWebsiteRow>) =>
+    autoTickChecklist(site, "Maintenance", NOW, signals()).get(CMS)!;
+  const gateClear = (site: ReturnType<typeof makeWebsiteRow>) =>
+    isHealthGateClear({
+      reportType: "Maintenance",
+      autoEvidence: {
+        ...Object.fromEntries(gatingFields("Maintenance").map((f) => [f, PASS_EV])),
+        [CMS]: cms(site),
+      },
+    });
+
+  it("is n/a, with a note that says why, and does not block the send gate", () => {
+    const e = cms(noCms());
+    expect(e.result).toBe("n/a");
+    expect(e.note).toMatch(/no Prismic config/i);
+    expect(gateClear(noCms())).toBe(true);
+  });
+
+  it("stays unknown (blocked) for a site WITH a CMS whose /health reported no CMS verdict", () => {
+    const e = cms(noCms({ prismicModels: "pass", prismicModelsDrift: null }));
+    expect(e.result).toBe("unknown");
+    expect(gateClear(noCms({ prismicModels: "pass", prismicModelsDrift: null }))).toBe(false);
+  });
+
+  it("stays unknown when the model sweep could not read the site (verdict `unknown`)", () => {
+    expect(cms(noCms({ prismicModels: "unknown" })).result).toBe("unknown");
+  });
+
+  it("stays unknown when the model sweep has never run for the site", () => {
+    expect(cms(noCms({ prismicModelsCheckedAt: null })).result).toBe("unknown");
+  });
+
+  it("stays unknown when the sweep's 'no Prismic config' is stale (>3d)", () => {
+    expect(cms(noCms({ prismicModelsCheckedAt: STALE })).result).toBe("unknown");
+  });
+
+  it("stays blocked when /health has never run, even with no Prismic config", () => {
+    expect(cms(noCms({ functionHealthCheckedAt: null })).result).toBe("unknown");
+    expect(gateClear(noCms({ functionHealthCheckedAt: null }))).toBe(false);
+  });
+
+  it("stays unknown when /health is stale, even with no Prismic config", () => {
+    expect(cms(noCms({ functionHealthCheckedAt: STALE })).result).toBe("unknown");
+  });
+
+  it("still fails a site with a CMS whose probe failed", () => {
+    const site = noCms({ cmsReachable: "fail", prismicModels: "pass", prismicModelsDrift: null });
+    expect(cms(site).result).toBe("fail");
+    expect(gateClear(site)).toBe(false);
+  });
+
+  it("a /health CMS failure outranks the sweep's 'no Prismic config'", () => {
+    expect(cms(noCms({ cmsReachable: "fail" })).result).toBe("fail");
   });
 });
 

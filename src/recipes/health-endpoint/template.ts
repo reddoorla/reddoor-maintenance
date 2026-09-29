@@ -66,8 +66,12 @@ export const GET: RequestHandler = async ({ fetch }) => {
  * sites, e.g. a static/bespoke build). Feature-detection can survive a missing
  * *export*, but a static `import * as prismicio from "$lib/prismicio"` fails the
  * Vite build when the *module* doesn't exist — so those sites need a variant with
- * no import at all. CMS is reported as a constant "skipped" (the gate treats it as
- * "never ran" and never false-greens it). Same JSON shape as the Prismic template
+ * no import at all. CMS is reported as a constant "skipped", which the gate never
+ * false-greens: on its own it reads as "never ran" (unknown, blocks), and it becomes
+ * `n/a` only when the nightly Prismic model sweep has also found no Prismic config in
+ * the repository (#911, `cmsEvidence` in reports/auto-tick.ts). The comment inside the
+ * template string below predates that and is emitted verbatim into sites, so it is left
+ * as written. Same JSON shape as the Prismic template
  * (ok/prismic/forms) so the function-health audit parses both identically. */
 export const HEALTH_ENDPOINT_TEMPLATE_NO_PRISMIC = `import { json } from "@sveltejs/kit";
 import { env as privateEnv } from "$env/dynamic/private";

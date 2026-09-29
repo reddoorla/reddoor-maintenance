@@ -274,7 +274,17 @@ function deployEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
  * CMS Checked: the server-side `/health` Prismic probe reported reachable. Freshness rides the
  * function-health check stamp (one `/health` fetch feeds both Deploy and CMS). Never measured →
  * null; stale → unknown; pass/fail mirror the stored verdict; a fresh stamp with no verdict →
- * unknown.
+ * `n/a` when the site has no CMS (below), otherwise unknown.
+ *
+ * "No CMS" (#911) is read from the nightly Prismic model sweep, never from `/health`: a blank
+ * `prismicModels` under a FRESH `prismicModelsCheckedAt` is the one state that sweep writes for
+ * "read this site's checkout and found no Prismic config" (`sweepRowWriteback`'s `skipped`).
+ * `/health`'s `prismic: "skipped"` cannot carry that fact — the same word comes back from a
+ * Prismic site on a placeholder repository or with no `createClient` export, and the writer
+ * flattens it to null alongside malformed bodies. So n/a needs both: /health fresh and silent
+ * about the CMS, AND the repository shown to hold no Prismic config. A sweep that failed
+ * (`unknown`), never ran (no stamp) or has gone stale keeps the item `unknown`, and a `/health`
+ * pass/fail always outranks it.
  */
 function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (!site.functionHealthCheckedAt) return null;
@@ -287,6 +297,13 @@ function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   }
   if (site.cmsReachable === "fail") {
     return { result: "fail", checkedAt: at, note: "Prismic unreachable (server-side)" };
+  }
+  if (site.prismicModels === null && isFresh(site.prismicModelsCheckedAt, now)) {
+    return {
+      result: "n/a",
+      checkedAt: site.prismicModelsCheckedAt,
+      note: "No CMS: the nightly Prismic model sweep found no Prismic config in this site's repository",
+    };
   }
   return { result: "unknown", checkedAt: at, note: "CMS reachability not reported" };
 }
