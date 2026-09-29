@@ -312,7 +312,7 @@ export async function frameOnPathIsForeign(
     })();
     step.catch(() => undefined);
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let child: WalkableFrame | null = null;
+    let child: WalkableFrame | null;
     try {
       child = await Promise.race([
         step,
