@@ -4969,7 +4969,7 @@ Proven on known-good input, from this cloud session. `--dry-run 920` with no `--
 
 Not proven: a real merge, update-branch or delete from the cloud. Every proof above stops before the first write, so the first real landing from a cloud session is that test. Also unverified: that a REST squash with no `commit_title` produces the same commit message as gh's GraphQL merge did. Neither sends one, and both should fall to the repo's squash settings (`COMMIT_OR_PR_TITLE`, `COMMIT_MESSAGES`), but no merge was made to compare.
 
-## 2026-09-29 — A maintained site missing its Git repo or Netlify ID is a cockpit watch item (#TBD, `wip/roster889`)
+## 2026-09-29 — A maintained site missing its Git repo or Netlify ID is a cockpit watch item (#962)
 
 #889's defect is a roster cell that nothing validates. A `maintained` site with a blank `gitRepo` is skipped by every checkout sweep, and a blank `netlifyId` makes `netlify-deploy` skip with "no netlify id". Each of those runs still concludes success, so the first anyone hears of it is a report that cannot be approved. That happened to 29 Navy on 2026-09-17. It is happening now to Beachfront Dentistry: its next report is due 11-08 per the cockpit survey, and it would block on Deploy & Function Health.
 
