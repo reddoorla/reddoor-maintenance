@@ -87,13 +87,14 @@ const PLACEHOLDER_SKIP_REASON = "placeholder Prismic repo";
  *  above, so an operator reading a skip always learns WHY. */
 const ABSENT_FIXTURE_SKIP_REASON = "fixture not in this site's source";
 
-/** Prefixed to the help of a `client-error` thrown while the reveal pass (#100)
- *  was scrolling. The pass runs IntersectionObserver and scroll callbacks that
- *  never ran under the gate before — on roalson-interests it boots MapLibre —
- *  so an error from one of them is new to the gate, and an operator has to be
- *  able to tell it from an error thrown on load or hydration. It still fails:
- *  a reader who scrolls hits it too. */
-const REVEAL_PASS_ERROR_PREFIX = "during the reveal pass: ";
+/** Prefixed to the help of a `client-error` that was THROWN WHILE the reveal
+ *  pass (#100) was running. It marks a time window, not a cause. The pass runs
+ *  IntersectionObserver and scroll callbacks that never ran under the gate
+ *  before (on roalson-interests it boots MapLibre), so errors in that window
+ *  are the likeliest to be new — but a late hydration error can land in it
+ *  too, and an error the pass triggers through async work can land after it.
+ *  It still fails: a reader who scrolls hits it too. */
+const REVEAL_PASS_ERROR_PREFIX = "while the reveal pass ran: ";
 
 export type RouteVerdict = "scan" | "skip" | "missing";
 
@@ -431,8 +432,9 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
   // still be the previous page).
   let currentOrigin = "";
   const originOf = (url) => new URL(url, baseURL ?? "http://localhost").origin;
-  // True only while the reveal pass is scrolling this route (#100), so an
-  // error one of its callbacks throws is labelled as such.
+  // True only while the reveal pass is running on this route (#100). An
+  // error caught then is labelled with that time window -- which is all the
+  // label claims: not that the pass caused it.
   let inRevealPass = false;
   page.on("pageerror", (err) => {
     const message = String(err && err.message ? err.message : err);
@@ -456,133 +458,139 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
   for (const { path, name, placeholder404Ok, sourceAbsent } of pages) {
     currentRoute = name;
     currentOrigin = originOf(path);
-    const response = await page.goto(path);
-    const status = response ? response.status() : null;
-    // A route that does not exist is a config problem, not a markup one. The
-    // audit used to navigate, get a 404, run axe over whatever the error page
-    // was and report the count -- for months that page was a bare fallback with
-    // nothing to flag, so a missing fixture read as green. When reddoor-website
-    // gave its 404 page a designed watermark the count went to 1 with no route
-    // and no rule in the summary, and the "violation" was bisected as markup
-    // (#680). Name it as a missing route and do not scan the error page.
-    //
-    // The one exception (#863): a site still on the starter's Prismic sentinel
-    // has no content to serve, so a 404 on ITS OWN routes is the designed
-    // answer. Those carry placeholder404Ok; the /dev fixtures never do.
-    //
-    // The /dev fixtures have their own, narrower tolerance instead (#900):
-    // sourceAbsent, set only when this site's src/routes tree has no directory
-    // for that fixture. A fixture that IS in the tree and 404s stays a
-    // violation, which is the case #680 was written for.
-    const verdict = classifyRouteResponse({
-      status,
-      placeholder404Ok: placeholder404Ok === true,
-      sourceAbsent: sourceAbsent === true,
-    });
-    if (verdict === "skip") {
-      // Two reasons reach this branch and an operator has to be able to tell
-      // them apart: "no Prismic repo behind it yet" is temporary and ends at
-      // /new-site step 6, while "this site does not have that fixture" is
-      // permanent. Reporting both as one reason would make the summary say
-      // less than the artifact knows, which is #680's original complaint.
-      skipped.push({
-        route: name,
-        path,
-        status,
-        reason: sourceAbsent === true ? ABSENT_FIXTURE_SKIP_REASON : SKIP_REASON,
-      });
-      continue;
-    }
-    if (verdict === "missing") {
-      violations.push({
-        id: "route-missing",
-        impact: "serious",
-        route: name,
-        help: \`\${path} returned \${status === null ? "no response" : status}\`,
-      });
-      continue;
-    }
-    // Snap CSS transitions/animations to their resting state before axe runs.
-    // AnimateIn-style fixtures transition opacity 0->1; sampling mid-transition
-    // makes axe compute color-contrast against semi-transparent text, yielding a
-    // flaky "serious" color-contrast violation (~1/3 of runs on /dev/animate-in).
-    // Disabling transitions forces their final, rendered state
-    // deterministically -- which is also what users (and prefers-reduced-motion
-    // users) actually see, so it's the correct thing to assert. Disabling a CSS
-    // keyframe animation does NOT: it drops the animation and leaves the
-    // element at its base style, so a keyframe reveal whose visible state
-    // exists only as its forwards fill is audited hidden (see #100).
-    await page.addStyleTag({
-      content: "*,*::before,*::after{transition:none!important;animation:none!important;}",
-    });
-    // Scroll the whole page through the viewport and back before axe runs
-    // (#100). Without it every scroll-triggered reveal below the fold was
-    // audited at the opacity 0 it waits in, and axe does not measure contrast
-    // through that -- the text fell out of the result instead of failing it.
-    // After the sheet above, so a TRANSITION-driven reveal snaps to its end
-    // state as it fires; Web Animations are waited for by the pass itself. A
-    // keyframe reveal is cancelled by the sheet and stays hidden, and a reveal
-    // that hides again on leaving the viewport is hidden again by the return
-    // to the top -- neither is covered.
-    let pass;
-    inRevealPass = true;
     try {
-      pass = await page.evaluate(revealBelowFold);
-    } finally {
-      inRevealPass = false;
-    }
-    reveals.push({ route: name, ...pass });
-    // preload: false (#52). axe's CSSOM preload re-fetches every cross-origin
-    // stylesheet with an XHR, which a site's CSP judges under connect-src, not
-    // style-src. A site allowing fonts.googleapis.com for styles only got a
-    // real connect-src report posted on every audit, and the failed preload
-    // was dropped anyway. Nothing the gate can fail on is lost: in axe-core
-    // 4.13 only css-orientation-lock (tagged experimental, so these tags never
-    // run it) and no-autoplay-audio (reviewOnFail, so it can only ever be
-    // incomplete) read preloaded assets.
-    //
-    // .options() comes FIRST: it replaces the whole options object, and
-    // withTags() writes runOnly into it. Called after, it would drop the tag
-    // filter without a word and axe would run every rule it has.
-    const results = await new AxeBuilder({ page })
-      .options({ preload: false })
-      .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
-      .analyze();
-    // Cross-origin frame CONTENTS do not count against the site. The reveal
-    // pass brings lazy third-party iframes (a Google Maps footer, a YouTube
-    // player) into load range; their documents' violations are not the
-    // site's to fix, and whether axe reached them at all depended on
-    // injecting into them inside a 1 s window. So a node whose target is
-    // nested inside a frame whose src is on another origin is dropped here,
-    // counted, and named in the summary -- never silently.
-    //
-    // Default mode, deliberately. Legacy mode (setLegacyMode) skips those
-    // frames too, but it also drops frame-focusable-content, which axe can
-    // only evaluate INSIDE the frame and which is the site's own defect (an
-    // iframe given tabindex=-1 whose document still has something to focus).
-    // splitCrossOriginFrameNodes keeps every frame-focusable-content node.
-    const outerFrames = [];
-    for (const v of results.violations) {
-      for (const n of v.nodes) {
-        const t = n.target;
-        if (Array.isArray(t) && t.length > 1 && typeof t[0] === "string" && !outerFrames.includes(t[0])) {
-          outerFrames.push(t[0]);
+      const response = await page.goto(path);
+      const status = response ? response.status() : null;
+      // A route that does not exist is a config problem, not a markup one. The
+      // audit used to navigate, get a 404, run axe over whatever the error page
+      // was and report the count -- for months that page was a bare fallback with
+      // nothing to flag, so a missing fixture read as green. When reddoor-website
+      // gave its 404 page a designed watermark the count went to 1 with no route
+      // and no rule in the summary, and the "violation" was bisected as markup
+      // (#680). Name it as a missing route and do not scan the error page.
+      //
+      // The one exception (#863): a site still on the starter's Prismic sentinel
+      // has no content to serve, so a 404 on ITS OWN routes is the designed
+      // answer. Those carry placeholder404Ok; the /dev fixtures never do.
+      //
+      // The /dev fixtures have their own, narrower tolerance instead (#900):
+      // sourceAbsent, set only when this site's src/routes tree has no directory
+      // for that fixture. A fixture that IS in the tree and 404s stays a
+      // violation, which is the case #680 was written for.
+      const verdict = classifyRouteResponse({
+        status,
+        placeholder404Ok: placeholder404Ok === true,
+        sourceAbsent: sourceAbsent === true,
+      });
+      if (verdict === "skip") {
+        // Two reasons reach this branch and an operator has to be able to tell
+        // them apart: "no Prismic repo behind it yet" is temporary and ends at
+        // /new-site step 6, while "this site does not have that fixture" is
+        // permanent. Reporting both as one reason would make the summary say
+        // less than the artifact knows, which is #680's original complaint.
+        skipped.push({
+          route: name,
+          path,
+          status,
+          reason: sourceAbsent === true ? ABSENT_FIXTURE_SKIP_REASON : SKIP_REASON,
+        });
+        continue;
+      }
+      if (verdict === "missing") {
+        violations.push({
+          id: "route-missing",
+          impact: "serious",
+          route: name,
+          help: \`\${path} returned \${status === null ? "no response" : status}\`,
+        });
+        continue;
+      }
+      // Snap CSS transitions/animations to their resting state before axe runs.
+      // AnimateIn-style fixtures transition opacity 0->1; sampling mid-transition
+      // makes axe compute color-contrast against semi-transparent text, yielding a
+      // flaky "serious" color-contrast violation (~1/3 of runs on /dev/animate-in).
+      // Disabling transitions forces their final, rendered state
+      // deterministically -- which is also what users (and prefers-reduced-motion
+      // users) actually see, so it's the correct thing to assert. Disabling a CSS
+      // keyframe animation does NOT: it drops the animation and leaves the
+      // element at its base style, so a keyframe reveal whose visible state
+      // exists only as its forwards fill is audited hidden (see #100).
+      await page.addStyleTag({
+        content: "*,*::before,*::after{transition:none!important;animation:none!important;}",
+      });
+      // Scroll the whole page through the viewport and back before axe runs
+      // (#100). Without it every scroll-triggered reveal below the fold was
+      // audited at the opacity 0 it waits in, and axe does not measure contrast
+      // through that -- the text fell out of the result instead of failing it.
+      // After the sheet above, so a TRANSITION-driven reveal snaps to its end
+      // state as it fires; Web Animations are waited for by the pass itself. A
+      // keyframe reveal is cancelled by the sheet and stays hidden, and a reveal
+      // that hides again on leaving the viewport is hidden again by the return
+      // to the top -- neither is covered.
+      let pass;
+      inRevealPass = true;
+      try {
+        pass = await page.evaluate(revealBelowFold);
+      } finally {
+        inRevealPass = false;
+      }
+      reveals.push({ route: name, ...pass });
+      // preload: false (#52). axe's CSSOM preload re-fetches every cross-origin
+      // stylesheet with an XHR, which a site's CSP judges under connect-src, not
+      // style-src. A site allowing fonts.googleapis.com for styles only got a
+      // real connect-src report posted on every audit, and the failed preload
+      // was dropped anyway. Nothing the gate can fail on is lost: in axe-core
+      // 4.13 only css-orientation-lock (tagged experimental, so these tags never
+      // run it) and no-autoplay-audio (reviewOnFail, so it can only ever be
+      // incomplete) read preloaded assets.
+      //
+      // .options() comes FIRST: it replaces the whole options object, and
+      // withTags() writes runOnly into it. Called after, it would drop the tag
+      // filter without a word and axe would run every rule it has.
+      const results = await new AxeBuilder({ page })
+        .options({ preload: false })
+        .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
+        .analyze();
+      // Cross-origin frame CONTENTS do not count against the site. The reveal
+      // pass brings lazy third-party iframes (a Google Maps footer, a YouTube
+      // player) into load range; their documents' violations are not the
+      // site's to fix, and whether axe reached them at all depended on
+      // injecting into them inside a 1 s window. So a node whose target is
+      // nested inside a frame whose src is on another origin is dropped here,
+      // counted, and named in the summary -- never silently.
+      //
+      // Default mode, deliberately. Legacy mode (setLegacyMode) skips those
+      // frames too, but it also drops frame-focusable-content, which axe can
+      // only evaluate INSIDE the frame and which is the site's own defect (an
+      // iframe given tabindex=-1 whose document still has something to focus).
+      // splitCrossOriginFrameNodes keeps every frame-focusable-content node.
+      const outerFrames = [];
+      for (const v of results.violations) {
+        for (const n of v.nodes) {
+          const t = n.target;
+          if (Array.isArray(t) && t.length > 1 && typeof t[0] === "string" && !outerFrames.includes(t[0])) {
+            outerFrames.push(t[0]);
+          }
         }
       }
-    }
-    const crossOriginFrames =
-      outerFrames.length === 0 ? [] : await page.evaluate(crossOriginFrameSelectors, outerFrames);
-    const split = splitCrossOriginFrameNodes(results.violations, crossOriginFrames);
-    frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });
-    for (const v of split.kept) {
-      violations.push({
-        id: v.id,
-        impact: v.impact ?? "moderate",
-        route: name,
-        help: v.help,
-        helpUrl: v.helpUrl,
-        nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
-      });
+      const crossOriginFrames =
+        outerFrames.length === 0 ? [] : await page.evaluate(crossOriginFrameSelectors, outerFrames);
+      const split = splitCrossOriginFrameNodes(results.violations, crossOriginFrames);
+      frameNodesDropped.push({ route: name, count: split.dropped, rules: split.rules });
+      for (const v of split.kept) {
+        violations.push({
+          id: v.id,
+          impact: v.impact ?? "moderate",
+          route: name,
+          help: v.help,
+          helpUrl: v.helpUrl,
+          nodes: v.nodes.map((n) => ({ html: n.html, target: n.target })),
+        });
+      }
+    } finally {
+      // End every route on about:blank, so an error that route A's timers or
+      // pending work throw late can never be charged to route B.
+      await page.goto("about:blank");
     }
   }
 
@@ -597,6 +605,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
     await page.goto(SMOKE_ORIGIN + path);
     // Let hydration + first effects run so a TDZ/ReferenceError surfaces.
     await page.waitForTimeout(2000);
+    await page.goto("about:blank");
   }
 
   const byImpact = {};
@@ -636,9 +645,9 @@ const NAMED_VIOLATIONS_MAX = 6;
  * One line naming each violation as `<rule> on <route>`, identical pairs folded
  * into `<rule> ×N on <route>`. A `route-missing` entry appends its help, which
  * is where the path and HTTP status live -- the id and route alone do not say
- * what went wrong there. A `client-error` thrown during the reveal pass is
- * marked `(during the reveal pass)` and never folded into one thrown on load
- * (#100). Empty for no violations.
+ * what went wrong there. A `client-error` thrown while the reveal pass ran is
+ * marked `(while the reveal pass ran)` — a time window, not a cause — and never
+ * folded into one thrown outside it (#100). Empty for no violations.
  */
 export function describeViolations(violations: AxeViolation[]): string {
   const groups = new Map<
@@ -646,8 +655,8 @@ export function describeViolations(violations: AxeViolation[]): string {
     { id: string; route: string; help?: string; duringReveal: boolean; n: number }
   >();
   for (const v of violations) {
-    // A client error thrown by the reveal pass is a different finding from one
-    // thrown on load, so the two never fold into one entry.
+    // A client error thrown while the reveal pass ran is kept apart from one
+    // thrown outside it, so the two never fold into one entry.
     const duringReveal =
       v.id === "client-error" && (v.help ?? "").startsWith(REVEAL_PASS_ERROR_PREFIX);
     const key = `${v.id}\u0000${v.route}\u0000${duringReveal ? "reveal" : ""}`;
@@ -670,7 +679,7 @@ export function describeViolations(violations: AxeViolation[]): string {
       g.id === "route-missing" && g.help
         ? ` (${g.help})`
         : g.duringReveal
-          ? " (during the reveal pass)"
+          ? " (while the reveal pass ran)"
           : "";
     return `${g.id}${count} on ${g.route}${detail}`;
   });

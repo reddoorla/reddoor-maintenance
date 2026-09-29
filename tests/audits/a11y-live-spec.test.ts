@@ -52,9 +52,28 @@ const livePlaywright: SpawnFn = (cmd, args, opts) => {
   );
 };
 
-function plainPage(title: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main><h1>${title}</h1></main></body></html>`;
+function plainPage(title: string, script = ""): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main><h1>${title}</h1></main>${script ? `<script>${script}</script>` : ""}</body></html>`;
 }
+
+/**
+ * Two routes that sit next to each other in the audit, for the error labels:
+ *
+ *   - `/dev/animate-in` throws 3 s after load. Its own iteration takes well
+ *     under a second, so without a step between routes the error fires while
+ *     the NEXT route is loading, and is charged to it.
+ *   - `/late-b`, which comes next, is held 4 s by the server — the window in
+ *     which that late error would land — and throws on load itself. Its own
+ *     error is thrown outside the reveal pass, so it must carry no label.
+ */
+const LATE_THROW_PAGE = plainPage(
+  "Animate-in",
+  `setTimeout(() => { throw new Error("fixture: thrown 3 s after load, by the previous route"); }, 3000);`,
+);
+const THROWS_ON_LOAD_PAGE = plainPage(
+  "Throws on load",
+  `throw new Error("fixture: thrown on load");`,
+);
 
 /**
  * The page under audit, served by `serverSource` below from two origins: the page on
@@ -363,11 +382,13 @@ type Violation = {
 const SITE_F: SiteConfig = {
   pages: {
     "/dev/a11y-fixtures": FIXTURE_PAGE,
-    "/dev/animate-in": plainPage("Animate-in"),
+    "/dev/animate-in": LATE_THROW_PAGE,
     "/": plainPage("Home"),
+    "/late-b": THROWS_ON_LOAD_PAGE,
     "/third-party": THIRD_PARTY_PAGE,
   },
-  a11yRoutes: ["/third-party"],
+  a11yRoutes: ["/late-b", "/third-party"],
+  delaysMs: { "/late-b": 4000 },
 };
 
 async function readJsonl(path: string): Promise<Array<Record<string, unknown>>> {
@@ -410,10 +431,11 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     // crashed, a route reported missing, or a client error would each leave
     // the contrast assertions measuring nothing.
     expect(result?.summary).toMatch(
-      /^a11y: \d+ violations across 3 routes \(2 fixtures \+ 1 from package\.json\)/,
+      /^a11y: \d+ violations across 4 routes \(2 fixtures \+ 2 from package\.json\)/,
     );
     const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
     expect(all.map((v) => `${v.id} on ${v.route}`).sort()).toEqual([
+      "client-error on /late-b",
       "client-error on a11y fixtures",
       "color-contrast on a11y fixtures",
       "frame-focusable-content on a11y fixtures",
@@ -433,6 +455,7 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     expect(reveals.map((r) => r.route)).toEqual([
       "a11y fixtures",
       "animate-in demo",
+      "/late-b",
       "/third-party",
     ]);
     const fixture = reveals[0];
@@ -466,12 +489,28 @@ describe("audits/a11y — the generated spec, run in a real Chromium (#100, #52)
     expect(contrastTargets()).toContain("#grown-text");
   });
 
-  it("labels an error thrown during the reveal pass, in the artifact and the summary", () => {
+  it("labels an error thrown while the reveal pass ran, in the artifact and the summary", () => {
     const errors = violations().filter((v) => v.id === "client-error");
     expect(errors.map((v) => v.help)).toEqual([
-      "during the reveal pass: fixture: a reveal callback threw",
+      "while the reveal pass ran: fixture: a reveal callback threw",
     ]);
-    expect(result?.summary).toContain("client-error on a11y fixtures (during the reveal pass)");
+    expect(result?.summary).toContain("client-error on a11y fixtures (while the reveal pass ran)");
+  });
+
+  it("withholds the label from an error thrown outside the pass", () => {
+    const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+    const onB = all.filter((v) => v.route === "/late-b" && v.id === "client-error");
+    // Exactly its own load error: unlabelled, and not the previous route's.
+    expect(onB.map((v) => v.help)).toEqual(["fixture: thrown on load"]);
+    expect(result?.summary).toContain("client-error on /late-b");
+    expect(result?.summary).not.toContain("client-error on /late-b (while the reveal pass ran)");
+  });
+
+  it("never charges a route's late error to the next route", () => {
+    const all = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+    expect(all.map((v) => v.help ?? "").filter((h) => h.includes("by the previous route"))).toEqual(
+      [],
+    );
   });
 
   it("audits a third-party iframe element, but does not count the third party's document", () => {

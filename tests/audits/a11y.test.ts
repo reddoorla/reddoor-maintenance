@@ -591,25 +591,25 @@ describe("audits/a11y — describeViolations", () => {
     expect(text).toBe("route-missing on x (/x returned 404), color-contrast on y");
   });
 
-  // #100 review: the reveal pass runs callbacks that never ran under the gate,
-  // so an error from one is labelled and kept apart from errors on load.
-  it("marks a client error thrown during the reveal pass, and never folds it into one thrown on load", () => {
+  // #100 review: an error thrown while the reveal pass ran is labelled with
+  // that time window (not a cause) and kept apart from errors outside it.
+  it("marks a client error thrown while the reveal pass ran, and never folds it into one thrown outside it", () => {
     const line = describeViolations([
       { id: "client-error", impact: "critical", route: "/", help: "boom" },
       {
         id: "client-error",
         impact: "critical",
         route: "/",
-        help: "during the reveal pass: map failed",
+        help: "while the reveal pass ran: map failed",
       },
       {
         id: "client-error",
         impact: "critical",
         route: "/",
-        help: "during the reveal pass: map failed again",
+        help: "while the reveal pass ran: map failed again",
       },
     ]);
-    expect(line).toBe("client-error on /, client-error ×2 on / (during the reveal pass)");
+    expect(line).toBe("client-error on /, client-error ×2 on / (while the reveal pass ran)");
   });
 
   it("is empty for no violations", () => {
