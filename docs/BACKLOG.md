@@ -126,32 +126,46 @@ to `accounting@revogenbiologics.com`. Fix those cells before approving either.
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                           | Done when                                                                                        |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| P1-3  | **#912** remains: nothing checks that a roster `url` resolves. #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                       | 🟢   | M      | see "P1-3 start here" below this table                                                               | Names the-pointe-burbank (206-byte 404 = bogus-host fingerprint [M]), passes the `-rd` hosts     |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                 | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso             |
-| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                            |
-| P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review) | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested |
-| P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                              | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap              |
-| P1-19 | `search_found_page1 = 0` is still stored when no Search Console property matched (`src/reports/draft.ts:359`, `src/recipes/announce.ts:120`), while the evidence now says `unknown` (#959). Pairs with #943                                                                         | 🟢   | S      | as named                                                                                             | A no-property result stores NULL, not 0                                                          |
+| #     | Item                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                           | Done when                                                                                                  |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| P1-3  | **#912**: PR 1 (#986) stores the verdict nightly (`roster-urls` → `site_health.url_resolves`/`url_status`/`url_checked_at`); remains: the surface (PR 2; #975 merged, so it can start). #889 (blank repo / Netlify ID) is done in #962                                              | 🟡   | M      | see "P1-3 start here" below this table                                                               | PR 2: a `fail` row reaches the digest, a stale `url_checked_at` is caught, an accept key mutes only `fail` |
+| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                 | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                       |
+| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                      |
+| P1-16 | Prospect audits: a run that throws after a paid stage stays `running` and stops counting after the 2 h stale window, so a deterministic post-spend bug can reach ~300 paid runs/day instead of 25. Mark such a row terminal (`failed`) so it counts for the full 24 h (#968 review) | 🟢   | S–M    | `src/db/prospect-audits.ts`, `src/cli/commands/prospect-audit.ts`                                    | A post-spend throw holds its slot for 24 h; a pre-spend throw still releases it; mutation-tested           |
+| P1-17 | Protection audit: bypass actors on a non-default Renovate base branch are not judged, because `rules/branches/{b}` carries no bypass info. The preset's invariant (3) names this sweep as its instrument (#966 review)                                                              | 🟢   | M      | `src/audits/protection-coverage.ts`, `src/github/gh.ts`                                              | A `staging` ruleset whose required check the Renovate App can bypass reads as a gap                        |
 
 ### P1-3 start here (#912)
 
-The data is not stored. The browser audit's `uptime_reachable` covers
-`maintained` sites only (`selectFleetSites`) and measures sampled routes, not
-the roster URL, so it can never see a `building` site like the-pointe-burbank.
+Tier corrected to 🟡 on 2026-09-29: PR 1 added three migrations, a CLI command
+and a nightly Turso write, which `AUTONOMY.md` puts behind the 3-lens review.
 
-1. **A roster-URL pass over every non-archived row**, not `selectFleetSites`:
-   for example a new `--only` audit in the `fleet-lighthouse` nightly.
-2. **The next migration** (0029 is taken by #968's `claimed_at`) adding `url_resolves` (pass/fail), `url_status` and
-   `url_checked_at`, plus `schema.ts`, `field-map.ts`, `fleet-state.ts` and the
-   `WebsiteRow` fields.
-3. **The Netlify 404 fingerprint**: status 404 with `server: Netlify`, proven
-   against a bogus-host control (`no-such-site-zz9q.netlify.app` returns the
-   same 206-byte page) and a known-good one (`the-tower-burbank-rd.netlify.app`).
-4. **A surface for building sites.** They get no cockpit card
-   (`isDashboardVisible`), so use a digest collector or an off-fleet lane, with
-   an "expected, not deployed yet" accept key so the check stays two-sided.
+**PR 1 (#986) is the store.** `reddoor-maint roster-urls --fleet --write-back`
+GETs every non-archived roster `url` (every status, including `building`,
+`external` and `hosted-only`) and writes `url_resolves` (`pass` = final 2xx,
+`fail`, NULL for a blank url), `url_status` (the code, `404
+netlify-site-not-found`, `error: <code>`, `not an http(s) url`, `no url`) and
+`url_checked_at` (every outcome) through migrations 0030–0032. Two run-level
+controls (`no-such-site-zz9q.netlify.app` must read site-not-found,
+`the-tower-burbank-rd.netlify.app` must pass) gate every write. The nightly
+`fleet-lighthouse` runs it after the GitHub-signals sweep.
+
+It is a standalone command, not the `--only` audit this section used to
+suggest: every `audit --fleet turso` visits `selectFleetSites`, which is
+`maintained` rows only, so an audit would never see a `building` row like
+the-pointe-burbank; and a new audit name edits `src/types.ts` and
+`src/audits/index.ts`, which #918 owns.
+
+**PR 2, the surface** (needs `src/alerts/digest-collectors.ts`; #975, which
+owned it, merged 2026-09-29, so PR 2 can start):
+
+1. A digest collector over every non-archived row with `url_resolves = 'fail'`.
+   Building sites get no cockpit card (`isDashboardVisible`), so the digest is
+   where they surface.
+2. A freshness gate on `url_checked_at`: a control that misreads writes nothing
+   and the step is `continue-on-error`, so a stale stamp is the only trace.
+3. An `Accepted Watch Conditions` key (e.g. `url not deployed`) that mutes only
+   `fail`, so the check stays two-sided.
+4. Optionally, a cockpit watch candidate in `assignTier` for `maintained` rows.
 
 ### Blocked behind another PR (do not start early)
 
@@ -215,9 +229,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
     (2026-09-29): nine majors, the sixth round with majors. They ship in 0.102.0
     if that round is clean. If it is not, they come back here as a design
     decision rather than a seventh round.
-11. **#916** — still wanted: #950 removes none of what it catches, and it passes
-    roalson-interests. In a fix round for 0.102.0, with a `reddoor-starter`
-    palette fix staged beside it, because the starter's Hero would go red.
+11. **#916** — decided 2026-09-29: #950 shipped in 0.101.0, and #916 is merged
+    over it for 0.102.0, with the `reddoor-starter` palette fix staged beside
+    it. The same fix for `reddoor-starter-blux`, whose Hero also goes red, is
+    to follow. Moved to _Done_.
 12. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
     `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
     analytics [M].
@@ -311,6 +326,25 @@ verdict is its only input, because no client and no check sees the email.
   chrome-launcher), found from a `ps -A -o pid=,ppid=,pgid=` snapshot taken
   before the first SIGTERM (#989). The Verify probe went from
   `Sl; accepting=true` 7 s after the timeout to `gone; accepting=false`.
+
+- 2026-09-29 — Operator decision 11 / #888: #916 lands over #950. main was merged
+  in, not rebased, because a text-only resolution put the detection after the
+  axe loop's `finally`. Every unit test and tsc passed on that, and every real
+  audit died on `results is not defined`. #916's findings go through #950's
+  cross-origin frame split. The "9 of 12 sampled sites red" figure came from a
+  static grep for `none`-hued tokens. Nobody measured it against the gate. Both
+  of axe's shapes occur. The whole-rule throw (`rule-errored`) that the issue
+  reported, and that the correction posted on it called impossible, is what the
+  starter's `Hero` produces: a white CTA over `bg-neutral-900`. It ships in
+  0.102.0, together with the reddoor-starter `@theme` fix that keeps the
+  starter's own gate green. reddoor-starter-blux has the same Hero and needs
+  the same 13-token block (measured: FAIL on the #916 build, then PASS with
+  66 contrast nodes). That fix is to follow.
+
+- 2026-09-29 — P1-19 / #982: a report whose site matched no Search Console
+  property stores `search_found_page1` NULL, not 0, on the draft create path and
+  the announce create and reuse paths (#990). A property-found miss still
+  stores 0; soft-fail keeps the last value. No reader renders the two differently.
 - 2026-09-29 — P1-20: the digest sends only when an item or ask part the
   record does not hold appears, a metric beats its high-water baseline (a
   Lighthouse score by more than 5 points), or weekly; what is gone two runs is

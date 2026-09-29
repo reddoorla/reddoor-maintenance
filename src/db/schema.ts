@@ -179,6 +179,9 @@ export interface SiteHealthTable {
   prismic_models: string | null;
   prismic_models_checked_at: string | null;
   prismic_models_drift: string | null;
+  url_resolves: string | null;
+  url_status: string | null;
+  url_checked_at: string | null;
 }
 
 /** Code-derived schedule (migration 0007) — written by the report cron (`nextDueDatesFields`). */
