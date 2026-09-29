@@ -181,6 +181,26 @@ rows, only `reddoor` records a property, and only `reddoor` and `sonder` had a
 search result in their last sent report. So 13 maintained sites move to watch
 until each gets a property or an opt-out.
 
+**D9, amended after review** (2026-09-29, the day it merged). The watch item
+D9 shipped read "no Search Console property" under the signal
+`no-search-console`, and it fired on `sonder`, whose reports of 2026-07-31
+and 2026-09-01 found the site on page 1 (#2, then #1) through the by-host
+lookup. The field observes whether
+the property is RECORDED, so every surface now says that: the watch item is
+"Search Console property not recorded", the signal and filter are
+`search-console-unrecorded`, and the setup label is "Search Console property
+recorded". The GA4 item says "GA4 property not recorded (reports carry no
+analytics)" for the same reason. D9's "the report still resolves one
+automatically" held only for a site with a GA4 property or a search query. A
+recorded property now enrols a site in the search lookup on its own, so the
+record the setup check asks for is one the report reads. The opt-out is
+honoured by the report run too, so an opted-out site is never counted as
+"matched NO Search Console property". The editor accepts only
+`sc-domain:<host>` or an `http(s)://…/` prefix, because a recorded property is
+handed to the API verbatim with no by-host fallback. Proving the property
+answers is still an audit's job; the evidence-based version of this check is
+tracked separately.
+
 ## D2, measured
 
 Built `reddoor-starter` with probe scripts at three positions (above

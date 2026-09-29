@@ -31,7 +31,7 @@ import {
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { isNetlifyAppUrl } from "../util/url.js";
-import { NO_ANALYTICS, NO_SEARCH_CONSOLE } from "./onboarding.js";
+import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../fleet/opt-outs.js";
 
 export type Tier = "attention" | "watch" | "healthy" | "pre-launch";
 
@@ -71,8 +71,10 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * the M5 thresholds, so a sub-75 Lighthouse score arrives here as an item and never
  * needs the watch band). A FAILED latest production deploy (`deployStatus === "failed"`/
  * "error") is the same severity → 🔴 attention. Otherwise 🟡 watch when a Lighthouse
- * category sits in [75,85), the last commit to `main` is older than 30 days, or a
- * maintenance site is still on `*.netlify.app`. Else 🟢 healthy.
+ * category sits in [75,85), the last commit to `main` is older than 30 days, a
+ * maintained site is still on `*.netlify.app`, records no GA4 property, records no
+ * Search Console property, or requires Turnstile without a browser-verified widget.
+ * Else 🟢 healthy.
  *
  * Each active watch condition is a structured candidate with a set of accept keys
  * (aliases — e.g. the Netlify/no-custom-domain condition accepts "no custom domain",
@@ -88,7 +90,7 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * `watchReasons` are the human labels for the card; `watchAcceptKeys` is the primary/
  * canonical accept token per un-accepted reason (index-aligned — surfaced on the card so
  * the operator can see the exact string that would mute it); `watchSignals` are the
- * STRUCTURED filter tags ("lighthouse" / "stale") the client filter keys off.
+ * STRUCTURED filter tags (one `WatchCandidate.signal` each) the client filter keys off.
  */
 /** One detected watch condition, before acceptance is applied. `signal` is the
  *  client-filter tag; `acceptKeys` is every string the operator can type to mute it,
@@ -221,15 +223,15 @@ export function assignTier(
   if (site.status === "maintained" && !site.ga4PropertyId?.trim()) {
     candidates.push({
       signal: "no-analytics",
-      acceptKeys: [NO_ANALYTICS, "no-analytics", "analytics", "ga4"],
-      reason: "no GA4 property (analytics not set up)",
+      acceptKeys: ANALYTICS_OPT_OUT_KEYS,
+      reason: "GA4 property not recorded (reports carry no analytics)",
     });
   }
   if (site.status === "maintained" && !site.searchConsoleProperty?.trim()) {
     candidates.push({
-      signal: "no-search-console",
-      acceptKeys: [NO_SEARCH_CONSOLE, "no-search-console", "search console", "gsc"],
-      reason: "no Search Console property",
+      signal: "search-console-unrecorded",
+      acceptKeys: SEARCH_CONSOLE_OPT_OUT_KEYS,
+      reason: "Search Console property not recorded",
     });
   }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less
@@ -298,7 +300,7 @@ export type SiteCard = {
    *  exact string the operator can add to Accepted Watch Conditions to mute it. Optional
    *  for back-compat with hand-built card fixtures; the renderer falls back to no hint. */
   watchAcceptKeys?: string[];
-  /** Structured watch tags ("lighthouse" / "stale") for the client filter. */
+  /** Structured watch tags (`WatchCandidate.signal` values) for the client filter. */
   watchSignals: string[];
   /** Watch reasons the operator has accepted: suppressed from the band, shown as a
    *  muted chip. Populated whenever the underlying condition is currently active. */

@@ -9,7 +9,12 @@ import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft } from "../reports/queue.js";
 import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
-import { fetchGaUsers, fetchSearch, refreshHeaderImage } from "../reports/draft.js";
+import {
+  analyticsEnrolled,
+  fetchGaUsers,
+  fetchSearch,
+  refreshHeaderImage,
+} from "../reports/draft.js";
 import type { RefreshHeaderDeps } from "../reports/draft.js";
 import { announcementSiteExtras } from "../reports/announcement-email/template.js";
 import type { LighthouseScores } from "../reports/types.js";
@@ -124,7 +129,7 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
       // identically to "site has no GA configured"). Set the timestamp on a soft-fail, clear
       // it on a clean enrichment so the signal self-heals. Best-effort: the column is
       // operator-added, so until it exists the write throws — which must not break the draft.
-      if (readGaConfig() !== null && Boolean(w.ga4PropertyId || w.searchQuery)) {
+      if (readGaConfig() !== null && analyticsEnrolled(w)) {
         const at = gaResult.softFailed || searchResult.softFailed ? now.toISOString() : null;
         try {
           await deps.siteMirror?.health(w.id, analyticsHealthFields(at));

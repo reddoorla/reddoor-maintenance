@@ -2,7 +2,7 @@ import type { Db } from "../../db/client.js";
 import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../fleet/site-fields.js";
 import type { ReportRow } from "../../reports/report-fields.js";
 import { findDueReports, nextDueDate, reportPeriodKey } from "../../reports/due.js";
-import { draftReportForSite } from "../../reports/draft.js";
+import { analyticsEnrolled, draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
 import { readGaConfig } from "../../reports/ga/config.js";
 import {
@@ -392,15 +392,12 @@ export async function draftDueReports(
   const due = findDueReports(websites, reports, today);
 
   // GA/Search enrichment is configured globally (the impersonation subject) AND
-  // per-site (a GA4 property or a search query). `gaConfigured` is the global half;
-  // the per-site half is checked as each draft runs, to build the fleet-wide
-  // analytics-failure alert's denominator (see alertOnFleetAnalyticsFailure).
+  // per-site (`analyticsEnrolled`). `gaConfigured` is the global half; the per-site
+  // half is checked as each draft runs, to build the fleet-wide analytics-failure
+  // alert's denominator (see alertOnFleetAnalyticsFailure). The per-site half is the
+  // SAME predicate the draft's own enrichment gate reads, so the two cannot drift.
   const gaConfigured = readGaConfig() !== null;
-  // Truthy (not `!== null`) to mirror fetchGaUsers/fetchSearch's own gate exactly
-  // (`!siteRow.ga4PropertyId`), so an empty-string cell counts as not-configured in
-  // BOTH places and can't inflate the alert denominator.
-  const isAnalyticsConfigured = (s: WebsiteRow): boolean =>
-    gaConfigured && Boolean(s.ga4PropertyId || s.searchQuery);
+  const isAnalyticsConfigured = (s: WebsiteRow): boolean => gaConfigured && analyticsEnrolled(s);
 
   if (due.length === 0) {
     return {

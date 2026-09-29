@@ -236,6 +236,30 @@ describe("setSiteDetail — Phase 4 field coverage", () => {
     expect(await ok('{"field":"Department"}')).toBe("invalid");
   });
 
+  it("searchConsoleProperty: accepts only the two shapes Search Console names a property by", async () => {
+    const { deps, writes } = harness();
+    const put = async (v: string) =>
+      (await setSiteDetail(deps, "acme", "searchConsoleProperty", v)).status;
+    expect(await put("sc-domain:acme.com")).toBe("updated");
+    expect(await put("https://www.acme.com/")).toBe("updated");
+    expect(await put("https://www.acme.com")).toBe("updated");
+    expect(writes.map((w) => w.value)).toEqual([
+      "sc-domain:acme.com",
+      "https://www.acme.com/",
+      "https://www.acme.com/",
+    ]);
+    for (const bad of [
+      "acme.com",
+      "none",
+      "sc-domain:",
+      "sc-domain:https://acme.com",
+      "ftp://acme.com/",
+      "https://acme.com/?q=1",
+    ]) {
+      expect(await put(bad), bad).toBe("invalid");
+    }
+  });
+
   it("every newly-covered field can be CLEARED to empty", async () => {
     // Every one of these is optional in production; a field that can be set but
     // not unset traps an operator in whatever they first typed.
