@@ -867,6 +867,40 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     focus handoff that its own review found) passed its second round and
     merged as `923007e`.
 
+38. **OD7-P2, williamson-construction-co#3: a second worker took the PR over
+    mid-flight; which session owns OD7-P2 now?** Worker
+    session_01NUe11AdYHSuYtPRAypZziJ (prompted as "the only session on this
+    repo") opened #3 at `dd47476`. After its container restarted, worker
+    session_0198wGXMnzyFNhDgpVmmXt5c ("continue PR #3", created 16:29Z by
+    session_01RoR4tzDuS92b4M2Mn3MP7d) pushed `99637f5` to `claude/site-build`
+    at 16:51:03Z and rewrote the PR body. The first worker stopped on #3, as
+    its brief says, and unsubscribed. **Still owed on #3, preserved on branch
+    `claude/od7-p2-round1-unmerged` (`50799ca`, no PR)**: five round-1 fixes
+    absent from `99637f5`. They are: `scroll-padding-top` for the fixed
+    header (a11y lens, WCAG 2.4.11 major); `media-src` allowing
+    `prismic-io.s3.amazonaws.com`, the host every staged video and the PDF are
+    stored on, which `*.prismic.io` does not match (ops lens major: the videos
+    would be blocked in production); the Webflow jQuery CDN in the build guard;
+    About's CTA "Hire Us" with a buttons-vs-capture test; and a seed re-run
+    guard. The staged release still says "Contact" on About's CTA. **The form
+    is done, on branch `claude/intake-form` (`30b2085`, stacked on
+    `dd47476`, no PR):** a 9-field intake to central as an `inquiry`,
+    Turnstile-token refusal, and 7 mutations each red, one of them in central.
+    **Prismic:** 32 models are in `williamson-construction` ("32 match"), and 6
+    pages, 8 projects and 90 files are in migration release
+    `ar0oXBIAAC0ARR2n`. Publishing that release is the operator's; the MCP
+    refuses both an unasked publish and migration releases. _Ask:_ (a) the
+    `0198…` session keeps OD7-P2 and cherry-picks `50799ca`, then rebases
+    `claude/intake-form` after #3 lands; or (b) end it and re-dispatch this
+    worker. _Pick:_ (a). It holds the PR and a round-2 review in flight, and
+    the two branches are small and independent. Still open for launch, from
+    decision 7: D6 (the form stays held on the operator; the row is
+    `building`) and D8 (Lato, marked `TODO(D8)`). Turnstile needs no new
+    widget: "Site Forms 2" (`0x4AAAAAAD_aiDmsrlRAHq-V`, verified centrally
+    by `TURNSTILE_SECRET_KEY_2`) already lists `williamson-construction.com`.
+    Set it as `PUBLIC_TURNSTILE_SITE_KEY` at launch. The netlify.app preview
+    host would take that widget's last slot.
+
 ---
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
