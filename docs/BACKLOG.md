@@ -129,10 +129,11 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Tier | Effort | Start here                                                                                  | Done when                                                                                                  |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| P1-23 | #1056: `launch` scores Lighthouse on the local checkout, not the live site, and mails that score to the client. `src/recipes/launch.ts:618` calls `audit(site)` on the site `src/cli/commands/launch.ts:43` resolves from the checkout; `src/audits/lighthouse.ts:285-287` falls back to `checkoutLighthouse` whenever `deployedUrl` is unset, and `src/inventory/select.ts` sets it only for `maintained` rows. VLF's stored launch baseline was 52/100/100/61 against 85/100/100/100 live (journal 2026-09-29). roalson-interests is the next launch [I] | 🟡   | S–M    | `src/recipes/launch.ts:618`, `src/audits/lighthouse.ts:285`, `tests/recipes/launch.test.ts` | A launch of a site with a live `url` scores that url, and a test goes red if it falls back to the checkout |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                               | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                             | Starter PR and central recipe PR landed; the recipe's test pins the marker                                 |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                                  | Done when                                                                                                          |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| P1-23 | #1056: `launch` scores Lighthouse on the local checkout, not the live site, and mails that score to the client. `src/recipes/launch.ts:618` calls `audit(site)` on the site `src/cli/commands/launch.ts:43` resolves from the checkout; `src/audits/lighthouse.ts:285-287` falls back to `checkoutLighthouse` whenever `deployedUrl` is unset, and `src/inventory/select.ts` sets it only for `maintained` rows. VLF's stored launch baseline was 52/100/100/61 against 85/100/100/100 live (journal 2026-09-29). roalson-interests is the next launch [I]                                                                                                                                                                                                                                                                                                                                            | 🟡   | S–M    | `src/recipes/launch.ts:618`, `src/audits/lighthouse.ts:285`, `tests/recipes/launch.test.ts` | A launch of a site with a live `url` scores that url, and a test goes red if it falls back to the checkout         |
+| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                             | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
+| P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164            | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 
 ### Blocked behind another PR (do not start early)
 
@@ -1048,8 +1049,23 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       (b)(2) that host would refuse every submission.
 
     Still open from item 7: D6 (the form stays held on the operator, and the
-    row stays `building`) and D8 (Lato, `TODO(D8)`). No live form was
+    row stays `building`) and D8 (Lato, `TODO(D8)`; **answered 2026-09-30 ~20:05Z: Reddoor's kit `noj4tji`, with `freight-sans-pro` and `freight-sans-pro-lights` added; see the plan's D8 line**, see the plan's D8 line). No live form was
     submitted.
+
+    **Answered 2026-09-30 (operator):**
+    - (a) "Use the Prismic MCP." Release `ar1q1BIAAG9QRYia` held the one
+      label change, and the diff showed exactly one delta. It was published
+      through the MCP, the Content API master ref returned "Hire Us", and a
+      Netlify rebuild of `main` (ready 20:08Z) serves it on `/about-us`.
+      There is still no Prismic → Netlify publish webhook, so a publish
+      needs a manual rebuild until one is set.
+    - (b) "Remove it and let central decide." Landed as
+      williamson-construction-co#7 (`e15517e`). Putting the refusal back
+      turns the new route test red.
+    - (c) Turnstile runs on live sites only. The sitekey goes in Netlify's
+      production context at cutover, and the preview host stays off the
+      widget. Read through `CLOUDFLARE_PAT`: "Site Forms 2" lists
+      `williamson-construction.com` (9 of 10 domains), and "Site Forms 3" has 3.
 
 41. **Vida Legacy Foundation's first Maintenance report (new 2026-09-30).**
     Today's daily-reports run drafted VLF Maintenance 2026-09
@@ -1059,6 +1075,8 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     launch email; or (b) leave it unsent and let October's report be the first.
     _Pick:_ (b) [I], since the launch email already carries the same evidence.
     Either way it is yours; no agent approves or sends.
+    **Answered 2026-09-30 ~19:50Z: skip it. October is VLF's first
+    Maintenance report.** The 2026-09 draft stays unsent; no agent sends it.
 42. **`PRISMIC_TOKEN_VIDA_LEGACY` is not set (🔴 secret).** fleet-prismic-drift
     (run 36704968338, `wrote=15 failed=0`) warns `[vida-legacy-foundation] no
 write token for Prismic repository "vida-legacy"`. VLF went maintained
@@ -1071,6 +1089,20 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     one fleet template or per client), so it is not agent-ready. _Ask:_ say
     whether a starter-level privacy page, with a per-site data notice on each
     form, is the direction; then it becomes a P1 item.
+
+44. **OD7-P1b / P2b, the Williamsons' fidelity pass (asked by the operator
+    2026-09-30 ~20:15Z): not a decision, queued work.** The operator asked for
+    a favicon on both sites and a much tighter match to the references,
+    including hover states and scroll animations (the sticky numbering on
+    Homes). Measured [M]: both sites ship the starter's favicon (md5
+    `3a387408…`), and the reference icons are in each capture. Homes' reference
+    has 12 sticky rules, driven by `countersAnim.js` (captured, 219 lines,
+    jQuery), and 10 IX2 scroll-into-view events; the rebuild has neither.
+    Construction's reference has 18 hover rules and click-only IX2. The briefs are
+    in the plan (§7, "Phase 1b / 2b"). Start each one only when that repo's
+    current worker has ended: at 20:17Z both were `WORKING`
+    (`session_01UHJ28GGynFCzakmooVUj76` on Homes, at 707k of 1M context;
+    `session_01TRyUVAryzCaxqiViHbw6XJ` on Construction).
 
 ---
 
