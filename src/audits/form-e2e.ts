@@ -63,6 +63,7 @@ export type FormSubmitOutcome =
        *  wipe happens; on a failure it says one refill wasn't enough. */
       refilled?: boolean;
       synthesized?: string[];
+      resynthesized?: string[];
       /** What the site's REAL Turnstile widget did while the probe was on the
        *  page. The probe does NOT swap the sitekey — `testSitekey` only names the
        *  fake token VALUE it injects — so the real widget renders with the real
@@ -476,9 +477,13 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       };
     }
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
-    const synthesizedNote = outcome.synthesized?.length
-      ? ` — synthesized required field(s): ${outcome.synthesized.join(", ")}`
-      : "";
+    const synthesizedNote =
+      (outcome.synthesized?.length
+        ? ` — synthesized required field(s): ${outcome.synthesized.join(", ")}`
+        : "") +
+      (outcome.resynthesized?.length
+        ? ` — reverted by the page and re-set before submit: ${outcome.resynthesized.join(", ")}`
+        : "");
     // ALWAYS defined on this path, never omitted — because this path refreshes
     // `Form E2E checked at`, which is the clock the CRITICAL alarm ages the verdict
     // against. Omitting the verdict here would preserve an older one beside a fresh
@@ -785,6 +790,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
       // used to discard a container the run had already seen and hand back
       // "looked, cannot tell" — clearing a verdict it had positively earned.
       let containerPresent = false;
+      const synthesized: string[] = [];
       const browser = await chromium.launch();
       try {
         const ctx = await browser.newContext();
@@ -896,7 +902,6 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           },
         ];
         const filled: { selector: string; value: string }[] = [];
-        const synthesized: string[] = [];
         const fillAll = async () => {
           for (const f of fills) {
             const landed = await page
@@ -949,7 +954,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           wipedCount > 0
             ? []
             : ((await page.evaluate(SYNTHESIZE_REQUIRED_EXPR).catch(() => [])) as string[]);
-        const refilled = wipedCount > 0 || resynthesized.length > 0;
+        for (const name of resynthesized) if (!synthesized.includes(name)) synthesized.push(name);
+        const refilled = wipedCount > 0;
         if (wipedCount > 0) await fillAll();
         // Capture the action POST so a failure names the real server response
         // (espada 2026-07-10: three "no success banner" warns were undiagnosable
@@ -1005,6 +1011,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
             ...(postElapsedMs !== undefined ? { postElapsedMs } : {}),
             ...(refilled ? { refilled } : {}),
             ...(synthesized.length > 0 ? { synthesized } : {}),
+            ...(resynthesized.length > 0 ? { resynthesized } : {}),
             turnstile: turnstileSeen(),
             formsHealth,
           };
@@ -1046,6 +1053,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           success: false,
           ...(refilled ? { refilled } : {}),
           ...(synthesized.length > 0 ? { synthesized } : {}),
+          ...(resynthesized.length > 0 ? { resynthesized } : {}),
           detail: noBannerDetail({ post, alertText, formState, hydrationMismatch, refilled }),
           turnstile: turnstileSeen(),
           formsHealth,
@@ -1063,6 +1071,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           formPresent: true,
           success: false,
           detail: String(err).slice(0, 120),
+          ...(synthesized.length > 0 ? { synthesized } : {}),
           turnstile: {
             containerPresent,
             scriptLoaded: turnstileScriptLoaded,

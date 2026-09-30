@@ -11,7 +11,11 @@ import {
 
 type Posted = Record<string, unknown>;
 
-const contactPage = (opts: { banner: boolean; resetSelect: boolean }) => `<!doctype html>
+const contactPage = (opts: {
+  banner: boolean;
+  resetSelect: boolean;
+  disabledSubmit: boolean;
+}) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
   <form id="contact" method="POST">
@@ -33,7 +37,7 @@ const contactPage = (opts: { banner: boolean; resetSelect: boolean }) => `<!doct
     <input type="text" name="nickname">
     <select name="budget"><option value="">None</option><option value="big">Big</option></select>
     <textarea name="message" required></textarea>
-    <button type="submit">Send</button>
+    <button type="submit"${opts.disabledSubmit ? " disabled" : ""}>Send</button>
   </form>
   <p role="status" id="ok" hidden>Thanks, we will be in touch.</p>
   <script>
@@ -46,8 +50,9 @@ const contactPage = (opts: { banner: boolean; resetSelect: boolean }) => `<!doct
       else if (el.type === "radio") { if (el.checked) state[el.name] = el.value; }
       else state[el.name] = el.value;
     };
-    f.addEventListener("input", note);
-    f.addEventListener("change", note);
+    const onChange = ["select-one", "checkbox", "radio"];
+    f.addEventListener("input", (e) => { if (!onChange.includes(e.target.type)) note(e); });
+    f.addEventListener("change", (e) => { if (onChange.includes(e.target.type)) note(e); });
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = {
@@ -59,15 +64,26 @@ const contactPage = (opts: { banner: boolean; resetSelect: boolean }) => `<!doct
       if (r.ok && ${opts.banner ? "true" : "false"}) document.getElementById("ok").hidden = false;
     });
     if (${opts.resetSelect ? "true" : "false"}) {
-      setTimeout(() => {
-        f.querySelector('[name="interest"]').value = "";
-        state.interest = "";
-      }, 300);
+      const sel = f.querySelector('[name="interest"]');
+      let reset = false;
+      sel.addEventListener("change", () => {
+        if (reset) return;
+        reset = true;
+        setTimeout(() => {
+          sel.value = "";
+          state.interest = "";
+        }, 0);
+      });
     }
   </script>
 </body></html>`;
 
-type Fixture = { health: unknown; banner: boolean; resetSelect?: boolean };
+type Fixture = {
+  health: unknown;
+  banner: boolean;
+  resetSelect?: boolean;
+  disabledSubmit?: boolean;
+};
 
 let server: Server;
 let base: string;
@@ -83,7 +99,13 @@ beforeAll(async () => {
     }
     if (req.method === "GET" && req.url === "/contact") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(contactPage({ banner: fixture.banner, resetSelect: fixture.resetSelect ?? false }));
+      res.end(
+        contactPage({
+          banner: fixture.banner,
+          resetSelect: fixture.resetSelect ?? false,
+          disabledSubmit: fixture.disabledSubmit ?? false,
+        }),
+      );
       return;
     }
     if (req.method === "POST" && req.url === "/contact") {
@@ -182,7 +204,11 @@ describe("form-e2e live runner — required fields outside the standard fill set
 describe("form-e2e live runner — the instrument can fail, and the interlock holds", () => {
   it("reports a failure when the success banner never appears", async () => {
     const out = await submit({ health: DECLARED, banner: false });
-    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(out).toMatchObject({
+      formPresent: true,
+      success: false,
+      synthesized: ["company", "interest", "consent", "contactBy"],
+    });
   }, 90_000);
 
   it("submits NOTHING to a site whose /health does not declare forms.testMode", async () => {
@@ -204,7 +230,8 @@ describe("form-e2e live runner — the instrument can fail, and the interlock ho
 describe("form-e2e live runner — a synthesized value reverted after the fill (#779 review)", () => {
   it("re-synthesizes a select the page reset during the settle, and still passes", async () => {
     const out = await submit({ health: DECLARED, banner: true, resetSelect: true });
-    expect(out).toMatchObject({ formPresent: true, success: true, refilled: true });
+    expect(out).toMatchObject({ formPresent: true, success: true, resynthesized: ["interest"] });
+    expect(out).not.toHaveProperty("refilled");
     expect(posts[0]?.interest).toBe("funds");
   }, 90_000);
 });
@@ -247,4 +274,16 @@ describe("SYNTHESIZE_REQUIRED_EXPR — only fields it can actually fill", () => 
     expect(names).toEqual(["site", "n", "d"]);
     expect(values).toEqual({ site: "https://reddoorla.com", n: "3", d: "2026-01-01" });
   }, 30_000);
+});
+
+describe("form-e2e live runner — a probe that throws still says what it synthesized", () => {
+  it("carries the synthesized names when the submit click itself fails", async () => {
+    const out = await submit({ health: DECLARED, banner: true, disabledSubmit: true });
+    expect(out).toMatchObject({
+      formPresent: true,
+      success: false,
+      synthesized: ["company", "interest", "consent", "contactBy"],
+    });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
 });

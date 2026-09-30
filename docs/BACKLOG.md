@@ -244,13 +244,6 @@ Ordered by what unblocks the most. Each line is the exact ask.
     identity for `release.yml`. `renovate/pnpm-12.x` is rate-limited on #490 now.
 16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
-    **Answered 2026-09-29 ("go"); built in `claude/779-form-e2e-widening`.**
-    The probe now fills required fields outside its standard four: the first
-    real option of a select, and synthetic values for text, checkbox and radio.
-    The nightly names its uncovered sites, and a localhost positive control runs
-    before the sweep. The widening covers no new site by itself, because every
-    site it helps still needs a client deploy to declare `forms.testMode`. See
-    item 26.
 17. **Client email copy (#957 follow-up).** The Maintenance email draws a green
     ✓ beside every checklist row whatever the evidence says
     (`maintenance-email/template.ts` → `email-sections.ts`). With #957, LAHI's
@@ -356,31 +349,6 @@ Ordered by what unblocks the most. Each line is the exact ask.
     tests were added), or run a third review round first. Landing it is
     `git merge origin/main` (keep both sides of BACKLOG and the journal), CI
     green, then `node scripts/land-prs.mjs 989`.
-26. **#779, the client half of form-e2e coverage** — the central widening
-    (item 16) covers no new site on its own. Measured 2026-09-29 from the live
-    roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
-    covered, and Vida is covered from tonight (it declares `testMode:true` and
-    went maintained after last night's run started). Two sites have no form:
-    29 Navy (its `/health` says `testMode:false` on purpose) and CalTex, so
-    `skipped` cannot go below 2. The other six have forms, and none of them
-    declares `forms.testMode`. Probing an undeclared site would post a real lead
-    to the client, so each one needs a PR in its own repo: forward `testMode`
-    in `buildPayload`, declare it in `/health`, and add the site-specific piece:
-    - ERP Industrials: add a `role="status"` success element. Its required
-      `interest` select is covered by the widening now.
-    - Revogen: add a `/contact` entry to `/distribution-opportunities`.
-    - Data Dynamiq, LA Homelessness Initiative and LA Homelessness Youth: the
-      form sits in a closed modal. Use Beachfront's `/contact` → `#hash`
-      redirect, and add `role="status"` on the two LA sites.
-    - Sonder: hidden Netlify stub forms come first in the DOM, and the real
-      input is outside any `<form>`. This needs a forms restructure.
-
-    The ask: book these as client PRs, one per site in its release window. My
-    pick is ERP first, since it is two small changes now. #779's second idea, a
-    per-site contact-path override in the roster, was not built. It was meant to
-    reach Revogen "without touching the site", but Revogen has to deploy anyway
-    to declare `testMode`, so that same deploy can add a `/contact` redirect.
-    Say if you want the column anyway.
 
 ---
 

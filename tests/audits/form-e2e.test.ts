@@ -670,6 +670,25 @@ describe("audits/form-e2e synthesized required fields (#779)", () => {
     );
   });
 
+  it("names a synthesized field the page reverted, without calling it a re-render wipe", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({
+        submit: async () => ({
+          formPresent: true,
+          success: true,
+          synthesized: ["interest"],
+          resynthesized: ["interest"],
+        }),
+      }),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.summary).toBe(
+      "form-e2e: synthetic submission succeeded — synthesized required field(s): interest — reverted by the page and re-set before submit: interest",
+    );
+  });
+
   it("says nothing about synthesis when the standard fills were enough", async () => {
     const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
     expect(r.summary).toBe("form-e2e: synthetic submission succeeded");
