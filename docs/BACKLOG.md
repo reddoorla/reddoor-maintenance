@@ -134,11 +134,6 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ### Blocked behind another PR (do not start early)
 
-- **#905, #949** (a11y spec: missing-browser message, `addStyleTag` under strict
-  CSP): **unblocked**. #950 (another session) merged 2026-09-29 12:39Z and
-  rewrote the spec both edit, so start from `main` after it, not from either
-  issue's line numbers. Claim on the issue first; the session that filed #949
-  may pick it up.
 - **#947 (recipe half)**: `src/recipes/smoke-suite/template.ts:32` scaffolds
   `hydrationMarker: "footer"`, which cannot prove hydration. It is agent-ready,
   but pairs with #948's hydration-signal decision.
@@ -243,8 +238,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     is still the lever for that.
 16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
-    **Answered 2026-09-29 ("go"); built in PR #1017, held after two review
-    rounds (item 32).**
+    **Answered 2026-09-29 ("go"); built in PR #1017, which landed
+    2026-09-30 03:32:33Z as `d1e42c4a` after a third review round (item 32).**
     The probe now fills required fields outside its standard four: the first
     real option of a select, and synthetic values for text, checkbox and radio.
     The nightly names its uncovered sites, and a localhost positive control runs
@@ -422,8 +417,25 @@ Ordered by what unblocks the most. Each line is the exact ask.
     clears the-pointe-burbank's item.
     **Answered 2026-09-30: land as it is.** #1004 lands with this line.
 27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
-    #1003)** — two review rounds each found a real defect, so #1003 is held for
-    your call, not a third round.
+    #1003)** — **Answered 2026-09-30: third round.** Round 3 found a
+    behaviour defect, fixed in `7fa108a2`; **operator: land or not.** No
+    fourth round.
+    - Round 3 (on `35866ca1`, 4 lenses, 3 skeptics each, 3/3 unrefuted):
+      stderr kept its first 200 characters, but a web server prints its cause
+      last. A preview build (`npm run build && npm run preview`) with two
+      vite-plugin-svelte warnings on stderr lost the Rollup error that stopped
+      it, and the summary named only the warnings. This is not a regression:
+      `origin/main` cut stderr the same way. The status was always `fail`.
+      stderr now keeps its last 200 characters, behind an ellipsis. Two test
+      gaps were also fixed: nothing held the ANSI strip on stdout's error
+      line, and only `TypeError` held the typed-error alternative. A fourth
+      claim (a hard-coded exit code survives) was refuted 3/3 as identical on
+      `main`. Mutations M18–M22 each turn a test red.
+    - My pick is to land. The fix changes which end of stderr's detail is
+      kept, and `freezeMotion` has had no finding in three rounds. #1018 is
+      closed by `8fec6927`, which round 3 reviewed.
+    - Two review rounds each found a real defect, so #1003 was held for your
+      call, not a third round.
     - Round 1 (`a9565ac3`) found a major: stdout's generic "Process from
       config.webServer was not able to start" line displaced the web server's
       own cause on stderr ("Port 5173 is already in use"). It also found four
@@ -439,7 +451,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
       third round first. My pick is to land: the round-2 finding narrows a
       summary's detail, and `freezeMotion` has not changed since round 1.
     - Landing: `git merge origin/main` (keep both sides of BACKLOG and the
-      journal), CI green, then `node scripts/land-prs.mjs 1003`.
+      journal), CI green, then `node scripts/land-prs.mjs 1003`. #905 and #949
+      are already under Done in this PR.
 28. **#943, the Search Console freshness window (PR #1016)**: how long does a
     resolved Search Console lookup count as evidence for the launch check?
     #943 says "N days" and leaves N open. My pick: the site's shorter report
@@ -595,34 +608,40 @@ function` on a top-level element, the spec re-runs that rule with the
     to declare `testMode`, so that same deploy can add a `/contact` redirect.
     Say if you want the column anyway.
 
-32. **#779's central widening, PR #1017**: two review rounds each found real
-    defects, so #1017 is held for your call instead of going to a third round.
-    Round 1 (on `6a042beb`) found one real major: the test named "can stop the
-    sweep" checked only the positive-control step's own keys, so `|| true` on
-    the control or `if: always()` on the sweep left it green. It also found
-    five minors: a disabled option that was never tested, a `time` input
-    reported as synthesized when its value never stuck, a control inside a
-    disabled fieldset, a failure summary without the synthesized list, and a
-    marker test that would pass if a probe were persisted as spam. A claimed
-    hydration revert of a synthesized `<select>` was refuted by measurement
-    against a real Svelte 5 component. All of it is fixed in `63d0502a`.
-    Round 2 (on `63d0502a`) found two real majors. First, the revert fixture
-    raced a 300 ms page-load timer and failed 1 run in 3 on a loaded single
-    core; this file is the nightly's positive control, so a flake there stops
-    the whole sweep. Second, nothing tested that a failed run carries the
-    synthesized list. It also found minors: a reverted field was called a
-    re-render wipe, re-synthesized names were never listed, the throw path
-    dropped the list, and the fixture recorded both events. All are fixed in
-    `3d1274e1`: the revert now fires on the probe's own change event (3/3 on a
-    pinned, loaded core). Full suite: 8008 passed. 27 mutations (11 named
-    first, 16 from the rounds) all turn a test red. Two minors were left: the
-    tests do not require the control and the sweep to share a job, and a few
-    type branches of the synthesizer are untested. The ask: land #1017 as it
-    is (my pick: round 2's defects were in the tests, and the one behaviour
-    change is naming), or run a third round first. Landing it is
-    `git merge origin/main` (keep both sides of BACKLOG), CI green, then
-    `node scripts/land-prs.mjs 1017`. The first nightly after merge is its
-    first live run; a dispatch is not needed.
+32. **#779's central widening, PR #1017. Answered 2026-09-30: third round,
+    then land.** The operator merged it 03:32:33Z as `d1e42c4a` (head
+    `a8359581`). The first nightly after merge is its first live run.
+    Round 3 found behaviour defects, fixed in `48326568`; the text below is
+    what the operator decided on.
+    Rounds 1 and 2 are in the PR body. Round 3 (on `84f69a1a`, after merging
+    main) used 4 lenses and 3 refuting skeptics per finding; 13 of 14 findings
+    were confirmed. Behaviour defects, all fixed with a red test first:
+    (1) **live-lead leak**: a page that re-renders its form on a change event
+    dropped the probe's hidden `testMode` input after the re-synthesis pass,
+    and the click went out unmarked, so it would have been stored, counted and
+    emailed as a real lead. The first fix, re-injecting after re-synthesis,
+    was not enough: the click itself blurs the last filled field, whose change
+    event drops the marker again. The probe now re-adds the marker in a
+    capturing `submit` listener that runs before the site's handler, and it
+    refuses to click (no POST) when the marker is missing just before submit.
+    (2) A required select counted as filled when its selected placeholder
+    was `<option disabled selected>` with no value attribute, so the POST
+    omitted it. (3) A synthetic value the field rejects (`pattern`, `max`) was still
+    claimed as synthesized. (4) Three synthesizer tests used `setContent`,
+    which hangs under the weekly time-travel clock, so Monday's run on main
+    would have gone red. Also fixed: the control step passed when every
+    fixture test was skipped (it now reads vitest's JSON report and requires
+    passed ≥ 1, skipped = 0, todo = 0); the control and the sweep must share a
+    job (`84f69a1a`); the throw path dropped `resynthesized`; wording for a
+    field that became required after the first fill; and four test gaps
+    (date `min`, `maxlength`, no `resynthesized` on a quiet page, no-banner
+    path). One finding was refuted (2 of 3). 15 round-3 mutations each turn a
+    test red; a real all-skipped fixture makes the real control step exit 1. The
+    changed fixture passed 10 of 10 runs pinned to one busy core (104–106 s
+    each, 22/22 tests), and CI is green on `6bb9bee7`. My pick: land. The defects
+    were real, but each now has a test that fails without its fix, and the
+    marker now has two independent guards. Landing it is CI green on the head,
+    then `node scripts/land-prs.mjs 1017`.
 
 33. **OD7-P0, the Williamson repos (#1029)** — the cloud session was refused
     creating org repos (`POST /orgs/reddoorla/repos` → 403 "Resource not
@@ -748,6 +767,29 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-30 — #779 central widening (PR #1017, `d1e42c4a`): the form-e2e probe
+  fills required select, checkbox, radio and text fields outside its standard
+  four, names what it synthesized, and keeps its `testMode` marker on the form
+  at submit (a capturing `submit` listener, plus a refusal to click when the
+  marker is missing). The nightly runs a localhost positive control in the
+  sweep's own job first and fails when that control measured nothing, and it
+  names each uncovered site. It covers no new site by itself: item 31, the
+  client half, is still open.
+
+- 2026-09-30 — #905, #949, #1018: the a11y spec's motion-freezing sheet is adopted
+  through CSSOM (`freezeMotion`), so a CSP without `'unsafe-inline'` in
+  `style-src` no longer fails the audit, and the page's CSP stays enforced
+  (`bypassCSP` would have switched it off). A spec that writes no results is
+  summarised from Playwright's stdout, where the line reporter prints the
+  error, followed by the tail of the web server's stderr less npm warnings
+  (a dying server prints its cause last; review round 3); a missing
+  browser gets its own line naming the absent executable and
+  `npx playwright install chromium`. Both reproduced on `1b1c52fd` first: each
+  summary read "no results written (exit 1) — [WebServer] npm warn …".
+  A typed error (`TypeError:`) or a test timeout on stdout is named too
+  (#1018, found by review round 2; round 3 ran on the operator's call,
+  Operator decisions 27).
 
 - 2026-09-30 — #1014 + #1035 (BACKLOG 29, vida's part of item 23): axe's
   `blendFunctions[blendMode] is not a function` crash (plus-lighter) is "not

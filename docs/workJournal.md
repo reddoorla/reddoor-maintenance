@@ -6200,3 +6200,106 @@ This follows "OD7-P0: all three Webflow references captured whole; the Williamso
 - My capture test assumed `/x_y` is crawled before `/x:y`. `extractPageLinks` sorts, and `:` sorts before `_`, so the colon page is the one kept. The test now asserts the invariant (exactly one kept, and the bytes on disk are its bytes), not the order.
 
 Per the operator's answer there is no fourth round. #1032 is not landed. BACKLOG 34 now asks "land #1032 at its current head, or not", with the pick "land".
+
+## 2026-09-30 — #1017 round 3 finds a live-lead leak and three more behaviour defects; fixed, held for the operator (#779, `48326568`)
+
+The operator answered BACKLOG item 32 with "third round", overriding the
+two-round stop for this PR only, on the condition that a confirmed behaviour
+defect means fix and hold, not land. It did find one, and the worst of them
+was the exact thing the extra lens was named for.
+
+The review ran on `84f69a1a`, the branch after a conflict-free merge of 23
+commits of main. It used a Workflow with 4 lenses and 3 refuting skeptics per
+finding. It returned 14 findings, and 13 stood at 2 of 3.
+
+The defect that mattered: the probe adds a hidden `testMode` input to the
+form, and central ingest's short-circuit on that marker is the only thing
+standing between a synthetic submission and a client's inbox. A page that
+re-renders its form on a `change` event throws that imperatively added input
+away. Round 2's re-synthesis pass fires `change` after the marker is injected
+and after the canary check that would have noticed. The reviewer built that
+page on localhost and got `success: true` from a POST that had no `testMode`.
+On a live site that is a lead stored, counted and emailed.
+
+The belief corrected on contact is that a check just before the click would
+close it. It did not, and the red test showed why at once. The pre-click
+evaluate saw the marker, but `click()` blurs the last field `page.fill` typed
+into. That blur fires one more `change`, the page re-rendered, and the POST
+still went out unmarked. The fix that holds is a capturing `submit` listener
+on `window`, installed by the inject expression. It runs before any handler
+the site attached to the form and re-adds the marker to whatever form is
+being submitted. The pre-click refusal is kept as a second, independent
+guard: if the marker is missing there, the probe returns a failure and sends
+nothing. Mutations M1–M3 show that each of the three pieces is held by its
+own test.
+
+The other behaviour defects:
+
+- A required select whose selected placeholder is `<option disabled
+selected>` with no value attribute has `select.value` equal to the option's
+  text. It is valid to Chromium (only a `value=""` placeholder counts as
+  missing), and it is absent from FormData. The synthesizer read it as
+  filled.
+- A synthetic value that fails `pattern` or `max` was still claimed as
+  synthesized, the same contract round 1 fixed for `type=time`. It is now
+  restored and not claimed.
+- `page.setContent` never resolves under `vi.useFakeTimers({ shouldAdvanceTime:
+true })`, which the weekly time-travel run installs at module level. So
+  the three synthesizer tests would have made Monday's run on main red.
+  `page.goto("data:text/html,…")` does not hang.
+
+The control step had the same shape as the CLAUDE.md rule it exists to
+enforce. vitest exits 0 when every test in a file is skipped, so one
+`describe.skip` would have made the control pass while measuring nothing. The
+step now writes vitest's JSON report and requires success, at least one
+passed test, and no skipped or todo tests. It was proven both ways with the
+real script: 22 passed gives exit 0, and every `describe` skipped makes
+vitest exit 0 but the step exit 1. One mutation, dropping the passed ≥ 1
+condition, survived at first, because the all-skipped case also trips the
+skipped count. A zero-tests case kills it. All 15 round-3 mutations now turn
+a test red.
+
+Measured: the changed fixture passed 10 of 10 runs pinned to core 0 beside
+a busy loop, at 104–106 s each (the reviewer's run on the pre-fix fixture
+took 98–99 s). About 64 s of that is the two deliberate 30 s timeouts in the
+negative tests, so the step's 10-minute timeout has wide headroom. Honest
+accounting: the script that ran the loop printed "burner killed" while the
+busy loop was still alive. A `ps` read caught it, and a second kill ended it.
+The line had checked the wrong thing, a small instance of the same rule.
+
+Not landed. Item 32 now asks the operator to land or not, with my pick
+(land) and the reason. There is no fourth round. The full suite ran on
+`84f69a1a` before the fixes (8147 passed, 5 skipped). The fix head was
+checked by lint, typecheck, the PR's files and CI (`6bb9bee7` green).
+
+## 2026-09-30 — #1003 round 3 finds a failed build's cause cut from stderr; fixed and held for the operator (`7fa108a2`, BACKLOG 27)
+
+The operator answered BACKLOG 27 with "run a third round before landing", which overrides the two-dirty-rounds rule for this PR only. The previous worker was interrupted at 01:03Z. This session first confirmed that nothing had moved after that: the head was still `7da1123f`, and the PR's only comment was the round-2 hold from 22:51Z. It then found that the interrupted session had already committed the #1018 fixes (`8fec6927`, 00:49Z) inside that head. BACKLOG 27 already said so, and round 3 reviewed that commit with the rest.
+
+`main` moved twice during the session. The second merge (`35866ca1`) conflicted in `tests/audits/a11y-live-spec.test.ts`, because #1003's strict-CSP block and #1014/#1035's blend-mode blocks were both appended after the same `describe`. Both were kept. The check that nothing was lost was mechanical: the union of `it`/`describe` titles and top-level `const`s from the two stage versions equals the resolved file's. CI was green on that head.
+
+Round 3 ran 4 lenses (correctness, test binding, integration with main, failure-summary fidelity plus `freezeMotion` under a strict CSP), with 3 skeptics per finding and 16 agents in all. Its one behaviour finding was confirmed by all three skeptics. `describeNoResults` kept stderr's **first** 200 characters, but a web server prints its cause **last**. With the preview server (`npm run build && npm run preview`, #700), two `[vite-plugin-svelte] … A11y:` compile warnings (about 130 characters each, sent through `console.warn` and forwarded by Playwright as `[WebServer]` lines) filled the budget. The Rollup error that stopped the build was cut, so the summary named two warnings and not the failure. The reviewer reproduced this through a real Playwright 1.62.1 run of a webServer that fails that way, not only through a synthetic string. It is not a regression, because `origin/main`'s `raw.stderr.slice(0, 200)` truncated the same way, and the status was always `fail`. It is still the failure #905 and round 1 existed to name, and the PR's own comment listed "a failed build" as a cause it keeps. The fix keeps stderr's tail behind an ellipsis.
+
+The belief corrected here: rounds 1 and 2 both asked _which stream_ carries the cause, and neither asked _which end_ of a stream does. The 200-character cap had been tested since round 1, but only with a single repeated character, so a test could not tell a head cut from a tail cut.
+
+Two test gaps were confirmed as well. The ANSI strip on stdout's error line was untested: the only coloured-stdout test went down the missing-browser branch. And the `\w+Error:` alternative that `8fec6927` added was held only by a `TypeError`, so narrowing it to the literal `TypeError` survived. A fourth claim, that hard-coding `exit 1` survives, was refuted 3/3: it is identical on `main`, and the PR claims nothing about the exit code. The integration and fidelity lenses returned no findings. Both did real work: the fidelity lens drove Playwright webServer failures, and the integration lens ran the merged audit suite in its own worktree.
+
+| Mutation                                  | Red                                    |
+| ----------------------------------------- | -------------------------------------- |
+| M18 stderr keeps its head again           | the failed-build test and the cap test |
+| M19 no ellipsis on the cut                | the failed-build test and the cap test |
+| M20 cut at 300                            | the cap test                           |
+| M21 error regex reads `raw.stdout`        | the coloured stdout test               |
+| M22 typed alternative is `TypeError` only | both `it.each` cases                   |
+
+Per the brief, a confirmed behaviour defect means no landing and no fourth round. BACKLOG 27 now asks "land or not". My pick is to land. #1018 stays open until #1003 lands, and the PR now closes it on merge.
+
+## 2026-09-30 — #1017 lands on the operator's merge (`d1e42c4a`)
+
+This follows the round-3 entry above, which held #1017 for the operator. The
+operator merged it at 03:32:33Z. The merged head `a8359581` differs from the
+last one this session pushed (`a538c114`) by a single base merge of main,
+which carried #1003's a11y change and no form-e2e change. BACKLOG item 32 is
+marked landed, item 16 now says so, and a Done line records it. The first
+nightly after merge is the widening's first live run. Item 31, the client
+half that makes the widening cover any new site, is still open.
