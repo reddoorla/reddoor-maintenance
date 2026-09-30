@@ -36,6 +36,7 @@ import {
   describeBlendUnmeasured,
   isExcludableBlendCrash,
   reincludedChildren,
+  sameBlendTargets,
   unsupportedBlendModeAt,
 } from "../../src/audits/util/blend-mode.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
@@ -2752,6 +2753,7 @@ describe("audits/a11y — an unsupported blend mode is not measured, not a failu
       unsupportedBlendModeAt,
       reincludedChildren,
       canExcludeBlendNode,
+      sameBlendTargets,
     ]) {
       expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
     }

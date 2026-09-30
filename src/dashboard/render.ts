@@ -424,9 +424,9 @@ function spamScreenSection(
 /** Setup (N/total) status near the page header. Lists the missing onboarding items
  *  visibly (the cockpit chip only hovers them) so the operator sees what's left
  *  to wire up without leaving the page. */
-function setupSection(site: WebsiteRow): string {
-  const { score, total } = onboardingStatus(site);
-  const missing = missingOnboarding(site);
+function setupSection(site: WebsiteRow, now: Date): string {
+  const { score, total } = onboardingStatus(site, now);
+  const missing = missingOnboarding(site, now);
   const detail =
     missing.length === 0
       ? `<span class="setup-ok">complete</span>`
@@ -915,7 +915,7 @@ export function renderSiteDashboardHtml(
   <h1>${name}</h1>
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>
   ${auditedLine}
-  ${setupSection(site)}
+  ${setupSection(site, now)}
   ${alarmSection(alarm)}
   ${pendingSection(reports, site, now)}
 

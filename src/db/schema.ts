@@ -184,6 +184,9 @@ export interface SiteHealthTable {
   url_resolves: string | null;
   url_status: string | null;
   url_checked_at: string | null;
+  search_console_outcome: string | null;
+  search_console_resolved: string | null;
+  search_console_checked_at: string | null;
 }
 
 /** Code-derived schedule (migration 0007) — written by the report cron (`nextDueDatesFields`). */

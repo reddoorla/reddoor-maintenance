@@ -41,6 +41,9 @@ export type SearchPresence = {
    *  "no property at all" is not, and prescribing a query change would silence the real
    *  problem forever (an explicit query that returns nothing is by design never flagged). */
   propertyFound: boolean;
+  /** The property the query ran against (#943): the one that returned data, else
+   *  the first candidate. Absent when no property resolved. */
+  property?: string;
 };
 
 type SiteEntry = { siteUrl: string };
@@ -211,11 +214,17 @@ export async function fetchSearchPresence(
             foundOnPage1: pos <= PAGE_1_MAX_POSITION,
             position: Math.max(1, Math.round(pos)),
             propertyFound: true,
+            property,
           };
         }
       }
       // A property WAS resolved (or operator-pinned); the query just found no rows.
-      return { foundOnPage1: false, position: null, propertyFound: true };
+      return {
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+        property: candidates[0]!,
+      };
     });
   } catch (e) {
     // Every subject resolved zero matching properties — same legitimate "no property"
