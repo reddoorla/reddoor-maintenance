@@ -6397,6 +6397,10 @@ This session was dispatched to continue OD7-P1 from `claude/content-model-projec
 
 **Instrument note.** One read-only `GET` against the Prismic CDN, meant to check the published documents, was refused by the auto-mode classifier as "[Production Deploy]". It was not retried by another route. The build's prerender of all 10 routes from the live repository is the evidence used in its place.
 
+## 2026-09-30 — The 25 site guard PRs for #948 merged on the operator's go
+
+The operator answered "do the prs and merge on green". `land-prs` merged 24 of them in sequence, each pinned to the head whose checks it had watched go green. The 25th, reddoor-website#233, was refused with "Squash merges are not allowed on this repository" (HTTP 405), even though the repository's own settings report squash as allowed. The branch ruleset on `main` is what decides: its `pull_request` rule lists `allowed_merge_methods: ["merge"]`. So repo settings and rulesets can disagree, and the ruleset wins. `land-prs` squash-merges unconditionally, so #233 was merged by REST with `merge_method=merge`, pinned to the same green head `fbd1f0a`. `land-prs` could read `rules/branches/<base>` and pick an allowed method; that is a small follow-up. The proxy refused branch deletes on repos without auto-delete, so a `claude/948-gate-fixtures` branch remains there. Every site now carries the guard that #1039's gate needs, so the maintenance bump carrying #1039 is safe fleet-wide.
+
 ## 2026-09-30 — OD7-P1: Williamson Homes bootstrap landed (williamson-homes#1, `f875af9`); the content model PR stops after two review rounds (williamson-homes#5, BACKLOG 36)
 
 This is the first OD7-P1 worker. "Williamson Homes content is live in Prismic; a second worker collided…" (#1048) is the second worker's account of the same afternoon. This entry covers what that one could not see: the build itself, and why #5 is not merged.
