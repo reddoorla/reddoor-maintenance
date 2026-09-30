@@ -6091,3 +6091,74 @@ Two mutations were left standing, each for a reason:
 
 After `git merge origin/main` (which auto-merged `a11y.ts` against #1003's CSP
 fix): frozen install, lint and typecheck clean, 8114 tests passed, 5 skipped.
+
+## 2026-09-30 — #1017 round 3 finds a live-lead leak and three more behaviour defects; fixed, held for the operator (#779, `48326568`)
+
+The operator answered BACKLOG item 32 with "third round", overriding the
+two-round stop for this PR only, on the condition that a confirmed behaviour
+defect means fix and hold, not land. It did find one, and the worst of them
+was the exact thing the extra lens was named for.
+
+The review ran on `84f69a1a`, the branch after a conflict-free merge of 23
+commits of main. It used a Workflow with 4 lenses and 3 refuting skeptics per
+finding. It returned 14 findings, and 13 stood at 2 of 3.
+
+The defect that mattered: the probe adds a hidden `testMode` input to the
+form, and central ingest's short-circuit on that marker is the only thing
+standing between a synthetic submission and a client's inbox. A page that
+re-renders its form on a `change` event throws that imperatively added input
+away. Round 2's re-synthesis pass fires `change` after the marker is injected
+and after the canary check that would have noticed. The reviewer built that
+page on localhost and got `success: true` from a POST that had no `testMode`.
+On a live site that is a lead stored, counted and emailed.
+
+The belief corrected on contact is that a check just before the click would
+close it. It did not, and the red test showed why at once. The pre-click
+evaluate saw the marker, but `click()` blurs the last field `page.fill` typed
+into. That blur fires one more `change`, the page re-rendered, and the POST
+still went out unmarked. The fix that holds is a capturing `submit` listener
+on `window`, installed by the inject expression. It runs before any handler
+the site attached to the form and re-adds the marker to whatever form is
+being submitted. The pre-click refusal is kept as a second, independent
+guard: if the marker is missing there, the probe returns a failure and sends
+nothing. Mutations M1–M3 show that each of the three pieces is held by its
+own test.
+
+The other behaviour defects:
+
+- A required select whose selected placeholder is `<option disabled
+selected>` with no value attribute has `select.value` equal to the option's
+  text. It is valid to Chromium (only a `value=""` placeholder counts as
+  missing), and it is absent from FormData. The synthesizer read it as
+  filled.
+- A synthetic value that fails `pattern` or `max` was still claimed as
+  synthesized, the same contract round 1 fixed for `type=time`. It is now
+  restored and not claimed.
+- `page.setContent` never resolves under `vi.useFakeTimers({ shouldAdvanceTime:
+true })`, which the weekly time-travel run installs at module level. So
+  the three synthesizer tests would have made Monday's run on main red.
+  `page.goto("data:text/html,…")` does not hang.
+
+The control step had the same shape as the CLAUDE.md rule it exists to
+enforce. vitest exits 0 when every test in a file is skipped, so one
+`describe.skip` would have made the control pass while measuring nothing. The
+step now writes vitest's JSON report and requires success, at least one
+passed test, and no skipped or todo tests. It was proven both ways with the
+real script: 22 passed gives exit 0, and every `describe` skipped makes
+vitest exit 0 but the step exit 1. One mutation, dropping the passed ≥ 1
+condition, survived at first, because the all-skipped case also trips the
+skipped count. A zero-tests case kills it. All 15 round-3 mutations now turn
+a test red.
+
+Measured: the changed fixture passed 10 of 10 runs pinned to core 0 beside
+a busy loop, at 104–106 s each (the reviewer's run on the pre-fix fixture
+took 98–99 s). About 64 s of that is the two deliberate 30 s timeouts in the
+negative tests, so the step's 10-minute timeout has wide headroom. Honest
+accounting: the script that ran the loop printed "burner killed" while the
+busy loop was still alive. A `ps` read caught it, and a second kill ended it.
+The line had checked the wrong thing, a small instance of the same rule.
+
+Not landed. Item 32 now asks the operator to land or not, with my pick
+(land) and the reason. There is no fourth round. The full suite ran on
+`84f69a1a` before the fixes (8147 passed, 5 skipped). The fix head was
+checked by lint, typecheck, the PR's files and CI (`6bb9bee7` green).

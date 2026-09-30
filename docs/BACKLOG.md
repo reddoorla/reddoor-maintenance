@@ -559,7 +559,7 @@ function` on a top-level element, the spec re-runs that rule with the
     Round 3 found behaviour defects, fixed in `48326568`. Operator: land or
     not. Under the answer's terms there is no fourth round.
     Rounds 1 and 2 are in the PR body. Round 3 (on `84f69a1a`, after merging
-    main) used 4 lenses and 3 refuting skeptics per finding; 14 of 15 findings
+    main) used 4 lenses and 3 refuting skeptics per finding; 13 of 14 findings
     were confirmed. Behaviour defects, all fixed with a red test first:
     (1) **live-lead leak**: a page that re-renders its form on a change event
     dropped the probe's hidden `testMode` input after the re-synthesis pass,
@@ -582,7 +582,8 @@ function` on a top-level element, the spec re-runs that rule with the
     (date `min`, `maxlength`, no `resynthesized` on a quiet page, no-banner
     path). One finding was refuted (2 of 3). 15 round-3 mutations each turn a
     test red; a real all-skipped fixture makes the real control step exit 1. The
-    loaded-core runs of the changed fixture are recorded in the PR body. My pick: land. The defects
+    changed fixture passed 10 of 10 runs pinned to one busy core (104–106 s
+    each, 22/22 tests), and CI is green on `6bb9bee7`. My pick: land. The defects
     were real, but each now has a test that fails without its fix, and the
     marker now has two independent guards. Landing it is CI green on the head,
     then `node scripts/land-prs.mjs 1017`.
