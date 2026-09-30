@@ -6092,6 +6092,46 @@ Two mutations were left standing, each for a reason:
 After `git merge origin/main` (which auto-merged `a11y.ts` against #1003's CSP
 fix): frozen install, lint and typecheck clean, 8114 tests passed, 5 skipped.
 
+## 2026-09-30 — OD7-P0: all three Webflow references captured whole; the Williamson repos could not be created (#1029)
+
+A worker session from the PM brief, after the operator answered D1: the two conversions are Williamson Homes and Williamson Construction. The verify step passed at 00:24Z: all three hosts still served `data-wf-site` (Homes `645ec082…72e5`, Construction `646d47bf…4379`, Domaru `61817e58…33a4`).
+
+**The repos were refused, twice, in two different ways.** A `gh api …/generate` from the template was stopped before it ran, as creating a public surface. The new-site skill's convention is `--public`, which is also what 29 Navy is. The brief's fallback was a private repo, and the GitHub MCP `create_repository` for `reddoorla/williamson-homes` answered 403 "Resource not accessible by integration". So nothing was bootstrapped. Following the brief, the capture was done into this repo, and what the operator must do is written as Operator decisions 33.
+
+**The capture is a tool, not a one-off.** `src/webflow/crawl.ts` turned out to be Beachfront's importer, not a page capture. It fetches four fixed index pages and extracts team, services and questions. 29 Navy's `matching/capture-reference.mjs` is a one-page script with hand-written counts. So `scripts/webflow-capture/` has three parts. `lib.mjs` holds the pure extractors. `capture.mjs` crawls same-origin links from `/` and downloads every reference, recursively, serially, with 600 ms between pages and 150 ms between files. `check.mjs` is offline: it re-derives every reference from the captured bytes rather than from the capture's own list, then requires each one on disk with the manifest's sha256, every page link captured and every page carrying the site id. Webflow hides three kinds of reference from a tag-only reader, and each one is covered: Google Fonts, which `WebFont.load` requests at runtime and no `<link>` names; the githack counter script, loaded by `$.getScript` inside an inline script; and both transcodes of each background video, which sit in one comma-separated `data-video-urls`.
+
+**Measured.** Homes: 10 pages, 429 files, 167.4 MB. Construction: 14 pages, 333 files, 143.1 MB. Domaru: 7 pages, 121 files, 17.6 MB. There were 0 failed downloads, and the page counts equal §2's. Two cross-checks against the plan's independent numbers came out the same. Collapsing responsive variants on the Webflow CDN gives 83 for Homes against §2's 82. Construction's video and PDF files come to 12 transcodes, 6 posters and 1 PDF, which is §2's 19. Domaru has exactly 12 Lottie JSON. The references deliberately not vendored are named with their reasons in each manifest: reCAPTCHA, Turnstile (which `webflow.js` loads for its form backend), the Vimeo embed via embedly on Construction, a YouTube embed on Domaru `/about` that §2 did not list, and the Adobe kit `htt1asl`'s 10 freight-sans-pro faces. Those faces are licensed to the kit owner, and Adobe serves them independently of Webflow. The kit's own JS, which lists the families and weights, is captured.
+
+**Where the bytes went, and why not `main`.** 310 MB of full-resolution photography and video in this repo's history would be permanent: removing it is a history rewrite. So the Williamson bytes are on `capture/od7-williamson-2026-09-30` at `a89da157`, a branch named outside `claude/*` and `fix/*` so that no session's fetch routine pulls it. A fresh clone of that branch passed both checks. PR #1032 carries their `manifest.json` and `CAPTURE.md`, plus Domaru whole (18 MB, as the brief named; per #1030, which landed mid-session, Domaru now lapses on 10-19, so it is an archive). Whether to keep the bytes off `main` is decision 33(c).
+
+**Beliefs corrected on contact.**
+
+- The brief's `williamson-construction` repo name disagrees with the roster. A SELECT on 2026-09-30 gave slug `williamson-construction-co` and name "Williamson Construction Co". Since new-site makes the slug and the repo one decision, that is 33(b), not something this session guessed.
+- The first Homes run captured 6 project pages as if they were files. Webflow emits a `<link rel="prefetch">` for each collection item. The extractor now takes only a stylesheet or a real file from `<link>`, and the capture was re-run.
+- The first Construction run listed zero exclusions. That was false: the Adobe kit names its faces as URI templates (`…/27/{format}{?primer,…}`), which no extension test matches, so they were not skipped but invisible. They are now emitted and excluded by name.
+
+**A hang, found by repetition.** One mutation run never returned. Out of 20 repeats, 2 hung (exit 124 under `timeout`), and in another 30, 4 more hung. The stuck process was asleep in a futex at 0 CPU. It needed three things together: the 138 MB Construction capture, stdout on `/dev/null`, and `process.exit()`. It happened with io_uring off too, and never with a bare `node -e 'process.exit(0)'` or a driver that ended the same work the same way (30/30). With `process.exitCode` in place of `process.exit()` in both scripts, it ran 60 of 60 clean. I did not find the root cause. The change is a mitigation measured against a 4-in-50 baseline, not a proof.
+
+**Instruments proved before their verdicts were used.**
+
+- The check passed on each real capture before any mutation was run. Mutation 1 (delete a captured file) then turned it red on all three, naming the file: a Construction `.webm`, a Homes `-p-800` variant and a Domaru Lottie JSON. A unit test also covers a file that only a stylesheet references.
+- The harness preflight was installed by the real `match-harness` recipe into a throwaway starter clone. It seeds `refMark: ""`, and as installed it refuses. With `data-wf-site="<id>"` it passed against both live Williamson sites. It refused `beachfront-dentistry.webflow.io` with a 404 (mutation 2), a blanked refMark (mutation 3), and, as a negative control, Homes checked with Construction's id.
+
+**Two review rounds, then stop.** Round 1 found no hollow pass on the real captures; it ran an independent scanner as well. It did find gaps in the check for inputs these sites do not contain:
+
+- page bytes were never sha-checked;
+- collisions and failures recorded in the manifest were ignored;
+- a script URL with `(` or `,` in its filename was dropped;
+- collection pagination was unchecked;
+- several attribute forms were missed.
+
+All were fixed. Round 2 confirmed the fixes and found old and new code identical on every real page. It then found two regressions that the round-1 fixes themselves had introduced:
+
+- The quote-aware tag scan, meant to survive `alt="a > b"`, started matching inside `<script>` code at `i<a.length`. An apostrophe in a later comment then swallowed the page up to the next apostrophe. Homes' own sidekick-nav script has the `<`, and is safe today only because its comments have no apostrophe.
+- The paren trimming lost `url(a),url(b)`.
+
+Both were fixed, with tests that are red against the round-1 behaviour. By the rule, #1032 is then the operator's call (decision 34), not a third round. One more belief was corrected while fixing: I had written that Homes `/about-us` loads a jsDelivr copy of the counter script. It does not. That `<script>` sits inside an HTML comment, and the stricter extractor was the thing that noticed.
+
 ## 2026-09-30 — #943 lands: the Search Console launch check needs evidence (#1016)
 
 The operator answered Operator decisions 28 with the pick as written: a resolved lookup counts for the site's shorter report cadence plus 14 days (45 days for monthly, 106 for quarterly, 380 for yearly). The code did not change for the answer, because #1016 was built on that pick. It corrects nothing in the 2026-09-29 entry; it only closes the fork that entry left open. Landing needed one merge of `main`: #1005 had taken migrations 0033/0034 in the meantime, so `MIGRATIONS` and the id lists in `tests/db/migrate.test.ts` and `tests/db/client.test.ts` keep both sides, in id order. The runner applies whatever ids are missing, so the order is cosmetic. The rest of the `site_health` plumbing merged cleanly beside #1005's two columns.
