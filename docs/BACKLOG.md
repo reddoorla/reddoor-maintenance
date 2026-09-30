@@ -1168,7 +1168,7 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     So a mute added now would stay behind unseen after a property lands.
     **Answered 2026-09-30 ~21:38Z:** Youth does not need GA, so `no analytics`
     was written 21:40:52Z (`["no custom domain"]` → `["no custom domain","no
-    analytics"]`). The operator creates properties for the other three. When the
+analytics"]`). The operator creates properties for the other three. When the
     numeric property IDs arrive (not the `G-` measurement IDs), a session records
     each in `ga4_property_id` after confirming the reports account lists it. The
     tag install is separate and waits on P1-26.
@@ -1182,8 +1182,7 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     client editor the field must not be blank.
     **Answered 2026-09-30 ~21:38Z: pushed by the operator.** Prismic's
     `inquiry_survey_id` now carries the repo's label [M, Prismic MCP]. The
-    stored verdict read `fail` at 21:34:12Z, before the push, from dispatch
-    36780192887. The next prismic-drift run re-reads it.
+    stored verdict read `fail` at 21:34:12Z, before the push, from dispatch 36780192887. The next prismic-drift run re-reads it.
 
 ---
 
