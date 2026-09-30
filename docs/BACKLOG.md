@@ -135,6 +135,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                             | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164            | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 
+| P1-26 | #1055 option A: a `/privacy` route in `reddoor-starter` rendered from per-site values (client legal name, contact email, and switches for the services the site actually uses: GA4, Turnstile, Netlify Forms/central forms, Mailchimp, Google Fonts, Adobe Fonts, Vimeo), a footer link, a one-line data notice under each form, and a CalOPPA "Do Not Track" line. Central: the `analytics-tag` recipe (`src/recipes/analytics-tag/index.ts`) refuses to add a tag when the site has no `/privacy` route. First site: roalson-interests, before its launch adds GA4. The text ships marked DRAFT until item 45 clears it; client-site rollout is per-repo PRs after that. Brief: `docs/privacy-2026-09.md` | 🟡 | M | `reddoor-starter/src/lib/components/Footer.svelte`, `src/routes/contact/+page.svelte`; central `src/recipes/analytics-tag/index.ts` | Starter PR and central refusal landed with tests; roalson carries the page |
+
 ### Blocked behind another PR (do not start early)
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
@@ -1114,6 +1116,11 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     one fleet template or per client), so it is not agent-ready. _Ask:_ say
     whether a starter-level privacy page, with a per-site data notice on each
     form, is the direction; then it becomes a P1 item.
+    **Answered 2026-09-30 ~21:20Z: option A** (one starter `/privacy`
+    template, per-site values, a footer link and a notice under each form).
+    Built as P1-26. The wording is reviewed once by a lawyer before it reaches
+    a client's live site (item 45). The consent question it leaves open is
+    item 46.
 
 44. **OD7-P1b / P2b, the Williamsons' fidelity pass (asked by the operator
     2026-09-30 ~20:15Z): not a decision, queued work.** The operator asked for
@@ -1128,6 +1135,27 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     current worker has ended: at 20:17Z both were `WORKING`
     (`session_01UHJ28GGynFCzakmooVUj76` on Homes, at 707k of 1M context;
     `session_01TRyUVAryzCaxqiViHbw6XJ` on Construction).
+
+45. **Privacy policy wording (P1-26): one legal review of the template.**
+    The template's text speaks for each client's business, and it discloses
+    what the fleet actually does with visitor data. _Ask:_ send the draft in
+    `reddoor-starter` (once P1-26 lands) to a lawyer once. Until then it stays
+    marked DRAFT and goes to no client's live site. Also yours: whether clients
+    hear about the page before it goes live (_pick:_ a line in their next
+    Maintenance email, with the link).
+46. **Analytics consent in California (revisits analytics design D3).** A
+    privacy page cures CalOPPA and the GA terms, but not the CIPA exposure:
+    the California wiretap and "trap and trace" demand letters aimed at
+    analytics on ordinary business sites, at $5,000 per violation in
+    statutory damages. That claim turns on consent, not disclosure. D3 chose no banner
+    (`docs/superpowers/specs/2026-09-22-fleet-analytics-design.md:111`), and
+    `initAnalytics` already takes an optional gate predicate, so the
+    mechanism is cheap either way. _Ask:_ (a) keep D3 and accept the
+    residual risk; (b) a light consent gate (GA4 loads only after an
+    accept) on California clients' sites; (c) replace GA4 with a cookieless,
+    first-party analytics that needs no consent. _Pick:_ put (b) or (c) to
+    counsel alongside item 45, since the same review answers both. Not legal
+    advice; the law here was moving through 2025–26.
 
 ---
 
