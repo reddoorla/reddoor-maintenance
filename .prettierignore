@@ -15,3 +15,10 @@ scripts/match-harness-previous/
 
 # Generated analysis data for the meta-week package (machine-written, not source)
 docs/meta-week/_data/
+
+# Webflow reference captures (scripts/webflow-capture): the fetched bytes and
+# their manifest, kept exactly as the reference served them. Reformatting one
+# would change its sha256 and fail check.mjs. CAPTURE.md stays formatted.
+captures/*/pages/
+captures/*/files/
+captures/*/manifest.json
