@@ -661,6 +661,14 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       and a Netlify site with `FORMS_INGEST_URL`, `FORMS_INGEST_TOKEN`, a build
       hook and the Prismic publish/unpublish webhook. No roster write is needed:
       both rows exist as `building`, and `git_repo` is filled at launch.
+    - **Answered 2026-09-30:** (a) the operator creates `reddoorla/williamson-homes`
+      and `reddoorla/williamson-construction-co` by hand, both **public**, from the
+      reddoor-starter template; the cloud cannot. (b) The name is
+      `williamson-construction-co`, matching the roster slug. (c) The capture bytes
+      stay on the branch: Phase 1 copies each capture into its site repo's
+      `matching/spec/`, and then the operator deletes the branch. (d) The RED steps
+      (branch protection, secret scanning, Prismic repositories and tokens, Netlify
+      sites, env vars, hooks) stay the operator's, after (a).
 34. **OD7-P0, the capture tools, PR #1032: held after two review rounds.**
     #1032 adds `scripts/webflow-capture/` (capture, an offline check and their
     tests), Domaru's archive capture and the Williamson manifests. Both rounds
@@ -673,6 +681,9 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     already on GitHub either way (#1032's branch and
     `capture/od7-williamson-2026-09-30`). Landing: CI green, then
     `node scripts/land-prs.mjs 1032`.
+    **Answered 2026-09-30:** run a third review round before merging #1032. This
+    overrides "two dirty rounds, then stop" for this PR only; there is no fourth
+    round.
 
 ---
 
