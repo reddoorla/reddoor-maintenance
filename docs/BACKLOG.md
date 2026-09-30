@@ -669,21 +669,28 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       `matching/spec/`, and then the operator deletes the branch. (d) The RED steps
       (branch protection, secret scanning, Prismic repositories and tokens, Netlify
       sites, env vars, hooks) stay the operator's, after (a).
-34. **OD7-P0, the capture tools, PR #1032: held after two review rounds.**
-    #1032 adds `scripts/webflow-capture/` (capture, an offline check and their
-    tests), Domaru's archive capture and the Williamson manifests. Both rounds
-    found real defects in the check, for input the three real captures do not
-    contain. Round 2 confirmed that old and new code give identical results on
-    every real page. Every defect is fixed, and each fix has a test that fails
-    without it. The captures themselves passed both reviewers' independent
-    scans. _Ask:_ merge #1032 as it stands, or send it to a third review round?
-    _Pick:_ merge. It changes no product code, and the bytes it protects are
-    already on GitHub either way (#1032's branch and
-    `capture/od7-williamson-2026-09-30`). Landing: CI green, then
-    `node scripts/land-prs.mjs 1032`.
-    **Answered 2026-09-30:** run a third review round before merging #1032. This
-    overrides "two dirty rounds, then stop" for this PR only; there is no fourth
-    round.
+34. **OD7-P0, the capture tools, PR #1032: round 3 found behaviour defects, all
+    fixed in `db83c30f`; land or not.** The operator answered this item on
+    2026-09-30 with "run a third review round". Round 3 confirmed 24 findings (4
+    lenses, 3 refuting skeptics each, confirmed when 2 of 3 could not refute
+    it): 11 behaviour defects, 12 test gaps, 1 wording. The most serious
+    behaviour defect: a percent-encoded `../` in a reference could make
+    `capture.mjs` write a file outside `--out`, and the check then read it back
+    from there and passed. Also found: a `<!--` in script code and ` src=`
+    inside another attribute's value hid real tags; `image-set()`, `URL()` and
+    protocol-relative runtime loads were missed; file-under-file, case-only
+    and page-on-page path clashes overwrote a file or crashed a run with no
+    manifest; an http/https pair to one file was a false collision; an empty
+    page list passed; and a typekit kit whose id starts with `af` was excluded.
+    Each has a test that was red before the fix (`4753cf72`). None of it
+    touches the real captures: on all 31 pages and every captured file, the
+    extracted references, page links and path mappings are byte-identical
+    before and after, and all three captures pass. Note for 33(c): while
+    `capture/od7-williamson-2026-09-30` exists, every default clone, cloud
+    setup and `fetch-depth: 0` CI checkout downloads its ~290 MiB. _Ask:_
+    land #1032 at its current head, or not? There is no fourth round. _Pick:_
+    land. Every round-3 defect is fixed and bound by a test, and none changed a
+    real capture. Landing: CI green, then `node scripts/land-prs.mjs 1032`.
 
 ---
 
