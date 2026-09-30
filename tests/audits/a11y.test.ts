@@ -158,7 +158,242 @@ describe("audits/a11y", () => {
       spawn: async () => ({ code: 1, stdout: "", stderr: "spec failed to compile" }),
     });
     expect(result.status).toBe("fail");
-    expect(result.summary).toMatch(/no results|spec failed/i);
+    expect(result.summary).toBe("a11y: no results written (exit 1) — spec failed to compile");
+  });
+
+  // Verbatim from a run with an empty PLAYWRIGHT_BROWSERS_PATH (#905): the
+  // line reporter prints the test's error to stdout, and stderr holds only
+  // what the web server said.
+  const NPM_WARN =
+    '[WebServer] npm warn Unknown env config "manage-package-manager-versions". This will stop working in the next major version of npm.';
+  const lineReporterFailure = (error: string): string =>
+    [
+      "",
+      "Running 1 test using 1 worker",
+      "",
+      "[1/1] .reddoor-a11y-spec-i1jgmc/a11y.spec.ts:384:1 › a11y + hydration across configured routes",
+      "  1) .reddoor-a11y-spec-i1jgmc/a11y.spec.ts:384:1 › a11y + hydration across configured routes ──────",
+      "",
+      `    Error: ${error}`,
+      "    ╔════════════════════════════════════════════════════════════╗",
+      "    ║ Looks like Playwright was just installed or updated.       ║",
+      "    ╚════════════════════════════════════════════════════════════╝",
+      "",
+      "  1 failed",
+    ].join("\n");
+
+  it("names the missing browser and the command that installs it, not stderr's npm warning (#905)", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: lineReporterFailure(
+          "browserType.launch: Executable doesn't exist at /home/op/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell",
+        ),
+        stderr: NPM_WARN,
+      }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "a11y: Playwright's browser is not installed (no /home/op/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell) — run `npx playwright install chromium` in the site",
+    );
+  });
+
+  it("reads the missing browser through the colours a FORCE_COLOR terminal adds", async () => {
+    const cwd = await tmpSite();
+    const esc = String.fromCharCode(27);
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: lineReporterFailure(
+          `browserType.launch: Executable doesn't exist at ${esc}[1;2m/cache/chromium_headless_shell-1243/chrome-headless-shell${esc}[22m${esc}[39m`,
+        ),
+        stderr: "",
+      }),
+    });
+    expect(result.summary).toContain(
+      "(no /cache/chromium_headless_shell-1243/chrome-headless-shell)",
+    );
+  });
+
+  it("names the spec's own error from stdout when no results were written", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: lineReporterFailure(
+          "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/",
+        ),
+        stderr: NPM_WARN,
+      }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "a11y: no results written (exit 1) — page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/",
+    );
+  });
+
+  it("keeps the web server's own failure from stderr beside stdout's generic line", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: "\nError: Process from config.webServer was not able to start. Exit code: 1\n",
+        stderr: [
+          NPM_WARN,
+          "[WebServer] error when starting dev server:",
+          "[WebServer] Error: Port 5173 is already in use",
+        ].join("\n"),
+      }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "a11y: no results written (exit 1) — Process from config.webServer was not able to start. Exit code: 1 — [WebServer] error when starting dev server: / [WebServer] Error: Port 5173 is already in use",
+    );
+  });
+
+  it("keeps a failed build's cause when the build's warnings come before it (round 3)", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: "\nError: Process from config.webServer was not able to start. Exit code: 1\n",
+        stderr: [
+          NPM_WARN,
+          "[WebServer] 12:01:02 [vite-plugin-svelte] src/lib/slices/Hero/index.svelte:14:4 A11y: <img> element should have an alt attribute",
+          "[WebServer] 12:01:02 [vite-plugin-svelte] src/lib/slices/Cards/index.svelte:22:6 A11y: A form label must be associated with a control.",
+          "[WebServer] x Build failed in 3.21s",
+          "[WebServer] error during build:",
+          '[WebServer] [vite]: Rollup failed to resolve import "@prismicio/svelte/kit" from "src/routes/+layout.svelte".',
+        ].join("\n"),
+      }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toMatch(
+      /^a11y: no results written \(exit 1\) — Process from config\.webServer was not able to start\. Exit code: 1 — …/,
+    );
+    expect(result.summary).toMatch(
+      /\[WebServer\] error during build: \/ \[WebServer\] \[vite\]: Rollup failed to resolve import "@prismicio\/svelte\/kit" from "src\/routes\/\+layout\.svelte"\.$/,
+    );
+  });
+
+  it("caps each half of the detail at 200 characters", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: lineReporterFailure(`locator.click: ${"a".repeat(400)}`),
+        stderr: "b".repeat(400),
+      }),
+    });
+    const expected = `locator.click: ${"a".repeat(400)}`.slice(0, 200);
+    expect(result.summary).toBe(
+      `a11y: no results written (exit 1) — ${expected} — …${"b".repeat(199)}`,
+    );
+  });
+
+  // #1018: the failure shapes the first two rounds left untested.
+  const summaryOf = async (stdout: string, stderr: string): Promise<string> => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({ code: 1, stdout, stderr }),
+    });
+    expect(result.status).toBe("fail");
+    return result.summary;
+  };
+
+  it("names a TypeError from stdout, with its type, when stderr holds only npm warnings", async () => {
+    expect(
+      await summaryOf(
+        lineReporterFailure(
+          "TypeError: Cannot read properties of undefined (reading 'foo')",
+        ).replace("Error: TypeError", "TypeError"),
+        NPM_WARN,
+      ),
+    ).toBe(
+      "a11y: no results written (exit 1) — TypeError: Cannot read properties of undefined (reading 'foo')",
+    );
+  });
+
+  it.each([
+    ["RangeError: Invalid array length"],
+    ["ReferenceError: revealBelowFold is not defined"],
+  ])("names any typed error from stdout, not only a TypeError: %s", async (error) => {
+    expect(await summaryOf(`\n  1) a11y.spec.ts:1:1 › a11y\n\n    ${error}\n`, NPM_WARN)).toBe(
+      `a11y: no results written (exit 1) — ${error}`,
+    );
+  });
+
+  it("strips colour from stdout's error line", async () => {
+    const esc = String.fromCharCode(27);
+    expect(
+      await summaryOf(
+        `\n    Error: ${esc}[2mexpect(${esc}[22m${esc}[31mreceived${esc}[39m${esc}[2m).toBe(${esc}[22m${esc}[32mexpected${esc}[39m${esc}[2m)${esc}[22m\n`,
+        NPM_WARN,
+      ),
+    ).toBe("a11y: no results written (exit 1) — expect(received).toBe(expected)");
+  });
+
+  it("names a test timeout from stdout", async () => {
+    expect(
+      await summaryOf(
+        "\n  1) a11y.spec.ts:1:1 › a11y\n\n    Test timeout of 300000ms exceeded.\n\n  1 failed\n",
+        NPM_WARN,
+      ),
+    ).toBe("a11y: no results written (exit 1) — Test timeout of 300000ms exceeded.");
+  });
+
+  it("takes the first error line on stdout, not a later one", async () => {
+    expect(
+      await summaryOf("    Error: the first failure\n\n    Error: a later failure\n", ""),
+    ).toBe("a11y: no results written (exit 1) — the first failure");
+  });
+
+  it("strips colour from stderr, and drops a coloured npm warning", async () => {
+    const esc = String.fromCharCode(27);
+    const summary = await summaryOf(
+      "",
+      [
+        `npm ${esc}[33mwarn${esc}[39m Unknown env config "manage-package-manager-versions".`,
+        `[WebServer] ${esc}[1;31merror${esc}[39m during build:`,
+      ].join("\n"),
+    );
+    expect(summary).toBe("a11y: no results written (exit 1) — [WebServer] error during build:");
+  });
+
+  it("drops blank stderr lines and trims each one", async () => {
+    expect(
+      await summaryOf("", "\n  [WebServer] first cause  \n\n   \n[WebServer] second cause\n"),
+    ).toBe(
+      "a11y: no results written (exit 1) — [WebServer] first cause / [WebServer] second cause",
+    );
+  });
+
+  it("drops npm's older upper-case WARN lines too", async () => {
+    expect(
+      await summaryOf(
+        "",
+        "npm WARN config production Use `--omit=dev` instead.\nspec failed to compile",
+      ),
+    ).toBe("a11y: no results written (exit 1) — spec failed to compile");
+  });
+
+  it("finds a missing browser reported on stderr", async () => {
+    expect(
+      await summaryOf(
+        "",
+        "Error: browserType.launch: Executable doesn't exist at /cache/chromium-1243/chrome-linux/chrome",
+      ),
+    ).toBe(
+      "a11y: Playwright's browser is not installed (no /cache/chromium-1243/chrome-linux/chrome) — run `npx playwright install chromium` in the site",
+    );
   });
 
   it("skips when playwright is missing", async () => {
@@ -2088,7 +2323,7 @@ describe("audits/a11y — the page is scrolled through before axe runs (#100)", 
     const loopAt = spec.indexOf(
       "for (const { path, name, placeholder404Ok, sourceAbsent } of pages)",
     );
-    const snapAt = spec.indexOf("await page.addStyleTag(", loopAt);
+    const snapAt = spec.indexOf("await page.evaluate(freezeMotion);", loopAt);
     const revealAt = spec.indexOf("await page.evaluate(revealBelowFold);", loopAt);
     const axeAt = spec.indexOf("new AxeBuilder({ page })", loopAt);
     expect(loopAt).toBeGreaterThan(-1);

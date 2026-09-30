@@ -6245,3 +6245,25 @@ Not landed. Item 32 now asks the operator to land or not, with my pick
 (land) and the reason. There is no fourth round. The full suite ran on
 `84f69a1a` before the fixes (8147 passed, 5 skipped). The fix head was
 checked by lint, typecheck, the PR's files and CI (`6bb9bee7` green).
+
+## 2026-09-30 — #1003 round 3 finds a failed build's cause cut from stderr; fixed and held for the operator (`7fa108a2`, BACKLOG 27)
+
+The operator answered BACKLOG 27 with "run a third round before landing", which overrides the two-dirty-rounds rule for this PR only. The previous worker was interrupted at 01:03Z. This session first confirmed that nothing had moved after that: the head was still `7da1123f`, and the PR's only comment was the round-2 hold from 22:51Z. It then found that the interrupted session had already committed the #1018 fixes (`8fec6927`, 00:49Z) inside that head. BACKLOG 27 already said so, and round 3 reviewed that commit with the rest.
+
+`main` moved twice during the session. The second merge (`35866ca1`) conflicted in `tests/audits/a11y-live-spec.test.ts`, because #1003's strict-CSP block and #1014/#1035's blend-mode blocks were both appended after the same `describe`. Both were kept. The check that nothing was lost was mechanical: the union of `it`/`describe` titles and top-level `const`s from the two stage versions equals the resolved file's. CI was green on that head.
+
+Round 3 ran 4 lenses (correctness, test binding, integration with main, failure-summary fidelity plus `freezeMotion` under a strict CSP), with 3 skeptics per finding and 16 agents in all. Its one behaviour finding was confirmed by all three skeptics. `describeNoResults` kept stderr's **first** 200 characters, but a web server prints its cause **last**. With the preview server (`npm run build && npm run preview`, #700), two `[vite-plugin-svelte] … A11y:` compile warnings (about 130 characters each, sent through `console.warn` and forwarded by Playwright as `[WebServer]` lines) filled the budget. The Rollup error that stopped the build was cut, so the summary named two warnings and not the failure. The reviewer reproduced this through a real Playwright 1.62.1 run of a webServer that fails that way, not only through a synthetic string. It is not a regression, because `origin/main`'s `raw.stderr.slice(0, 200)` truncated the same way, and the status was always `fail`. It is still the failure #905 and round 1 existed to name, and the PR's own comment listed "a failed build" as a cause it keeps. The fix keeps stderr's tail behind an ellipsis.
+
+The belief corrected here: rounds 1 and 2 both asked _which stream_ carries the cause, and neither asked _which end_ of a stream does. The 200-character cap had been tested since round 1, but only with a single repeated character, so a test could not tell a head cut from a tail cut.
+
+Two test gaps were confirmed as well. The ANSI strip on stdout's error line was untested: the only coloured-stdout test went down the missing-browser branch. And the `\w+Error:` alternative that `8fec6927` added was held only by a `TypeError`, so narrowing it to the literal `TypeError` survived. A fourth claim, that hard-coding `exit 1` survives, was refuted 3/3: it is identical on `main`, and the PR claims nothing about the exit code. The integration and fidelity lenses returned no findings. Both did real work: the fidelity lens drove Playwright webServer failures, and the integration lens ran the merged audit suite in its own worktree.
+
+| Mutation                                  | Red                                    |
+| ----------------------------------------- | -------------------------------------- |
+| M18 stderr keeps its head again           | the failed-build test and the cap test |
+| M19 no ellipsis on the cut                | the failed-build test and the cap test |
+| M20 cut at 300                            | the cap test                           |
+| M21 error regex reads `raw.stdout`        | the coloured stdout test               |
+| M22 typed alternative is `TypeError` only | both `it.each` cases                   |
+
+Per the brief, a confirmed behaviour defect means no landing and no fourth round. BACKLOG 27 now asks "land or not". My pick is to land. #1018 stays open until #1003 lands, and the PR now closes it on merge.

@@ -9,10 +9,11 @@ import {
   type A11yRoute,
 } from "../configs/playwright-a11y.js";
 import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.js";
-import { defaultSpawn } from "./util/spawn.js";
+import { defaultSpawn, type SpawnResult } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
+import { freezeMotion } from "./util/freeze-motion.js";
 import {
   contrastUnmeasuredHelp,
   ruleErroredHelp,
@@ -420,6 +421,8 @@ import { dirname } from "node:path";
 const classifyRouteResponse = ${classifyRouteResponse.toString()};
 // Injected the same way, and run in the page — see src/audits/util/reveal-below-fold.ts.
 const revealBelowFold = ${revealBelowFold.toString()};
+// Injected the same way — see src/audits/util/freeze-motion.ts (#949).
+const freezeMotion = ${freezeMotion.toString()};
 // Injected the same way — see src/audits/util/cross-origin.ts.
 const isForeignUrl = ${isForeignUrl.toString()};
 const resolveTargetElement = ${resolveTargetElement.toString()};
@@ -632,10 +635,10 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // users) actually see, so it's the correct thing to assert. Disabling a CSS
       // keyframe animation does NOT: it drops the animation and leaves the
       // element at its base style, so a keyframe reveal whose visible state
-      // exists only as its forwards fill is audited hidden (see #100).
-      await page.addStyleTag({
-        content: "*,*::before,*::after{transition:none!important;animation:none!important;}",
-      });
+      // exists only as its forwards fill is audited hidden (see #100). Adopted
+      // through CSSOM, not a <style> element, so a strict CSP cannot refuse it
+      // (#949).
+      await page.evaluate(freezeMotion);
       // Scroll the whole page through the viewport and back before axe runs
       // (#100). Without it every scroll-triggered reveal below the fold was
       // audited at the opacity 0 it waits in, and axe does not measure contrast
@@ -1098,6 +1101,47 @@ export function describeThirdPartyErrors(errors: ThirdPartyError[]): string {
   return `${n} uncaught error${n === 1 ? "" : "s"} thrown inside cross-origin frames, not counted: ${where}`;
 }
 
+const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
+/**
+ * #905. Why the spec wrote no results. Playwright's line reporter prints a
+ * test's error to STDOUT; stderr carries only what the web server said, which
+ * on the operator's machine was an npm warning. Summarising stderr alone
+ * named that warning and hid the cause: after a Renovate bump brings a newer
+ * Playwright, the browsers on disk are the old revision and every launch
+ * fails with "Executable doesn't exist". That case gets its own line, with
+ * the command that fixes it. Status is the caller's and stays `fail`.
+ */
+export function describeNoResults(raw: SpawnResult): string {
+  const stdout = raw.stdout.replace(ANSI_SGR, "");
+  const stderr = raw.stderr.replace(ANSI_SGR, "");
+  const missing = /Executable doesn't exist at (.+)$/m.exec(`${stdout}\n${stderr}`)?.[1]?.trim();
+  if (missing) {
+    return `a11y: Playwright's browser is not installed (no ${missing}) — run \`npx playwright install chromium\` in the site`;
+  }
+  // stdout's error comes first, and stderr still follows it: when the web
+  // server itself fails, stdout says only "Process from config.webServer was
+  // not able to start" and the cause ("Port 5173 is already in use", a failed
+  // build) is on stderr. npm's config warnings are dropped as noise.
+  // A plain `Error:` loses its prefix; a typed one (`TypeError:`) keeps it,
+  // because the type is part of the diagnosis. A test timeout has no prefix
+  // at all (#1018).
+  const errorLine = /^\s*(?:Error: (.+)|(\w+Error: .+)|(Test timeout of \d+ms exceeded.*))$/m.exec(
+    stdout,
+  );
+  const stdoutError = (errorLine?.[1] ?? errorLine?.[2] ?? errorLine?.[3] ?? "").trim();
+  // stderr keeps its tail: a web server prints why it died last, after
+  // whatever the build warned about on the way (round 3).
+  const stderrLines = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !/\bnpm warn\b/i.test(line))
+    .join(" / ");
+  const stderrTail = stderrLines.length > 200 ? `…${stderrLines.slice(-199)}` : stderrLines;
+  const detail = [stdoutError.slice(0, 200), stderrTail].filter((part) => part !== "").join(" — ");
+  return `a11y: no results written (exit ${raw.code})${detail ? ` — ${detail}` : ""}`;
+}
+
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
   const spawn = ctx.spawn ?? defaultSpawn;
   const site = ctx.site;
@@ -1253,9 +1297,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "a11y",
         site: label,
         status: "fail",
-        summary: `a11y: no results written (exit ${raw.code})${
-          raw.stderr ? ` — ${raw.stderr.slice(0, 200)}` : ""
-        }`,
+        summary: describeNoResults(raw),
       };
     }
 
