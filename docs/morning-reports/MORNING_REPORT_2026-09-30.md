@@ -2,7 +2,7 @@
 
 ## One-line verdict
 
-**All 13 scheduled nightlies are green with `failed=0` on every sweep, and 0.102.0 is on npm. The one thing blocking today's report is Sonder's first Testing report. #1060 landed at 19:18Z, so a refresh preview can now clear it.**
+**All 13 scheduled nightlies are green with `failed=0` on every sweep, and 0.102.0 is on npm. Sonder's first Testing report is 13/13 with no blockers and waits only on your approve and send.**
 
 The scheduled Routine failed at bootstrap this morning, so this pass ran by hand from 18:55Z. By then most of the day had already happened: about 30 PRs landed since yesterday's report, and there are **0 open PRs** [M, 18:56Z].
 
@@ -10,14 +10,11 @@ Clean [TEST] sends in a row: **1** (29 Navy, 2026-09-28, clean). There is no `aw
 
 ## Top of stack (yours; ordered by date)
 
-1. **Today, 09-30 — Sonder Testing, the fleet's first Testing report.**
-   - Press **refresh preview** on Sonder's Testing draft (`report_01M3SGQRB1P4AX68Z20PME512P`). Approve it if Google Indexed comes back measured.
-   - Its one blocker is `Maint: Google Indexed: not yet green (unknown) — Not yet measured` [M, 19:00Z]. The other 12 gating items pass.
-   - Your 18:40Z re-render could not clear it: at that point the item was draft-time-only (`retick.ts`).
-   - **#1060 (`8ae1bf8c`, 19:18Z, from the Sonder Google Indexed worker)** changes that. A refresh preview on an unsent, unapproved draft of a search-enrolled site now runs the Search Console lookup.
-   - Sonder is search-enrolled now: `search_console_property = https://gallerysonder.com/`. After #1060 lands, a lookup that returns `unknown` leaves the stored record as it is.
-   - If the refresh still shows `unknown`, the logged send-anyway override naming only that item is the fallback.
-   - Unproven [I]: this pass has not seen a post-#1060 refresh run.
+1. **Today, 09-30 — Sonder Testing, the fleet's first Testing report: approve and send.**
+   - Draft `report_01M3SGQRB1P4AX68Z20PME512P` is 13/13 with `approveBlockers` `[]`.
+   - Google Indexed reads "Page 1 on Google (#2)". This comes from a read-back at 19:20Z by the Sonder worker (#1063), after its #1060 made refresh preview re-measure Google Indexed.
+   - The blocker was an opt-out: `accepted_watch_conditions` held `no search console`. It was not missing enrolment. The worker removed the opt-out and recorded the property.
+   - No override is needed. Nothing has been sent. This pass did not re-read the row after 19:20Z [I].
 2. **Today, 09-30 — Vida Legacy Foundation Maintenance 2026-09 (new).**
    - Today's run drafted it at 16:00:48Z with 0 blockers.
    - Two seconds later it sent VLF's Launch email and flipped VLF to maintained.
@@ -88,7 +85,7 @@ No "Nightly … failing" issue opened or closed. The only open bot-filed issues 
 - **The PM Routine failed at bootstrap.** This pass ran by hand 14 hours late. It reports a day that is mostly over, which is the opposite of what a morning report is for.
 - **A re-render ran before the fix it needed had landed.** The 18:40Z re-render of Sonder's Testing draft could not clear Google Indexed, which was draft-time-only then (`retick.ts`).
   - The backlog's 15:45Z line said "the draft it creates will carry this evidence without a refresh". That held for Forms and Titles. It did not hold for Google Indexed, whose lookup had never run.
-  - The live worker's #1060 (19:18Z) closes this gap.
+  - The live worker's #1060 (19:18Z) closes this gap. Its #1063 found the real cause: an opt-out in `accepted_watch_conditions`, where this pass (and BACKLOG 30 at 15:45Z) had assumed missing enrolment.
   - This pass's first draft of the report called the blocker un-refreshable. That was true at 19:00Z and wrong by 19:18Z, and it was corrected before landing.
 - **Collision seen and handled.** A second worker took over williamson-construction-co#3 mid-flight (BACKLOG 38). You answered "re-dispatch", and #3 landed. The journal records the fresh-branch check that session skipped.
 - **Stale branches.** Five `claude/*` branches are live with no PR:
@@ -98,7 +95,7 @@ No "Nightly … failing" issue opened or closed. The only open bot-filed issues 
 
 ## Live worker sessions (reported, not touched)
 
-- **Sonder Google Indexed:** owns top-of-stack item 1.
+- **Sonder Google Indexed:** done. #1060 and #1063 landed, and the draft is 13/13.
 - **Williamson Homes:** #7 merged as `ca6027f` and serves on Netlify (#1059).
 - **Williamson Construction:** #3, #5 (intake) and #6 (wiring) have landed, and the site serves on Netlify (#1062). Three launch calls are open at BACKLOG 40.
 - **#674 rules:** the second pass landed in #1050. It is waiting on your accept or cut of 34 candidates.
