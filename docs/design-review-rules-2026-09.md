@@ -27,15 +27,10 @@ A cloud session could read these sources, and they are what this list is built f
   `matching/LEDGER.md` hold the verbatim MarkUp pins from Tim and the operator's directives, round by
   round. It is the nearest thing to the design-review corpus that a cloud session can reach.
 
-It could **not** reach three sources. They are the **second pass, and it needs a laptop session**:
-
-- **Discord.** The bot token is only in the laptop's `.env`. Most of the human voice below
-  is Discord relayed through a PR body ("Tim, Discord 2026-03 …"). The channels themselves would
-  add the notes that never became a PR.
-- **Figma comments.** This session had no Figma connection. Nicole's comments appear here only where a PR
-  or journal entry quoted them.
-- **MarkUp boards**, beyond what the ledgers transcribed. Also `reddoorla/claude-skills`: it is
-  private and was not attached, and it holds the markup-review and matching skills.
+The first pass did **not** read three sources: Discord, Figma comments and the MarkUp boards. Its brief said a
+cloud session could not reach them, and this pass did not check. **That was wrong.** The cloud environment has
+carried `DISCORD_BOT_KEY`, `FIGMA_PAT` and `MARKUP_API_KEY` all along, and all three hosts are allowed. The
+second pass, below, reads all three, and `reddoorla/claude-skills` as well.
 
 On how the evidence was gathered: PR review _line_ comments are **zero** on all eight repos. Design review never
 happened in GitHub's review UI. It reaches the repos as agent-written fix PRs and journal entries that
@@ -46,6 +41,126 @@ Seven read-only agents did the mining, one per source group. Their quotes were t
 grepped against the sources, and every one was genuine. Three matched only after un-wrapping a line
 break, and one only after grepping the file its citation actually named. One deliberately wrong probe was
 included, and it missed as it should.
+
+## Second pass: the reviewers' own words (2026-09-30)
+
+**The corpus.** All of it is private, in `reddoorla/claude-skills` under `design-review-corpus/`, because #674
+keeps review notes out of public repos. This file carries counts and rule wording only. The verbatim evidence is
+in that folder's `evidence.md`.
+
+| Source          | What was pulled                                                                    |
+| --------------- | ---------------------------------------------------------------------------------- |
+| Discord         | 24,126 messages across 109 channels and 47 threads, January 2024 to September 2026 |
+| Figma           | 5,264 comments on 142 files in the 46 projects of team "Reddoor Creative"          |
+| MarkUp          | 287 threads, resolved and open, on all 54 boards                                   |
+| `claude-skills` | its SKILL.md files                                                                 |
+
+**How it was mined.** Five rounds of workflows, about 610 agents in all. The first four each had a verifier stage:
+
+1. 52 chunk miners, each followed by an adversarial verifier; three keyword sweeps; a completeness critic.
+2. The re-mines the critic asked for; independent second readers on the 8 densest chunks; a verifier on the sweep
+   instances; mapping audits; two refuters, one on the evidence and one on generality, for every candidate cluster.
+3. The round-1 verifier prompt run on round 2's readers, so the recall estimate compares like with like.
+4. A complete-the-record reader and verifier on the other 44 chunks; every NEW instance re-clustered; the two
+   refuters again on every cluster with 3 or more items.
+5. A mapping audit of every remaining item under a rule with 5 or more events.
+
+The result is **1,413 instances kept and 107 dropped by an audit.** The counting unit below is the _event_: one
+person, one rule, one file, one day.
+
+**Proving the instruments first.**
+
+- Every one of 2,278 quotes was checked by script to be verbatim at its cited line. None failed. As a negative
+  control, the same check with each line number shifted by one matched 8 of 1,064.
+- The chunk partition was proven to cover every line exactly once.
+- Positive controls on the dumps:
+  - Tim's 2026-09-17 "they should be hanging punctuation", which a reddoor-website code comment cites, is there.
+  - Three Figma files' comment counts, 153, 29 and 24, matched a direct API read.
+- 8 credential-shaped strings pasted into Discord were redacted before the corpus was pushed.
+
+**Recall.**
+
+- Capture–recapture on the 8 densest chunks: round 1 alone found about 54% of what a careful, verified reader
+  finds, and round 1 plus a second reader about 98% (Chapman estimate). Every other chunk then got its second
+  reader.
+- So the counts are close to complete for what was written down. They still undercount what was _said_:
+  - Screenshots attached in Discord were not read, only their file names.
+  - A review held on a call leaves no text.
+
+### The finding: two different kinds of rule
+
+The first pass ranked by what agents fixed and wrote up in PRs. The second counts what reviewers asked for in their
+own words. The two lists disagree.
+
+| Rule | First pass: instances, sites | Second pass: reviewer events | Sites | Discord / Figma / MarkUp |
+| ---- | ---------------------------- | ---------------------------- | ----- | ------------------------ |
+| R21  | ≈20, 5                       | **45**                       | 25    | 25 / 16 / 4              |
+| R1   | ≈30, 5                       | **44**                       | 26    | 20 / 17 / 7              |
+| R3   | ≈40, 8                       | **42**                       | 20    | 18 / 23 / 1              |
+| R15  | ≈20, 6                       | **37**                       | 22    | 18 / 18 / 1              |
+| R17  | ≈18, 5                       | **20**                       | 10    | 6 / 12 / 2               |
+| R5   | ≈20, 4                       | **18**                       | 15    | 8 / 8 / 2                |
+| R16  | ≈12, 4                       | **18**                       | 14    | 8 / 8 / 2                |
+| R13  | ≈12, 5                       | **17**                       | 13    | 13 / 3 / 1               |
+| R6   | ≈20, 5                       | **16**                       | 12    | 11 / 4 / 1               |
+| R18  | ≈10, 4                       | **14**                       | 12    | 9 / 2 / 3                |
+| F1   | ≈15, 4                       | **11**                       | 9     | 8 / 1 / 2                |
+| R10  | ≈20, 6                       | **10**                       | 8     | 9 / 0 / 1                |
+| R19  | ≈15, 4                       | **10**                       | 9     | 5 / 1 / 4                |
+| R14  | ≈10, 3                       | **7**                        | 6     | 5 / 1 / 1                |
+| R8   | ≈12, 4                       | **5**                        | 5     | 1 / 3 / 1                |
+| R4   | ≈25, 5                       | **3**                        | 3     | 3 / 0 / 0                |
+| R9   | ≈25, 7                       | **3**                        | 3     | 1 / 2 / 0                |
+| R11  | ≈15, 7                       | **3**                        | 3     | 2 / 1 / 0                |
+| R7   | ≈15, 6                       | **2**                        | 2     | 1 / 1 / 0                |
+| R25  | ≈8, 2                        | **2**                        | 2     | 1 / 1 / 0                |
+| R20  | ≈10, 3                       | **1**                        | 1     | 1 / 0 / 0                |
+| R24  | ≈6, 3                        | **1**                        | 1     | 1 / 0 / 0                |
+| R2   | ≈35, 8                       | **0**                        | 0     | 0 / 0 / 0                |
+| R12  | ≈15, 5                       | **0**                        | 0     | 0 / 0 / 0                |
+| R22  | ≈6, 3                        | **0**                        | 0     | 0 / 0 / 0                |
+
+1. **Reviewers enforce these by eye.** R21 (tokens and named type styles), R1 (alignment), R3 (contrast on the real
+   ground), R15 (empty CMS content and dead affordances), R17, R5, R16, R13, R6 and R18 carry 14 to 45 events
+   each, spread over 10 to 26 sites. Automating them saves the review time already spent on them.
+2. **No reviewer ever raises these.** R2 (reduced motion), R12 (focus), R22 (measure), R20, R24, R4, R9, R11 and R7
+   have zero to three reviewer events each. The first pass ranked R2 second and R9 ninth, on agent-written
+   accessibility PRs. These are failures a designer cannot see on a screenshot or a comp: reduced motion, no-JS,
+   the heading outline, the keyboard ring. That is the case for automating them, **because nobody else will ever
+   catch them**, not a reason to drop them.
+
+Ranking by one kind of evidence alone would bury the other kind. Both kinds belong in the gate, for the two
+reasons above. Which to encode first is the operator's call; see "Asks" at the end.
+
+Guide, single-site and seen-once rules, counted the same way:
+
+| Rule | Reviewer events | Sites |
+| ---- | --------------- | ----- |
+| G1   | 32              | 20    |
+| G8   | 17              | 14    |
+| G4   | 10              | 9     |
+| G3   | 9               | 7     |
+| G11  | 6               | 5     |
+| G7   | 3               | 3     |
+| G10  | 3               | 2     |
+| G2   | 2               | 2     |
+| G5   | 0               | 0     |
+| G6   | 0               | 0     |
+| G9   | 0               | 0     |
+| S2   | 5               | 4     |
+| S1   | 4               | 3     |
+| S3   | 3               | 3     |
+| S6   | 1               | 1     |
+| S4   | 0               | 0     |
+| S5   | 0               | 0     |
+| O1   | 1               | 1     |
+| O2   | 1               | 1     |
+| O3   | 0               | 0     |
+| O4   | 0               | 0     |
+| O5   | 0               | 0     |
+
+G1 ("match the comp") is the most restated guide rule, with 32 events after the audit moved 21 of its items to more
+specific rules. It stays a guide rule. Its testable half is the match harness, which already exists.
 
 ## Ranking
 
@@ -599,6 +714,85 @@ The issue's seed rule.
 
 ---
 
+## New candidate rules from the second pass (awaiting accept/cut)
+
+These are the clusters of NEW instances that survived both refuters (evidence and generality) in round 4. The
+verbatim evidence is under each ID in `claude-skills` `design-review-corpus/evidence.md`. Events are counted as
+above, by the evidence refuter after collapsing repeats. None is ranked into the numbered list until the operator accepts it.
+
+| ID   | Rule                                                                                                                                                                                                                                                                                        | Events | Sites | Testable | Check                                                                                                                                                |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ----- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N19  | Repeated components are built once: every card, pill, carousel control set, thumbnail, filter bar or header renders identically (size, spacing, inset, border, radius, fill, part order, behaviour) on every page, in every state and at every breakpoint, unless the comp names a variant. | 32     | 14    | partly   | Group elements by component identity and diff computed styles across instances, pages, scroll states and 390/768/1440; flag outliers.                |
+| N17  | Every button of one type renders the site's one style for that type (shape, radius, fill, outline, label colour and case, icon and gap), and a fix to one instance reaches all of them.                                                                                                     | 14     | 8     | partly   | Fingerprint the computed styles of every button and CTA link; flag singletons and near-duplicates that differ from a larger cluster in one property. |
+| N1   | Spacing shows grouping: a heading, lead-in or CTA sits measurably closer to what it belongs to than to the neighbouring block, so the gap above a section heading is larger than the gap below it.                                                                                          | 13     | 9     | partly   | Measure the painted gap above and below every heading and section-final CTA; flag gap-above ≤ gap-below.                                             |
+| N20  | Pages or pop-ups built from one template share their header geometry at every breakpoint: masthead height, title position and alignment, and the line the content starts on.                                                                                                                | 13     | 7     | partly   | Group routes by template; at 390 and 1440 measure masthead height and title box; flag outliers over 4px or a different alignment.                    |
+| N10  | Every interactive control looks different hovered and at rest, and selected, active and disabled states are visibly distinct wherever they exist (R17 governs how the states behave; this governs that they exist).                                                                         | 10     | 5     | partly   | Force :hover through CDP and diff computed colour, background, border, decoration, opacity, transform and shadow against rest; flag no change.       |
+| N21  | Sibling media in one set (logo wall, team grid, gallery, section videos) share one treatment (duotone, tint, overlay, shadow, edge), and an item added later gets it too.                                                                                                                   | 9      | 5     | partly   | Compare filter, blend mode, overlay and shadow across siblings; for treatments baked into files, compare saturation and hue histograms.              |
+| N43  | Every carousel or self-advancing sequence can be stepped by hand in both directions and shows the viewer's position; an indicator that looks clickable is clickable.                                                                                                                        | 7      | 4     | partly   | Assert visible previous, next and position controls at each breakpoint; click each and assert the slide changes.                                     |
+| N158 | Anything clickable signals it at rest, not only on hover, and says what it opens; a hover-revealed menu or expander shows a resting cue.                                                                                                                                                    | 7      | 4     | partly   | Linked cards, tiles and hotspots need a visible label, CTA or icon at rest; hover-reveal menus need a visible trigger.                               |
+| N5   | The first view never reads as the whole page: a full-viewport opener shows the top of the next section, a scroll cue, or a reveal that plays on its own.                                                                                                                                    | 6      | 6     | partly   | At 1440×900 and 390×844, if the first section fills the viewport, require a visible cue or an automatic reveal within 3 s.                           |
+| N162 | A hero or background video paints a still poster at once and stays small (under 5 MB); slow page media gets a designed loading state.                                                                                                                                                       | 6      | 4     | partly   | Record each video's transfer size and time-to-first-frame on a throttled run.                                                                        |
+| N159 | An element's look matches what it does: nothing static wears a control's styling, and each control reads as its type (a field as a field, a tab as a tab).                                                                                                                                  | 5      | 4     | partly   | Flag static elements whose style fingerprint matches a button, and inputs with neither fill nor box.                                                 |
+| M27  | Wherever an item that has its own page appears (a card, a feature, a label on a map), its image, name and CTA link to that page at every width.                                                                                                                                             | 5      | 3     | partly   | For every listed item, compare the hrefs of its image, title and CTA with the item's own route at 390 and 1440.                                      |
+| M63  | A page never says the same thing twice in one view: no image, block or phrase repeated in the next block or a second section (site chrome and CTAs exempt).                                                                                                                                 | 5      | 5     | partly   | Flag duplicate image sources and duplicate text blocks within one page, and two adjacent sections built from the same component.                     |
+| N7   | Content inside a painted or bordered box keeps an even inset in every state: left matches right, and the bottom inset is never tighter than the top.                                                                                                                                        | 4      | 4     | partly   | Compare content ink bounds with the box edges at rest, hover and open; flag differences over 2px.                                                    |
+| N150 | On first load the header shows the full logo lockup at every breakpoint; it condenses to the mark only after scrolling.                                                                                                                                                                     | 4      | 3     | fully    | At 390 and 1440 on load, assert a visible full-lockup logo.                                                                                          |
+| N54  | A CMS-fed listing renders exactly the entries authored for its route, in order, on a fresh load and after client-side navigation.                                                                                                                                                           | 4      | 2     | partly   | Compare the CMS query for the route with the rendered item IDs, both ways of arriving.                                                               |
+| N6   | A downward scroll cue is a real control: activating it brings the next section into view.                                                                                                                                                                                                   | 4      | 2     | partly   | Assert each cue is focusable and that activating it scrolls the next section to the top.                                                             |
+| M6   | A legibility aid over media (scrim, gradient, shadow) is no heavier than R3 needs: one aid, not two, and none where no text sits on the media.                                                                                                                                              | 4      | 3     | partly   | Run R3 with and without each aid; flag aids whose removal still passes (over-darkening) and stacked aids.                                            |
+| N94  | A disclosure toggle stays in place when its content opens; the opener becomes the closer in the same spot.                                                                                                                                                                                  | 4      | 1     | fully    | Record the toggle's box, click, and assert the close control occupies the same box within 4px.                                                       |
+| N92  | Every overlay (modal, pop-up, lightbox, opened menu) shows a visible, named close control that dismisses it.                                                                                                                                                                                | 4      | 3     | fully    | Open each overlay; assert a visible close control with an accessible name that closes it.                                                            |
+| N111 | Media beside text sits on a declared line of that text, measured on ink (by default the top of the heading); an offset matching neither line is a defect.                                                                                                                                   | 3      | 3     | partly   | In two-column rows compare the text's ink top (or centre) with the media's; flag 1–8px offsets.                                                      |
+| N53  | CMS rich text takes its spacing from the prose style: one paragraph gap everywhere, and images in the body get margins.                                                                                                                                                                     | 3      | 3     | partly   | Measure gaps between consecutive blocks in every rich-text container; flag zero gaps, spacer elements and differences between containers.            |
+| N133 | Every page renders and behaves the same in WebKit (desktop and iOS Safari) as in Chromium.                                                                                                                                                                                                  | 3      | 3     | partly   | Screenshot each page in both engines at the same viewport and diff, with a font-rendering tolerance.                                                 |
+| N136 | Where several CTAs share a view, exactly one is styled primary.                                                                                                                                                                                                                             | 3      | 3     | partly   | Fingerprint the CTAs in each viewport-sized group; flag two primaries or no difference.                                                              |
+| N2   | Vertical spacing comes from a small per-site scale: sections of one kind share their padding, and every gap is a step of the scale.                                                                                                                                                         | 3      | 3     | partly   | Collect section paddings and inter-block gaps; flag unequal like sections and values off the scale.                                                  |
+| N99  | An in-page jump link lands on the section it names, and a row of jump links runs in the sections' order.                                                                                                                                                                                    | 3      | 3     | partly   | Click each anchor and assert the named section's top lands under the fixed bar; compare link order with DOM order.                                   |
+| N30  | Entrances are timed to be seen: a reveal lands before its element reaches reading position, and a count-up starts only once fully in view.                                                                                                                                                  | 3      | 3     | partly   | Scroll at a fixed rate and log where each animation starts and ends.                                                                                 |
+| N161 | A background video that cannot play rests on a designated poster frame, never a blank box, alt text or player error.                                                                                                                                                                        | 3      | 2     | partly   | Load with autoplay blocked and screenshot.                                                                                                           |
+| N80  | A field's placeholder is visibly muted compared with typed text, and still legible.                                                                                                                                                                                                         | 3      | 3     | fully    | Compare ::placeholder colour and opacity with the input's text colour.                                                                               |
+| N157 | The header's primary actions (book, pay, apply, donate) are buttons grouped at the trailing end of the nav, distinct from page links.                                                                                                                                                       | 3      | 3     | partly   | Classify nav items by target; assert action items are last and button-styled.                                                                        |
+| M53  | Secondary UI and decoration (utility icons, badges, pills behind numbers, buttons over imagery) stay quieter than the content they serve.                                                                                                                                                   | 3      | 3     | judgment | Guide rule; no script check.                                                                                                                         |
+| N8   | Every field in one form, textarea and select included, uses the same inner padding.                                                                                                                                                                                                         | 2      | 3     | fully    | Compare computed padding of every field in a form; flag differences over 2px.                                                                        |
+| N11  | Every hover or click state the comp draws is built and checked against that drawn state, not only the page at rest.                                                                                                                                                                         | 2      | 2     | partly   | Enumerate the comp's interactive variants and diff each live state against it.                                                                       |
+| N29  | Entrance motion is systematic: elements of one kind share one entrance treatment, and none of a kind is left static.                                                                                                                                                                        | 2      | 2     | partly   | Group elements by kind; flag mixed entrance treatments within a kind.                                                                                |
+
+**Contested.** One refuter killed each of these and the other let it stand. They are listed so the operator can revive any of them:
+
+- **N4** (8 events, 4 sites): a page's primary action sits in the first screen at a common laptop size. **Previously cut** ("CTAs above the fold"), and now back with this evidence; half of it is one Hedloc thread.
+- **N75** (6 events, 5 sites): text of one kind (nav items, buttons, form labels, one heading level) uses one case and one terminal punctuation everywhere. Guide rule at most.
+- **M16** (5 events, 4 sites): a summary or key statement is never set in a caption or footnote style weaker than the text it sums up.
+- **N110** (4 events, 1 site): every route carries the site's designed ground (colour and texture) on body, header and nav. The overscroll half belongs under R19; the rest is reddoor-website only.
+- **N137** (4 events, 2 sites): a CTA label names the specific action the visitor takes, never a generic "Submit", "Learn more" or "Discover".
+- **N109** (4 events, 2 sites): artwork that carries its own ground (a scan, a line drawing) sits on a coloured page with no visible box edge.
+- **N97** (4 events, 2 sites): where a site marks off-site links, every one is marked the same way, and no on-site link is marked.
+- **M45** (4 events, 3 sites): a phone build carries the mobile comp's content cuts. Guide rule at most.
+- **M60** (4 events, 3 sites): emphasis inside a headline (bold, caps, accent colour) comes from a named style, never ad hoc. Suggested home: R21.
+- **N69** (3 events, 3 sites): text playing one role in one block (the lines of a contact or footer block) shares one size and leading.
+- **N70** (3 events, 3 sites): at each breakpoint a higher heading level never renders smaller than a lower one. Guide rule at most.
+- **N152** (3 events, 2 sites): on a page that does not scroll, the footer leaves out the logo the header already shows.
+- **N16** (3 events, 3 sites): anything a card shows on hover can also be reached by touch and keyboard. Suggested home: R17.
+- **N60** (3 events, 2 sites): empty CMS content never leaves a hole: the layout closes up around it. Suggested home: R15.
+- **N107** (3 events, 2 sites): R3's "every state" includes every image and video frame that can fill a media slot. Suggested home: R3.
+- **N23** (3 events, 1 site): portraits shown as a set share one head scale and crop.
+- **N51** (3 events, 2 sites): an auto-advancing carousel holds each slide for a stated minimum dwell, longer for more text.
+- **N141** (3 events, 3 sites): a tab set loads with one tab selected, the first unless the design names another.
+- **M92** (3 events, 3 sites): a newly added image or clip gets the site's established photo treatment (tint, grade, overlay).
+- **N151** (2 events, 2 sites): words inside a rendered logo stay legible at the size it is drawn. Suggested home: N150.
+- **N114** (2 events, 2 sites): anything sized from the viewport (a vw logo, fluid display type) is clamped to a designed maximum. Suggested home: R10.
+- **N22** (2 events, 2 sites): a set of sibling images takes the set's declared ratio. Suggested home: R14.
+- **N103** (2 events, 2 sites): an embedded map opens on the area its content covers, never on the provider's default view.
+- **M8** (2 events, 2 sites): a block aligns to the edge or centre of the element it visually pairs with. Suggested home: R1.
+- **N24** (2 events, 2 sites): icons shown together share one stroke weight. Suggested home: G10.
+- **M55** (2 events, 2 sites): a treatment the site's system uses nowhere else is added to the system or dropped. Suggested home: R21.
+- **M62** (2 events, 2 sites): the header and footer logo is the file the design supplies, at the stated width. Suggested home: G1.
+
+**Killed.** 39 clusters were refuted by both lenses. The operator's 2026-09-29 cuts hold up:
+
+- The scroll-follower (N145) and no faux weights (N77) came back and were killed.
+- The 404 route (N100) and the featured active item (N106) gathered too few items to reach the refuters.
+- Only CTAs above the fold (N4) came back contested, as listed above.
+
 ## Single-site rules (kept by the operator, 2026-09-29)
 
 Each is evidenced mainly on one site. The operator kept these six and cut three: the scroll-follower that must never jump, the column gutter ("we want them flush for some designs"), and mobile-is-not-the-comp-scaled-down.
@@ -684,15 +878,21 @@ The operator kept five of the sixteen and left the rest.
 
 ## What the seeds turned into
 
-- **"Blocks align to the content width unless explicitly full-bleed"** is confirmed as the top rule (rule 1). It needs an explicit opt-in first, because none exists today.
-- **"A container class passed from outside must not collapse the page gutter"** has **no recorded defect** in any
-  source this pass could read. reddoor-starter's `ContentWidth` already protects its gutter against a passed
-  `class`. Whether the note came from Discord remains a question for the second pass. Until then it does not qualify under #674's
-  own bar ("fail on at least one real page").
-- **"Blend modes and transforms"** is confirmed but thin (rule 24): about 6 instances, all reddoor-website plus one on beachfront.
-- **"Heading level and visual size are decoupled"** is confirmed and broad (rule 9). The cheapest half is enabling axe's
+- **"Blocks align to the content width unless explicitly full-bleed"** is confirmed twice: it is the top rule in the fix record (rule 1), and second only to R21 in the reviewers' own words (44 events on 26 sites). Its opt-in is `data-bleed`, decided 2026-09-29, and neither starter carries it yet.
+- **"A container class passed from outside must not collapse the page gutter"**: the first pass found no recorded defect. **The second pass found one.** It is in the public reddoor-website history:
+  1. **2026-04-22:** a reviewer reported that the portfolio slideshows ran wider than the content-width media (R1).
+  2. **2026-04-29, `1a8e666d`, "no padding right of content width media":** the fix removed `pr-6` from `ContentWidthMedia`'s caption column. The column's gutter lived as padding on that one child, so the caption lost its gap to the media.
+  3. **2026-05-06:** the reviewer noticed. `e30ef345` put back `md:pr-4` in both `ContentWidthMedia` and `Slideshow`.
+
+  The mechanism is not an outside class. It is an alignment fix that took away the padding a gutter depended on.
+  The rule it supports is broader than the seed: **a gutter survives a change to its neighbours.** The fixture is
+  that slice at `1a8e666d`. It meets #674's bar (it fails on a real past page). The other two hits are one site
+  asking for wider mobile side margins, and one site's comp stating a fixed side margin for everything that is not full-bleed.
+
+- **"Blend modes and transforms"** is confirmed but thin (rule 24): about 6 instances in the first pass, all reddoor-website plus one on beachfront, and one reviewer event in the second.
+- **"Heading level and visual size are decoupled"** is confirmed and broad in the fix record (rule 9), with 3 reviewer events in the second pass. The cheapest half is enabling axe's
   best-practice heading rules, which the fleet filter excludes today.
-- **"Motion respects reduced-motion"** is confirmed as the broadest rule (rule 2, all 8 repos).
+- **"Motion respects reduced-motion"**: the broadest rule in the fix record (rule 2, all 8 repos), and **absent** from the reviewers' own words (0 events). See "two different kinds of rule" above.
 
 ## Already built somewhere, to reuse rather than rewrite
 
@@ -708,36 +908,15 @@ The operator kept five of the sixteen and left the rest.
   `focus-floor.test.ts` (roalson). Each is one site's version of a rule above, and a ready-made fixture for
   "fails on a real past page".
 
-## The second pass: what it needs
+## Asks for the operator (2026-09-30)
 
-The pass reads Discord, Figma comments and the MarkUp boards, and it re-reads `reddoorla/claude-skills`.
-`claude-skills` is no longer blocked: it attached to a cloud session on 2026-09-29. The other three need
-credentials, network access, and one decision about where the corpus lives.
+1. **Accept or cut the 34 new candidates** in "New candidate rules from the second pass", and revive any contested one
+   you want. Evidence for each is under its ID in `claude-skills` `design-review-corpus/evidence.md`.
+2. **Ordering.** Which kind of rule gets encoded first: the ones reviewers enforce by eye (R21, R1, R3, R15 lead),
+   or the ones nobody reviews (R2, R4, R9, R12)? The numbered order above predates this evidence. The IDs stay
+   stable either way.
+3. **N4, "CTAs above the fold"**: cut on 2026-09-29, now back with 8 events on 4 sites, half of them one Hedloc
+   thread. Keep it cut, or revive it?
 
-**Where it runs.** There are two options:
-
-- **On the laptop.** Everything is already there: `DISCORD_BOT_KEY` in the repo `.env`, and `MARKUP_API_KEY` in
-  `~/.config/reddoor-maint/credentials.env`. Discord calls have to run unsandboxed, because `discord.com` is off
-  the sandbox allowlist. Figma still needs a token.
-- **In the cloud.** The environment needs three read-only secrets and matching network access:
-  - `DISCORD_BOT_KEY`, with `discord.com` allowed;
-  - `FIGMA_TOKEN`, with `api.figma.com` allowed. It is a personal access token with `file_content:read` and
-    `file_comments:read`.
-  - `MARKUP_API_KEY`, with MarkUp's API host allowed.
-
-**Inputs from the operator:**
-
-1. **Which Figma files.** The Figma API cannot list every file. It needs the team ID, or the project IDs, that
-   hold the client comps. Pinned comments are read per file.
-2. **Scope of Discord.** The default is every project channel in the guild, over its whole history. A date floor
-   would cut the cost. The five members are all Reddoor, so the corpus is colleague notes, not client voice.
-3. **Where the raw corpus lives.** #674 says the mined corpus cannot go in a public repo, and this repo is
-   public. Only rules and synthetic fixtures are committed here. On the laptop the corpus can live in
-   `~/.config/reddoor-maint/`. A cloud session keeps nothing, so from the cloud it needs a private repo to push
-   to.
-
-**What it produces:**
-
-- new instances added to the existing rules;
-- rules that surface for the first time;
-- a specific search for the gutter-collapse seed, which has no instance in any source read so far.
+To refresh the corpus, see `design-review-corpus/README.md` in `claude-skills`: four scripts, with credentials
+taken from the environment.

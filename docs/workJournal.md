@@ -5792,6 +5792,8 @@ The morning snapshot's 0 healthy / 13 watch was mostly one roster gap (#939). Th
 
 ## 2026-09-29 — #674: design-review rules mined, no code (#1012)
 
+> Superseded in part by 2026-09-30 — #674 second pass: Discord, Figma and MarkUp were reachable all along; what the reviewers actually ask for.
+
 The operator decided on 2026-09-29 that #674 should mine the rules first and write no code. This session did the mining from the cloud. The result is `docs/design-review-rules-2026-09.md`: 25 ranked rules, nine single-site clusters, eleven rules for the written guide, and a tail of rules seen once.
 
 **What was read.**
@@ -5862,6 +5864,8 @@ The rule sits in one place. `shownChecklistLabels` in the template reads a new `
 **Left for later.** A draft stored before this release keeps its old body, n/a rows included, until "refresh preview" is pressed, and its send already drops them. The Announcement email still lists every check, because it describes the service rather than reporting evidence and decision 17 does not name it. If the operator wants the rule there too, it is a new decision. This changes the client email, so the next [TEST] send is its first real check, per the streak table. No email was sent and nothing was written to Turso.
 
 ## 2026-09-29 — #674: the operator's cut of the mined rules, and what the second pass needs (#1020)
+
+> Superseded in part by 2026-09-30 — #674 second pass: Discord, Figma and MarkUp were reachable all along; what the reviewers actually ask for.
 
 The operator answered #1012 the same evening. The decisions are recorded at the top of `docs/design-review-rules-2026-09.md`.
 
@@ -6439,3 +6443,81 @@ That is two dirty rounds, so #5 went to BACKLOG 36 with a pick, not into a third
 - Branch protection: `self-updating` stopped before writing, because the protection read returned 403 "Resource not accessible by integration".
 
 **The collision.** A second worker was dispatched on the belief that this one was idle, and both made the same step-label fix from `68bd9f0`. It stood down when its push was refused, and #1048 records the dispatch rule that came out of it. Neither side duplicated a Prismic write: every model, the seed and the publish came from the second worker. The first time this worker knew the repository existed was a `curl` of `williamson-homes.prismic.io/api/v2` that listed `project`. The plan still said there was no repository.
+
+## 2026-09-30 — #674 second pass: Discord, Figma and MarkUp were reachable all along; what the reviewers actually ask for (#1050, claude-skills #14)
+
+**The correction comes first.** #1012 and #1020 both said Discord, Figma comments and the MarkUp boards could not
+be reached from a cloud session. #1020 went further and listed what the second pass would need, down to a laptop
+session. None of it was true.
+
+- **The keys were already there.** The environment carries `DISCORD_BOT_KEY`, `FIGMA_PAT` and `MARKUP_API_KEY`, and
+  all three hosts are allowed.
+- **The operator had to ask.** "does the reddoor cloud not have all those keys?" A read-only identity call on each
+  key then settled it in a minute.
+- **The negative control worked.** A bogus MarkUp key got a 401 where the real one got a 400 for a missing parameter.
+- **How the belief arose.** The PM brief said the sources were unreachable, and I relayed that without checking it.
+  That is the shape of all three 2026-08-12 mistakes in CLAUDE.md: I trusted a verdict nobody had tested.
+- **Figma needed one more input.** The API cannot list a team's files without a team ID. The operator pasted the
+  team URL, and it gave 46 projects.
+
+**What was pulled.** The operator chose `claude-skills` as the private home, since #674 keeps review notes out of this
+public repo.
+
+| Source  | Pulled                                                                         |
+| ------- | ------------------------------------------------------------------------------ |
+| Discord | 24,126 messages over 109 channels and 47 threads (`rd-paperwork` answered 403) |
+| Figma   | 5,264 comments on 142 files                                                    |
+| MarkUp  | 287 threads on all 54 boards                                                   |
+
+- **MarkUp's raw JSON carried personal data.** Its user objects hold emails, Okta and HubSpot IDs, so the corpus keeps
+  names only.
+- **Discord held 8 pasted credentials:** a JWT and some `password:` lines. They were redacted without being printed.
+  The first attempt to inspect them, even masked, was refused by the session's safety check, and it was right to
+  refuse.
+- **Each dump was proven before use.**
+  - Tim's 2026-09-17 "hanging punctuation" message, which reddoor-website's code cites, is in Discord.
+  - Three Figma files' comment counts (153, 29, 24) match a direct read.
+  - The text views rebuild byte-identically from the raw files.
+
+**Five rounds, about 610 agents.**
+
+- **Round 1** gave 885 verified instances. Its completeness critic found real gaps: one Figma web file mined at 3 of
+  roughly 10, a 2,114-character Discord line the Read tool truncates, and R1, R15 and R21 inflated by repeats and
+  near-misses.
+- **The recall estimate was the surprise.** Independent second readers on the 8 densest chunks, verified with the
+  same prompt, found 335 of round 1's 350 records plus 289 more. Round 1 alone had caught about 54% of what a careful
+  reader verifies. So every other chunk got a second reader too.
+- **Every quote was checked by script.** 2,278 quotes, 0 failures. A line-shifted negative control matched 8 of 1,064.
+- **The mapping audits did real work.** They dropped 107 items and re-filed dozens. R21 lost 28 of its 70 later-round
+  items to taste calls and Figma-file tidiness. G1 ("match the comp") sent 21 items to more specific rules.
+
+**The finding that changes the ranking.** The first pass counted the fix record; the second counts what reviewers
+said.
+
+- **Where they agree:** R1 (44 events on 26 sites), R3 (42) and R15 (37).
+- **Where the second pass promotes:** R21 (tokens and named type styles) comes first on 45 events, from about 20
+  first-pass instances.
+- **Where they disagree most:** R2 (reduced motion), second in the first pass on about 35 instances, has **zero**
+  reviewer events. So do R12 and R22. R4, R9, R11, R20 and R24 have one to three each.
+- **Why that matters.** These are failures invisible on a comp or a screenshot. That is the strongest argument for
+  automating them, because no reviewer will ever catch them. The rules doc now presents both kinds, and asks the
+  operator which to encode first.
+
+**New candidates.** 34 clusters survived both refuters: repeated components built once (32 events, 14 sites), one
+style per button type, spacing that shows grouping, template header geometry, visible hover states, and more. Another
+27 are contested and 39 were killed. Every cluster that repeated an operator cut died or stayed contested. Only
+"CTAs above the fold" came back with evidence (8 events, 4 sites), and it goes to the operator.
+
+**The gutter seed has its real defect.** reddoor-website `1a8e666d` (2026-04-29) removed `pr-6` from
+`ContentWidthMedia`'s caption column to fix a slideshow-width mismatch a reviewer had reported. The gutter lived on
+that padding, so the caption lost its gap. `e30ef345` (2026-05-06) restored it after the reviewer noticed. It is not
+an outside class, but it is a gutter lost as a side effect, and it fails on a real past page as #674 requires.
+
+**Honest accounting.**
+
+- **Counts are a floor.** Screenshots in Discord were not read, and calls leave no text.
+- **The event unit is coarse.** One person, one rule, one file, one day can merge two distinct asks.
+- **Cluster wording is the refuters' paraphrase**, tightened by hand for the public table.
+- **Recall depends on the source.** Round 1 alone caught 38–60% on the six Figma chunks and 71–74% on the two Discord
+  ones. Terse comp comments are the easiest to pass over, which is why the second reader went everywhere.
+- **Scale.** The whole pass used about 53M subagent tokens over roughly ten hours of workflow wall clock.
