@@ -6004,3 +6004,17 @@ That is #905's shape exactly, and `npx playwright install chromium` cleared
 it. The container also restarted mid-review; round 2 was resumed from the
 workflow journal. No Turso writes, no workflow dispatches, and no live
 client-site audits beyond vida's local dev server.
+
+## 2026-09-29 — Sonder's first Testing report: two blockers measured, one is a Prismic title, one cannot be measured safely by 09-30 (docs only)
+
+A worker session from the PM brief, read-only on Turso and on Sonder. It changed no code in either repo and opened no gallerysonder PR, because neither blocker is a defect in code.
+
+The gate was run as the product runs it. `approveBlockers` over `autoTickChecklist(site, "Testing", …)` on Sonder's live rows, read through a bare libSQL client (`openDb` runs `ensureMigrated`, which is not a SELECT), at 23:53Z and at 09-30 14:00Z, returns the same two fail-level `health-gate` findings: Page Titles & Meta `fail`, and Form Functionality `unknown` ("Not yet measured"). The other eleven gating rows pass, which is the instrument's positive control. Google Indexed joins them only if the draft has no search signal. No Testing draft row exists yet; Sonder's three rows are all sent.
+
+**Titles & Meta.** `site_health` stores only the verdict. The reason is in the fleet-lighthouse job log (run 36584559490): 15 routes, and the one problem is `https://gallerysonder.com/artists: title 90 chars (max 70)`. The title comes from Prismic, not code. `page` `artists` (`ZjwQtxIAANaT82IQ`) has `meta_title` = "Artists - Ruben Benjamin - Borja Colom - Theo Hirschfield - Anthony James" (73 characters), and `brandedTitle` appends " | Gallery Sonder" (17). The audit measured correctly, so it is not a false fail and was not touched. The gate's note, though, reads "Missing/duplicate title or missing meta description" for a length fault (`auto-tick.ts:360`), which points the reader the wrong way. The content fix is operator decision 30. It needs a publish, a rebuild of the prerendered site, the next fleet-lighthouse re-stamp, and refresh preview.
+
+**Form Functionality.** Sonder is in the form-e2e nightly and self-skips. Run 36598340500 printed "site /health does not declare forms.testMode — probe refused", and `form_e2e_checked_at` is NULL. I checked the #779 worker's note myself rather than trusting it. `/health` has no `testMode`, and the four `<form>`s on `/contact` are hidden Netlify stubs. A marked probe is therefore impossible until a Sonder PR deploys, and an unmarked one is a real lead to a client. I did not duplicate #779's branch. A different authority still speaks to whether the forms work: Turso holds 10 real Sonder submissions from 09-22 to 09-29, all notified, with Mailchimp fanout ok. The `contact` form's newest is 09-02.
+
+**The product call left open.** A send-anyway override is the only way out on 09-30. It lifts every health blocker at once, and the email still draws "Form Functionality ✓", because `shownChecklistLabels` drops only `n/a` rows. So the pick written under decision 30 is: fix the title first, override only when Forms is the sole blocker, and name the real-traffic evidence in the reason.
+
+Corrected on contact: my first draft gave the `meta_title` as 72 characters. A `len()` said 73.
