@@ -34,6 +34,9 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     pointOfContact: "Tucker",
     ga4PropertyId: "123456789",
     searchConsoleProperty: "sc-domain:acme.example.com",
+    searchConsoleOutcome: "resolved",
+    searchConsoleResolved: "sc-domain:acme.example.com",
+    searchConsoleCheckedAt: new Date().toISOString(),
     // The roster identities the sweeps need (#889); without them a maintained
     // row watches for "Git repo / Netlify ID not recorded".
     gitRepo: "reddoorla/acme",
@@ -842,15 +845,23 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toContain("GA4 property not recorded");
   });
 
-  it("tags a maintained site that records no Search Console property with its signal, and offers the filter", () => {
+  it("#943: tags a maintained site whose lookup matched no Search Console property, names the host, and offers the filter", () => {
     const html = renderCockpitHtml(
       model([
-        siteRow({ id: "g", name: "NoGsc", status: "maintained", searchConsoleProperty: null }),
+        siteRow({
+          id: "g",
+          name: "NoGsc",
+          status: "maintained",
+          url: "https://nogsc.example.com",
+          searchConsoleOutcome: "no-property",
+          searchConsoleCheckedAt: "2026-06-01T09:00:00Z",
+        }),
       ]),
     );
-    expect(html).toMatch(/data-signals="[^"]*search-console-unrecorded[^"]*"/);
-    expect(html).toContain('data-filter="search-console-unrecorded"');
-    expect(html).toContain("Search Console property not recorded");
+    expect(html).toMatch(/data-signals="[^"]*search-console-no-property[^"]*"/);
+    expect(html).toContain('data-filter="search-console-no-property"');
+    expect(html).not.toContain("search-console-unrecorded");
+    expect(html).toContain("Search Console: no property matched nogsc.example.com");
   });
 
   it("tags a maintained site missing its Git repo / Netlify ID with their signals, and offers both filters (#889)", () => {
@@ -906,13 +917,14 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
           name: "Broken",
           status: "maintained",
           defaultBranchCi: "failing",
-          searchConsoleProperty: null,
+          searchConsoleOutcome: "no-property",
+          searchConsoleCheckedAt: "2026-06-01T09:00:00Z",
         }),
       ]),
     );
     expect(html).toMatch(/class="pill attention"/);
     expect(html).toMatch(/data-signals="[^"]*\bci\b[^"]*"/);
-    expect(html).toMatch(/data-signals="[^"]*\bsearch-console-unrecorded\b[^"]*"/);
+    expect(html).toMatch(/data-signals="[^"]*\bsearch-console-no-property\b[^"]*"/);
     // Tagged, not re-tiered: the verdict still counts it once, as broken.
     expect(html).toMatch(/⚠ 1 site broken/);
     expect(html).not.toMatch(/\d+ watching/);

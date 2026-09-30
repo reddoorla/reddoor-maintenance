@@ -135,6 +135,9 @@ const RICH: RawRecord = {
     "URL Resolves": "fail",
     "URL Status": "404 netlify-site-not-found",
     "URL Checked At": "2026-08-23T07:30:00.000Z",
+    "Search Console Outcome": "resolved",
+    "Search Console Resolved": "sc-domain:rich.example.com",
+    "Search Console Checked At": "2026-08-23T07:40:00.000Z",
     "Next maintenance at": "2026-09-01",
     "Next testing at": "2026-11-01",
   },
@@ -156,6 +159,7 @@ const WEIRD: RawRecord = {
     "Function health": "maybe", // not pass/fail → null
     "Prismic Models": "unknown", // the third state must SURVIVE (never null)
     "URL Resolves": "maybe", // not pass/fail → null on both sides
+    "Search Console Outcome": "pass", // not one of the three outcomes → null on both sides
     "Crossbrowser OK": true,
     "Broken links": 7,
   },

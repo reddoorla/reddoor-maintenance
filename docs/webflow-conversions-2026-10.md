@@ -396,6 +396,25 @@ reddoor-maintenance titled with its ID, unless an earlier phase already did.
 
 ### Phase 0
 
+**Status, 2026-09-30 (#1029): half done.** All three references are captured
+whole, with every page, every responsive variant, the 12 Construction videos
+and its PDF, the 12 Domaru Lottie files, the Google Fonts faces and the githack
+counter script. They were fetched by `scripts/webflow-capture/capture.mjs`, and
+`check.mjs` reports 0 missing for each. Page counts match §2: 10, 14 and 7.
+Domaru's capture (an archive now that it lapses) and the tools are in PR #1032,
+which is held for the operator after two review rounds (BACKLOG decision 34).
+The two Williamson captures (310 MB) are on branch
+`capture/od7-williamson-2026-09-30` (see `captures/README.md` in #1032). The
+harness preflight was proven on both live Williamson sites with
+`refMark: data-wf-site="<site id>"`. **Not done:** neither Williamson repo
+exists, because the org refused this session's create. That, the Construction
+repo's name (the roster slug is `williamson-construction-co`) and the RED
+new-site steps are BACKLOG Operator decisions 33. Two things §2 did not list:
+Domaru `/about` has a YouTube embed, and Homes `/about-us` carries a
+commented-out `<script>` for a jsDelivr copy of the counter script
+(`cdn.jsdelivr.net/gh/tucksravin/incidental-js@latest`, "once ready to deploy").
+The browser does not load it, but the file is in the capture anyway.
+
 ```markdown
 ## Worker brief — OD7-P0: bootstrap both Williamson repos and capture all three Webflow references
 

@@ -12,6 +12,7 @@
  * resolve unchanged.
  */
 import { CANONICAL_STATUSES, type Status } from "./site-status.js";
+import type { SearchConsoleOutcome } from "./search-console-evidence.js";
 
 export type Frequency = "None" | "Monthly" | "Quarterly" | "Yearly";
 
@@ -188,7 +189,8 @@ export type WebsiteRow = {
    *  `pass`/`fail`; null = never ran. Point-in-time. Freshness-gated by `browserCheckedAt`. */
   reachableOk: "pass" | "fail" | null;
   /** Titles & meta verdict (browser audit, chromium): every sampled route has a non-empty `<title>`
-   *  ≤ 70 chars + a non-empty meta description, and no duplicate titles across the sample.
+   *  + a non-empty meta description, and no duplicate titles across the sample. Title length is
+   *  a warning in the audit note only, never a fail.
    *  Single-select `pass`/`fail`; null = never ran. Freshness-gated by `browserCheckedAt`. */
   titleMetaOk: "pass" | "fail" | null;
   /** Per-site copy overrides (M6a). Blank → null → the DEFAULT_COPY value. */
@@ -299,6 +301,13 @@ export type WebsiteRow = {
   urlStatus: string | null;
   /** When `roster-urls` last probed this row — stamped on every outcome. */
   urlCheckedAt: string | null;
+  /** What the last report draft's Search Console lookup resolved (#943); null
+   *  when no lookup has run. See `src/fleet/search-console-evidence.ts`. */
+  searchConsoleOutcome: SearchConsoleOutcome | null;
+  /** The property that lookup queried; null unless `resolved`. */
+  searchConsoleResolved: string | null;
+  /** When that lookup ran, stamped on every outcome. */
+  searchConsoleCheckedAt: string | null;
   notifyRouting: NotifyRouting | null;
   /** The RAW `Notify Routing` cell, verbatim. Same reason `statusRaw` exists: the
    *  dashboard editor round-trips this JSON, and re-serializing the PARSED object

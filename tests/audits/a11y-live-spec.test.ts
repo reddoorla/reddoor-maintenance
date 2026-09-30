@@ -258,6 +258,12 @@ const CROSS_PAGES: Record<string, string> = {
     "Booking widget",
     `<section style="position: relative; isolation: isolate; padding: 16px; background-color: oklch(0.205 0 none); color: #fff"><p>Widget copy long enough that axe will actually judge its contrast.</p><a href="#book" style="display: inline-block; padding: 8px; background: #fff; color: #000">Book</a></section>`,
   ),
+  // Text over a plus-lighter grain inside a third party's document: axe's
+  // blend crash there is the third party's, counted and never re-run around.
+  "/grain.html": thirdPartyPage(
+    "Grain widget",
+    `<section style="position: relative; background: #172303; color: #fff; padding: 16px"><div style="pointer-events: none; position: absolute; inset: 0; opacity: 0.2; mix-blend-mode: plus-lighter; background: #888"></div><p style="position: relative">Widget copy long enough that axe will actually judge its contrast.</p></section>`,
+  ),
   // A third party's script that throws as soon as it loads.
   "/throws.html": thirdPartyPage(
     "Widget",
@@ -1518,5 +1524,222 @@ describe("audits/a11y — freezeMotion reaches ::before and ::after (#1018)", ()
   it("cancels the transition and the animation on the element and both pseudo-elements", () => {
     const frozen = { transitionProperty: "none", animationName: "none" };
     expect(computed).toEqual({ element: frozen, before: frozen, after: frozen });
+  });
+});
+
+/**
+ * A blend mode axe has no function for (vida-legacy-foundation's grain
+ * overlays, `mix-blend-plus-lighter`). axe's color-contrast throws
+ * `blendFunctions[blendMode] is not a function` on the first text node whose
+ * backdrop carries it, and the throw skips the rule for the whole document.
+ *
+ *   - SITE_B: `/grain` holds two paragraphs over a plus-lighter grain and one
+ *     plain paragraph beside it. The grain's text is not measured, and says
+ *     so; the plain paragraph and the h1 still are. `/grain-link` puts a link
+ *     in the grain's text, which crashes link-in-text-block too, so two rules
+ *     are re-run around, each with its own exclusions. `/xo-grain` holds the
+ *     grain only inside a cross-origin frame: that crash is the third party's,
+ *     counted by the frame split and never re-run around. Nothing else is
+ *     wrong with these pages, so the site must not fail.
+ *   - SITE_BF: pages whose own contrast is wrong beside the grain, which a
+ *     rule skipped for the whole document would never find. `/grain-faint`:
+ *     `#faint` (#aaa on white), a none-hued colour (#888's incomplete shape),
+ *     and faint text inside a same-origin frame. `/grain-wrap`: the crash is
+ *     filed on a wrapper with text of its own, and faint text 200px below the
+ *     grain sits inside that wrapper; excluding the wrapper's subtree would
+ *     drop it. `/grain-hero`: after the grain is re-run around, the Hero's
+ *     unparseable colour crashes the rule, which must still fail.
+ *   - SITE_CAP: 25 paragraphs over the grain are re-run around one run at a
+ *     time and pass; the 26th is past BLEND_RERUN_MAX and fails.
+ */
+const GRAIN = `<div class="grain" style="pointer-events: none; position: absolute; inset: 0; opacity: 0.2; mix-blend-mode: plus-lighter; background: #888"></div>`;
+const GRAIN_BAND = `<section id="grain-band" style="position: relative; background: #172303; color: #fff; padding: 24px">${GRAIN}<p id="over-grain" style="position: relative">${T}</p><p id="over-grain-2" style="position: relative">${T}</p></section>`;
+const grainOf = (n: number): string =>
+  `<section style="position: relative; background: #172303; color: #fff; padding: 24px">${GRAIN}${Array.from({ length: n }, (_, i) => `<p id="g${i}" style="position: relative">${T}</p>`).join("")}</section>`;
+const SITE_B: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/grain": sitePage("Grain", `<p id="plain">${T}</p>${GRAIN_BAND}`),
+    "/grain-link": sitePage(
+      "Grain link",
+      `<section style="position: relative; background: #172303; color: #fff; padding: 24px">${GRAIN}<p id="link-para" style="position: relative">${T} <a id="grain-link" href="#more" style="color: inherit; text-decoration: none">Read more</a></p></section>`,
+    ),
+    "/xo-grain": sitePage(
+      "Third-party grain",
+      `<p id="xo-plain">${T}</p><iframe id="xo-grain" title="Widget" src="CROSS_ORIGIN/grain.html"></iframe>`,
+    ),
+  },
+  a11yRoutes: ["/grain", "/grain-link", "/xo-grain"],
+};
+const SITE_BF: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/grain-faint": sitePage(
+      "Grain beside faint text",
+      `<p id="faint" style="color: #aaa">${T}</p><p id="grain-fg" style="color: oklch(0.4 0 none)">${T}</p><iframe id="own-faint" title="Our page" src="/own-faint"></iframe>${GRAIN_BAND}`,
+    ),
+    "/own-faint": sitePage("Own faint", `<p id="faint-in-frame" style="color: #aaa">${T}</p>`),
+    "/grain-wrap": sitePage(
+      "Grain over a wrapper",
+      `<section style="position: relative; background: #fff; color: #000"><div class="grain" style="pointer-events: none; position: absolute; top: 0; left: 0; right: 0; height: 30px; opacity: 0.2; mix-blend-mode: plus-lighter; background: #888"></div><div id="wrap" style="position: relative">Intro words here<span id="wrap-lead" style="display: block; margin-top: 100px">${T}</span><p id="wrap-faint" style="color: #aaa; margin-top: 200px">${T}</p></div></section><p id="after-faint" style="color: #aaa">${T}</p>`,
+    ),
+    "/grain-hero": sitePage("Grain then Hero", `${GRAIN_BAND}${HERO_SECTION}`),
+    "/grain-shadow": sitePage(
+      "Grain over a shadow host",
+      `<section style="position: relative; background: #fff; color: #000">${GRAIN}<p id="shadow-lead" style="position: relative">${T}</p><x-host id="host" style="position: relative; display: block">Slotted text</x-host></section><script>customElements.define("x-host", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = '<slot></slot><p id="shadow-faint" style="color: #aaa; margin-top: 200px">${T}</p>'; } });</script>`,
+    ),
+  },
+  a11yRoutes: ["/grain-faint", "/grain-wrap", "/grain-hero", "/grain-shadow"],
+};
+const SITE_CAP: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/grain-25": sitePage("Grain 25", grainOf(25)),
+    "/grain-26": sitePage("Grain 26", grainOf(26)),
+  },
+  a11yRoutes: ["/grain-25", "/grain-26"],
+};
+
+describe("audits/a11y — a blend mode axe cannot compute is not measured, not a failure", () => {
+  let siteB = "";
+  let siteBF = "";
+  let siteCap = "";
+  let grain: AuditResult | undefined;
+  let grainFaint: AuditResult | undefined;
+  let cap: AuditResult | undefined;
+
+  beforeAll(async () => {
+    siteB = await makeFixtureSite(SITE_B);
+    siteBF = await makeFixtureSite(SITE_BF);
+    siteCap = await makeFixtureSite(SITE_CAP);
+    grain = await a11yAudit({ site: { path: siteB }, spawn: livePlaywright });
+    grainFaint = await a11yAudit({ site: { path: siteBF }, spawn: livePlaywright });
+    cap = await a11yAudit({ site: { path: siteCap }, spawn: livePlaywright });
+  }, 360_000);
+
+  afterAll(async () => {
+    for (const s of [siteB, siteBF, siteCap]) if (s) await rm(s, { recursive: true, force: true });
+  });
+
+  type BlendRecord = { route: string; rule: string; blendMode: string | null; target: unknown };
+  type Measured = { route: string; ruleNodes: Record<string, number> };
+  type Dropped = { route: string; count: number; rules: string[] };
+  const violationsOf = (r: AuditResult | undefined): Violation[] =>
+    (r?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+  const blendOf = (r: AuditResult | undefined, route: string): string[] =>
+    ((r?.details as { blendUnmeasured?: BlendRecord[] } | undefined)?.blendUnmeasured ?? [])
+      .filter((b) => b.route === route)
+      .map((b) => `${b.rule} ${JSON.stringify(b.target)} ${b.blendMode}`)
+      .sort();
+  const targetsOf = (r: AuditResult | undefined, id: string, route: string): string[] =>
+    violationsOf(r)
+      .filter((v) => v.id === id && v.route === route)
+      .flatMap((v) => (v.nodes ?? []).map((n) => (n.target ?? []).join(" ")))
+      .sort();
+
+  it("does not fail a page whose only problem is the blend mode, and warns instead", () => {
+    expect(violationsOf(grain)).toEqual([]);
+    expect(grain?.status).toBe("warn");
+  });
+
+  it("records each element it could not measure, with the rule and the blend mode", () => {
+    expect(blendOf(grain, "/grain")).toEqual([
+      'color-contrast ["#over-grain"] plus-lighter',
+      'color-contrast ["#over-grain-2"] plus-lighter',
+    ]);
+  });
+
+  it("re-runs each crashed rule around its own crashes: color-contrast and link-in-text-block", () => {
+    // The paragraph crashes color-contrast first; re-run around it, its link
+    // crashes it next. link-in-text-block only ever checks the link.
+    expect(blendOf(grain, "/grain-link")).toEqual([
+      'color-contrast ["#grain-link"] plus-lighter',
+      'color-contrast ["#link-para"] plus-lighter',
+      'link-in-text-block ["#grain-link"] plus-lighter',
+    ]);
+  });
+
+  it("names the count, the rule, the blend mode and the route on the summary line", () => {
+    expect(grain?.summary).toContain(
+      'element(s) not measured for color-contrast — axe has no "plus-lighter" blend mode: /grain (2), /grain-link (',
+    );
+    expect(grain?.summary).toContain(
+      'element(s) not measured for link-in-text-block — axe has no "plus-lighter" blend mode: /grain-link (',
+    );
+  });
+
+  it("leaves a blend crash inside a cross-origin frame to the frame split: counted, not re-run around", () => {
+    expect(blendOf(grain, "/xo-grain")).toEqual([]);
+    const dropped =
+      (grain?.details as { frameNodesDropped?: Dropped[] } | undefined)?.frameNodesDropped ?? [];
+    expect(dropped.find((d) => d.route === "/xo-grain")).toEqual({
+      route: "/xo-grain",
+      count: 1,
+      rules: ["rule-errored"],
+    });
+    const measured = (grain?.details as { measured?: Measured[] } | undefined)?.measured ?? [];
+    expect(
+      measured.find((m) => m.route === "/xo-grain")?.ruleNodes["color-contrast"],
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("still measures the rest of the page's contrast", () => {
+    const measured = (grain?.details as { measured?: Measured[] } | undefined)?.measured ?? [];
+    expect(
+      measured.find((m) => m.route === "/grain")?.ruleNodes["color-contrast"],
+    ).toBeGreaterThanOrEqual(2);
+    expect(targetsOf(grainFaint, "color-contrast", "/grain-faint")).toEqual([
+      "#faint",
+      "#own-faint #faint-in-frame",
+    ]);
+    expect(targetsOf(grainFaint, "contrast-unmeasured", "/grain-faint")).toEqual(["#grain-fg"]);
+    expect(grainFaint?.status).toBe("fail");
+  });
+
+  it("measures the text inside a crashed wrapper, and leaves only the wrapper's own text unmeasured", () => {
+    expect(targetsOf(grainFaint, "color-contrast", "/grain-wrap")).toEqual([
+      "#after-faint",
+      "#wrap-faint",
+    ]);
+    expect(blendOf(grainFaint, "/grain-wrap")).toEqual(['color-contrast ["#wrap"] plus-lighter']);
+  });
+
+  it("still fails a crash that is not the blend mode, found after the blend crash is re-run around", () => {
+    const hero = violationsOf(grainFaint).filter((v) => v.route === "/grain-hero");
+    expect(hero.map((v) => v.id)).toEqual(["rule-errored"]);
+    expect(hero[0]?.help).toContain('Unable to parse color "oklch(0.205 0 none)"');
+    expect(blendOf(grainFaint, "/grain-hero")).toEqual([
+      'color-contrast ["#over-grain"] plus-lighter',
+      'color-contrast ["#over-grain-2"] plus-lighter',
+    ]);
+  });
+
+  it("does not re-run around a crash filed on a shadow host: excluding it would drop its shadow tree", () => {
+    const shadow = violationsOf(grainFaint).filter((v) => v.route === "/grain-shadow");
+    expect(shadow.map((v) => `${v.id} ${JSON.stringify(v.nodes?.map((n) => n.target))}`)).toEqual([
+      'rule-errored [["#host"]]',
+    ]);
+    expect(shadow[0]?.help).toContain("blendFunctions[blendMode] is not a function");
+    // The paragraph above crashes first and is re-run around; the host
+    // crashes on the re-run, and stays a crash.
+    expect(blendOf(grainFaint, "/grain-shadow")).toEqual([
+      'color-contrast ["#shadow-lead"] plus-lighter',
+    ]);
+  });
+
+  it("re-runs around 25 blend crashes on one route, and fails the 26th", () => {
+    expect(blendOf(cap, "/grain-25")).toHaveLength(25);
+    expect(violationsOf(cap).map((v) => `${v.id} on ${v.route}`)).toEqual([
+      "rule-errored on /grain-26",
+    ]);
+    expect(violationsOf(cap)[0]?.help).toContain("blendFunctions[blendMode] is not a function");
+    expect(blendOf(cap, "/grain-26")).toHaveLength(25);
+    expect(cap?.status).toBe("fail");
   });
 });
