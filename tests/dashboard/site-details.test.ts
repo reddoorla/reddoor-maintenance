@@ -352,6 +352,7 @@ describe("setSiteDetail — the non-text fields", () => {
       "no search console",
       "no git repo",
       "no netlify id",
+      "url not deployed",
     ]);
   });
 });
