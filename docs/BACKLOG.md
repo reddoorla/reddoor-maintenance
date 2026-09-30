@@ -137,7 +137,7 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 | P1-26 | #1055 option A: a `/privacy` route in `reddoor-starter` rendered from per-site values (client legal name, contact email, and switches for the services the site actually uses: GA4, Turnstile, Netlify Forms/central forms, Mailchimp, Google Fonts, Adobe Fonts, Vimeo), a footer link, a one-line data notice under each form, and a CalOPPA "Do Not Track" line. Central: the `analytics-tag` recipe (`src/recipes/analytics-tag/index.ts`) refuses to add a tag when the site has no `/privacy` route. First site: roalson-interests, before its launch adds GA4. The text ships marked DRAFT until item 45 clears it; client-site rollout is per-repo PRs after that. Brief: `docs/privacy-2026-09.md` | 🟡 | M | `reddoor-starter/src/lib/components/Footer.svelte`, `src/routes/contact/+page.svelte`; central `src/recipes/analytics-tag/index.ts` | Starter PR and central refusal landed with tests; roalson carries the page |
 | P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries | 🟢 | S | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed |
-| P1-28 | A report draft the operator decided not to send has no state that takes it off the cockpit's pending list: `isPendingApproval` (`src/reports/report-row.ts:79`) is `draftReady && !approvedToSend && sentAt === null`, so VLF's skipped 2026-09 draft (item 41) shows as "Maintenance 2026-09 ready" forever. Add a withdrawn state for a draft, set from `/s/<slug>`. | 🟡 | S–M | `src/reports/report-row.ts:79`, `src/dashboard/fleet-cockpit.ts` | A withdrawn draft leaves the pending list and the Needs-you feed, and a test goes red if it comes back |
+| P1-28 | **In progress: `claude/report-withdraw` (operator asked 2026-09-30).** It also blocks the next period: `pendingEarlier` in `src/cli/commands/report.ts` skips a new draft while an earlier one is pending, so VLF's October report would never be drafted. A report draft the operator decided not to send has no state that takes it off the cockpit's pending list: `isPendingApproval` (`src/reports/report-row.ts:79`) is `draftReady && !approvedToSend && sentAt === null`, so VLF's skipped 2026-09 draft (item 41) shows as "Maintenance 2026-09 ready" forever. Add a withdrawn state for a draft, set from `/s/<slug>`. | 🟡 | S–M | `src/reports/report-row.ts:79`, `src/dashboard/fleet-cockpit.ts` | A withdrawn draft leaves the pending list and the Needs-you feed, and a test goes red if it comes back |
 
 ### Blocked behind another PR (do not start early)
 
@@ -1154,6 +1154,8 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     [M]. _Ask:_ approve writing that value to the row's `netlify_id`. _Pick:_
     yes; the 09-29 journal already showed the site is on Netlify and that
     accepting the condition would be the wrong fix. PR: `claude/cockpit-warnings-2026-09-30`.
+    **Answered 2026-09-30 ~21:38Z: write it.** Written 21:40:52Z through
+    `setSiteDetail`, NULL → that ID, read back [M].
 49. **Cockpit warnings, 2026-09-30: four maintained sites without GA4.** 1836dig,
     29 Navy, Data Dynamiq and LA Homelessness Youth are on watch for "GA4
     property not recorded" [M]. None has a property that the reports account can
@@ -1164,6 +1166,12 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     four. `no analytics` means the client runs its own analytics (design D8),
     and the analytics audit skips an opted-out site (`src/audits/analytics.ts:1395`).
     So a mute added now would stay behind unseen after a property lands.
+    **Answered 2026-09-30 ~21:38Z:** Youth does not need GA, so `no analytics`
+    was written 21:40:52Z (`["no custom domain"]` → `["no custom domain","no
+    analytics"]`). The operator creates properties for the other three. When the
+    numeric property IDs arrive (not the `G-` measurement IDs), a session records
+    each in `ga4_property_id` after confirming the reports account lists it. The
+    tag install is separate and waits on P1-26.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
@@ -1172,6 +1180,10 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     `industry` from reddoor-website with Slice Machine (repo → Prismic). _Pick:_
     push; it is not destructive, and re-acking would hide a label that tells the
     client editor the field must not be blank.
+    **Answered 2026-09-30 ~21:38Z: pushed by the operator.** Prismic's
+    `inquiry_survey_id` now carries the repo's label [M, Prismic MCP]. The
+    stored verdict read `fail` at 21:34:12Z, before the push, from dispatch
+    36780192887. The next prismic-drift run re-reads it.
 
 ---
 
