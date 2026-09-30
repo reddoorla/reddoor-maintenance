@@ -546,6 +546,56 @@ describe("draftReportForSite", () => {
     });
   });
 
+  describe("#943: fetchSearch reports what the lookup resolved", () => {
+    const period = { start: new Date("2026-05-01"), end: new Date("2026-05-31") };
+    const enrolled = () => siteFixture({ ga4PropertyId: "471880366" });
+
+    it("resolved, with the property the query ran against", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+        property: "sc-domain:acme.example.com",
+      });
+      expect((await fetchSearch(enrolled(), period.start, period.end)).lookup).toEqual({
+        outcome: "resolved",
+        property: "sc-domain:acme.example.com",
+      });
+    });
+
+    it("no-property when nothing matched", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: false,
+      });
+      expect((await fetchSearch(enrolled(), period.start, period.end)).lookup).toEqual({
+        outcome: "no-property",
+        property: null,
+      });
+    });
+
+    it("soft-fail when the API errored", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockRejectedValue(new Error("boom"));
+      expect((await fetchSearch(enrolled(), period.start, period.end)).lookup).toEqual({
+        outcome: "soft-fail",
+        property: null,
+      });
+    });
+
+    it("null when the lookup did not run", async () => {
+      expect((await fetchSearch(enrolled(), period.start, period.end)).lookup).toBeNull();
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      expect(
+        (await fetchSearch(siteFixture({ ga4PropertyId: null }), period.start, period.end)).lookup,
+      ).toBeNull();
+      expect(fetchSearchPresence).not.toHaveBeenCalled();
+    });
+  });
+
   describe("fetchSearch — default query + name-default miss flag", () => {
     const period = { start: new Date("2026-05-01"), end: new Date("2026-05-31") };
     const lastQuery = () => vi.mocked(fetchSearchPresence).mock.calls[0]![0].query;
@@ -942,7 +992,10 @@ describe("draftReportForSite → the Turso report writer", () => {
     });
 
     expect(mirrored).toEqual([
-      { id: "rec_site_acme", fields: { "Analytics soft-fail at": expect.any(String) } },
+      {
+        id: "rec_site_acme",
+        fields: expect.objectContaining({ "Analytics soft-fail at": expect.any(String) }),
+      },
     ]);
     expect(Date.parse(mirrored[0]!.fields["Analytics soft-fail at"] as string)).not.toBeNaN();
   });
@@ -958,6 +1011,7 @@ describe("draftReportForSite → the Turso report writer", () => {
       foundOnPage1: true,
       position: 2,
       propertyFound: true,
+      property: "sc-domain:acme.example.com",
     });
     const mirrored: Array<Record<string, unknown>> = [];
 
@@ -971,7 +1025,145 @@ describe("draftReportForSite → the Turso report writer", () => {
       },
     });
 
-    expect(mirrored).toEqual([{ "Analytics soft-fail at": null }]);
+    expect(mirrored).toEqual([expect.objectContaining({ "Analytics soft-fail at": null })]);
+  });
+
+  describe("#943: persists what the Search Console lookup resolved", () => {
+    async function draftWith(over: Partial<WebsiteRow> = { ga4PropertyId: "G-123" }) {
+      const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
+      vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 10, previous: 8 });
+      const before = Date.now();
+      await draftReportForSite(siteFixture(over), "Maintenance", {
+        ...NO_HEADER,
+        siteMirror: {
+          health: async (id, fields) => {
+            mirrored.push({ id, fields });
+          },
+          site: async () => {},
+        },
+      });
+      const sc = mirrored.filter((m) => "Search Console Outcome" in m.fields);
+      return { sc, before, after: Date.now() };
+    }
+
+    it("a resolved lookup stores the property it queried, stamped now, on the site row", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+        property: "https://www.acme.example.com/",
+      });
+      const { sc, before, after } = await draftWith();
+      expect(sc).toHaveLength(1);
+      expect(sc[0]!.id).toBe("rec_site_acme");
+      expect(sc[0]!.fields).toMatchObject({
+        "Search Console Outcome": "resolved",
+        "Search Console Resolved": "https://www.acme.example.com/",
+      });
+      const at = Date.parse(sc[0]!.fields["Search Console Checked At"] as string);
+      expect(at).toBeGreaterThanOrEqual(before);
+      expect(at).toBeLessThanOrEqual(after);
+    });
+
+    it("no property matched stores `no-property` and no property", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: false,
+      });
+      const { sc } = await draftWith();
+      expect(sc[0]!.fields).toMatchObject({
+        "Search Console Outcome": "no-property",
+        "Search Console Resolved": null,
+      });
+    });
+
+    it("an API error stores `soft-fail`, replacing any older property", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockRejectedValue(new Error("503 backendError"));
+      const { sc } = await draftWith();
+      expect(sc[0]!.fields).toMatchObject({
+        "Search Console Outcome": "soft-fail",
+        "Search Console Resolved": null,
+      });
+    });
+
+    it("writes nothing when the lookup did not run: no credentials, not enrolled, opted out, or a preview", async () => {
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 1,
+        propertyFound: true,
+        property: "sc-domain:acme.example.com",
+      });
+      expect((await draftWith()).sc).toEqual([]);
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      expect(
+        (await draftWith({ ga4PropertyId: null, searchQuery: null, searchConsoleProperty: null }))
+          .sc,
+      ).toEqual([]);
+      expect(
+        (
+          await draftWith({
+            ga4PropertyId: "G-123",
+            acceptedWatchConditions: ["no search console"],
+          })
+        ).sc,
+      ).toEqual([]);
+      const mirrored: unknown[] = [];
+      await draftReportForSite(siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
+        previewOnly: true,
+        enrich: true,
+        previewPath: `${process.env.TMPDIR ?? "/tmp"}/draft-943-${process.pid}.html`,
+        siteMirror: {
+          health: async (_id, fields) => {
+            mirrored.push(fields);
+          },
+          site: async () => {},
+        },
+      });
+      expect(mirrored).toEqual([]);
+    });
+
+    it.each<[string, Partial<WebsiteRow>]>([
+      ["a recorded property", { searchConsoleProperty: "sc-domain:acme.example.com" }],
+      ["a search query", { searchQuery: "acme" }],
+    ])("persists for a site enrolled through %s with no GA4 property", async (_, over) => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: false,
+      });
+      const { sc } = await draftWith({ ga4PropertyId: null, ...over });
+      expect(sc).toHaveLength(1);
+      expect(sc[0]!.fields).toMatchObject({ "Search Console Outcome": "no-property" });
+    });
+
+    it("a failing mirror write does not fail the draft", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 1,
+        propertyFound: true,
+        property: "sc-domain:acme.example.com",
+      });
+      const result = await draftReportForSite(
+        siteFixture({ ga4PropertyId: "G-123" }),
+        "Maintenance",
+        {
+          ...NO_HEADER,
+          siteMirror: {
+            health: async () => {
+              throw new Error("no such column: search_console_outcome");
+            },
+            site: async () => {},
+          },
+        },
+      );
+      expect(result.reportRow).not.toBeNull();
+    });
   });
 
   it("drafts exactly as before when no mirror is supplied", async () => {

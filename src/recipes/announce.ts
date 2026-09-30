@@ -13,6 +13,7 @@ import {
   analyticsEnrolled,
   fetchGaUsers,
   fetchSearch,
+  lookupFields,
   refreshHeaderImage,
 } from "../reports/draft.js";
 import type { RefreshHeaderDeps } from "../reports/draft.js";
@@ -129,7 +130,10 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
       if (readGaConfig() !== null && analyticsEnrolled(w)) {
         const at = gaResult.softFailed || searchResult.softFailed ? now.toISOString() : null;
         try {
-          await deps.siteMirror?.health(w.id, analyticsHealthFields(at));
+          await deps.siteMirror?.health(w.id, {
+            ...analyticsHealthFields(at),
+            ...lookupFields(searchResult, now),
+          });
         } catch (e) {
           console.warn(
             `⚠ analytics-health Turso mirror failed for ${w.name}: ${(e as Error).message}`,
