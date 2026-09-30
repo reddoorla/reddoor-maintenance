@@ -25,6 +25,7 @@ import {
   canExcludeBlendNode,
   isExcludableBlendCrash,
   reincludedChildren,
+  sameBlendTargets,
   unsupportedBlendModeAt,
   type BlendUnmeasured,
 } from "./util/blend-mode.js";
@@ -440,6 +441,7 @@ const isExcludableBlendCrash = ${isExcludableBlendCrash.toString()};
 const unsupportedBlendModeAt = ${unsupportedBlendModeAt.toString()};
 const reincludedChildren = ${reincludedChildren.toString()};
 const canExcludeBlendNode = ${canExcludeBlendNode.toString()};
+const sameBlendTargets = ${sameBlendTargets.toString()};
 // How many times one rule is re-run on one route, each time excluding the
 // nodes the last run crashed on for a blend mode. One band of text over a
 // grain crashes once per text node; a page that still crashes after this many
@@ -706,16 +708,28 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       for (const c of results.crashes) {
         if (!blendRules.includes(c.rule) && (await blendExcludable(c))) blendRules.push(c.rule);
       }
+      // After every re-run, each excluded selector must still name the one
+      // element that crashed, or the rule is not re-run around at all and its
+      // crash fails -- see sameBlendTargets.
       for (const rule of blendRules) {
         const excluded = [];
+        const elements = [];
+        let held = true;
         let rerun = { violations: [], passes: [], incomplete: [], crashes: results.crashes.filter((c) => c.rule === rule) };
         for (let round = 0; round < BLEND_RERUN_MAX; round++) {
           const crashing = [];
           for (const c of rerun.crashes) if (await blendExcludable(c)) crashing.push(c);
           if (crashing.length === 0) break;
-          for (const c of crashing) excluded.push(c.nodes[0].target[0]);
+          for (const c of crashing) {
+            excluded.push(c.nodes[0].target[0]);
+            elements.push(await page.evaluateHandle((s) => document.querySelector(s), c.nodes[0].target[0]));
+          }
           rerun = await runAxe([rule], excluded);
+          held = await page.evaluate(sameBlendTargets, { selectors: excluded, elements });
+          if (!held) break;
         }
+        for (const e of elements) await e.dispose();
+        if (!held) continue;
         for (const group of ["violations", "passes", "incomplete"]) {
           results[group] = results[group].filter((r) => r.id !== rule).concat(rerun[group]);
         }

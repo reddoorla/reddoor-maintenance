@@ -1389,6 +1389,16 @@ const GRAIN_BAND = `<section id="grain-band" style="position: relative; backgrou
 // "plus-darker" for the element marked data-fake-blend, and axe's blend
 // lookup throws on it exactly as it does on plus-lighter.
 const FAKE_BLEND = `<script>{ const gcs = window.getComputedStyle; window.getComputedStyle = function (el, pseudo) { const s = gcs.call(window, el, pseudo); const mode = el instanceof Element ? el.getAttribute("data-fake-blend") : null; if (!mode) return s; return new Proxy(s, { get(t, k) { if (k === "mixBlendMode") return mode; if (k === "getPropertyValue") return (p) => (p === "mix-blend-mode" ? mode : t.getPropertyValue(p)); const v = Reflect.get(t, k, t); return typeof v === "function" ? v.bind(t) : v; } }); }; }</script>`;
+// The DOM changing between axe runs, made deterministic by counting the
+// spec's own lookups of the crashed heading's selector. Without swap, a
+// second h2 with faint text is appended at the first lookup, and that
+// selector now matches both. With swap, at the fourth lookup (the spec has
+// checked the node and taken hold of it, and the re-run is re-including
+// children just before axe starts), the faint h2 is appended and the crashed
+// one removed, so the selector names one element again, but not the one
+// that crashed (a carousel re-render).
+const lateH2 = (swap: boolean): string =>
+  `<script>{ const qs = Document.prototype.querySelector; let n = 0; document.querySelector = function (s) { const el = qs.call(this, s); if (el && el.tagName === "H2" && ++n === ${swap ? 4 : 1}) { const late = document.createElement("section"); late.innerHTML = '<h2 id="late-h2" style="color: #aaa">${T}</h2>'; qs.call(document, "main").append(late); if (${swap}) el.remove(); } return el; }; }</script>`;
 const grainOf = (n: number): string =>
   `<section style="position: relative; background: #172303; color: #fff; padding: 24px">${GRAIN}${Array.from({ length: n }, (_, i) => `<p id="g${i}" style="position: relative">${T}</p>`).join("")}</section>`;
 const SITE_B: SiteConfig = {
@@ -1431,8 +1441,28 @@ const SITE_BF: SiteConfig = {
       "Grain over a shadow host",
       `<section style="position: relative; background: #fff; color: #000">${GRAIN}<p id="shadow-lead" style="position: relative">${T}</p><x-host id="host" style="position: relative; display: block">Slotted text</x-host></section><script>customElements.define("x-host", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = '<slot></slot><p id="shadow-faint" style="color: #aaa; margin-top: 200px">${T}</p>'; } });</script>`,
     ),
+    "/grain-late": sitePage(
+      "Grain, then a late heading",
+      `${lateH2(false)}<section style="position: relative; background: #172303; color: #fff; padding: 24px">${GRAIN}<h2 style="position: relative">${T}</h2></section>`,
+    ),
+    "/grain-swap": sitePage(
+      "Grain, then a swapped heading",
+      `${lateH2(true)}<section style="position: relative; background: #172303; color: #fff; padding: 24px">${GRAIN}<h2 style="position: relative">${T}</h2></section>`,
+    ),
+    "/grain-host-first": sitePage(
+      "Grain over a shadow host first",
+      `<section style="position: relative; background: #fff; color: #000">${GRAIN}<x-host id="host-first" style="position: relative; display: block">Slotted text</x-host></section><iframe id="own-faint-2" title="Our page" src="/own-faint"></iframe><script>customElements.define("x-host", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<slot></slot>"; } });</script>`,
+    ),
   },
-  a11yRoutes: ["/grain-faint", "/grain-wrap", "/grain-hero", "/grain-shadow"],
+  a11yRoutes: [
+    "/grain-faint",
+    "/grain-wrap",
+    "/grain-hero",
+    "/grain-shadow",
+    "/grain-late",
+    "/grain-swap",
+    "/grain-host-first",
+  ],
 };
 const SITE_CAP: SiteConfig = {
   pages: {
@@ -1584,6 +1614,28 @@ describe("audits/a11y — a blend mode axe cannot compute is not measured, not a
     expect(blendOf(grainFaint, "/grain-shadow")).toEqual([
       'color-contrast ["#shadow-lead"] plus-lighter',
     ]);
+  });
+
+  it("keeps the crash when a crashed node's selector no longer names that one node", () => {
+    const late = violationsOf(grainFaint).filter((v) => v.route === "/grain-late");
+    expect(late.map((v) => v.id)).toEqual(["rule-errored"]);
+    expect(late[0]?.help).toContain("blendFunctions[blendMode] is not a function");
+    expect(blendOf(grainFaint, "/grain-late")).toEqual([]);
+  });
+
+  it("keeps the crash when a crashed node's selector names a different node on the re-run", () => {
+    const swap = violationsOf(grainFaint).filter((v) => v.route === "/grain-swap");
+    expect(swap.map((v) => v.id)).toEqual(["rule-errored"]);
+    expect(blendOf(grainFaint, "/grain-swap")).toEqual([]);
+  });
+
+  it("does not re-run a rule whose first blend crash is on a shadow host", () => {
+    const first = violationsOf(grainFaint).filter((v) => v.route === "/grain-host-first");
+    expect(first.map((v) => `${v.id} ${JSON.stringify(v.nodes?.map((n) => n.target))}`)).toEqual([
+      'color-contrast [["#own-faint-2","#faint-in-frame"]]',
+      'rule-errored [["#host-first"]]',
+    ]);
+    expect(blendOf(grainFaint, "/grain-host-first")).toEqual([]);
   });
 
   it("re-runs around 25 blend crashes on one route, and fails the 26th", () => {
