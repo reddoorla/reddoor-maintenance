@@ -6787,3 +6787,29 @@ The env line, the comment's count (18 → 19, all 19 names re-derived through `p
 Proof did not wait for the nightly. The workflow was dispatched on the PR branch (run 36780192887, 49 s, green): the env block shows `PRISMIC_TOKEN_VIDA_LEGACY: ***`, no token warning is printed, `[vida-legacy-foundation] @ b99cce97aab5 Prismic models — repository: vida-legacy` is followed by `18 model(s) match Prismic — nothing to push.`, and the tally is `11 checked, 0 failed, 4 skipped (no Prismic config), of 15 site(s)`, `wrote=15 failed=0`. The same grep over the morning's run does print the warning and `10 checked, 1 failed`, so the absence is measured, not assumed. Tomorrow's 05:00 UTC run on `main` is the durable confirmation. Every sweep since 09-28 has taken under a minute, which is worth knowing before waiting on one.
 
 Two laptop-side facts worth a line. `gh` fails x509 inside the sandbox here just as it does in loops, so every `gh` call ran unsandboxed. And `git branch -m` cannot finish inside the sandbox: it renames the ref and then fails writing `.git/config`, the same denial that breaks `git push -u`; `git push origin HEAD:refs/heads/<name>` needs neither.
+
+## 2026-09-30 — Header capture refuses an unstyled page (BACKLOG 30 follow-up)
+
+This entry comes from the operator's "yes" to the ask the previous entry filed. It had proposed comparing `document.styleSheets` with `<link rel=stylesheet>`. A probe against a local server showed that idea was dead on arrival. Chromium gives every `<link>` a non-null `sheet`, including one whose request 404'd, returned `text/html`, or had its connection reset. Built as proposed, the check could never have failed. That is this repo's first rule again, caught before any code was written.
+
+**What was built instead.** The shooter listens for stylesheet requests that fail (`requestfailed`) or answer 400 or above (`response`). A 404 served as `text/css` fires only the second, which is why both are needed. Just before the shutter, a failure is counted only if all three hold:
+
+- its URL (the head of any redirect chain, fragment removed) matches a `<link rel=stylesheet>` that applies to the screen: not alternate, not disabled, media matching;
+- its host is the page's own, either requested or redirected-to;
+- it has not already been counted.
+
+Any counted failure throws `UnstyledPageError`, and `captureHomepage` re-shoots once on that error and only on it. The Sonder shot was one bad capture in four, so a transient failure recovers, while a stylesheet that is gone for good still refuses and the stored header is kept.
+
+Third-party stylesheets are ignored. Sonder's layout CSS is `/_app/immutable/assets/*.css`, and only Typekit is off-host. A dead font kit changes fonts, not layout, and refusing on it would freeze a header until someone noticed. The cost is that a site whose CSS lives on a CDN host is never checked. The same trade leaves a failed `@import` undetected, because it has no `<link>` of its own.
+
+**Proof.**
+
+- Blocking Sonder's own CSS (`route.abort`) reproduces the broken header exactly: "Skip to content", the menu button and two giant wordmarks. It counts 5 own-host failures.
+- The normal site passes. All 19 live fleet homepages passed through the real capture. Three of them came back small (about 160 KB, against 1–8 MB for the rest). I looked at one, LAHI: its homepage is a flat illustration, so the small file is legitimate.
+- A real-Chromium suite covers: styled; own 404 as text/plain; own 404 as text/css; own connection reset; own 404 behind a 301; an href with `#v2`; the page redirected to another host; a third-party 404; print-only and preload failures (must still shoot); and counting a 404 once.
+- Fourteen mutations each turned a test red. The first try at S3 (ignore the status check) stayed green, because a text/plain 404 also fires `requestfailed`. That is why the text/css case exists. One mutation was not valid TypeScript and measured nothing until it was rewritten.
+
+**Review.**
+
+- Round 1 (medium): a failed `media=print` sheet or `preload as=style` refused a page whose screen was fully styled. Fixed with the screen-sheet filter. Also fixed: 404s counted twice, and the redirect host was untested. The one-retry design came from this round.
+- Round 2: minors only, all missed detections and none a wrongful refusal: a redirected sheet, a `#fragment`, and a silent `.catch` when the page could not be read. Fixed at the operator's call.
