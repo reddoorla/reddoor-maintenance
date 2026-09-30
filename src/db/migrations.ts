@@ -573,6 +573,19 @@ export const MIGRATIONS: Migration[] = [
     sql: `ALTER TABLE site_health ADD COLUMN url_checked_at TEXT;`,
   },
   {
+    // #910: how many routes the last a11y run scanned. Beside the total below,
+    // it makes a 1-of-2 run a different row from a 2-of-2 run; the violation
+    // count alone is the same number for both.
+    id: "0033_site_health_a11y_routes_scanned",
+    sql: `ALTER TABLE site_health ADD COLUMN a11y_routes_scanned INTEGER;`,
+  },
+  {
+    // #910: how many routes the last a11y run was given (fixtures + the site's
+    // own `reddoor.a11yRoutes`).
+    id: "0034_site_health_a11y_routes_total",
+    sql: `ALTER TABLE site_health ADD COLUMN a11y_routes_total INTEGER;`,
+  },
+  {
     // #943: what the last report draft's Search Console lookup resolved —
     // `resolved`, `no-property` or `soft-fail`. 0033–0034 are #1005's.
     id: "0035_site_health_search_console_outcome",

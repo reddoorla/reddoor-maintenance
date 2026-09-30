@@ -38,6 +38,8 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     seoScore: null,
     lastLighthouseAuditAt: null,
     a11yViolations: null,
+    a11yRoutesScanned: null,
+    a11yRoutesTotal: null,
     depsDrifted: null,
     depsMajorBehind: null,
     depsOutdated: null,

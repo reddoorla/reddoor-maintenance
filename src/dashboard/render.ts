@@ -41,6 +41,14 @@ function healthTile(label: string, value: number | null, sub: string | null): st
   return `<div class="tile"><div class="tile-value">${escapeHtml(display)}</div><div class="tile-label">${escapeHtml(label)}</div>${subLine}</div>`;
 }
 
+function a11ySub(site: WebsiteRow): string | null {
+  const { a11yRoutesScanned: scanned, a11yRoutesTotal: total } = site;
+  if (scanned === null || total === null) return null;
+  return scanned < total
+    ? `only ${scanned} of ${total} routes scanned`
+    : `${scanned} of ${total} routes scanned`;
+}
+
 function depsSub(majorBehind: number | null): string | null {
   if (majorBehind === null || majorBehind === 0) return null;
   return `${majorBehind} major behind`;
@@ -866,7 +874,7 @@ export function renderSiteDashboardHtml(
   const healthSection = allHealthNull
     ? `<div class="empty">No health data yet — run <code>reddoor-maint audit --write-back</code> from the site checkout.</div>`
     : `<div class="tiles">
-        ${healthTile("Accessibility issues", site.a11yViolations, null)}
+        ${healthTile("Accessibility issues", site.a11yViolations, a11ySub(site))}
         ${healthTile("Dependency updates", site.depsDrifted, depsSub(site.depsMajorBehind))}
         ${healthTile("Security alerts", secTotal, securitySub(site))}
       </div>`;

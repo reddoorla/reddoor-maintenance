@@ -139,6 +139,8 @@ export interface SiteHealthTable {
   seo_score: number | null;
   lighthouse_at: string | null;
   a11y_violations: number | null;
+  a11y_routes_scanned: number | null;
+  a11y_routes_total: number | null;
   deps_drifted: number | null;
   deps_major_behind: number | null;
   deps_outdated: number | null;

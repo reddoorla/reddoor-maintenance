@@ -108,6 +108,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     seoScore: (f["seoScore"] as number | undefined) ?? null,
     lastLighthouseAuditAt: (f["Last lighthouse audit at"] as string | undefined) ?? null,
     a11yViolations: (f["A11y Violations"] as number | undefined) ?? null,
+    a11yRoutesScanned: (f["A11y Routes Scanned"] as number | undefined) ?? null,
+    a11yRoutesTotal: (f["A11y Routes Total"] as number | undefined) ?? null,
     depsDrifted: (f["Deps Drifted"] as number | undefined) ?? null,
     depsMajorBehind: (f["Deps Major Behind"] as number | undefined) ?? null,
     depsOutdated: (f["Deps Outdated"] as number | undefined) ?? null,
@@ -179,7 +181,13 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
 // `auditFields` merges whichever are present into ONE write — so the field-name
 // magic strings live in exactly one place.
 
-export type A11yCounts = { violations: number };
+/** `routesScanned` of `routesTotal` routes were scanned (#910); null when the
+ *  audit result did not say. */
+export type A11yCounts = {
+  violations: number;
+  routesScanned: number | null;
+  routesTotal: number | null;
+};
 export type DepsCounts = {
   drifted: number;
   majorBehind: number;
@@ -254,7 +262,11 @@ function scoreFields(scores: LighthouseScoreWriteback): FieldSet {
 }
 
 function a11yFields(counts: A11yCounts): FieldSet {
-  return { "A11y Violations": counts.violations };
+  return {
+    "A11y Violations": counts.violations,
+    "A11y Routes Scanned": counts.routesScanned,
+    "A11y Routes Total": counts.routesTotal,
+  };
 }
 
 function depsFields(counts: DepsCounts): FieldSet {
