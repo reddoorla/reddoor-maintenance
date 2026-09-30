@@ -174,7 +174,12 @@ Ordered by what unblocks the most. Each line is the exact ask.
    them; (e) **any reaction from the operator on a Discord message closes it**.
 7. **Webflow, hard date 2026-10-19** [M, Discord #website-maintenance 09-17]:
    two sites still to convert before the license renews; Domaru must stay up
-   to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19. **Scoped
+   to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19.
+   **Answered 2026-09-30:** the conversions are Williamson Homes and
+   Williamson Construction, on native Prismic; Domaru lapses on 10-19 (the
+   client no longer wants it; no bridge); D5 yes. Phase 0 is running. Still
+   the operator's by 10-05, via Tim: D0 Webflow billing, D6 the Construction
+   form recipient, D7 the GoDaddy holder, D8 the Adobe Fonts kit owner. **Scoped
    2026-09-29: see the plan, [`docs/webflow-conversions-2026-10.md`](webflow-conversions-2026-10.md).**
    Three live sites still serve from Webflow [M]: Williamson Homes (10 pages),
    Williamson Construction (14) and Domaru (7). The plan's pick is that the
