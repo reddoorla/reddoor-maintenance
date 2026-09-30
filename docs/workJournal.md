@@ -6444,7 +6444,7 @@ That is two dirty rounds, so #5 went to BACKLOG 36 with a pick, not into a third
 
 **The collision.** A second worker was dispatched on the belief that this one was idle, and both made the same step-label fix from `68bd9f0`. It stood down when its push was refused, and #1048 records the dispatch rule that came out of it. Neither side duplicated a Prismic write: every model, the seed and the publish came from the second worker. The first time this worker knew the repository existed was a `curl` of `williamson-homes.prismic.io/api/v2` that listed `project`. The plan still said there was no repository.
 
-## 2026-09-30 — #674 second pass: Discord, Figma and MarkUp were reachable all along; what the reviewers actually ask for (#PRNUM, claude-skills #14)
+## 2026-09-30 — #674 second pass: Discord, Figma and MarkUp were reachable all along; what the reviewers actually ask for (#1050, claude-skills #14)
 
 **The correction comes first.** #1012 and #1020 both said Discord, Figma comments and the MarkUp boards could not
 be reached from a cloud session. #1020 went further and listed what the second pass would need, down to a laptop
