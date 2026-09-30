@@ -97,16 +97,25 @@ export async function readLockedCliVersion(repoRoot: string): Promise<LockedCliV
   }
 
   // Only inside `importers:` — see the note above on packages:/snapshots:.
+  // pnpm 12 writes the lockfile as two YAML documents, the first pinning pnpm
+  // itself with an `importers:` of its own that lists no project dependency, so
+  // every `importers:` section is read, not only the first.
   const lines = raw.split("\n");
-  const importersAt = lines.findIndex((l) => /^importers:\s*$/.test(l));
-  if (importersAt === -1) {
+  const importers: string[] = [];
+  let sections = 0;
+  for (let at = 0; at < lines.length; at++) {
+    if (!/^importers:\s*$/.test(lines[at]!)) continue;
+    sections++;
+    const end = lines.findIndex((l, i) => i > at && /^([a-zA-Z]|---)/.test(l));
+    importers.push(...lines.slice(at + 1, end === -1 ? lines.length : end));
+    if (end !== -1) at = end - 1;
+  }
+  if (sections === 0) {
     return {
       ok: false,
       reason: "pnpm-lock.yaml has no `importers:` section — unrecognised lockfile shape",
     };
   }
-  const end = lines.findIndex((l, i) => i > importersAt && /^[a-zA-Z]/.test(l));
-  const importers = lines.slice(importersAt + 1, end === -1 ? lines.length : end);
 
   const found = new Set<string>();
   for (let i = 0; i < importers.length; i++) {

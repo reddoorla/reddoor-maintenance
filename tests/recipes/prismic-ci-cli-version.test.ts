@@ -59,6 +59,36 @@ describe("atLeast", () => {
 });
 
 describe("readLockedCliVersion", () => {
+  /** pnpm 12 writes TWO YAML documents: the first pins pnpm itself (its own
+   *  `importers:` holds only `packageManagerDependencies`), the second is the
+   *  project. Measured on williamson-homes 2026-09-30 (pnpm 12.5.1): lines
+   *  1–157 are pnpm's own document, the project's `importers:` is at line 171. */
+  const pnpm12Lockfile = (projectBody: string): string =>
+    `---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    configDependencies: {}\n` +
+    `    packageManagerDependencies:\n      pnpm:\n        specifier: 12.5.1\n        version: 12.5.1\n\n` +
+    `packages:\n\n  '@pnpm/exe.linux-x64@12.5.1':\n    resolution: {integrity: sha512-x}\n\n` +
+    `---\nlockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n\nimporters:\n\n  .:\n${projectBody}` +
+    `\npackages:\n\n  '@reddoorla/maintenance@0.97.0':\n    resolution: {integrity: sha512-y}\n`;
+
+  it("reads the project's importers in a pnpm 12 two-document lockfile", async () => {
+    await writeFile(
+      join(dir, "pnpm-lock.yaml"),
+      pnpm12Lockfile(dependencyBlock("0.97.0(@sveltejs/kit@2.70.3)(svelte@5.57.1)")),
+    );
+    expect(await readLockedCliVersion(dir)).toEqual({ ok: true, version: "0.97.0" });
+  });
+
+  it("still reports a pnpm 12 lockfile whose project does not depend on the package", async () => {
+    await writeFile(
+      join(dir, "pnpm-lock.yaml"),
+      pnpm12Lockfile(
+        `    dependencies:\n      '@slicemachine/adapter-sveltekit':\n        specifier: ^0.3.0\n        version: 0.3.87\n`,
+      ),
+    );
+    const result = await readLockedCliVersion(dir);
+    expect(result.ok).toBe(false);
+  });
+
   it("reads the version pnpm actually resolved, not the package.json range", async () => {
     // The whole reason this reads the LOCKFILE, measured on a real fleet repo:
     // espada's package.json says `^0.81.0` while its lockfile resolves 0.69.0,
