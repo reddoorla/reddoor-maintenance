@@ -612,6 +612,26 @@ function` on a top-level element, the spec re-runs that rule with the
       access to it (then the next draft is clean), and otherwise override,
       reason "Sonder is not enrolled in Search Console yet (#939); every other
       gate measured green on 09-30". The send is yours either way.
+    - **Update 2026-09-30 ~19:20Z: 13/13 measured, no blockers. Ready for
+      your approve and send.** The diagnosis above was wrong about the cause.
+      Sonder was not "not enrolled"; it was **opted out**:
+      `accepted_watch_conditions` held `no search console`, and
+      `searchEnrolled` returns false for an opt-out even with a property
+      recorded (journal 2026-09-29, the Search Console entry, had said so).
+      With the opt-out removed and `search_console_property` set through
+      `setSiteDetail`, the draft still could not pick it up, because refresh
+      preview kept Google Indexed as drafted (#929). #1060 (`8ae1bf8c`) makes
+      refresh re-measure it for an unsent, unapproved report on an enrolled
+      site. Dispatched `report-rerender` run 36764821092 on `8ae1bf8c`:
+      `status=rendered bytes=86345 header=turso evidence=reticked
+search=measured`. Read back (SELECT only) at 19:20Z:
+      - all 13 evidence rows `pass`, with Google Indexed "Page 1 on Google (#2)";
+      - all 13 boxes ticked;
+      - `search_found_page1 = 1`, `search_position = 2`;
+      - the body reads "Page 1 Google Result (#2)";
+      - `approveBlockers` on the live row is `[]`.
+
+      No override is needed. Nothing was sent.
 31. **#779, the client half of form-e2e coverage** — the central widening
     (item 16) covers no new site on its own. Measured 2026-09-29 from the live
     roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
