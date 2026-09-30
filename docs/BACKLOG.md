@@ -239,8 +239,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     is still the lever for that.
 16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
-    **Answered 2026-09-29 ("go"); built in PR #1017, held after two review
-    rounds (item 32).**
+    **Answered 2026-09-29 ("go"); built in PR #1017. Held again after a
+    third review round found behaviour defects (item 32).**
     The probe now fills required fields outside its standard four: the first
     real option of a select, and synthetic values for text, checkbox and radio.
     The nightly names its uncovered sites, and a localhost positive control runs
@@ -555,34 +555,37 @@ function` on a top-level element, the spec re-runs that rule with the
     to declare `testMode`, so that same deploy can add a `/contact` redirect.
     Say if you want the column anyway.
 
-32. **#779's central widening, PR #1017**: two review rounds each found real
-    defects, so #1017 is held for your call instead of going to a third round.
-    Round 1 (on `6a042beb`) found one real major: the test named "can stop the
-    sweep" checked only the positive-control step's own keys, so `|| true` on
-    the control or `if: always()` on the sweep left it green. It also found
-    five minors: a disabled option that was never tested, a `time` input
-    reported as synthesized when its value never stuck, a control inside a
-    disabled fieldset, a failure summary without the synthesized list, and a
-    marker test that would pass if a probe were persisted as spam. A claimed
-    hydration revert of a synthesized `<select>` was refuted by measurement
-    against a real Svelte 5 component. All of it is fixed in `63d0502a`.
-    Round 2 (on `63d0502a`) found two real majors. First, the revert fixture
-    raced a 300 ms page-load timer and failed 1 run in 3 on a loaded single
-    core; this file is the nightly's positive control, so a flake there stops
-    the whole sweep. Second, nothing tested that a failed run carries the
-    synthesized list. It also found minors: a reverted field was called a
-    re-render wipe, re-synthesized names were never listed, the throw path
-    dropped the list, and the fixture recorded both events. All are fixed in
-    `3d1274e1`: the revert now fires on the probe's own change event (3/3 on a
-    pinned, loaded core). Full suite: 8008 passed. 27 mutations (11 named
-    first, 16 from the rounds) all turn a test red. Two minors were left: the
-    tests do not require the control and the sweep to share a job, and a few
-    type branches of the synthesizer are untested. The ask: land #1017 as it
-    is (my pick: round 2's defects were in the tests, and the one behaviour
-    change is naming), or run a third round first. Landing it is
-    `git merge origin/main` (keep both sides of BACKLOG), CI green, then
-    `node scripts/land-prs.mjs 1017`. The first nightly after merge is its
-    first live run; a dispatch is not needed.
+32. **#779's central widening, PR #1017. Answered 2026-09-30: third round.**
+    Round 3 found behaviour defects, fixed in `48326568`. Operator: land or
+    not. Under the answer's terms there is no fourth round.
+    Rounds 1 and 2 are in the PR body. Round 3 (on `84f69a1a`, after merging
+    main) used 4 lenses and 3 refuting skeptics per finding; 14 of 15 findings
+    were confirmed. Behaviour defects, all fixed with a red test first:
+    (1) **live-lead leak**: a page that re-renders its form on a change event
+    dropped the probe's hidden `testMode` input after the re-synthesis pass,
+    and the click went out unmarked, so it would have been stored, counted and
+    emailed as a real lead. The first fix, re-injecting after re-synthesis,
+    was not enough: the click itself blurs the last filled field, whose change
+    event drops the marker again. The probe now re-adds the marker in a
+    capturing `submit` listener that runs before the site's handler, and it
+    refuses to click (no POST) when the marker is missing just before submit.
+    (2) A required select counted as filled when its selected placeholder
+    was `<option disabled selected>` with no value attribute, so the POST
+    omitted it. (3) A synthetic value the field rejects (`pattern`, `max`) was still
+    claimed as synthesized. (4) Three synthesizer tests used `setContent`,
+    which hangs under the weekly time-travel clock, so Monday's run on main
+    would have gone red. Also fixed: the control step passed when every
+    fixture test was skipped (it now reads vitest's JSON report and requires
+    passed ≥ 1, skipped = 0, todo = 0); the control and the sweep must share a
+    job (`84f69a1a`); the throw path dropped `resynthesized`; wording for a
+    field that became required after the first fill; and four test gaps
+    (date `min`, `maxlength`, no `resynthesized` on a quiet page, no-banner
+    path). One finding was refuted (2 of 3). 15 round-3 mutations each turn a
+    test red; a real all-skipped fixture makes the real control step exit 1. The
+    loaded-core runs of the changed fixture are recorded in the PR body. My pick: land. The defects
+    were real, but each now has a test that fails without its fix, and the
+    marker now has two independent guards. Landing it is CI green on the head,
+    then `node scripts/land-prs.mjs 1017`.
 
 ---
 
