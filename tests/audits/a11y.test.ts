@@ -1663,15 +1663,21 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
   // The readiness probe cannot be skipped: Playwright treats >=404 as not
   // ready, so a site missing THIS fixture never reaches the spec — it burns
   // the whole webServer budget and dies naming neither route nor reason.
-  it("fails fast and names the route when the readiness fixture is absent", async () => {
-    const { result } = await auditSite(async (dir) => {
-      await writePkg(dir, {});
-      await writeDevFixtures(dir, ["animate-in"]);
-    });
-    expect(result.status).toBe("fail");
-    expect(result.summary).toContain("/dev/a11y-fixtures");
-    expect(result.summary).toContain("readiness probe");
-  });
+  it.each([
+    ["no gateServer", {}],
+    ['gateServer "dev"', { gateServer: "dev" }],
+  ])(
+    "fails fast and names the route when the readiness fixture is absent (%s)",
+    async (_label, reddoor) => {
+      const { result } = await auditSite(async (dir) => {
+        await writePkg(dir, reddoor);
+        await writeDevFixtures(dir, ["animate-in"]);
+      });
+      expect(result.status).toBe("fail");
+      expect(result.summary).toContain("/dev/a11y-fixtures");
+      expect(result.summary).toContain("readiness probe");
+    },
+  );
 
   // #948: only the dev server probes that route. A site whose smoke is on the
   // preview starts no dev server, so the fixture is an ordinary absent one:
