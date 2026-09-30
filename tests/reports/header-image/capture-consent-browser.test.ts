@@ -29,6 +29,13 @@ setTimeout(() => {
   return `<!doctype html><html><body style="margin:0"><div style="width:100vw;height:100vh;background:rgb(${TEAL.join(",")})"></div>${banner}</body></html>`;
 }
 
+/** No overlay at all: an ordinary "OK" button in page flow, and a footer that
+ *  mentions cookies, the shape a site with a newsletter form and a cookie-policy
+ *  link has. */
+function contentPage(): string {
+  return `<!doctype html><html><body style="margin:0"><div style="width:100vw;height:100vh;background:rgb(${TEAL.join(",")})"></div><form><input name="email"><button type="button">OK</button></form><footer>Privacy · Cookie Policy</footer></body></html>`;
+}
+
 let server: Server;
 let base: string;
 
@@ -37,6 +44,7 @@ beforeAll(async () => {
     const u = new URL(req.url ?? "/", "http://x");
     const delay = u.searchParams.get("delay");
     res.setHeader("content-type", "text/html");
+    if (u.searchParams.has("content")) return void res.end(contentPage());
     res.end(page(delay === null ? null : Number(delay), u.searchParams.get("stuck") === null));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -84,6 +92,10 @@ describe("defaultShooter against a real browser: consent banners (#654)", () => 
 
   it("dismisses a banner that mounts after hydration, as Sonder's does", async () => {
     expectTeal(await panelBand(await shoot("?delay=3500")));
+  }, 30_000);
+
+  it("still photographs a page whose only OK button is content, beside a cookie-policy link", async () => {
+    expectTeal(await panelBand(await shoot("?content")));
   }, 30_000);
 
   it("refuses to photograph a banner that will not leave", async () => {

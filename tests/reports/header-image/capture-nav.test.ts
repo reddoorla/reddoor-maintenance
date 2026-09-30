@@ -72,6 +72,10 @@ vi.mock("@playwright/test", () => {
             record("isVisible");
             return false;
           },
+          evaluate: async (...evalArgs: unknown[]) => {
+            record("locatorEvaluate", ...evalArgs);
+            return "";
+          },
         }),
       };
     },

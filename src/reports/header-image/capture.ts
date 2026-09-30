@@ -52,12 +52,12 @@ const LATE_DISMISS_SETTLE_MS = 1_000;
  *  than page content, for the pre-shutter backstop. */
 const CONSENT_COPY = /\bcookies?\b|\bconsent\b/i;
 
-/** Thrown when consent UI is still on screen at the shutter. `refreshHeaderImage`
- *  keeps the stored header on any capture failure, so a stale header ships
- *  instead of a photographed consent banner. */
+/** Thrown when consent UI is still on screen at the shutter, so no header is
+ *  generated from that shot. `refreshHeaderImage` then keeps whatever header is
+ *  stored; the CLI reports the site as failed. */
 export class ConsentStillVisibleError extends Error {
   constructor(url: string) {
-    super(`consent banner still visible at the shutter on ${url}; keeping the stored header`);
+    super(`consent banner still visible at the shutter on ${url}; no header generated`);
     this.name = "ConsentStillVisibleError";
   }
 }
@@ -154,7 +154,7 @@ export async function defaultShooter(): Promise<Shooter> {
         // after #814. Look again now; `count` is instant, so a site with no banner
         // pays nothing.
         const consentButton = page.getByRole("button", { name: CONSENT_BUTTON_NAME });
-        if ((await consentButton.count()) > 0) {
+        if ((await consentButton.count().catch(() => 0)) > 0) {
           await consentButton
             .first()
             .click({ timeout: CONSENT_CLICK_TIMEOUT_MS })
@@ -171,23 +171,40 @@ export async function defaultShooter(): Promise<Shooter> {
   };
 }
 
+/** Runs in the browser on the button: the text of its nearest fixed or sticky
+ *  ancestor, or "" when it sits in normal page flow. Built with `Function` so the
+ *  repo's non-DOM tsconfig never type-checks browser globals; Playwright
+ *  serializes it and calls it with the element. A plain string would not work:
+ *  `evaluate` runs a string as an expression and never passes the element. */
+const overlayTextProbe = new Function(
+  "el",
+  `for (let n = el; n && n !== document.body; n = n.parentElement) {
+    const position = getComputedStyle(n).position;
+    if (position === "fixed" || position === "sticky") return n.innerText;
+  }
+  return "";`,
+) as (el: unknown) => string;
+
 type ConsentProbePage = {
   getByRole: (
     role: "button",
     opts: { name: RegExp },
-  ) => { first: () => { isVisible: () => Promise<boolean> } };
-  evaluate: (fn: string) => Promise<unknown>;
+  ) => {
+    first: () => {
+      isVisible: () => Promise<boolean>;
+      evaluate: (fn: (el: unknown) => string) => Promise<unknown>;
+    };
+  };
 };
 
-/** True when an accept/reject button is still visible and the page carries
- *  cookie or consent copy, i.e. the dismissal did not take. */
+/** True when an accept/reject button is still visible inside a fixed or sticky
+ *  overlay whose own text carries cookie or consent copy, i.e. the dismissal did
+ *  not take. Scoped to the overlay so an in-page "OK" button beside a "Cookie
+ *  Policy" footer link never freezes a site's header. A probe that fails (the
+ *  consent tool reloaded the page on accept) reads as dismissed. */
 async function consentStillVisible(page: ConsentProbePage): Promise<boolean> {
-  const visible = await page
-    .getByRole("button", { name: CONSENT_BUTTON_NAME })
-    .first()
-    .isVisible()
-    .catch(() => false);
-  if (!visible) return false;
-  const text = await page.evaluate("document.body ? document.body.innerText : ''");
-  return CONSENT_COPY.test(String(text));
+  const button = page.getByRole("button", { name: CONSENT_BUTTON_NAME }).first();
+  if (!(await button.isVisible().catch(() => false))) return false;
+  const overlayText = await button.evaluate(overlayTextProbe).catch(() => "");
+  return CONSENT_COPY.test(String(overlayText));
 }
