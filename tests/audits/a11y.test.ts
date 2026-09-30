@@ -32,6 +32,7 @@ import {
 } from "../../src/audits/util/contrast-unmeasured.js";
 import { readAxeResults } from "../../src/audits/util/axe-results.js";
 import {
+  canExcludeBlendNode,
   describeBlendUnmeasured,
   isExcludableBlendCrash,
   reincludedChildren,
@@ -2721,7 +2722,12 @@ describe("audits/a11y — an unsupported blend mode is not measured, not a failu
 
   it("the generated spec runs these exact functions, and re-runs only the crashed rule", async () => {
     const spec = await specOf();
-    for (const fn of [isExcludableBlendCrash, unsupportedBlendModeAt, reincludedChildren]) {
+    for (const fn of [
+      isExcludableBlendCrash,
+      unsupportedBlendModeAt,
+      reincludedChildren,
+      canExcludeBlendNode,
+    ]) {
       expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
     }
     expect(spec).toContain("rerun = await runAxe([rule], excluded);");

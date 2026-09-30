@@ -22,6 +22,7 @@ import {
 import { readAxeResults } from "./util/axe-results.js";
 import {
   describeBlendUnmeasured,
+  canExcludeBlendNode,
   isExcludableBlendCrash,
   reincludedChildren,
   unsupportedBlendModeAt,
@@ -438,6 +439,7 @@ const readAxeResults = ${readAxeResults.toString()};
 const isExcludableBlendCrash = ${isExcludableBlendCrash.toString()};
 const unsupportedBlendModeAt = ${unsupportedBlendModeAt.toString()};
 const reincludedChildren = ${reincludedChildren.toString()};
+const canExcludeBlendNode = ${canExcludeBlendNode.toString()};
 // How many times one rule is re-run on one route, each time excluding the
 // nodes the last run crashed on for a blend mode. One band of text over a
 // grain crashes once per text node; a page that still crashes after this many
@@ -697,14 +699,19 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // anything still crashing after BLEND_RERUN_MAX runs stays a crash and
       // fails below. A crash inside a frame stays a crash too, and the frame
       // split below decides it as it always has.
-      const blendRules = [
-        ...new Set(results.crashes.filter(isExcludableBlendCrash).map((c) => c.rule)),
-      ];
+      // A shadow host is not excluded either: see canExcludeBlendNode.
+      const blendExcludable = async (c) =>
+        isExcludableBlendCrash(c) && (await page.evaluate(canExcludeBlendNode, c.nodes[0].target[0]));
+      const blendRules = [];
+      for (const c of results.crashes) {
+        if (!blendRules.includes(c.rule) && (await blendExcludable(c))) blendRules.push(c.rule);
+      }
       for (const rule of blendRules) {
         const excluded = [];
         let rerun = { violations: [], passes: [], incomplete: [], crashes: results.crashes.filter((c) => c.rule === rule) };
         for (let round = 0; round < BLEND_RERUN_MAX; round++) {
-          const crashing = rerun.crashes.filter(isExcludableBlendCrash);
+          const crashing = [];
+          for (const c of rerun.crashes) if (await blendExcludable(c)) crashing.push(c);
           if (crashing.length === 0) break;
           for (const c of crashing) excluded.push(c.nodes[0].target[0]);
           rerun = await runAxe([rule], excluded);

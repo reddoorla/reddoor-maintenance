@@ -1411,11 +1411,15 @@ const SITE_BF: SiteConfig = {
     "/own-faint": sitePage("Own faint", `<p id="faint-in-frame" style="color: #aaa">${T}</p>`),
     "/grain-wrap": sitePage(
       "Grain over a wrapper",
-      `<section style="position: relative; background: #fff; color: #000"><div class="grain" style="pointer-events: none; position: absolute; top: 0; left: 0; right: 0; height: 30px; opacity: 0.2; mix-blend-mode: plus-lighter; background: #888"></div><div id="wrap" style="position: relative">Intro words here<p id="wrap-faint" style="color: #aaa; margin-top: 200px">${T}</p></div></section><p id="after-faint" style="color: #aaa">${T}</p>`,
+      `<section style="position: relative; background: #fff; color: #000"><div class="grain" style="pointer-events: none; position: absolute; top: 0; left: 0; right: 0; height: 30px; opacity: 0.2; mix-blend-mode: plus-lighter; background: #888"></div><div id="wrap" style="position: relative">Intro words here<span id="wrap-lead" style="display: block; margin-top: 100px">${T}</span><p id="wrap-faint" style="color: #aaa; margin-top: 200px">${T}</p></div></section><p id="after-faint" style="color: #aaa">${T}</p>`,
     ),
     "/grain-hero": sitePage("Grain then Hero", `${GRAIN_BAND}${HERO_SECTION}`),
+    "/grain-shadow": sitePage(
+      "Grain over a shadow host",
+      `<section style="position: relative; background: #fff; color: #000">${GRAIN}<p id="shadow-lead" style="position: relative">${T}</p><x-host id="host" style="position: relative; display: block">Slotted text</x-host></section><script>customElements.define("x-host", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = '<slot></slot><p id="shadow-faint" style="color: #aaa; margin-top: 200px">${T}</p>'; } });</script>`,
+    ),
   },
-  a11yRoutes: ["/grain-faint", "/grain-wrap", "/grain-hero"],
+  a11yRoutes: ["/grain-faint", "/grain-wrap", "/grain-hero", "/grain-shadow"],
 };
 const SITE_CAP: SiteConfig = {
   pages: {
@@ -1539,6 +1543,19 @@ describe("audits/a11y — a blend mode axe cannot compute is not measured, not a
     expect(blendOf(grainFaint, "/grain-hero")).toEqual([
       'color-contrast ["#over-grain"] plus-lighter',
       'color-contrast ["#over-grain-2"] plus-lighter',
+    ]);
+  });
+
+  it("does not re-run around a crash filed on a shadow host: excluding it would drop its shadow tree", () => {
+    const shadow = violationsOf(grainFaint).filter((v) => v.route === "/grain-shadow");
+    expect(shadow.map((v) => `${v.id} ${JSON.stringify(v.nodes?.map((n) => n.target))}`)).toEqual([
+      'rule-errored [["#host"]]',
+    ]);
+    expect(shadow[0]?.help).toContain("blendFunctions[blendMode] is not a function");
+    // The paragraph above crashes first and is re-run around; the host
+    // crashes on the re-run, and stays a crash.
+    expect(blendOf(grainFaint, "/grain-shadow")).toEqual([
+      'color-contrast ["#shadow-lead"] plus-lighter',
     ]);
   });
 

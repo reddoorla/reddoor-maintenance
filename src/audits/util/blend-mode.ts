@@ -40,6 +40,20 @@ export function isExcludableBlendCrash(crash: {
 }
 
 /**
+ * Whether the spec may exclude the element a blend crash was filed on: it
+ * exists, and it hosts no shadow root. Excluding a shadow host drops its
+ * whole shadow tree, which reincludedChildren (light-DOM children only)
+ * cannot bring back, so a contrast failure inside the component would go
+ * unmeasured (#1014 review round 2). Such a crash stays a crash and fails.
+ *
+ * Runs IN THE PAGE, on the top-level document.
+ */
+export function canExcludeBlendNode(selector: string): boolean {
+  const element = document.querySelector(selector);
+  return element !== null && element.shadowRoot === null;
+}
+
+/**
  * The element children of each excluded node, as selectors axe can include,
  * minus any child that is itself excluded.
  *
