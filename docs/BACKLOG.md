@@ -711,6 +711,18 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       configuration, Build hooks); the per-repo `PRISMIC_WRITE_TOKEN` GitHub
       secret and the central `PRISMIC_TOKEN_<REPOSITORYNAME>` secrets; and
       branch protection and secret scanning.
+    - **Secrets, 2026-09-30 ~05:40Z.** Both environment tokens were checked
+      against Prismic's custom-types API: `WILLIAMSON_HOMES_PRISMIC` answers 200
+      for `williamson-homes` and 403 for `williamson-construction`, and
+      `WILLIAMSON_CONSTRUCTION_PRISMIC` the reverse, so each is its own
+      repository's write token. **No GitHub secret is set yet**: the cloud proxy
+      refuses `GET repos/…/actions/secrets` with 403 "Access to this GitHub
+      Actions path is not permitted through this proxy", so the operator sets them
+      in the UI: `PRISMIC_WRITE_TOKEN` in `williamson-homes` and in
+      `williamson-construction-co`, and `PRISMIC_TOKEN_WILLIAMSON_HOMES` and
+      `PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION` (no `CO`) here. The two
+      `fleet-prismic-drift.yml` env lines landed ahead of the secrets; a
+      pre-launch site is not swept, so they are inert until go-live.
 34. **OD7-P0, the capture tools, PR #1032: round 3 found behaviour defects, all
     fixed in `db83c30f`; land or not.** **Answered 2026-09-30 ~03:25Z: land
     at this head.** Landed by `land-prs.mjs` as `96e10a2a` (head `5e06f8c6`,

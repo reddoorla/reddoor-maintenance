@@ -340,6 +340,18 @@ describe("fleet-prismic-drift — the per-repository token env block", () => {
     }
   });
 
+  // THE SLUG IS NOT THE PRISMIC NAME. The repo and roster slug is
+  // williamson-construction-co, but the Prismic repository the operator created
+  // on 2026-09-30 is williamson-construction. A line written from the slug would
+  // read a secret nobody mints, and the site would report token-missing at launch.
+  it("carries the Williamson repositories under their Prismic names", () => {
+    const names = tokens.map(([n]) => n);
+    for (const repositoryName of ["williamson-homes", "williamson-construction"]) {
+      expect(names).toContain(prismicTokenEnvName(repositoryName));
+    }
+    expect(names).not.toContain(prismicTokenEnvName("williamson-construction-co"));
+  });
+
   // Fleet mode sets `allowGenericToken: false` precisely because ONE generic token
   // in the environment, while iterating every repository in the fleet, attaches
   // the wrong credential to every site after the first. Putting it in this env

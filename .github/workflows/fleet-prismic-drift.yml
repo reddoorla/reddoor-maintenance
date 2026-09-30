@@ -88,9 +88,11 @@ jobs:
       # sweep would have reported four live sites as MISSING a token, and the fix
       # would have looked like a credentials problem rather than a naming one.
       #
-      # 16 repositories, 16 distinct derived names, no collision on either axis.
+      # 18 repositories, 18 distinct derived names, no collision on either axis.
       # The first 15 were measured 2026-08-13; 29-navy was added 2026-09-09 and the
-      # no-collision property re-checked then. The list is deliberately WIDER than
+      # no-collision property re-checked then. williamson-homes and
+      # williamson-construction (the Prismic name has no `-co`; the repo is
+      # williamson-construction-co) were added 2026-09-30, both pre-launch. The list is deliberately WIDER than
       # strictly necessary where membership is uncertain: an extra name is inert, a
       # missing one is a site the operator never mints a secret for.
       #
@@ -128,6 +130,8 @@ jobs:
           PRISMIC_TOKEN_THE_POINTE_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_POINTE_BURBANK }}
           PRISMIC_TOKEN_THE_TOWER_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_TOWER_BURBANK }}
           PRISMIC_TOKEN_VINEYARD_CUSTOM_HOMES: ${{ secrets.PRISMIC_TOKEN_VINEYARD_CUSTOM_HOMES }}
+          PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION: ${{ secrets.PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION }}
+          PRISMIC_TOKEN_WILLIAMSON_HOMES: ${{ secrets.PRISMIC_TOKEN_WILLIAMSON_HOMES }}
         run: |
           # pipefail is NOT in Actions' default `bash -e {0}` shell. Without it `| tee`
           # swallows the sweep's exit status and every outage below reads as a clean run.
