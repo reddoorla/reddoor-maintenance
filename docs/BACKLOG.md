@@ -238,8 +238,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     is still the lever for that.
 16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
-    **Answered 2026-09-29 ("go"); built in PR #1017. Held again after a
-    third review round found behaviour defects (item 32).**
+    **Answered 2026-09-29 ("go"); built in PR #1017, which landed
+    2026-09-30 03:32:33Z as `d1e42c4a` after a third review round (item 32).**
     The probe now fills required fields outside its standard four: the first
     real option of a select, and synthetic values for text, checkbox and radio.
     The nightly names its uncovered sites, and a localhost positive control runs
@@ -608,9 +608,11 @@ function` on a top-level element, the spec re-runs that rule with the
     to declare `testMode`, so that same deploy can add a `/contact` redirect.
     Say if you want the column anyway.
 
-32. **#779's central widening, PR #1017. Answered 2026-09-30: third round.**
-    Round 3 found behaviour defects, fixed in `48326568`. Operator: land or
-    not. Under the answer's terms there is no fourth round.
+32. **#779's central widening, PR #1017. Answered 2026-09-30: third round,
+    then land.** The operator merged it 03:32:33Z as `d1e42c4a` (head
+    `a8359581`). The first nightly after merge is its first live run.
+    Round 3 found behaviour defects, fixed in `48326568`; the text below is
+    what the operator decided on.
     Rounds 1 and 2 are in the PR body. Round 3 (on `84f69a1a`, after merging
     main) used 4 lenses and 3 refuting skeptics per finding; 13 of 14 findings
     were confirmed. Behaviour defects, all fixed with a red test first:
@@ -747,6 +749,15 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-30 — #779 central widening (PR #1017, `d1e42c4a`): the form-e2e probe
+  fills required select, checkbox, radio and text fields outside its standard
+  four, names what it synthesized, and keeps its `testMode` marker on the form
+  at submit (a capturing `submit` listener, plus a refusal to click when the
+  marker is missing). The nightly runs a localhost positive control in the
+  sweep's own job first and fails when that control measured nothing, and it
+  names each uncovered site. It covers no new site by itself: item 31, the
+  client half, is still open.
 
 - 2026-09-30 — #905, #949, #1018: the a11y spec's motion-freezing sheet is adopted
   through CSSOM (`freezeMotion`), so a CSP without `'unsafe-inline'` in
