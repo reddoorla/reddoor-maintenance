@@ -31,6 +31,11 @@ beforeAll(async () => {
       return void res.end("/* not found */");
     }
     if (u.pathname === "/reset.css") return void req.socket.destroy();
+    if (u.pathname === "/moved.css") {
+      res.statusCode = 301;
+      res.setHeader("location", "/missing-as-css.css");
+      return void res.end();
+    }
     if (u.pathname === "/redirect") {
       res.statusCode = 302;
       res.setHeader("location", `http://localhost:${port}/own-404`);
@@ -52,6 +57,8 @@ beforeAll(async () => {
       "/own-404": ["/ok.css", "/missing.css"],
       "/own-reset": ["/ok.css", "/reset.css"],
       "/own-404-css": ["/ok.css", "/missing-as-css.css"],
+      "/own-404-redirected": ["/ok.css", "/moved.css"],
+      "/own-404-fragment": ["/ok.css", "/missing-as-css.css#v2"],
       "/third-party-404": ["/ok.css", `${other}/missing.css`],
     };
     res.end(html(pages[u.pathname] ?? []));
@@ -88,6 +95,14 @@ describe("defaultShooter against a real browser: unstyled pages", () => {
 
   it("refuses a page whose own stylesheet's connection was reset", async () => {
     await expect(shoot("/own-reset")).rejects.toThrow(/reset\.css/);
+  }, 30_000);
+
+  it("refuses when the page's stylesheet redirected to a URL that 404'd", async () => {
+    await expect(shoot("/own-404-redirected")).rejects.toThrow(/moved\.css \(HTTP 404\)/);
+  }, 30_000);
+
+  it("refuses when the failed stylesheet's href carries a #fragment", async () => {
+    await expect(shoot("/own-404-fragment")).rejects.toBeInstanceOf(UnstyledPageError);
   }, 30_000);
 
   it("refuses when the failed stylesheet is on the host the page redirected to", async () => {

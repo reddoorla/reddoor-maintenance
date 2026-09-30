@@ -83,11 +83,30 @@ export class UnstyledPageError extends Error {
 /** Runs in the page: absolute URLs of the `<link rel=stylesheet>` elements that
  *  apply to the screen (not alternate, not disabled, media matching). A failed
  *  print stylesheet or a failed `preload as=style` leaves the screen styled, so
- *  neither may refuse the shot. */
+ *  neither may refuse the shot. Known gap, accepted for that: a failed `@import`
+ *  inside a sheet has no `<link>` of its own and is not detected. */
 const SCREEN_STYLESHEETS_PROBE = `[...document.querySelectorAll("link")]
   .filter((l) => l.relList.contains("stylesheet") && !l.relList.contains("alternate") && !l.disabled)
   .filter((l) => !l.media || matchMedia(l.media).matches)
   .map((l) => l.href)`;
+
+/** A URL without its `#fragment`. Chromium's request URL never carries one, and
+ *  a `<link>`'s `href` keeps it. */
+function withoutFragment(url: string): string {
+  const i = url.indexOf("#");
+  return i === -1 ? url : url.slice(0, i);
+}
+
+type RedirectableRequest = { url: () => string; redirectedFrom: () => RedirectableRequest | null };
+
+/** The URL the page asked for: the first request in a redirect chain, which is
+ *  what the `<link>`'s `href` names. A failure reported on `/b.css` after
+ *  `/a.css` redirected there belongs to the `/a.css` link. */
+export function requestedUrl(req: RedirectableRequest): string {
+  let first = req;
+  for (let prev = req.redirectedFrom(); prev; prev = prev.redirectedFrom()) first = prev;
+  return withoutFragment(first.url());
+}
 
 /** The failed stylesheets, among those recorded, that came from a host the
  *  page itself was served from. A third-party stylesheet (a font kit, a widget)
@@ -200,14 +219,15 @@ export async function defaultShooter(): Promise<Shooter> {
         page.on("requestfailed", (req) => {
           if (req.resourceType() === "stylesheet") {
             stylesheetFailures.push({
-              url: req.url(),
+              url: requestedUrl(req),
               reason: req.failure()?.errorText ?? "failed",
             });
           }
         });
         page.on("response", (res) => {
-          if (res.request().resourceType() === "stylesheet" && res.status() >= 400) {
-            stylesheetFailures.push({ url: res.url(), reason: `HTTP ${res.status()}` });
+          const req = res.request();
+          if (req.resourceType() === "stylesheet" && res.status() >= 400) {
+            stylesheetFailures.push({ url: requestedUrl(req), reason: `HTTP ${res.status()}` });
           }
         });
         await page.goto(opts.url, { waitUntil: "load", timeout: NAV_TIMEOUT_MS });
@@ -239,11 +259,15 @@ export async function defaultShooter(): Promise<Shooter> {
             throw new ConsentStillVisibleError(opts.url);
           }
         }
-        const screenSheets = (await page
-          .evaluate(SCREEN_STYLESHEETS_PROBE)
-          .catch(() => [])) as string[];
+        const screenSheets = (await page.evaluate(SCREEN_STYLESHEETS_PROBE).catch((e: unknown) => {
+          console.warn(
+            `⚑ header-image: could not list ${opts.url}'s stylesheets (${(e as Error).message}); the unstyled-page check did not run`,
+          );
+          return [];
+        })) as string[];
+        const screenSet = new Set(screenSheets.map(withoutFragment));
         const unstyled = ownHostStylesheetFailures(
-          stylesheetFailures.filter((f) => screenSheets.includes(f.url)),
+          stylesheetFailures.filter((f) => screenSet.has(f.url)),
           [opts.url, page.url()],
         );
         if (unstyled.length > 0) throw new UnstyledPageError(opts.url, unstyled);
