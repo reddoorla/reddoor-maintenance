@@ -32,6 +32,21 @@ setTimeout(() => {
 /** No overlay at all: an ordinary "OK" button in page flow, and a footer that
  *  mentions cookies, the shape a site with a newsletter form and a cookie-policy
  *  link has. */
+/** A newsletter "OK" earlier in the DOM than a banner that mounts late, so
+ *  `first()` would pick the wrong button. */
+function contentThenLateBanner(): string {
+  return page(3500, true).replace(
+    '<body style="margin:0">',
+    '<body style="margin:0"><form style="position:absolute;top:0;left:0"><button type="button">OK</button></form>',
+  );
+}
+
+/** The whole page pinned in a fixed scroll wrapper (GSAP ScrollSmoother's
+ *  shape), with an in-page "OK" and a cookie-policy footer inside it. */
+function scrollWrapperPage(): string {
+  return `<!doctype html><html><body style="margin:0"><div id="smooth-wrapper" style="position:fixed;inset:0;overflow:hidden"><div id="smooth-content"><div style="width:100vw;height:100vh;background:rgb(${TEAL.join(",")})"></div><div style="height:150vh"><form><button type="button">OK</button></form></div><footer>Privacy · Cookie Policy</footer></div></div></body></html>`;
+}
+
 function contentPage(): string {
   return `<!doctype html><html><body style="margin:0"><div style="width:100vw;height:100vh;background:rgb(${TEAL.join(",")})"></div><form><input name="email"><button type="button">OK</button></form><footer>Privacy · Cookie Policy</footer></body></html>`;
 }
@@ -45,6 +60,8 @@ beforeAll(async () => {
     const delay = u.searchParams.get("delay");
     res.setHeader("content-type", "text/html");
     if (u.searchParams.has("content")) return void res.end(contentPage());
+    if (u.searchParams.has("okfirst")) return void res.end(contentThenLateBanner());
+    if (u.searchParams.has("wrapper")) return void res.end(scrollWrapperPage());
     res.end(page(delay === null ? null : Number(delay), u.searchParams.get("stuck") === null));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -90,12 +107,24 @@ describe("defaultShooter against a real browser: consent banners (#654)", () => 
     expectTeal(await panelBand(await shoot("?delay=0")));
   }, 30_000);
 
-  it("dismisses a banner that mounts after hydration, as Sonder's does", async () => {
+  it("dismisses a banner that mounts after the first look, during the settle, as Sonder's does", async () => {
+    expectTeal(await panelBand(await shoot("?delay=1500")));
+  }, 30_000);
+
+  it("dismisses a banner that mounts after the settle, inside the late-look window", async () => {
     expectTeal(await panelBand(await shoot("?delay=3500")));
   }, 30_000);
 
   it("still photographs a page whose only OK button is content, beside a cookie-policy link", async () => {
     expectTeal(await panelBand(await shoot("?content")));
+  }, 30_000);
+
+  it("clicks the banner's button, not an earlier content button with the same name", async () => {
+    expectTeal(await panelBand(await shoot("?okfirst")));
+  }, 30_000);
+
+  it("does not mistake a full-page fixed scroll wrapper for a consent overlay", async () => {
+    expectTeal(await panelBand(await shoot("?wrapper")));
   }, 30_000);
 
   it("refuses to photograph a banner that will not leave", async () => {
