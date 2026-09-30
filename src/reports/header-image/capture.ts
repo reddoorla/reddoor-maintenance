@@ -80,6 +80,15 @@ export class UnstyledPageError extends Error {
   }
 }
 
+/** Runs in the page: absolute URLs of the `<link rel=stylesheet>` elements that
+ *  apply to the screen (not alternate, not disabled, media matching). A failed
+ *  print stylesheet or a failed `preload as=style` leaves the screen styled, so
+ *  neither may refuse the shot. */
+const SCREEN_STYLESHEETS_PROBE = `[...document.querySelectorAll("link")]
+  .filter((l) => l.relList.contains("stylesheet") && !l.relList.contains("alternate") && !l.disabled)
+  .filter((l) => !l.media || matchMedia(l.media).matches)
+  .map((l) => l.href)`;
+
 /** The failed stylesheets, among those recorded, that came from a host the
  *  page itself was served from. A third-party stylesheet (a font kit, a widget)
  *  is left out: its loss changes fonts, not the layout, and a permanently dead
@@ -97,15 +106,17 @@ export function ownHostStylesheetFailures(
       }
     }),
   );
-  return failures
-    .filter((f) => {
-      try {
-        return hosts.has(new URL(f.url).host);
-      } catch {
-        return false;
-      }
-    })
-    .map((f) => `${f.url} (${f.reason})`);
+  const own = new Map<string, string>();
+  for (const f of failures) {
+    let host: string;
+    try {
+      host = new URL(f.url).host;
+    } catch {
+      continue;
+    }
+    if (hosts.has(host) && !own.has(f.url)) own.set(f.url, f.reason);
+  }
+  return [...own].map(([url, reason]) => `${url} (${reason})`);
 }
 
 /**
@@ -154,14 +165,23 @@ export async function captureHomepage(
   options: CaptureOptions = {},
 ): Promise<Uint8Array> {
   const shooter = options.shooter ?? (await defaultShooter());
-  return shooter.shoot({
+  const shootOpts: ShootOptions = {
     url,
     width: VIEWPORT.width,
     height: VIEWPORT.height,
     deviceScaleFactor: DEVICE_SCALE_FACTOR,
     settleMs: options.settleMs ?? DEFAULT_SETTLE_MS,
     ...(options.consentSelector !== undefined ? { consentSelector: options.consentSelector } : {}),
-  });
+  };
+  // One re-shoot for an unstyled page, and only for that: the Sonder shot that
+  // motivated the check was one bad capture in four, so a transient stylesheet
+  // failure recovers here, while a stylesheet that is gone for good still refuses.
+  try {
+    return await shooter.shoot(shootOpts);
+  } catch (err) {
+    if (!(err instanceof UnstyledPageError)) throw err;
+    return shooter.shoot(shootOpts);
+  }
 }
 
 /** Real Playwright shooter. Lazily imported so unit tests never load it and the
@@ -219,7 +239,13 @@ export async function defaultShooter(): Promise<Shooter> {
             throw new ConsentStillVisibleError(opts.url);
           }
         }
-        const unstyled = ownHostStylesheetFailures(stylesheetFailures, [opts.url, page.url()]);
+        const screenSheets = (await page
+          .evaluate(SCREEN_STYLESHEETS_PROBE)
+          .catch(() => [])) as string[];
+        const unstyled = ownHostStylesheetFailures(
+          stylesheetFailures.filter((f) => screenSheets.includes(f.url)),
+          [opts.url, page.url()],
+        );
         if (unstyled.length > 0) throw new UnstyledPageError(opts.url, unstyled);
         const buf = await page.screenshot({ type: "png" });
         return new Uint8Array(buf);

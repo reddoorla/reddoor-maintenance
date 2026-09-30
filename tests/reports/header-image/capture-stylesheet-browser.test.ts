@@ -10,8 +10,8 @@ import {
 let server: Server;
 let port: number;
 
-function html(links: string[]): string {
-  return `<!doctype html><html><head>${links.map((h) => `<link rel="stylesheet" href="${h}">`).join("")}</head><body style="margin:0"><div class="hero">hero</div></body></html>`;
+function html(links: string[], extraHead = ""): string {
+  return `<!doctype html><html><head>${links.map((h) => `<link rel="stylesheet" href="${h}">`).join("")}${extraHead}</head><body style="margin:0"><div class="hero">hero</div></body></html>`;
 }
 
 beforeAll(async () => {
@@ -31,6 +31,20 @@ beforeAll(async () => {
       return void res.end("/* not found */");
     }
     if (u.pathname === "/reset.css") return void req.socket.destroy();
+    if (u.pathname === "/redirect") {
+      res.statusCode = 302;
+      res.setHeader("location", `http://localhost:${port}/own-404`);
+      return void res.end();
+    }
+    if (u.pathname === "/print-and-preload-404") {
+      res.setHeader("content-type", "text/html");
+      return void res.end(
+        html(
+          ["/ok.css"],
+          '<link rel="stylesheet" media="print" href="/missing.css"><link rel="preload" as="style" href="/missing-as-css.css">',
+        ),
+      );
+    }
     res.setHeader("content-type", "text/html");
     const other = `http://localhost:${port}`;
     const pages: Record<string, string[]> = {
@@ -74,6 +88,20 @@ describe("defaultShooter against a real browser: unstyled pages", () => {
 
   it("refuses a page whose own stylesheet's connection was reset", async () => {
     await expect(shoot("/own-reset")).rejects.toThrow(/reset\.css/);
+  }, 30_000);
+
+  it("refuses when the failed stylesheet is on the host the page redirected to", async () => {
+    await expect(shoot("/redirect")).rejects.toThrow(/localhost:\d+\/missing\.css/);
+  }, 30_000);
+
+  it("names each failed stylesheet once, though the browser reports a 404 twice", async () => {
+    const err = await shoot("/own-404").catch((e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(UnstyledPageError);
+    expect((err as Error).message).toMatch(/^1 stylesheet\(s\)/);
+  }, 30_000);
+
+  it("still photographs a page whose only failed stylesheets are print-only or a preload", async () => {
+    expect((await shoot("/print-and-preload-404")).length).toBeGreaterThan(0);
   }, 30_000);
 
   it("still photographs a page whose only failed stylesheet is on another host", async () => {
