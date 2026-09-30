@@ -11,6 +11,7 @@ import {
   gitHubSignalsFields,
   nextDueDatesFields,
   rosterUrlFields,
+  searchConsoleLookupFields,
 } from "../../src/fleet/site-fields.js";
 import { healthColumnFor, scheduleColumnFor } from "../../src/db/field-map.js";
 import { makeHealthMirror, makeScheduleMirror } from "../../src/audits/health-mirror.js";
@@ -93,6 +94,18 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
     }
   });
 
+  it("searchConsoleLookupFields emits only claimed keys", () => {
+    const fields = searchConsoleLookupFields({
+      outcome: "resolved",
+      property: "sc-domain:a.example.com",
+      checkedAt: "2026-09-29T20:00:00.000Z",
+    });
+    expect(Object.keys(fields)).toHaveLength(3);
+    for (const key of Object.keys(fields)) {
+      expect(healthColumnFor(key), `unclaimed search-console column '${key}'`).not.toBeNull();
+    }
+  });
+
   it("nextDueDatesFields emits only schedule-claimed keys", () => {
     const fields = nextDueDatesFields({
       maintenanceAt: "2026-09-01",
@@ -154,6 +167,40 @@ describe("makeHealthMirror", () => {
       "no url",
       "2026-09-30T20:00:00.000Z",
     ]);
+  });
+
+  it("#943: a Search Console lookup round-trips through site_health, and a later soft-fail clears the property", async () => {
+    const db = await seededDb();
+    const mirror = await makeHealthMirror(async () => db);
+    const { getSiteById } = await import("../../src/db/fleet-state.js");
+    await mirror(
+      "recA",
+      searchConsoleLookupFields({
+        outcome: "resolved",
+        property: "sc-domain:a.example.com",
+        checkedAt: "2026-09-29T20:00:00.000Z",
+      }),
+    );
+    let row = await getSiteById(db, "recA");
+    expect([
+      row?.searchConsoleOutcome,
+      row?.searchConsoleResolved,
+      row?.searchConsoleCheckedAt,
+    ]).toEqual(["resolved", "sc-domain:a.example.com", "2026-09-29T20:00:00.000Z"]);
+    await mirror(
+      "recA",
+      searchConsoleLookupFields({
+        outcome: "soft-fail",
+        property: "sc-domain:a.example.com",
+        checkedAt: "2026-09-30T20:00:00.000Z",
+      }),
+    );
+    row = await getSiteById(db, "recA");
+    expect([
+      row?.searchConsoleOutcome,
+      row?.searchConsoleResolved,
+      row?.searchConsoleCheckedAt,
+    ]).toEqual(["soft-fail", null, "2026-09-30T20:00:00.000Z"]);
   });
 
   it("the schedule twin: throws without creds, mirrors end-to-end with one", async () => {

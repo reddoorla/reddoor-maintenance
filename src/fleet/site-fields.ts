@@ -1,5 +1,6 @@
 import type { LighthouseScoreWriteback } from "../reports/types.js";
 import { canonicalizeStatus } from "./site-status.js";
+import { toSearchConsoleOutcome, type SearchConsoleOutcome } from "./search-console-evidence.js";
 import {
   trimToNull,
   parseNotifyRouting,
@@ -167,6 +168,9 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     urlResolves: toVerdict(f["URL Resolves"]),
     urlStatus: (f["URL Status"] as string | undefined) ?? null,
     urlCheckedAt: (f["URL Checked At"] as string | undefined) ?? null,
+    searchConsoleOutcome: toSearchConsoleOutcome(f["Search Console Outcome"]),
+    searchConsoleResolved: (f["Search Console Resolved"] as string | undefined) ?? null,
+    searchConsoleCheckedAt: (f["Search Console Checked At"] as string | undefined) ?? null,
     nextMaintenanceAt: (f["Next maintenance at"] as string | undefined) ?? null,
     nextTestingAt: (f["Next testing at"] as string | undefined) ?? null,
   };
@@ -509,6 +513,23 @@ export function rosterUrlFields(probe: RosterUrlWriteback): FieldSet {
     "URL Resolves": probe.resolves,
     "URL Status": probe.status,
     "URL Checked At": probe.checkedAt,
+  };
+}
+
+/** What one draft's Search Console lookup resolved (#943). All three cells are
+ *  written on every lookup that ran, so a soft-fail or a no-match replaces an
+ *  older `resolved` rather than leaving it standing. */
+export type SearchConsoleLookupWriteback = {
+  outcome: SearchConsoleOutcome;
+  property: string | null;
+  checkedAt: string;
+};
+
+export function searchConsoleLookupFields(lookup: SearchConsoleLookupWriteback): FieldSet {
+  return {
+    "Search Console Outcome": lookup.outcome,
+    "Search Console Resolved": lookup.outcome === "resolved" ? lookup.property : null,
+    "Search Console Checked At": lookup.checkedAt,
   };
 }
 

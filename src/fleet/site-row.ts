@@ -12,6 +12,7 @@
  * resolve unchanged.
  */
 import { CANONICAL_STATUSES, type Status } from "./site-status.js";
+import type { SearchConsoleOutcome } from "./search-console-evidence.js";
 
 export type Frequency = "None" | "Monthly" | "Quarterly" | "Yearly";
 
@@ -300,6 +301,13 @@ export type WebsiteRow = {
   urlStatus: string | null;
   /** When `roster-urls` last probed this row — stamped on every outcome. */
   urlCheckedAt: string | null;
+  /** What the last report draft's Search Console lookup resolved (#943); null
+   *  when no lookup has run. See `src/fleet/search-console-evidence.ts`. */
+  searchConsoleOutcome: SearchConsoleOutcome | null;
+  /** The property that lookup queried; null unless `resolved`. */
+  searchConsoleResolved: string | null;
+  /** When that lookup ran, stamped on every outcome. */
+  searchConsoleCheckedAt: string | null;
   notifyRouting: NotifyRouting | null;
   /** The RAW `Notify Routing` cell, verbatim. Same reason `statusRaw` exists: the
    *  dashboard editor round-trips this JSON, and re-serializing the PARSED object

@@ -9,6 +9,13 @@ import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../../src/f
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
+const NOW = new Date("2026-09-29T12:00:00Z");
+const RESOLVED: Partial<WebsiteRow> = {
+  searchConsoleOutcome: "resolved",
+  searchConsoleResolved: "sc-domain:acme.example.com",
+  searchConsoleCheckedAt: "2026-09-20T09:00:00Z",
+};
+
 function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     id: "recX",
@@ -40,8 +47,9 @@ describe("onboardingStatus", () => {
         maintenanceFreq: "Monthly",
         pointOfContact: "Tucker",
         ga4PropertyId: "123456789",
-        searchConsoleProperty: "sc-domain:acme.example.com",
+        ...RESOLVED,
       }),
+      NOW,
     );
     expect(s.score).toBe(6);
     expect(s.checks).toEqual({
@@ -54,21 +62,26 @@ describe("onboardingStatus", () => {
     });
   });
 
-  it("satisfies the Search Console check with a property or an explicit 'no search console' opt-out", () => {
+  it("#943: the Search Console check passes on a fresh resolved lookup or the opt-out, never on the record alone", () => {
+    const sc = (over: Partial<WebsiteRow>) =>
+      onboardingStatus(row({ maintenanceFreq: "Monthly", ...over }), NOW).checks.searchConsole;
+    expect(sc(RESOLVED)).toBe(true);
+    expect(sc({ acceptedWatchConditions: [" No Search Console "] })).toBe(true);
+    expect(sc({ searchConsoleProperty: "sc-domain:acme.example.com" })).toBe(false);
+    expect(sc({ ...RESOLVED, searchConsoleCheckedAt: "2026-08-01T00:00:00Z" })).toBe(false);
+    expect(sc({ ...RESOLVED, searchConsoleOutcome: "soft-fail" })).toBe(false);
+    expect(sc({ ...RESOLVED, searchConsoleOutcome: "no-property" })).toBe(false);
     expect(
-      onboardingStatus(row({ searchConsoleProperty: "sc-domain:acme.example.com" })).checks
-        .searchConsole,
+      sc({
+        ...RESOLVED,
+        searchConsoleOutcome: "no-property",
+        acceptedWatchConditions: ["no search console"],
+      }),
     ).toBe(true);
+    expect(sc({ acceptedWatchConditions: ["no analytics"] })).toBe(false);
     expect(
-      onboardingStatus(row({ acceptedWatchConditions: [" No Search Console "] })).checks
-        .searchConsole,
-    ).toBe(true);
-    expect(onboardingStatus(row({ searchConsoleProperty: " " })).checks.searchConsole).toBe(false);
-    expect(
-      onboardingStatus(row({ acceptedWatchConditions: ["no analytics"] })).checks.searchConsole,
-    ).toBe(false);
-    expect(
-      onboardingStatus(row({ acceptedWatchConditions: ["no search console"] })).checks.analytics,
+      onboardingStatus(row({ acceptedWatchConditions: ["no search console"] }), NOW).checks
+        .analytics,
     ).toBe(false);
   });
 
@@ -88,7 +101,7 @@ describe("onboardingStatus", () => {
 
   it.each([
     ...SEARCH_CONSOLE_OPT_OUT_KEYS.map(
-      (k) => ["searchConsole", "search-console-unrecorded", k] as const,
+      (k) => ["searchConsole", "search-console-no-property", k] as const,
     ),
     ...ANALYTICS_OPT_OUT_KEYS.map((k) => ["analytics", "no-analytics", k] as const),
   ])("the setup check and the cockpit agree on the %s opt-out spelled %j", (check, signal, key) => {
@@ -96,9 +109,11 @@ describe("onboardingStatus", () => {
       status: "maintained",
       ga4PropertyId: null,
       searchConsoleProperty: null,
+      searchConsoleOutcome: "no-property",
+      searchConsoleCheckedAt: "2026-09-28T09:00:00Z",
       acceptedWatchConditions: [key],
     });
-    expect(onboardingStatus(site).checks[check]).toBe(true);
+    expect(onboardingStatus(site, NOW).checks[check]).toBe(true);
     expect(assignTier(site, [], new Date("2026-09-29T00:00:00Z")).watchSignals).not.toContain(
       signal,
     );
@@ -135,7 +150,8 @@ describe("ONBOARDING_LABELS", () => {
       schedule: "Maintenance schedule",
       poc: "Point of contact",
       analytics: 'GA4 property (or a "no analytics" opt-out)',
-      searchConsole: 'Search Console property recorded (or a "no search console" opt-out)',
+      searchConsole:
+        'Search Console queried within the report cadence (or a "no search console" opt-out)',
     });
   });
 });
@@ -148,7 +164,7 @@ describe("missingOnboarding", () => {
       "Maintenance schedule",
       "Point of contact",
       'GA4 property (or a "no analytics" opt-out)',
-      'Search Console property recorded (or a "no search console" opt-out)',
+      'Search Console: no report lookup on record (or a "no search console" opt-out)',
     ]);
   });
 
@@ -172,10 +188,47 @@ describe("missingOnboarding", () => {
         lastLighthouseAuditAt: "2026-05-27T18:00:00Z",
         maintenanceFreq: "Monthly",
         ga4PropertyId: "123456789",
-        searchConsoleProperty: "sc-domain:acme.example.com",
+        ...RESOLVED,
       }),
+      NOW,
     );
     // firstAudit + schedule + analytics + searchConsole pass → recipients + poc remain, in order.
     expect(missing).toEqual(["Report recipients", "Point of contact"]);
+  });
+});
+
+describe("#943: the missing Search Console label says what the evidence is", () => {
+  const scLabel = (over: Partial<WebsiteRow>) =>
+    missingOnboarding(row({ maintenanceFreq: "Monthly", ...over }), NOW).find((l) =>
+      l.startsWith("Search Console"),
+    );
+
+  it("names the host that matched no property, and the lookup's date", () => {
+    expect(
+      scLabel({
+        url: "https://www.acme.example.com/",
+        searchConsoleOutcome: "no-property",
+        searchConsoleCheckedAt: "2026-09-28T09:00:00Z",
+      }),
+    ).toBe("Search Console: no property matched www.acme.example.com (lookup 2026-09-28)");
+  });
+
+  it("says unknown for a soft-fail", () => {
+    expect(
+      scLabel({
+        searchConsoleOutcome: "soft-fail",
+        searchConsoleCheckedAt: "2026-09-28T09:00:00Z",
+      }),
+    ).toBe("Search Console: unknown, the last lookup errored (2026-09-28)");
+  });
+
+  it("says stale, with the window, for a resolved lookup past it", () => {
+    expect(scLabel({ ...RESOLVED, searchConsoleCheckedAt: "2026-08-01T00:00:00Z" })).toBe(
+      "Search Console: last resolved lookup 2026-08-01, older than 45 days",
+    );
+  });
+
+  it("is absent when the lookup is fresh", () => {
+    expect(scLabel(RESOLVED)).toBeUndefined();
   });
 });
