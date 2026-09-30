@@ -6018,3 +6018,31 @@ The gate was run as the product runs it. `approveBlockers` over `autoTickCheckli
 **The product call left open.** A send-anyway override is the only way out on 09-30. It lifts every health blocker at once, and the email still draws "Form Functionality ✓", because `shownChecklistLabels` drops only `n/a` rows. So the pick written under decision 30 is: fix the title first, override only when Forms is the sole blocker, and name the real-traffic evidence in the reason.
 
 Corrected on contact: my first draft gave the `meta_title` as 72 characters. A `len()` said 73.
+
+## 2026-09-29 — form-e2e fills required fields beyond its standard four, and the nightly proves its probe first; held after two review rounds (#779, PR #1017 at `3d1274e1`)
+
+The operator said "go" on Operator decisions 16, #779's central widening. The widening is built, but by itself it adds **no** covered site tonight. That is the most useful line in this entry.
+
+**The roster moved since #779 was written.** A SELECT-only read of live Turso found 15 maintained sites, not 13. Six carry a `form_e2e_ok` verdict. Last night's run (36598340500) printed `FLEET_FORM_E2E skipped=8 total=14`. The fifteenth site, Vida, went maintained after that run started. Its deployed `/health` already declares `forms.testMode: true` and `/contact` has a form, so it is covered from tonight by its own rollout, not by this PR. 29 Navy is new to the uncovered list, and it has no form: its `/health` sets `testMode: false` on purpose, and its tests pin that. With CalTex that makes two formless sites, so `skipped` can never go below 2.
+
+**Why the widening alone covers nobody.** The probe refuses to submit unless the deployed `/health` declares `forms.testMode`, because an undeclared site's form would deliver the probe to the client as a real lead. None of the six uncovered sites with forms (ERP, Revogen, Data Dynamiq, LHI, LHY, Sonder) declares it. So each needs a PR in its own repo to forward the marker and declare it. The widening only means that ERP's deploy no longer has to change its required `interest` select. The ask is Operator decisions 31. #779's other idea was a per-site contact-path override in the roster, meant to reach Revogen "without touching the site". It was not built, because Revogen has to deploy anyway, and that deploy can add a `/contact` redirect the way Beachfront's does.
+
+**What is on the branch.**
+
+- The probe gives a required select its first enabled option with a value, and required text, checkbox and radio fields synthetic values. It fires `input` and `change` so Svelte bindings see them.
+- A field the page resets during the settle is re-synthesized before the click.
+- A run names what it chose.
+- The nightly prints `FLEET_FORM_E2E_UNCOVERED sites=…` so the gap is named rather than counted.
+- A localhost positive control has to pass before the sweep writes any client row.
+- A handler-level test posts the probe's payload through the real `form-ingest` handler. The marked copy reaches no email, no stored row, no unread badge, no submissions count, no cockpit lead and no digest count. The unmarked control reaches all of them.
+
+**Defects the review found in the first cut.** The workflow test named "can stop the sweep" checked only the control step's own keys. `|| true` on the control, or `if: always()` on the sweep, left it green. It now executes the control's script with `pnpm` stubbed to fail. The marker test passed only because no row existed, so a probe persisted as spam would also have passed; it now counts stored rows of any status. A `time` input rejects synthetic text but was still reported as synthesized.
+
+One claimed defect was refuted by measurement against a real hydrating Svelte 5 component: that hydration silently reverts a synthesized `<select>`. The probe's own injected hidden inputs cause a hydration mismatch, Svelte re-renders the form, and the existing testMode canary triggers the refill. The cheap hardening (re-synthesize before the click) went in anyway.
+
+**Round 2 found real defects again, so #1017 is held (Operator decisions 32), not landed.** The worst was in round 1's own fix. The fixture that proves a reverted select is re-synthesized cleared the select from a 300 ms timer that started at page load. On one busy core, the page-load-to-fill gap exceeded that, the revert landed before the fill, and the test failed 1 run in 3. That test lives in the file the nightly now runs as its positive control, so the flake would have stopped the whole sweep and opened the tracking issue. The revert now fires on the probe's own change event, and the test passed 3 of 3 on the same loaded core. The other round-2 major was that nothing tested that a failed run carries the synthesized list. Both are fixed at `3d1274e1`, with the full suite green (8008 passed). The operator decides between landing as is and a third round. 27 mutations (11 named up front, 16 from the reviews) each turn a test red; the tables are in the PR body and the decision line.
+
+**Beliefs corrected on contact.**
+
+- "Seven sites need the central widening" was wrong: two have no form, and the other five, plus Sonder, need client deploys regardless.
+- The line-number citations in `docs/runbooks/turnstile-widgets.md` moved three times in one PR; `runbook-anchors` caught every one.
