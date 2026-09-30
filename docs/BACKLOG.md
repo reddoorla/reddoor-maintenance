@@ -112,12 +112,12 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                        |
-| ----- | --------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| now   | 29 Navy                                       | Maintenance 2026-09                            | Draft ready, 0 blockers, pending since ~09-18. Recipients are correct as they are (settled, see below); press refresh preview, then approve. |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | Blocked today: Titles & Meta fails, Form Functionality never measured                                                                        |
-| 10-01 | Sonder                                        | Maintenance                                    | Needs fresh evidence (P0-1)                                                                                                                  |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | LAHI blocked by #911 (P0-3). Revogen will draw no analytics: `ga4_property_id` NULL (#921).                                                  |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----- | --------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Not approvable on 09-30 without an override (operator decision 30).** 2 blockers [M, 2026-09-29 23:53Z, `approveBlockers` on live rows]. (1) Titles & Meta: the one problem is `/artists` title 90 chars (max 70), from Prismic `page` `artists` (`ZjwQtxIAANaT82IQ`) `meta_title`; a content edit, not code or the audit. Clears after the Prismic edit, a site rebuild, the next fleet-lighthouse run, and refresh preview. (2) Form Functionality: never measured; form-e2e self-skips Sonder (no `forms.testMode` in `/health`) and no safe probe exists before a Sonder deploy (#779 item 26). |
+| now   | 29 Navy                                       | Maintenance 2026-09                            | Draft ready, 0 blockers, pending since ~09-18. Recipients are correct as they are (settled, see below); press refresh preview, then approve.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 10-01 | Sonder                                        | Maintenance                                    | Needs fresh evidence (P0-1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | LAHI blocked by #911 (P0-3). Revogen will draw no analytics: `ga4_property_id` NULL (#921).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 **Settled — do not flag again (operator, 2026-09-29, after being asked
 several times):** the report recipients are correct as they are. MSOT and
@@ -503,6 +503,48 @@ function` on a top-level element, the spec re-runs that rule with the
     - **Vida separately:** vida's gate also needs its 13 palette lines
       (`--color-neutral-*: oklch(… 0 0)` in `@theme`, as in 29-navy#58).
       With #1014 packed, #86 and those lines applied locally, its gate exits 0. Without the palette lines it fails `rule-errored on a11y fixtures`.
+
+30. **Sonder's Testing report, due 2026-09-30 (P0-4)** — measured 2026-09-29
+    ~23:55Z. Two blockers, and only the first can be fixed by 09-30.
+    - **Titles & Meta [M].** fleet-lighthouse run 36584559490 names one
+      problem on 15 routes: `https://gallerysonder.com/artists: title 90 chars
+(max 70)`. The title is Prismic `page` document `artists`
+      (`ZjwQtxIAANaT82IQ`), field `meta_title` =
+      `Artists - Ruben Benjamin - Borja Colom - Theo Hirschfield - Anthony James`
+      (73 chars), and the site's `brandedTitle` adds ` | Gallery Sonder` (17).
+      The audit is right, so nothing is changed in code. **Ask:** in Prismic, set
+      that `meta_title` to 53 characters or fewer, e.g.
+      `Artists: Benjamin, Colom, Hirschfield, James` (44, so 61 on the page),
+      and publish. The site is prerendered, so check that
+      `curl -s https://gallerysonder.com/artists | grep -o '<title>[^<]*'`
+      shows the new title. A deploy on 09-25 with no commit since 09-22
+      suggests a publish rebuilds the site [I]. The next fleet-lighthouse run
+      (Sonder about 15:00Z on 09-30, if it fires like 09-29) re-stamps
+      `titles_meta_ok`, and then **refresh preview** on the draft.
+    - **Form Functionality [M].** `form_e2e_checked_at` is NULL. Last night's
+      form-e2e run 36598340500 skipped Sonder: "site /health does not declare
+      forms.testMode — probe refused". `/health` has no `testMode`, and the
+      four `<form>`s on `/contact` are hidden Netlify stubs. A marked probe
+      needs a Sonder PR and a deploy (testMode forwarding, a `/health`
+      declaration, and the forms restructure in item 26), so no safe
+      measurement is possible by 09-30. Independent evidence from production:
+      Sonder received 10 real submissions from 09-22 to 09-29 (inquiry 3,
+      newsletter 6, rsvp 1; the latest on 09-28), all with notifications sent
+      and Mailchimp fanout ok. The `contact` form's latest is 09-02.
+    - **The product call.** Can the first Testing report ship with Form
+      Functionality unmeasured? Under a send-anyway override, the email still
+      draws "Form Functionality ✓" (`shownChecklistLabels` drops only `n/a`
+      rows), and the override also lifts every other health blocker. **My
+      pick:** fix the title first. When refresh preview shows Form
+      Functionality as the only blocker, send on 09-30 with the logged
+      override, reason "form-e2e cannot probe Sonder until its forms forward
+      testMode (#779); 10 real submissions in 7 days delivered". Then book the
+      Sonder forms PR (item 26) so the next Testing report is measured. The
+      alternative is to hold the report until that PR deploys.
+    - Also seen: the gate's note for a Titles fail says "Missing/duplicate
+      title or missing meta description" (`src/reports/auto-tick.ts:356-360`)
+      even when the fault is length. It pointed the wrong way here, and a
+      small copy fix would correct it.
 
 ---
 
