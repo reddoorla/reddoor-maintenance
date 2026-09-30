@@ -352,6 +352,18 @@ describe("fleet-prismic-drift — the per-repository token env block", () => {
     expect(names).not.toContain(prismicTokenEnvName("williamson-construction-co"));
   });
 
+  // THE SAME TRAP, ONE SITE LATER. The repo and roster slug is
+  // vida-legacy-foundation, but the Prismic repository is vida-legacy, and the
+  // token name comes from Prismic. VLF flipped to `maintained` on 2026-09-30 and
+  // that night's sweep (run 36704968338) warned it token-missing: the first live
+  // site whose drift was read without a credential because this block lacked
+  // its line, not because the secret was misspelled.
+  it("carries vida-legacy, the Prismic repository behind vida-legacy-foundation", () => {
+    const names = tokens.map(([n]) => n);
+    expect(names).toContain(prismicTokenEnvName("vida-legacy"));
+    expect(names).not.toContain(prismicTokenEnvName("vida-legacy-foundation"));
+  });
+
   // Fleet mode sets `allowGenericToken: false` precisely because ONE generic token
   // in the environment, while iterating every repository in the fleet, attaches
   // the wrong credential to every site after the first. Putting it in this env

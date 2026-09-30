@@ -135,6 +135,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                             | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164            | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 
+| P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries | 🟢 | S | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed |
+
 ### Blocked behind another PR (do not start early)
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
@@ -149,6 +151,18 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
+
+- **P1-26, the fleet `/privacy` page (#1055, option A): parked by the
+  operator 2026-09-30 ~21:25Z** until a lighter week with no new client
+  work, to save tokens. The brief is ready in `docs/privacy-2026-09.md`, and
+  #1055 tracks it. Do not recommend it before the operator un-parks it. Its
+  one hard date: roalson-interests must carry the page before its launch adds
+  GA4.
+- **GOLA (operator's desktop session `session_01Sjj8cMbeBoVNQ5bsErLsK9`,
+  started 2026-09-30 20:25Z)**: rates research from GOLA's Discord history and
+  a PDF sweep; at 21:17Z "sweep 50% done; PDFs ~23:00–23:15 UTC". No branch
+  pushed yet, and no issue. The PM pass reports its state (`get_session`) and
+  does not act on it.
 
 - **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
   the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
@@ -666,6 +680,31 @@ search=measured`. Read back (SELECT only) at 19:20Z:
       - `approveBlockers` on the live row is `[]`.
 
       No override is needed. Nothing was sent.
+
+    - **Update 2026-09-30 ~21:03Z: the header no longer shows the cookie
+      banner.** #654 was closed by #814, but the draft's header still showed
+      Sonder's consent panel and its blur scrim over the hero. Sonder's banner
+      mounts after hydration, 3–5s after `load`, which is after #814's one
+      click. Its classes are utility-only, so the CSS fallback never matched.
+      #1070 (`d269b9cf`) now clicks only buttons inside a consent overlay,
+      looks again after the settle, and refuses to store a shot whose banner
+      will not leave. The plate was regenerated with `header-image sonder
+--write-back` and inspected: 21:02:23Z, 888,694 bytes, the "Theo
+      Hirschfield / Euphorbia" hero with no banner. The preview was refreshed
+      (run 36776796655), and `approveBlockers` is still `[]`. Test emails to
+      the operator inbox only: `01a0f3e7…` (old header),
+      `01a0f41d…` (**broken, disregard**: an unstyled capture, see below) and
+      `01a0f421…` (correct). Still ready for your approve and send.
+    - **Follow-up (not built): an unstyled capture passes every check.** One of
+      four cloud captures at 20:58Z rendered Sonder without its stylesheet:
+      plain-text banner copy and two giant SONDER logos. `assertNotBlank` passed
+      it, and so did the consent backstop, because an unstyled banner is not
+      `position: fixed`. It was stored, and it went out in a test email before I
+      looked at it. Three later captures were fine. The likely cause is this
+      container's egress proxy [I], but nothing would stop the same shot in
+      Actions. **Ask:** should the capture refuse a page whose stylesheets did
+      not all load (`document.styleSheets` vs `<link rel=stylesheet>`)? My pick:
+      yes, the same refusal shape as the consent backstop, as its own PR.
 31. **#779, the client half of form-e2e coverage** — the central widening
     (item 16) covers no new site on its own. Measured 2026-09-29 from the live
     roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
@@ -1083,12 +1122,27 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     today, so its drift is now read without a token. _Ask:_ mint the token and
     set the secret, per `prismic-models --fleet turso --tokens` (read-only
     checklist). No agent mints it.
+    **Done 2026-09-30 ~21:28Z (#1076).** The operator supplied the token and
+    approved setting this one secret. Before it was set, the same token
+    answered 200 for `vida-legacy` and 403 for `revogen` on the custom-types
+    API [M]; `gh secret list` then showed
+    `PRISMIC_TOKEN_VIDA_LEGACY 2026-09-30T21:27:56Z`. #1076 adds the
+    workflow's env line and the test. Proven on the PR branch (run
+    36780192887): no token warning, VLF read as `vida-legacy` with 18 models
+    matching, and `11 checked, 0 failed` against the morning's
+    `10 checked, 1 failed` [M]. Tomorrow's 05:00 UTC run on `main` is the
+    durable confirmation.
 43. **#1055, no site in the fleet has a privacy policy** (filed 2026-09-30).
     GA4's terms require one, and design D4 of the fleet-analytics spec makes
     Reddoor the owner. It is a product and copy call (who writes the policy,
     one fleet template or per client), so it is not agent-ready. _Ask:_ say
     whether a starter-level privacy page, with a per-site data notice on each
     form, is the direction; then it becomes a P1 item.
+    **Answered 2026-09-30 ~21:20Z: option A** (one starter `/privacy`
+    template, per-site values, a footer link and a notice under each form).
+    Built as P1-26. The wording is reviewed once by a lawyer before it reaches
+    a client's live site (item 45). The consent question it leaves open is
+    item 46.
 
 44. **OD7-P1b / P2b, the Williamsons' fidelity pass (asked by the operator
     2026-09-30 ~20:15Z): not a decision, queued work.** The operator asked for
@@ -1103,6 +1157,41 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     current worker has ended: at 20:17Z both were `WORKING`
     (`session_01UHJ28GGynFCzakmooVUj76` on Homes, at 707k of 1M context;
     `session_01TRyUVAryzCaxqiViHbw6XJ` on Construction).
+    **Homes' worker ends with the PR that adds this line** (2026-09-30), with williamson-homes#9
+    held for item 47. #9 builds a first scroll reveal for the steps; the
+    reference's sticky numbering (`countersAnim.js`) replaces or extends it.
+    Start Homes' P1b from whichever #9 head the operator merges.
+45. **Privacy policy wording (P1-26): one legal review of the template.**
+    The template's text speaks for each client's business, and it discloses
+    what the fleet actually does with visitor data. _Ask:_ send the draft in
+    `reddoor-starter` (once P1-26 lands) to a lawyer once. Until then it stays
+    marked DRAFT and goes to no client's live site. Also yours: whether clients
+    hear about the page before it goes live (_pick:_ a line in their next
+    Maintenance email, with the link).
+46. **Analytics consent in California (revisits analytics design D3).** A
+    privacy page cures CalOPPA and the GA terms, but not the CIPA exposure:
+    the California wiretap and "trap and trace" demand letters aimed at
+    analytics on ordinary business sites, at $5,000 per violation in
+    statutory damages. That claim turns on consent, not disclosure. D3 chose no banner
+    (`docs/superpowers/specs/2026-09-22-fleet-analytics-design.md:111`), and
+    `initAnalytics` already takes an optional gate predicate, so the
+    mechanism is cheap either way. _Ask:_ (a) keep D3 and accept the
+    residual risk; (b) a light consent gate (GA4 loads only after an
+    accept) on California clients' sites; (c) replace GA4 with a cookieless,
+    first-party analytics that needs no consent. _Pick:_ put (b) or (c) to
+    counsel alongside item 45, since the same review answers both. Not legal
+    advice; the law here was moving through 2025–26.
+47. **williamson-homes#9 (Homes visual polish): which head to merge.** Two
+    adversarial rounds, and round 2 still found a real defect, so it stopped
+    under "two dirty rounds". Round 1 (major: steps flickered at hydration;
+    minors: an untested guard, hero height tied to slow zoom, footer insets)
+    was fixed in `07cc956`. Round 2 on `07cc956` found no blocker or major.
+    It did find that arriving by client navigation from a scrolled page lit
+    every step, so the reveal never played (it errs toward showing content),
+    plus three test gaps. `50d6154` fixes all of round 2, is unreviewed, and
+    turns 9/9 mutations red. **Ask:** merge `50d6154`, merge `07cc956`, or send
+    it back for a third review. **Pick: `50d6154`**; it is small, and every line
+    is under a mutation that goes red. The PR comment has the detail.
 
 ---
 
