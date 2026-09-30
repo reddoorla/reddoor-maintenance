@@ -6723,3 +6723,14 @@ The operator asked for favicons on both Williamson sites and a much tighter matc
 ## 2026-09-30 — OD7-P2: BACKLOG 40 answered; About's CTA published via the Prismic MCP, and Construction's intake lets central decide (williamson-construction-co#7, `e15517e`)
 
 The operator answered all three calls in the session. **(a)** The CTA label went out through the Prismic MCP rather than the Migration API. The operator asked for it directly, which the connector's write tools need. It went as a one-document release whose diff showed exactly one delta, then was published, and the Content API master ref confirmed it. The site did not change until a Netlify rebuild of `main`, because the Prismic publish webhook is still unset. That is worth remembering: a Prismic publish on this site is invisible until someone rebuilds. **(b)** The site-side Turnstile refusal is gone. Earlier, the permission classifier refused this same removal as a security-test removal. The operator's explicit go-ahead is what let it through, and the refusal was right to wait for one: a worker should not delete a security check on its own reading of the fleet contract. **(c)** Turnstile runs on live sites only. A read of the Cloudflare widgets showed the slot worry was overstated: "Site Forms 3" exists with 3 domains.
+
+## 2026-09-30 — Privacy: option A chosen, and the consent question split out (#1055; BACKLOG P1-26, 45, 46)
+
+The operator asked what the real exposure is before choosing, and then chose option A: one starter template. The exposure was ranked as follows, stated as a reading and not as legal advice.
+
+1. **CIPA.** California's wiretap and trap-and-trace demand letters against analytics on ordinary business sites carry $5,000 per violation in statutory damages. This is the only exposure likely to cost money, and a policy alone does not cure it, because the claim is about consent.
+2. **CalOPPA.** Any site collecting personal information from Californians must post a policy with a Do Not Track line. That covers every fleet form. It is enforced by the Attorney General after a 30-day cure, rarely against small sites, and a page cures it outright.
+3. **Google Analytics terms.** Reddoor owns the properties. The worst case is an account suspension, which is very unlikely.
+4. **CCPA** is almost certainly out: every client is below its thresholds [I; Revogen and ERP unchecked].
+
+So the page (P1-26) closes 2 and 3 and blunts 1, and the consent question goes to counsel with the wording (items 45 and 46). `initAnalytics` already takes a gate predicate (D3), so a consent gate would be a small change if counsel asks for one. The template's switches are derived from each site's code, CSP and forms, not from a hand list, so the page cannot drift from what the site actually does.
