@@ -32,6 +32,7 @@ beforeEach(() => {
     defaultQueryMissed: false,
     propertyMissing: false,
     notConfigured: false,
+    lookup: null,
   });
   vi.mocked(generateHeaderImage).mockClear();
 });

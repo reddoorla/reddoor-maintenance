@@ -6131,3 +6131,9 @@ All were fixed. Round 2 confirmed the fixes and found old and new code identical
 - The paren trimming lost `url(a),url(b)`.
 
 Both were fixed, with tests that are red against the round-1 behaviour. By the rule, #1032 is then the operator's call (decision 34), not a third round. One more belief was corrected while fixing: I had written that Homes `/about-us` loads a jsDelivr copy of the counter script. It does not. That `<script>` sits inside an HTML comment, and the stricter extractor was the thing that noticed.
+
+## 2026-09-30 — #943 lands: the Search Console launch check needs evidence (#1016)
+
+The operator answered Operator decisions 28 with the pick as written: a resolved lookup counts for the site's shorter report cadence plus 14 days (45 days for monthly, 106 for quarterly, 380 for yearly). The code did not change for the answer, because #1016 was built on that pick. It corrects nothing in the 2026-09-29 entry; it only closes the fork that entry left open. Landing needed one merge of `main`: #1005 had taken migrations 0033/0034 in the meantime, so `MIGRATIONS` and the id lists in `tests/db/migrate.test.ts` and `tests/db/client.test.ts` keep both sides, in id order. The runner applies whatever ids are missing, so the order is cosmetic. The rest of the `site_health` plumbing merged cleanly beside #1005's two columns.
+
+What the fleet sees next: nothing is backfilled, so until each site drafts again its setup line reads "no report lookup on record". A maintained site whose next lookup matches no property gets the `search-console-no-property` watch, naming its host. A site whose report cadence is None never drafts, so it never gets evidence; its schedule check was already failing. #943's third point, whether a recorded property should fall back to the by-host candidates, stays open in the issue.
