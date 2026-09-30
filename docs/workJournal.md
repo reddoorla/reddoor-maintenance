@@ -5917,3 +5917,146 @@ Both issues reproduced on `1b1c52fd` before any change, in the live-spec harness
 **Numbers.** 17 mutations, all red. Round 1's reviewer ran 12 mutations of its own, and round 2's ran 15; their survivors are what became the tests in `8dc2405e` and #1018.
 
 **Conflict.** A BACKLOG conflict with #989's Done line stopped CI running on `8dc2405e` at all. GitHub does not run `pull_request` workflows on a conflicted PR. The merge that fixed it is `d9dc1ede`.
+
+## 2026-09-29 — The a11y audit stores the routes it covered, not only its violation count (P1-7, #910, #1005, `c3c7ec9`)
+
+#910's complaint was that `2 of 2 routes, 0 violations` and `1 of 2 routes, 0 violations` were byte-identical everywhere outside one log line. The only a11y number that reached Turso was `a11y_violations`. So a site that lost half its a11y coverage kept reporting the same number. This change stores the other two numbers.
+
+The audit result now carries `details.routes = { scanned, total }`. They are computed with the very expression the summary's count phrase already uses: `total` is `axePages.length`, the list that actually ran, fixtures plus `package.json#reddoor.a11yRoutes`, and `scanned` is that minus the spec's skip list. `audit --write-back` writes them to `site_health.a11y_routes_scanned` / `a11y_routes_total`. Those are migrations 0033 and 0034, one ADD COLUMN each like #986's, with 0033 checked against every origin branch first. `fleet-state` and `mapRow` read them into `WebsiteRow`. The site page's Accessibility tile says "only 1 of 2 routes scanned" or "2 of 2 routes scanned". The cockpit card reads `0 (1/2 routes)` for a partial run and stays `0` for a complete one. A result without route counts writes NULL, which clears the previous run's counts instead of inheriting them. The done-when is pinned end to end by `tests/audits/a11y-routes-turso.test.ts`: a 1-of-2 run and a 2-of-2 run go through `writeBackOneSite` → `mirrorHealthFields` → `getSiteBySlug` on in-memory libSQL, both with 0 violations, and read back `[1,2]` and `[2,2]`.
+
+**Mutations.** I named eleven before writing the code. Nine went red. One survived because it is equivalent: dropping the column from `HEALTH_NUMERIC` changes nothing, since an INTEGER column's type affinity turns the text "1" back into 1. The other survivor was real: a negative count was accepted, which got its own test. Round 1 of the 3-lens review workflow found no correctness or integration defect, but its test lens ran eighteen more mutations and three survived. Each would have let a wrong value ship:
+
+- `total` counting only the fixtures, the #697 regression, reborn in the stored column, because every #910 test used a fixtures-only site;
+- `scanned` subtracting only absent-fixture skips, because the only skip in those tests was the absent `animate-in` fixture, so a placeholder-repo skip went untested;
+- `count()` rejecting 0, which would have made a run that scanned nothing read as unknown rather than as the worst partial run.
+
+The existing placeholder test now also pins `{ scanned: 2, total: 3 }`, and 0-of-2 is pinned in the fields, Turso and render tests. Round 2 was clean on all three lenses: thirteen further mutations, twelve red, and the survivor needs a state the writer cannot produce. The full suite passed on both rounds (8042 tests), always run with the Turso variables unset.
+
+**Honest accounting.** This closes the smaller half of #910. No fleet sweep runs the a11y audit, so these columns fill only when someone runs `audit --write-back` from a site checkout. Until the issue's other half lands, the surfaces show nothing new on any row. The report gate does not read the counts. Whether a partial run should make the report's a11y evidence "unknown" is a product call, and this PR did not make it.
+
+**Worth knowing before the surface gets noisy.** Round 2's correctness lens pointed out that a site which declares a fixture absent on purpose, or runs on the placeholder Prismic repo, stores scanned below total every time. So its tile will always read "only N of M routes scanned". That is the #863 rule the summary already follows: a skipped route never reads as scanned. Whether a declared absence should count against "complete" is the obvious refinement if the marker turns out to be noise.
+
+**Landing.** Docs PRs from other sessions landed four times in the 20 minutes between merging main and CI finishing, each time conflicting at the tail of this journal or the top of BACKLOG's Done list. So the entry was taken out of #1005 and landed on its own here. The fifth attempt went through `land-prs`' update-branch path.
+
+## 2026-09-29 — The Search Console launch check is built on evidence, held on its freshness window (#943, PR #1016)
+
+On 2026-09-29 the operator decided that the "Search Console set up" setup check becomes evidence-based. Until now it passed when the site row _recorded_ a property, which says nothing about whether Search Console answers for the site. The draft already computed the answer on every run and threw it away (`propertyMissing`, #942). #1016 keeps it. Every draft or announcement whose lookup actually runs writes three `site_health` cells beside the `Analytics soft-fail at` stamp, in the same upsert: `search_console_outcome` (`resolved` / `no-property` / `soft-fail`), `search_console_resolved` (the property the query ran against, NULL unless resolved), and `search_console_checked_at`. These are migrations 0035–0037; 0033/0034 are #1005's. `fetchSearchPresence` now returns `property`: the candidate that returned data, or the first one queried when none did. A lookup that did not run writes nothing, so an environment without GA credentials cannot erase evidence. That covers not enrolled, opted out, no credentials, and preview.
+
+The check reads the evidence through one function, `searchConsoleEvidence`, which the setup line and the cockpit share. Only `verified` (a resolved lookup inside the window) and `opted-out` pass, and the opt-out is checked first, so Sonder's wins over any stored outcome. A soft-fail, or a stored outcome with an unreadable timestamp, reads as `unknown`. The cockpit's `search-console-unrecorded` watch is gone. In its place `search-console-no-property` is raised only when a maintained site's last lookup matched nothing, and it names the host and the lookup date. A blank record is not evidence either way.
+
+**Why it did not land.** The brief named the freshness window as the fork #943 leaves open, and it is item 28 under Operator decisions. My pick, cadence plus 14 days, came from a trap this repo has already hit: evidence only arrives when a report drafts, so a fixed 45-day window would fail every quarterly and yearly site most of the time. That is an instrument that cannot pass. The review found a related trap that holds whatever the window is. The `--due` pile-up guard stops new drafts while an older one waits for approval, so a site whose draft sits unapproved goes stale too. The skeptic judged that correct, not a defect: no lookup has run, so there is no evidence, and the label says exactly that.
+
+**Measured.** 19 mutations were named before the behaviour code, and every one went red. The 3-lens review ran 18 more. Four survived, and three of those mattered: announce skipping the soft-fail write (which would let an old `resolved` keep passing), and the draft or announce write gate narrowed to a GA4 property (which would leave a site enrolled only through its Search Console property with no evidence, ever). Both were test gaps, not code defects, and three new tests kill all three. The fourth was a one-millisecond `>`/`>=` boundary. The cockpit now also requires a readable timestamp before it raises the watch, so it agrees with the setup line's `unknown`. Full suite after merging `main`: 8098 passed, 5 skipped. Lint and typecheck clean. No Turso writes, no dispatches.
+
+**Honest accounting.** Nothing is backfilled. Until each site's next draft, every site reads "no report lookup on record", including the seven properties today's session verified by hand. #943's third point (should a recorded property fall back to the by-host candidates when it returns no rows?) was not in the brief and is untouched. The fleet card still judges setup at wall clock, not the model's `now`. That makes no difference in production, and `CockpitModel` carries no `now` to thread through. The 2026-09-22 fleet-analytics spec still names the old signal.
+
+## 2026-09-29 — axe's plus-lighter crash made "not measured", held after two review rounds (#1014); vida's error red darkened (vida#86)
+
+A worker session on the operator's decision for vida (BACKLOG item 23): fix
+the design and exempt the blend-mode crash. Both PRs exist; neither has landed.
+#1014 is BACKLOG item 29, and vida#86 is open for review.
+
+**What axe actually does.** axe-core 4.13 composites a text node's backdrop
+through a table of blend functions keyed by computed `mix-blend-mode`. The
+table has no `plus-lighter`, so the lookup yields undefined and the call throws
+`blendFunctions[blendMode] is not a function`. The throw is filed on the one
+element being checked, but it **skips the rule for the whole document**. On
+origin/main a fixture with two paragraphs over a grain measured 0 contrast
+nodes on the page. vida's `/` and `/es` measured 0; with #1014 they measure 24
+each, and one element each (`span[aria-current="true"]`) is not measured.
+`link-in-text-block` throws the same way on a link over the grain.
+
+**Belief corrected twice, by review.** The first design excluded each crashed
+element with axe's `exclude`. That takes the element's whole subtree, and
+the element a crash is filed on can be a wrapper with text of its own. Round 1
+proved a faint paragraph inside such a wrapper, 200px from the grain, went
+unmeasured, and the page warned instead of failing. The fix includes the
+children again. A generic `> *` include failed: on a tie between an include
+and an exclude of the same element, axe keeps the include, so a crashed child
+was never excluded. The children are therefore listed by `:nth-child`, minus
+the excluded ones. Round 2 then found the same hole one level down: a crash
+filed on a shadow host drops its shadow tree, which the light-DOM child list
+cannot reach. That is the second dirty round, so the PR stops there. The
+narrow fix (a host with a `shadowRoot` is not excludable) is written into
+item 29 for the operator to authorise.
+
+**The live instrument caught what mutations did not.** The first lookup for
+the blend mode's name used `elementsFromPoint`. It returned nothing on vida,
+because vida's grain is `pointer-events-none`, which `elementsFromPoint`
+skips. The fixture was synthetic and did not have that. Now it does; it went
+red on the old lookup and green on an overlap scan. 21 mutations across two
+rounds were run against the tests. Four survived at first, and each survivor
+was a real test gap, closed before the next push.
+
+**vida.** `text-red-600` is 4.41:1 on the `#fdf5e8` beige, just under AA for
+`text-sm`, and `text-red-700` is 5.93:1. That is one class, in vida#86, for
+review. Measured with vida's own `pnpm test:a11y` on a packed build of #1014,
+with the 13 palette lines applied locally only:
+
+- red-600, the control: fails `color-contrast` on `#s13-error` and `#s14-error`.
+- red-700: exits 0.
+- Without the palette lines, vida still fails `rule-errored` on its fixtures.
+  No PR carries those lines yet.
+
+**Honest accounting.** vida's first gate run wrote no results at all: its
+Playwright 1.63 wanted browser revision 1243, and the container had 1234.
+That is #905's shape exactly, and `npx playwright install chromium` cleared
+it. The container also restarted mid-review; round 2 was resumed from the
+workflow journal. No Turso writes, no workflow dispatches, and no live
+client-site audits beyond vida's local dev server.
+
+## 2026-09-29 — Sonder's first Testing report: two blockers measured, one is a Prismic title, one cannot be measured safely by 09-30 (docs only)
+
+A worker session from the PM brief, read-only on Turso and on Sonder. It changed no code in either repo and opened no gallerysonder PR, because neither blocker is a defect in code.
+
+The gate was run as the product runs it. `approveBlockers` over `autoTickChecklist(site, "Testing", …)` on Sonder's live rows, read through a bare libSQL client (`openDb` runs `ensureMigrated`, which is not a SELECT), at 23:53Z and at 09-30 14:00Z, returns the same two fail-level `health-gate` findings: Page Titles & Meta `fail`, and Form Functionality `unknown` ("Not yet measured"). The other eleven gating rows pass, which is the instrument's positive control. Google Indexed joins them only if the draft has no search signal. No Testing draft row exists yet; Sonder's three rows are all sent.
+
+**Titles & Meta.** `site_health` stores only the verdict. The reason is in the fleet-lighthouse job log (run 36584559490): 15 routes, and the one problem is `https://gallerysonder.com/artists: title 90 chars (max 70)`. The title comes from Prismic, not code. `page` `artists` (`ZjwQtxIAANaT82IQ`) has `meta_title` = "Artists - Ruben Benjamin - Borja Colom - Theo Hirschfield - Anthony James" (73 characters), and `brandedTitle` appends " | Gallery Sonder" (17). The audit measured correctly, so it is not a false fail and was not touched. The gate's note, though, reads "Missing/duplicate title or missing meta description" for a length fault (`auto-tick.ts:360`), which points the reader the wrong way. The content fix is operator decision 30. It needs a publish, a rebuild of the prerendered site, the next fleet-lighthouse re-stamp, and refresh preview.
+
+**Form Functionality.** Sonder is in the form-e2e nightly and self-skips. Run 36598340500 printed "site /health does not declare forms.testMode — probe refused", and `form_e2e_checked_at` is NULL. I checked the #779 worker's note myself rather than trusting it. `/health` has no `testMode`, and the four `<form>`s on `/contact` are hidden Netlify stubs. A marked probe is therefore impossible until a Sonder PR deploys, and an unmarked one is a real lead to a client. I did not duplicate #779's branch. A different authority still speaks to whether the forms work: Turso holds 10 real Sonder submissions from 09-22 to 09-29, all notified, with Mailchimp fanout ok. The `contact` form's newest is 09-02.
+
+**The product call left open.** A send-anyway override is the only way out on 09-30. It lifts every health blocker at once, and the email still draws "Form Functionality ✓", because `shownChecklistLabels` drops only `n/a` rows. So the pick written under decision 30 is: fix the title first, override only when Forms is the sole blocker, and name the real-traffic evidence in the reason.
+
+Corrected on contact: my first draft gave the `meta_title` as 72 characters. A `len()` said 73.
+
+## 2026-09-29 — Webflow before 10-19: three live sites, not two, and a plan for all of them (Operator decisions 7, `docs/webflow-conversions-2026-10.md`)
+
+A research and planning session only. No repo was created and nothing on DNS, Netlify or Webflow was touched. The item was BACKLOG Operator decisions 7: "two sites still to convert before 10-19; Domaru must stay up to 11-01". Its source is a Discord message from 09-17 that a cloud session cannot reach, so the first job was to find out which sites those are.
+
+**The roster answers a different question than the one asked.** Four rows carry `webflow.com/dashboard` as their site host in the `legacy` column. That field records the host at import time, not now. One of the four, 29 Navy, answers from Netlify today with no `data-wf-site` attribute, so it is already converted. The other three answer with Webflow markup and resolve to Webflow (`198.202.211.1`, with `www` → `cdn.webflow.com`): Domaru, Williamson Homes and Williamson Construction. So the backlog's "two" names three live sites. The plan reads the two as the Williamsons, because Construction is visibly a clone of Homes: nine of its fourteen page titles still end "| Williamson Homes", and the two share a phone number, class names and a custom script. It reads Domaru as the "keep it up to 11-01" case, which still needs a home for 13 days if Webflow stops on 10-19. That reading is inferred, so it went to the operator as D1 rather than being assumed.
+
+**Measured sizes.** Homes has 10 pages on 5 templates, a 6-item Projects collection, no form, no analytics and 82 unique assets. Construction has 14 pages on 7 templates, an 8-item collection, one 9-field subcontractor intake form on Webflow's own backend, 101 assets including 19 video/PDF files, an Adobe Fonts kit (`htt1asl`, freight-sans-pro) and a Vimeo embed. Domaru has 7 pages, no CMS, a reCAPTCHA contact form, 12 Lottie files and 66 assets. None of the three publishes a usable sitemap, so these counts come from a same-host link crawl and would miss an unlinked page. None has analytics of any kind. The Williamson counter animation loads at runtime from `raw.githack.com/tucksravin/incidental-js`: the operator's own repo, served through a third-party proxy.
+
+**The finding most likely to matter at cutover is mail, not the web.** Both Williamson domains run Microsoft 365 on GoDaddy nameservers, and Domaru runs MailChannels on Dynadot. A registrar "point this domain at Netlify" flow that replaces the zone would take the clients' email down with no web symptom at all. The Phase 4 brief therefore limits the change to two records per domain and verifies MX afterwards.
+
+**A belief left open, not corrected.** The roster's `"account owner"` values (`dec 8` for both Williamsons, `jan 11` for Domaru) look like Webflow site-plan renewal dates. If they are, the sites may keep serving past the workspace cancel on 10-19. This session was barred from logging in to Webflow, so it could not check. The plan assumes the worst case, and the question is D0.
+
+**Calibration, honestly stated.** The only effort baseline is 29 Navy: a native rebuild with a matching campaign, bootstrapped 09-08 and serving from Netlify by 09-28 (the date of the cockpit entry that shows it in the fleet). That is about three weeks, with no deadline. The window here is 20 days for up to three sites. The expected total (Homes + Construction on Prismic + a Domaru bridge) is 7.5 worker sessions; the high case, 13, does not fit without the static fallback for Construction, which is why the schedule has a go/fallback call on 10-09. The DNS cutover is set for 10-14 and 10-15 so that Webflow is still serving for five days afterwards, and a rollback is only a DNS change back. Phase 0, which captures all three references in full, needs no decision and should start 09-30: Beachfront showed that a Webflow reference, once dead, cannot be captured again.
+
+## 2026-09-29 — form-e2e fills required fields beyond its standard four, and the nightly proves its probe first; held after two review rounds (#779, PR #1017 at `3d1274e1`)
+
+The operator said "go" on Operator decisions 16, #779's central widening. The widening is built, but by itself it adds **no** covered site tonight. That is the most useful line in this entry.
+
+**The roster moved since #779 was written.** A SELECT-only read of live Turso found 15 maintained sites, not 13. Six carry a `form_e2e_ok` verdict. Last night's run (36598340500) printed `FLEET_FORM_E2E skipped=8 total=14`. The fifteenth site, Vida, went maintained after that run started. Its deployed `/health` already declares `forms.testMode: true` and `/contact` has a form, so it is covered from tonight by its own rollout, not by this PR. 29 Navy is new to the uncovered list, and it has no form: its `/health` sets `testMode: false` on purpose, and its tests pin that. With CalTex that makes two formless sites, so `skipped` can never go below 2.
+
+**Why the widening alone covers nobody.** The probe refuses to submit unless the deployed `/health` declares `forms.testMode`, because an undeclared site's form would deliver the probe to the client as a real lead. None of the six uncovered sites with forms (ERP, Revogen, Data Dynamiq, LHI, LHY, Sonder) declares it. So each needs a PR in its own repo to forward the marker and declare it. The widening only means that ERP's deploy no longer has to change its required `interest` select. The ask is Operator decisions 31. #779's other idea was a per-site contact-path override in the roster, meant to reach Revogen "without touching the site". It was not built, because Revogen has to deploy anyway, and that deploy can add a `/contact` redirect the way Beachfront's does.
+
+**What is on the branch.**
+
+- The probe gives a required select its first enabled option with a value, and required text, checkbox and radio fields synthetic values. It fires `input` and `change` so Svelte bindings see them.
+- A field the page resets during the settle is re-synthesized before the click.
+- A run names what it chose.
+- The nightly prints `FLEET_FORM_E2E_UNCOVERED sites=…` so the gap is named rather than counted.
+- A localhost positive control has to pass before the sweep writes any client row.
+- A handler-level test posts the probe's payload through the real `form-ingest` handler. The marked copy reaches no email, no stored row, no unread badge, no submissions count, no cockpit lead and no digest count. The unmarked control reaches all of them.
+
+**Defects the review found in the first cut.** The workflow test named "can stop the sweep" checked only the control step's own keys. `|| true` on the control, or `if: always()` on the sweep, left it green. It now executes the control's script with `pnpm` stubbed to fail. The marker test passed only because no row existed, so a probe persisted as spam would also have passed; it now counts stored rows of any status. A `time` input rejects synthetic text but was still reported as synthesized.
+
+One claimed defect was refuted by measurement against a real hydrating Svelte 5 component: that hydration silently reverts a synthesized `<select>`. The probe's own injected hidden inputs cause a hydration mismatch, Svelte re-renders the form, and the existing testMode canary triggers the refill. The cheap hardening (re-synthesize before the click) went in anyway.
+
+**Round 2 found real defects again, so #1017 is held (Operator decisions 32), not landed.** The worst was in round 1's own fix. The fixture that proves a reverted select is re-synthesized cleared the select from a 300 ms timer that started at page load. On one busy core, the page-load-to-fill gap exceeded that, the revert landed before the fill, and the test failed 1 run in 3. That test lives in the file the nightly now runs as its positive control, so the flake would have stopped the whole sweep and opened the tracking issue. The revert now fires on the probe's own change event, and the test passed 3 of 3 on the same loaded core. The other round-2 major was that nothing tested that a failed run carries the synthesized list. Both are fixed at `3d1274e1`, with the full suite green (8008 passed). The operator decides between landing as is and a third round. 27 mutations (11 named up front, 16 from the reviews) each turn a test red; the tables are in the PR body and the decision line.
+
+**Beliefs corrected on contact.**
+
+- "Seven sites need the central widening" was wrong: two have no form, and the other five, plus Sonder, need client deploys regardless.
+- The line-number citations in `docs/runbooks/turnstile-widgets.md` moved three times in one PR; `runbook-anchors` caught every one.
