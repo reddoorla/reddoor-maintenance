@@ -21,6 +21,8 @@ let idleRejects = false;
 let consentClickRejects = false;
 /** A consent banner present at the first look (after fonts), before the settle. */
 let earlyBanner = false;
+/** Make the stylesheet listing reject, as a crashed or navigated page does. */
+let evaluateRejects = false;
 /** Set once a fake banner button is clicked; the banner is then gone. */
 let dismissed = false;
 /** Consent buttons present after the settle: 0 unless a test mounts a late banner. */
@@ -38,6 +40,10 @@ function calledWith(name: string): Call | undefined {
 
 vi.mock("@playwright/test", () => {
   const page = {
+    on: (...args: unknown[]) => {
+      record("on", args[0]);
+    },
+    url: () => "https://acme.com/",
     goto: async (...args: unknown[]) => {
       record("goto", ...args);
     },
@@ -47,6 +53,10 @@ vi.mock("@playwright/test", () => {
     },
     evaluate: async (...args: unknown[]) => {
       record("evaluate", ...args);
+      if (String(args[0]).includes("relList")) {
+        if (evaluateRejects) throw new Error("Execution context was destroyed");
+        return [];
+      }
     },
     waitForTimeout: async (...args: unknown[]) => {
       record("waitForTimeout", ...args);
@@ -124,6 +134,7 @@ describe("reports/header-image defaultShooter navigation", () => {
     idleRejects = false;
     consentClickRejects = false;
     earlyBanner = false;
+    evaluateRejects = false;
     lateConsentButtons = 0;
     dismissed = false;
   });
@@ -146,6 +157,29 @@ describe("reports/header-image defaultShooter navigation", () => {
     expect(calls.map((c) => c.name).indexOf("waitForLoadState")).toBeGreaterThan(
       calls.map((c) => c.name).indexOf("goto"),
     );
+  });
+
+  it("listens for stylesheet failures before it navigates", async () => {
+    await shoot();
+    const names = calls.map((c) => c.name);
+    expect(calls.filter((c) => c.name === "on").map((c) => c.args[0])).toEqual([
+      "requestfailed",
+      "response",
+    ]);
+    expect(names.lastIndexOf("on")).toBeLessThan(order("goto"));
+  });
+
+  it("warns, and still shoots, when the page's stylesheets cannot be listed", async () => {
+    evaluateRejects = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await shoot()).toEqual(SHOT);
+      expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(
+        /unstyled-page check did not run/,
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("captures the screenshot even when the idle wait times out", async () => {
@@ -182,6 +216,7 @@ describe("reports/header-image defaultShooter consent handling (#654)", () => {
     idleRejects = false;
     consentClickRejects = false;
     earlyBanner = false;
+    evaluateRejects = false;
     lateConsentButtons = 0;
     dismissed = false;
   });

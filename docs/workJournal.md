@@ -6801,3 +6801,29 @@ The print sheet had a rule meant to hide the site's chrome, `:global(header), :g
 The evidence is two PDFs of the same token made with `renderReportPdf` itself. A launcher shim set the report edit cookie so the renders would not stamp `opened_at`. Before is live reddoorla.com. After is the branch under `vite dev` against the production report API. The unchanged branch was printed locally first and matched the live PDF: 11 pages, the same overlaps, the same footer. So the local setup was shown to reproduce the defect before it was trusted to show the fix. A PyMuPDF line-level check reads 2 overlapping line pairs, 1 line past the right content edge and 5 footer strings on the old PDF, and 0, 0 and 0 on the new one. Its first, block-level version reported overlaps inside the score boxes that the page images do not show, so it was rewritten to compare lines. The Playwright parse in the mutation runner also misreported at first: every mutation listed all four tests as red, because it was reading progress lines. It was switched to the JSON reporter before any result was taken from it.
 
 Three things to know from the session. First, my own first plain `curl`s of the token's report and print pages at 20:43Z stamped `opened_at` on reddoorla.com's self-audit. Only the edit cookie suppresses the stamp, and that is Reddoor's own report. Second, the very first request to the live print route answered 500 (a 75 KB body), and the next three answered 200. `renderReportPdf` throws on any non-OK status, so a cold first hit like that drops the PDF from the email and leaves a warning. I did not investigate it and it may be a one-off. Third, the fix reaches the live PDF only when reddoor-website's `staging` is promoted to `main` (BACKLOG 14).
+
+## 2026-09-30 — Header capture refuses an unstyled page (BACKLOG 30 follow-up)
+
+This entry comes from the operator's "yes" to the ask the previous entry filed. It had proposed comparing `document.styleSheets` with `<link rel=stylesheet>`. A probe against a local server showed that idea was dead on arrival. Chromium gives every `<link>` a non-null `sheet`, including one whose request 404'd, returned `text/html`, or had its connection reset. Built as proposed, the check could never have failed. That is this repo's first rule again, caught before any code was written.
+
+**What was built instead.** The shooter listens for stylesheet requests that fail (`requestfailed`) or answer 400 or above (`response`). A 404 served as `text/css` fires only the second, which is why both are needed. Just before the shutter, a failure is counted only if all three hold:
+
+- its URL (the head of any redirect chain, fragment removed) matches a `<link rel=stylesheet>` that applies to the screen: not alternate, not disabled, media matching;
+- its host is the page's own, either requested or redirected-to;
+- it has not already been counted.
+
+Any counted failure throws `UnstyledPageError`, and `captureHomepage` re-shoots once on that error and only on it. The Sonder shot was one bad capture in four, so a transient failure recovers, while a stylesheet that is gone for good still refuses and the stored header is kept.
+
+Third-party stylesheets are ignored. Sonder's layout CSS is `/_app/immutable/assets/*.css`, and only Typekit is off-host. A dead font kit changes fonts, not layout, and refusing on it would freeze a header until someone noticed. The cost is that a site whose CSS lives on a CDN host is never checked. The same trade leaves a failed `@import` undetected, because it has no `<link>` of its own.
+
+**Proof.**
+
+- Blocking Sonder's own CSS (`route.abort`) reproduces the broken header exactly: "Skip to content", the menu button and two giant wordmarks. It counts 5 own-host failures.
+- The normal site passes. All 19 live fleet homepages passed through the real capture. Three of them came back small (about 160 KB, against 1–8 MB for the rest). I looked at one, LAHI: its homepage is a flat illustration, so the small file is legitimate.
+- A real-Chromium suite covers: styled; own 404 as text/plain; own 404 as text/css; own connection reset; own 404 behind a 301; an href with `#v2`; the page redirected to another host; a third-party 404; print-only and preload failures (must still shoot); and counting a 404 once.
+- Fourteen mutations each turned a test red. The first try at S3 (ignore the status check) stayed green, because a text/plain 404 also fires `requestfailed`. That is why the text/css case exists. One mutation was not valid TypeScript and measured nothing until it was rewritten.
+
+**Review.**
+
+- Round 1 (medium): a failed `media=print` sheet or `preload as=style` refused a page whose screen was fully styled. Fixed with the screen-sheet filter. Also fixed: 404s counted twice, and the redirect host was untested. The one-retry design came from this round.
+- Round 2: minors only, all missed detections and none a wrongful refusal: a redirected sheet, a `#fragment`, and a silent `.catch` when the page could not be read. Fixed at the operator's call.

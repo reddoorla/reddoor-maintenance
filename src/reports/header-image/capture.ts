@@ -65,6 +65,79 @@ export class ConsentStillVisibleError extends Error {
   }
 }
 
+/** Thrown when one of the page's own stylesheets failed to load, so the shot
+ *  would show the site unstyled. On 2026-09-30 one of four Sonder captures
+ *  rendered as plain text and two giant logos; `assertNotBlank` and the consent
+ *  backstop both passed it, and it was stored and emailed. Detected from the
+ *  network, not the DOM: Chromium gives a `<link>` a non-null `sheet` even when
+ *  its request 404s, returns HTML, or has its connection reset. */
+export class UnstyledPageError extends Error {
+  constructor(url: string, failed: readonly string[]) {
+    super(
+      `${failed.length} stylesheet(s) from the page's own host failed on ${url}; no header generated: ${failed.join(", ")}`,
+    );
+    this.name = "UnstyledPageError";
+  }
+}
+
+/** Runs in the page: absolute URLs of the `<link rel=stylesheet>` elements that
+ *  apply to the screen (not alternate, not disabled, media matching). A failed
+ *  print stylesheet or a failed `preload as=style` leaves the screen styled, so
+ *  neither may refuse the shot. Known gap, accepted for that: a failed `@import`
+ *  inside a sheet has no `<link>` of its own and is not detected. */
+const SCREEN_STYLESHEETS_PROBE = `[...document.querySelectorAll("link")]
+  .filter((l) => l.relList.contains("stylesheet") && !l.relList.contains("alternate") && !l.disabled)
+  .filter((l) => !l.media || matchMedia(l.media).matches)
+  .map((l) => l.href)`;
+
+/** A URL without its `#fragment`. Chromium's request URL never carries one, and
+ *  a `<link>`'s `href` keeps it. */
+function withoutFragment(url: string): string {
+  const i = url.indexOf("#");
+  return i === -1 ? url : url.slice(0, i);
+}
+
+type RedirectableRequest = { url: () => string; redirectedFrom: () => RedirectableRequest | null };
+
+/** The URL the page asked for: the first request in a redirect chain, which is
+ *  what the `<link>`'s `href` names. A failure reported on `/b.css` after
+ *  `/a.css` redirected there belongs to the `/a.css` link. */
+export function requestedUrl(req: RedirectableRequest): string {
+  let first = req;
+  for (let prev = req.redirectedFrom(); prev; prev = prev.redirectedFrom()) first = prev;
+  return withoutFragment(first.url());
+}
+
+/** The failed stylesheets, among those recorded, that came from a host the
+ *  page itself was served from. A third-party stylesheet (a font kit, a widget)
+ *  is left out: its loss changes fonts, not the layout, and a permanently dead
+ *  one would otherwise freeze the site's header. Pure, for tests. */
+export function ownHostStylesheetFailures(
+  failures: readonly { url: string; reason: string }[],
+  pageUrls: readonly string[],
+): string[] {
+  const hosts = new Set(
+    pageUrls.flatMap((u) => {
+      try {
+        return [new URL(u).host];
+      } catch {
+        return [];
+      }
+    }),
+  );
+  const own = new Map<string, string>();
+  for (const f of failures) {
+    let host: string;
+    try {
+      host = new URL(f.url).host;
+    } catch {
+      continue;
+    }
+    if (hosts.has(host) && !own.has(f.url)) own.set(f.url, f.reason);
+  }
+  return [...own].map(([url, reason]) => `${url} (${reason})`);
+}
+
 /**
  * The CSS rule that hides consent UI before the shutter. `consentSelector` is a
  * per-site addition for banners the heuristic misses (a newsletter interstitial,
@@ -111,14 +184,23 @@ export async function captureHomepage(
   options: CaptureOptions = {},
 ): Promise<Uint8Array> {
   const shooter = options.shooter ?? (await defaultShooter());
-  return shooter.shoot({
+  const shootOpts: ShootOptions = {
     url,
     width: VIEWPORT.width,
     height: VIEWPORT.height,
     deviceScaleFactor: DEVICE_SCALE_FACTOR,
     settleMs: options.settleMs ?? DEFAULT_SETTLE_MS,
     ...(options.consentSelector !== undefined ? { consentSelector: options.consentSelector } : {}),
-  });
+  };
+  // One re-shoot for an unstyled page, and only for that: the Sonder shot that
+  // motivated the check was one bad capture in four, so a transient stylesheet
+  // failure recovers here, while a stylesheet that is gone for good still refuses.
+  try {
+    return await shooter.shoot(shootOpts);
+  } catch (err) {
+    if (!(err instanceof UnstyledPageError)) throw err;
+    return shooter.shoot(shootOpts);
+  }
 }
 
 /** Real Playwright shooter. Lazily imported so unit tests never load it and the
@@ -132,6 +214,21 @@ export async function defaultShooter(): Promise<Shooter> {
         const page = await browser.newPage({
           viewport: { width: opts.width, height: opts.height },
           deviceScaleFactor: opts.deviceScaleFactor,
+        });
+        const stylesheetFailures: { url: string; reason: string }[] = [];
+        page.on("requestfailed", (req) => {
+          if (req.resourceType() === "stylesheet") {
+            stylesheetFailures.push({
+              url: requestedUrl(req),
+              reason: req.failure()?.errorText ?? "failed",
+            });
+          }
+        });
+        page.on("response", (res) => {
+          const req = res.request();
+          if (req.resourceType() === "stylesheet" && res.status() >= 400) {
+            stylesheetFailures.push({ url: requestedUrl(req), reason: `HTTP ${res.status()}` });
+          }
         });
         await page.goto(opts.url, { waitUntil: "load", timeout: NAV_TIMEOUT_MS });
         // Best-effort only — a site that never idles must still be captured.
@@ -162,6 +259,18 @@ export async function defaultShooter(): Promise<Shooter> {
             throw new ConsentStillVisibleError(opts.url);
           }
         }
+        const screenSheets = (await page.evaluate(SCREEN_STYLESHEETS_PROBE).catch((e: unknown) => {
+          console.warn(
+            `⚑ header-image: could not list ${opts.url}'s stylesheets (${(e as Error).message}); the unstyled-page check did not run`,
+          );
+          return [];
+        })) as string[];
+        const screenSet = new Set(screenSheets.map(withoutFragment));
+        const unstyled = ownHostStylesheetFailures(
+          stylesheetFailures.filter((f) => screenSet.has(f.url)),
+          [opts.url, page.url()],
+        );
+        if (unstyled.length > 0) throw new UnstyledPageError(opts.url, unstyled);
         const buf = await page.screenshot({ type: "png" });
         return new Uint8Array(buf);
       } finally {

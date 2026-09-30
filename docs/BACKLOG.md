@@ -705,6 +705,14 @@ search=measured`. Read back (SELECT only) at 19:20Z:
       Actions. **Ask:** should the capture refuse a page whose stylesheets did
       not all load (`document.styleSheets` vs `<link rel=stylesheet>`)? My pick:
       yes, the same refusal shape as the consent backstop, as its own PR.
+    - **Answered 2026-09-30 (yes) and built on `claude/header-unstyled-refusal`.**
+      The DOM check the ask proposed would never fire: Chromium gives a `<link>`
+      a non-null `sheet` even when its request 404s, returns HTML or is reset
+      (measured). The capture now watches the network instead. It refuses a shot
+      when a stylesheet from the page's own host, one that styles the screen,
+      failed or answered 400 or above, and it re-shoots once first. Blocking
+      Sonder's own CSS reproduces the broken shot exactly. A sweep of all 19 live
+      fleet homepages found no false positive.
 31. **#779, the client half of form-e2e coverage** — the central widening
     (item 16) covers no new site on its own. Measured 2026-09-29 from the live
     roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
