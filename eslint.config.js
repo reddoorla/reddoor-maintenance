@@ -56,6 +56,9 @@ export default [
       "tests/fixtures/",
       ".worktrees/",
       ".claude/worktrees/",
+      // Webflow reference captures: the site's own served JS, kept byte for byte.
+      "captures/*/files/",
+      "captures/*/pages/",
     ],
   },
 ];
