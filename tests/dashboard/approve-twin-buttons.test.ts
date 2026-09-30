@@ -51,6 +51,8 @@ function pendingReport(over: Partial<ReportRow> = {}): ReportRow {
     overrideReason: null,
     overrideBy: null,
     overrideAt: null,
+    withdrawnAt: null,
+    withdrawnBy: null,
     ...over,
   } as ReportRow;
 }

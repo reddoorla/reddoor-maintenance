@@ -601,4 +601,17 @@ export const MIGRATIONS: Migration[] = [
     id: "0037_site_health_search_console_checked_at",
     sql: `ALTER TABLE site_health ADD COLUMN search_console_checked_at TEXT;`,
   },
+  {
+    // P1-28: when the operator decided a draft will not be sent. A withdrawn
+    // draft is neither pending nor sendable, and it stops blocking the next
+    // period's draft. NULL on every live row. One column per migration, for the
+    // same reason as 0015 above.
+    id: "0038_reports_withdrawn_at",
+    sql: `ALTER TABLE reports ADD COLUMN withdrawn_at TEXT;`,
+  },
+  {
+    // P1-28: who withdrew it (`dashboard`, the APPROVED_BY convention).
+    id: "0039_reports_withdrawn_by",
+    sql: `ALTER TABLE reports ADD COLUMN withdrawn_by TEXT;`,
+  },
 ];

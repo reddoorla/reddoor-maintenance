@@ -44,6 +44,8 @@ function makeReportRow(over: Partial<ReportRow> = {}): ReportRow {
     overrideReason: null,
     overrideBy: null,
     overrideAt: null,
+    withdrawnAt: null,
+    withdrawnBy: null,
     ...over,
   };
 }
@@ -161,6 +163,30 @@ describe("preflightSite", () => {
       (x) => x.check === "scores-missing",
     );
     expect(f?.level).toBe("fail");
+  });
+
+  it("does not count a withdrawn draft as pending (P1-28)", () => {
+    const withdrawn = makeReportRow({
+      draftReady: true,
+      reportType: "Maintenance",
+      period: "2026-06",
+      withdrawnAt: "2026-06-20T00:00:00.000Z",
+    });
+    const live = makeReportRow({
+      id: "recREP2",
+      draftReady: true,
+      reportType: "Testing",
+      period: "2026-05",
+    });
+    const pendings = preflightSite(
+      cleanSite(),
+      [withdrawn, live],
+      "Maintenance",
+      NOW,
+    ).findings.filter((x) => x.check === "pending-drafts");
+    expect(pendings).toHaveLength(1);
+    expect(pendings[0]!.message).toContain("1 unsent");
+    expect(pendings[0]!.message).not.toContain("Maintenance 2026-06");
   });
 
   it("warns on unsent queued drafts, naming type/period and approval state", () => {

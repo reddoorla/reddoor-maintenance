@@ -428,6 +428,13 @@ export async function draftDueReports(
     //     needs Draft ready). COMPLETE it in place instead of skipping forever —
     //     re-render → re-store the HTML → flip Draft ready on the EXISTING row.
     if (existing) {
+      // A withdrawn row (P1-28) is the operator's "not this period": never
+      // re-complete it, whatever its Draft ready says.
+      if (existing.withdrawnAt !== null) {
+        skipped++;
+        lines.push(`• skipped (withdrawn ${period}): ${item.site.name} ${item.reportType}`);
+        continue;
+      }
       if (existing.draftReady) {
         skipped++;
         lines.push(`• skipped (already drafted ${period}): ${item.site.name} ${item.reportType}`);
@@ -444,6 +451,7 @@ export async function draftDueReports(
           r.siteId === item.site.id &&
           r.id !== existing.id &&
           r.sentAt === null &&
+          r.withdrawnAt === null &&
           r.draftReady &&
           reportTier(r.reportType) >= reportTier(item.reportType),
       );
@@ -489,13 +497,15 @@ export async function draftDueReports(
     // `r.draftReady` is load-bearing: a draft a higher tier SUPERSEDED has
     // draftReady=false and never gets a Sent at, so without this clause it would
     // match (sentAt null + earlier period) and block EVERY future draft for the
-    // site forever. Pending-approval means draftReady=true AND sentAt=null.
+    // site forever. Pending-approval means draftReady=true AND sentAt=null. A
+    // withdrawn draft (P1-28) is the operator's "skip that one" and never blocks.
     const pendingEarlier = reports.find(
       (r) =>
         r.siteId === item.site.id &&
         r.reportType === item.reportType &&
         r.draftReady &&
         r.sentAt === null &&
+        r.withdrawnAt === null &&
         r.period !== null &&
         r.period < period,
     );

@@ -235,6 +235,10 @@ export interface ReportsTable {
   checklist: string | null;
   checklist_auto_evidence: string | null;
   rendered_html: string | null;
+  /** P1-28 (migrations 0038–0039). Set when the operator decided the draft will
+   *  not be sent; NULL on every live row. */
+  withdrawn_at: string | null;
+  withdrawn_by: string | null;
 }
 
 /** One prospect-audit run (migration 0009). `token` is the 128-bit unguessable

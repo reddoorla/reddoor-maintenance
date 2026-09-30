@@ -57,6 +57,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): Re
     overrideReason: (f["Override reason"] as string | undefined) ?? null,
     overrideBy: (f["Override by"] as string | undefined) ?? null,
     overrideAt: (f["Override at"] as string | undefined) ?? null,
+    withdrawnAt: (f["Withdrawn at"] as string | undefined) ?? null,
+    withdrawnBy: (f["Withdrawn by"] as string | undefined) ?? null,
   };
 }
 

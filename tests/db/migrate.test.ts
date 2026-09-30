@@ -44,6 +44,8 @@ describe("runMigrations", () => {
       "0035_site_health_search_console_outcome",
       "0036_site_health_search_console_resolved",
       "0037_site_health_search_console_checked_at",
+      "0038_reports_withdrawn_at",
+      "0039_reports_withdrawn_by",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -99,6 +101,8 @@ describe("runMigrations", () => {
       "0035_site_health_search_console_outcome",
       "0036_site_health_search_console_resolved",
       "0037_site_health_search_console_checked_at",
+      "0038_reports_withdrawn_at",
+      "0039_reports_withdrawn_by",
     ]);
   });
 
@@ -158,6 +162,8 @@ describe("runMigrations", () => {
       "0035_site_health_search_console_outcome",
       "0036_site_health_search_console_resolved",
       "0037_site_health_search_console_checked_at",
+      "0038_reports_withdrawn_at",
+      "0039_reports_withdrawn_by",
     ]);
   });
 
@@ -220,6 +226,8 @@ describe("runMigrations", () => {
       "0035_site_health_search_console_outcome",
       "0036_site_health_search_console_resolved",
       "0037_site_health_search_console_checked_at",
+      "0038_reports_withdrawn_at",
+      "0039_reports_withdrawn_by",
     ]);
   });
 });

@@ -72,6 +72,8 @@ describe("openDb", () => {
       "0035_site_health_search_console_outcome",
       "0036_site_health_search_console_resolved",
       "0037_site_health_search_console_checked_at",
+      "0038_reports_withdrawn_at",
+      "0039_reports_withdrawn_by",
     ]);
     await db.destroy();
   });

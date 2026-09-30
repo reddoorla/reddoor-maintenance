@@ -355,6 +355,8 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     overrideReason: null,
     overrideBy: null,
     overrideAt: null,
+    withdrawnAt: null,
+    withdrawnBy: null,
     ...over,
   };
 }
@@ -629,6 +631,8 @@ describe("collectPreflightBlocked", () => {
       resendMessageId: null,
       checklist: {},
       autoEvidence: null,
+      withdrawnAt: null,
+      withdrawnBy: null,
       ...over,
     }) as ReportRow;
 
@@ -718,6 +722,19 @@ describe("collectPreflightBlocked", () => {
     const sitesById = new Map([["recS1", site({ pointOfContact: null })]]);
     expect(
       collectPreflightBlocked([draft({ sentAt: "2026-07-01" })], sitesById, "https://d"),
+    ).toEqual([]);
+  });
+
+  it("skips a withdrawn draft, pending or somehow approved (P1-28)", () => {
+    const sitesById = new Map([["recS1", site({ pointOfContact: null })]]);
+    const withdrawnAt = "2026-07-02T00:00:00.000Z";
+    expect(collectPreflightBlocked([draft({ withdrawnAt })], sitesById, "https://d")).toEqual([]);
+    expect(
+      collectPreflightBlocked(
+        [draft({ withdrawnAt, approvedToSend: true })],
+        sitesById,
+        "https://d",
+      ),
     ).toEqual([]);
   });
 

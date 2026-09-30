@@ -9,7 +9,7 @@ export type ApproveResult =
   | {
       status: "noop";
       reportId: string;
-      reason: "already-approved" | "already-sent" | "not-draft-ready";
+      reason: "already-approved" | "already-sent" | "not-draft-ready" | "withdrawn";
     }
   | {
       status: "blocked";
@@ -51,6 +51,9 @@ export async function approveReport(
   const report = await deps.getReportById(reportId);
   if (!report) return { status: "not-found", reportId };
   if (report.sentAt !== null) return { status: "noop", reportId, reason: "already-sent" };
+  // P1-28: a withdrawn draft is out of the queue for good. Checked before the
+  // override branch, so a send-anyway cannot bring it back either.
+  if (report.withdrawnAt !== null) return { status: "noop", reportId, reason: "withdrawn" };
   if (report.approvedToSend) return { status: "noop", reportId, reason: "already-approved" };
   // The spec gate is draftReady ∧ ¬approved ∧ ¬sent: a not-yet-draft-ready row
   // must never be approvable, even via a hand-crafted authed POST. Without this

@@ -68,16 +68,20 @@ export type ReportRow = {
   overrideReason: string | null;
   overrideBy: string | null;
   overrideAt: string | null;
+  /** P1-28: the operator decided this draft will not be sent. A withdrawn row is never pending,
+   *  never approvable, never sent, and never blocks a later period's draft. */
+  withdrawnAt: string | null;
+  withdrawnBy: string | null;
 };
 
 /**
- * The "Ready for your yes" gate: Draft ready ∧ ¬Approved to send ∧ Sent at BLANK.
+ * The "Ready for your yes" gate: Draft ready ∧ ¬Approved to send ∧ Sent at BLANK ∧ ¬Withdrawn.
  * The single source of truth for "pending the operator's approval" — `runDigest`'s
  * ready-list, the draft queue, the per-site dashboard, and the fleet cockpit all key off
  * this one predicate so the surfaces can't drift.
  */
 export function isPendingApproval(r: ReportRow): boolean {
-  return r.draftReady && !r.approvedToSend && r.sentAt === null;
+  return r.draftReady && !r.approvedToSend && r.sentAt === null && r.withdrawnAt === null;
 }
 
 /**

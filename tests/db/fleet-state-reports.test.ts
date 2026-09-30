@@ -16,6 +16,7 @@ import {
   listAllReports,
   listReportsForSite,
   getReportHtml,
+  getReportById,
   mirrorSiteInsert,
   storeRenderedHtml,
 } from "../../src/db/fleet-state.js";
@@ -65,6 +66,8 @@ const RICH: RawRecord = {
     "Override reason": "client asked",
     "Override by": "op",
     "Override at": "2026-08-21T08:30:00.000Z",
+    "Withdrawn at": "2026-08-22T10:00:00.000Z",
+    "Withdrawn by": "dashboard",
     "Rendered HTML": [{ url: "https://files.example/signed/r1", filename: "r1.html" }],
   },
 };
@@ -156,5 +159,40 @@ describe("reports read layer ≡ mapRow (the Phase 2 equivalence instrument)", (
       filename: "ACME-2026-08-M.html",
     });
     expect((await getReportHtml(db, "recRPT1"))?.html).toBe(BODY);
+  });
+});
+
+describe("the withdrawal columns (P1-28)", () => {
+  it("getReportById and the list read carry withdrawn_at / withdrawn_by, and null when unset", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await db
+      .insertInto("reports")
+      .values([
+        {
+          id: "recW",
+          site_id: "recSITE",
+          draft_ready: 1,
+          approved_to_send: 0,
+          send_override: 0,
+          withdrawn_at: "2026-09-30T12:00:00.000Z",
+          withdrawn_by: "dashboard",
+        },
+        {
+          id: "recLIVE",
+          site_id: "recSITE",
+          draft_ready: 1,
+          approved_to_send: 0,
+          send_override: 0,
+        },
+      ])
+      .execute();
+    const byId = await getReportById(db, "recW");
+    expect(byId?.withdrawnAt).toBe("2026-09-30T12:00:00.000Z");
+    expect(byId?.withdrawnBy).toBe("dashboard");
+    const listed = await listReportsForSite(db, "recSITE");
+    expect(listed.find((r) => r.id === "recW")?.withdrawnAt).toBe("2026-09-30T12:00:00.000Z");
+    const live = listed.find((r) => r.id === "recLIVE");
+    expect(live?.withdrawnAt).toBeNull();
+    expect(live?.withdrawnBy).toBeNull();
   });
 });

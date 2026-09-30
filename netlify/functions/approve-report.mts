@@ -170,6 +170,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     if (result.status === "blocked") {
       return Response.json(result, { status: 409 });
     }
+    // P1-28: a withdrawn draft is not approved, so a 2xx would flip the button
+    // to "Approved" for a report that will never send.
+    if (result.status === "noop" && result.reason === "withdrawn") {
+      return Response.json(result, { status: 409 });
+    }
     return Response.json(result, { status: 200 });
   } catch (err) {
     // A store failure mid-approve must not surface as an unhandled 500 with

@@ -54,6 +54,8 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     overrideReason: null,
     overrideBy: null,
     overrideAt: null,
+    withdrawnAt: null,
+    withdrawnBy: null,
     ...over,
   };
 }

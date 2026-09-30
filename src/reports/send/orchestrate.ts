@@ -74,6 +74,12 @@ export async function sendApprovedReports(
   const lines: string[] = [];
   let anyFailed = false;
   for (const report of sendable) {
+    // P1-28: the queue's WHERE already drops a withdrawn row; this is the
+    // backstop for any other `sendable` source.
+    if (report.withdrawnAt !== null) {
+      lines.push(`• skipped (withdrawn): ${report.reportId}`);
+      continue;
+    }
     const site = sites.get(report.siteId);
     if (!site) {
       lines.push(`✗ ${report.reportId} — Site row not found for id=${report.siteId}`);

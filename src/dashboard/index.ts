@@ -12,6 +12,8 @@ export type {
 export { renderLoginPageHtml, renderAuthChrome, loginErrorMessage } from "./auth/render.js";
 export { approveReport, APPROVED_BY } from "./approve.js";
 export type { ApproveDeps, ApproveResult } from "./approve.js";
+export { withdrawReport } from "./withdraw.js";
+export type { WithdrawDeps, WithdrawResult } from "./withdraw.js";
 export { setSubmissionStatus, acknowledgeNotifyBounce } from "./submission-status.js";
 export type {
   SubmissionStatusDeps,

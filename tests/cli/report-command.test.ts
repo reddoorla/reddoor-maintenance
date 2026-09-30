@@ -542,3 +542,91 @@ describe("draftDueReports next-due write-back", () => {
     warn.mockRestore();
   });
 });
+
+describe("draftDueReports — a withdrawn draft (P1-28)", () => {
+  beforeEach(() => {
+    vi.mocked(draftReportForSite).mockReset();
+    rosterRows = [siteRow()];
+    vi.mocked(draftReportForSite).mockResolvedValue({
+      reportRow: { reportId: "Acme Co — Maintenance — 2026-05-26" },
+      htmlPath: null,
+      html: "",
+      softFailures: [],
+      queued: true,
+      supersededIds: [],
+    } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
+  });
+
+  const WITHDRAWN = { "Withdrawn at": "2026-05-02T10:00:00.000Z", "Withdrawn by": "dashboard" };
+
+  it("an earlier-period withdrawn draft does NOT block the new period", async () => {
+    const reports: RawRow[] = [
+      {
+        id: "rec_skipped_april",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-04",
+          "Draft ready": true,
+          ...WITHDRAWN,
+        },
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
+    expect(draftReportForSite).toHaveBeenCalledTimes(1);
+    expect(draftReportForSite).toHaveBeenCalledWith(
+      expect.anything(),
+      "Maintenance",
+      expect.objectContaining({ period: "2026-05" }),
+    );
+    expect(res.output).not.toMatch(/pending approval/);
+  });
+
+  it.each([true, false])(
+    "a same-period withdrawn row (Draft ready %s) is skipped as withdrawn, never re-completed",
+    async (ready) => {
+      const reports: RawRow[] = [
+        {
+          id: "rec_withdrawn_may",
+          fields: {
+            Site: ["rec_site_acme"],
+            "Report type": "Maintenance",
+            Period: "2026-05",
+            ...(ready ? { "Draft ready": true } : {}),
+            ...WITHDRAWN,
+          },
+        },
+      ];
+      const res = await draftDueReports(TODAY, dueDeps(reports));
+      expect(draftReportForSite).not.toHaveBeenCalled();
+      expect(res.output).toContain("• skipped (withdrawn 2026-05): Acme Co Maintenance");
+      expect(res.code).toBe(0);
+    },
+  );
+
+  it("a withdrawn higher-tier draft does not hold a crashed half-draft un-completed", async () => {
+    const reports: RawRow[] = [
+      {
+        id: "rec_halfmade",
+        fields: { Site: ["rec_site_acme"], "Report type": "Maintenance", Period: "2026-05" },
+      },
+      {
+        id: "rec_withdrawn_test",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Testing",
+          Period: "2026-05",
+          "Draft ready": true,
+          ...WITHDRAWN,
+        },
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
+    expect(draftReportForSite).toHaveBeenCalledWith(
+      expect.anything(),
+      "Maintenance",
+      expect.objectContaining({ completeRowId: "rec_halfmade" }),
+    );
+    expect(res.output).not.toMatch(/superseded — a higher-or-equal-tier/);
+  });
+});

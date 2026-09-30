@@ -164,6 +164,19 @@ function approveButton(r: ReportRow, blocked: boolean): string {
   return `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="${escapeHtml(`/api/reports/${encodeURIComponent(r.id)}/approve`)}"${blockedAttr}${disabled}>Approve</button>`;
 }
 
+/** "Don't send" (P1-28): withdraw a pending draft the operator decided against.
+ *  Secondary to Approve, and never gated by the send blockers — a draft that
+ *  cannot be approved can still be withdrawn. */
+function withdrawButton(r: ReportRow): string {
+  const url = `/api/reports/${encodeURIComponent(r.id)}/withdraw`;
+  return `<button class="withdraw" data-report-id="${escapeHtml(r.id)}" data-withdraw-url="${escapeHtml(url)}">Don't send</button>`;
+}
+
+/** The label a withdrawn report carries in place of any action. */
+function withdrawnLabel(r: ReportRow): string {
+  return `<span class="muted withdrawn">Withdrawn ${escapeHtml((r.withdrawnAt ?? "").slice(0, 10))}</span>`;
+}
+
 /** The "Send anyway…" override affordance for a health-red pending report: a required-reason
  *  text input plus a submit button that POSTs to the approve endpoint with `?override=1`.
  *  Rendered ONLY when `!isHealthGateClear(r)` — a healthy report has nothing to override, and a
@@ -295,7 +308,7 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
     ? `<a href="${escapeHtml(reportPreviewUrl(r.id))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
   const sendLine = sendTimingLine(now);
-  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${rerenderButton(r)} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${commentaryEditor(r)}${overrideControl(r)}</li>`;
+  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${rerenderButton(r)} ${approveButton(r, blocked)} ${withdrawButton(r)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${commentaryEditor(r)}${overrideControl(r)}</li>`;
 }
 
 function pendingSection(reports: ReportRow[], site: WebsiteRow, now: Date): string {
@@ -339,12 +352,15 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
     : `<span class="muted">no attachment</span>`;
   // Same gate as the pending section: an approve action in the history table
   // must not be a side door around the send-blocker gate.
-  const action = isPendingApproval(r)
-    ? approveButton(
-        r,
-        approveBlockers(site, r).some((f) => f.level === "fail"),
-      )
-    : "";
+  const action =
+    r.withdrawnAt !== null
+      ? withdrawnLabel(r)
+      : isPendingApproval(r)
+        ? approveButton(
+            r,
+            approveBlockers(site, r).some((f) => f.level === "fail"),
+          )
+        : "";
   // Commentary stays editable for the WHOLE unsent window, not just while a
   // report is awaiting approval: approving schedules the send for the next 09:23
   // UTC run, so there is a window of up to ~24h in which a typo is still
@@ -352,7 +368,7 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
   // its editor in the pending list, so this covers the rest — approved-awaiting-
   // send, and drafts not yet marked ready.
   const commentary =
-    r.sentAt === null && !isPendingApproval(r)
+    r.sentAt === null && r.withdrawnAt === null && !isPendingApproval(r)
       ? `<tr class="commentary-row"><td colspan="7">${commentaryEditor(r)}</td></tr>`
       : "";
   return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${ga}</td><td>${search}</td><td>${link}</td><td>${action}</td></tr>${commentary}`;
@@ -724,6 +740,10 @@ button.approve.is-loading::after { content: ""; position: absolute; top: 50%; le
 /* Terminal success. Wins over :disabled's dimming (the button stays disabled after a
    successful approve, and a 0.6-opacity "Approved" reads as not-quite-done). */
 button.approve.is-approved, button.approve.is-approved:disabled { background: #14663c; border-color: #14663c; color: #fff; opacity: 1; }
+button.withdraw { font: inherit; font-size: 0.85rem; padding: 0.3rem 0.7rem; border: 1px solid #999; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+button.withdraw:hover:not(:disabled) { background: #9992; }
+button.withdraw:focus-visible { outline: 2px solid #999; outline-offset: 2px; }
+button.withdraw:disabled { opacity: 0.6; cursor: default; }
 .pending-info { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.82rem; margin: 0.3rem 0 0.15rem; }
 .recipients-missing { color: #e57373; }
 .preflight { font-size: 0.78rem; padding: 0.1rem 0.45rem; border-radius: 999px; white-space: nowrap; }
@@ -1061,6 +1081,31 @@ export function renderSiteDashboardHtml(
           }
         } catch {
           if (status) status.textContent = "Failed";
+          b.disabled = false;
+        }
+      });
+    });
+    // "Don't send": confirm, then withdraw. On success every Approve twin for the
+    // report goes dead too, since the server now refuses to approve it.
+    document.querySelectorAll("button.withdraw").forEach((b) => {
+      b.addEventListener("click", async () => {
+        if (!confirm("Withdraw this draft? It will not be sent and stops blocking the next period.")) return;
+        b.disabled = true;
+        try {
+          const res = await fetch(b.dataset.withdrawUrl, { method: "POST" });
+          if (res.ok) {
+            b.textContent = "Withdrawn";
+            approveButtonsFor(b.dataset.reportId).forEach((t) => {
+              t.textContent = "Withdrawn";
+              t.disabled = true;
+            });
+          } else {
+            const data = await res.json().catch(() => null);
+            b.textContent = data && typeof data.reason === "string" ? "Failed: " + data.reason : "Failed";
+            b.disabled = false;
+          }
+        } catch {
+          b.textContent = "Failed";
           b.disabled = false;
         }
       });

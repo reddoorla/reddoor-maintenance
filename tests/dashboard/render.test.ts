@@ -89,6 +89,8 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     overrideReason: null,
     overrideBy: null,
     overrideAt: null,
+    withdrawnAt: null,
+    withdrawnBy: null,
     ...over,
   };
 }
@@ -855,6 +857,41 @@ describe("renderSiteDashboardHtml — approve button", () => {
     // matching the !res.ok recovery path.
     expect(script).toMatch(/catch[\s\S]*?(b\.disabled\s*=\s*false)/);
     expect(script).toMatch(/catch[\s\S]*?(b\.textContent\s*=\s*"Failed")/);
+  });
+});
+
+describe("renderSiteDashboardHtml — withdraw a draft (P1-28)", () => {
+  const pending = (over: Partial<ReportRow> = {}) =>
+    reportRow({
+      reportId: "rep_pending",
+      period: "2026-09",
+      draftReady: true,
+      approvedToSend: false,
+      sentAt: null,
+      ...over,
+    });
+  const withdrawn = () =>
+    pending({ withdrawnAt: "2026-09-30T12:00:00.000Z", withdrawnBy: "dashboard" });
+
+  it("offers a Don't send button beside Approve for a pending draft, POSTing to the withdraw endpoint", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [pending()]);
+    const head = html.slice(html.indexOf("Pending your yes"), html.indexOf(">Lighthouse<"));
+    expect(head).toMatch(/<button class="withdraw"[^>]*>Don't send<\/button>/);
+    expect(head).toContain('data-withdraw-url="/api/reports/recREP1/withdraw"');
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    expect(script).toContain(
+      "Withdraw this draft? It will not be sent and stops blocking the next period.",
+    );
+    expect(script).toMatch(/confirm\(/);
+  });
+
+  it("a withdrawn draft is not pending, has no Approve or Don't send, and reads Withdrawn <date>", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [withdrawn()]);
+    expect(html).not.toMatch(/Pending your yes/i);
+    expect(html).not.toMatch(/\/api\/reports\/[^/]+\/approve/);
+    expect(html).not.toMatch(/\/api\/reports\/[^/]+\/withdraw/);
+    expect(html).toContain('<span class="muted withdrawn">Withdrawn 2026-09-30</span>');
+    expect(html).not.toContain('data-commentary-for="recREP1"');
   });
 });
 
