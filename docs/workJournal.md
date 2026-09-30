@@ -6663,3 +6663,15 @@ On the preview host at 19:18Z:
 The proxy refused the branch deletes, so `claude/intake-form` and `claude/wire-prismic-live` remain for the operator.
 
 **Not shown.** No live form was submitted, per the brief, so storage in Turso is still unproven for this site. D6 and D8 are open. Turnstile on the preview host is 40(c).
+
+## 2026-09-30 — the-pointe-burbank's roster url set to the `-rd` host, after the nightly stored its fail (BACKLOG 21)
+
+The operator's condition was that the first roster-urls write should store the-pointe-burbank's `fail` before the url is corrected. That row was the only live positive case the probe's failure path had. If the url were fixed first, the fail path would never have been seen writing real data.
+
+Both authorities agreed before the write. First, the step log of today's scheduled fleet-lighthouse run 36731239566 (completed success, step "Probe roster urls to Turso" from 15:06:28Z to 15:06:36Z). It printed one warning, `the-pointe-burbank https://the-pointe-burbank.netlify.app 404 netlify-site-not-found`, and `ROSTER_URL_SUMMARY checked=34 pass=31 fail=1 no_url=2 mirrored=34 mirror_failed=0`. Second, a parameterised SELECT against live Turso, joining `sites` to `site_health` on the column names in migrations 0030 to 0032. It read `fail`, `404 netlify-site-not-found` and `2026-09-30T15:06:30.087Z`. The same script asked for a slug that does not exist and got 0 rows, as its negative control.
+
+The write went through `setSiteDetail` with `getSiteBySlug` and `mirrorWrite`/`mirrorSiteField`, exactly the binding in `netlify/functions/site-details.mts`, from a throwaway tsx script. No SQL was written by hand. It returned `updated` at 19:33:07Z. The row reads `https://the-pointe-burbank-rd.netlify.app` (it was `https://the-pointe-burbank.netlify.app`). The new host answers 200 and the old one still 404. `mirrorSiteFields` patches only the columns named, so no other field or row was touched.
+
+One slip of my own instrument. The script's before and after lines printed `undefined`, because I read `row.fields.url` and `WebsiteRow` is flat (`row.url`). The write had worked. That was established from the SELECT readback, not from those lines.
+
+The row's `url_resolves` stays `fail` until tonight's nightly re-probes it. #1004's never-stamped rule and item 26 expect exactly that: the next run should flip it to `pass`.
