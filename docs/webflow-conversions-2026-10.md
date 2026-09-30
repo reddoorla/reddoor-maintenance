@@ -561,6 +561,137 @@ project page pass the harness gate; titles end in "| Williamson Construction" if
 **Landing.** As in the template; PRs land in `reddoorla/williamson-construction`.
 ```
 
+### Phase 1b / 2b — fidelity pass (operator, 2026-09-30 ~20:15Z)
+
+The operator asked for a favicon on both sites and "a much tighter pass on
+matching the pages they're coming from, including hover states and scroll
+animations (sticky numbering on homes)". The findings below were measured
+2026-09-30 ~20:15Z from each repo's `main` (Homes `ca6027f`, Construction
+`e9ce75a`) and its `matching/spec` capture. Each site repo gets one worker at
+a time: start a brief only when that repo's current worker has ended
+(`get_session` reads idle), and never on a branch a live session holds.
+
+```markdown
+## Worker brief — OD7-P1b: Williamson Homes fidelity (favicon, hovers, sticky counters, scroll-in)
+
+**Item.** OD7-P1b · OD7 issue (#1029) · 🟡 YELLOW · effort M
+The site ships the starter's favicon, and the reference's sticky numbered
+counters and its scroll interactions are missing [M].
+
+**Verify first.**
+`md5sum static/favicon.png` → `3a387408ecc6cc283f724b39ca5fffb4`, the
+starter's default. `grep -rln sticky src --include=*.svelte` → only
+`SiteHeader.svelte`.
+
+**Start here.**
+
+- Favicon: `matching/spec/files/cdn.prod.website-files.com/645ec08251dadc9000a072e5/646bf4ff2076780ea7c8a110_Asset 1.png`
+  (shortcut icon) and `…/646bf4e6eb85a69aa73a1400_Asset 1.png` (apple-touch-icon).
+  `src/app.html:5-6` points both links at `static/favicon.png`.
+- Sticky numbering: `matching/spec/files/raw.githack.com/tucksravin/incidental-js/main/webflow/specific/williamson-homes/countersAnim.js`
+  (219 lines, jQuery; `.dream-home-count`, `.cols-counter-wrapper`,
+  `.counter-one/two/three/last`, `.circle-*`, `.counter-head`, activated
+  when `.counter-head` reaches `top: 0`). It runs on home and about
+  (`.counter-*.home`, `.about`, `.meet`). Twelve `position: sticky` rules in the
+  reference CSS. The existing `src/lib/components/CountUp.svelte` is not
+  this. Port the behaviour to Svelte; never load the githack URL at runtime.
+- Scroll-in: the reference IX2 data has 10 `SCROLL_INTO_VIEW` / 10
+  `SCROLL_OUT_OF_VIEW` events (26 `GENERAL_START_ACTION`, 6 `TRANSFORM_MOVE`,
+  3 `STYLE_SIZE`, 2 `STYLE_BACKGROUND_COLOR`), in
+  `matching/spec/files/cdn.prod.website-files.com/645ec08251dadc9000a072e5/js/fastflowkit-*.js`;
+  3–4 `data-w-id` elements per page. Honour the repo's
+  `reveal-hidden-state.test.ts` and `reduced-motion-reset.test.ts`.
+- Hovers: 15 `:hover` rules in the reference CSS, including
+  `.button-default*` (four variants), `.content-block.home-project-item-image`,
+  `.filled-circle.mx-auto*`, `.white-on-hover`, `.hamburger`/`.menu-close`
+  `.filter-to-white`. Match each one's property, colour and `transition`
+  duration.
+- `matching/` — the harness, `LEDGER.md` (every mask, floor or deviation
+  needs a line), and `gate.sh`.
+
+**Done when.** The favicon and apple-touch-icon are the reference's files. Each
+of the 15 reference hover rules has a matching state on the rebuild, and a
+test names it. The counters pin and advance on scroll on home and about as
+the reference does, with a reduced-motion path. Every IX2 scroll interaction
+is mapped or has a LEDGER deviation line saying why not. The matching gate
+passes with no new mask that lacks a LEDGER line.
+
+**Mutations I will run** (each must turn a test red):
+
+1. Point `app.html`'s icon back at the starter favicon.
+2. Drop `position: sticky` from the counter column.
+3. Remove one button variant's hover colour.
+4. Play a scroll-in animation under `prefers-reduced-motion: reduce`.
+
+**Stop conditions** (beyond AUTONOMY.md's six):
+
+- A reference behaviour that needs jQuery or a third-party runtime to match:
+  write it under Operator decisions, don't add the dependency.
+- Content changes in Prismic: not in this item.
+- Two dirty review rounds → "Operator decisions", not a third round.
+
+**Landing.** As in `docs/worker-brief.md`, in williamson-homes (claim on
+#1029, fresh-branch check in that repo first, PR there, merge on green
+after review; journal in that repo and a line in central's).
+```
+
+```markdown
+## Worker brief — OD7-P2b: Williamson Construction fidelity (favicon, hovers, click interactions, fonts)
+
+**Item.** OD7-P2b · OD7 issue (#1029) · 🟡 YELLOW · effort M
+The site ships the starter's favicon and Lato in place of `freight-sans-pro`,
+and has not been checked hover by hover against the reference [M].
+
+**Verify first.**
+`md5sum static/favicon.png` → `3a387408ecc6cc283f724b39ca5fffb4`, the
+starter's default. `grep -n 'TODO(D8)' src/app.css` → line 5.
+
+**Start here.**
+
+- Favicon: `matching/spec/files/cdn.prod.website-files.com/646d47bfeb53b0308e8d4379/64f907571881c5058670cce8_favicon-32x32.png`
+  (shortcut icon) and `…/66d1fc8eddaa9eee71e2820f_williamsonConstruction.png`
+  (apple-touch-icon). `src/app.html:5-6`.
+- Fonts (D8, answered): kit `noj4tji`. It has `freight-sans-pro` at
+  400–900 and `freight-sans-pro-lights` at 100–300. Weight-300 rules
+  (`.our-mission-text`, `.font-weight-thin`, `.form-label`, the centred
+  `text-size-4xl` intro) name `freight-sans-pro-lights`. Load
+  `use.typekit.net/noj4tji.css`, with `use.typekit.net` in `style-src` and
+  `font-src` and `p.typekit.net` in `style-src`; no inline `onload` swap (the
+  nonce CSP refuses it). Resolve `TODO(D8)` at `src/app.css:5`.
+- Hovers: 18 `:hover` rules in the reference CSS, including
+  `.button-default` in seven variants (`white-outline`, `bg-color-primary`,
+  `bg-color-white`, `bg-color-transparent`, …), `.home-project-item-image`,
+  `.filled-circle`, `.icon-2`, `.number-bubble`, `.open-nav` and `.close-nav`.
+- Interactions: the reference has no scroll-in IX2 events, only 4
+  `MOUSE_CLICK` and 1 `MOUSE_SECOND_CLICK` (`GENERAL_DISPLAY`,
+  `STYLE_OPACITY`, `STYLE_SIZE`, `TRANSFORM_MOVE`) in
+  `matching/spec/files/cdn.prod.website-files.com/646d47bfeb53b0308e8d4379/js/williamson-construction.schunk.*.js`.
+  Match the nav open/close and anything else they drive.
+- `matching/` — the harness, `LEDGER.md` and `gate.sh`.
+
+**Done when.** The favicon and apple-touch-icon are the reference's files.
+Type renders in `freight-sans-pro` / `-lights` from `noj4tji` on the preview
+host (a Playwright check of `document.fonts` with status `loaded`, run in CI).
+Each of the 18 hover rules has a matching state with a test. The click
+interactions match. The matching gate passes with no unledgered mask.
+
+**Mutations I will run** (each must turn a test red):
+
+1. Point `app.html`'s icon back at the starter favicon.
+2. Give the weight-300 rules `freight-sans-pro` instead of `-lights`.
+3. Remove one `.button-default` variant's hover state.
+4. Drop `use.typekit.net` from `font-src`.
+
+**Stop conditions** (beyond AUTONOMY.md's six):
+
+- The open BACKLOG 40 calls (the About CTA label, the Turnstile refusal, the
+  preview host on the widget) are the operator's. Do not decide them here.
+- Two dirty review rounds → "Operator decisions", not a third round.
+
+**Landing.** As in `docs/worker-brief.md`, in williamson-construction-co
+(claim on #1029, fresh-branch check in that repo first).
+```
+
 ### Phase 3
 
 ```markdown
