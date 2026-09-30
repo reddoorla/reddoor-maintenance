@@ -39,10 +39,31 @@ export const CONSENT_SELECTOR =
 export const CONSENT_BUTTON_NAME =
   /^(accept( all)?( cookies)?|allow( all)?|reject( all)?|decline|got it|ok(ay)?|i (agree|understand)|agree)$/i;
 
-/** Budget for the best-effort consent click. A site with no banner has no button,
- *  so the click times out on every capture there — it must be short, and it is
- *  swallowed. Sized so the 14 consent-free fleet sites pay ≤1.5s each. */
+/** Budget for the best-effort consent click. Only a button already found inside
+ *  a consent overlay is clicked, so a site with no banner never waits on it. */
 const CONSENT_CLICK_TIMEOUT_MS = 1_500;
+
+/** The late look polls this many times, this far apart: 1.5s in all. */
+const LATE_LOOK_POLLS = 7;
+const LATE_LOOK_INTERVAL_MS = 250;
+
+/** Time a late-dismissed banner gets to leave before the shutter. Sonder's panel
+ *  and its blur scrim are gone within a second of the click. */
+const LATE_DISMISS_SETTLE_MS = 1_000;
+
+/** Copy that marks a still-visible accept/reject button as consent UI rather
+ *  than page content, for the pre-shutter backstop. */
+const CONSENT_COPY = /\bcookies?\b|\bconsent\b/i;
+
+/** Thrown when consent UI is still on screen at the shutter, so no header is
+ *  generated from that shot. `refreshHeaderImage` then keeps whatever header is
+ *  stored; the CLI reports the site as failed. */
+export class ConsentStillVisibleError extends Error {
+  constructor(url: string) {
+    super(`consent banner still visible at the shutter on ${url}; no header generated`);
+    this.name = "ConsentStillVisibleError";
+  }
+}
 
 /**
  * The CSS rule that hides consent UI before the shutter. `consentSelector` is a
@@ -116,20 +137,31 @@ export async function defaultShooter(): Promise<Shooter> {
         // Best-effort only — a site that never idles must still be captured.
         await page.waitForLoadState("networkidle", { timeout: IDLE_BUDGET_MS }).catch(() => {});
         await page.evaluate("document.fonts && document.fonts.ready");
-        // Dismiss consent UI, strictly best-effort — a header capture must never
-        // fail because a site has no banner. The click goes FIRST: once the rule
-        // below hides the button it is no longer actionable, and the site's own
-        // dismissal is what unwinds a scrim that lives outside the banner. Then
-        // the style tag catches a banner with no matching button, or one that
-        // fades out slower than the settle. Both run before the settle wait so
-        // the settle absorbs whatever animation the dismissal starts.
-        await page
-          .getByRole("button", { name: CONSENT_BUTTON_NAME })
-          .first()
-          .click({ timeout: CONSENT_CLICK_TIMEOUT_MS })
-          .catch(() => {});
+        // Dismiss consent UI, strictly best-effort: a header capture must never
+        // fail because a site has no banner. Only a button inside a consent
+        // overlay is ever clicked (see consentOverlayButtons); #814 clicked the
+        // first "OK"/"Agree" anywhere, which on a page with a newsletter form
+        // scrolled the shot or could submit the form. The click goes before the
+        // style tag, which would make the button unclickable, and before the
+        // settle, which absorbs the dismissal animation.
+        const [earlyBanner] = await consentOverlayButtons(page);
+        await earlyBanner?.click({ timeout: CONSENT_CLICK_TIMEOUT_MS }).catch(() => {});
         await page.addStyleTag({ content: consentHideRule(opts.consentSelector) });
         await page.waitForTimeout(opts.settleMs);
+        // A banner that mounts after hydration misses the first look and, with
+        // utility-only classes, the style rule too. Sonder's appears 2.5–5s after
+        // `load`, so it arrived during the settle and shipped in every header
+        // after #814. Look again, for up to LATE_LOOK_POLLS × LATE_LOOK_INTERVAL_MS
+        // (the 1.5s a banner-less site used to spend in #814's click timeout). If
+        // the banner will not leave, refuse the shot.
+        const lateBanner = await waitForConsentOverlay(page);
+        if (lateBanner) {
+          await lateBanner.click({ timeout: CONSENT_CLICK_TIMEOUT_MS }).catch(() => {});
+          await page.waitForTimeout(LATE_DISMISS_SETTLE_MS);
+          if ((await consentOverlayButtons(page)).length > 0) {
+            throw new ConsentStillVisibleError(opts.url);
+          }
+        }
         const buf = await page.screenshot({ type: "png" });
         return new Uint8Array(buf);
       } finally {
@@ -137,4 +169,66 @@ export async function defaultShooter(): Promise<Shooter> {
       }
     },
   };
+}
+
+/** Runs in the browser on the button: the text of its nearest fixed or sticky
+ *  ancestor, or "" when it sits in normal page flow. An ancestor whose content is
+ *  taller than the viewport is a scroll wrapper (GSAP ScrollSmoother and the
+ *  like pin the whole page in one), not a banner, so it is skipped. Built with
+ *  `Function` so the repo's non-DOM tsconfig never type-checks browser globals;
+ *  Playwright serializes it and calls it with the element. A plain string would
+ *  not work: `evaluate` runs a string as an expression and never passes the
+ *  element. */
+const overlayTextProbe = new Function(
+  "el",
+  `for (let n = el; n && n !== document.body; n = n.parentElement) {
+    const position = getComputedStyle(n).position;
+    if (position !== "fixed" && position !== "sticky") continue;
+    if (n.scrollHeight > window.innerHeight * 1.5) continue;
+    return n.innerText;
+  }
+  return "";`,
+) as (el: unknown) => string;
+
+type ConsentButton = {
+  isVisible: () => Promise<boolean>;
+  evaluate: (fn: (el: unknown) => string) => Promise<unknown>;
+  click: (opts: { timeout: number }) => Promise<void>;
+};
+
+type ConsentProbePage = {
+  getByRole: (role: "button", opts: { name: RegExp }) => { all: () => Promise<ConsentButton[]> };
+  waitForTimeout: (ms: number) => Promise<void>;
+};
+
+/** The first consent-overlay button to appear within the late-look window, or
+ *  undefined. A fixed number of polls rather than a clock, so it is bounded. */
+async function waitForConsentOverlay(page: ConsentProbePage): Promise<ConsentButton | undefined> {
+  for (let i = 0; i < LATE_LOOK_POLLS; i++) {
+    if (i > 0) await page.waitForTimeout(LATE_LOOK_INTERVAL_MS);
+    const [button] = await consentOverlayButtons(page);
+    if (button) return button;
+  }
+  return undefined;
+}
+
+/** Every visible accept/reject button that sits inside a fixed or sticky overlay
+ *  whose own text carries cookie or consent copy: the banner's buttons, and not
+ *  a newsletter "OK" or a "Cookie Policy" footer link elsewhere on the page. All
+ *  matches are checked, not the first, because a late banner is appended after
+ *  the content. Enumerating is instant, so a site with no banner pays nothing.
+ *  A probe that fails (the consent tool reloaded the page on accept) counts as
+ *  no banner. */
+async function consentOverlayButtons(page: ConsentProbePage): Promise<ConsentButton[]> {
+  const buttons = await page
+    .getByRole("button", { name: CONSENT_BUTTON_NAME })
+    .all()
+    .catch(() => []);
+  const found: ConsentButton[] = [];
+  for (const button of buttons) {
+    if (!(await button.isVisible().catch(() => false))) continue;
+    const overlayText = await button.evaluate(overlayTextProbe).catch(() => "");
+    if (CONSENT_COPY.test(String(overlayText))) found.push(button);
+  }
+  return found;
 }
