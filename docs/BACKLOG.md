@@ -1200,6 +1200,9 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     turns 9/9 mutations red. **Ask:** merge `50d6154`, merge `07cc956`, or send
     it back for a third review. **Pick: `50d6154`**; it is small, and every line
     is under a mutation that goes red. The PR comment has the detail.
+    **Answered 2026-09-30 ~21:35Z: merge `50d6154`, no third round.** Merged
+    22:27Z as `b9cc06c`, pinned to `50d6154` with CI green. Item 44's Homes P1b
+    can start from it.
 
 ---
 
