@@ -15,6 +15,8 @@ const contactPage = (opts: {
   banner: boolean;
   resetSelect: boolean;
   disabledSubmit: boolean;
+  dropMarkerOnChange: boolean;
+  dropMarkerAlways: boolean;
 }) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
@@ -75,6 +77,13 @@ const contactPage = (opts: {
         }, 0);
       });
     }
+    const dropMarker = () => f.querySelectorAll('[name="testMode"]').forEach((el) => el.remove());
+    if (${opts.dropMarkerOnChange ? "true" : "false"}) {
+      f.addEventListener("change", () => queueMicrotask(dropMarker));
+    }
+    if (${opts.dropMarkerAlways ? "true" : "false"}) {
+      new MutationObserver(dropMarker).observe(f, { childList: true });
+    }
   </script>
 </body></html>`;
 
@@ -83,6 +92,8 @@ type Fixture = {
   banner: boolean;
   resetSelect?: boolean;
   disabledSubmit?: boolean;
+  dropMarkerOnChange?: boolean;
+  dropMarkerAlways?: boolean;
 };
 
 let server: Server;
@@ -104,6 +115,8 @@ beforeAll(async () => {
           banner: fixture.banner,
           resetSelect: fixture.resetSelect ?? false,
           disabledSubmit: fixture.disabledSubmit ?? false,
+          dropMarkerOnChange: fixture.dropMarkerOnChange ?? false,
+          dropMarkerAlways: fixture.dropMarkerAlways ?? false,
         }),
       );
       return;
@@ -198,16 +211,18 @@ describe("form-e2e live runner — required fields outside the standard fill set
   it("names the fields it synthesized, so a pass says what the probe chose", async () => {
     const out = await submit({ health: DECLARED, banner: true });
     expect(out).toMatchObject({ synthesized: ["company", "interest", "consent", "contactBy"] });
+    expect(out).not.toHaveProperty("resynthesized");
   }, 90_000);
 });
 
 describe("form-e2e live runner — the instrument can fail, and the interlock holds", () => {
   it("reports a failure when the success banner never appears", async () => {
-    const out = await submit({ health: DECLARED, banner: false });
+    const out = await submit({ health: DECLARED, banner: false, resetSelect: true });
     expect(out).toMatchObject({
       formPresent: true,
       success: false,
       synthesized: ["company", "interest", "consent", "contactBy"],
+      resynthesized: ["interest"],
     });
   }, 90_000);
 
@@ -233,6 +248,28 @@ describe("form-e2e live runner — a synthesized value reverted after the fill (
     expect(out).toMatchObject({ formPresent: true, success: true, resynthesized: ["interest"] });
     expect(out).not.toHaveProperty("refilled");
     expect(posts[0]?.interest).toBe("funds");
+    expect(posts[0]?.testMode).toBe("true");
+  }, 90_000);
+});
+
+describe("form-e2e live runner — the marker is on the form at the click, or nothing is sent (#779 round 3)", () => {
+  it("puts the marker back when re-setting a field makes the page drop it", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      resetSelect: true,
+      dropMarkerOnChange: true,
+    });
+    expect(out).toMatchObject({ success: true, resynthesized: ["interest"] });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.testMode).toBe("true");
+  }, 90_000);
+
+  it("refuses to click when the page keeps removing the marker, so no unmarked probe is sent", async () => {
+    const out = await submit({ health: DECLARED, banner: true, dropMarkerAlways: true });
+    expect(posts).toHaveLength(0);
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toContain("testMode marker");
   }, 90_000);
 });
 
@@ -241,7 +278,7 @@ describe("SYNTHESIZE_REQUIRED_EXPR — only fields it can actually fill", () => 
     const browser = await chromium.launch();
     try {
       const page = await browser.newPage();
-      await page.setContent(html);
+      await page.goto(`data:text/html,${encodeURIComponent(html)}`);
       const names = (await page.evaluate(SYNTHESIZE_REQUIRED_EXPR)) as string[];
       const values = (await page.evaluate(
         "Object.fromEntries(Array.from(document.forms[0].elements).filter((e) => e.name).map((e) => [e.name, e.value]))",
@@ -274,15 +311,53 @@ describe("SYNTHESIZE_REQUIRED_EXPR — only fields it can actually fill", () => 
     expect(names).toEqual(["site", "n", "d"]);
     expect(values).toEqual({ site: "https://reddoorla.com", n: "3", d: "2026-01-01" });
   }, 30_000);
+
+  it("uses a date field's min, so a future-only date is accepted", async () => {
+    const { names, values } = await synthesize(
+      `<form><input type="date" name="d" min="2031-03-01" required></form>`,
+    );
+    expect(names).toEqual(["d"]);
+    expect(values.d).toBe("2031-03-01");
+  }, 30_000);
+
+  it("cuts the synthetic text to a field's maxlength", async () => {
+    const { values } = await synthesize(
+      `<form><input type="text" name="company" maxlength="10" required></form>`,
+    );
+    expect(values.company).toHaveLength(10);
+  }, 30_000);
+
+  it("picks a real option when the selected placeholder is disabled and has no value attribute", async () => {
+    const { names, values } = await synthesize(
+      `<form><select name="service" required><option disabled selected>Select a service</option><option disabled>Closed</option><option>Implants</option></select></form>`,
+    );
+    expect(names).toEqual(["service"]);
+    expect(values.service).toBe("Implants");
+  }, 30_000);
+
+  it("does not claim a field its synthetic value leaves invalid, and leaves it empty", async () => {
+    const { names, values } = await synthesize(
+      `<form><input type="text" name="zip" pattern="[0-9]{5}" required><input type="number" name="guests" max="0" required><input type="text" name="company" required></form>`,
+    );
+    expect(names).toEqual(["company"]);
+    expect(values.zip).toBe("");
+    expect(values.guests).toBe("");
+  }, 30_000);
 });
 
 describe("form-e2e live runner — a probe that throws still says what it synthesized", () => {
   it("carries the synthesized names when the submit click itself fails", async () => {
-    const out = await submit({ health: DECLARED, banner: true, disabledSubmit: true });
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      disabledSubmit: true,
+      resetSelect: true,
+    });
     expect(out).toMatchObject({
       formPresent: true,
       success: false,
       synthesized: ["company", "interest", "consent", "contactBy"],
+      resynthesized: ["interest"],
     });
     expect(posts).toHaveLength(0);
   }, 90_000);

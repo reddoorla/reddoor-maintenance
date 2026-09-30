@@ -685,7 +685,7 @@ describe("audits/form-e2e synthesized required fields (#779)", () => {
     });
     expect(r.status).toBe("pass");
     expect(r.summary).toBe(
-      "form-e2e: synthetic submission succeeded — synthesized required field(s): interest — reverted by the page and re-set before submit: interest",
+      "form-e2e: synthetic submission succeeded — synthesized required field(s): interest — set again before submit (the page reverted it, or it became required after the first fill): interest",
     );
   });
 

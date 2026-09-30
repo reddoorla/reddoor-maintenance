@@ -42,6 +42,13 @@ const FORM_E2E_STEP = "Fleet form-e2e + write-back";
 
 const POSITIVE_CONTROL_STEP = "Positive control — the probe passes a known-good local form";
 
+const PASSED_REPORT = {
+  success: true,
+  numPassedTests: 22,
+  numPendingTests: 0,
+  numTodoTests: 0,
+};
+
 let gate: string;
 let workflow: string;
 
@@ -271,11 +278,15 @@ describe("fleet-form-e2e — a positive control runs before any client row is wr
     expect(script).not.toMatch(/\|\||--passWithNoTests|\s-t\s|--testNamePattern|--bail/);
   });
 
-  const runControl = async (exit: number) => {
+  const runControl = async (exit: number, report: Record<string, unknown> = PASSED_REPORT) => {
     const dir = await mkdtemp(join(tmpdir(), "fleet-form-e2e-control-"));
     const bin = join(dir, "bin");
     await mkdir(bin, { recursive: true });
-    await writeFile(join(bin, "pnpm"), `#!/bin/sh\nexit ${exit}\n`, "utf-8");
+    await writeFile(
+      join(bin, "pnpm"),
+      `#!/bin/sh\ncat > form-e2e-control.json <<'JSON'\n${JSON.stringify(report)}\nJSON\nexit ${exit}\n`,
+      "utf-8",
+    );
     await chmod(join(bin, "pnpm"), 0o755);
     const script = stepRunScript(workflow, POSITIVE_CONTROL_STEP);
     return execFileAsync("bash", ["-e", "-c", script], {
@@ -293,6 +304,25 @@ describe("fleet-form-e2e — a positive control runs before any client row is wr
 
   it("exits non-zero when the fixture test fails, which stops the job before the sweep", async () => {
     expect(await runControl(1)).not.toBe(0);
+  });
+
+  it("exits non-zero when every fixture test was skipped, because a control that measured nothing is not a pass", async () => {
+    expect(
+      await runControl(0, { ...PASSED_REPORT, numPassedTests: 0, numPendingTests: 22 }),
+    ).not.toBe(0);
+  });
+
+  it("exits non-zero when the fixture ran no test at all", async () => {
+    expect(await runControl(0, { ...PASSED_REPORT, numPassedTests: 0 })).not.toBe(0);
+  });
+
+  it("exits non-zero when the report says the run did not succeed", async () => {
+    expect(await runControl(0, { ...PASSED_REPORT, success: false })).not.toBe(0);
+  });
+
+  it("exits non-zero when any fixture test was skipped or left todo", async () => {
+    expect(await runControl(0, { ...PASSED_REPORT, numPendingTests: 1 })).not.toBe(0);
+    expect(await runControl(0, { ...PASSED_REPORT, numTodoTests: 1 })).not.toBe(0);
   });
 
   it("carries no store credentials and does not arm the live runner", () => {
