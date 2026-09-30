@@ -689,6 +689,22 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       `matching/spec/`, and then the operator deletes the branch. (d) The RED steps
       (branch protection, secret scanning, Prismic repositories and tokens, Netlify
       sites, env vars, hooks) stay the operator's, after (a).
+    - **Progress 2026-09-30 ~05:45Z.** The operator created both GitHub repos
+      and both Prismic repositories, and added their tokens to the cloud
+      environment. The Prismic repositories are `williamson-homes` and
+      `williamson-construction`, **without** `-co`; the token secret name
+      follows the Prismic repositoryName, not the slug. On the operator's
+      authority, the PM session created both Netlify sites with `NETLIFY_PAT`,
+      mirroring 29 Navy: `williamson-homes` (`9072ea82`) and
+      `williamson-construction-co` (`7e2831e2`). Both are linked to their repo
+      `main` through the Netlify GitHub App, build with `pnpm run build` to
+      `build/`, have `FORMS_INGEST_URL` (`/api/forms/<slug>`) and
+      `FORMS_INGEST_TOKEN`, and have a "Prismic publish" build hook on
+      `main`. Still open: the Prismic publish and unpublish webhooks to those
+      hooks (the Prismic dashboard; the hook URL is under Netlify, Site
+      configuration, Build hooks); the per-repo `PRISMIC_WRITE_TOKEN` GitHub
+      secret and the central `PRISMIC_TOKEN_<REPOSITORYNAME>` secrets; and
+      branch protection and secret scanning.
 34. **OD7-P0, the capture tools, PR #1032: round 3 found behaviour defects, all
     fixed in `db83c30f`; land or not.** **Answered 2026-09-30 ~03:25Z: land
     at this head.** Landed by `land-prs.mjs` as `96e10a2a` (head `5e06f8c6`,
