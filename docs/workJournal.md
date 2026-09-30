@@ -6274,6 +6274,8 @@ checked by lint, typecheck, the PR's files and CI (`6bb9bee7` green).
 
 ## 2026-09-30 — #1003 round 3 finds a failed build's cause cut from stderr; fixed and held for the operator (`7fa108a2`, BACKLOG 27)
 
+> Superseded in part by 2026-09-30 — #1003 lands at the held head (`b8e18d04`).
+
 The operator answered BACKLOG 27 with "run a third round before landing", which overrides the two-dirty-rounds rule for this PR only. The previous worker was interrupted at 01:03Z. This session first confirmed that nothing had moved after that: the head was still `7da1123f`, and the PR's only comment was the round-2 hold from 22:51Z. It then found that the interrupted session had already committed the #1018 fixes (`8fec6927`, 00:49Z) inside that head. BACKLOG 27 already said so, and round 3 reviewed that commit with the rest.
 
 `main` moved twice during the session. The second merge (`35866ca1`) conflicted in `tests/audits/a11y-live-spec.test.ts`, because #1003's strict-CSP block and #1014/#1035's blend-mode blocks were both appended after the same `describe`. Both were kept. The check that nothing was lost was mechanical: the union of `it`/`describe` titles and top-level `const`s from the two stage versions equals the resolved file's. CI was green on that head.
@@ -6340,3 +6342,11 @@ Belief corrected: "the race is a dev-server artefact". Dev makes it worse, and 3
 Instrument mistakes of my own, both caught by a second read. My first flagged probe reported 404 because `pkill -f 'vite preview --port 4801'` matched the probing shell itself, which left the unflagged server running. The preview log's "Port 4801 is already in use" showed it. And a `served-from` assertion first failed on the dev server's own readiness probe, until the log recorded browser requests separately.
 
 Mutations 1–5 all turned tests red (4, 8, 4, 7; and 2 and 1 in the starter), with the tables in #1039. No adversarial review ran, because the item stopped at a stop condition before landing. The starter PR is not merged either, and it waits with #1039 on BACKLOG 35.
+
+## 2026-09-30 — #1003 lands at the held head (`b8e18d04`)
+
+The operator answered BACKLOG 27 with "land at this head" (#1038 records it as about 03:25Z), and #1003 merged at 03:24:39Z as `b8e18d04`. The head was `2660bec5`, the one round 3 left with CI green and `mergeable_state: clean`. #905, #949 and #1018 closed with it: #1018 through the `Closes #1018` the round-3 push added to the PR body, not by hand. #1038 recorded the answer in BACKLOG 27, so this entry only closes the session: the check-in routine was deleted, and the worktree removed.
+
+The round-3 entry above describes #1003 as held. That was true when it was written, and it stays as written.
+
+The PM night-shift entry names this worker among those that "stopped to ask for a go" after merging main. That is accurate. The reason is worth keeping: the brief reached the session as an automated notification, not as a message from the operator, and a session treats that as a task to report on rather than as authority to run a multi-agent workflow, push, and land. The restarted briefs' opening line ("This prompt is the go") only helps when the prompt itself arrives as the operator's turn.
