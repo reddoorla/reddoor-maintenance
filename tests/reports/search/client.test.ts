@@ -174,7 +174,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: true, position: 2, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: true,
+      position: 2,
+      propertyFound: true,
+      property: "sc-domain:erpfunds.com",
+    });
     // One call only — no sites.list when property is explicit.
     expect(request).toHaveBeenCalledTimes(1);
     const call = request.mock.calls[0]![0];
@@ -212,7 +217,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: true, position: 3, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: true,
+      position: 3,
+      propertyFound: true,
+      property: expect.any(String),
+    });
     // Pins the documented row budget (headroom so the exact query is never paged out).
     expect(request.mock.calls[0]![0].data.rowLimit).toBe(BRAND_QUERY_ROW_LIMIT);
   });
@@ -240,7 +250,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: false, position: 13, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: false,
+      position: 13,
+      propertyFound: true,
+      property: expect.any(String),
+    });
   });
 
   it("prefers the exact-query row over a higher-impression, better-ranking variant", async () => {
@@ -265,7 +280,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: true, position: 3, propertyFound: true }); // exact #3, not the variant's #1
+    expect(out).toEqual({
+      foundOnPage1: true,
+      position: 3,
+      propertyFound: true,
+      property: expect.any(String),
+    }); // exact #3, not the variant's #1
   });
 
   it("floors a sub-1 average position to 1 so the email never renders '#0'", async () => {
@@ -283,7 +303,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: true, position: 1, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: true,
+      position: 1,
+      propertyFound: true,
+      property: expect.any(String),
+    });
   });
 
   it("auto-resolves the property via sites.list when none is given", async () => {
@@ -295,7 +320,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: true, position: 8, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: true,
+      position: 8,
+      propertyFound: true,
+      property: expect.any(String),
+    });
     expect(request.mock.calls[0]![0].url).toContain("/sites");
     expect(request.mock.calls[0]![0].method).toBe("GET");
     expect(request.mock.calls[1]![0].url).toContain(encodeURIComponent("sc-domain:erpfunds.com"));
@@ -320,7 +350,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: true, position: 2, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: true,
+      position: 2,
+      propertyFound: true,
+      property: "https://www.erpfunds.com/",
+    });
     expect(request).toHaveBeenCalledTimes(3);
     expect(request.mock.calls[1]![0].url).toContain(encodeURIComponent("sc-domain:erpfunds.com"));
     expect(request.mock.calls[2]![0].url).toContain(
@@ -341,7 +376,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: false, position: null, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: false,
+      position: null,
+      propertyFound: true,
+      property: "sc-domain:erpfunds.com",
+    });
     expect(request).toHaveBeenCalledTimes(1);
   });
 
@@ -375,7 +415,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: false, position: null, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: false,
+      position: null,
+      propertyFound: true,
+      property: "sc-domain:erpfunds.com",
+    });
     expect(request).toHaveBeenCalledTimes(3);
   });
 
@@ -392,7 +437,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: false, position: 14, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: false,
+      position: 14,
+      propertyFound: true,
+      property: expect.any(String),
+    });
   });
 
   it("builds the JWT with the webmasters.readonly scope + impersonation subject", async () => {
@@ -453,7 +503,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: true, position: 4, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: true,
+      position: 4,
+      propertyFound: true,
+      property: expect.any(String),
+    });
     const subjectsTried = vi
       .mocked(JWT)
       .mock.calls.map((c) => (c[0] as { subject: string }).subject);
@@ -481,7 +536,12 @@ describe("fetchSearchPresence", () => {
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: true, position: 8, propertyFound: true });
+    expect(out).toEqual({
+      foundOnPage1: true,
+      position: 8,
+      propertyFound: true,
+      property: expect.any(String),
+    });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("Search Console subject failover"));
     warn.mockRestore();
   });

@@ -19,8 +19,9 @@
  * A crash the spec may re-run around: axe's missing-blend-function TypeError
  * and no other message, filed on a node of the page's own top-level document
  * that it can exclude. Not one: a crash with no node; one filed on the root
- * element (excluding the root would exclude the whole document, and the page
- * would pass having measured nothing); one inside a frame or a shadow root (a
+ * element (axe files a crash that has no node of its own on the root, and
+ * the re-run includes html again anyway, so excluding it could never stop
+ * the crash); one inside a frame or a shadow root (a
  * target of more than one step), whose children reincludedChildren cannot
  * address. Those stay crashes, and the frame split decides them as before.
  */
@@ -51,6 +52,31 @@ export function isExcludableBlendCrash(crash: {
 export function canExcludeBlendNode(selector: string): boolean {
   const element = document.querySelector(selector);
   return element !== null && element.shadowRoot === null;
+}
+
+/**
+ * Whether each excluded selector still names exactly the element it named
+ * when that element crashed. axe files a crash under the shortest selector
+ * unique at that moment (`h2`, `.headline`), and the spec hands the same
+ * string to exclude() on every later re-run, where axe drops every element
+ * it matches. If the page changed in between (hydration, a carousel), the
+ * selector can match a second element, or another one, and that element
+ * would go unmeasured under a warning (#1014 review round 3). So the spec
+ * holds each crashed element as it resolves the selector, checks after every
+ * re-run, and on a mismatch gives up re-running the rule: the crash fails as
+ * it did before. Checked after the run, not before it, so a change made
+ * while the re-run was starting is caught too.
+ *
+ * Runs IN THE PAGE, on the top-level document.
+ */
+export function sameBlendTargets(targets: {
+  selectors: string[];
+  elements: Array<Element | null>;
+}): boolean {
+  return targets.selectors.every((selector, i) => {
+    const found = document.querySelectorAll(selector);
+    return found.length === 1 && found[0] === targets.elements[i];
+  });
 }
 
 /**

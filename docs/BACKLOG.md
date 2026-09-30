@@ -199,6 +199,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
    fidelity, form recipients, DNS holders, Adobe Fonts) are due 10-05. Phase 0
    (repos plus full capture of all three references) needs no decision and should
    start 09-30; its brief is in the plan, §7.
+   **OD7-P0 (#1029), half done:** all three references are captured whole (10 /
+   14 / 7 pages, 0 failed downloads), but neither Williamson repo exists,
+   because the org refused this session's create (403). What is needed to
+   finish is in items 33 and 34.
 
 8. **Airtable residue** — PR #954 (another session, at your request, opened
    2026-09-29 05:52Z) removes the `settings.json` pre-approval and network allow
@@ -259,8 +263,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     [TEST] send is the change's first real check. The Announcement email's
     checklist is unchanged, since it is not evidence and not named here.
 18. **Standing product calls** — answered 2026-09-29, except #773:
-    - #943 (what "Search Console set up" means): evidence-based. Built in
-      #1016, which waits on the freshness window in item 28.
+    - #943 (what "Search Console set up" means): evidence-based. Done in
+      #1016, with the freshness window answered in item 28.
     - #948 (hydration signal): audit the built preview (`vite preview`), not
       the dev server; queued until the a11y PRs in flight land.
     - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
@@ -450,9 +454,15 @@ Ordered by what unblocks the most. Each line is the exact ask.
     it is `git merge origin/main` (#1005 also adds migrations, 0033/0034, so
     keep both sides of the migration id lists), CI green, then
     `node scripts/land-prs.mjs 1016`, then close #943.
-29. **#1014, axe's plus-lighter crash is "not measured" (vida, item 23)**:
-    two review rounds each found a real defect, so #1014 is held for your
-    call instead of going to a third round.
+    **Answered 2026-09-30: the cadence + 14 days (as picked).** #1016 lands with
+    this line; #943 closes with it.
+29. **#1014's round-3 fix, PR #1035 (vida, item 23): land or not.**
+    **Answered 2026-09-30: land #1035.** Landed 02:10:48Z as `b4aa1948`,
+    pinned to head `3969249e` by `land-prs`. Nothing left open here.
+    #1014 itself landed at 01:05:07Z as `a00d50d4` (head `861fcff8`, merged
+    by `tucksravin`, ten seconds into the round-3 session and before round 3
+    ran). Round 3 then found a behaviour defect in what landed, which is now
+    on `main` and rides release PR #988 until the fix lands.
     - **The design.** When axe files `blendFunctions[blendMode] is not a
 function` on a top-level element, the spec re-runs that rule with the
       element excluded and its children included again, until the crash
@@ -483,10 +493,32 @@ function` on a top-level element, the spec re-runs that rule with the
     - **Vida separately:** vida's gate also needs its 13 palette lines
       (`--color-neutral-*: oklch(… 0 0)` in `@theme`, as in 29-navy#58).
       With #1014 packed, #86 and those lines applied locally, its gate exits 0. Without the palette lines it fails `rule-errored on a11y fixtures`.
-    - **Answered 2026-09-30: authorise the fix and land.** The shadow-host
-      fix is `cf338c68`: a crash filed on an element with a `shadowRoot` is
-      not excluded, and fails. #1014 landed with it. vida#86 was merged by
-      the operator. The palette lines go to vida as their own PR.
+    - **Answered 2026-09-30: narrow fix + third round.** (Relayed ~01:05Z
+      by the PM session. An earlier line here said "authorise the fix and
+      land" and "#1014 landed", written at 00:47Z while #1014 was still
+      open.) The narrow fix is `cf338c68`, and it landed in `a00d50d4`.
+    - **Round 3 found a behaviour defect, fixed in #1035 (`3876642a`);
+      operator: land #1035 or not.** A crash's selector is axe's shortest
+      selector unique _at that moment_ (`h2`), and it was reused in every
+      re-run. If the page changed between runs (hydration, a carousel),
+      `exclude("h2")` dropped a second, faint heading too, and the page
+      warned where the pre-#1014 gate failed `rule-errored`. Reproduced live
+      (`/grain-late`: 0 violations). The fix (`sameBlendTargets`) keeps a
+      handle to each crashed element. After every re-run it requires each
+      selector to match exactly that one element; otherwise the rule is not
+      re-run around, and its crash fails. Pinned by `/grain-late` (appended
+      heading) and `/grain-swap` (replaced heading, which only a check after
+      the re-run catches). Round 3 also confirmed a test gap: no fixture's
+      _first_ crash was on a shadow host, so the outer loop's host check was
+      unbound (`/grain-host-first` added). A wording nit on the `html` guard
+      was fixed too, and the narrow fix's missing tests were added (a crash
+      named `plus-darker`; a wrapper whose first child is excluded, so
+      `:nth-of-type` goes red). Per your answer there is no fourth round.
+      #1035's body has the findings, votes and mutations. #1035 only
+      narrows the exemption. The alternative is to revert `a00d50d4`.
+    - **Vida:** #86 (design) merged 00:29Z and #87 (palette lines) merged
+      01:06Z, both by `tucksravin`, not by the round-3 session. vida `main`
+      `e434964e` carries the 13 lines, and its CI is green.
 
 30. **Sonder's Testing report, due 2026-09-30 (P0-4)** — measured 2026-09-29
     ~23:55Z. Two blockers, and only the first can be fixed by 09-30.
@@ -529,6 +561,14 @@ function` on a top-level element, the spec re-runs that rule with the
       title or missing meta description" (`src/reports/auto-tick.ts:356-360`)
       even when the fault is length. It pointed the wrong way here, and a
       small copy fix would correct it.
+    - **Answered 2026-09-30: loosen the rule.** Title length no longer fails
+      Titles & Meta. It is measured without the brand suffix the sampled pages
+      share, and a title still over 70 is a warning in the browser audit note
+      (`titleLengthWarnings`), not a fail. Empty titles, missing descriptions
+      and duplicates still fail. The Prismic title is left as it is; `/artists`
+      is 73 without " | Gallery Sonder", so it warns. Once this lands (the nightly
+      builds from main, so no release is needed) and the
+      next fleet-lighthouse run re-stamps `titles_meta_ok`, refresh preview.
 31. **#779, the client half of form-e2e coverage** — the central widening
     (item 16) covers no new site on its own. Measured 2026-09-29 from the live
     roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
@@ -583,6 +623,56 @@ function` on a top-level element, the spec re-runs that rule with the
     `git merge origin/main` (keep both sides of BACKLOG), CI green, then
     `node scripts/land-prs.mjs 1017`. The first nightly after merge is its
     first live run; a dispatch is not needed.
+
+33. **OD7-P0, the Williamson repos (#1029)** — the cloud session was refused
+    creating org repos (`POST /orgs/reddoorla/repos` → 403 "Resource not
+    accessible by integration"), and a public repo is blocked outright as a
+    public surface. The captures are done, and Phase 1 waits on these four
+    answers:
+    - **(a) Create the two repos.** On
+      `https://github.com/reddoorla/reddoor-starter`, click **Use this template →
+      Create a new repository**. Set the owner to `reddoorla`, the name to
+      `williamson-homes`, and visibility **Public** (the new-site skill's
+      convention; 29 Navy is public) or Private. Then do the same for the second
+      repo. Or run `gh repo create reddoorla/williamson-homes --public --template
+reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
+    - **(b) The second repo's name.** The brief says `williamson-construction`,
+      but the roster row is slug `williamson-construction-co`, name "Williamson
+      Construction Co" [M, a SELECT on 2026-09-30]. new-site step 0 makes the
+      slug, the repo, the Netlify name and `package.json#name` one decision,
+      and `ensure-site` throws when the name does not slugify back to the slug.
+      _Pick:_ `williamson-construction-co`, so the repo and the row agree.
+    - **(c) Where the Williamson capture bytes live.** They are 310 MB (Homes
+      167, Construction 143), mostly full-resolution photography, so they are
+      on branch `capture/od7-williamson-2026-09-30` at `a89da157`, not on
+      `main`. A fresh clone of that branch passes the check. Merging them would
+      put 310 MB in this repo's history permanently. _Pick:_ keep the branch;
+      the Phase 1 worker copies each capture into its repo's `matching/spec/`,
+      after which you delete the branch (the proxy refuses a branch delete from
+      the cloud). Every Netlify build of a site repo clones that repo, so say
+      if you would rather keep only the originals there and not every
+      responsive variant.
+    - **(d) The RED steps from new-site, after (a).** Each site needs: branch
+      protection via `self-updating` and secret scanning (a worker tries these
+      first and writes down what the proxy refuses); a Prismic repository
+      (suggested names `williamson-homes` and the answer to (b)); its
+      `PRISMIC_WRITE_TOKEN` repo secret, the central
+      `PRISMIC_TOKEN_<NAME>` secret and the `fleet-prismic-drift.yml` env line;
+      and a Netlify site with `FORMS_INGEST_URL`, `FORMS_INGEST_TOKEN`, a build
+      hook and the Prismic publish/unpublish webhook. No roster write is needed:
+      both rows exist as `building`, and `git_repo` is filled at launch.
+34. **OD7-P0, the capture tools, PR #1032: held after two review rounds.**
+    #1032 adds `scripts/webflow-capture/` (capture, an offline check and their
+    tests), Domaru's archive capture and the Williamson manifests. Both rounds
+    found real defects in the check, for input the three real captures do not
+    contain. Round 2 confirmed that old and new code give identical results on
+    every real page. Every defect is fixed, and each fix has a test that fails
+    without it. The captures themselves passed both reviewers' independent
+    scans. _Ask:_ merge #1032 as it stands, or send it to a third review round?
+    _Pick:_ merge. It changes no product code, and the bytes it protects are
+    already on GitHub either way (#1032's branch and
+    `capture/od7-williamson-2026-09-30`). Landing: CI green, then
+    `node scripts/land-prs.mjs 1032`.
 
 ---
 
@@ -641,13 +731,30 @@ verdict is its only input, because no client and no check sees the email.
 
 ## Done (move items here when they land)
 
+- 2026-09-30 — #1014 + #1035 (BACKLOG 29, vida's part of item 23): axe's
+  `blendFunctions[blendMode] is not a function` crash (plus-lighter) is "not
+  measured" and warns, instead of failing the page, on a top-level non-host
+  element. #1014 (`a00d50d4`) re-runs the rule around each crashed node;
+  #1035 (`b4aa1948`) gives up the re-run, so the crash fails, when a crashed
+  node's selector stops naming that one element. Vida's #86 and #87 are
+  merged. Both changesets ride release PR #988.
 - 2026-09-29 — P1-3 / #912, PR 2 (the surface): a fresh `url_resolves = 'fail'`
   on any non-archived row reaches the digest as `url-unresolved:<siteId>`,
   naming the url and the status; stale stamps (older than three days, unreadable, or never
   set while no row in the fleet is fresh) roll into one `url-probe-stale` fleet item whose metric is the count; `url not deployed`
   in Accepted Watch Conditions mutes only the failure; maintained rows also watch
   on the cockpit. PR 1 (#986) stores the verdict.
-
+- 2026-09-30 — #943: the "Search Console set up" launch check passes only on
+  evidence (#1016). Every draft or announcement whose Search Console lookup
+  runs stores its outcome in `site_health` (`search_console_outcome` /
+  `_resolved` / `_checked_at`, migrations 0035–0037). The check passes on a
+  resolved lookup within the site's shorter report cadence + 14 days
+  (45/106/380 days), or on the "no search console" opt-out, which wins. A
+  soft-fail reads as unknown. The cockpit watch `search-console-no-property`
+  names the host whose lookup matched nothing. No backfill: each site
+  reads "no report lookup on record" until its next draft. #943's point 3
+  (falling back from a recorded property to the by-host candidates) is not
+  done.
 - 2026-09-29 — P1-7 / #910: the a11y audit's route coverage is stored next to
   its violation count. `details.routes = { scanned, total }` (the numbers the
   summary's "N of M routes" prints) is written by `audit --write-back` to
