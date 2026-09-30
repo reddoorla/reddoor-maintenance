@@ -6623,3 +6623,43 @@ The toolbar path was checked live, not assumed. `prismic.js` pins toolbar `4.1.1
 Production answered with the real site about a minute after the merge. That is fast enough to doubt. So production was checked with something only #7 carries: the served page's CSP names the html2canvas file and `williamson-homes.prismic.io`, which is #7's build and not an older deploy. At 18:57:59Z, all 10 reference paths answered 200 on `williamson-homes.netlify.app`, `/nope` answered 404, and the home page had no `website-files.com`.
 
 That closes Phase 1's "Done when", except the harness gate at 1440/834/390 for home and one project page. The gate needs the laptop's `matching-a-page` scripts and a `matching/SPEC.md`, and neither exists in the cloud. The operator items on williamson-homes#3 are still open: the Prismic publish and unpublish webhooks, branch protection, secret scanning, and Tim's content questions.
+
+## 2026-09-30 — OD7-P2: the Construction intake and the wiring landed (williamson-construction-co#5 `06ce6e0`, #6 `e9ce75a`); 14/14 paths serve 200 on the preview host (BACKLOG 40)
+
+**How it started.** This was the third worker on OD7-P2, dispatched after the operator answered BACKLOG 38 (re-dispatch) and 39 (land #3 at `b57e99b`, which the PM merged as `eec070be`). #1058 recorded both answers. By the time this session looked, someone had already retargeted #5 to `main` and merged `main` into it (`6d6aa00`, 18:47:54Z), so that step was done.
+
+**#5's review, and the finding that could not be fixed here.** Round 1 ran three lenses, each with its own refuting pass.
+
+- **Correctness** found no blocker. Its minor: no test tied the rendered input names to `intakePayload`'s keys. The reviewer renamed `trade` to `trades`, and all 585 tests in scope stayed green.
+- **A11y** found a major. The submit button went `disabled` while it had focus, so focus fell to the document. A repeated identical error also changed no DOM, so the `role=alert` never spoke again.
+- **Lead safety** found a major in the site-side Turnstile check. With a sitekey set, a tokenless POST gets a 400 before it reaches central, so central never sees that lead. That covers a visitor with JS off, a blocked `challenges.cloudflare.com`, or a host not on the widget. Central already keeps such a submission (as `spam_auto` on a `requireTurnstile` site), and `TurnstileWidget.svelte` says so in as many words: "never a dropped lead". The site-side check is therefore strictly lossier than central.
+
+Removing that check was refused by this session's permission classifier as a security-test removal. The brief says never route around such a refusal, so the check stands. It is dormant, because no sitekey is set, and it is BACKLOG 40(b), with the pick to remove it before launch.
+
+The a11y and correctness findings are fixed:
+
+- `aria-disabled` plus a `cancel()` guard against a double submit.
+- The alert is keyed on the result object, and takes focus.
+- The format hint moved from a 3.95:1 placeholder to Field's description.
+- A note explains the required asterisk.
+- The email address stays under the form, because every error message points to it.
+- A name-binding test.
+
+Eight mutations each went red. One of them, "the email line only without the form", first went red on a compile error, because the edit left an `{#if}` unclosed. It was rewritten to compile clean and went red on its assertion. Round 2 (the fix commits) found nits only, and they are fixed. It also confirmed from kit's `applyAction` that `form` is a fresh object per response and that `form: null` is set between responses, so `{#key result}` remounts exactly once.
+
+**The release was published under this session.** The Prismic connector read all 14 documents as `published`. A second authority agreed: the Content API master ref listed 14, first published 18:50:25–29Z, and a nonexistent repository gave a 404 control. The publish happened about two minutes before the check, and before About's CTA label was changed. So "Contact" is live where the capture says "Hire Us". A Migration API script (`updateDocument` on the published doc) was dry-run and showed the one-label change. Applying it was refused by the classifier as a shared-resource write. The classifier then also refused deleting the untracked script, and a read-only grep of central's tests, as the same outcome. The script, `.tmp-cta.mjs`, was never committed or pushed, and it dies with this container. The label is BACKLOG 40(a).
+
+**The wiring, and a mistake in my own mutation harness.** #6 copies Homes #7 as it finally landed (`ca6027f`), taking the corrected CSP entries from that merge rather than from its first head. The first run of the mutation loop restored each file with `git checkout` before anything was committed, which silently reverted `svelte.config.js` and `+server.ts` to `main`. It showed as PATTERN MISSING on two mutations, not as a wrong verdict. The edits were re-applied from the same sources and committed, and all four mutations were run again from the committed state. All four went red. Lesson: commit before a mutation loop that restores by checkout.
+
+**What landing showed.** williamson-construction-co's `main` is not strict. So `land-prs.mjs` merged #6 on a head that did not contain #5, and the combination was first tested as `main` itself. It passed locally (83 files, 686 tests) and in CI. #6's CI log: "0 violations across 8 routes (2 fixtures + 6 from package.json)", and smoke passed 25.
+
+On the preview host at 19:18Z:
+
+- All 14 paths answered 200, each with its own title.
+- An unknown project slug answered 404.
+- `/join-the-team` served the form.
+- `/health` read `"prismic":"ok"`, which only a wired build can say (a placeholder build answers `"skipped"`), so the 200s are the new deploy.
+
+The proxy refused the branch deletes, so `claude/intake-form` and `claude/wire-prismic-live` remain for the operator.
+
+**Not shown.** No live form was submitted, per the brief, so storage in Turso is still unproven for this site. D6 and D8 are open. Turnstile on the preview host is 40(c).
