@@ -6350,3 +6350,13 @@ The operator answered BACKLOG 27 with "land at this head" (#1038 records it as a
 The round-3 entry above describes #1003 as held. That was true when it was written, and it stays as written.
 
 The PM night-shift entry names this worker among those that "stopped to ask for a go" after merging main. That is accurate. The reason is worth keeping: the brief reached the session as an automated notification, not as a message from the operator, and a session treats that as a task to report on rather than as authority to run a multi-agent workflow, push, and land. The restarted briefs' opening line ("This prompt is the go") only helps when the prompt itself arrives as the operator's turn.
+
+## 2026-09-30 — Williamson Prismic tokens proven; drift env lines landed ahead of the secrets
+
+The brief was to set four GitHub Actions secrets for the two Williamson sites without any value leaving a script. Half of it happened.
+
+The environment carries `WILLIAMSON_HOMES_PRISMIC` (312 characters) and `WILLIAMSON_CONSTRUCTION_PRISMIC` (331). A script read each from `os.environ` and called `GET customtypes.prismic.io/customtypes` against both repositories: each token answered 200 for its own repository and 403 for the other. That settles the mapping and shows both are write tokens, since that API refuses anything less. The first attempt at the probe also ran `SONDER_PRISMIC` as a known-good control, and the auto-mode classifier refused the whole call as credential exploration. The operator left auto mode and approved a rerun without the control.
+
+Setting the secrets did not get past the first read. `GET repos/reddoorla/<repo>/actions/secrets` returns 403 "Access to this GitHub Actions path is not permitted through this proxy". The public-key read and the `PUT` are on the same path, and the GitHub connector has no secrets tool, so the cloud cannot write an Actions secret at all. That belongs beside the branch-delete refusal in CLAUDE.md's cloud section. The operator sets the four in the UI; the names are in BACKLOG item 33.
+
+The drift workflow gained `PRISMIC_TOKEN_WILLIAMSON_HOMES` and `PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION`. The second name trips people up: the repo and roster slug is `williamson-construction-co`, but the Prismic repositoryName has no `-co`, and the token name comes from Prismic. A new test pins both names and refuses the `_CO` spelling. Two mutations were run against it, dropping the homes line and renaming to `_CO`, and each turned it red. The test sits apart from the "central secret already minted" pre-launch test because at landing these secrets are not minted yet.
