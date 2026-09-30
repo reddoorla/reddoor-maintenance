@@ -6060,3 +6060,29 @@ One claimed defect was refuted by measurement against a real hydrating Svelte 5 
 
 - "Seven sites need the central widening" was wrong: two have no form, and the other five, plus Sonder, need client deploys regardless.
 - The line-number citations in `docs/runbooks/turnstile-widgets.md` moved three times in one PR; `runbook-anchors` caught every one.
+
+## 2026-09-30 — #1014 lands with the shadow-host fix, on the operator's go (BACKLOG 29)
+
+This corrects the previous entry: #1014 was held there, and it now lands.
+The operator answered item 29 with "authorise the fix and land", so the fix
+went in without a third review round. The fix does what round 2's finding
+asked: `canExcludeBlendNode`, run in the page, refuses to exclude an element
+that hosts a shadow root. A plus-lighter crash filed on a shadow host stays a
+crash and fails `rule-errored`, as it did before #1014.
+
+Two live cases pin it. In the first, the host crashes on the first run. In
+the second, it crashes only on a re-run, after the paragraph above it has been
+excluded. That second fixture exists because the first did not pin the loop's
+own guard: a mutation calling only `isExcludableBlendCrash` inside the loop
+survived until a paragraph was put above the host. The wrapper fixture now has
+two element children, which kills "re-include the first child only".
+
+Two mutations were left standing, each for a reason:
+- `:nth-of-type` for `:nth-child`. Every child position 1..n is generated, so
+  every child is still matched. This is equivalent unless an excluded child
+  shares a type index with a sibling.
+- "A selector that resolves to nothing is excludable." axe's own selectors
+  resolve; one that did not would re-crash until the cap and fail anyway.
+
+After `git merge origin/main` (which auto-merged `a11y.ts` against #1003's CSP
+fix): frozen install, lint and typecheck clean, 8114 tests passed, 5 skipped.
