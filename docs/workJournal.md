@@ -6827,3 +6827,29 @@ Third-party stylesheets are ignored. Sonder's layout CSS is `/_app/immutable/ass
 
 - Round 1 (medium): a failed `media=print` sheet or `preload as=style` refused a page whose screen was fully styled. Fixed with the screen-sheet filter. Also fixed: 404s counted twice, and the redirect host was untested. The one-retry design came from this round.
 - Round 2: minors only, all missed detections and none a wrongful refusal: a redirected sheet, a `#fragment`, and a silent `.catch` when the page could not be read. Fixed at the operator's call.
+
+## 2026-09-30 — Cockpit warnings triaged: 2 attention / 5 watch → 1 / 3, and a withdrawn-draft state held after two rounds (#1077, #1078)
+
+A worker session from the 09-30 PM pass, charged with clearing the cockpit's attention and watch items with the operator.
+
+**Measured first, read-only.** `buildCockpitModel` ran from a throwaway script in a detached worktree against live Turso. It used the same inputs `fleet-homepage.mts` reads. The libSQL client was wrapped so that anything other than `SELECT`/`WITH`, and every `batch`/`transaction`/`executeMultiple`, throws. The guard was proven before it was trusted: a `DELETE … WHERE 1=0` was refused. `openDb()` was not called, because it runs migrations, and a migration is a write. At 21:30:50Z the cockpit had 2 attention, 5 watch, 8 healthy, 2 pre-launch and 1 pending. The 09-29 snapshot had 13 watch; the Search Console watch it described had already cleared.
+
+**Each item and its outcome.**
+
+- Reddoor's attention was one label and placeholder in `industry` (reddoor-website `f3dbd4a`, 09-17). Its own commit said the Prismic side waited on an interactive Slice Machine push. The operator pushed it, and the Prismic MCP confirmed the new label. The stored verdict still read `fail`, because the only run since was a dispatch at 21:34:12Z, before the push. The next nightly re-reads it.
+- VLF's attention ("check could not run", with no write token) was already operator decision 42. It went `pass` in a dispatch at 21:33Z (36780192887), presumably the token session's proof.
+- Beachfront's missing Netlify ID was looked up in the Netlify API: `b36d3ca8-…` (`beachfront-dentistry-rd`). It was written through `setSiteDetail` on the operator's go at 21:40:52Z.
+- LA Homelessness Youth's `no analytics` was written on the operator's word that it does not need GA.
+- 1836dig, 29 Navy and Data Dynamiq stay on watch until the operator creates GA4 properties. The reports account lists 13 properties and none is theirs. The one named "LA Youth Homelessness" (500039567) is LAHI's, as the 09-29 entry already established.
+
+At 23:20:42Z the cockpit had 1 attention (Reddoor, until the nightly), 3 watch and 1 pending.
+
+**An instrument that was not trusted.** Grepping the live SvelteKit bundles for `G-` measurement IDs found none on any site, including LAHI and Beachfront, which do carry tags. The grep had never passed on a known-good input, so it was dropped as evidence rather than read as "no site has a tag".
+
+**The pending item was worse than a stuck row.** VLF's skipped 2026-09 draft (decision 41) had no state that could leave "pending approval". Reading `report --due` showed the pile-up guard (`pendingEarlier`) would also refuse to draft October, the report the operator chose as VLF's first. Flipping `draft_ready` off would not have worked either: the same-period branch reads a not-ready row as a crashed half-draft and completes it again. The operator asked for the fix, and #1078 adds a withdrawn state.
+
+- **Round 1** found a blocker that the author's own tests had hidden. `nextDueDate` is based on the last send, so a withdrawn draft pinned every later night to its own period. The test only passed because its site had no send history. The round also found a major (`launch`/`announce` re-running into a withdrawn row that can never send), an approve/withdraw race, and "Don't send" posting to the wrong URL with every test green (mutation N1). Round 2 probed the fix across month-ends, quarterly, yearly, consecutive withdrawals and a 100-month bound, and found no blocker or major. It did find that withdrawing an overdue draft advances only one cycle, plus UI refusal labels.
+- Under the two-dirty-rounds rule, #1078 went to the operator as decision 51 instead of a third round. The pick is one more commit that treats a withdrawal like a send for scheduling.
+- **A flake that was probably ours.** One cold failure of the handler test matched a round-1 reviewer's in-place mutation (the reader always returning `withdrawnAt: null`) running while another reviewer ran tests in the same worktree. Round 2's reviewers each mutated only a copy.
+
+**Not done.** Nobody has withdrawn VLF's September draft. That is the operator's click after #1078 lands, and it must land before October's due date, 10-30.

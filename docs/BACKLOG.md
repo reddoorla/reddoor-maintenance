@@ -136,6 +136,7 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164            | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 
 | P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries | 🟢 | S | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed |
+| P1-28 | **#1078, held for operator decision 51 (operator asked 2026-09-30).** It also blocks the next period: `pendingEarlier` in `src/cli/commands/report.ts` skips a new draft while an earlier one is pending, so VLF's October report would never be drafted. A report draft the operator decided not to send has no state that takes it off the cockpit's pending list: `isPendingApproval` (`src/reports/report-row.ts:79`) is `draftReady && !approvedToSend && sentAt === null`, so VLF's skipped 2026-09 draft (item 41) shows as "Maintenance 2026-09 ready" forever. Add a withdrawn state for a draft, set from `/s/<slug>`. | 🟡 | S–M | `src/reports/report-row.ts:79`, `src/dashboard/fleet-cockpit.ts` | A withdrawn draft leaves the pending list and the Needs-you feed, and a test goes red if it comes back |
 
 ### Blocked behind another PR (do not start early)
 
@@ -1203,6 +1204,54 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     **Answered 2026-09-30 ~21:35Z: merge `50d6154`, no third round.** Merged
     22:27Z as `b9cc06c`, pinned to `50d6154` with CI green. Item 44's Homes P1b
     can start from it.
+48. **Cockpit warnings, 2026-09-30: Beachfront Dentistry's Netlify ID.** The
+    cockpit's watch "Netlify ID not recorded" [M, 21:30Z]. The Netlify API
+    lists site `b36d3ca8-bdc1-4675-b002-5a6469cf5b9b` (`beachfront-dentistry-rd`,
+    custom domain `beachfrontdentistry.com`, repo `reddoorla/beachfront-dentistry`)
+    [M]. _Ask:_ approve writing that value to the row's `netlify_id`. _Pick:_
+    yes; the 09-29 journal already showed the site is on Netlify and that
+    accepting the condition would be the wrong fix. PR: `claude/cockpit-warnings-2026-09-30`.
+    **Answered 2026-09-30 ~21:38Z: write it.** Written 21:40:52Z through
+    `setSiteDetail`, NULL → that ID, read back [M].
+49. **Cockpit warnings, 2026-09-30: four maintained sites without GA4.** 1836dig,
+    29 Navy, Data Dynamiq and LA Homelessness Youth are on watch for "GA4
+    property not recorded" [M]. None has a property that the reports account can
+    see (13 properties listed; 500039567 "LA Youth Homelessness" is LAHI's, and
+    its stream is on LAHI's domain; see the 09-29 journal). _Ask:_ for each site,
+    (a) keep it on watch until it gets a property and a tag, which waits on
+    P1-26 and items 45/46; or (b) accept `no analytics`. _Pick:_ (a) for all
+    four. `no analytics` means the client runs its own analytics (design D8),
+    and the analytics audit skips an opted-out site (`src/audits/analytics.ts:1395`).
+    So a mute added now would stay behind unseen after a property lands.
+    **Answered 2026-09-30 ~21:38Z:** Youth does not need GA, so `no analytics`
+    was written 21:40:52Z (`["no custom domain"]` → `["no custom domain","no
+analytics"]`). The operator creates properties for the other three. When the
+    numeric property IDs arrive (not the `G-` measurement IDs), a session records
+    each in `ga4_property_id` after confirming the reports account lists it. The
+    tag install is separate and waits on P1-26.
+50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
+    cockpit's only live-site attention item that has no ask yet [M]. The drift is
+    `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
+    (reddoor-website `f3dbd4a`, 09-17). Its commit says the Prismic side waits
+    on an interactive Slice Machine push. The ack expired 08-30. _Ask:_ push
+    `industry` from reddoor-website with Slice Machine (repo → Prismic). _Pick:_
+    push; it is not destructive, and re-acking would hide a label that tells the
+    client editor the field must not be blank.
+    **Answered 2026-09-30 ~21:38Z: pushed by the operator.** Prismic's
+    `inquiry_survey_id` now carries the repo's label [M, Prismic MCP]. The
+    stored verdict read `fail` at 21:34:12Z, before the push, from dispatch 36780192887. The next prismic-drift run re-reads it.
+51. **#1078 (P1-28, withdraw a report draft): land after two review rounds.**
+    Round 1 (on `826dc0e9`) found a blocker (a withdrawn draft froze the
+    schedule, since `nextDueDate` is based on the last send), a major
+    (`launch`/`announce` reused a withdrawn row), a race and UI minors. All
+    were fixed in `d4605b7b` (8411 tests; every named mutation red). Round 2
+    on `d4605b7b` found no blocker or major. It found real minors: withdrawing
+    an overdue draft advances only one cycle (about six clicks to catch up), a
+    no-anchor site's shown next date can be a month off, and UI refusal labels.
+    **Ask:** (a) one more commit that treats a withdrawal like a send for
+    scheduling, plus the UI fixes, then land; (b) land `d4605b7b` as it is and
+    file the minors; or (c) a third round after (a). **Pick: (a)**; VLF is due
+    2026-10-30 under either rule. Detail: the #1078 comment.
 
 ---
 
