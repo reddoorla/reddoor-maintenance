@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize } from "node:path";
+import { spawnSync } from "node:child_process";
 import {
   exclusionFor,
   extractFromCss,
@@ -11,6 +12,7 @@ import {
   extractPageLinks,
   pageToLocal,
   paginationLinks,
+  pathConflict,
   sha256,
   urlToLocal,
   webfontGoogleCssUrls,
@@ -166,6 +168,144 @@ describe("review round 2: the round-1 fixes must not lose references", () => {
   });
 });
 
+describe("review round 3: references and paths the round-2 code lost or misplaced", () => {
+  it("reads the tags after a `<!--` inside an inline script string", () => {
+    const html = `<script>var s="<!--";</script><img src="/lost.png"><a href="/kept">k</a><!-- c -->`;
+    expect(urls(extractFromHtml(html, PAGE))).toContain("https://www.example-wf.com/lost.png");
+    expect(extractPageLinks(html, PAGE)).toEqual(["/kept"]);
+  });
+
+  it("reads an attribute by its own name, not by text inside another attribute's value", () => {
+    expect(urls(extractFromHtml(`<img alt="see src=x.png here" src="/real.png">`, PAGE))).toEqual([
+      "https://www.example-wf.com/real.png",
+    ]);
+    expect(extractPageLinks(`<a title="a href=/wrong b" href="/right">r</a>`, PAGE)).toEqual([
+      "/right",
+    ]);
+  });
+
+  it("reads image-set() sources and an upper-case URL()", () => {
+    const css = `.a{background-image:-webkit-image-set("hero.png" 1x,'hero@2x.png' 2x)} .b{background:URL(up.png)} .c{background:image-set(url(set.png) 1x)}`;
+    expect(urls(extractFromCss(css, `${CDN}/css/s.css`)).sort()).toEqual(
+      [
+        `${CDN}/css/hero.png`,
+        `${CDN}/css/hero@2x.png`,
+        `${CDN}/css/set.png`,
+        `${CDN}/css/up.png`,
+      ].sort(),
+    );
+  });
+
+  it("finds a protocol-relative runtime load in an inline script and in a script file", () => {
+    expect(
+      urls(
+        extractFromHtml(`<script>$.getScript("//cdn.jsdelivr.net/npm/x/x.min.js")</script>`, PAGE),
+      ),
+    ).toEqual(["https://cdn.jsdelivr.net/npm/x/x.min.js"]);
+    expect(
+      urls(
+        extractFromJs(
+          `load('//cdn.x.com/a.js'); // see //example.com/notes`,
+          "https://s.com/app.js",
+        ),
+      ),
+    ).toEqual(["https://cdn.x.com/a.js"]);
+  });
+
+  it("keeps each file under its capture directory, whatever a percent-encoded path decodes to", () => {
+    const inside = (local: string, top: string) =>
+      normalize(join("cap", local)).startsWith(join("cap", top) + "/") &&
+      !local.split("/").some((s) => s === ".." || s === ".");
+    for (const u of [
+      "https://cdn.example.com/a/..%2F..%2F..%2F..%2Fescape.js",
+      "https://cdn.example.com/%2E%2E%2Fx.png",
+      "https://cdn.example.com/a%2F..%2F..%2Fb/c.png",
+      "https://cdn.example.com/a%5C..%5C..%5Cd.png",
+    ])
+      expect(inside(urlToLocal(u), "files/cdn.example.com"), `${u} -> ${urlToLocal(u)}`).toBe(true);
+    for (const p of ["/a%2F..%2F..%2F..%2Fp", "/%2E%2E%2F%2E%2E%2Fq"])
+      expect(inside(pageToLocal(p), "pages"), `${p} -> ${pageToLocal(p)}`).toBe(true);
+    expect(pageToLocal("/a%2Fb")).not.toBe(pageToLocal("/a/b"));
+  });
+
+  it("names a path that collides with another, by case or as a file under a file", () => {
+    const claimed = new Map<string, string>();
+    expect(pathConflict(claimed, "files/h/img", "https://h/img")).toBeNull();
+    expect(pathConflict(claimed, "files/h/img/x.png", "https://h/img/x.png")).toBe("https://h/img");
+    expect(pathConflict(claimed, "files/h/IMG", "https://h/IMG")).toBe("https://h/img");
+    expect(pathConflict(claimed, "files/h/img", "https://h/img")).toBeNull();
+    expect(pathConflict(claimed, "files/h/img", "http://h/img")).toBeNull();
+    expect(pathConflict(claimed, "files/h/a/b.png", "https://h/a/b.png")).toBeNull();
+    expect(pathConflict(claimed, "files/h/a", "https://h/a")).toBe("https://h/a/b.png");
+  });
+
+  it("excludes only the Adobe Fonts faces, never a kit whose id starts with af", () => {
+    expect(exclusionFor("https://use.typekit.net/af/442215/0000/27/")).toMatch(/licensed/);
+    expect(exclusionFor("https://use.typekit.net/afx3kdq.css")).toBeNull();
+    expect(exclusionFor("https://use.typekit.net/afx3kdq.js")).toBeNull();
+    expect(exclusionFor("https://use.typekit.net/htt1asl.js")).toBeNull();
+    expect(exclusionFor("https://use.typekit.net/htt1asl.css")).toBeNull();
+  });
+});
+
+describe("review round 3: extractor behaviour the earlier tests did not bind", () => {
+  it("reads <style> blocks, media sources and posters, apple-touch-icon and svg xlink:href", () => {
+    const html = `<style>.h{background:url(${CDN}/styleblock.jpg)}</style>
+      <video poster="${CDN}/vposter.jpg"><source src="${CDN}/clip.mp4"><track src="${CDN}/subs.vtt.txt"></video>
+      <audio src="${CDN}/a.mp3"></audio><embed src="${CDN}/e.pdf"><input type="image" src="${CDN}/btn.png">
+      <link rel="apple-touch-icon" href="${CDN}/touch.png">
+      <svg><image xlink:href="${CDN}/xl.png"/></svg>`;
+    expect(urls(extractFromHtml(html, PAGE)).sort()).toEqual(
+      [
+        `${CDN}/styleblock.jpg`,
+        `${CDN}/vposter.jpg`,
+        `${CDN}/clip.mp4`,
+        `${CDN}/subs.vtt.txt`,
+        `${CDN}/a.mp3`,
+        `${CDN}/e.pdf`,
+        `${CDN}/btn.png`,
+        `${CDN}/touch.png`,
+        `${CDN}/xl.png`,
+      ].sort(),
+    );
+  });
+
+  it("reads single-quoted url('…') and @import '…'", () => {
+    expect(
+      urls(extractFromCss(`a{background:url('sq.png')} @import 'more.css';`, `${CDN}/css/s.css`)),
+    ).toEqual([`${CDN}/css/sq.png`, `${CDN}/css/more.css`]);
+  });
+
+  it("cuts a script URL at an unbalanced `)` and trims a sentence's full stop", () => {
+    expect(urls(extractFromJs("load(https://cdn.x.com/a.js?v=1)", "https://x.com/"))).toEqual([
+      "https://cdn.x.com/a.js?v=1",
+    ]);
+    expect(urls(extractFromJs("see https://cdn.x.com/guide.pdf. Then", "https://x.com/"))).toEqual([
+      "https://cdn.x.com/guide.pdf",
+    ]);
+  });
+
+  it("keeps same-origin files and commented-out links out of the page list", () => {
+    expect(
+      extractPageLinks(
+        `<a href="/doc.pdf">d</a><!-- <a href="/old">o</a> --><a href="/new">n</a>`,
+        PAGE,
+      ),
+    ).toEqual(["/new"]);
+  });
+
+  it("decodes &amp; and &#39; in attribute values", () => {
+    expect(
+      urls(
+        extractFromHtml(
+          `<img src="/a.jpg?x=1&amp;y=2"><div style="background:url(&#39;/b.jpg&#39;)"></div>`,
+          PAGE,
+        ),
+      ),
+    ).toEqual(["https://www.example-wf.com/a.jpg?x=1&y=2", "https://www.example-wf.com/b.jpg"]);
+  });
+});
+
 describe("extractFromCss / Js / Lottie", () => {
   it("keeps a quoted url() whose filename contains parentheses and skips data URIs", () => {
     const css = `a{background:url("${CDN}/Untitled design (16).png")} b{background:url(data:image/png;base64,AA)} @import "x.css";`;
@@ -233,7 +373,9 @@ describe("checkCapture", () => {
     writeFileSync(join(dir, rel), body);
   };
 
-  function build(opts: { pages?: Record<string, string> } = {}) {
+  function build(
+    opts: { pages?: Record<string, string>; extraFiles?: Record<string, string> } = {},
+  ) {
     const pages = opts.pages ?? {
       "/": `<html data-wf-site="${SITE}"><link href="${CDN}/s.css" rel="stylesheet"/><a href="/about">x</a>
         <img src="${CDN}/p.jpg" srcset="${CDN}/p-p-500.jpg 500w, ${CDN}/p.jpg 900w"/>
@@ -246,6 +388,7 @@ describe("checkCapture", () => {
       [`${CDN}/p.jpg`]: "p",
       [`${CDN}/p-p-500.jpg`]: "p500",
       [`${CDN}/a.json`]: JSON.stringify({ assets: [] }),
+      ...opts.extraFiles,
     };
     const manifest = {
       ref: "https://www.example-wf.com",
@@ -365,5 +508,106 @@ describe("checkCapture", () => {
     expect(checkCapture(dir).failures).toEqual([
       `page / does not carry data-wf-site="${SITE}": not the reference`,
     ]);
+  });
+
+  const editManifest = (f: (m: Record<string, unknown>) => void) => {
+    const m = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    f(m);
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(m));
+  };
+
+  it("fails a page file that was deleted", () => {
+    build();
+    unlinkSync(join(dir, pageToLocal("/about")));
+    expect(checkCapture(dir).failures).toContain("page /about is missing: pages/about/index.html");
+  });
+
+  it("fails a capture with no pages, or without the crawl root", () => {
+    build();
+    editManifest((m) => {
+      m.pages = [];
+    });
+    expect(checkCapture(dir).ok).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+    dir = mkdtempSync(join(tmpdir(), "wf-capture-"));
+    build({ pages: { "/about": `<html data-wf-site="${SITE}"></html>` } });
+    expect(checkCapture(dir).failures).toEqual([
+      "manifest.json has no page /: the crawl root was not captured",
+    ]);
+  });
+
+  it("fails a manifest without a site id", () => {
+    build();
+    editManifest((m) => {
+      delete m.siteId;
+    });
+    expect(checkCapture(dir).failures).toContain(
+      "manifest.json has no siteId: nothing proves these pages are the reference",
+    );
+  });
+
+  it("fails more pages than expected, not only fewer", () => {
+    build();
+    expect(checkCapture(dir, { expectPages: 1 }).failures).toEqual([
+      "2 pages captured, expected 1",
+    ]);
+  });
+
+  it("follows a Google Fonts stylesheet to its font files", () => {
+    const css = "https://fonts.googleapis.com/css?family=Jost:300";
+    const woff = "https://fonts.gstatic.com/s/jost/v20/a.woff2";
+    build({
+      pages: {
+        "/": `<html data-wf-site="${SITE}"><link href="${css}" rel="stylesheet"/></html>`,
+      },
+      extraFiles: { [css]: `@font-face{src:url(${woff}) format('woff2')}`, [woff]: "w" },
+    });
+    expect(checkCapture(dir).failures).toEqual([]);
+    unlinkSync(join(dir, urlToLocal(woff)));
+    expect(checkCapture(dir).failures).toEqual([expect.stringContaining(`missing: ${woff}`)]);
+  });
+
+  it("passes a file referenced from a page and again from a stylesheet", () => {
+    build({
+      extraFiles: {
+        [`${CDN}/s.css`]: `x{background:url("${CDN}/bg (1).jpg")} y{background:url(${CDN}/p.jpg)}`,
+      },
+    });
+    expect(checkCapture(dir, { expectPages: 2 }).failures).toEqual([]);
+  });
+
+  it("counts an http and an https reference to one file as that file, not a collision", () => {
+    build({
+      pages: {
+        "/": `<html data-wf-site="${SITE}"><img src="${CDN}/p.jpg"/><img src="${CDN.replace("https:", "http:")}/p.jpg"/></html>`,
+      },
+    });
+    expect(checkCapture(dir).failures).toEqual([]);
+  });
+
+  it("fails two pages that map to one page file", () => {
+    build({
+      pages: {
+        "/": `<html data-wf-site="${SITE}"><a href="/x_y">a</a><a href="/x:y">b</a></html>`,
+        "/x_y": `<html data-wf-site="${SITE}"><a href="/">h</a></html>`,
+        "/x:y": `<html data-wf-site="${SITE}"><a href="/">h</a></html>`,
+      },
+    });
+    expect(checkCapture(dir).failures.join("\n")).toMatch(
+      /collision: page \/x:y and \/x_y both map to pages\/x_y\/index\.html|collision: page \/x_y and \/x:y/,
+    );
+  });
+
+  it("exits 0 on a whole capture, 1 on a gap and 2 on a bad page count", () => {
+    build();
+    const run = (...a: string[]) =>
+      spawnSync(process.execPath, ["scripts/webflow-capture/check.mjs", dir, ...a], {
+        encoding: "utf8",
+      }).status;
+    expect(run("--expect-pages", "2")).toBe(0);
+    expect(run("--expect-pages", "3")).toBe(1);
+    expect(run("--expect-pages", "two")).toBe(2);
+    unlinkSync(join(dir, files[`${CDN}/p.jpg`]!));
+    expect(run()).toBe(1);
   });
 });
