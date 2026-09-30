@@ -1048,7 +1048,7 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       (b)(2) that host would refuse every submission.
 
     Still open from item 7: D6 (the form stays held on the operator, and the
-    row stays `building`) and D8 (Lato, `TODO(D8)`). No live form was
+    row stays `building`) and D8 (Lato, `TODO(D8)`; **answered 2026-09-30 ~20:05Z: Reddoor's kit `noj4tji`, with `freight-sans-pro` and `freight-sans-pro-lights` added; see the plan's D8 line**, see the plan's D8 line). No live form was
     submitted.
 
     **Answered 2026-09-30 (operator):**
@@ -1074,6 +1074,8 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     launch email; or (b) leave it unsent and let October's report be the first.
     _Pick:_ (b) [I], since the launch email already carries the same evidence.
     Either way it is yours; no agent approves or sends.
+    **Answered 2026-09-30 ~19:50Z: skip it. October is VLF's first
+    Maintenance report.** The 2026-09 draft stays unsent; no agent sends it.
 42. **`PRISMIC_TOKEN_VIDA_LEGACY` is not set (🔴 secret).** fleet-prismic-drift
     (run 36704968338, `wrote=15 failed=0`) warns `[vida-legacy-foundation] no
 write token for Prismic repository "vida-legacy"`. VLF went maintained
