@@ -456,9 +456,11 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `node scripts/land-prs.mjs 1016`, then close #943.
     **Answered 2026-09-30: the cadence + 14 days (as picked).** #1016 lands with
     this line; #943 closes with it.
-29. **#1014, axe's plus-lighter crash is "not measured" (vida, item 23)**:
-    two review rounds each found a real defect, so #1014 is held for your
-    call instead of going to a third round.
+29. **#1014's round-3 fix, PR #PRNUM (vida, item 23): land or not.**
+    #1014 itself landed at 01:05:07Z as `a00d50d4` (head `861fcff8`, merged
+    by `tucksravin`, ten seconds into the round-3 session and before round 3
+    ran). Round 3 then found a behaviour defect in what landed, which is now
+    on `main` and rides release PR #988 until the fix lands.
     - **The design.** When axe files `blendFunctions[blendMode] is not a
 function` on a top-level element, the spec re-runs that rule with the
       element excluded and its children included again, until the crash
@@ -489,10 +491,32 @@ function` on a top-level element, the spec re-runs that rule with the
     - **Vida separately:** vida's gate also needs its 13 palette lines
       (`--color-neutral-*: oklch(… 0 0)` in `@theme`, as in 29-navy#58).
       With #1014 packed, #86 and those lines applied locally, its gate exits 0. Without the palette lines it fails `rule-errored on a11y fixtures`.
-    - **Answered 2026-09-30: authorise the fix and land.** The shadow-host
-      fix is `cf338c68`: a crash filed on an element with a `shadowRoot` is
-      not excluded, and fails. #1014 landed with it. vida#86 was merged by
-      the operator. The palette lines go to vida as their own PR.
+    - **Answered 2026-09-30: narrow fix + third round.** (Relayed ~01:05Z
+      by the PM session. An earlier line here said "authorise the fix and
+      land" and "#1014 landed", written at 00:47Z while #1014 was still
+      open.) The narrow fix is `cf338c68`, and it landed in `a00d50d4`.
+    - **Round 3 found a behaviour defect, fixed in #PRNUM (`3876642a`);
+      operator: land #PRNUM or not.** A crash's selector is axe's shortest
+      selector unique _at that moment_ (`h2`), and it was reused in every
+      re-run. If the page changed between runs (hydration, a carousel),
+      `exclude("h2")` dropped a second, faint heading too, and the page
+      warned where the pre-#1014 gate failed `rule-errored`. Reproduced live
+      (`/grain-late`: 0 violations). The fix (`sameBlendTargets`) keeps a
+      handle to each crashed element. After every re-run it requires each
+      selector to match exactly that one element; otherwise the rule is not
+      re-run around, and its crash fails. Pinned by `/grain-late` (appended
+      heading) and `/grain-swap` (replaced heading, which only a check after
+      the re-run catches). Round 3 also confirmed a test gap: no fixture's
+      _first_ crash was on a shadow host, so the outer loop's host check was
+      unbound (`/grain-host-first` added). A wording nit on the `html` guard
+      was fixed too, and the narrow fix's missing tests were added (a crash
+      named `plus-darker`; a wrapper whose first child is excluded, so
+      `:nth-of-type` goes red). Per your answer there is no fourth round.
+      #PRNUM's body has the findings, votes and mutations. #PRNUM only
+      narrows the exemption. The alternative is to revert `a00d50d4`.
+    - **Vida:** #86 (design) merged 00:29Z and #87 (palette lines) merged
+      01:06Z, both by `tucksravin`, not by the round-3 session. vida `main`
+      `e434964e` carries the 13 lines, and its CI is green.
 
 30. **Sonder's Testing report, due 2026-09-30 (P0-4)** — measured 2026-09-29
     ~23:55Z. Two blockers, and only the first can be fixed by 09-30.
