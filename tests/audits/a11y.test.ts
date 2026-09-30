@@ -350,6 +350,37 @@ describe("audits/a11y", () => {
     );
   });
 
+  // Review round 3: three lines of describeNoResults no test held.
+  it("names a coloured test timeout, as Playwright prints it under FORCE_COLOR", async () => {
+    const esc = String.fromCharCode(27);
+    expect(
+      await summaryOf(
+        `\n  1) a11y.spec.ts:1:1 › a11y\n\n    ${esc}[31mTest timeout of 300000ms exceeded.${esc}[39m\n\n  1 failed\n`,
+        NPM_WARN,
+      ),
+    ).toBe("a11y: no results written (exit 1) — Test timeout of 300000ms exceeded.");
+  });
+
+  it("takes an error line, not `Error:` in the middle of an earlier line", async () => {
+    expect(
+      await summaryOf(
+        "[1/1] a11y.spec.ts › a11y\n[chromium] page said: Error: widget failed\n    Error: page.goto: net::ERR_CONNECTION_REFUSED\n",
+        "",
+      ),
+    ).toBe("a11y: no results written (exit 1) — page.goto: net::ERR_CONNECTION_REFUSED");
+  });
+
+  it("trims the missing browser's path", async () => {
+    expect(
+      await summaryOf(
+        "Error: browserType.launch: Executable doesn't exist at /cache/chromium-1243/chrome-linux/chrome   \r\n",
+        "",
+      ),
+    ).toBe(
+      "a11y: Playwright's browser is not installed (no /cache/chromium-1243/chrome-linux/chrome) — run `npx playwright install chromium` in the site",
+    );
+  });
+
   it("skips when playwright is missing", async () => {
     const cwd = await tmpSite();
     const result = await a11yAudit({
