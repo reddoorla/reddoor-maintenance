@@ -484,6 +484,10 @@ function` on a top-level element, the spec re-runs that rule with the
     - **Vida separately:** vida's gate also needs its 13 palette lines
       (`--color-neutral-*: oklch(… 0 0)` in `@theme`, as in 29-navy#58).
       With #1014 packed, #86 and those lines applied locally, its gate exits 0. Without the palette lines it fails `rule-errored on a11y fixtures`.
+    - **Answered 2026-09-30: authorise the fix and land.** The shadow-host
+      fix is `cf338c68`: a crash filed on an element with a `shadowRoot` is
+      not excluded, and fails. #1014 landed with it. vida#86 was merged by
+      the operator. The palette lines go to vida as their own PR.
 
 30. **Sonder's Testing report, due 2026-09-30 (P0-4)** — measured 2026-09-29
     ~23:55Z. Two blockers, and only the first can be fixed by 09-30.
