@@ -234,7 +234,173 @@ describe("rerenderReport — health evidence (#890)", () => {
         bytes: 10,
         headerSource: "turso",
         evidence: "reticked",
+        search: "skipped",
       }),
-    ).toBe("REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked");
+    ).toBe(
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=skipped",
+    );
+  });
+});
+
+describe("rerenderReport — Google Indexed re-measure", () => {
+  const ENROLLED = makeWebsiteRow({
+    ...MEASURED_SITE,
+    searchConsoleProperty: "https://acme.com/",
+  });
+  const GOOGLE = "Maint: Google Indexed";
+  const TESTING = report({
+    reportType: "Testing",
+    periodStart: "2026-08-31",
+    periodEnd: "2026-09-30",
+    autoEvidence: { [GOOGLE]: NOT_MEASURED },
+    checklist: { [GOOGLE]: false },
+    searchFoundPage1: null,
+    searchPosition: null,
+  });
+  const PAGE_1 = {
+    value: { foundOnPage1: true, position: 2, propertyFound: true },
+    softFailed: false,
+    notConfigured: false,
+  };
+
+  it("measures an unapproved draft over its own period, stores evidence and columns together, and renders them", async () => {
+    const calls: Array<[string, string]> = [];
+    const written: Array<{ evidence: Record<string, { result: string }>; search: unknown }> = [];
+    const rendered: ReportRow[] = [];
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () => ENROLLED,
+        measureSearch: async (_s, start, end) => {
+          calls.push([start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)]);
+          return PAGE_1;
+        },
+        storeEvidence: async (_id, _c, evidence, search) => {
+          written.push({ evidence, search });
+          return true;
+        },
+        render: async (_s, rep) => {
+          rendered.push(rep);
+          return { html: "x" };
+        },
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", evidence: "reticked", search: "measured" });
+    expect(calls).toEqual([["2026-08-31", "2026-09-30"]]);
+    expect(written[0]!.evidence[GOOGLE]!.result).toBe("pass");
+    expect(written[0]!.search).toEqual({ searchFoundPage1: true, searchPosition: 2 });
+    expect(rendered[0]!.searchFoundPage1).toBe(true);
+    expect(rendered[0]!.searchPosition).toBe(2);
+    expect(rendered[0]!.checklist[GOOGLE]).toBe(true);
+  });
+
+  it("never measures an approved report", async () => {
+    let measured = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => ({ ...TESTING, approvedToSend: true }),
+        getSite: async () => ENROLLED,
+        measureSearch: async () => {
+          measured = true;
+          return PAGE_1;
+        },
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", evidence: "locked", search: "skipped" });
+    expect(measured).toBe(false);
+  });
+
+  it("never measures a site that opted out of Search Console", async () => {
+    let measured = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () =>
+          makeWebsiteRow({ ...ENROLLED, acceptedWatchConditions: ["no search console"] }),
+        measureSearch: async () => {
+          measured = true;
+          return PAGE_1;
+        },
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", search: "skipped" });
+    expect(measured).toBe(false);
+  });
+
+  it("stores a soft-fail as unknown and leaves the search columns alone", async () => {
+    const written: Array<{ evidence: Record<string, { result: string }>; search: unknown }> = [];
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () => ENROLLED,
+        measureSearch: async () => ({ value: null, softFailed: true, notConfigured: false }),
+        storeEvidence: async (_id, _c, evidence, search) => {
+          written.push({ evidence, search });
+          return true;
+        },
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", search: "unavailable" });
+    expect(written[0]!.evidence[GOOGLE]!.result).toBe("unknown");
+    expect(written[0]!.search).toBeNull();
+  });
+
+  it("never measures a report with no period, which would query an empty 1970 window", async () => {
+    let measured = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => ({ ...TESTING, periodStart: null }),
+        getSite: async () => ENROLLED,
+        measureSearch: async () => {
+          measured = true;
+          return PAGE_1;
+        },
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", search: "skipped" });
+    expect(measured).toBe(false);
+  });
+
+  it("says unavailable, not measured, when the environment has no Search Console credentials", async () => {
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () => ENROLLED,
+        measureSearch: async () => ({ value: null, softFailed: false, notConfigured: true }),
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", search: "unavailable" });
+  });
+
+  it("names the search outcome on the no-header line too", () => {
+    expect(
+      formatRerenderResult({
+        status: "no-header",
+        reportId: "recREP",
+        evidence: "unchanged",
+        search: "unavailable",
+      }),
+    ).toBe("REPORT_RERENDER report=recREP status=no-header evidence=unchanged search=unavailable");
+  });
+
+  it("names the search outcome on the machine-greppable line", () => {
+    expect(
+      formatRerenderResult({
+        status: "rendered",
+        reportId: "recREP",
+        bytes: 10,
+        headerSource: "turso",
+        evidence: "reticked",
+        search: "measured",
+      }),
+    ).toBe(
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=measured",
+    );
   });
 });

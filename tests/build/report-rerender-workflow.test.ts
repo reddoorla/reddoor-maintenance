@@ -73,6 +73,7 @@ describe("report-rerender workflow gate", () => {
       bytes: 95138,
       headerSource: "turso",
       evidence: "reticked",
+      search: "measured",
     });
     expect((await runGate({ out: `${real}\n` })).code).toBe(0);
   });
@@ -95,6 +96,7 @@ describe("report-rerender workflow gate", () => {
       status: "no-header",
       reportId: "recREP",
       evidence: "reticked",
+      search: "skipped",
     });
     expect((await runGate({ out: `${refused}\n`, exit: 0 })).code).not.toBe(0);
   });
@@ -110,5 +112,13 @@ describe("report-rerender workflow gate", () => {
     expect(Object.keys(env)).toEqual(
       expect.arrayContaining(["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN", "REPORT_ID"]),
     );
+  });
+
+  it("carries the Search Console credentials the Google Indexed re-measure needs", () => {
+    const env = stepEnv(workflow, STEP);
+    expect(Object.keys(env)).toEqual(
+      expect.arrayContaining(["GA_SUBJECT", "GA_SA_KEY_JSON", "GA_SA_KEY_PATH"]),
+    );
+    expect(gate).toContain('printf \'%s\' "$GA_SA_KEY_JSON" > "$GA_SA_KEY_PATH"');
   });
 });
