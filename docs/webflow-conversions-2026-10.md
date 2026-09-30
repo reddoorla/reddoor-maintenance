@@ -331,6 +331,25 @@ first. The 29 Navy lesson is in the fleet-composition research.
 
 ## 6. Operator decisions needed
 
+> **Answered by the operator, 2026-09-30:**
+>
+> - **D1:** the two conversions are **Williamson Homes and Williamson
+>   Construction**. **Domaru lapses on 10-19.** The client no longer wants it
+>   up. There is no bridge, no transfer and no conversion, and Phase 3 is
+>   cancelled. Phase 0's Domaru capture is kept only as an archive. The Domaru
+>   cutover on 10-15 is dropped. On 10-19, Domaru is expected to stop answering.
+>   The client should be told, and should repoint or drop the domain.
+> - **D2:** Prismic, with a site-owned `project` custom type in each Williamson
+>   repo. Static stays the fallback only at the 10-09 call.
+> - **D5:** yes to both. Fix Construction's 9 "| Williamson Homes" titles.
+>   Match home and one project page pixel-close; check the rest by eye.
+> - **D3 and D4** follow the plan's picks: the native starter, unchanged paths,
+>   and `www` canonical.
+> - **D0, D6, D7 and D8** are facts the operator is getting from Tim by 10-05:
+>   Webflow billing, form recipients, the GoDaddy holder and the Adobe Fonts kit
+>   owner. D6 now covers only Construction's `/join-the-team`.
+> - **Phase 0** started 2026-09-30 00:23Z in a worker session.
+
 Each is the exact ask, with the pick this plan would make.
 
 - **D0 — What stops on 10-19?** Check Webflow billing: does the workspace cancel
