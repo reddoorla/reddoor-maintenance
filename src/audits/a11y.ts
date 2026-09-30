@@ -155,9 +155,9 @@ export type RouteVerdict = "scan" | "skip" | "missing";
  *     answer, since no Prismic repository exists to serve a home page yet
  *     (#863). `skip`, and say so out loud.
  *   - `/dev/a11y-fixtures` returning 404 on that SAME site — a real defect. The
- *     fixture routes are served by the dev server the axe scan runs against,
- *     where the #717 `/dev` layout guard is inert, so they owe a 200 no matter
- *     what the Prismic config says. `placeholder404Ok` is never set on them,
+ *     fixture routes are served by the gate's own build (#948), which the #717
+ *     `/dev` layout guard lets through under `VITE_REDDOOR_GATE_FIXTURES=1`, so
+ *     they owe a 200 no matter what the Prismic config says. `placeholder404Ok` is never set on them,
  *     so this returns `missing` for them on a placeholder site exactly as on
  *     any other. reddoor-starter sits on the sentinel permanently, so the repo
  *     that DEFINES the fixtures is precisely the one a broader rule would stop
@@ -299,14 +299,28 @@ async function readJsonMaybe<T>(path: string): Promise<T | null> {
   }
 }
 
+/**
+ * Set on the gate's build, and only there (#948). The site's `/dev` layout
+ * guard reads it at build time as `import.meta.env.VITE_REDDOOR_GATE_FIXTURES`,
+ * so the fixtures exist in the bundle the axe scan opens and never in a build
+ * without it. Baked, not read at runtime: a deployed server cannot be talked
+ * into serving them by an environment variable.
+ */
+export const GATE_FIXTURES_ENV = "VITE_REDDOOR_GATE_FIXTURES";
+
+/** What the preview webServer's readiness probe polls. SvelteKit writes it on
+ *  every build, so it answers 200 before any route is asked for — unlike `/`,
+ *  which 404s on a placeholder clone, or a fixture, which 404s when the site's
+ *  guard ignores the flag and would burn the whole budget naming nothing. */
+export const PREVIEW_PROBE_ROUTE = "/_app/version.json";
+
 /** Budget for a webServer that only has to boot vite. */
 const DEV_SERVER_TIMEOUT_MS = 120_000;
 /** Budget for a webServer that runs a production build and then serves it. */
 const PREVIEW_SERVER_TIMEOUT_MS = 5 * 60_000;
-/** Playwright spawn budget: cold tree, chrome download, dev boot, axe. */
-const PLAYWRIGHT_TIMEOUT_MS = 5 * 60_000;
-/** The same, plus a production build. A build SIGKILLed mid-flight reports as
- *  an audit failure with nothing to point at. */
+/** Playwright spawn budget: cold tree, chrome download, a production build,
+ *  axe. A build SIGKILLed mid-flight reports as an audit failure with nothing
+ *  to point at. */
 const PLAYWRIGHT_PREVIEW_TIMEOUT_MS = 10 * 60_000;
 
 // One `webServer` entry. Every field is a fix with a scar:
@@ -322,11 +336,12 @@ function webServerBlock(opts: {
   url: string;
   sitePath: string;
   timeoutMs: number;
+  env?: Record<string, string>;
 }): string {
   return `{
       command: ${JSON.stringify(opts.command)},
       url: ${JSON.stringify(opts.url)},
-      cwd: ${JSON.stringify(opts.sitePath)},
+      cwd: ${JSON.stringify(opts.sitePath)},${opts.env ? `\n      env: ${JSON.stringify(opts.env)},` : ""}
       reuseExistingServer: false,
       timeout: ${opts.timeoutMs},
     }`;
@@ -334,43 +349,46 @@ function webServerBlock(opts: {
 
 /**
  * The audit-controlled playwright config. We synthesize it (rather than rely on
- * the site's playwright.config.ts) so we can pin the dev server port + force
+ * the site's playwright.config.ts) so we can pin each server's port + force
  * `--strictPort` — same fix as the lighthouse audit, same reason (zombie vite
  * processes squatting on 5173 would otherwise eat the audit's request and
  * return stale 404s).
  *
- * `previewPort` (#700) adds a SECOND webServer running the real production
- * build, for the hydration smoke only. The axe scan stays on the dev server —
- * deliberately. Its targets are `/dev/a11y-fixtures` and `/dev/animate-in`, dev
- * fixture routes with no guarantee of surviving a production build; moving them
- * would have the route-status guard (#680) correctly report every fixture as a
- * missing route, and a working gate would become a red one measuring nothing.
- * `baseURL` therefore stays on the dev port, and the smoke routes carry an
- * absolute origin instead.
+ * The axe scan runs against a production build served by `vite preview`,
+ * never `vite dev` (#948). Under dev the scan usually ran on the server-rendered
+ * page before the bundle hydrated, so what it measured depended on a race: 191,
+ * 201, 191, 208 and 191 contrast nodes on roalson-interests' `/dev/a11y-fixtures`
+ * across five cold runs, against 208 hydrated. The build carries
+ * `GATE_FIXTURES_ENV` so the `/dev/*` fixtures survive it, and is the only
+ * build that does. `baseURL` is the preview.
+ *
+ * `devPort` adds a second webServer for the hydration smoke alone, on sites that
+ * have not opted it onto the preview with `reddoor.gateServer: "preview"`
+ * (#700); the smoke routes carry its absolute origin.
  */
-function buildPlaywrightConfig(port: number, sitePath: string, previewPort?: number): string {
-  const dev = webServerBlock({
-    command: `npm run vite:dev -- --port ${port} --strictPort`,
-    url: `http://localhost:${port}${DEV_PROBE_ROUTE}`,
+function buildPlaywrightConfig(previewPort: number, sitePath: string, devPort?: number): string {
+  const preview = webServerBlock({
+    command: `npm run build && npm run preview -- --port ${previewPort} --strictPort`,
+    url: `http://localhost:${previewPort}${PREVIEW_PROBE_ROUTE}`,
     sitePath,
-    timeoutMs: DEV_SERVER_TIMEOUT_MS,
+    timeoutMs: PREVIEW_SERVER_TIMEOUT_MS,
+    env: { [GATE_FIXTURES_ENV]: "1" },
   });
-  // The preview server is probed on `/`, never a `/dev/*` fixture — see above.
-  const preview =
-    previewPort === undefined
+  const dev =
+    devPort === undefined
       ? undefined
       : webServerBlock({
-          command: `npm run build && npm run preview -- --port ${previewPort} --strictPort`,
-          url: `http://localhost:${previewPort}/`,
+          command: `npm run vite:dev -- --port ${devPort} --strictPort`,
+          url: `http://localhost:${devPort}${DEV_PROBE_ROUTE}`,
           sitePath,
-          timeoutMs: PREVIEW_SERVER_TIMEOUT_MS,
+          timeoutMs: DEV_SERVER_TIMEOUT_MS,
         });
   const webServer =
-    preview === undefined
-      ? dev
+    dev === undefined
+      ? preview
       : `[
-    ${dev},
     ${preview},
+    ${dev},
   ]`;
 
   return `import { defineConfig } from "@playwright/test";
@@ -383,7 +401,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "http://localhost:${port}",
+    baseURL: "http://localhost:${previewPort}",
     trace: "on-first-retry",
   },
   webServer: ${webServer},
@@ -466,12 +484,10 @@ const REVEAL_PASS_ERROR_PREFIX = ${JSON.stringify(REVEAL_PASS_ERROR_PREFIX)};
 
 const pages = ${JSON.stringify(axePages)};
 const smokePages = ${JSON.stringify(smokeRoutes)};
-// Absolute origin for the hydration smoke when the site has opted its gates
-// onto a production build (#700). The axe loop runs against the dev server via
-// baseURL; these routes run against the built bundle on a second port, and the
-// origin has to be explicit or they would silently fall back to baseURL — i.e.
-// to dev — and measure exactly what this exists to stop measuring. Empty string
-// = one server for both, the default.
+// Absolute origin for the hydration smoke when it runs on the dev server, i.e.
+// on a site that has not set reddoor.gateServer to "preview" (#700). The axe
+// loop runs against the production preview via baseURL (#948); these routes
+// run against dev on a second port. Empty string = one server for both.
 const SMOKE_ORIGIN = ${JSON.stringify(smokeOrigin)};
 const OUTPUT = process.env.REDDOOR_A11Y_OUTPUT;
 
@@ -1101,6 +1117,27 @@ export function describeThirdPartyErrors(errors: ThirdPartyError[]): string {
   return `${n} uncaught error${n === 1 ? "" : "s"} thrown inside cross-origin frames, not counted: ${where}`;
 }
 
+/**
+ * #948. A built-in fixture that 404s on the gate's build is nearly always a
+ * `/dev` guard that predates `GATE_FIXTURES_ENV`: it refuses every build, the
+ * gate's included. The route-missing line alone would send an operator to the
+ * route, which exists; this names the guard and the flag.
+ */
+export function describeFixtures404(violations: AxeViolation[], pages: SpecRoute[]): string {
+  const fixtureNames = new Set(
+    pages.filter((p) => a11yRoutes.some((f) => f.path === p.path)).map((p) => p.name),
+  );
+  const hit = violations.filter(
+    (v) =>
+      v.id === "route-missing" && fixtureNames.has(v.route) && / returned 404$/.test(v.help ?? ""),
+  );
+  if (hit.length === 0) return "";
+  return (
+    `the /dev fixtures 404 on the gate's build (${hit.map((v) => v.route).join(", ")}): ` +
+    `src/routes/dev/+layout.server.ts must serve them when ${GATE_FIXTURES_ENV}=1 is set at build time — see reddoor-starter's guard`
+  );
+}
+
 const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 /**
@@ -1187,7 +1224,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // scanned.
     //
     // Only the site's OWN routes are marked. The `/dev/*` fixtures are served
-    // by the dev server the axe scan runs against and owe a 200 regardless of
+    // by the gate's own build (#948) and owe a 200 regardless of
     // Prismic — and reddoor-starter, which sits on the sentinel permanently, is
     // the very repo those fixtures live in.
     const placeholderRepo = await readsPlaceholderPrismicRepo(site.path);
@@ -1198,7 +1235,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // The readiness probe cannot be skipped — see DEV_PROBE_ROUTE. Say which
     // route and why, here, instead of surfacing a 120s webServer timeout that
     // names neither.
-    if (absentFixtures.has(DEV_PROBE_ROUTE)) {
+    if (gateServer !== "preview" && absentFixtures.has(DEV_PROBE_ROUTE)) {
       // Same invariant as every other exit: a stale results.json must never
       // be read as this run's answer.
       await rm(join(site.path, RESULTS_DIR), { recursive: true, force: true });
@@ -1235,24 +1272,21 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
       })),
     ];
 
-    const port = await findFreePort();
-    // #700: `package.json#reddoor.gateServer: "preview"` opts this site's gates
-    // onto the shipped bundle. Only the hydration smoke moves — that is the
-    // part `vite dev` hides, since the module graph, code splitting,
-    // minification and asset hashing it replaces are most of what "hydration
-    // works" means. The axe scan keeps the dev server so the `/dev/*` fixtures
-    // still resolve. Absent or unrecognized key → nothing changes.
-    const previewPort = gateServer === "preview" ? await allocateDistinctPort(port) : undefined;
+    // #948: the axe scan always runs on the production preview. #700's
+    // `package.json#reddoor.gateServer: "preview"` now decides only where the
+    // hydration smoke runs; absent or unrecognized, it keeps the dev server.
+    const previewPort = await findFreePort();
+    const devPort = gateServer === "preview" ? undefined : await allocateDistinctPort(previewPort);
 
     const specPath = join(specDir, "a11y.spec.ts");
     await writeFile(
       specPath,
-      buildSpec(axePages, previewPort === undefined ? "" : `http://localhost:${previewPort}`),
+      buildSpec(axePages, devPort === undefined ? "" : `http://localhost:${devPort}`),
       "utf-8",
     );
 
     const configPath = join(specDir, "playwright.config.ts");
-    await writeFile(configPath, buildPlaywrightConfig(port, site.path, previewPort), "utf-8");
+    await writeFile(configPath, buildPlaywrightConfig(previewPort, site.path, devPort), "utf-8");
 
     const resultsPath = join(site.path, RESULTS_REL);
     // Clear stale artifacts so a failed spawn never reports old data.
@@ -1270,11 +1304,10 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
           // server, and runs axe over every configured route. The shared 30 s
           // default in runAudits is fine for deps/lint/security but starves
           // playwright (mirrors the lighthouse fix shipped earlier).
-          // A preview run pays for a production build before the first
-          // navigation, so the budget sized for "boot vite, then axe" would
+          // Every run pays for a production build before the first navigation
+          // (#948), so the budget sized for "boot vite, then axe" would
           // SIGKILL it mid-build and report it as an audit failure.
-          timeoutMs:
-            previewPort === undefined ? PLAYWRIGHT_TIMEOUT_MS : PLAYWRIGHT_PREVIEW_TIMEOUT_MS,
+          timeoutMs: PLAYWRIGHT_PREVIEW_TIMEOUT_MS,
         },
       );
     } catch (err) {
@@ -1393,15 +1426,16 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // costs a build per run, so "did it actually do the expensive thing?" is
     // the first question an operator asks.
     const smokeNote =
-      previewPort === undefined
-        ? `+${smokeRoutes.length} hydration smoke`
-        : `+${smokeRoutes.length} hydration smoke on a production preview`;
+      devPort === undefined
+        ? `+${smokeRoutes.length} hydration smoke on a production preview`
+        : `+${smokeRoutes.length} hydration smoke`;
     const named = describeViolations(artifact.violations ?? []);
+    const guardNote = describeFixtures404(artifact.violations ?? [], axePages);
     const summary =
       (status === "pass"
         ? `a11y: 0 violations across ${scanned} (${smokeNote})`
         : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`) +
-      [revealNote, thirdPartyNote, blendNote, frameNote]
+      [guardNote, revealNote, thirdPartyNote, blendNote, frameNote]
         .filter((note) => note.length > 0)
         .map((note) => `; ${note}`)
         .join("");

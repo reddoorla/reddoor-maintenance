@@ -15,21 +15,16 @@ export type SiteConfig = {
    */
   a11yRoutes?: string[];
   /**
-   * Which server the browser gates run against: `"dev"` (the default — `vite
-   * dev`) or `"preview"` (a real `vite build`, served by `vite preview`).
+   * Which server the hydration smoke runs against: `"dev"` (the default —
+   * `vite dev`) or `"preview"` (a real `vite build`, served by `vite preview`).
    *
-   * Both gates measured the dev server, so the production bundle was built in
-   * CI and then never opened by a browser — and dev does not merely fail to
-   * reproduce some defects, it hides them. Module graph, code splitting,
-   * minification and asset hashing are most of what "hydration works" means,
-   * and a stylesheet can even be fetched under a different CSP directive in
-   * each (#700).
-   *
-   * Opt-in, because a preview costs a `pnpm build` per run and because the
-   * `/dev/*` fixture routes the axe scan targets are not guaranteed to survive
-   * one — a site that flipped this without checking would trade a working gate
-   * for one reporting every fixture as a missing route. Omitted (never
-   * defaulted here) so each caller states its own default.
+   * The a11y audit's axe scan no longer reads this: it always runs on a
+   * production build that the audit makes with the `/dev` fixtures included
+   * (#948). What is left is the smoke, which under dev cannot fail the way
+   * production fails — module graph, code splitting, minification and asset
+   * hashing are most of what "hydration works" means (#700). The shared
+   * Playwright config (`configs/playwright-a11y`) reads the same key for the
+   * site's own suite.
    *
    * Requires a `preview` script in the site's package.json; the starter has one.
    */

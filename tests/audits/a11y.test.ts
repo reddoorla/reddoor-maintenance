@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   a11yAudit,
+  GATE_FIXTURES_ENV,
+  PREVIEW_PROBE_ROUTE,
   classifyRouteResponse,
   describeFrameNodesDropped,
   describeReveals,
@@ -885,23 +887,18 @@ describe("audits/a11y — describeViolations", () => {
 });
 
 /**
- * gateServer (#700). The synthesized config started the site with `vite dev`,
- * so the one browser that ever opens a fleet site in CI never opened the
- * shipped bundle. Hydration is the clearest case: a hydration smoke run against
- * `vite dev` cannot fail the way production fails, because the module graph,
- * code splitting, minification and asset hashing are most of what "hydration
- * works" means.
+ * #948: the axe scan runs on a production build, never on `vite dev`. Under dev
+ * the spec usually scanned the server-rendered page before the bundle
+ * hydrated, so the count depended on a race (191, 201, 191, 208, 191 contrast
+ * nodes on roalson-interests' `/dev/a11y-fixtures` across five cold runs,
+ * against 208 hydrated). The build is made with `VITE_REDDOOR_GATE_FIXTURES=1`,
+ * which the site's `/dev` guard reads at build time, so the fixtures exist in
+ * the bundle the scan opens.
  *
- * The design, and why it is not a straight swap. The axe scan targets
- * `/dev/a11y-fixtures` and `/dev/animate-in`, and those are not guaranteed to
- * survive a production build — under a build that excludes them, #680's
- * route-status guard would correctly report every fixture as a missing route,
- * and a working gate would become a red one measuring nothing. So the opt-in
- * splits the run: axe keeps the dev server (fast, and the fixtures certainly
- * exist there), and the hydration smoke — the part dev actually hides — gets a
- * built preview on its own port.
+ * gateServer (#700) survives for the hydration smoke only: absent, the smoke
+ * keeps a dev server on its own port; `"preview"`, it shares the preview.
  */
-describe("audits/a11y — gateServer opt-in (#700)", () => {
+describe("audits/a11y — the axe scan runs on the production preview (#948, #700)", () => {
   function capture(): { spawn: SpawnFn; spec: () => string; config: () => string } {
     let specSrc = "";
     let configSrc = "";
@@ -930,74 +927,118 @@ describe("audits/a11y — gateServer opt-in (#700)", () => {
   const devPortOf = (config: string) => Number(config.match(/vite:dev -- --port (\d+)/)![1]);
   const previewPortOf = (config: string) =>
     Number(config.match(/npm run preview -- --port (\d+)/)![1]);
+  const baseURLPortOf = (config: string) =>
+    Number(config.match(/baseURL:\s*"http:\/\/localhost:(\d+)"/)![1]);
+  /** The one webServer block whose command contains `needle`. */
+  const serverBlock = (config: string, needle: string) =>
+    config.match(new RegExp(`\\{(?:[^{}]|\\{[^{}]*\\})*${needle}(?:[^{}]|\\{[^{}]*\\})*\\}`))![0];
 
-  // The grant side. Every fleet site is a non-adopter until it opts in, so the
-  // default path has to stay exactly what it was.
-  it("default: a single dev webServer, and the smoke routes ride its baseURL", async () => {
+  for (const gate of [undefined, "preview", "prod"] as const) {
+    const label = gate === undefined ? "default" : `gateServer: ${JSON.stringify(gate)}`;
+
+    it(`${label}: baseURL, which the axe loop navigates against, is the preview`, async () => {
+      const cwd = await tmpSite();
+      await writePkg(cwd, gate === undefined ? undefined : { gateServer: gate });
+      const { spawn, spec, config } = capture();
+      const result = await a11yAudit({ site: { path: cwd }, spawn });
+      expect(result.status).toBe("pass");
+      expect(baseURLPortOf(config())).toBe(previewPortOf(config()));
+      expect(spec()).toContain("/dev/a11y-fixtures");
+    });
+
+    it(`${label}: the preview is a fresh build made with the fixture flag`, async () => {
+      const cwd = await tmpSite();
+      await writePkg(cwd, gate === undefined ? undefined : { gateServer: gate });
+      const { spawn, config } = capture();
+      await a11yAudit({ site: { path: cwd }, spawn });
+      const preview = previewPortOf(config());
+      const block = serverBlock(config(), "npm run preview");
+      expect(block).toContain(
+        `command: "npm run build && npm run preview -- --port ${preview} --strictPort"`,
+      );
+      expect(block).toContain(`env: {"${GATE_FIXTURES_ENV}":"1"}`);
+      expect(GATE_FIXTURES_ENV).toBe("VITE_REDDOOR_GATE_FIXTURES");
+    });
+
+    it(`${label}: the preview is probed on ${PREVIEW_PROBE_ROUTE}, never a fixture`, async () => {
+      const cwd = await tmpSite();
+      await writePkg(cwd, gate === undefined ? undefined : { gateServer: gate });
+      const { spawn, config } = capture();
+      await a11yAudit({ site: { path: cwd }, spawn });
+      const preview = previewPortOf(config());
+      expect(serverBlock(config(), "npm run preview")).toContain(
+        `url: "http://localhost:${preview}/_app/version.json"`,
+      );
+    });
+
+    it(`${label}: the playwright spawn gets a budget that covers the build`, async () => {
+      const cwd = await tmpSite();
+      await writePkg(cwd, gate === undefined ? undefined : { gateServer: gate });
+      let budget = 0;
+      await a11yAudit({
+        site: { path: cwd },
+        spawn: async (_cmd, _args, opts) => {
+          budget = opts?.timeoutMs ?? 0;
+          const out = join(opts?.cwd ?? cwd, ".reddoor-a11y");
+          await mkdir(out, { recursive: true });
+          await writeFile(
+            join(out, "results.json"),
+            JSON.stringify({ totalViolations: 0, byImpact: {} }),
+          );
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+      expect(budget).toBe(10 * 60_000);
+    });
+  }
+
+  it("default: the hydration smoke keeps a dev server on its own port", async () => {
     const cwd = await tmpSite();
     await writePkg(cwd);
-    const { spawn, spec, config } = capture();
-    const result = await a11yAudit({ site: { path: cwd }, spawn });
-    expect(result.status).toBe("pass");
-
-    expect(config()).toContain("npm run vite:dev -- --port");
-    expect(config()).not.toContain("npm run build");
-    expect(config()).not.toContain("npm run preview");
-    // One server, not an array.
-    expect(config()).toMatch(/webServer:\s*\{/);
-    // Smoke navigation stays relative to baseURL — no second origin.
-    expect(spec()).not.toContain("http://localhost:");
-  });
-
-  it("preview: axe keeps the dev server so the fixtures still resolve", async () => {
-    const cwd = await tmpSite();
-    await writePkg(cwd, { gateServer: "preview" });
-    const { spawn, spec, config } = capture();
-    await a11yAudit({ site: { path: cwd }, spawn });
-
-    // baseURL is what the axe loop navigates against (relative paths), and it
-    // must still be the dev server — that is the whole point of the split.
-    const baseURLPort = Number(config().match(/baseURL:\s*"http:\/\/localhost:(\d+)"/)![1]);
-    expect(baseURLPort).toBe(devPortOf(config()));
-    expect(spec()).toContain("/dev/a11y-fixtures");
-  });
-
-  it("preview: the hydration smoke gets a built preview on its own port", async () => {
-    const cwd = await tmpSite();
-    await writePkg(cwd, { gateServer: "preview" });
     const { spawn, spec, config } = capture();
     await a11yAudit({ site: { path: cwd }, spawn });
 
     expect(config()).toMatch(/webServer:\s*\[/);
-    const preview = previewPortOf(config());
-    expect(config()).toContain(
-      `npm run build && npm run preview -- --port ${preview} --strictPort`,
-    );
-    // Two servers cannot share a port.
-    expect(preview).not.toBe(devPortOf(config()));
-    // The smoke loop must aim at the preview origin absolutely, or it would
-    // silently fall back to baseURL — i.e. to dev — and measure nothing new.
-    expect(spec()).toContain(`http://localhost:${preview}`);
+    const dev = devPortOf(config());
+    expect(dev).not.toBe(previewPortOf(config()));
+    expect(serverBlock(config(), "vite:dev")).not.toContain("env:");
+    // Absolute, or the smoke would fall back to baseURL — the preview — and
+    // stop being the dev-server smoke this site has not opted out of.
+    expect(spec()).toContain(`const SMOKE_ORIGIN = "http://localhost:${dev}";`);
   });
 
-  it("preview: both servers keep --strictPort, the site cwd and never-reuse", async () => {
+  it("an unrecognized gateServer value keeps the smoke on dev", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { gateServer: "prod" });
+    const { spawn, config } = capture();
+    await a11yAudit({ site: { path: cwd }, spawn });
+    expect(config()).toContain("npm run vite:dev -- --port");
+  });
+
+  it("gateServer preview: one server for both, and no dev server at all", async () => {
     const cwd = await tmpSite();
     await writePkg(cwd, { gateServer: "preview" });
+    const { spawn, spec, config } = capture();
+    await a11yAudit({ site: { path: cwd }, spawn });
+    expect(config()).toMatch(/webServer:\s*\{/);
+    expect(config()).not.toContain("vite:dev");
+    expect(spec()).toContain(`const SMOKE_ORIGIN = "";`);
+  });
+
+  it("every server keeps --strictPort, the site cwd and never-reuse", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd);
     const { spawn, config } = capture();
     await a11yAudit({ site: { path: cwd }, spawn });
 
     expect(config().match(/--strictPort/g)).toHaveLength(2);
     expect(config().match(/reuseExistingServer:\s*false/g)).toHaveLength(2);
     expect(config().match(new RegExp(`cwd: ${JSON.stringify(cwd)}`, "g"))).toHaveLength(2);
-    // The preview server has to be probed on a route a production build
-    // certainly serves — never a /dev/* fixture.
-    const preview = previewPortOf(config());
-    expect(config()).toContain(`url: "http://localhost:${preview}/"`);
   });
 
   // #697's lesson: an opt-in that does not say it took effect gets reverted as
   // broken. The summary is the one line an operator reads to confirm it.
-  it("preview: the summary says the smoke ran against a production build", async () => {
+  it("gateServer preview: the summary says the smoke ran against a production build", async () => {
     const cwd = await tmpSite();
     await writePkg(cwd, { gateServer: "preview" });
     const result = await a11yAudit({
@@ -1017,46 +1058,72 @@ describe("audits/a11y — gateServer opt-in (#700)", () => {
     expect(result.summary).toBe("a11y: 0 violations across 2 routes (+1 hydration smoke)");
   });
 
-  // A preview run pays for a production build before the first navigation. The
-  // 5-minute budget was sized for "boot vite, then run axe"; leaving it there
-  // would SIGKILL opted-in sites mid-build and report it as an audit failure.
-  it("preview: the playwright spawn gets a budget that covers the build", async () => {
+  // A /dev guard from before #948 refuses every non-dev build, the gate's too.
+  // That must fail — a fixture that is in the tree and 404s is #680's case —
+  // and the summary must name the guard, not only the route.
+  it("fails when a fixture 404s on the preview, and names the guard and the flag", async () => {
     const cwd = await tmpSite();
-    await writePkg(cwd, { gateServer: "preview" });
-    let previewBudget = 0;
-    let devBudget = 0;
-    const record = (into: (n: number) => void): SpawnFn => {
-      return async (_cmd, args, opts) => {
-        into(opts?.timeoutMs ?? 0);
-        const out = join(opts?.cwd ?? cwd, ".reddoor-a11y");
-        await mkdir(out, { recursive: true });
-        await writeFile(
-          join(out, "results.json"),
-          JSON.stringify({ totalViolations: 0, byImpact: {} }),
-          "utf-8",
-        );
-        void args;
-        return { code: 0, stdout: "", stderr: "" };
-      };
-    };
-    await a11yAudit({ site: { path: cwd }, spawn: record((n) => (previewBudget = n)) });
-
-    const devCwd = await tmpSite();
-    await writePkg(devCwd);
-    await a11yAudit({ site: { path: devCwd }, spawn: record((n) => (devBudget = n)) });
-
-    expect(devBudget).toBe(5 * 60_000);
-    expect(previewBudget).toBeGreaterThan(devBudget);
+    await writePkg(cwd);
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 2,
+          byImpact: { serious: 2 },
+          violations: [
+            {
+              id: "route-missing",
+              impact: "serious",
+              route: "a11y fixtures",
+              help: "/dev/a11y-fixtures returned 404",
+            },
+            {
+              id: "route-missing",
+              impact: "serious",
+              route: "animate-in demo",
+              help: "/dev/animate-in returned 404",
+            },
+          ],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toContain(
+      "the /dev fixtures 404 on the gate's build (a11y fixtures, animate-in demo)",
+    );
+    expect(result.summary).toContain("VITE_REDDOOR_GATE_FIXTURES=1");
   });
 
-  it("an unrecognized gateServer value runs the dev path", async () => {
+  it("does not blame the guard for a site route's 404, or a fixture's 500", async () => {
     const cwd = await tmpSite();
-    await writePkg(cwd, { gateServer: "prod" });
-    const { spawn, config } = capture();
-    const result = await a11yAudit({ site: { path: cwd }, spawn });
-    expect(result.status).toBe("pass");
-    expect(config()).toContain("npm run vite:dev -- --port");
-    expect(config()).not.toContain("npm run preview");
+    await writePkg(cwd, { a11yRoutes: ["/about"] });
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 2,
+          byImpact: { serious: 2 },
+          violations: [
+            {
+              id: "route-missing",
+              impact: "serious",
+              route: "/about",
+              help: "/about returned 404",
+            },
+            {
+              id: "route-missing",
+              impact: "serious",
+              route: "a11y fixtures",
+              help: "/dev/a11y-fixtures returned 500",
+            },
+          ],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).not.toContain("gate's build");
   });
 });
 
@@ -1252,7 +1319,10 @@ describe("audits/a11y — a placeholder-repo 404 is the designed answer (#863)",
     expect(result.summary).toBe(
       "a11y: 1 violations across 2 of 3 routes " +
         "(2 fixtures + 1 from package.json; 1 skipped: / — placeholder Prismic repo) " +
-        "— route-missing on a11y fixtures (/dev/a11y-fixtures returned 404)",
+        "— route-missing on a11y fixtures (/dev/a11y-fixtures returned 404); " +
+        "the /dev fixtures 404 on the gate's build (a11y fixtures): " +
+        "src/routes/dev/+layout.server.ts must serve them when VITE_REDDOOR_GATE_FIXTURES=1 " +
+        "is set at build time — see reddoor-starter's guard",
     );
   });
 

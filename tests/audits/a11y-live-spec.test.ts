@@ -481,14 +481,42 @@ type SiteConfig = {
   redirects?: Record<string, string>;
   /** The CSP's style-src sources. Default: 'self', 'unsafe-inline' and the cross origin. */
   styleSrc?: string;
+  /** Stands in for a `/dev` guard from before #948: its build never carries the
+   *  fixtures, whatever the environment says. */
+  guardIgnoresFlag?: boolean;
+  /** Extra `package.json#reddoor` keys. */
+  reddoor?: Record<string, unknown>;
 };
+
+/**
+ * `npm run build` for the throwaway site (#948). It records what a SvelteKit
+ * build bakes in: whether the `/dev` guard let the fixtures through, which is
+ * whether `VITE_REDDOOR_GATE_FIXTURES` was "1" in the build's environment.
+ */
+const buildSource = (config: SiteConfig): string => `
+import { writeFileSync } from "node:fs";
+const fixtures = ${config.guardIgnoresFlag ? "false" : 'process.env.VITE_REDDOOR_GATE_FIXTURES === "1"'};
+writeFileSync("build-stamp.json", JSON.stringify({ fixtures }));
+`;
 
 const serverSource = (config: SiteConfig): string => `
 import { createServer } from "node:http";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+const mode = process.argv[process.argv.indexOf("--mode") + 1];
 const log = (file, entry) => appendFileSync(file, JSON.stringify(entry) + "\\n");
+
+// vite preview serves only what the last build wrote, and refuses to start
+// without one ("did you run \`build\` first?").
+let stamp = null;
+if (mode === "preview") {
+  if (!existsSync("build-stamp.json")) {
+    console.error("Server files not found, did you run build first?");
+    process.exit(1);
+  }
+  stamp = JSON.parse(readFileSync("build-stamp.json", "utf-8"));
+}
 
 const cross = createServer((req, res) => {
   log("cross-origin.jsonl", { url: req.url, mode: req.headers["sec-fetch-mode"] ?? null });
@@ -546,6 +574,17 @@ createServer((req, res) => {
     return;
   }
   const path = (req.url ?? "/").split("?")[0];
+  log("served.jsonl", { mode, path, browser: /Chrome/.test(req.headers["user-agent"] ?? "") });
+  if (mode === "preview" && path === "/_app/version.json") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end("{}");
+    return;
+  }
+  if (mode === "preview" && path.startsWith("/dev/") && !stamp.fixtures) {
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("not found");
+    return;
+  }
   if (redirects[path] !== undefined) {
     res.writeHead(302, { location: redirects[path].replaceAll("CROSS_ORIGIN", crossOrigin) });
     res.end();
@@ -572,11 +611,23 @@ async function makeFixtureSite(config: SiteConfig): Promise<string> {
       name: "a11y-live-fixture",
       private: true,
       type: "module",
-      scripts: { "vite:dev": "node server.mjs" },
-      ...(config.a11yRoutes ? { reddoor: { a11yRoutes: config.a11yRoutes } } : {}),
+      scripts: {
+        "vite:dev": "node server.mjs --mode dev",
+        build: "node build.mjs",
+        preview: "node server.mjs --mode preview",
+      },
+      ...(config.a11yRoutes || config.reddoor
+        ? {
+            reddoor: {
+              ...(config.a11yRoutes ? { a11yRoutes: config.a11yRoutes } : {}),
+              ...config.reddoor,
+            },
+          }
+        : {}),
     }),
   );
   await writeFile(join(site, "server.mjs"), serverSource(config));
+  await writeFile(join(site, "build.mjs"), buildSource(config));
   // Both built-in fixtures exist in this tree, so neither can be skipped as
   // absent (#900) — a skip here would pass every assertion below vacuously.
   await mkdir(join(site, "src", "routes", "dev", "a11y-fixtures"), { recursive: true });
@@ -1820,5 +1871,128 @@ describe("audits/a11y — a blend mode axe cannot compute is not measured, not a
     expect(violationsOf(cap)[0]?.help).toContain("blendFunctions[blendMode] is not a function");
     expect(blendOf(cap, "/grain-26")).toHaveLength(25);
     expect(cap?.status).toBe("fail");
+  });
+});
+
+/**
+ * #948, run for real. The axe scan used to run on `vite dev`, where it usually
+ * measured the page before the bundle hydrated. It now runs on a build the
+ * audit makes itself, with `VITE_REDDOOR_GATE_FIXTURES=1`, served by the
+ * site's `preview` script. The throwaway site's server records which of its
+ * two modes answered each path, and its build stamps what the flag was.
+ *
+ * The site starts with a stale build on disk whose guard let nothing through,
+ * so a run that skipped `npm run build` would serve it and 404 every fixture.
+ */
+const SITE_948: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+  },
+};
+
+type Served = { mode: string; path: string; browser: boolean };
+
+async function readServed(site: string): Promise<Served[]> {
+  const raw = await readFile(join(site, "served.jsonl"), "utf-8").catch(() => "");
+  return raw
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Served);
+}
+
+describe("audits/a11y — the axe scan runs on the gate's own production build (#948)", () => {
+  let site = "";
+  let result: AuditResult | undefined;
+  let served: Served[] = [];
+  let stamp: { fixtures?: boolean; stale?: boolean } = {};
+
+  beforeAll(async () => {
+    site = await makeFixtureSite(SITE_948);
+    await writeFile(
+      join(site, "build-stamp.json"),
+      JSON.stringify({ fixtures: false, stale: true }),
+    );
+    result = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
+    served = (await readServed(site)).filter((s) => s.browser);
+    stamp = JSON.parse(await readFile(join(site, "build-stamp.json"), "utf-8"));
+  }, 180_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+  });
+
+  it("passes, having scanned both fixtures", () => {
+    expect(result?.status, result?.summary).toBe("pass");
+    expect(result?.summary).toBe("a11y: 0 violations across 2 routes (+1 hydration smoke)");
+  });
+
+  // Browser requests only: the dev server's readiness probe polls
+  // /dev/a11y-fixtures from Node, and that is not a scan.
+  it("the browser opened every axe route on the preview, never on dev", () => {
+    for (const path of ["/dev/a11y-fixtures", "/dev/animate-in"]) {
+      expect(served).toContainEqual({ mode: "preview", path, browser: true });
+      expect(served).not.toContainEqual({ mode: "dev", path, browser: true });
+    }
+  });
+
+  it("built afresh with the fixture flag, over the stale build", () => {
+    expect(stamp).toEqual({ fixtures: true });
+  });
+
+  it("keeps the hydration smoke on dev for a site that has not opted it onto the preview", () => {
+    expect(served).toContainEqual({ mode: "dev", path: "/", browser: true });
+    expect(served).not.toContainEqual({ mode: "preview", path: "/", browser: true });
+  });
+});
+
+describe("audits/a11y — a /dev guard that ignores the gate's flag fails, and says so (#948)", () => {
+  let site = "";
+  let result: AuditResult | undefined;
+
+  beforeAll(async () => {
+    site = await makeFixtureSite({ ...SITE_948, guardIgnoresFlag: true });
+    result = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
+  }, 180_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+  });
+
+  it("fails on both fixtures as missing routes, and names the guard and the flag", () => {
+    expect(result?.status, result?.summary).toBe("fail");
+    const missing = ((result?.details as { violations?: Violation[] }).violations ?? [])
+      .filter((v) => v.id === "route-missing")
+      .map((v) => v.route);
+    expect(missing.sort()).toEqual(["a11y fixtures", "animate-in demo"]);
+    expect(result?.summary).toContain(
+      "the /dev fixtures 404 on the gate's build (a11y fixtures, animate-in demo)",
+    );
+    expect(result?.summary).toContain("VITE_REDDOOR_GATE_FIXTURES=1");
+  });
+});
+
+describe("audits/a11y — gateServer preview: one production build serves the scan and the smoke (#948, #700)", () => {
+  let site = "";
+  let result: AuditResult | undefined;
+  let served: Served[] = [];
+
+  beforeAll(async () => {
+    site = await makeFixtureSite({ ...SITE_948, reddoor: { gateServer: "preview" } });
+    result = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
+    served = await readServed(site);
+  }, 180_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+  });
+
+  it("passes, and no dev server answered anything", () => {
+    expect(result?.status, result?.summary).toBe("pass");
+    expect(result?.summary).toContain("hydration smoke on a production preview");
+    expect(served.filter((s) => s.mode === "dev")).toEqual([]);
+    expect(served).toContainEqual({ mode: "preview", path: "/", browser: true });
+    expect(served).toContainEqual({ mode: "preview", path: "/dev/a11y-fixtures", browser: true });
   });
 });
