@@ -470,6 +470,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     **Answered 2026-09-30: the cadence + 14 days (as picked).** #1016 lands with
     this line; #943 closes with it.
 29. **#1014's round-3 fix, PR #1035 (vida, item 23): land or not.**
+    **Answered 2026-09-30: land #1035.** Landed 02:10:48Z as `b4aa1948`,
+    pinned to head `3969249e` by `land-prs`. Nothing left open here.
     #1014 itself landed at 01:05:07Z as `a00d50d4` (head `861fcff8`, merged
     by `tucksravin`, ten seconds into the round-3 session and before round 3
     ran). Round 3 then found a behaviour defect in what landed, which is now
@@ -756,6 +758,13 @@ verdict is its only input, because no client and no check sees the email.
   (#1018, found by review round 2; round 3 ran on the operator's call,
   Operator decisions 27).
 
+- 2026-09-30 — #1014 + #1035 (BACKLOG 29, vida's part of item 23): axe's
+  `blendFunctions[blendMode] is not a function` crash (plus-lighter) is "not
+  measured" and warns, instead of failing the page, on a top-level non-host
+  element. #1014 (`a00d50d4`) re-runs the rule around each crashed node;
+  #1035 (`b4aa1948`) gives up the re-run, so the crash fails, when a crashed
+  node's selector stops naming that one element. Vida's #86 and #87 are
+  merged. Both changesets ride release PR #988.
 - 2026-09-29 — P1-3 / #912, PR 2 (the surface): a fresh `url_resolves = 'fail'`
   on any non-archived row reaches the digest as `url-unresolved:<siteId>`,
   naming the url and the status; stale stamps (older than three days, unreadable, or never

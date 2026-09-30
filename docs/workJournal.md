@@ -6171,6 +6171,10 @@ This corrects the entry "#1014 lands with the shadow-host fix, on the operator's
 
 Per the operator's answer there is no fourth round. #1035 is not landed; BACKLOG 29 asks "land #1035 or revert". The full suite passed on the fixed code (8118, 5 skipped).
 
+## 2026-09-30 — #1035 lands on the operator's go (`b4aa1948`)
+
+This corrects nothing in the entry "#1014 round 3 finds a selector-drift widening in what had just landed; the fix is held for the operator (#1035, BACKLOG 29)". It records the outcome. Asked "land #1035 or revert `a00d50d4`", with a recommendation to land (the fix can only fail closed, and a revert would put vida back to `rule-errored`), the operator answered "go, land 1035". Nothing had moved since CI went green: head `3969249e`, `CLEAN`, `main` at `51a668b1`, #988 unmerged. `land-prs` watched the checks and squash-merged it at 02:10:48Z as `b4aa1948`, pinned to that head. Release PR #988 now carries both changesets, #1014's and #1035's. One caveat is recorded plainly: the fix itself had red-first tests and 11 mutations, but no adversarial review round of its own.
+
 ## 2026-09-30 — #1003 round 3 finds a failed build's cause cut from stderr; fixed and held for the operator (`7fa108a2`, BACKLOG 27)
 
 The operator answered BACKLOG 27 with "run a third round before landing", which overrides the two-dirty-rounds rule for this PR only. The previous worker was interrupted at 01:03Z. This session first confirmed that nothing had moved after that: the head was still `7da1123f`, and the PR's only comment was the round-2 hold from 22:51Z. It then found that the interrupted session had already committed the #1018 fixes (`8fec6927`, 00:49Z) inside that head. BACKLOG 27 already said so, and round 3 reviewed that commit with the rest.
