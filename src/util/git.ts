@@ -61,6 +61,15 @@ export async function stageAll(cwd: string): Promise<void> {
   await git(cwd, ["add", "-A"]);
 }
 
+export async function isGitWorkTree(cwd: string): Promise<boolean> {
+  try {
+    const { stdout } = await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
+    return stdout.trim() === "true";
+  } catch {
+    return false;
+  }
+}
+
 export async function listTrackedFiles(cwd: string): Promise<string[]> {
   const { stdout } = await git(cwd, ["ls-files"]);
   return stdout

@@ -981,6 +981,9 @@ describe("audits/a11y — a placeholder-repo 404 is the designed answer (#863)",
         "(2 fixtures + 1 from package.json; 1 skipped: / — placeholder Prismic repo) " +
         "(+1 hydration smoke)",
     );
+    // #910: the stored counts are the summary's "2 of 3" — the site's own route
+    // is in the total, and a placeholder skip is subtracted like any other.
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 3 });
   });
 
   // FAIL PROOF, end to end, on the SAME configuration: the fixture 404 is not
@@ -1234,6 +1237,28 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     expect(result.summary).toContain("1 of 2 routes");
     expect(result.summary).toContain("animate-in demo");
     expect(result.summary).toContain("fixture not in this site's source");
+  });
+
+  it("puts the scanned and total route counts on details, the numbers the summary says (#910)", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
+    );
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 1, total: 2 });
+  });
+
+  it("a run that skipped nothing reads every route scanned (#910)", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures", "animate-in"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [] },
+    );
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 2 });
   });
 
   // ...and a site that has written the absence down gets its clean pass back.

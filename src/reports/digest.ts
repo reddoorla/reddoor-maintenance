@@ -16,6 +16,7 @@ import {
   collectNotifyBounceAlerts,
   collectDeadLetterAlerts,
   collectPrismicDriftAlerts,
+  collectUrlResolveAlerts,
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
@@ -545,6 +546,9 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     // columns and the same keys — so the snapshot this digest writes is the one
     // the cockpit diffs NEW/WORSE against, and the two surfaces agree.
     ...runCollector("prismic-drift", () => collectPrismicDriftAlerts(websites, deps.baseUrl, now)),
+    // #912. Digest-only: its scope is every non-archived row, and a `building`
+    // site has no cockpit card to carry it.
+    ...runCollector("url", () => collectUrlResolveAlerts(websites, deps.baseUrl, now)),
   ];
 }
 

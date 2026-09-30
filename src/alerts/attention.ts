@@ -60,7 +60,10 @@ export type AttentionItem = {
      *  last verdict). One `kind` because they are one signal on the cards and the
      *  client filter; three KEYS because they are three different conditions and a
      *  diff on one must never stand in for another. */
-    | "prismic-drift";
+    | "prismic-drift"
+    /** #912. The nightly `roster-urls` probe: `url-unresolved:<siteId>` for a fresh
+     *  `fail`, and one fleet-wide `url-probe-stale` when stamps age out. */
+    | "url";
   /** Grouping key in the (component-3) render. */
   siteName: string;
   title: string;

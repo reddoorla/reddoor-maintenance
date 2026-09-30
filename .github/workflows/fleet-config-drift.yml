@@ -1,0 +1,222 @@
+name: fleet-config-drift
+
+on:
+  schedule:
+    - cron: "23 7 * * 0"
+  workflow_dispatch: {}
+
+concurrency:
+  group: fleet-config-drift
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Positive control
+        timeout-minutes: 5
+        run: |
+          set -o pipefail
+          root="${RUNNER_TEMP:-/tmp}/config-drift-control"
+          rm -rf "$root"
+          mkdir -p "$root"
+          mk() {
+            cp -r "tests/fixtures/$1" "$root/$2"
+            git -C "$root/$2" init -q --initial-branch=main
+            git -C "$root/$2" add -A
+            git -C "$root/$2" -c user.name=control -c user.email=control@reddoor.local commit -qm initial
+          }
+          mk sync-drift drift
+          mk sync-clean clean
+          mk sync-clean tracked
+          mkdir -p "$root/tracked/build"
+          echo "control" > "$root/tracked/build/app.js"
+          git -C "$root/tracked" add -f build/app.js
+          git -C "$root/tracked" -c user.name=control -c user.email=control@reddoor.local commit -qm "track a build artifact"
+
+          for c in drift clean tracked; do
+            node dist/cli/bin.js sync-configs "$root/$c" --dry | tee "$root/$c.out"
+          done
+
+          bad=""
+          grep -qx "SYNC_CONFIGS_DRIFT drifted=1 clean=0 skipped=0 total=1" "$root/drift.out" || bad="$bad drift-summary"
+          grep -q "^DRIFT drift " "$root/drift.out" || bad="$bad drift-lines"
+          grep -q "^CLEAN " "$root/drift.out" && bad="$bad drift-says-clean"
+          grep -qx "SYNC_CONFIGS_DRIFT drifted=0 clean=1 skipped=0 total=1" "$root/clean.out" || bad="$bad clean-summary"
+          grep -qx "CLEAN clean" "$root/clean.out" || bad="$bad clean-line"
+          grep -q "^DRIFT " "$root/clean.out" && bad="$bad clean-says-drift"
+          grep -qx "SYNC_CONFIGS_DRIFT drifted=1 clean=0 skipped=0 total=1" "$root/tracked.out" || bad="$bad tracked-summary"
+          grep -qx "DRIFT tracked .gitignore" "$root/tracked.out" || bad="$bad tracked-artifact"
+          [ "$(grep -c "^DRIFT " "$root/tracked.out" || true)" = "1" ] || bad="$bad tracked-not-only-gitignore"
+          grep -q "^CLEAN " "$root/tracked.out" && bad="$bad tracked-says-clean"
+          if [ -n "$bad" ]; then
+            echo "::error::the sync-configs --dry positive control failed:$bad. The instrument is broken, so this run cannot say whether the fleet drifts."
+            exit 1
+          fi
+          echo "positive control passed: drift, clean and tracked-artifact fixtures all read correctly"
+
+      - name: Sweep the fleet for config drift
+        id: drift
+        timeout-minutes: 20
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}/config-drift.out"
+          rc=0
+          node dist/cli/bin.js sync-configs \
+            --fleet turso \
+            --dry \
+            --workdir "${RUNNER_TEMP:-/tmp}/fleet-config-drift" | tee "$out" || rc=$?
+
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::the config drift sweep exited $rc. This is an outage, not drift."
+            exit 1
+          fi
+
+          summary=$(grep -oE "^SYNC_CONFIGS_DRIFT drifted=[0-9]+ clean=[0-9]+ skipped=[0-9]+ total=[0-9]+$" "$out" | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::the config drift sweep printed no SYNC_CONFIGS_DRIFT line, so this run established nothing."
+            exit 1
+          fi
+          drifted=$(echo "$summary" | grep -oE "drifted=[0-9]+" | cut -d= -f2)
+          skipped=$(echo "$summary" | grep -oE "skipped=[0-9]+" | cut -d= -f2)
+          total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
+          echo "fleet config drift: $summary"
+
+          if [ "$total" -eq 0 ]; then
+            echo "::error::the config drift sweep resolved no sites (total=0). An empty roster is an outage, not a clean fleet."
+            exit 1
+          fi
+          if [ "$skipped" -gt 0 ]; then
+            names=$(sed -nE 's/^SKIPPED[[:space:]]+([^ ]+).*/\1/p' "$out" | tr '\n' ' ')
+            echo "::warning::fleet config drift: $skipped of $total site(s) skipped and not checked: $names"
+          fi
+          if [ $((skipped * 2)) -gt "$total" ]; then
+            echo "::error::fleet config drift: $skipped of $total site(s) skipped (more than half). This is an outage, not a result."
+            exit 1
+          fi
+
+          if [ "$drifted" -gt 0 ]; then
+            echo "drifted=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "drifted=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open/update the config-drift tracking issue
+        if: steps.drift.outputs.drifted == 'yes' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Fleet config drift"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          out="${RUNNER_TEMP:-/tmp}/config-drift.out"
+          detail=$(grep -E "^(DRIFT|SKIPPED) " "$out" 2>/dev/null || echo "see run output")
+          summary=$(grep -E "^SYNC_CONFIGS_DRIFT " "$out" 2>/dev/null | tail -n1 || true)
+          body=$(printf 'The weekly `sync-configs --dry` sweep found fleet repos whose shared configs differ from the templates in `@reddoorla/maintenance`. Each DRIFT line names a file a real `sync-configs` run would change; each SKIPPED line is a repo this run could not check.\n\n```\n%s\n%s\n```\n\nHeal per repo with `reddoor-maint sync-configs <site>`, landed as that repo'\''s own PR. A fleet-wide `sync-configs` push is a red-tier action and is never run from here.\n\nRun: %s\n\n_Auto-filed; auto-closes when a sweep finds no drift and every repo named above comes back CLEAN._' "$detail" "$summary" "$run_url")
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            if printf '%s\n' "$detail" | grep -q '^DRIFT '; then
+              gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+                || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            else
+              echo "::warning::this run printed no DRIFT line; keeping the body of #$existing so a clean sweep can still close it"
+            fi
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the config-drift issue on a clean sweep
+        if: steps.drift.outputs.drifted == 'no' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/config-drift.out"
+          if ! grep -qE "^SYNC_CONFIGS_DRIFT drifted=0 " "$out" 2>/dev/null; then
+            echo "no verified drift-free sweep in the output; not closing anything"
+            exit 0
+          fi
+          title="Fleet config drift"
+          clean=$(sed -nE 's/^CLEAN[[:space:]]+([^ ]+).*/\1/p' "$out")
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            named=$(gh issue view "$n" --json body --jq '.body' \
+              | sed -nE 's/^(DRIFT|SKIPPED)[[:space:]]+([^ ]+).*/\2/p' | sort -u)
+            if [ -z "$named" ]; then
+              echo "not closing #$n; its body names no DRIFT or SKIPPED repo this sweep can match"
+              continue
+            fi
+            unverified=""
+            for repo in $named; do
+              echo "$clean" | grep -qxF "$repo" || unverified="$unverified $repo"
+            done
+            if [ -n "$unverified" ]; then
+              echo "::warning::not closing #$n; this sweep did not find these CLEAN:$unverified. A repo that left the roster or can never be cloned keeps it open until someone closes it by hand."
+              continue
+            fi
+            list=$(echo "$named" | tr '\n' ' ')
+            gh issue close "$n" --comment "Recovered. This sweep found no drift, and every repo this issue named came back CLEAN: $list" && echo "closed #$n"
+          done
+
+      - name: Open/update the config-drift-sweep-failing tracking issue
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Weekly config drift sweep failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The weekly **fleet-config-drift** sweep failed, so this week has NO config drift verdict.\n\nThis is an outage in the check, not drift: drift is reported on the "Fleet config drift" issue and never reds this run. Likely causes: the positive control failed (the `--dry` instrument is broken), the sweep printed no SYNC_CONFIGS_DRIFT line, the roster resolved no sites, or more than half the repos could not be cloned.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the config-drift-sweep-failing issue on recovery
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Weekly config drift sweep failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered. The weekly config drift sweep is green again." && echo "closed #$n"
+          done

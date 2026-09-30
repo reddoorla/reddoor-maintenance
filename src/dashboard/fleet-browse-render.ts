@@ -15,8 +15,10 @@ function scoreSpan(category: "perf" | "a11y-lh" | "bp" | "seo", value: number | 
   return `<span class="score ${category}">${escapeHtml(display)}</span>`;
 }
 
-function a11ySpan(value: number | null): string {
-  const display = value === null ? DASH : String(value);
+function a11ySpan(value: number | null, scanned: number | null, total: number | null): string {
+  const partial = value !== null && scanned !== null && total !== null && scanned < total;
+  const display =
+    value === null ? DASH : partial ? `${value} (${scanned}/${total} routes)` : String(value);
   return `<span class="metric a11y">${escapeHtml(display)}</span>`;
 }
 
@@ -85,7 +87,7 @@ function card(site: WebsiteRow): string {
         <span class="metric-label">SEO</span> ${scoreSpan("seo", site.seoScore)}
       </span>
       <span class="cluster health">
-        <span class="metric-label">a11y</span> ${a11ySpan(site.a11yViolations)}
+        <span class="metric-label">a11y</span> ${a11ySpan(site.a11yViolations, site.a11yRoutesScanned, site.a11yRoutesTotal)}
         <span class="metric-label">deps</span> ${depsSpan(site.depsDrifted, site.depsMajorBehind, site.depsOutdated, site.depsMajorOutdated)}
         <span class="metric-label">sec</span> ${securitySpan(
           site.securityVulnsCritical,
@@ -229,6 +231,7 @@ const FLEET_FILTERS = [
   "search-console-unrecorded",
   "no-git-repo",
   "no-netlify-id",
+  "url-unresolved",
 ] as const;
 
 /** The fleet browser: one collapsed <details> holding the filter chips and a single flat
