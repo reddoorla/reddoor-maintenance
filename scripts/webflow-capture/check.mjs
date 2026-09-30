@@ -17,8 +17,10 @@
  *   of the reference, not of something that answered in its place);
  * - every page's and file's sha256 to equal the manifest's (the bytes are the
  *   ones fetched: a page cut short would otherwise lose its references quietly);
- * - no two references to share one file path, no collection pagination, and no
- *   download or page failure recorded in the manifest by the capture itself;
+ * - a page `/` (the crawl root, which the site id is read from);
+ * - no two references or pages to clash on one path (lib.mjs pathConflict), no
+ *   collection pagination, and no download or page failure recorded in the
+ *   manifest by the capture itself;
  * - with --expect-pages, exactly that many pages.
  *
  * Exit 0 when all hold, 1 naming every failure, 2 on usage.
@@ -34,6 +36,7 @@ import {
   paginationLinks,
   isTextFile,
   pageToLocal,
+  pathConflict,
   sha256,
   urlToLocal,
 } from "./lib.mjs";
@@ -67,8 +70,16 @@ export function checkCapture(dir, { expectPages } = {}) {
   };
 
   const pagePaths = new Set(manifest.pages.map((p) => p.path));
+  if (!pagePaths.has("/"))
+    failures.push("manifest.json has no page /: the crawl root was not captured");
+  const pageOwner = new Map();
   for (const p of manifest.pages) {
     const file = pageToLocal(p.path);
+    const clash = pathConflict(pageOwner, file, p.path);
+    if (clash) {
+      failures.push(`collision: page ${p.path} and ${clash} both map to ${file}`);
+      continue;
+    }
     const abs = join(dir, file);
     if (!existsSync(abs)) {
       failures.push(`page ${p.path} is missing: ${file}`);
@@ -109,11 +120,13 @@ export function checkCapture(dir, { expectPages } = {}) {
     }
     const file = urlToLocal(url);
     const abs = join(dir, file);
-    if (owner.has(file)) {
-      failures.push(`collision: ${url} and ${owner.get(file)} both map to ${file}`);
+    const seen = owner.has(file);
+    const clash = pathConflict(owner, file, url);
+    if (clash) {
+      failures.push(`collision: ${url} and ${clash} both map to ${file}`);
       continue;
     }
-    owner.set(file, url);
+    if (seen) continue;
     if (!existsSync(abs) || statSync(abs).size === 0) {
       failures.push(`missing: ${url} -> ${file} (referenced by ${refs.get(url)})`);
       continue;

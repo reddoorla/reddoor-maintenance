@@ -23,4 +23,9 @@ export function extractFromFile(url: string, text: string): Ref[];
 export function isTextFile(url: string): boolean;
 export function urlToLocal(href: string): string;
 export function pageToLocal(pagePath: string): string;
+export function pathConflict(
+  claimed: Map<string, string>,
+  file: string,
+  url: string,
+): string | null;
 export function sha256(buf: string | Uint8Array): string;

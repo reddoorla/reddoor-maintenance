@@ -62,7 +62,7 @@ export const EXCLUDE = [
       "a video-platform embed: the video is hosted by the platform (the embed URL names it), not by Webflow, so it survives the cancellation",
   },
   {
-    test: (u) => /^https:\/\/(?:use|p)\.typekit\.net\/(?:af|p\.gif|p\.css)/.test(u),
+    test: (u) => /^https:\/\/(?:use|p)\.typekit\.net\/(?:af\/|p\.gif|p\.css)/.test(u),
     reason:
       "Adobe Fonts binaries are licensed to the kit owner and served only to the kit's allow-listed domains; they are not redistributable in a repo, and Adobe serves them independently of Webflow (plan D8). The kit's CSS is captured, so the family, weight and style list survives",
   },
@@ -125,9 +125,14 @@ const isAssetUrl = (href) => {
 const tags = (html, names) =>
   html.matchAll(new RegExp(`<(?:${names})\\b(?:[^>"']|"[^"]*"|'[^']*')*>`, "gi"));
 
+/** A tag's attributes in order, first one of each name winning as in HTML: a
+ *  raw search for ` src=` would land inside another attribute's value
+ *  (`alt="see src=x.png"`) and never read the real one (review round 3). */
 function attr(tag, name) {
-  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(tag);
-  return m ? (m[1] ?? m[2] ?? m[3] ?? "") : null;
+  const body = tag.replace(/^<[^\s>/]*/, "");
+  for (const m of body.matchAll(/([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g))
+    if (m[1].toLowerCase() === name) return m[2] ?? m[3] ?? m[4] ?? null;
+  return null;
 }
 
 /** Every srcset candidate URL: comma-separated, each "url [descriptor]". */
@@ -188,8 +193,14 @@ export function absoluteAssetUrls(text, base) {
   // at a `)`, `(`, `,` or `;` boundary, that has balanced parentheses and an
   // asset extension. So `url(…/a.png),url(…/b.png)` yields both files and
   // `load(…/a.js);init()` yields a.js.
+  // A protocol-relative load ("//cdn.x.com/a.js") counts only inside a quoted
+  // string, so a `// comment` naming a host is never read as one.
   const balanced = (s) => s.split("(").length === s.split(")").length;
-  for (const m of text.replace(/\\\//g, "/").matchAll(/https?:\/\/[^\s"'<>\\`]+/g)) {
+  for (const m of text
+    .replace(/\\\//g, "/")
+    .matchAll(
+      /https?:\/\/[^\s"'<>\\`]+|(?<=["'])\/\/[\w-]+(?:\.[\w-]+)+(?::\d+)?\/[^\s"'<>\\`]*/g,
+    )) {
     for (const seg of m[0].split(/(?=https?:\/\/)/)) {
       const cuts = [seg.length];
       for (let k = seg.length - 1; k > 0; k--) if ("(),;".includes(seg[k])) cuts.push(k);
@@ -213,11 +224,30 @@ export function extractFromCss(css, base) {
   // Three alternatives, not one optional-quote class: a QUOTED url whose
   // filename contains a parenthesis ("Untitled design (16).png") dies at the
   // `(` under the obvious single-class regex. Measured on 29 Navy's stylesheet.
-  for (const m of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]*))\s*\)/g)) {
+  // CSS function names are case-insensitive: `URL(a.png)` loads.
+  const urlFn = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]*))\s*\)/gi;
+  for (const m of css.matchAll(urlFn)) {
     const u = resolve(m[1] ?? m[2] ?? m[3] ?? "", base);
     if (u) out.push({ url: u, kind: "css-url" });
   }
-  for (const m of css.matchAll(/@import\s+(?:"([^"]+)"|'([^']+)')/g)) {
+  // image-set() also takes a bare string per candidate ("hero.png" 1x).
+  for (const m of css.matchAll(/(?:-webkit-)?image-set\(/gi)) {
+    let depth = 1;
+    let k = m.index + m[0].length;
+    const start = k;
+    for (; k < css.length && depth > 0; k++) {
+      if (css[k] === "(") depth++;
+      else if (css[k] === ")") depth--;
+    }
+    for (const q of css
+      .slice(start, k - 1)
+      .replace(urlFn, "")
+      .matchAll(/"([^"]*)"|'([^']*)'/g)) {
+      const u = resolve(q[1] ?? q[2], base);
+      if (u) out.push({ url: u, kind: "css-image-set" });
+    }
+  }
+  for (const m of css.matchAll(/@import\s+(?:"([^"]+)"|'([^']+)')/gi)) {
     const u = resolve(m[1] ?? m[2], base);
     if (u) out.push({ url: u, kind: "css-import" });
   }
@@ -263,9 +293,13 @@ export function extractFromLottie(text, base) {
  * are read separately, by the inline-script pass.
  */
 export function markupOnly(html) {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script>)/gi, "$1$2");
+  // One pass, whichever comes first: a `<!--` inside script code is not a
+  // comment, and blanking comments first ran one from a script string to the
+  // next real `-->`, erasing every tag between (review round 3).
+  return html.replace(
+    /<!--[\s\S]*?-->|(<script\b[^>]*>)[\s\S]*?(<\/script>)/gi,
+    (_, open, close) => (open ? open + close : ""),
+  );
 }
 
 export function extractFromHtml(rawHtml, pageUrl) {
@@ -409,6 +443,39 @@ function dedupe(refs) {
 
 const UNSAFE = /[<>:"|?*\\\p{Cc}]/gu;
 
+/** One decoded path segment as a file name: a decoded `/` (from `%2F`) stays
+ *  inside the name, and `.` or `..` never reach the filesystem as themselves,
+ *  so no URL can place a file outside its host's directory (review round 3). */
+const segment = (raw) => {
+  const s = safeDecode(raw).replace(UNSAFE, "_").replace(/\//g, "_");
+  return s === "." || s === ".." ? `_${s}` : s;
+};
+
+/**
+ * Whether `file` can be written beside every path already in `claimed`
+ * (file → URL): null when it can, else the URL that holds the clashing path.
+ * Two paths clash when they are equal without being the same URL (an http and
+ * an https reference to one file are one file), when one would be a directory
+ * of the other (`img` and `img/x.png`), or when they differ only by case, which
+ * a case-insensitive filesystem (macOS) stores as one. A clash found here is a
+ * failure to record: writing it would overwrite a file or throw.
+ */
+export function pathConflict(claimed, file, url) {
+  const sameFile = (a, b) => a.replace(/^http:/, "https:") === b.replace(/^http:/, "https:");
+  const key = file.toLowerCase();
+  for (const [f, u] of claimed) {
+    const k = f.toLowerCase();
+    if (
+      k === key
+        ? f !== file || !sameFile(u, url)
+        : k.startsWith(`${key}/`) || key.startsWith(`${k}/`)
+    )
+      return u;
+  }
+  claimed.set(file, url);
+  return null;
+}
+
 /**
  * Where a URL's bytes live inside a capture: `files/<host>/<decoded path>`.
  * Deterministic from the URL alone, so the offline check can find a file
@@ -418,12 +485,9 @@ const UNSAFE = /[<>:"|?*\\\p{Cc}]/gu;
  */
 export function urlToLocal(href) {
   const u = new URL(href);
-  let path = safeDecode(u.pathname);
+  let path = u.pathname;
   if (path.endsWith("/") || path === "") path += "index";
-  const segs = path
-    .split("/")
-    .filter(Boolean)
-    .map((s) => s.replace(UNSAFE, "_"));
+  const segs = path.split("/").filter(Boolean).map(segment);
   let name = segs.pop() ?? "index";
   if (u.search) {
     const q = createHash("sha256").update(u.search).digest("hex").slice(0, 8);
@@ -440,7 +504,7 @@ export function pageToLocal(pagePath) {
   if (p === "/") return "pages/index.html";
   return `pages${p
     .split("/")
-    .map((s) => safeDecode(s).replace(UNSAFE, "_"))
+    .map((s) => (s ? segment(s) : s))
     .join("/")}/index.html`;
 }
 

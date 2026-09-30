@@ -14,11 +14,16 @@ reference for the rebuilds from now on.
 
 The two Williamson captures are for their own site repos, which do not exist
 yet. Their bytes are not on `main`: 310 MB of photography and video would stay in
-this repo's history for good, and every clone of it would carry them. `main`
-holds each one's `CAPTURE.md` and `manifest.json` (every URL, file path and
-sha256), and the bytes sit on the branch above, which nothing here merges and no
-`claude/*` or `fix/*` fetch pulls. BACKLOG Operator decisions 33 is where that
-choice is put to the operator.
+this repo's history for good. `main` holds each one's `CAPTURE.md` and
+`manifest.json` (every URL, file path and sha256), and the bytes sit on the
+branch above, which nothing here merges. Keeping them off `main` does not keep
+them out of clones while the branch exists. A default fetch takes every branch,
+so a plain `git clone`, the cloud-session setup hook's unshallow fetch and every
+`fetch-depth: 0` CI checkout download about 290 MiB more (measured in a cloud
+session on 2026-09-30: 288.7 MiB of objects reachable only from the branch,
+against 17.7 MiB for all of `main`). That cost ends when the branch is deleted,
+after Phase 1 copies each capture into its site repo (BACKLOG Operator
+decisions 33, answered 2026-09-30).
 
 ## Layout
 

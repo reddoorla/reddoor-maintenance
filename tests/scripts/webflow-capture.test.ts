@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, normalize } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import {
   exclusionFor,
   extractFromCss,
@@ -205,7 +207,7 @@ describe("review round 3: references and paths the round-2 code lost or misplace
     expect(
       urls(
         extractFromJs(
-          `load('//cdn.x.com/a.js'); // see //example.com/notes`,
+          `load('//cdn.x.com/a.js'); // see //example.com/notes.js`,
           "https://s.com/app.js",
         ),
       ),
@@ -225,7 +227,9 @@ describe("review round 3: references and paths the round-2 code lost or misplace
       expect(inside(urlToLocal(u), "files/cdn.example.com"), `${u} -> ${urlToLocal(u)}`).toBe(true);
     for (const p of ["/a%2F..%2F..%2F..%2Fp", "/%2E%2E%2F%2E%2E%2Fq"])
       expect(inside(pageToLocal(p), "pages"), `${p} -> ${pageToLocal(p)}`).toBe(true);
+    expect(inside(pageToLocal("/a/%2e%2e/%2e%2e/%2e%2e/b"), "pages")).toBe(true);
     expect(pageToLocal("/a%2Fb")).not.toBe(pageToLocal("/a/b"));
+    expect(urlToLocal("https://h.com/a%2Fb.png")).not.toBe(urlToLocal("https://h.com/a/b.png"));
   });
 
   it("names a path that collides with another, by case or as a file under a file", () => {
@@ -582,7 +586,9 @@ describe("checkCapture", () => {
         "/": `<html data-wf-site="${SITE}"><img src="${CDN}/p.jpg"/><img src="${CDN.replace("https:", "http:")}/p.jpg"/></html>`,
       },
     });
-    expect(checkCapture(dir).failures).toEqual([]);
+    const r = checkCapture(dir);
+    expect(r.failures).toEqual([]);
+    expect(r.present).toBe(1);
   });
 
   it("fails two pages that map to one page file", () => {
@@ -610,4 +616,46 @@ describe("checkCapture", () => {
     unlinkSync(join(dir, files[`${CDN}/p.jpg`]!));
     expect(run()).toBe(1);
   });
+});
+
+describe("capture.mjs against a local server", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "wf-capture-run-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("records two pages on one file and a file under a file as failures, and still writes its manifest", async () => {
+    const site = `data-wf-site="s1"`;
+    const bodies: Record<string, string> = {
+      "/": `<html ${site}><a href="/x_y">a</a><a href="/x:y">b</a><img src="/img"><img src="/img/x.png"></html>`,
+      "/x_y": `<html ${site}>UNDERSCORE</html>`,
+      "/x:y": `<html ${site}>COLON</html>`,
+      "/img": "i",
+      "/img/x.png": "x",
+    };
+    const server = createServer((req, res) => {
+      const body = bodies[decodeURIComponent(req.url ?? "")];
+      res.writeHead(body === undefined ? 404 : 200);
+      res.end(body ?? "");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const { port } = server.address() as AddressInfo;
+    const code = await new Promise<number | null>((r) => {
+      const child = spawn(
+        process.execPath,
+        ["scripts/webflow-capture/capture.mjs", "--ref", `http://127.0.0.1:${port}`, "--out", dir],
+        { stdio: "ignore" },
+      );
+      child.on("exit", r);
+    });
+    server.close();
+    expect(code).toBe(2);
+    const m = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    expect(m.pageFailures.join("\n")).toMatch(/collides with/);
+    expect(m.failed.map((f: { status: string }) => f.status)).toContain("collision");
+    const kept = m.pages.filter((p: { path: string }) => p.path === "/x_y" || p.path === "/x:y");
+    expect(kept).toHaveLength(1);
+    expect(sha256(readFileSync(join(dir, "pages/x_y/index.html")))).toBe(kept[0].sha256);
+  }, 30_000);
 });

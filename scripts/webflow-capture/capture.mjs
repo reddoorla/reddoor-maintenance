@@ -29,6 +29,7 @@ import {
   isTextFile,
   normalizePagePath,
   pageToLocal,
+  pathConflict,
   sha256,
   urlToLocal,
 } from "./lib.mjs";
@@ -72,10 +73,18 @@ async function get(url) {
 
 rmSync(join(out, "pages"), { recursive: true, force: true });
 rmSync(join(out, "files"), { recursive: true, force: true });
+// pathConflict has already refused every clash it can see; anything the
+// filesystem still refuses is returned as a failure to record, never thrown, so
+// a run always ends with its manifest written.
 const write = (rel, buf) => {
   const abs = join(out, rel);
-  mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, buf);
+  try {
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, buf);
+    return null;
+  } catch (e) {
+    return String(e);
+  }
 };
 
 // 1. Pages: breadth-first over same-origin links, serially.
@@ -90,6 +99,7 @@ const addRef = (url, from) => {
 const seen = new Set(["/"]);
 const frontier = ["/"];
 const pageFailures = [];
+const pageClaimed = new Map();
 let siteId = null;
 while (frontier.length) {
   if (pages.length >= MAX_PAGES) {
@@ -109,7 +119,12 @@ while (frontier.length) {
   const id = /data-wf-site="([^"]+)"/.exec(html)?.[1] ?? null;
   if (path === "/") siteId = id;
   const file = pageToLocal(path);
-  write(file, r.buf);
+  const clash = pathConflict(pageClaimed, file, path);
+  const writeError = clash ? null : write(file, r.buf);
+  if (clash || writeError) {
+    pageFailures.push(`${path}: ${clash ? `collides with ${clash} at ${file}` : writeError}`);
+    continue;
+  }
   pages.push({ path, file, status: r.status, bytes: r.buf.length, sha256: sha256(r.buf) });
   console.error(`page ${pages.length}: ${path} (${r.buf.length} bytes)`);
   for (const x of extractFromHtml(html, url)) addRef(x.url, { where: path, kind: x.kind });
@@ -143,12 +158,13 @@ while (queue.length) {
     continue;
   }
   const file = urlToLocal(url);
-  const owner = claimed.get(file);
-  if (owner && owner !== url) {
-    failed.push({ url, status: "collision", note: `${file} already holds ${owner}` });
+  const had = claimed.has(file);
+  const owner = pathConflict(claimed, file, url);
+  if (owner) {
+    failed.push({ url, status: "collision", note: `${file} clashes with ${owner}` });
     continue;
   }
-  claimed.set(file, url);
+  if (had) continue;
   const r = await get(url);
   await sleep(FILE_PAUSE_MS);
   if (r.status !== 200 || r.buf.length === 0) {
@@ -160,7 +176,11 @@ while (queue.length) {
     });
     continue;
   }
-  write(file, r.buf);
+  const writeError = write(file, r.buf);
+  if (writeError) {
+    failed.push({ url, status: "write", note: writeError, from: meta.from.slice(0, 3) });
+    continue;
+  }
   files.push({
     url,
     file,
