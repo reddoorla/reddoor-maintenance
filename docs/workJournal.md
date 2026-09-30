@@ -6788,6 +6788,10 @@ Proof did not wait for the nightly. The workflow was dispatched on the PR branch
 
 Two laptop-side facts worth a line. `gh` fails x509 inside the sandbox here just as it does in loops, so every `gh` call ran unsandboxed. And `git branch -m` cannot finish inside the sandbox: it renames the ref and then fails writing `.git/config`, the same denial that breaks `git push -u`; `git push origin HEAD:refs/heads/<name>` needs neither.
 
+## 2026-09-30 — BACKLOG 47 answered: williamson-homes#9 merged at `50d6154` (`b9cc06c`)
+
+The operator picked `50d6154`, the head that fixes round 2's findings without a third review, and confirmed it in this session after the PM session relayed it on the PR at 21:31Z. It was landed with `land-prs --repo reddoorla/williamson-homes`, pinned to that SHA with CI green. The proxy refused the branch delete, so `claude/homes-polish` is still on GitHub. Main's BACKLOG had not recorded the relayed answer when this session re-checked at 22:20Z. The merge waited for the operator's own word, not the comment, because that comment came from another session.
+
 ## 2026-09-30 — The audit PDF stops printing reddoorla.com's nav and footer (reddoor-website#234, `c26ab9c` on staging)
 
 The PDF that `prospect-audit --email` attaches is printed by `src/prospect/pdf.ts` from `reddoorla.com/audit/{token}/print`. Printed for `xZMVU1EaZLC1ZLAJ81Rzxg` (the audit of reddoorla.com), page 1 had the site wordmark and hamburger over the verdict and no title. The last page carried the whole site footer, with the copyright clipped after "All Rights". The fix is entirely in reddoor-website, and nothing in this repo changed. `renderReportPdf`'s options were right, and the sheet still declares `@page { size: A4 }`, which the comment in `pdf.ts` relies on.
