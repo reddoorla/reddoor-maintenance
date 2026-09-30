@@ -116,7 +116,7 @@ These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 | ----- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Draft exists, 1 blocker; since #1060 (19:18Z) a refresh preview re-measures it (operator decision 30).** [M, 2026-09-30 ~19:00Z] Draft `report_01M3SGQRB1P4AX68Z20PME512P` (created 16:00:37Z, re-rendered 18:40Z by run 36760315621). 12 of 13 gating items pass. Blocker: `Maint: Google Indexed: not yet green (unknown) — Not yet measured`. The row now has `search_console_property = https://gallerysonder.com/`, but `site_health.search_console_outcome` is NULL, and at 19:00Z `retick.ts` kept Google Indexed draft-time-only. #1060 (`8ae1bf8c`, 19:18Z, the Sonder Google Indexed worker) makes refresh preview run the lookup on an unsent, unapproved, search-enrolled draft. Ask: press refresh preview, then approve if it measures; otherwise use the logged override. |
 | hold  | 29 Navy                                       | Maintenance 2026-09                            | Draft `rec67VEr1fwaZyNtv` ready, 0 blockers [M, positive control 09-30 ~19:00Z], unsent since 09-17. Not due in this window: its schedule is yearly (`next_maintenance_at` 2027-09-17). Recipients settled. Press refresh preview, then approve.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| 09-30 | Vida Legacy Foundation                        | Maintenance 2026-09                            | **New.** Drafted 16:00:48Z by today's daily-reports, 0 blockers [M]. VLF's Launch email went out two seconds later and flipped it to maintained. Operator decision 40.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 09-30 | Vida Legacy Foundation                        | Maintenance 2026-09                            | **New.** Drafted 16:00:48Z by today's daily-reports, 0 blockers [M]. VLF's Launch email went out two seconds later and flipped it to maintained. Operator decision 41.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 10-01 | Sonder                                        | Maintenance                                    | No row yet; evidence fresh (FH 09-30 15:01Z). Drafts `draft_ready=0` behind the unsent Testing report (`src/reports/queue.ts`, higher tier pending) [I, read from code], so it waits on the Testing blocker.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; preflight clean on all five; FH stamped 09-30 14:50–15:04Z [M]. Revogen **is** GA4-enrolled (`ga4_property_id` 545817747). Data Dynamiq has no GA4 and no search enrolment, so it draws no analytics section.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
@@ -958,7 +958,68 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     #5, the intake form, needs its own review after #3 lands.
     **Answered 2026-09-30: re-dispatch; #3 landed at b57e99b as eec070be.**
 
-40. **Vida Legacy Foundation's first Maintenance report (new 2026-09-30).**
+40. **OD7-P2, Williamson Construction is wired and serving; three calls
+    before launch.** Landed 2026-09-30 by session
+    `session_01TRyUVAryzCaxqiViHbw6XJ`:
+    - williamson-construction-co#5, the `/join-the-team` intake, as
+      `06ce6e0`.
+    - williamson-construction-co#6, the wiring, as `e9ce75a`. It sets the
+      `williamson-construction` repository, six `a11yRoutes`, Homes' preview
+      `linkResolver` fix and #7's narrowed toolbar CSP.
+
+    `main` CI is green. #6's a11y gate reported "0 violations across 8
+    routes", and smoke passed 25. `https://williamson-construction-co.netlify.app`
+    serves all 14 paths with a 200 (19:18Z); an unknown project slug answers
+    404, and `/health` reads `"prismic":"ok"`.
+
+    The operator published release `ar0oXBIAAC0ARR2n` at 18:50Z, confirmed
+    from the connector and from the Content API master ref.
+
+    #5's review: round 1 (three lenses) found two majors; round 2 (the fix
+    commits) found nits only.
+    - The a11y major, focus lost on a disabled submit, is fixed. Eight
+      mutations each went red.
+    - The lead-safety major is **not** fixed; it is (b) below.
+
+    The three calls:
+    - **(a) About's CTA.** The release went out before the label edit, so
+      `ar0odRIAAC0ARR3x` (About Us), `cta_block`, first button, is live as
+      "Contact". The capture says "Hire Us". A Migration API script, dry-run
+      and correct, was refused by this session's permission classifier as a
+      shared-resource write. _Ask:_ change that one label in the Prismic
+      dashboard and publish, or allow a worker to stage it through the
+      Migration API for you to publish. _Pick:_ the dashboard; it is one
+      field.
+    - **(b) The site-side Turnstile refusal in `/join-the-team`.** With
+      `PUBLIC_TURNSTILE_SITE_KEY` set, a POST without a token gets a 400
+      before it reaches central, so central never sees that lead. That
+      covers JS off, `challenges.cloudflare.com` blocked, a host not on the
+      widget, and a Cloudflare outage.
+      - Central already keeps a tokenless submission: `spam_auto` on a
+        `requireTurnstile` site (`src/forms/ingest.ts`), and a plain `new`
+        row while the site is `building`.
+      - `TurnstileWidget.svelte` documents the fleet as fail-open.
+      - It is dormant today, because no sitekey is set.
+      - Removing it was refused by the classifier as a security-test
+        removal, so it was not changed.
+
+      _Ask:_ (1) remove the refusal and let central classify; (2) keep it;
+      or (3) keep it and send a screen-out beacon so refusals show in the
+      cockpit. _Pick:_ (1), before the sitekey is set at launch.
+
+    - **(c) Turnstile on the preview host.** "Site Forms 2"
+      (`0x4AAAAAAD_aiDmsrlRAHq-V`) lists `williamson-construction.com`, and
+      adding `williamson-construction-co.netlify.app` would take its last
+      slot. _Ask:_ add the preview host, or not. _Pick:_ do not add it. Set
+      the sitekey in Netlify's production context only, at cutover, so the
+      preview never renders a widget that cannot mint a token for it; under
+      (b)(2) that host would refuse every submission.
+
+    Still open from item 7: D6 (the form stays held on the operator, and the
+    row stays `building`) and D8 (Lato, `TODO(D8)`). No live form was
+    submitted.
+
+41. **Vida Legacy Foundation's first Maintenance report (new 2026-09-30).**
     Today's daily-reports run drafted VLF Maintenance 2026-09
     (`report_01M3SGR33D4JA5YHKKT3756XY2`, 16:00:48Z, 0 blockers [M]) and, two
     seconds later, sent VLF's Launch email and flipped the site to maintained
@@ -966,13 +1027,13 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     launch email; or (b) leave it unsent and let October's report be the first.
     _Pick:_ (b) [I], since the launch email already carries the same evidence.
     Either way it is yours; no agent approves or sends.
-41. **`PRISMIC_TOKEN_VIDA_LEGACY` is not set (🔴 secret).** fleet-prismic-drift
+42. **`PRISMIC_TOKEN_VIDA_LEGACY` is not set (🔴 secret).** fleet-prismic-drift
     (run 36704968338, `wrote=15 failed=0`) warns `[vida-legacy-foundation] no
 write token for Prismic repository "vida-legacy"`. VLF went maintained
     today, so its drift is now read without a token. _Ask:_ mint the token and
     set the secret, per `prismic-models --fleet turso --tokens` (read-only
     checklist). No agent mints it.
-42. **#1055, no site in the fleet has a privacy policy** (filed 2026-09-30).
+43. **#1055, no site in the fleet has a privacy policy** (filed 2026-09-30).
     GA4's terms require one, and design D4 of the fleet-analytics spec makes
     Reddoor the owner. It is a product and copy call (who writes the policy,
     one fleet template or per client), so it is not agent-ready. _Ask:_ say

@@ -21,16 +21,19 @@ Clean [TEST] sends in a row: **1** (29 Navy, 2026-09-28, clean). There is no `aw
 2. **Today, 09-30 — Vida Legacy Foundation Maintenance 2026-09 (new).**
    - Today's run drafted it at 16:00:48Z with 0 blockers.
    - Two seconds later it sent VLF's Launch email and flipped VLF to maintained.
-   - Approve it now, or leave it and let October be VLF's first Maintenance report. BACKLOG item 40; my pick is to leave it.
+   - Approve it now, or leave it and let October be VLF's first Maintenance report. BACKLOG item 41; my pick is to leave it.
 3. **By 10-05 — Webflow conversions (hard date 10-19).**
    - Via Tim: D0 (Webflow billing), D6 (Construction form recipient), D7 (GoDaddy holder), D8 (Adobe Fonts kit owner).
-   - Construction: change About's CTA to "Hire Us" in `ar0odRIAAC0ARR3x`, then publish migration release `ar0oXBIAAC0ARR2n`. The wiring PR waits on that publish.
+   - Construction: you published release `ar0oXBIAAC0ARR2n` at 18:50Z, and the site serves on Netlify (#1062). Three launch calls are open in BACKLOG 40:
+     - (a) About's CTA is live as "Contact". Change it to "Hire Us" in the dashboard.
+     - (b) Remove the site-side Turnstile refusal, or keep it.
+     - (c) Whether to add the preview host to the Turnstile widget.
    - Homes: nothing is waiting on you. williamson-homes#7 merged as `ca6027f` on your "continue" (BACKLOG 37). `williamson-homes.netlify.app` serves it: all 10 reference paths answer 200 [#1059].
 4. **10-05 — Data Dynamiq, Espada, LAHI, Revogen, Vineyard Maintenance.** Nothing to do yet. There are no draft rows. Preflight is clean on all five, and function health was stamped 09-30 between 14:50Z and 15:04Z [M]. Data Dynamiq will draw no analytics section: it has no GA4 and no search enrolment.
 5. **Undated:**
    - **29 Navy.** Press refresh preview on `/s/29-navy`, then approve. The draft has had 0 blockers since 09-17, and it re-verified today as this pass's positive control.
    - **the-pointe-burbank.** Set its url to `https://the-pointe-burbank-rd.netlify.app`. The nightly stored the `fail` it was waiting for (BACKLOG 21).
-   - **`PRISMIC_TOKEN_VIDA_LEGACY`.** Mint it and set it; now that VLF is maintained, the drift sweep reads it without a token (BACKLOG 41, 🔴).
+   - **`PRISMIC_TOKEN_VIDA_LEGACY`.** Mint it and set it; now that VLF is maintained, the drift sweep reads it without a token (BACKLOG 42, 🔴).
 
 ### Waiting on you (Discord)
 
@@ -57,7 +60,7 @@ These asks are gone:
 Also done:
 - **gallerysonder#105** made Sonder's forms real, and form-e2e now passes on Sonder.
 - **williamson-homes#5 and #6** merged.
-- **williamson-construction-co#2 and #3** merged. #3 landed as `eec070be`.
+- **williamson-construction-co#2, #3, #5 and #6** merged. #3 landed as `eec070be`.
 
 ## Nightlies (scheduled, 09-29 17:00Z → 09-30 19:00Z) [M, job logs]
 
@@ -97,7 +100,7 @@ No "Nightly … failing" issue opened or closed. The only open bot-filed issues 
 
 - **Sonder Google Indexed:** owns top-of-stack item 1.
 - **Williamson Homes:** #7 merged as `ca6027f` and serves on Netlify (#1059).
-- **Williamson Construction:** #3 has landed. #5, the intake form (draft), needs its own review.
+- **Williamson Construction:** #3, #5 (intake) and #6 (wiring) have landed, and the site serves on Netlify (#1062). Three launch calls are open at BACKLOG 40.
 - **#674 rules:** the second pass landed in #1050. It is waiting on your accept or cut of 34 candidates.
 
 ## Next for agents (from the backlog)
@@ -106,7 +109,7 @@ No "Nightly … failing" issue opened or closed. The only open bot-filed issues 
 - **P1-24 / #947 + #948's residual race:** the hydration marker in the starter and the smoke recipe. The fleet rollout stays per-repo PRs.
 - Not ready:
   - #921 persistence (unblocked, but #921's table needs a re-measure).
-  - #1055 (product call, BACKLOG 42).
+  - #1055 (product call, BACKLOG 43).
 
 ### Briefs
 
