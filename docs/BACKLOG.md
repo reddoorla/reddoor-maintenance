@@ -957,6 +957,67 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     #5, the intake form, needs its own review after #3 lands.
     **Answered 2026-09-30: re-dispatch; #3 landed at b57e99b as eec070be.**
 
+40. **OD7-P2, Williamson Construction is wired and serving; three calls
+    before launch.** Landed 2026-09-30 by session
+    `session_01TRyUVAryzCaxqiViHbw6XJ`:
+    - williamson-construction-co#5, the `/join-the-team` intake, as
+      `06ce6e0`.
+    - williamson-construction-co#6, the wiring, as `e9ce75a`. It sets the
+      `williamson-construction` repository, six `a11yRoutes`, Homes' preview
+      `linkResolver` fix and #7's narrowed toolbar CSP.
+
+    `main` CI is green. #6's a11y gate reported "0 violations across 8
+    routes", and smoke passed 25. `https://williamson-construction-co.netlify.app`
+    serves all 14 paths with a 200 (19:18Z); an unknown project slug answers
+    404, and `/health` reads `"prismic":"ok"`.
+
+    The operator published release `ar0oXBIAAC0ARR2n` at 18:50Z, confirmed
+    from the connector and from the Content API master ref.
+
+    #5's review: round 1 (three lenses) found two majors; round 2 (the fix
+    commits) found nits only.
+    - The a11y major, focus lost on a disabled submit, is fixed. Eight
+      mutations each went red.
+    - The lead-safety major is **not** fixed; it is (b) below.
+
+    The three calls:
+    - **(a) About's CTA.** The release went out before the label edit, so
+      `ar0odRIAAC0ARR3x` (About Us), `cta_block`, first button, is live as
+      "Contact". The capture says "Hire Us". A Migration API script, dry-run
+      and correct, was refused by this session's permission classifier as a
+      shared-resource write. _Ask:_ change that one label in the Prismic
+      dashboard and publish, or allow a worker to stage it through the
+      Migration API for you to publish. _Pick:_ the dashboard; it is one
+      field.
+    - **(b) The site-side Turnstile refusal in `/join-the-team`.** With
+      `PUBLIC_TURNSTILE_SITE_KEY` set, a POST without a token gets a 400
+      before it reaches central, so central never sees that lead. That
+      covers JS off, `challenges.cloudflare.com` blocked, a host not on the
+      widget, and a Cloudflare outage.
+      - Central already keeps a tokenless submission: `spam_auto` on a
+        `requireTurnstile` site (`src/forms/ingest.ts`), and a plain `new`
+        row while the site is `building`.
+      - `TurnstileWidget.svelte` documents the fleet as fail-open.
+      - It is dormant today, because no sitekey is set.
+      - Removing it was refused by the classifier as a security-test
+        removal, so it was not changed.
+
+      _Ask:_ (1) remove the refusal and let central classify; (2) keep it;
+      or (3) keep it and send a screen-out beacon so refusals show in the
+      cockpit. _Pick:_ (1), before the sitekey is set at launch.
+
+    - **(c) Turnstile on the preview host.** "Site Forms 2"
+      (`0x4AAAAAAD_aiDmsrlRAHq-V`) lists `williamson-construction.com`, and
+      adding `williamson-construction-co.netlify.app` would take its last
+      slot. _Ask:_ add the preview host, or not. _Pick:_ do not add it. Set
+      the sitekey in Netlify's production context only, at cutover, so the
+      preview never renders a widget that cannot mint a token for it; under
+      (b)(2) that host would refuse every submission.
+
+    Still open from item 7: D6 (the form stays held on the operator, and the
+    row stays `building`) and D8 (Lato, `TODO(D8)`). No live form was
+    submitted.
+
 ---
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
