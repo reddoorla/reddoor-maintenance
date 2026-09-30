@@ -38,6 +38,10 @@ function calledWith(name: string): Call | undefined {
 
 vi.mock("@playwright/test", () => {
   const page = {
+    on: (...args: unknown[]) => {
+      record("on", args[0]);
+    },
+    url: () => "https://acme.com/",
     goto: async (...args: unknown[]) => {
       record("goto", ...args);
     },
@@ -146,6 +150,16 @@ describe("reports/header-image defaultShooter navigation", () => {
     expect(calls.map((c) => c.name).indexOf("waitForLoadState")).toBeGreaterThan(
       calls.map((c) => c.name).indexOf("goto"),
     );
+  });
+
+  it("listens for stylesheet failures before it navigates", async () => {
+    await shoot();
+    const names = calls.map((c) => c.name);
+    expect(calls.filter((c) => c.name === "on").map((c) => c.args[0])).toEqual([
+      "requestfailed",
+      "response",
+    ]);
+    expect(names.lastIndexOf("on")).toBeLessThan(order("goto"));
   });
 
   it("captures the screenshot even when the idle wait times out", async () => {
