@@ -1051,6 +1051,21 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     row stays `building`) and D8 (Lato, `TODO(D8)`). No live form was
     submitted.
 
+    **Answered 2026-09-30 (operator):**
+    - (a) "Use the Prismic MCP." Release `ar1q1BIAAG9QRYia` held the one
+      label change, and the diff showed exactly one delta. It was published
+      through the MCP, the Content API master ref returned "Hire Us", and a
+      Netlify rebuild of `main` (ready 20:08Z) serves it on `/about-us`.
+      There is still no Prismic → Netlify publish webhook, so a publish
+      needs a manual rebuild until one is set.
+    - (b) "Remove it and let central decide." Landed as
+      williamson-construction-co#7 (`e15517e`). Putting the refusal back
+      turns the new route test red.
+    - (c) Turnstile runs on live sites only. The sitekey goes in Netlify's
+      production context at cutover, and the preview host stays off the
+      widget. Read through `CLOUDFLARE_PAT`: "Site Forms 2" lists
+      `williamson-construction.com` (9 of 10 domains), and "Site Forms 3" has 3.
+
 41. **Vida Legacy Foundation's first Maintenance report (new 2026-09-30).**
     Today's daily-reports run drafted VLF Maintenance 2026-09
     (`report_01M3SGR33D4JA5YHKKT3756XY2`, 16:00:48Z, 0 blockers [M]) and, two
