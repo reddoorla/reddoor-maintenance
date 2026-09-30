@@ -6078,6 +6078,7 @@ survived until a paragraph was put above the host. The wrapper fixture now has
 two element children, which kills "re-include the first child only".
 
 Two mutations were left standing, each for a reason:
+
 - `:nth-of-type` for `:nth-child`. Every child position 1..n is generated, so
   every child is still matched. This is equivalent unless an excluded child
   shares a type index with a sibling.
