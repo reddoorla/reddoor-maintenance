@@ -6061,6 +6061,10 @@ One claimed defect was refuted by measurement against a real hydrating Svelte 5 
 - "Seven sites need the central widening" was wrong: two have no form, and the other five, plus Sonder, need client deploys regardless.
 - The line-number citations in `docs/runbooks/turnstile-widgets.md` moved three times in one PR; `runbook-anchors` caught every one.
 
+## 2026-09-30 — P1-3 PR 2 landed as it was (#1004, `ed2f3ae6`)
+
+Corrects nothing in the 2026-09-29 entry "P1-3 PR 2, the roster-url surface, held after two review rounds"; it records the outcome. The operator answered Operator decisions 26 with "land as it is". #1004 was merged with `main` once more: the only conflict was `docs/BACKLOG.md`, where #910's P1-7 had left the P1 table in the meantime. The full suite passed (8098). `land-prs` updated the branch to `ca357bc`, watched CI go green there, and squash-merged it as `ed2f3ae6`. From the next 09:23 digest, a fresh `url_resolves = 'fail'` mails once per site. A probe that has stopped mails once as `url-probe-stale`. A never-stamped row counts only while no row in the fleet is fresh. P1-3 is Done. #912 is closed.
+
 ## 2026-09-30 — #943 lands: the Search Console launch check needs evidence (#1016)
 
 The operator answered Operator decisions 28 with the pick as written: a resolved lookup counts for the site's shorter report cadence plus 14 days (45 days for monthly, 106 for quarterly, 380 for yearly). The code did not change for the answer, because #1016 was built on that pick. It corrects nothing in the 2026-09-29 entry; it only closes the fork that entry left open. Landing needed one merge of `main`: #1005 had taken migrations 0033/0034 in the meantime, so `MIGRATIONS` and the id lists in `tests/db/migrate.test.ts` and `tests/db/client.test.ts` keep both sides, in id order. The runner applies whatever ids are missing, so the order is cosmetic. The rest of the `site_health` plumbing merged cleanly beside #1005's two columns.
