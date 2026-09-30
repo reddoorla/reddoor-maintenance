@@ -135,9 +135,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                             | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164            | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 
-| P1-26 | #1055 option A: a `/privacy` route in `reddoor-starter` rendered from per-site values (client legal name, contact email, and switches for the services the site actually uses: GA4, Turnstile, Netlify Forms/central forms, Mailchimp, Google Fonts, Adobe Fonts, Vimeo), a footer link, a one-line data notice under each form, and a CalOPPA "Do Not Track" line. Central: the `analytics-tag` recipe (`src/recipes/analytics-tag/index.ts`) refuses to add a tag when the site has no `/privacy` route. First site: roalson-interests, before its launch adds GA4. The text ships marked DRAFT until item 45 clears it; client-site rollout is per-repo PRs after that. Brief: `docs/privacy-2026-09.md` | 🟡 | M | `reddoor-starter/src/lib/components/Footer.svelte`, `src/routes/contact/+page.svelte`; central `src/recipes/analytics-tag/index.ts` | Starter PR and central refusal landed with tests; roalson carries the page |
 | P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries | 🟢 | S | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed |
-| P1-28 | **In progress: `claude/report-withdraw` (operator asked 2026-09-30).** It also blocks the next period: `pendingEarlier` in `src/cli/commands/report.ts` skips a new draft while an earlier one is pending, so VLF's October report would never be drafted. A report draft the operator decided not to send has no state that takes it off the cockpit's pending list: `isPendingApproval` (`src/reports/report-row.ts:79`) is `draftReady && !approvedToSend && sentAt === null`, so VLF's skipped 2026-09 draft (item 41) shows as "Maintenance 2026-09 ready" forever. Add a withdrawn state for a draft, set from `/s/<slug>`. | 🟡 | S–M | `src/reports/report-row.ts:79`, `src/dashboard/fleet-cockpit.ts` | A withdrawn draft leaves the pending list and the Needs-you feed, and a test goes red if it comes back |
+| P1-28 | **#1078, held for operator decision 51 (operator asked 2026-09-30).** It also blocks the next period: `pendingEarlier` in `src/cli/commands/report.ts` skips a new draft while an earlier one is pending, so VLF's October report would never be drafted. A report draft the operator decided not to send has no state that takes it off the cockpit's pending list: `isPendingApproval` (`src/reports/report-row.ts:79`) is `draftReady && !approvedToSend && sentAt === null`, so VLF's skipped 2026-09 draft (item 41) shows as "Maintenance 2026-09 ready" forever. Add a withdrawn state for a draft, set from `/s/<slug>`. | 🟡 | S–M | `src/reports/report-row.ts:79`, `src/dashboard/fleet-cockpit.ts` | A withdrawn draft leaves the pending list and the Needs-you feed, and a test goes red if it comes back |
 
 ### Blocked behind another PR (do not start early)
 
@@ -153,6 +152,18 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
+
+- **P1-26, the fleet `/privacy` page (#1055, option A): parked by the
+  operator 2026-09-30 ~21:25Z** until a lighter week with no new client
+  work, to save tokens. The brief is ready in `docs/privacy-2026-09.md`, and
+  #1055 tracks it. Do not recommend it before the operator un-parks it. Its
+  one hard date: roalson-interests must carry the page before its launch adds
+  GA4.
+- **GOLA (operator's desktop session `session_01Sjj8cMbeBoVNQ5bsErLsK9`,
+  started 2026-09-30 20:25Z)**: rates research from GOLA's Discord history and
+  a PDF sweep; at 21:17Z "sweep 50% done; PDFs ~23:00–23:15 UTC". No branch
+  pushed yet, and no issue. The PM pass reports its state (`get_session`) and
+  does not act on it.
 
 - **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
   the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
@@ -670,6 +681,39 @@ search=measured`. Read back (SELECT only) at 19:20Z:
       - `approveBlockers` on the live row is `[]`.
 
       No override is needed. Nothing was sent.
+
+    - **Update 2026-09-30 ~21:03Z: the header no longer shows the cookie
+      banner.** #654 was closed by #814, but the draft's header still showed
+      Sonder's consent panel and its blur scrim over the hero. Sonder's banner
+      mounts after hydration, 3–5s after `load`, which is after #814's one
+      click. Its classes are utility-only, so the CSS fallback never matched.
+      #1070 (`d269b9cf`) now clicks only buttons inside a consent overlay,
+      looks again after the settle, and refuses to store a shot whose banner
+      will not leave. The plate was regenerated with `header-image sonder
+--write-back` and inspected: 21:02:23Z, 888,694 bytes, the "Theo
+      Hirschfield / Euphorbia" hero with no banner. The preview was refreshed
+      (run 36776796655), and `approveBlockers` is still `[]`. Test emails to
+      the operator inbox only: `01a0f3e7…` (old header),
+      `01a0f41d…` (**broken, disregard**: an unstyled capture, see below) and
+      `01a0f421…` (correct). Still ready for your approve and send.
+    - **Follow-up (not built): an unstyled capture passes every check.** One of
+      four cloud captures at 20:58Z rendered Sonder without its stylesheet:
+      plain-text banner copy and two giant SONDER logos. `assertNotBlank` passed
+      it, and so did the consent backstop, because an unstyled banner is not
+      `position: fixed`. It was stored, and it went out in a test email before I
+      looked at it. Three later captures were fine. The likely cause is this
+      container's egress proxy [I], but nothing would stop the same shot in
+      Actions. **Ask:** should the capture refuse a page whose stylesheets did
+      not all load (`document.styleSheets` vs `<link rel=stylesheet>`)? My pick:
+      yes, the same refusal shape as the consent backstop, as its own PR.
+    - **Answered 2026-09-30 (yes) and built on `claude/header-unstyled-refusal`.**
+      The DOM check the ask proposed would never fire: Chromium gives a `<link>`
+      a non-null `sheet` even when its request 404s, returns HTML or is reset
+      (measured). The capture now watches the network instead. It refuses a shot
+      when a stylesheet from the page's own host, one that styles the screen,
+      failed or answered 400 or above, and it re-shoots once first. Blocking
+      Sonder's own CSS reproduces the broken shot exactly. A sweep of all 19 live
+      fleet homepages found no false positive.
 31. **#779, the client half of form-e2e coverage** — the central widening
     (item 16) covers no new site on its own. Measured 2026-09-29 from the live
     roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
@@ -1087,6 +1131,16 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     today, so its drift is now read without a token. _Ask:_ mint the token and
     set the secret, per `prismic-models --fleet turso --tokens` (read-only
     checklist). No agent mints it.
+    **Done 2026-09-30 ~21:28Z (#1076).** The operator supplied the token and
+    approved setting this one secret. Before it was set, the same token
+    answered 200 for `vida-legacy` and 403 for `revogen` on the custom-types
+    API [M]; `gh secret list` then showed
+    `PRISMIC_TOKEN_VIDA_LEGACY 2026-09-30T21:27:56Z`. #1076 adds the
+    workflow's env line and the test. Proven on the PR branch (run
+    36780192887): no token warning, VLF read as `vida-legacy` with 18 models
+    matching, and `11 checked, 0 failed` against the morning's
+    `10 checked, 1 failed` [M]. Tomorrow's 05:00 UTC run on `main` is the
+    durable confirmation.
 43. **#1055, no site in the fleet has a privacy policy** (filed 2026-09-30).
     GA4's terms require one, and design D4 of the fleet-analytics spec makes
     Reddoor the owner. It is a product and copy call (who writes the policy,
@@ -1147,6 +1201,9 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     turns 9/9 mutations red. **Ask:** merge `50d6154`, merge `07cc956`, or send
     it back for a third review. **Pick: `50d6154`**; it is small, and every line
     is under a mutation that goes red. The PR comment has the detail.
+    **Answered 2026-09-30 ~21:35Z: merge `50d6154`, no third round.** Merged
+    22:27Z as `b9cc06c`, pinned to `50d6154` with CI green. Item 44's Homes P1b
+    can start from it.
 48. **Cockpit warnings, 2026-09-30: Beachfront Dentistry's Netlify ID.** The
     cockpit's watch "Netlify ID not recorded" [M, 21:30Z]. The Netlify API
     lists site `b36d3ca8-bdc1-4675-b002-5a6469cf5b9b` (`beachfront-dentistry-rd`,
@@ -1183,6 +1240,18 @@ analytics"]`). The operator creates properties for the other three. When the
     **Answered 2026-09-30 ~21:38Z: pushed by the operator.** Prismic's
     `inquiry_survey_id` now carries the repo's label [M, Prismic MCP]. The
     stored verdict read `fail` at 21:34:12Z, before the push, from dispatch 36780192887. The next prismic-drift run re-reads it.
+51. **#1078 (P1-28, withdraw a report draft): land after two review rounds.**
+    Round 1 (on `826dc0e9`) found a blocker (a withdrawn draft froze the
+    schedule, since `nextDueDate` is based on the last send), a major
+    (`launch`/`announce` reused a withdrawn row), a race and UI minors. All
+    were fixed in `d4605b7b` (8411 tests; every named mutation red). Round 2
+    on `d4605b7b` found no blocker or major. It found real minors: withdrawing
+    an overdue draft advances only one cycle (about six clicks to catch up), a
+    no-anchor site's shown next date can be a month off, and UI refusal labels.
+    **Ask:** (a) one more commit that treats a withdrawal like a send for
+    scheduling, plus the UI fixes, then land; (b) land `d4605b7b` as it is and
+    file the minors; or (c) a third round after (a). **Pick: (a)**; VLF is due
+    2026-10-30 under either rule. Detail: the #1078 comment.
 
 ---
 
