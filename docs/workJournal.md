@@ -6406,6 +6406,7 @@ This is the first OD7-P1 worker. "Williamson Homes content is live in Prismic; a
 **A belief corrected: project pages have no "other projects" list.** §2.1 of the plan says the CMS list appears "on every project page (the 'other projects' list)". In the capture, the only `w-dyn-list` on a project page is the photo gallery, a multi-image repeater. Nothing was built for it, and the brief's mutation 2 had nothing to mutate. Also from the capture: the Home and /projects thumbnails are each project's hero image, so there is no thumbnail field. Every project page's "Email Us" and "Call Us" point at `#`.
 
 **#5: the site.** It adds:
+
 - the `project` type and 11 site slices;
 - `/projects/[uid]`, which answers an unknown slug with a 404 while outages and a wrong repository name stay loud;
 - project context passed to the slices through SliceZone `context`;
@@ -6415,18 +6416,21 @@ This is the first OD7-P1 worker. "Williamson Homes content is live in Prismic; a
 - `check-no-webflow` at the end of `pnpm build`.
 
 The Prismic image helper needs absolute URLs, so the twin builds them from the request origin; relative `/dev/spec/…` URLs made every twin page a 500. Mutations 1, 3 and 4 turned tests red, and so did two of my own: a list fallback that drops a project, and a broken relationship kept. The tests found two real defects on the way:
+
 - `isFilled.contentRelationship` accepts a link Prismic marks `isBroken`;
 - Svelte trimmed the space in the screen-reader label, which read "Step 1:Meet with Us".
 
 The teal contact hero is darkened from `#77b9bc` to `#407f82`, because white on the original measures 2.22:1. That, Mark's `mailto:` (its text says mark@, it opened brian@) and the project-page buttons are listed for Tim in williamson-homes#3.
 
 **Why #5 is not merged.**
+
 - **Round 1:** three separate reviewers, no blocker. The two majors were featured project titles at 3.21:1, from the reference's own `opacity-75`, and both Webflow guards scanning a list of extensions. A reviewer showed a `_redirects` line proxying `cdn.prod.website-files.com` passing the build check, because an extensionless file was never read. Both were fixed in `65dd1ec`, the guards by scanning every non-binary file.
 - **Round 2:** it found that the hover-tint fix only cleared the white ground (4.23:1 on `bg-light`), that the sticky header can sit over the absolute one at y ≤ 120, and that six round-1 fixes were not bound by any test.
 
 That is two dirty rounds, so #5 went to BACKLOG 36 with a pick, not into a third round. The head `9bfc481` is green. The wiring change (sentinel to `williamson-homes`, `a11yRoutes`) is pushed as `claude/wire-prismic`, with no PR. It prerenders all 10 reference paths from the live repository.
 
 **What the cloud refused, recorded on #3.**
+
 - Secret scanning: `PATCH repos/…` returned 403, "Repository settings writes are not permitted through this proxy".
 - Branch protection: `self-updating` stopped before writing, because the protection read returned 403 "Resource not accessible by integration".
 

@@ -804,7 +804,7 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     third round. _Pick:_ (a). Each fix is local and bound by a test:
     `WhButton`'s hover tint `/5`, about 4.5:1 on both grounds, with a test that
     computes the blended contrast on `white` and `light`; `sidekick =
-    (scrolledUp || focusWithin) && y > 120`, with a component test; and a unit
+(scrolledUp || focusWithin) && y > 120`, with a component test; and a unit
     test per round-1 fix (`opacity-75` absent, `aria-controls` absent while
     closed, the seed throwing on an unseeded link). After #5, one prepared PR
     (branch `claude/wire-prismic`, pushed, no PR; it sits on #5 at `6a52e5b` and needs #5 merged into it) replaces the sentinel with
