@@ -18,7 +18,7 @@ import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft, type QueueOutcome } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
 import { readGaConfig } from "./ga/config.js";
-import { searchConsoleOptedOut } from "../fleet/opt-outs.js";
+import { searchEnrolled } from "./search-enrolled.js";
 import { fetchPeriodUsers, measuredHostnames } from "./ga/client.js";
 import { fetchSearchPresence } from "./search/client.js";
 import type { SearchPresence } from "./search/client.js";
@@ -473,10 +473,7 @@ export function lookupFields(search: SearchEnrichment, at: Date): FieldSet {
     : {};
 }
 
-export function searchEnrolled(row: WebsiteRow): boolean {
-  if (searchConsoleOptedOut(row)) return false;
-  return Boolean(row.ga4PropertyId || row.searchQuery || row.searchConsoleProperty?.trim());
-}
+export { searchEnrolled };
 
 export function analyticsEnrolled(row: WebsiteRow): boolean {
   return Boolean(row.ga4PropertyId) || searchEnrolled(row);

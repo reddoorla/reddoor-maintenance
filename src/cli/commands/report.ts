@@ -179,6 +179,7 @@ export async function runReportCommand(
     const { getReportById, getSiteById, storeRenderedHtml, storeChecklistEvidence } =
       await import("../../db/fleet-state.js");
     const { loadHeaderImage } = await import("../../db/header-images.js");
+    const { fetchSearch } = await import("../../reports/draft.js");
     const db = await openDb(readDbConfig());
     const result = await rerenderReport(
       {
@@ -187,8 +188,9 @@ export async function runReportCommand(
         loadHeaderPlate: async (id) => (await loadHeaderImage(db, id))?.bytes ?? null,
         render: (site, report, plate) => renderReportFromRow(site, report, plate),
         store: (id, html) => storeRenderedHtml(db, id, html),
-        storeEvidence: (id, checklist, autoEvidence) =>
-          storeChecklistEvidence(db, id, checklist, autoEvidence),
+        storeEvidence: (id, checklist, autoEvidence, search) =>
+          storeChecklistEvidence(db, id, checklist, autoEvidence, search),
+        measureSearch: (site, start, end) => fetchSearch(site, start, end),
         now: () => new Date(),
       },
       opts.rerender,

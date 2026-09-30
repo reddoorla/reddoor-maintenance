@@ -770,6 +770,27 @@ describe("storeChecklistEvidence (#890)", () => {
     expect(after.checklist).toEqual(checklist);
   });
 
+  it("writes the search columns with the evidence, NULL staying NULL, and leaves them when none are given", async () => {
+    const db = await seeded([RICH]);
+    await insert(db, "recEV4");
+    const before = (await getReportById(db, "recEV4"))!;
+    await storeChecklistEvidence(db, "recEV4", before.checklist, EVIDENCE, {
+      searchFoundPage1: true,
+      searchPosition: 2,
+    });
+    let after = (await getReportById(db, "recEV4"))!;
+    expect([after.searchFoundPage1, after.searchPosition]).toEqual([true, 2]);
+    await storeChecklistEvidence(db, "recEV4", before.checklist, EVIDENCE);
+    after = (await getReportById(db, "recEV4"))!;
+    expect([after.searchFoundPage1, after.searchPosition]).toEqual([true, 2]);
+    await storeChecklistEvidence(db, "recEV4", before.checklist, EVIDENCE, {
+      searchFoundPage1: null,
+      searchPosition: null,
+    });
+    after = (await getReportById(db, "recEV4"))!;
+    expect([after.searchFoundPage1, after.searchPosition]).toEqual([null, null]);
+  });
+
   it("refuses an approved or a sent row, leaving it as it was", async () => {
     const db = await seeded([RICH]);
     await insert(db, "recEV2", { approved_to_send: 1 });

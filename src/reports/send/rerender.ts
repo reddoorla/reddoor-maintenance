@@ -1,7 +1,8 @@
 import type { WebsiteRow } from "../../fleet/site-row.js";
 import type { ReportRow } from "../report-fields.js";
-import type { EvidenceRecord } from "../auto-tick.js";
-import { retickEvidence } from "../retick.js";
+import type { AutoTickSignals, EvidenceRecord } from "../auto-tick.js";
+import { retickEvidence, type SearchColumns } from "../retick.js";
+import { searchEnrolled } from "../search-enrolled.js";
 
 /**
  * Refresh a report's stored HTML body on demand (#539 Phase 4 report review).
@@ -35,9 +36,22 @@ export type RerenderDeps = {
     reportId: string,
     checklist: Record<string, boolean>,
     autoEvidence: Record<string, EvidenceRecord>,
+    search: SearchColumns | null,
   ) => Promise<boolean>;
+  /** The draft's own Search Console fetch over the report's period (`fetchSearch`).
+   *  Called only for an unapproved report on a search-enrolled site. */
+  measureSearch?: (
+    site: WebsiteRow,
+    periodStart: Date,
+    periodEnd: Date,
+  ) => Promise<AutoTickSignals["search"]>;
   now: () => Date;
 };
+
+/** Whether this refresh re-measured Google Indexed: `measured` (a query ran),
+ *  `unavailable` (soft-fail or no credentials), `skipped` (locked, not enrolled,
+ *  no period, or no fetch wired). */
+export type SearchStatus = "measured" | "unavailable" | "skipped";
 
 export type EvidenceStatus = "reticked" | "unchanged" | "locked" | "not-written";
 
@@ -48,10 +62,11 @@ export type RerenderResult =
       bytes: number;
       headerSource: "turso";
       evidence: EvidenceStatus;
+      search: SearchStatus;
     }
   /** Already sent: its stored body is the record of what the client received. */
   | { status: "already-sent"; reportId: string }
-  | { status: "no-header"; reportId: string; evidence: EvidenceStatus }
+  | { status: "no-header"; reportId: string; evidence: EvidenceStatus; search: SearchStatus }
   | { status: "not-found"; reportId: string };
 
 export async function rerenderReport(
@@ -70,13 +85,31 @@ export async function rerenderReport(
   const site = await deps.getSite(report.siteId);
   if (!site) return { status: "not-found", reportId };
 
+  const signal = await measureSearch(deps, site, report);
+  const searchStatus: SearchStatus =
+    signal === undefined
+      ? "skipped"
+      : signal.softFailed || signal.notConfigured
+        ? "unavailable"
+        : "measured";
+
   let current = report;
   let evidence: EvidenceStatus;
-  const retick = retickEvidence(site, report, deps.now());
+  const retick = retickEvidence(site, report, deps.now(), signal);
   if (retick.status === "reticked") {
-    const written = await deps.storeEvidence(reportId, retick.checklist, retick.autoEvidence);
+    const written = await deps.storeEvidence(
+      reportId,
+      retick.checklist,
+      retick.autoEvidence,
+      retick.search,
+    );
     if (written) {
-      current = { ...report, checklist: retick.checklist, autoEvidence: retick.autoEvidence };
+      current = {
+        ...report,
+        checklist: retick.checklist,
+        autoEvidence: retick.autoEvidence,
+        ...(retick.search ?? {}),
+      };
       evidence = "reticked";
     } else {
       evidence = "not-written";
@@ -89,11 +122,32 @@ export async function rerenderReport(
   // Named, not rendered around: a report with no header is already blocked at
   // approve, and a preview that quietly omitted it would disagree with both
   // the email and that block.
-  if (!plate) return { status: "no-header", reportId, evidence };
+  if (!plate) return { status: "no-header", reportId, evidence, search: searchStatus };
 
   const { html } = await deps.render(site, current, plate);
   await deps.store(reportId, html);
-  return { status: "rendered", reportId, bytes: html.length, headerSource: "turso", evidence };
+  return {
+    status: "rendered",
+    reportId,
+    bytes: html.length,
+    headerSource: "turso",
+    evidence,
+    search: searchStatus,
+  };
+}
+
+/** Google Indexed is measured only where the draft would measure it: an unapproved
+ *  report (a sent one never reaches here), a search-enrolled site, and the
+ *  report's own period. `fetchSearch` never throws; a soft-fail comes back flagged. */
+async function measureSearch(
+  deps: RerenderDeps,
+  site: WebsiteRow,
+  report: ReportRow,
+): Promise<AutoTickSignals["search"] | undefined> {
+  if (!deps.measureSearch || report.sentAt !== null || report.approvedToSend) return undefined;
+  if (!searchEnrolled(site)) return undefined;
+  if (!report.periodStart || !report.periodEnd) return undefined;
+  return deps.measureSearch(site, new Date(report.periodStart), new Date(report.periodEnd));
 }
 
 /** One line per run, machine-greppable, emitted for every outcome — an absent
@@ -101,9 +155,9 @@ export async function rerenderReport(
 export function formatRerenderResult(r: RerenderResult): string {
   const suffix =
     r.status === "rendered"
-      ? ` bytes=${r.bytes} header=${r.headerSource} evidence=${r.evidence}`
+      ? ` bytes=${r.bytes} header=${r.headerSource} evidence=${r.evidence} search=${r.search}`
       : r.status === "no-header"
-        ? ` evidence=${r.evidence}`
+        ? ` evidence=${r.evidence} search=${r.search}`
         : "";
   return `REPORT_RERENDER report=${r.reportId} status=${r.status}${suffix}`;
 }
