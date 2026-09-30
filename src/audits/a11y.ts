@@ -6,6 +6,7 @@ import {
   a11yRoutes,
   smokeRoutes,
   DEV_PROBE_ROUTE,
+  GATE_FIXTURES_ENV,
   type A11yRoute,
 } from "../configs/playwright-a11y.js";
 import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.js";
@@ -299,14 +300,7 @@ async function readJsonMaybe<T>(path: string): Promise<T | null> {
   }
 }
 
-/**
- * Set on the gate's build, and only there (#948). The site's `/dev` layout
- * guard reads it at build time as `import.meta.env.VITE_REDDOOR_GATE_FIXTURES`,
- * so the fixtures exist in the bundle the axe scan opens and never in a build
- * without it. Baked, not read at runtime: a deployed server cannot be talked
- * into serving them by an environment variable.
- */
-export const GATE_FIXTURES_ENV = "VITE_REDDOOR_GATE_FIXTURES";
+export { GATE_FIXTURES_ENV };
 
 /** What the preview webServer's readiness probe polls. SvelteKit writes it on
  *  every build, so it answers 200 before any route is asked for — unlike `/`,

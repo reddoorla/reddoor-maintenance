@@ -1673,6 +1673,18 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     expect(result.summary).toContain("readiness probe");
   });
 
+  // #948: only the dev server probes that route. A site whose smoke is on the
+  // preview starts no dev server, so the fixture is an ordinary absent one:
+  // skipped and warned, never a fail-fast naming a probe that does not run.
+  it("does not fail fast on the readiness fixture when no dev server runs", async () => {
+    const { pages, result } = await auditSite(async (dir) => {
+      await writePkg(dir, { gateServer: "preview" });
+      await writeDevFixtures(dir, ["animate-in"]);
+    });
+    expect(result.summary).not.toContain("readiness probe");
+    expect(pages.find((p) => p.path === "/dev/a11y-fixtures")?.sourceAbsent).toBe(true);
+  });
+
   // Declaring it does not buy a way around that.
   it("a declaration cannot excuse the readiness fixture either", async () => {
     const { result } = await auditSite(async (dir) => {
