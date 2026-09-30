@@ -135,6 +135,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                             | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164            | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 
+| P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries | 🟢 | S | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed |
+
 ### Blocked behind another PR (do not start early)
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
@@ -1120,7 +1122,10 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     current worker has ended: at 20:17Z both were `WORKING`
     (`session_01UHJ28GGynFCzakmooVUj76` on Homes, at 707k of 1M context;
     `session_01TRyUVAryzCaxqiViHbw6XJ` on Construction).
-
+    **Homes' worker ends with the PR that adds this line** (2026-09-30), with williamson-homes#9
+    held for item 47. #9 builds a first scroll reveal for the steps; the
+    reference's sticky numbering (`countersAnim.js`) replaces or extends it.
+    Start Homes' P1b from whichever #9 head the operator merges.
 45. **Privacy policy wording (P1-26): one legal review of the template.**
     The template's text speaks for each client's business, and it discloses
     what the fleet actually does with visitor data. _Ask:_ send the draft in
@@ -1141,6 +1146,17 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     first-party analytics that needs no consent. _Pick:_ put (b) or (c) to
     counsel alongside item 45, since the same review answers both. Not legal
     advice; the law here was moving through 2025–26.
+47. **williamson-homes#9 (Homes visual polish): which head to merge.** Two
+    adversarial rounds, and round 2 still found a real defect, so it stopped
+    under "two dirty rounds". Round 1 (major: steps flickered at hydration;
+    minors: an untested guard, hero height tied to slow zoom, footer insets)
+    was fixed in `07cc956`. Round 2 on `07cc956` found no blocker or major.
+    It did find that arriving by client navigation from a scrolled page lit
+    every step, so the reveal never played (it errs toward showing content),
+    plus three test gaps. `50d6154` fixes all of round 2, is unreviewed, and
+    turns 9/9 mutations red. **Ask:** merge `50d6154`, merge `07cc956`, or send
+    it back for a third review. **Pick: `50d6154`**; it is small, and every line
+    is under a mutation that goes red. The PR comment has the detail.
 
 ---
 
