@@ -2,7 +2,7 @@
 
 ## One-line verdict
 
-**All 13 scheduled nightlies are green with `failed=0` on every sweep, and 0.102.0 is on npm. The one thing blocking today's report is Sonder's first Testing report, and a refresh preview cannot clear it.**
+**All 13 scheduled nightlies are green with `failed=0` on every sweep, and 0.102.0 is on npm. The one thing blocking today's report is Sonder's first Testing report. #1060 landed at 19:18Z, so a refresh preview can now clear it.**
 
 The scheduled Routine failed at bootstrap this morning, so this pass ran by hand from 18:55Z. By then most of the day had already happened: about 30 PRs landed since yesterday's report, and there are **0 open PRs** [M, 18:56Z].
 
@@ -11,10 +11,13 @@ Clean [TEST] sends in a row: **1** (29 Navy, 2026-09-28, clean). There is no `aw
 ## Top of stack (yours; ordered by date)
 
 1. **Today, 09-30 — Sonder Testing, the fleet's first Testing report.**
-   - The draft `report_01M3SGQRB1P4AX68Z20PME512P` has one blocker: `Maint: Google Indexed: not yet green (unknown) — Not yet measured` [M].
-   - Your 18:40Z re-render did not clear it, and cannot. `src/reports/retick.ts:5` treats Google Indexed as draft-time-only.
-   - The row now has `search_console_property = https://gallerysonder.com/`. But `site_health.search_console_outcome` is still NULL, because the lookup has never run for Sonder.
-   - It clears in one of two ways: a re-draft that runs the lookup, which is the live Sonder Google Indexed worker's job, or your logged send-anyway override naming only that item. The other 12 gating items pass.
+   - Press **refresh preview** on Sonder's Testing draft (`report_01M3SGQRB1P4AX68Z20PME512P`). Approve it if Google Indexed comes back measured.
+   - Its one blocker is `Maint: Google Indexed: not yet green (unknown) — Not yet measured` [M, 19:00Z]. The other 12 gating items pass.
+   - Your 18:40Z re-render could not clear it: at that point the item was draft-time-only (`retick.ts`).
+   - **#1060 (`8ae1bf8c`, 19:18Z, from the Sonder Google Indexed worker)** changes that. A refresh preview on an unsent, unapproved draft of a search-enrolled site now runs the Search Console lookup.
+   - Sonder is search-enrolled now: `search_console_property = https://gallerysonder.com/`. After #1060 lands, a lookup that returns `unknown` leaves the stored record as it is.
+   - If the refresh still shows `unknown`, the logged send-anyway override naming only that item is the fallback.
+   - Unproven [I]: this pass has not seen a post-#1060 refresh run.
 2. **Today, 09-30 — Vida Legacy Foundation Maintenance 2026-09 (new).**
    - Today's run drafted it at 16:00:48Z with 0 blockers.
    - Two seconds later it sent VLF's Launch email and flipped VLF to maintained.
@@ -80,9 +83,10 @@ No "Nightly … failing" issue opened or closed. The only open bot-filed issues 
 ## What went wrong, or nearly did
 
 - **The PM Routine failed at bootstrap.** This pass ran by hand 14 hours late. It reports a day that is mostly over, which is the opposite of what a morning report is for.
-- **A re-render was used where only a re-draft works.** The 18:40Z re-render of Sonder's Testing draft could not clear Google Indexed, because it is draft-time-only by design (`retick.ts:5`). Nothing in the cockpit says so.
-  - The backlog's own 15:45Z line said "the draft it creates will carry this evidence without a refresh". That held for Forms and Titles. It did not hold for Google Indexed, whose lookup never ran.
-  - This is worth a P1 once the live worker lands: the re-render could name which items it cannot re-tick.
+- **A re-render ran before the fix it needed had landed.** The 18:40Z re-render of Sonder's Testing draft could not clear Google Indexed, which was draft-time-only then (`retick.ts`).
+  - The backlog's 15:45Z line said "the draft it creates will carry this evidence without a refresh". That held for Forms and Titles. It did not hold for Google Indexed, whose lookup had never run.
+  - The live worker's #1060 (19:18Z) closes this gap.
+  - This pass's first draft of the report called the blocker un-refreshable. That was true at 19:00Z and wrong by 19:18Z, and it was corrected before landing.
 - **Collision seen and handled.** A second worker took over williamson-construction-co#3 mid-flight (BACKLOG 38). You answered "re-dispatch", and #3 landed. The journal records the fresh-branch check that session skipped.
 - **Stale branches.** Five `claude/*` branches are live with no PR:
   - `a11y-browser-missing-csp-r3`, `a11y-blend-mode-unmeasured` and `digest-send-exact-rule` are superseded by merged PRs [I].
