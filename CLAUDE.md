@@ -179,6 +179,14 @@ the two match will address the wrong repository.
 
 A cloud container is not the laptop. Measured from inside one on 2026-09-28:
 
+- **Use a connector first when one covers the action** (the operator, 2026-09-30).
+  The GitHub, Prismic, Gmail and Drive MCP connectors act as the operator's own
+  account and are built for this. `gh api`, `curl` and the git proxy act as the
+  Claude GitHub App, which cannot do some org-level things. That app got 403 on
+  `POST /orgs/reddoorla/repos`. Fall back to the CLI only where no connector
+  covers the step, such as generating a repo from a template, which the GitHub
+  connector's `create_repository` cannot do.
+
 - **Setup is `.claude/hooks/cloud-session-setup.sh`**, which runs on startup
   and resume, only when `CLAUDE_CODE_REMOTE=true`. It unshallows the clone (the harness
   clones `--depth 50` with no tags, which `check-match-harness-snapshots.mjs`
