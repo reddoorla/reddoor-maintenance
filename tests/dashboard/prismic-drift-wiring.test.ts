@@ -72,6 +72,8 @@ const siteRecord = (over: Record<string, unknown> = {}): RawRow => ({
     "Prismic Models": "fail",
     "Prismic Models Checked At": FRESH,
     "Prismic Models Drift": "CHANGED  slice hero",
+    "URL Resolves": "pass",
+    "URL Checked At": FRESH,
     ...over,
   },
 });
