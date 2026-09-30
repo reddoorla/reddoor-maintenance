@@ -336,11 +336,10 @@ page (`/s/<slug>`), stored in Turso as `sites.report_recipients_to` / `report_re
 notifications have their own per-site routing, including field-value → recipient routes with a
 fallback (`NotifyRouting`, `src/fleet/site-row.ts:23–41`).
 
-> **Known trap — MSOT and Revogen resolve to the same recipient.** The Lane 2 preflight found
-> both sites pointing at `accounting@revogenbiologics.com`, which means an MSOT report would
-> reach Revogen's accountant. It is recorded as an open operator item, unfixed
-> (`docs/meta-week/14-lane2-decisions-log.md`, S4 defect (4) and operator item 6). **Check the
-> recipient cell before approving anything for either site.**
+> **Not a trap — MSOT and Revogen share a recipient on purpose.** Both sites resolve to
+> `accounting@revogenbiologics.com`. The Lane 2 preflight recorded this as a defect
+> (`docs/meta-week/14-lane2-decisions-log.md`, S4 defect (4)), and sessions kept re-raising it.
+> The operator settled it on 2026-09-29: the address is correct for both. Do not flag it.
 
 ---
 

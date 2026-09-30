@@ -112,24 +112,25 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                 |
-| ----- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| now   | 29 Navy                                       | Maintenance 2026-09                            | Draft ready, 0 blockers, pending since ~09-18. Set `Report recipients (To)` first (null; the send falls back to MatthewB@worthe.com). |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | Blocked today: Titles & Meta fails, Form Functionality never measured                                                                 |
-| 10-01 | Sonder                                        | Maintenance                                    | Needs fresh evidence (P0-1)                                                                                                           |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | LAHI blocked by #911 (P0-3). Revogen will draw no analytics: `ga4_property_id` NULL (#921).                                           |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----- | --------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Not approvable on 09-30 without an override (operator decision 30).** 2 blockers [M, 2026-09-29 23:53Z, `approveBlockers` on live rows]. (1) Titles & Meta: the one problem is `/artists` title 90 chars (max 70), from Prismic `page` `artists` (`ZjwQtxIAANaT82IQ`) `meta_title`; a content edit, not code or the audit. Clears after the Prismic edit, a site rebuild, the next fleet-lighthouse run, and refresh preview. (2) Form Functionality: never measured; form-e2e self-skips Sonder (no `forms.testMode` in `/health`) and no safe probe exists before a Sonder deploy (#779 item 26). |
+| now   | 29 Navy                                       | Maintenance 2026-09                            | Draft ready, 0 blockers, pending since ~09-18. Recipients are correct as they are (settled, see below); press refresh preview, then approve.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 10-01 | Sonder                                        | Maintenance                                    | Needs fresh evidence (P0-1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | LAHI blocked by #911 (P0-3). Revogen will draw no analytics: `ga4_property_id` NULL (#921).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
-Also from the continuity runbook: MSOT's and Revogen's recipients both resolve
-to `accounting@revogenbiologics.com`. Fix those cells before approving either.
+**Settled — do not flag again (operator, 2026-09-29, after being asked
+several times):** the report recipients are correct as they are. MSOT and
+Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
+29 Navy's send going to MatthewB@worthe.com is intended.
 
 ---
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                           | Done when                                                                                 |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso      |
-| P1-22 | Read `RULESET_BYPASS` from the first scheduled fleet-security run after #985, and settle P1-17's measurement fork. `unread` > 0 means the reddoor-renovate App token gets no `bypass_actors`, so the default-branch floor (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night: write an Operator decisions line with the run URL and both numbers, asking which credential lets `protection-audit` see bypass lists — (a) Administration read/write on reddoor-renovate, (b) a dedicated audit-only App or token, (c) accept "unverified" fleet-wide (all 🔴). `unread=0` closes the fork. Do NOT dispatch `fleet-security.yml` to get the number (P0-1) | 🟢   | S      | the `RULESET_BYPASS unread=N read=M` line in the protection-audit step of the scheduled run          | An Operator decisions line with the run URL and numbers, or a Done line saying `unread=0` |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                  | Done when                                                                                 |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| P1-22 | Read `RULESET_BYPASS` from the first scheduled fleet-security run after #985, and settle P1-17's measurement fork. `unread` > 0 means the reddoor-renovate App token gets no `bypass_actors`, so the default-branch floor (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night: write an Operator decisions line with the run URL and both numbers, asking which credential lets `protection-audit` see bypass lists — (a) Administration read/write on reddoor-renovate, (b) a dedicated audit-only App or token, (c) accept "unverified" fleet-wide (all 🔴). `unread=0` closes the fork. Do NOT dispatch `fleet-security.yml` to get the number (P0-1) | 🟢   | S      | the `RULESET_BYPASS unread=N read=M` line in the protection-audit step of the scheduled run | An Operator decisions line with the run URL and numbers, or a Done line saying `unread=0` |
 
 ### Blocked behind another PR (do not start early)
 
@@ -161,9 +162,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
    exists, since its stored evidence predates the fix. If you disagree with the
    semantics (e.g. a maintained site on the placeholder Prismic sentinel), say so
    and it gets revisited; the logged send-anyway override still works either way.
-2. **29 Navy** — set `Report recipients (To)`, press "refresh preview" on
-   `/s/29-navy`, then approve.
-3. **MSOT / Revogen recipients** — fix the cells before approving either report.
+2. **29 Navy** — press "refresh preview" on `/s/29-navy`, then approve. Its
+   recipients are correct (settled 2026-09-29).
+3. **MSOT / Revogen recipients** — settled 2026-09-29: the shared
+   `accounting@revogenbiologics.com` is correct. Not an ask; never re-raise it.
 4. **Revogen GA4** — look up the numeric property ID in GA and set
    `ga4_property_id` (site editor), so its 10-05 report carries analytics (#921).
 5. **Release PR #952** — merged by the operator 2026-09-29 16:45Z; 0.101.0 on npm 17:01Z.
@@ -177,7 +179,21 @@ Ordered by what unblocks the most. Each line is the exact ask.
    them; (e) **any reaction from the operator on a Discord message closes it**.
 7. **Webflow, hard date 2026-10-19** [M, Discord #website-maintenance 09-17]:
    two sites still to convert before the license renews; Domaru must stay up
-   to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19.
+   to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19. **Scoped
+   2026-09-29: see the plan, [`docs/webflow-conversions-2026-10.md`](webflow-conversions-2026-10.md).**
+   Three live sites still serve from Webflow [M]: Williamson Homes (10 pages),
+   Williamson Construction (14) and Domaru (7). The plan's pick is that the
+   Williamsons are the two conversions (native, Prismic) and Domaru gets a static
+   bridge on Netlify to 11-01. Cutover: Williamsons Wed 10-14, Domaru Thu 10-15,
+   with Webflow still serving to 10-19 as the rollback. **First ask (D1):**
+   confirm the two are the Williamsons, and say what Domaru needs: (a) a bridge,
+   then down on 11-01; (b) a transfer to the client's own Webflow workspace (your
+   login); or (c) a full conversion. **D0:** check Webflow billing for what
+   actually stops on 10-19; the roster's `"account owner"` dates (`dec 8`,
+   `jan 11`) may be site-plan renewals. D2–D8 (content, track, redirects,
+   fidelity, form recipients, DNS holders, Adobe Fonts) are due 10-05. Phase 0
+   (repos plus full capture of all three references) needs no decision and should
+   start 09-30; its brief is in the plan, §7.
 
 8. **Airtable residue** — PR #954 (another session, at your request, opened
    2026-09-29 05:52Z) removes the `settings.json` pre-approval and network allow
@@ -230,8 +246,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     [TEST] send is the change's first real check. The Announcement email's
     checklist is unchanged, since it is not evidence and not named here.
 18. **Standing product calls** — answered 2026-09-29, except #773:
-    - #943 (what "Search Console set up" means): evidence-based; a worker is
-      building it.
+    - #943 (what "Search Console set up" means): evidence-based. Built in
+      #1016, which waits on the freshness window in item 28.
     - #948 (hydration signal): audit the built preview (`vite preview`), not
       the dev server; queued until the a11y PRs in flight land.
     - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
@@ -311,6 +327,12 @@ Ordered by what unblocks the most. Each line is the exact ask.
     unreviewed.
     **Answered 2026-09-29 ~20:50Z: ship 0.102.0; vida's call (exempt the
     blend-mode crash, or change the design) stays open.**
+    **Answered later on 2026-09-29: do both.** The design fix is open for
+    review as [vida-legacy-foundation#86](https://github.com/reddoorla/vida-legacy-foundation/pull/86)
+    (`text-red-700`, 5.93:1 on beige, CI green; not to be merged by an agent).
+    The gate exemption is [#1014](https://github.com/reddoorla/reddoor-maintenance/pull/1014),
+    held after two review rounds: see item 29. Vida's gate is green only
+    with #1014, #86 **and** the 13 palette lines, which no PR carries yet.
 
 24. **P1-12, weekly config-drift report (#983, PR #995)**: two review rounds
     each found real defects, so #995 is held for your call instead of going to a
@@ -354,6 +376,142 @@ Ordered by what unblocks the most. Each line is the exact ask.
     tests were added), or run a third review round first. Landing it is
     `git merge origin/main` (keep both sides of BACKLOG and the journal), CI
     green, then `node scripts/land-prs.mjs 989`.
+26. **P1-3 PR 2, the roster-url surface (#912, PR #1004)**: two review rounds
+    each found a real defect, so #1004 is held for your call, not a third
+    round. It adds a digest item `url-unresolved:<siteId>` for a fresh `fail` on
+    any non-archived row (it names the url and status), one fleet item
+    `url-probe-stale` (metric = count) for stale stamps, and `url not deployed`
+    in Accepted Watch Conditions, which mutes only `fail`. Maintained rows also
+    watch on the cockpit, with a filter chip. Round 1 (on `5471c319`) found that
+    a never-stamped row read "not checked in 3 days", plus four missing tests
+    (a null verdict on the cockpit, a future stamp, the alias, `now` wiring).
+    All were fixed in `6400ea42`. Round 2 (on `6400ea42`) found one behaviour
+    defect: a site added between the day's probe and the 09:23 digest (runs
+    start late, so the probe can land after lunch PT) mailed "the probe is
+    behind, check the step" about a step that is working. It also found four
+    test gaps. Fixed in `490e6be2`. **The product fork, and my pick:** a
+    never-stamped row now counts only while no row in the fleet is fresh. A
+    probe that never ran or has stopped leaves no fresh row, so it is still
+    caught. The cost is that one row the probe keeps failing to stamp while it
+    stamps the rest is not caught. Round 2's correctness lens found no path that
+    creates such a row (every insert creates its `site_health` row). The other
+    choice is to alarm on it anyway and accept one false mail per new site.
+    All 32 mutations (the brief's 12 plus both rounds' survivors) turn a test
+    red. The full suite passes (8061), and lint and typecheck are clean. The
+    ask: land #1004 as it is (my pick), or pick the other never-stamped rule,
+    or run a third round first. Landing it is `git merge origin/main` (keep
+    both sides of BACKLOG), CI green, `node scripts/land-prs.mjs 1004`. The
+    first stamp comes from tonight's nightly (item 20). Item 21's url fix
+    clears the-pointe-burbank's item.
+    **Answered 2026-09-30: land as it is.** #1004 lands with this line.
+27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
+    #1003)** — two review rounds each found a real defect, so #1003 is held for
+    your call, not a third round.
+    - Round 1 (`a9565ac3`) found a major: stdout's generic "Process from
+      config.webServer was not able to start" line displaced the web server's
+      own cause on stderr ("Port 5173 is already in use"). It also found four
+      test gaps. All are fixed in `8dc2405e`.
+    - Round 2 found no defect in the #949 fix or the missing-browser line, and
+      the full suite passed (7769 tests). Its one confirmed defect is minor: a
+      stdout failure that does not start with `Error:` (a `TypeError`, a test
+      timeout) gets no detail once stderr is only npm warnings. The rest were
+      test gaps. All are filed as #1018; every such case still fails.
+    - All 17 mutations turn a test red. Head `d9dc1ede` is merged with `main`,
+      with CI green.
+    - The ask: land #1003 as it is, with #1018 as the follow-up, or run a
+      third round first. My pick is to land: the round-2 finding narrows a
+      summary's detail, and `freezeMotion` has not changed since round 1.
+    - Landing: `git merge origin/main` (keep both sides of BACKLOG and the
+      journal), CI green, then `node scripts/land-prs.mjs 1003`.
+28. **#943, the Search Console freshness window (PR #1016)**: how long does a
+    resolved Search Console lookup count as evidence for the launch check?
+    #943 says "N days" and leaves N open. My pick: the site's shorter report
+    cadence plus 14 days, which is 45 days for monthly, 106 for quarterly and
+    380 for yearly (and 45 when both cadences are None). The reason is that
+    evidence only arrives when a report drafts, so any fixed N shorter than a
+    site's cadence fails that site by construction. The monthly value matches
+    `ANALYTICS_SOFT_FAIL_STALE_DAYS`. The alternative is one fixed N for every
+    site. #1016 is green, merged with `main`, and one review round found no
+    source defect; the three test gaps it found are fixed. A different answer
+    changes one constant in `src/fleet/search-console-evidence.ts`. Landing
+    it is `git merge origin/main` (#1005 also adds migrations, 0033/0034, so
+    keep both sides of the migration id lists), CI green, then
+    `node scripts/land-prs.mjs 1016`, then close #943.
+29. **#1014, axe's plus-lighter crash is "not measured" (vida, item 23)**:
+    two review rounds each found a real defect, so #1014 is held for your
+    call instead of going to a third round.
+    - **The design.** When axe files `blendFunctions[blendMode] is not a
+function` on a top-level element, the spec re-runs that rule with the
+      element excluded and its children included again, until the crash
+      stops (25 runs at most). It counts each excluded element as not
+      measured and warns. Every other crash, and every crash inside a frame,
+      still fails.
+    - **Round 1.** Major: axe's exclude dropped the crashed node's whole
+      subtree, so a faint paragraph inside a crashed wrapper, 200px from the
+      grain, went unmeasured and the page warned instead of failing. Minor:
+      a third party's grain frame moved the site to warn. Also test gaps. All
+      fixed in `1d2eefae`, with 10 mutations that each turn a test red.
+    - **Round 2.** Major, reproduced live: a crash filed on a **shadow host**
+      (slotted light text over the grain) excludes the whole shadow tree.
+      Children are re-included from the light DOM only, so a 2.32:1 paragraph
+      in the shadow root was dropped and the page warned. Minor test gaps:
+      the wrapper fixture has one child, so `:nth-of-type` or "first child
+      only" would pass, and the blend-mode name is only ever plus-lighter.
+      Integration was clean: 7991 tests passed, no `__name` in `dist`.
+    - **The ask:** authorise one narrow fix and land. The fix: a crash whose
+      element has a `shadowRoot` is not excludable, so it fails as
+      `rule-errored` as today. Add a live shadow-host fixture and a
+      two-child wrapper. That fix only narrows the exemption, and vida has no
+      shadow DOM (measured on the packed build: exit 0, `/` and `/es` 24
+      contrast nodes each). The alternative is a third full review round.
+    - **Landing it:** make the fix on `claude/a11y-blend-mode-unmeasured`,
+      `git merge origin/main` (keep both sides of BACKLOG and the journal),
+      CI green, then `node scripts/land-prs.mjs 1014`.
+    - **Vida separately:** vida's gate also needs its 13 palette lines
+      (`--color-neutral-*: oklch(… 0 0)` in `@theme`, as in 29-navy#58).
+      With #1014 packed, #86 and those lines applied locally, its gate exits 0. Without the palette lines it fails `rule-errored on a11y fixtures`.
+
+30. **Sonder's Testing report, due 2026-09-30 (P0-4)** — measured 2026-09-29
+    ~23:55Z. Two blockers, and only the first can be fixed by 09-30.
+    - **Titles & Meta [M].** fleet-lighthouse run 36584559490 names one
+      problem on 15 routes: `https://gallerysonder.com/artists: title 90 chars
+(max 70)`. The title is Prismic `page` document `artists`
+      (`ZjwQtxIAANaT82IQ`), field `meta_title` =
+      `Artists - Ruben Benjamin - Borja Colom - Theo Hirschfield - Anthony James`
+      (73 chars), and the site's `brandedTitle` adds ` | Gallery Sonder` (17).
+      The audit is right, so nothing is changed in code. **Ask:** in Prismic, set
+      that `meta_title` to 53 characters or fewer, e.g.
+      `Artists: Benjamin, Colom, Hirschfield, James` (44, so 61 on the page),
+      and publish. The site is prerendered, so check that
+      `curl -s https://gallerysonder.com/artists | grep -o '<title>[^<]*'`
+      shows the new title. A deploy on 09-25 with no commit since 09-22
+      suggests a publish rebuilds the site [I]. The next fleet-lighthouse run
+      (Sonder about 15:00Z on 09-30, if it fires like 09-29) re-stamps
+      `titles_meta_ok`, and then **refresh preview** on the draft.
+    - **Form Functionality [M].** `form_e2e_checked_at` is NULL. Last night's
+      form-e2e run 36598340500 skipped Sonder: "site /health does not declare
+      forms.testMode — probe refused". `/health` has no `testMode`, and the
+      four `<form>`s on `/contact` are hidden Netlify stubs. A marked probe
+      needs a Sonder PR and a deploy (testMode forwarding, a `/health`
+      declaration, and the forms restructure in item 26), so no safe
+      measurement is possible by 09-30. Independent evidence from production:
+      Sonder received 10 real submissions from 09-22 to 09-29 (inquiry 3,
+      newsletter 6, rsvp 1; the latest on 09-28), all with notifications sent
+      and Mailchimp fanout ok. The `contact` form's latest is 09-02.
+    - **The product call.** Can the first Testing report ship with Form
+      Functionality unmeasured? Under a send-anyway override, the email still
+      draws "Form Functionality ✓" (`shownChecklistLabels` drops only `n/a`
+      rows), and the override also lifts every other health blocker. **My
+      pick:** fix the title first. When refresh preview shows Form
+      Functionality as the only blocker, send on 09-30 with the logged
+      override, reason "form-e2e cannot probe Sonder until its forms forward
+      testMode (#779); 10 real submissions in 7 days delivered". Then book the
+      Sonder forms PR (item 26) so the next Testing report is measured. The
+      alternative is to hold the report until that PR deploys.
+    - Also seen: the gate's note for a Titles fail says "Missing/duplicate
+      title or missing meta description" (`src/reports/auto-tick.ts:356-360`)
+      even when the fault is length. It pointed the wrong way here, and a
+      small copy fix would correct it.
 
 ---
 
@@ -418,6 +576,17 @@ verdict is its only input, because no client and no check sees the email.
   set while no row in the fleet is fresh) roll into one `url-probe-stale` fleet item whose metric is the count; `url not deployed`
   in Accepted Watch Conditions mutes only the failure; maintained rows also watch
   on the cockpit. PR 1 (#986) stores the verdict.
+
+- 2026-09-29 — P1-7 / #910: the a11y audit's route coverage is stored next to
+  its violation count. `details.routes = { scanned, total }` (the numbers the
+  summary's "N of M routes" prints) is written by `audit --write-back` to
+  `site_health.a11y_routes_scanned` / `a11y_routes_total` (migrations
+  0033–0034). A 1-of-2 run and a 2-of-2 run with the same violation count now
+  read back from Turso as different rows (`tests/audits/a11y-routes-turso.test.ts`).
+  The site page's Accessibility tile and the cockpit card say when a run was
+  partial. Not done, and still #910's larger half: no fleet sweep runs the
+  a11y audit, so the columns fill only when someone runs `audit --write-back`
+  from a site checkout. The report gate does not read them.
 
 - 2026-09-29 — Operator decisions 17: a checklist row whose evidence is
   `n/a` (no CMS, no form, no CI) is dropped from the client Maintenance and

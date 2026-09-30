@@ -112,6 +112,8 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     seoScore: num(r.seo_score),
     lastLighthouseAuditAt: str(r.lighthouse_at),
     a11yViolations: num(r.a11y_violations),
+    a11yRoutesScanned: num(r.a11y_routes_scanned),
+    a11yRoutesTotal: num(r.a11y_routes_total),
     depsDrifted: num(r.deps_drifted),
     depsMajorBehind: num(r.deps_major_behind),
     depsOutdated: num(r.deps_outdated),

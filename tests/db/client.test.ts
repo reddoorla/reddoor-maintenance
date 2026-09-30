@@ -67,6 +67,8 @@ describe("openDb", () => {
       "0030_site_health_url_resolves",
       "0031_site_health_url_status",
       "0032_site_health_url_checked_at",
+      "0033_site_health_a11y_routes_scanned",
+      "0034_site_health_a11y_routes_total",
     ]);
     await db.destroy();
   });
