@@ -128,43 +128,9 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                  | Done when                                                                                                  |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| P1-3  | **#912**: PR 1 (#986) stores the verdict nightly (`roster-urls` → `site_health.url_resolves`/`url_status`/`url_checked_at`); remains: the surface (PR 2; #975 merged, so it can start). #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                                                                                                                                                                                                                                                                                              | 🟡   | M      | see "P1-3 start here" below this table                                                      | PR 2: a `fail` row reaches the digest, a stale `url_checked_at` is caught, an accept key mutes only `fail` |
-| P1-22 | Read `RULESET_BYPASS` from the first scheduled fleet-security run after #985, and settle P1-17's measurement fork. `unread` > 0 means the reddoor-renovate App token gets no `bypass_actors`, so the default-branch floor (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night: write an Operator decisions line with the run URL and both numbers, asking which credential lets `protection-audit` see bypass lists — (a) Administration read/write on reddoor-renovate, (b) a dedicated audit-only App or token, (c) accept "unverified" fleet-wide (all 🔴). `unread=0` closes the fork. Do NOT dispatch `fleet-security.yml` to get the number (P0-1) | 🟢   | S      | the `RULESET_BYPASS unread=N read=M` line in the protection-audit step of the scheduled run | An Operator decisions line with the run URL and numbers, or a Done line saying `unread=0`                  |
-
-### P1-3 start here (#912)
-
-Tier corrected to 🟡 on 2026-09-29: PR 1 added three migrations, a CLI command
-and a nightly Turso write, which `AUTONOMY.md` puts behind the 3-lens review.
-
-**PR 1 (#986) is the store.** `reddoor-maint roster-urls --fleet --write-back`
-GETs every non-archived roster `url` (every status, including `building`,
-`external` and `hosted-only`) and writes `url_resolves` (`pass` = final 2xx,
-`fail`, NULL for a blank url), `url_status` (the code, `404
-netlify-site-not-found`, `error: <code>`, `not an http(s) url`, `no url`) and
-`url_checked_at` (every outcome) through migrations 0030–0032. Two run-level
-controls (`no-such-site-zz9q.netlify.app` must read site-not-found,
-`the-tower-burbank-rd.netlify.app` must pass) gate every write. The nightly
-`fleet-lighthouse` runs it after the GitHub-signals sweep.
-
-It is a standalone command, not the `--only` audit this section used to
-suggest: every `audit --fleet turso` visits `selectFleetSites`, which is
-`maintained` rows only, so an audit would never see a `building` row like
-the-pointe-burbank; and a new audit name edits `src/types.ts` and
-`src/audits/index.ts`, which #918 owns.
-
-**PR 2, the surface** (needs `src/alerts/digest-collectors.ts`; #975, which
-owned it, merged 2026-09-29, so PR 2 can start):
-
-1. A digest collector over every non-archived row with `url_resolves = 'fail'`.
-   Building sites get no cockpit card (`isDashboardVisible`), so the digest is
-   where they surface.
-2. A freshness gate on `url_checked_at`: a control that misreads writes nothing
-   and the step is `continue-on-error`, so a stale stamp is the only trace.
-3. An `Accepted Watch Conditions` key (e.g. `url not deployed`) that mutes only
-   `fail`, so the check stays two-sided.
-4. Optionally, a cockpit watch candidate in `assignTier` for `maintained` rows.
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                  | Done when                                                                                 |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| P1-22 | Read `RULESET_BYPASS` from the first scheduled fleet-security run after #985, and settle P1-17's measurement fork. `unread` > 0 means the reddoor-renovate App token gets no `bypass_actors`, so the default-branch floor (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night: write an Operator decisions line with the run URL and both numbers, asking which credential lets `protection-audit` see bypass lists — (a) Administration read/write on reddoor-renovate, (b) a dedicated audit-only App or token, (c) accept "unverified" fleet-wide (all 🔴). `unread=0` closes the fork. Do NOT dispatch `fleet-security.yml` to get the number (P0-1) | 🟢   | S      | the `RULESET_BYPASS unread=N read=M` line in the protection-audit step of the scheduled run | An Operator decisions line with the run URL and numbers, or a Done line saying `unread=0` |
 
 ### Blocked behind another PR (do not start early)
 
@@ -440,6 +406,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
     both sides of BACKLOG), CI green, `node scripts/land-prs.mjs 1004`. The
     first stamp comes from tonight's nightly (item 20). Item 21's url fix
     clears the-pointe-burbank's item.
+    **Answered 2026-09-30: land as it is.** #1004 lands with this line.
 27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
     #1003)** — answered 2026-09-30: third round. #1018's items are fixed on
     #1003 and a third review round runs; #1003 lands with this line if it
@@ -662,7 +629,7 @@ verdict is its only input, because no client and no check sees the email.
 
 ## Done (move items here when they land)
 
-- 2026-09-29 — #905, #949: the a11y spec's motion-freezing sheet is adopted
+- 2026-09-30 — #905, #949, #1018: the a11y spec's motion-freezing sheet is adopted
   through CSSOM (`freezeMotion`), so a CSP without `'unsafe-inline'` in
   `style-src` no longer fails the audit, and the page's CSP stays enforced
   (`bypassCSP` would have switched it off). A spec that writes no results is
@@ -671,6 +638,16 @@ verdict is its only input, because no client and no check sees the email.
   browser gets its own line naming the absent executable and
   `npx playwright install chromium`. Both reproduced on `1b1c52fd` first: each
   summary read "no results written (exit 1) — [WebServer] npm warn …".
+  A typed error (`TypeError:`) or a test timeout on stdout is named too
+  (#1018, found by review round 2; round 3 ran on the operator's call,
+  Operator decisions 27).
+
+- 2026-09-29 — P1-3 / #912, PR 2 (the surface): a fresh `url_resolves = 'fail'`
+  on any non-archived row reaches the digest as `url-unresolved:<siteId>`,
+  naming the url and the status; stale stamps (older than three days, unreadable, or never
+  set while no row in the fleet is fresh) roll into one `url-probe-stale` fleet item whose metric is the count; `url not deployed`
+  in Accepted Watch Conditions mutes only the failure; maintained rows also watch
+  on the cockpit. PR 1 (#986) stores the verdict.
 
 - 2026-09-29 — P1-7 / #910: the a11y audit's route coverage is stored next to
   its violation count. `details.routes = { scanned, total }` (the numbers the

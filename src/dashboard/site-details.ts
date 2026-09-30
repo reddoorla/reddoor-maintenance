@@ -32,6 +32,8 @@ export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
  * (`src/dashboard/onboarding.ts`); `no search console` is the same for the
  * Search Console requirement. `no git repo` / `no netlify id` accept a
  * maintained site that genuinely has no repo or is not on Netlify (#889).
+ * `url not deployed` mutes a roster url the nightly probe reads as failing
+ * (#912), and only that: a stale probe still alarms.
  *
  * KNOWN GAP, operator-owned: `fleet-cockpit.ts` also supports a
  * `turnstile-unverified` accept key, and this field has no option for it — so
@@ -49,6 +51,7 @@ export const WATCH_CONDITION_OPTIONS: readonly string[] = [
   "no search console",
   "no git repo",
   "no netlify id",
+  "url not deployed",
 ] as const;
 
 type FieldKind =
