@@ -436,8 +436,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
       summary's detail, and `freezeMotion` has not changed since round 1.
     - Landing: `git merge origin/main` (keep both sides of BACKLOG and the
       journal), CI green, then `node scripts/land-prs.mjs 1003`.
-28. **#943, the Search Console freshness window (PR #1016)** — answered
-    2026-09-30: cadence + 14 days; #1016 lands with this line. How long does a
+28. **#943, the Search Console freshness window (PR #1016)**: how long does a
     resolved Search Console lookup count as evidence for the launch check?
     #943 says "N days" and leaves N open. My pick: the site's shorter report
     cadence plus 14 days, which is 45 days for monthly, 106 for quarterly and
