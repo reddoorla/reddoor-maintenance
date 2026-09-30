@@ -723,6 +723,10 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       `PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION` (no `CO`) here. The two
       `fleet-prismic-drift.yml` env lines landed ahead of the secrets; a
       pre-launch site is not swept, so they are inert until go-live.
+    - **Secrets set, 2026-09-30 ~06:20Z (operator, by hand).** The operator
+      reports all four set in the GitHub UI. Not verified from the cloud (the
+      proxy refuses the secrets API); first real proof is a Williamson workflow
+      that reads `PRISMIC_WRITE_TOKEN`, and the central pair at go-live.
 34. **OD7-P0, the capture tools, PR #1032: round 3 found behaviour defects, all
     fixed in `db83c30f`; land or not.** **Answered 2026-09-30 ~03:25Z: land
     at this head.** Landed by `land-prs.mjs` as `96e10a2a` (head `5e06f8c6`,
