@@ -783,6 +783,35 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     starter PR, then one PR per site with fixtures, must land before any
     `@reddoorla/maintenance` bump that carries #1039.
 
+36. **OD7-P1, williamson-homes#5 (content model, project routes, slices,
+    seed): round 2 found a real defect; land after three small fixes, or run
+    a third round?** #5's head `9bfc481` is CI green and mergeable, with `main`
+    (#4) merged in. The models and published content already in Prismic
+    `williamson-homes` came from this branch (#1048). **Round 1** had three
+    separate lenses and no blocker. It found two majors: featured project
+    titles at 3.21:1 (the reference's `opacity-75`), and both Webflow guards
+    skipping extensionless files, so a `_redirects` Webflow proxy passed the
+    build check. Both, and every minor but three explained on the PR, were
+    fixed in `65dd1ec`, with a fixture test for the `_redirects` case. **Round
+    2** (one reviewer, the fix commit only) found: (major) the secondary
+    button's hover tint `bg-secondary/10` still fails on the `bg-light` ground,
+    4.23:1 inside every ImageCards slice and on a light Statement; (minor) the
+    sticky header can show over the absolute header at the top of the page,
+    because `focusWithin` keeps it open at y ≤ 120; (minor) the round-1 fixes
+    to contrast, the header and the seed guard have no test that fails when
+    they are reverted (six mutations survived). _Ask:_ (a) apply the three
+    fixes below and land #5 on CI green, with no third review round; or (b) a
+    third round. _Pick:_ (a). Each fix is local and bound by a test:
+    `WhButton`'s hover tint `/5`, about 4.5:1 on both grounds, with a test that
+    computes the blended contrast on `white` and `light`; `sidekick =
+    (scrolledUp || focusWithin) && y > 120`, with a component test; and a unit
+    test per round-1 fix (`opacity-75` absent, `aria-controls` absent while
+    closed, the seed throwing on an unseeded link). After #5, one prepared PR
+    (branch `claude/wire-prismic`, pushed, no PR; it sits on #5 at `6a52e5b` and needs #5 merged into it) replaces the sentinel with
+    `williamson-homes` and sets `a11yRoutes`. Its build prerenders all 10
+    reference paths from the live repository. Still the operator's (#3):
+    Prismic publish/unpublish webhooks, branch protection, secret scanning.
+
 ---
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)

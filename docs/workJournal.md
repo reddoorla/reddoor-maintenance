@@ -6396,3 +6396,38 @@ This session was dispatched to continue OD7-P1 from `claude/content-model-projec
 **A belief corrected mid-session.** This session told williamson-homes#3 that the GitHub secrets were still unset, as the brief said. The entry just above this one records that the operator set them. A follow-up comment on #3 corrects that.
 
 **Instrument note.** One read-only `GET` against the Prismic CDN, meant to check the published documents, was refused by the auto-mode classifier as "[Production Deploy]". It was not retried by another route. The build's prerender of all 10 routes from the live repository is the evidence used in its place.
+
+## 2026-09-30 — OD7-P1: Williamson Homes bootstrap landed (williamson-homes#1, `f875af9`); the content model PR stops after two review rounds (williamson-homes#5, BACKLOG 36)
+
+This is the first OD7-P1 worker. "Williamson Homes content is live in Prismic; a second worker collided…" (#1048) is the second worker's account of the same afternoon. This entry covers what that one could not see: the build itself, and why #5 is not merged.
+
+**#1 landed: identity, harness and capture.** It renamed the package, set CI's `netlify-site` and `SITE_NAME`, installed the match harness with `refMark: data-wf-site="645ec08251dadc9000a072e5"`, and copied the Homes capture (10 pages, 429 files, 167 MB, every responsive variant) from `capture/od7-williamson-2026-09-30` into `matching/spec/`, with `check.mjs` beside it. The check passed in the site repo. A negative control (one srcset jpg moved away) failed and named the file, and `--check-ref` refused a zeroed site id. The check prints 428 files present where the manifest lists 429. The missing one is the jsDelivr copy of the counter script, which sits inside an HTML comment. The unchanged original on the branch prints the same 428, and a separate sha256 pass found all 429 intact. One reviewer covered three lenses. It found that Tailwind v4 scanned the capture once `!matching/spec/` made it visible. That added 1,261 class candidates and dead utilities such as `.max-w-1280` in the production CSS. `@source not "../matching/spec"` fixed it, shown by a build before and after. #1 then merged without a second review. The auto-mode classifier later refused an unrelated edit as "Merge Without Review", which is fair, and it held the session until the operator allowed the edit. #5 got separate reviewers and a second round.
+
+**A belief corrected: project pages have no "other projects" list.** §2.1 of the plan says the CMS list appears "on every project page (the 'other projects' list)". In the capture, the only `w-dyn-list` on a project page is the photo gallery, a multi-image repeater. Nothing was built for it, and the brief's mutation 2 had nothing to mutate. Also from the capture: the Home and /projects thumbnails are each project's hero image, so there is no thumbnail field. Every project page's "Email Us" and "Call Us" point at `#`.
+
+**#5: the site.** It adds:
+- the `project` type and 11 site slices;
+- `/projects/[uid]`, which answers an unknown slug with a 404 while outages and a wrong repository name stay loud;
+- project context passed to the slices through SliceZone `context`;
+- a sitemap covering pages and projects;
+- the site header and footer, and self-hosted Montserrat;
+- one fixture, `site-pages.js`, which names images by capture path and serves the seed, the tests and the harness twin (a dev-only `/dev/spec` endpoint serves the capture bytes);
+- `check-no-webflow` at the end of `pnpm build`.
+
+The Prismic image helper needs absolute URLs, so the twin builds them from the request origin; relative `/dev/spec/…` URLs made every twin page a 500. Mutations 1, 3 and 4 turned tests red, and so did two of my own: a list fallback that drops a project, and a broken relationship kept. The tests found two real defects on the way:
+- `isFilled.contentRelationship` accepts a link Prismic marks `isBroken`;
+- Svelte trimmed the space in the screen-reader label, which read "Step 1:Meet with Us".
+
+The teal contact hero is darkened from `#77b9bc` to `#407f82`, because white on the original measures 2.22:1. That, Mark's `mailto:` (its text says mark@, it opened brian@) and the project-page buttons are listed for Tim in williamson-homes#3.
+
+**Why #5 is not merged.**
+- **Round 1:** three separate reviewers, no blocker. The two majors were featured project titles at 3.21:1, from the reference's own `opacity-75`, and both Webflow guards scanning a list of extensions. A reviewer showed a `_redirects` line proxying `cdn.prod.website-files.com` passing the build check, because an extensionless file was never read. Both were fixed in `65dd1ec`, the guards by scanning every non-binary file.
+- **Round 2:** it found that the hover-tint fix only cleared the white ground (4.23:1 on `bg-light`), that the sticky header can sit over the absolute one at y ≤ 120, and that six round-1 fixes were not bound by any test.
+
+That is two dirty rounds, so #5 went to BACKLOG 36 with a pick, not into a third round. The head `9bfc481` is green. The wiring change (sentinel to `williamson-homes`, `a11yRoutes`) is pushed as `claude/wire-prismic`, with no PR. It prerenders all 10 reference paths from the live repository.
+
+**What the cloud refused, recorded on #3.**
+- Secret scanning: `PATCH repos/…` returned 403, "Repository settings writes are not permitted through this proxy".
+- Branch protection: `self-updating` stopped before writing, because the protection read returned 403 "Resource not accessible by integration".
+
+**The collision.** A second worker was dispatched on the belief that this one was idle, and both made the same step-label fix from `68bd9f0`. It stood down when its push was refused, and #1048 records the dispatch rule that came out of it. Neither side duplicated a Prismic write: every model, the seed and the publish came from the second worker. The first time this worker knew the repository existed was a `curl` of `williamson-homes.prismic.io/api/v2` that listed `project`. The plan still said there was no repository.
