@@ -135,8 +135,8 @@ export type BrowserSummary = {
   linksOk: boolean;
   /** Every sampled route returned a 2xx/3xx status (point-in-time uptime). */
   reachableOk: boolean;
-  /** Every sampled route has a non-empty `<title>` ≤ 70 chars + a non-empty meta description, and
-   *  no two routes share a title. */
+  /** Every sampled route has a non-empty `<title>` + a non-empty meta description, and no two
+   *  routes share a title. Title length never fails it: see titleLengthWarnings. */
   titleMetaOk: boolean;
   /** The confirmed-failing routes behind a reachableOk=false, as "url → status" strings, so the
    *  operator sees WHICH url failed, not just "fail". Empty when reachableOk is true. */
@@ -144,6 +144,10 @@ export type BrowserSummary = {
   /** The per-route findings behind a titleMetaOk=false ("url: missing meta description",
    *  'duplicate title "X": urlA + urlB', …). Empty when titleMetaOk is true. */
   titleMetaProblems: string[];
+  /** Routes whose title, less the brand suffix the sampled routes share, is over 70 chars. A
+   *  warning only (operator, 2026-09-30): Google truncates by pixel width and has no character
+   *  limit, so a long title is cosmetic and never blocks a report. */
+  titleLengthWarnings: string[];
   /** No sampled route served an unsubstituted SvelteKit placeholder. False = a broken app.html
    *  shipped a literal "%sveltekit.*%" to the browser (blank/corrupt render — the failure that
    *  can slip past desktop/mobile when the page still renders a `<main>` but leaks the token). */
@@ -442,6 +446,34 @@ const fmtEntryStatus = (s?: number | null): string =>
  * Every fail names its offenders (desktopFailures/mobileFailures/brokenLinkUrls, mirroring
  * unreachableUrls) so a red box is actionable, never a bare "fail".
  */
+const TITLE_WARN_MAX = 70;
+const TITLE_SEPARATORS = [" | ", " — ", " – ", " - ", " · ", " :: "];
+
+/** The "<separator><brand>" tail that the most sampled titles end with, when at least two share
+ *  it (e.g. " | Gallery Sonder"). Null when no tail is shared, so a lone title is counted whole
+ *  and a separator inside a page's own words is never mistaken for the brand. On a tie the longer
+ *  tail wins. */
+export function sharedTitleSuffix(titles: string[]): string | null {
+  const counts = new Map<string, number>();
+  for (const t of titles) {
+    const tails = new Set<string>();
+    for (const sep of TITLE_SEPARATORS) {
+      const at = t.lastIndexOf(sep);
+      if (at > 0) tails.add(t.slice(at));
+    }
+    for (const tail of tails) counts.set(tail, (counts.get(tail) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCount = 1;
+  for (const [tail, n] of counts) {
+    if (n > bestCount || (n === bestCount && best !== null && tail.length > best.length)) {
+      best = tail;
+      bestCount = n;
+    }
+  }
+  return best;
+}
+
 export function summarizeBrowser(
   routes: RouteResult[],
   links: LinkResult[],
@@ -488,8 +520,8 @@ export function summarizeBrowser(
     .map((r) => `${r.url} → ${r.status ?? "no response"}`);
   const reachableOk = routes.length > 0 && unreachableUrls.length === 0;
 
-  // titleMetaOk (chromium-only signals): every route has a non-empty title ≤ 70 chars + a non-empty
-  // meta description, AND no two routes share a title. Empty observations → false (fail-safe).
+  // titleMetaOk (chromium-only signals): every route has a non-empty title + a non-empty meta
+  // description, AND no two routes share a title. Empty observations → false (fail-safe).
   // Each violated sub-check is recorded per-URL; duplicate detection runs on NON-empty titles only
   // (an empty title is already its own finding — two blank routes aren't a "duplicate" insight).
   const titleMetaProblems: string[] = [];
@@ -497,7 +529,6 @@ export function summarizeBrowser(
     const t = (r.title ?? "").trim();
     const desc = (r.metaDescription ?? "").trim();
     if (t.length === 0) titleMetaProblems.push(`${r.url}: empty title`);
-    else if (t.length > 70) titleMetaProblems.push(`${r.url}: title ${t.length} chars (max 70)`);
     if (desc.length === 0) titleMetaProblems.push(`${r.url}: missing meta description`);
   }
   const byTitle = new Map<string, string[]>();
@@ -510,6 +541,21 @@ export function summarizeBrowser(
     if (urls.length > 1) titleMetaProblems.push(`duplicate title "${t}": ${urls.join(" + ")}`);
   }
   const titleMetaOk = routes.length > 0 && titleMetaProblems.length === 0;
+
+  const titles = routes.map((r) => (r.title ?? "").trim()).filter((t) => t.length > 0);
+  const suffix = sharedTitleSuffix(titles);
+  const titleLengthWarnings: string[] = [];
+  for (const r of routes) {
+    const t = (r.title ?? "").trim();
+    const stripped = suffix && t.endsWith(suffix) && t.length > suffix.length;
+    const length = stripped ? t.length - suffix.length : t.length;
+    if (length <= TITLE_WARN_MAX) continue;
+    titleLengthWarnings.push(
+      stripped
+        ? `${r.url}: title ${length} chars without the "${suffix}" suffix (over ${TITLE_WARN_MAX})`
+        : `${r.url}: title ${length} chars (over ${TITLE_WARN_MAX})`,
+    );
+  }
 
   // templateOk: no route served an unsubstituted SvelteKit placeholder. A literal "%sveltekit.*%"
   // in shipped HTML is always corruption (a token trapped in an app.html comment, a malformed
@@ -536,6 +582,9 @@ export function summarizeBrowser(
     `${links.length} links, ${brokenLinks} broken` +
     (unreachableUrls.length > 0 ? `; unreachable: ${firstOf(unreachableUrls, 3)}` : "") +
     (titleMetaProblems.length > 0 ? `; title/meta: ${firstOf(titleMetaProblems, 3)}` : "") +
+    (titleLengthWarnings.length > 0
+      ? `; long titles (warn): ${firstOf(titleLengthWarnings, 3)}`
+      : "") +
     (templateProblems.length > 0 ? `; template: ${firstOf(templateProblems, 3)}` : "") +
     (desktopFailures.length > 0 ? `; desktop failing: ${firstOf(desktopFailures, 3)}` : "") +
     (mobileFailures.length > 0 ? `; mobile failing: ${firstOf(mobileFailures, 3)}` : "") +
@@ -550,6 +599,7 @@ export function summarizeBrowser(
     templateOk,
     unreachableUrls,
     titleMetaProblems,
+    titleLengthWarnings,
     templateProblems,
     desktopFailures,
     mobileFailures,

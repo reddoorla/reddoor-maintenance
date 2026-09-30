@@ -197,18 +197,13 @@ describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
     expect(s.titleMetaOk).toBe(true);
   });
 
-  it("titleMetaOk false when a title is empty, missing meta, or >70 chars", () => {
+  it("titleMetaOk false when a title is empty or the meta description is missing", () => {
     expect(
       summarizeBrowser([route("https://a.com/", true, true, [], { title: "" })], [], { "/": 1 })
         .titleMetaOk,
     ).toBe(false);
     expect(
       summarizeBrowser([route("https://a.com/", true, true, [], { metaDescription: "" })], [], {
-        "/": 1,
-      }).titleMetaOk,
-    ).toBe(false);
-    expect(
-      summarizeBrowser([route("https://a.com/", true, true, [], { title: "x".repeat(71) })], [], {
         "/": 1,
       }).titleMetaOk,
     ).toBe(false);
@@ -224,6 +219,109 @@ describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
       { "/": 2 },
     );
     expect(s.titleMetaOk).toBe(false);
+  });
+
+  it("a title over 70 chars is a warning, not a fail", () => {
+    const s = summarizeBrowser(
+      [route("https://a.com/", true, true, [], { title: "x".repeat(71), metaDescription: "d" })],
+      [],
+      { "/": 1 },
+    );
+    expect(s.titleMetaOk).toBe(true);
+    expect(s.titleMetaProblems).toEqual([]);
+    expect(s.titleLengthWarnings).toEqual(["https://a.com/: title 71 chars (over 70)"]);
+    expect(s.note).toContain("long titles (warn): https://a.com/: title 71 chars (over 70)");
+    expect(s.note).not.toContain("title/meta:");
+  });
+
+  it("a title of exactly 70 chars draws no warning", () => {
+    const s = summarizeBrowser(
+      [route("https://a.com/", true, true, [], { title: "x".repeat(70), metaDescription: "d" })],
+      [],
+      { "/": 1 },
+    );
+    expect(s.titleLengthWarnings).toEqual([]);
+    expect(s.note).not.toContain("long titles");
+  });
+
+  it("does not count a brand suffix the sampled routes share", () => {
+    const body73 = "Artists - Ruben Benjamin - Borja Colom - Theo Hirschfield - Anthony James";
+    const body60 = "y".repeat(60);
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], { title: "Gallery Sonder", metaDescription: "d" }),
+        route("https://a.com/b", true, true, [], {
+          title: `${body60} | Gallery Sonder`,
+          metaDescription: "d",
+        }),
+        route("https://a.com/artists", true, true, [], {
+          title: `${body73} | Gallery Sonder`,
+          metaDescription: "d",
+        }),
+      ],
+      [],
+      { "/": 3 },
+    );
+    expect(body73.length).toBe(73);
+    expect(s.titleMetaOk).toBe(true);
+    expect(s.titleLengthWarnings).toEqual([
+      'https://a.com/artists: title 73 chars without the " | Gallery Sonder" suffix (over 70)',
+    ]);
+  });
+
+  it("strips only the shared suffix, never a separator inside the page's own words", () => {
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], {
+          title: `${"a".repeat(40)} - ${"b".repeat(40)} | Brand`,
+          metaDescription: "d",
+        }),
+        route("https://a.com/c", true, true, [], {
+          title: "Contact | Brand",
+          metaDescription: "d",
+        }),
+      ],
+      [],
+      { "/": 2 },
+    );
+    expect(s.titleLengthWarnings).toEqual([
+      'https://a.com/: title 83 chars without the " | Brand" suffix (over 70)',
+    ]);
+  });
+
+  it("finds the brand after the last separator when the page's words use the same one", () => {
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], {
+          title: `${"a".repeat(40)} | ${"b".repeat(35)} | Brand`,
+          metaDescription: "d",
+        }),
+        route("https://a.com/c", true, true, [], {
+          title: "Contact | Brand",
+          metaDescription: "d",
+        }),
+      ],
+      [],
+      { "/": 2 },
+    );
+    expect(s.titleLengthWarnings).toEqual([
+      'https://a.com/: title 78 chars without the " | Brand" suffix (over 70)',
+    ]);
+  });
+
+  it("counts the whole title when no suffix is shared by at least two routes", () => {
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], {
+          title: `${"a".repeat(65)} | Brand`,
+          metaDescription: "d",
+        }),
+        route("https://a.com/c", true, true, [], { title: "Contact us", metaDescription: "d" }),
+      ],
+      [],
+      { "/": 2 },
+    );
+    expect(s.titleLengthWarnings).toEqual(["https://a.com/: title 73 chars (over 70)"]);
   });
 
   it("titleMetaOk false for empty observations (nothing proven)", () => {
@@ -255,7 +353,7 @@ describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
       [
         route("https://a.com/", true, true, [], { title: "Same", metaDescription: "one" }),
         route("https://a.com/b", true, true, [], { title: "Same", metaDescription: null }),
-        route("https://a.com/c", true, true, [], { title: "x".repeat(71), metaDescription: "c" }),
+        route("https://a.com/c", true, true, [], { title: "", metaDescription: "c" }),
       ],
       [],
       { "/": 3 },
@@ -263,7 +361,7 @@ describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
     expect(s.titleMetaOk).toBe(false);
     expect(s.titleMetaProblems).toEqual([
       "https://a.com/b: missing meta description",
-      "https://a.com/c: title 71 chars (max 70)",
+      "https://a.com/c: empty title",
       'duplicate title "Same": https://a.com/ + https://a.com/b',
     ]);
     expect(s.note).toContain("title/meta: https://a.com/b: missing meta description");
@@ -277,6 +375,7 @@ describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
     );
     expect(s.unreachableUrls).toEqual([]);
     expect(s.titleMetaProblems).toEqual([]);
+    expect(s.titleLengthWarnings).toEqual([]);
     expect(s.note).not.toContain("unreachable");
     expect(s.note).not.toContain("title/meta");
   });

@@ -529,6 +529,14 @@ function` on a top-level element, the spec re-runs that rule with the
       title or missing meta description" (`src/reports/auto-tick.ts:356-360`)
       even when the fault is length. It pointed the wrong way here, and a
       small copy fix would correct it.
+    - **Answered 2026-09-30: loosen the rule.** Title length no longer fails
+      Titles & Meta. It is measured without the brand suffix the sampled pages
+      share, and a title still over 70 is a warning in the browser audit note
+      (`titleLengthWarnings`), not a fail. Empty titles, missing descriptions
+      and duplicates still fail. The Prismic title is left as it is; `/artists`
+      is 73 without " | Gallery Sonder", so it warns. Once this lands (the nightly
+      builds from main, so no release is needed) and the
+      next fleet-lighthouse run re-stamps `titles_meta_ok`, refresh preview.
 31. **#779, the client half of form-e2e coverage** — the central widening
     (item 16) covers no new site on its own. Measured 2026-09-29 from the live
     roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
