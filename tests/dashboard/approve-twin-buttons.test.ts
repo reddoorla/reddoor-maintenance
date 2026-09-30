@@ -95,8 +95,10 @@ describe("approve state changes reach every twin", () => {
 
   it("selects approve buttons by id in the PLURAL", () => {
     expect(s).toContain("function approveButtonsFor(id)");
-    expect(s).toMatch(/function buttonsFor\(cls, id\)[\s\S]*?querySelectorAll\("button\." \+ cls/);
-    expect(s).toMatch(/function approveButtonsFor\(id\) \{\s*return buttonsFor\("approve", id\);/);
+    expect(s).toMatch(/function controlsFor\(sel, id\)[\s\S]*?querySelectorAll\(sel \+/);
+    expect(s).toMatch(
+      /function approveButtonsFor\(id\) \{\s*return controlsFor\("button\.approve", id\);/,
+    );
   });
 
   it("no handler looks up an approve button with a singular querySelector", () => {

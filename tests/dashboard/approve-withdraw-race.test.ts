@@ -151,4 +151,42 @@ describe("approve vs withdraw races (P1-28)", () => {
     });
     expect((await row("recREP")).withdrawn_at).toBeNull();
   });
+
+  const competing = (set: Record<string, unknown>) => async () => {
+    await db.updateTable("reports").set(set).where("id", "=", "recREP").execute();
+  };
+
+  it("a send landing between approve's read and write leaves the row unapproved (already-sent)", async () => {
+    race.afterRead = competing({ sent_at: "2026-09-30T09:23:00.000Z" });
+    const res = await post("recREP", "approve");
+    expect(await res.json()).toEqual({
+      status: "noop",
+      reportId: "recREP",
+      reason: "already-sent",
+    });
+    expect((await row("recREP")).approved_to_send).toBe(0);
+  });
+
+  it("a supersede landing between approve's read and write leaves the row unapproved (not-draft-ready)", async () => {
+    race.afterRead = competing({ draft_ready: 0 });
+    const res = await post("recREP", "approve");
+    expect(await res.json()).toEqual({
+      status: "noop",
+      reportId: "recREP",
+      reason: "not-draft-ready",
+    });
+    expect((await row("recREP")).approved_to_send).toBe(0);
+  });
+
+  it("a send landing between withdraw's read and write → 409 already-sent, row not withdrawn", async () => {
+    race.afterRead = competing({ sent_at: "2026-09-30T09:23:00.000Z" });
+    const res = await post("recREP", "withdraw");
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      status: "noop",
+      reportId: "recREP",
+      reason: "already-sent",
+    });
+    expect((await row("recREP")).withdrawn_at).toBeNull();
+  });
 });

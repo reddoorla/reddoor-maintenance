@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
+import { renderSiteDashboardHtml, withdrawConfirmText } from "../../src/dashboard/render.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { gatingFields } from "../../src/reports/checklist.js";
 import type { ReportRow } from "../../src/reports/report-fields.js";
@@ -9,11 +9,9 @@ import type { ReportRow } from "../../src/reports/report-fields.js";
  * markup and the twin tests on the script's shape, so a "Don't send" handler
  * that fetched the approve URL — approving the draft it was meant to withdraw —
  * or skipped its confirm() would pass them all. This runs the served script
- * against a minimal DOM stub built from the rendered buttons, with fetch,
+ * against a minimal DOM stub built from the rendered buttons and inputs, with fetch,
  * confirm and CSS stubbed, and clicks.
  */
-
-const CONFIRM_TEXT = "Withdraw this draft? It will not be sent and stops blocking the next period.";
 
 const cleanEvidence = Object.fromEntries(
   gatingFields("Maintenance").map((f) => [
@@ -62,6 +60,7 @@ function pending(over: Partial<ReportRow> = {}): ReportRow {
 
 type Listener = () => Promise<void> | void;
 type Btn = {
+  tag: string;
   cls: string[];
   dataset: Record<string, string>;
   disabled: boolean;
@@ -83,8 +82,17 @@ const decode = (v: string) =>
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&");
 
-function buttonsFrom(html: string): Btn[] {
-  return [...html.matchAll(/<button\b([^>]*)>([^<]*)<\/button>/g)].map((m) => {
+function controlsFrom(html: string): Btn[] {
+  const found = [
+    ...[...html.matchAll(/<button\b([^>]*)>([^<]*)<\/button>/g)].map((m) => [
+      "button",
+      m[1]!,
+      m[2]!,
+    ]),
+    ...[...html.matchAll(/<input\b([^>]*?)\/?>/g)].map((m) => ["input", m[1]!, ""]),
+  ];
+  return found.map(([tag, rawAttrs, text]) => {
+    const m = [null, rawAttrs, text] as const;
     const attrs = Object.fromEntries(
       [...m[1]!.matchAll(/([\w-]+)="([^"]*)"/g)].map((a) => [a[1]!, decode(a[2]!)]),
     );
@@ -94,6 +102,7 @@ function buttonsFrom(html: string): Btn[] {
         dataset[k.slice(5).replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = v;
     }
     const b: Btn = {
+      tag: tag!,
       cls: (attrs.class ?? "").split(/\s+/),
       dataset,
       disabled: /\sdisabled(\s|$)/.test(m[1]!),
@@ -134,20 +143,24 @@ function page(reports: ReportRow[], responses: Record<string, { status: number; 
     new Date("2026-09-30T12:00:00Z"),
     null,
   );
-  const buttons = buttonsFrom(html);
+  const buttons = controlsFrom(html);
   const document = {
     querySelectorAll: (sel: string) => {
-      const m = /^button\.([\w-]+)(?:\[data-report-id="((?:\\.|[^"\\])*)"\])?$/.exec(sel);
+      const m = /^(button|input)\.([\w-]+)(?:\[data-report-id="((?:\\.|[^"\\])*)"\])?$/.exec(sel);
       if (!m) return [];
-      const id = m[2]?.replace(/\\(.)/g, "$1");
+      const id = m[3]?.replace(/\\(.)/g, "$1");
       return buttons.filter(
-        (b) => b.cls.includes(m[1]!) && (id === undefined || b.dataset.reportId === id),
+        (b) =>
+          b.tag === m[1] &&
+          b.cls.includes(m[2]!) &&
+          (id === undefined || b.dataset.reportId === id),
       );
     },
     querySelector: () => null,
   };
   const fetch = vi.fn(async (url: string) => {
     const r = responses[url] ?? { status: 500, body: null };
+    if (r.status === 0) throw new TypeError("Failed to fetch");
     return { ok: r.status < 300, status: r.status, json: async () => r.body };
   });
   const confirm = vi.fn(() => true);
@@ -170,7 +183,7 @@ describe("Don't send — the served handler, executed", () => {
     p.confirm.mockReturnValue(false);
     const [w] = p.find("withdraw");
     await p.click(w!);
-    expect(p.confirm).toHaveBeenCalledWith(CONFIRM_TEXT);
+    expect(p.confirm).toHaveBeenCalledWith(withdrawConfirmText(pending()));
     expect(p.fetch).not.toHaveBeenCalled();
     expect(w!.disabled).toBe(false);
   });
@@ -193,24 +206,59 @@ describe("Don't send — the served handler, executed", () => {
     const twins = p.find("approve");
     expect(twins).toHaveLength(2);
     twins.forEach((t) => (t.disabled = false));
-    const submits = p.find("override-submit");
-    expect(submits).toHaveLength(1);
+    const override = ["override-toggle", "override-submit", "override-reason"].map(
+      (c) => p.find(c)[0]!,
+    );
+    override.forEach((c) => expect(c.disabled).toBe(false));
     await p.click(p.find("withdraw")[0]!);
     for (const t of twins) {
       expect(t.disabled).toBe(true);
       expect(t.textContent).toBe("Withdrawn");
     }
-    expect(submits[0]!.disabled).toBe(true);
+    override.forEach((c) => expect(c.disabled).toBe(true));
   });
 
-  it("a refusal re-enables the button and names the reason", async () => {
+  it("a refusal it can retry re-enables the button and names the reason", async () => {
     const p = page([pending()], {
-      [WITHDRAW]: { status: 409, body: { status: "noop", reason: "already-approved" } },
+      [WITHDRAW]: { status: 409, body: { status: "noop", reason: "not-draft-ready" } },
     });
     const [w] = p.find("withdraw");
     await p.click(w!);
     expect(w!.disabled).toBe(false);
-    expect(w!.textContent).toBe("Failed: already-approved");
+    expect(w!.textContent).toBe("Failed: not-draft-ready");
+  });
+
+  it("refused as already approved → stays disabled, says so, and the approve twins read Approved", async () => {
+    const p = page([pending()], {
+      [WITHDRAW]: { status: 409, body: { status: "noop", reason: "already-approved" } },
+    });
+    const [w] = p.find("withdraw");
+    const twins = p.find("approve");
+    await p.click(w!);
+    expect(w!.disabled).toBe(true);
+    expect(w!.textContent).toBe("Already approved");
+    for (const t of twins) {
+      expect(t.textContent).toBe("Approved");
+      expect(t.disabled).toBe(true);
+    }
+  });
+
+  it("refused as already sent → stays disabled and says so", async () => {
+    const p = page([pending()], {
+      [WITHDRAW]: { status: 409, body: { status: "noop", reason: "already-sent" } },
+    });
+    const [w] = p.find("withdraw");
+    await p.click(w!);
+    expect(w!.disabled).toBe(true);
+    expect(w!.textContent).toBe("Already sent");
+  });
+
+  it("a network error re-enables the button reading Failed", async () => {
+    const p = page([pending()], { [WITHDRAW]: { status: 0, body: null } });
+    const [w] = p.find("withdraw");
+    await p.click(w!);
+    expect(w!.disabled).toBe(false);
+    expect(w!.textContent).toBe("Failed");
   });
 });
 
@@ -226,6 +274,28 @@ describe("Approve / override vs a withdrawn report — the served handlers, exec
       expect(t.disabled).toBe(true);
     }
     expect(p.find("withdraw")[0]!.disabled).toBe(true);
+  });
+
+  it("approve answered 409 withdrawn → the override toggle, submit and reason go dead too", async () => {
+    const p = page([pending({ autoEvidence: {} })], {
+      [APPROVE]: { status: 409, body: { status: "noop", reason: "withdrawn" } },
+    });
+    const override = ["override-toggle", "override-submit", "override-reason"].map(
+      (c) => p.find(c)[0]!,
+    );
+    override.forEach((c) => expect(c.disabled).toBe(false));
+    await p.click(p.find("approve")[0]!);
+    override.forEach((c) => expect(c.disabled).toBe(true));
+  });
+
+  it("an approve network error re-enables every twin reading Failed", async () => {
+    const p = page([pending()], { [APPROVE]: { status: 0, body: null } });
+    const twins = p.find("approve");
+    await p.click(twins[0]!);
+    for (const t of twins) {
+      expect(t.textContent).toBe("Failed");
+      expect(t.disabled).toBe(false);
+    }
   });
 
   it("approve success disables Don't send", async () => {

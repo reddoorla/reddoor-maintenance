@@ -3,7 +3,16 @@ import { withdrawReport, requireOperator, denialResponse } from "../../src/dashb
 
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { mirrorWrite } from "../../src/db/mirror-write.js";
-import { patchReportIfOpen, getReportById } from "../../src/db/fleet-state.js";
+import {
+  patchReportIfOpen,
+  getReportById,
+  getSiteById,
+  listReportsForSite,
+  mirrorScheduleFields,
+} from "../../src/db/fleet-state.js";
+import { nextDueDates } from "../../src/reports/due.js";
+import { nextDueDatesFields } from "../../src/fleet/site-fields.js";
+import type { Db } from "../../src/db/client.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -18,6 +27,22 @@ export const config: Config = {
     aggregateBy: ["ip"],
   },
 };
+
+/** A withdrawal moves the site's next-due date (it consumes its cycle), so
+ *  write it now rather than leave the console showing the old date until the
+ *  nightly write-back. Best-effort: that write-back converges a miss. */
+async function refreshSchedule(db: Db, reportId: string): Promise<void> {
+  try {
+    const report = await getReportById(db, reportId);
+    const site = report ? await getSiteById(db, report.siteId) : null;
+    if (!site) return;
+    const now = new Date();
+    const dates = nextDueDates(site, await listReportsForSite(db, site.id), now);
+    await mirrorScheduleFields(db, site.id, nextDueDatesFields(dates), now.toISOString());
+  } catch (e) {
+    console.warn(`[withdraw-report] schedule refresh failed for ${reportId}: ${String(e)}`);
+  }
+}
 
 function plainText(body: string, status: number): Response {
   return new Response(body, {
@@ -84,6 +109,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       id,
     );
 
+    if (result.status === "withdrawn") await refreshSchedule(db, id);
     if (result.status === "not-found") {
       return Response.json(result, { status: 404 });
     }

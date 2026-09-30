@@ -1,7 +1,7 @@
 import type { Db } from "../../db/client.js";
 import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../fleet/site-fields.js";
 import type { ReportRow } from "../../reports/report-fields.js";
-import { findDueReports, nextDueDate, reportPeriodKey } from "../../reports/due.js";
+import { findDueReports, nextDueDates, reportPeriodKey } from "../../reports/due.js";
 import { analyticsEnrolled, draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
 import { readGaConfig } from "../../reports/ga/config.js";
@@ -315,7 +315,6 @@ export async function writeNextDueDates(
   today: Date,
   scheduleMirror: ScheduleMirror | null = null,
 ): Promise<void> {
-  const ymd = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
   let wrote = 0;
   let skipped = 0;
   let failed = 0;
@@ -326,13 +325,14 @@ export async function writeNextDueDates(
     // The whole per-site body sits in ONE try — compute included — so a bad
     // row can only cost its own write, exactly the pre-diff-guard blast radius.
     try {
-      const maintenanceAt = ymd(nextDueDate(site, reports, "Maintenance", today));
-      const testingAt = ymd(nextDueDate(site, reports, "Testing", today));
-      if (maintenanceAt === site.nextMaintenanceAt && testingAt === site.nextTestingAt) {
+      const dates = nextDueDates(site, reports, today);
+      if (
+        dates.maintenanceAt === site.nextMaintenanceAt &&
+        dates.testingAt === site.nextTestingAt
+      ) {
         skipped++;
         continue;
       }
-      const dates = { maintenanceAt, testingAt };
       if (scheduleMirror) {
         try {
           const fields = nextDueDatesFields(dates);

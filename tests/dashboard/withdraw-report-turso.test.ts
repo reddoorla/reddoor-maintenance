@@ -176,6 +176,49 @@ describe("withdraw-report writes to Turso", () => {
   });
 });
 
+describe("withdraw-report refreshes the site's stored next-due date", () => {
+  async function seedSchedule(siteId: string): Promise<void> {
+    await db
+      .insertInto("site_schedule")
+      .values({ site_id: siteId, next_maintenance_at: "2026-09-30", next_testing_at: null })
+      .execute();
+  }
+  const schedule = (siteId: string) =>
+    db.selectFrom("site_schedule").selectAll().where("site_id", "=", siteId).executeTakeFirst();
+
+  it("writes the date the nightly write-back would: a cycle past the withdrawn draft's day", async () => {
+    await seedSite("recVLF", {
+      status: "maintained",
+      maintenance_freq: "Monthly",
+      maintenance_day: "2026-08-30",
+    });
+    await seedSchedule("recVLF");
+    await seedReport("recVLF-09", "recVLF", { period: "2026-09", completed_on: "2026-09-30" });
+    const res = await post("recVLF-09");
+    expect(res.status).toBe(200);
+    const row = await schedule("recVLF");
+    expect(row?.next_maintenance_at).toBe("2026-10-30");
+    expect(row?.next_testing_at).toBeNull();
+    expect(typeof row?.computed_at).toBe("string");
+  });
+
+  it("control: a refused withdraw leaves the schedule alone", async () => {
+    await seedSite("recVLF2", {
+      status: "maintained",
+      maintenance_freq: "Monthly",
+      maintenance_day: "2026-08-30",
+    });
+    await seedSchedule("recVLF2");
+    await seedReport("recVLF2-09", "recVLF2", {
+      period: "2026-09",
+      completed_on: "2026-09-30",
+      approved_to_send: 1,
+    });
+    expect((await post("recVLF2-09")).status).toBe(409);
+    expect((await schedule("recVLF2"))?.next_maintenance_at).toBe("2026-09-30");
+  });
+});
+
 describe("withdraw-report: the gates", () => {
   it("an unauthenticated POST is refused before anything is written", async () => {
     await seedSite("recSiteE");

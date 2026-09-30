@@ -274,6 +274,7 @@ describe("writeNextDueDates — a withdrawn draft moves the stored next date (P1
           Site: ["recVLF"],
           "Report type": "Maintenance",
           Period: "2026-08",
+          "Completed on": "2026-08-24",
           "Draft ready": true,
           "Withdrawn at": "2026-08-24T10:00:00.000Z",
         },

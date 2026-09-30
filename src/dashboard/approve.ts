@@ -95,5 +95,6 @@ async function lostRace(deps: ApproveDeps, reportId: string): Promise<ApproveRes
   if (!now) return { status: "not-found", reportId };
   if (now.sentAt !== null) return { status: "noop", reportId, reason: "already-sent" };
   if (now.withdrawnAt !== null) return { status: "noop", reportId, reason: "withdrawn" };
+  if (!now.draftReady) return { status: "noop", reportId, reason: "not-draft-ready" };
   throw new Error(`approve ${reportId}: the write matched no row, and a re-read cannot say why`);
 }

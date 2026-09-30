@@ -169,7 +169,17 @@ function approveButton(r: ReportRow, blocked: boolean): string {
  *  cannot be approved can still be withdrawn. */
 function withdrawButton(r: ReportRow): string {
   const url = `/api/reports/${encodeURIComponent(r.id)}/withdraw`;
-  return `<button class="withdraw" data-report-id="${escapeHtml(r.id)}" data-withdraw-url="${escapeHtml(url)}">Don't send</button>`;
+  return `<button class="withdraw" data-report-id="${escapeHtml(r.id)}" data-withdraw-url="${escapeHtml(url)}" data-confirm="${escapeHtml(withdrawConfirmText(r))}">Don't send</button>`;
+}
+
+/** What "Don't send" does, said before it happens. A draft of a higher tier holds
+ *  back a lower-tier draft of the same period (src/reports/queue.ts); withdrawing
+ *  it lets the nightly run queue that one. */
+export function withdrawConfirmText(r: ReportRow): string {
+  const base = "Withdraw this draft? It will not be sent, and the next one drafts on schedule.";
+  if (r.reportType === "Maintenance") return base;
+  const held = r.reportType === "Testing" ? "Maintenance" : "Maintenance or Testing";
+  return `${base} If it held back this period's ${held} draft, that one is queued on the next nightly run instead.`;
 }
 
 /** The label a withdrawn report carries in place of any action. */
@@ -194,7 +204,7 @@ function overrideControl(r: ReportRow): string {
   return `<div class="override" data-override-for="${rid}">
     <button type="button" class="override-toggle" data-report-id="${rid}">Send anyway…</button>
     <div class="override-form" hidden>
-      <input type="text" class="override-reason" placeholder="Reason for overriding the health gate (required)" />
+      <input type="text" class="override-reason" data-report-id="${rid}" placeholder="Reason for overriding the health gate (required)" />
       <button type="button" class="override-submit" data-report-id="${rid}" data-override-url="${overrideUrl}">Confirm override</button>
       <span class="override-status"></span>
     </div>
@@ -965,16 +975,21 @@ export function renderSiteDashboardHtml(
     // state change has to reach both, or the two places you look disagree: one
     // says "Approved", the other still says "Approve" and (with the gate clear)
     // is still enabled.
-    function buttonsFor(cls, id) {
-      return Array.from(document.querySelectorAll("button." + cls + '[data-report-id="' + CSS.escape(id) + '"]'));
+    function controlsFor(sel, id) {
+      return Array.from(document.querySelectorAll(sel + '[data-report-id="' + CSS.escape(id) + '"]'));
     }
     function approveButtonsFor(id) {
-      return buttonsFor("approve", id);
+      return controlsFor("button.approve", id);
     }
     // Once a report is approved, overridden or withdrawn, the other actions on it
     // can only be refused by the server, so they go dead.
-    function disableAll(buttons) {
-      buttons.forEach((t) => { t.disabled = true; });
+    function disableAll(controls) {
+      controls.forEach((t) => { t.disabled = true; });
+    }
+    function disableOverride(id) {
+      disableAll(controlsFor("button.override-toggle", id));
+      disableAll(controlsFor("button.override-submit", id));
+      disableAll(controlsFor("input.override-reason", id));
     }
     document.querySelectorAll("button.approve").forEach((b) => {
       b.addEventListener("click", async () => {
@@ -995,7 +1010,7 @@ export function renderSiteDashboardHtml(
               t.textContent = "Approved";
               t.classList.add("is-approved");
             });
-            disableAll(buttonsFor("withdraw", b.dataset.reportId));
+            disableAll(controlsFor("button.withdraw", b.dataset.reportId));
           } else {
             // A 409 carries { reason, blockers } — surface WHY instead of a bare
             // "Failed" next to a possibly-stale green chip. textContent/title
@@ -1019,7 +1034,10 @@ export function renderSiteDashboardHtml(
               if (title !== null) t.title = title;
               t.disabled = withdrawn;
             });
-            if (withdrawn) disableAll(buttonsFor("withdraw", b.dataset.reportId));
+            if (withdrawn) {
+              disableAll(controlsFor("button.withdraw", b.dataset.reportId));
+              disableOverride(b.dataset.reportId);
+            }
           }
         } catch {
           // Network rejection (offline, DNS, abort): mirror the !res.ok path so
@@ -1078,7 +1096,7 @@ export function renderSiteDashboardHtml(
             approveButtonsFor(b.dataset.reportId).forEach((t) => {
               t.textContent = "Overridden";
             });
-            disableAll(buttonsFor("withdraw", b.dataset.reportId));
+            disableAll(controlsFor("button.withdraw", b.dataset.reportId));
           } else {
             // A 409 carries { reason, blockers } — surface WHY (textContent only,
             // never innerHTML, so server strings stay inert).
@@ -1103,7 +1121,7 @@ export function renderSiteDashboardHtml(
     // report goes dead too, since the server now refuses to approve it.
     document.querySelectorAll("button.withdraw").forEach((b) => {
       b.addEventListener("click", async () => {
-        if (!confirm("Withdraw this draft? It will not be sent and stops blocking the next period.")) return;
+        if (!confirm(b.dataset.confirm)) return;
         b.disabled = true;
         try {
           const res = await fetch(b.dataset.withdrawUrl, { method: "POST" });
@@ -1113,12 +1131,24 @@ export function renderSiteDashboardHtml(
               t.textContent = "Withdrawn";
               t.disabled = true;
             });
-            disableAll(buttonsFor("override-toggle", b.dataset.reportId));
-            disableAll(buttonsFor("override-submit", b.dataset.reportId));
+            disableOverride(b.dataset.reportId);
           } else {
             const data = await res.json().catch(() => null);
-            b.textContent = data && typeof data.reason === "string" ? "Failed: " + data.reason : "Failed";
-            b.disabled = false;
+            const reason = data && typeof data.reason === "string" ? data.reason : null;
+            // Approved or sent meanwhile: withdrawing can never succeed now, so
+            // say which and leave the button dead.
+            if (reason === "already-approved") {
+              b.textContent = "Already approved";
+              approveButtonsFor(b.dataset.reportId).forEach((t) => {
+                t.textContent = "Approved";
+                t.disabled = true;
+              });
+            } else if (reason === "already-sent") {
+              b.textContent = "Already sent";
+            } else {
+              b.textContent = reason ? "Failed: " + reason : "Failed";
+              b.disabled = false;
+            }
           }
         } catch {
           b.textContent = "Failed";

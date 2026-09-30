@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
+import { renderSiteDashboardHtml, withdrawConfirmText } from "../../src/dashboard/render.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { SubmissionRow } from "../../src/reports/submission-row.js";
@@ -878,11 +878,26 @@ describe("renderSiteDashboardHtml — withdraw a draft (P1-28)", () => {
     const head = html.slice(html.indexOf("Pending your yes"), html.indexOf(">Lighthouse<"));
     expect(head).toMatch(/<button class="withdraw"[^>]*>Don't send<\/button>/);
     expect(head).toContain('data-withdraw-url="/api/reports/recREP1/withdraw"');
-    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
-    expect(script).toContain(
-      "Withdraw this draft? It will not be sent and stops blocking the next period.",
+    expect(head).toContain(
+      'data-confirm="Withdraw this draft? It will not be sent, and the next one drafts on schedule."',
     );
-    expect(script).toMatch(/confirm\(/);
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    expect(script).toContain("confirm(b.dataset.confirm)");
+  });
+
+  it("the confirm text says what withdrawing a higher-tier draft releases", () => {
+    expect(withdrawConfirmText(pending())).toBe(
+      "Withdraw this draft? It will not be sent, and the next one drafts on schedule.",
+    );
+    expect(withdrawConfirmText(pending({ reportType: "Testing" }))).toBe(
+      "Withdraw this draft? It will not be sent, and the next one drafts on schedule. " +
+        "If it held back this period's Maintenance draft, that one is queued on the next nightly run instead.",
+    );
+    for (const t of ["Launch", "Announcement"] as const) {
+      expect(withdrawConfirmText(pending({ reportType: t }))).toContain(
+        "this period's Maintenance or Testing draft",
+      );
+    }
   });
 
   it("a withdrawn draft is not pending, has no Approve or Don't send, and reads Withdrawn <date>", () => {
