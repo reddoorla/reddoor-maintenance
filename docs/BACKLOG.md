@@ -1085,6 +1085,16 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     today, so its drift is now read without a token. _Ask:_ mint the token and
     set the secret, per `prismic-models --fleet turso --tokens` (read-only
     checklist). No agent mints it.
+    **Done 2026-09-30 ~21:28Z (#1076).** The operator supplied the token and
+    approved setting this one secret. Before it was set, the same token
+    answered 200 for `vida-legacy` and 403 for `revogen` on the custom-types
+    API [M]; `gh secret list` then showed
+    `PRISMIC_TOKEN_VIDA_LEGACY 2026-09-30T21:27:56Z`. #1076 adds the
+    workflow's env line and the test. Proven on the PR branch (run
+    36780192887): no token warning, VLF read as `vida-legacy` with 18 models
+    matching, and `11 checked, 0 failed` against the morning's
+    `10 checked, 1 failed` [M]. Tomorrow's 05:00 UTC run on `main` is the
+    durable confirmation.
 43. **#1055, no site in the fleet has a privacy policy** (filed 2026-09-30).
     GA4's terms require one, and design D4 of the fleet-analytics spec makes
     Reddoor the owner. It is a product and copy call (who writes the policy,
