@@ -69,7 +69,7 @@ Every run started 4.5 to 6.5 hours after its cron minute.
 | Nightly | Run (UTC) | Result |
 | --- | --- | --- |
 | fleet-db-backup | 10:39 | green, `DUMP_VERIFY rows=1094 mismatches=0`, quota `verdict=ok` |
-| fleet-prismic-drift | 10:51 | green, `wrote=15 failed=0`. Warns that VLF has no write token (item 41) |
+| fleet-prismic-drift | 10:51 | green, `wrote=15 failed=0`. Warns that VLF has no write token (item 42) |
 | fleet-security | 11:37 | green, `wrote=15 failed=0`. **`RULESET_BYPASS unread=0 read=28` closes P1-22.** `PROTECTION_AUDIT gaps=15 covered=14`; #754 was rewritten |
 | fleet-lighthouse | 14:43–15:06 | green, `wrote=15 failed=0`. Signals `wrote=20 failed=0`. `ROSTER_URL_SUMMARY checked=34 pass=31 fail=1 no_url=2` (the-pointe-burbank) |
 | daily-reports | 15:59–16:01 | green. Drafted Sonder Testing and VLF Maintenance, sent VLF Launch, and sent the digest (`decision=first`) |
