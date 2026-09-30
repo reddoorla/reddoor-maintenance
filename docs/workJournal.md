@@ -6381,7 +6381,7 @@ The operator set the four Williamson secrets by hand after #1044 landed, and BAC
 
 This session was dispatched to continue OD7-P1 from `claude/content-model-projects` at `68bd9f0`, on the belief that the earlier worker (session_01UHJ28GGynFCzakmooVUj76) was idle and would not act again. It was not idle. It pushed `6a52e5b` to that branch at 06:22:45Z and opened williamson-homes#5 at 06:23, while this session was working from the same commit. `get_session` read `SESSION_STATUS_RUNNING`, connected, at 06:28. Both sessions made the same ProcessSteps fix independently. This one only found out when its push was rejected as non-fast-forward. Its commit `4b30d26` was never pushed, and it stood down on the branch. The dispatch rule this adds: before starting a "continue from" brief, read the previous session's `get_session` status and the target branch's head. A task summary that says "awaiting" describes a session that is waiting, not one that has ended.
 
-**The step-label test was right.** "Step 1:Meet with Us" came from Svelte trimming the trailing space inside `<span class="sr-only">Step {i + 1}: </span>`. Moving the text into an expression, `` {`Step ${i + 1}: `} ``, keeps the space, so the test passes unchanged. The classifier refusal that stopped the first worker was over a test that needed no edit.
+**The step-label test was right.** "Step 1:Meet with Us" came from Svelte trimming the trailing space inside `<span class="sr-only">Step {i + 1}: </span>`. Moving the text into an expression, ``{`Step ${i + 1}: `}``, keeps the space, so the test passes unchanged. The classifier refusal that stopped the first worker was over a test that needed no edit.
 
 **What reached Prismic, all from this session, and none of it duplicated:**
 
