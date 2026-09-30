@@ -31,6 +31,13 @@ import {
   unparseableContrastNodes,
 } from "../../src/audits/util/contrast-unmeasured.js";
 import { readAxeResults } from "../../src/audits/util/axe-results.js";
+import {
+  canExcludeBlendNode,
+  describeBlendUnmeasured,
+  isExcludableBlendCrash,
+  reincludedChildren,
+  unsupportedBlendModeAt,
+} from "../../src/audits/util/blend-mode.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 async function tmpSite(): Promise<string> {
@@ -50,6 +57,12 @@ type A11yArtifact = {
     frame?: string;
     source: string | null;
     message: string;
+  }>;
+  blendUnmeasured?: Array<{
+    route: string;
+    rule: string;
+    blendMode: string | null;
+    target: unknown;
   }>;
 };
 
@@ -968,6 +981,9 @@ describe("audits/a11y — a placeholder-repo 404 is the designed answer (#863)",
         "(2 fixtures + 1 from package.json; 1 skipped: / — placeholder Prismic repo) " +
         "(+1 hydration smoke)",
     );
+    // #910: the stored counts are the summary's "2 of 3" — the site's own route
+    // is in the total, and a placeholder skip is subtracted like any other.
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 3 });
   });
 
   // FAIL PROOF, end to end, on the SAME configuration: the fixture 404 is not
@@ -1221,6 +1237,28 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     expect(result.summary).toContain("1 of 2 routes");
     expect(result.summary).toContain("animate-in demo");
     expect(result.summary).toContain("fixture not in this site's source");
+  });
+
+  it("puts the scanned and total route counts on details, the numbers the summary says (#910)", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
+    );
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 1, total: 2 });
+  });
+
+  it("a run that skipped nothing reads every route scanned (#910)", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures", "animate-in"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [] },
+    );
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 2 });
   });
 
   // ...and a site that has written the absence down gets its clean pass back.
@@ -2623,5 +2661,101 @@ describe("audits/a11y — frame reads are bounded, and unreadable is the site's"
     expect(smokeStart).toBeGreaterThan(-1);
     expect(loopEnd).toBeGreaterThan(smokeStart);
     expect(spec.slice(loopEnd, byImpact)).toContain("await settleErrors();");
+  });
+});
+
+/**
+ * A blend mode axe-core has no function for (plus-lighter) crashes its
+ * contrast rule. That one message shape is re-run around and named as not
+ * measured; every other crash still fails as rule-errored.
+ */
+describe("audits/a11y — an unsupported blend mode is not measured, not a failure", () => {
+  it("re-runs around axe's missing-blend-function TypeError and nothing else", () => {
+    const on = (message: string | null | undefined, target: unknown = ["#over-grain"]) =>
+      isExcludableBlendCrash({ message: message ?? null, nodes: [{ target }] });
+    expect(on("blendFunctions[blendMode] is not a function")).toBe(true);
+    expect(on("blendFunctions[blendMode] is not a function Skipping color-contrast rule.")).toBe(
+      true,
+    );
+    for (const other of [
+      null,
+      "",
+      'Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule.',
+      "fixture: document.title threw Skipping document-title rule.",
+      "blendFunctions is not defined",
+      "xblendFunctions[m] is not a function",
+      "blendFunctions[blendMode] is not a constructor",
+      "something[blendMode] is not a function",
+    ]) {
+      expect(on(other)).toBe(false);
+    }
+  });
+
+  it("does not re-run around a blend crash it cannot exclude: no node, the root, a frame, a shadow root", () => {
+    const message = "blendFunctions[blendMode] is not a function";
+    expect(isExcludableBlendCrash({ message, nodes: [] })).toBe(false);
+    expect(isExcludableBlendCrash({ message, nodes: [{ target: ["html"] }] })).toBe(false);
+    expect(isExcludableBlendCrash({ message, nodes: [{ target: ["iframe", "html"] }] })).toBe(
+      false,
+    );
+    expect(isExcludableBlendCrash({ message, nodes: [{ target: [] }] })).toBe(false);
+    expect(isExcludableBlendCrash({ message, nodes: [{ target: ["iframe", "#x"] }] })).toBe(false);
+    expect(isExcludableBlendCrash({ message, nodes: [{ target: [["#host", "p"]] }] })).toBe(false);
+    expect(isExcludableBlendCrash({ message, nodes: [{ target: ["#x"] }] })).toBe(true);
+    expect(isExcludableBlendCrash({ message, nodes: [{}] })).toBe(false);
+  });
+
+  it("names the count, the rule, the blend mode and each route, and is empty for none", () => {
+    expect(describeBlendUnmeasured([])).toBe("");
+    expect(
+      describeBlendUnmeasured([
+        { route: "/", rule: "color-contrast", blendMode: "plus-lighter", target: ["#a"] },
+        { route: "/", rule: "color-contrast", blendMode: "plus-lighter", target: ["#b"] },
+        { route: "/es", rule: "color-contrast", blendMode: "plus-lighter", target: ["#a"] },
+        { route: "/es", rule: "color-contrast", blendMode: null, target: ["iframe", "#c"] },
+      ]),
+    ).toBe(
+      '3 element(s) not measured for color-contrast — axe has no "plus-lighter" blend mode: / (2), /es (1); 1 element(s) not measured for color-contrast — axe has no function for this blend mode: /es (1)',
+    );
+  });
+
+  it("warns — never fails — on blend-unmeasured elements alone, and says where", async () => {
+    const result = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        blendUnmeasured: [
+          { route: "/", rule: "color-contrast", blendMode: "plus-lighter", target: ["#a"] },
+        ],
+      }),
+    });
+    expect(result.status).toBe("warn");
+    expect(result.summary).toContain(
+      '; 1 element(s) not measured for color-contrast — axe has no "plus-lighter" blend mode: / (1)',
+    );
+  });
+
+  it("keeps a clean run's line when there is nothing to name", async () => {
+    const result = await a11yAudit({
+      site: { path: await tmpSite() },
+      spawn: playwrightSpawn({ totalViolations: 0, byImpact: {}, blendUnmeasured: [] }),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).not.toContain("not measured");
+  });
+
+  it("the generated spec runs these exact functions, and re-runs only the crashed rule", async () => {
+    const spec = await specOf();
+    for (const fn of [
+      isExcludableBlendCrash,
+      unsupportedBlendModeAt,
+      reincludedChildren,
+      canExcludeBlendNode,
+    ]) {
+      expect(spec).toContain(`const ${fn.name} = ${fn.toString()};`);
+    }
+    expect(spec).toContain("rerun = await runAxe([rule], excluded);");
+    expect(spec).toContain("blendUnmeasured: blendSkipped,");
   });
 });

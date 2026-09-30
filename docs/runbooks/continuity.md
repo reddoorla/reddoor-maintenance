@@ -53,23 +53,24 @@ Nothing to re-argue.
 
 ## 1. What runs unattended, and what its failure looks like
 
-Eleven scheduled workflows, all in `.github/workflows/`, all in this repo — it is the central
+Twelve scheduled workflows, all in `.github/workflows/`, all in this repo — it is the central
 scheduler for the whole fleet. Times are UTC. Every one of them also has a
 `workflow_dispatch`, so you can re-run any of them by hand from the Actions tab.
 
-| cron           | workflow                  | what it does                                                                                                         | tracking issue it files on failure                                                                                                                    |
-| -------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `30 4 * * *`   | `fleet-db-backup`         | Dumps Turso, rehearses the restore, decrypts and re-verifies the `.gpg` it uploads, then checks plan-quota headroom  | "Nightly Turso backup failing"; the quota job files "Turso plan quota needs attention" separately                                                     |
-| `0 5 * * *`    | `fleet-prismic-drift`     | Read-only: does each repo's content model still match the models registered in its Prismic repository                | "Nightly Prismic model drift sweep failing"                                                                                                           |
-| `0 6 * * *`    | `fleet-security`          | Vuln counts + dependency drift per site → store; dispatches Renovate; org-wide protection-coverage audit             | "Nightly fleet security audit failing"; the coverage audit files "Fleet protection coverage gap"                                                      |
-| `0 8 * * *`    | `fleet-lighthouse`        | Lighthouse + domain + browser + Netlify-deploy + function-health against each site's **deployed** URL (no checkout)  | "Nightly fleet audit failing"                                                                                                                         |
-| `23 9 * * *`   | `daily-reports`           | Drafts due reports, sends already-**approved** ones, emails the operator digest                                      | "Daily reports run failing"                                                                                                                           |
-| `0 10 * * *`   | `fleet-smoke`             | Clones each active site and runs that site's own `pnpm test:smoke`                                                   | "Nightly fleet smoke failing"                                                                                                                         |
-| `15 10 * * *`  | `fleet-form-e2e`          | Playwright drives each deployed `/contact` form with the `testMode` marker (reaches no real inbox, DB or webhook)    | "Nightly fleet form-e2e failing"                                                                                                                      |
-| `30 14 * * *`  | `release-health`          | npm `latest` vs `main`'s version, **and** the release workflow's own redness                                         | "npm registry is behind main" / "Release workflow is failing on main"; the check itself failing or hanging files "Daily release-health check failing" |
-| `0 11 * * 1`   | `time-travel`             | Runs the whole test suite on a clock shifted forward, to catch tests that secretly depend on "today"                 | "Time-travel suite failing"; a failure or hang before the suite (install, browser install) files "Time-travel run failing outside the suite"          |
-| `47 */6 * * *` | `forms-deadletter-replay` | Replays the form dead-letter queue back through the normal ingest pipeline (section 3.1)                             | "Form dead-letter replay failing"                                                                                                                     |
-| `0 */12 * * *` | `renovate`                | Dependency PR creation **and merge** — platform auto-merge is off fleet-wide, so Renovate merges from inside the run | none                                                                                                                                                  |
+| cron           | workflow                  | what it does                                                                                                                                    | tracking issue it files on failure                                                                                                                    |
+| -------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `30 4 * * *`   | `fleet-db-backup`         | Dumps Turso, rehearses the restore, decrypts and re-verifies the `.gpg` it uploads, then checks plan-quota headroom                             | "Nightly Turso backup failing"; the quota job files "Turso plan quota needs attention" separately                                                     |
+| `0 5 * * *`    | `fleet-prismic-drift`     | Read-only: does each repo's content model still match the models registered in its Prismic repository                                           | "Nightly Prismic model drift sweep failing"                                                                                                           |
+| `0 6 * * *`    | `fleet-security`          | Vuln counts + dependency drift per site → store; dispatches Renovate; org-wide protection-coverage audit                                        | "Nightly fleet security audit failing"; the coverage audit files "Fleet protection coverage gap"                                                      |
+| `0 8 * * *`    | `fleet-lighthouse`        | Lighthouse + domain + browser + Netlify-deploy + function-health against each site's **deployed** URL (no checkout)                             | "Nightly fleet audit failing"                                                                                                                         |
+| `23 9 * * *`   | `daily-reports`           | Drafts due reports, sends already-**approved** ones, emails the operator digest                                                                 | "Daily reports run failing"                                                                                                                           |
+| `0 10 * * *`   | `fleet-smoke`             | Clones each active site and runs that site's own `pnpm test:smoke`                                                                              | "Nightly fleet smoke failing"                                                                                                                         |
+| `15 10 * * *`  | `fleet-form-e2e`          | Playwright drives each deployed `/contact` form with the `testMode` marker (reaches no real inbox, DB or webhook)                               | "Nightly fleet form-e2e failing"                                                                                                                      |
+| `30 14 * * *`  | `release-health`          | npm `latest` vs `main`'s version, **and** the release workflow's own redness                                                                    | "npm registry is behind main" / "Release workflow is failing on main"; the check itself failing or hanging files "Daily release-health check failing" |
+| `23 7 * * 0`   | `fleet-config-drift`      | Read-only, weekly: `sync-configs --fleet turso --dry` behind a positive control; lists each repo whose shared configs differ from the templates | "Weekly config drift sweep failing"; drift itself files "Fleet config drift"                                                                          |
+| `0 11 * * 1`   | `time-travel`             | Runs the whole test suite on a clock shifted forward, to catch tests that secretly depend on "today"                                            | "Time-travel suite failing"; a failure or hang before the suite (install, browser install) files "Time-travel run failing outside the suite"          |
+| `47 */6 * * *` | `forms-deadletter-replay` | Replays the form dead-letter queue back through the normal ingest pipeline (section 3.1)                                                        | "Form dead-letter replay failing"                                                                                                                     |
+| `0 */12 * * *` | `renovate`                | Dependency PR creation **and merge** — platform auto-merge is off fleet-wide, so Renovate merges from inside the run                            | none                                                                                                                                                  |
 
 Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`), and
 `report-rerender` (dispatch only).
@@ -90,14 +91,14 @@ Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`),
 
 **The cockpit.** The dashboard served by this repo's Netlify deploy: cockpit at `/`, per-site
 at `/s/:slug`, behind Basic auth (`DASHBOARD_PASSWORD`). It sorts every visible site into four
-tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:36`) —
+tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:38`) —
 worst-band-wins, with the watch band being the soft zone beneath the alert floor (a Lighthouse
 score in [75, 85), a check stale past 30 days). A watch reason the operator has explicitly
 accepted is routed to `acceptedReasons` and leaves the band rather than raising it
-(`fleet-cockpit.ts:176`, `:345–347`).
+(`fleet-cockpit.ts:178`, `:362–364`).
 
 **The "Needs you" feed** is real and is the thing to read first
-(`src/dashboard/fleet-cockpit.ts:459–482`, rendered by `renderNeedsYouFeed`,
+(`src/dashboard/fleet-cockpit.ts:476–499`, rendered by `renderNeedsYouFeed`,
 `src/dashboard/fleet-render.ts:209–228`).
 One row per site, every reason combined, ordered `broken` → `watch` → `approval`, critical-first
 within `broken`. A vuln the fleet is still auto-patching is amber `watch`; a vuln whose
@@ -128,10 +129,10 @@ Everything below degrades harmlessly. Leave it:
 | Signal                                         | What actually happens over a week                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Renovate PRs sitting open, green and unmerged  | Renovate runs every 12 hours and merges from inside its own run. Green + unmerged is far more often a rule working than a rule broken — under a grouped preset a single held package makes the whole branch non-automergeable. Naming the rule that would have to permit the merge is a prerequisite to calling anything stuck.   |
-| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:674–678`, consulted at `:742`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
+| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:675–679`, consulted at `:743`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
 | A red nightly that goes green on the next run  | Every tracking issue in section 1 auto-closes on recovery. One red night in a week is noise; the same issue still open on day three is not.                                                                                                                                                                                       |
 | Drafts accumulating in the approve queue       | See the two gates above. This is the system working.                                                                                                                                                                                                                                                                              |
-| Lighthouse scores drifting into the watch band | Watch is the soft band beneath the alert floor, by design (`src/dashboard/fleet-cockpit.ts:38–40`).                                                                                                                                                                                                                               |
+| Lighthouse scores drifting into the watch band | Watch is the soft band beneath the alert floor, by design (`src/dashboard/fleet-cockpit.ts:40–42`).                                                                                                                                                                                                                               |
 
 ---
 
@@ -154,7 +155,7 @@ learns its slug does not resolve, but **the lead now exists somewhere**
 (`src/forms/ingest.ts:200–229`). Probes (`testMode`) are never dead-lettered.
 
 **What a week-long break looks like now.** The queue grows and the alarm gets louder, not
-quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:517–542`) raises one
+quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:518–543`) raises one
 `deadletter` attention item per slug, counting unreplayed rows, and it reaches both the cockpit
 and the digest. Two shapes:
 
@@ -245,7 +246,7 @@ right direction but means a red quota job is sometimes the probe, not the plan.
 
 ### 3.4 A bounced or complained-on report
 
-`collectDeliveryFailures` (`src/alerts/digest-collectors.ts:274–294`) raises an attention item
+`collectDeliveryFailures` (`src/alerts/digest-collectors.ts:275–295`) raises an attention item
 for any report row whose `deliveryStatus` is `bounced` (warning) or `complained` (**critical**).
 A spam complaint from a client is worth a same-day human reply; do not let it sit a week.
 
@@ -331,15 +332,14 @@ bounce/complaint attention items in §3.4.
 **The per-site recipient field.** Who a report actually reaches is configured per site, not per
 message: `Report recipients (To)` and `Report recipients (CC)` in the site details on its console
 page (`/s/<slug>`), stored in Turso as `sites.report_recipients_to` / `report_recipients_cc`
-(`src/dashboard/site-details.ts:87–88`, `src/db/fleet-state.ts:102–103`). Form
+(`src/dashboard/site-details.ts:90–91`, `src/db/fleet-state.ts:102–103`). Form
 notifications have their own per-site routing, including field-value → recipient routes with a
 fallback (`NotifyRouting`, `src/fleet/site-row.ts:23–41`).
 
-> **Known trap — MSOT and Revogen resolve to the same recipient.** The Lane 2 preflight found
-> both sites pointing at `accounting@revogenbiologics.com`, which means an MSOT report would
-> reach Revogen's accountant. It is recorded as an open operator item, unfixed
-> (`docs/meta-week/14-lane2-decisions-log.md`, S4 defect (4) and operator item 6). **Check the
-> recipient cell before approving anything for either site.**
+> **Not a trap — MSOT and Revogen share a recipient on purpose.** Both sites resolve to
+> `accounting@revogenbiologics.com`. The Lane 2 preflight recorded this as a defect
+> (`docs/meta-week/14-lane2-decisions-log.md`, S4 defect (4)), and sessions kept re-raising it.
+> The operator settled it on 2026-09-29: the address is correct for both. Do not flag it.
 
 ---
 

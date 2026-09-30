@@ -42,6 +42,8 @@ function siteRow(over: Partial<RawRow["fields"]> = {}): RawRow {
       // blockers, so skip-path fixtures need recipients + header + scores.
       "point of contact": "owner@acme.example.com",
       "Header image": [{ url: "https://x/h.png", filename: "h.png", type: "image/png" }],
+      "URL Resolves": "pass",
+      "URL Checked At": new Date().toISOString(),
       ...over,
     },
   };
@@ -148,6 +150,8 @@ function vulnSiteRow(over: Partial<RawRow["fields"]> = {}): RawRow {
       url: "https://acme.example.com",
       "Security Vulns Critical": 1,
       "Security Auto-Fix Attempts": 3,
+      "URL Resolves": "pass",
+      "URL Checked At": new Date().toISOString(),
       ...over,
     },
   };

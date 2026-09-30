@@ -27,6 +27,8 @@ import {
   collectDeadLetterAlerts,
   collectPrismicDriftAlerts,
   prismicAckIsLive,
+  urlProbeFresh,
+  URL_NOT_DEPLOYED_KEYS,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
@@ -255,6 +257,21 @@ export function assignTier(
       signal: "no-netlify-id",
       acceptKeys: ["no netlify id", "no-netlify-id", "not on netlify", "netlify id"],
       reason: "Netlify ID not recorded (the deploy check cannot read this site)",
+    });
+  }
+  // #912. The digest mails a fresh roster-url `fail` for every non-archived row;
+  // the card shows it for the rows that have one. Watch, not an attention item, so
+  // the accept key that mutes the digest item also mutes this, as a visible chip.
+  // A stale verdict is not a current one: the digest's `url-probe-stale` carries it.
+  if (
+    site.status === "maintained" &&
+    site.urlResolves === "fail" &&
+    urlProbeFresh(site.urlCheckedAt, now)
+  ) {
+    candidates.push({
+      signal: "url-unresolved",
+      acceptKeys: URL_NOT_DEPLOYED_KEYS,
+      reason: `roster url ${site.url.trim()} does not resolve (${site.urlStatus ?? "no status"})`,
     });
   }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less

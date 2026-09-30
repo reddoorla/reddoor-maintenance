@@ -112,59 +112,25 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                 |
-| ----- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| now   | 29 Navy                                       | Maintenance 2026-09                            | Draft ready, 0 blockers, pending since ~09-18. Set `Report recipients (To)` first (null; the send falls back to MatthewB@worthe.com). |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | Blocked today: Titles & Meta fails, Form Functionality never measured                                                                 |
-| 10-01 | Sonder                                        | Maintenance                                    | Needs fresh evidence (P0-1)                                                                                                           |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | LAHI blocked by #911 (P0-3). Revogen will draw no analytics: `ga4_property_id` NULL (#921).                                           |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----- | --------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Not approvable on 09-30 without an override (operator decision 30).** 2 blockers [M, 2026-09-29 23:53Z, `approveBlockers` on live rows]. (1) Titles & Meta: the one problem is `/artists` title 90 chars (max 70), from Prismic `page` `artists` (`ZjwQtxIAANaT82IQ`) `meta_title`; a content edit, not code or the audit. Clears after the Prismic edit, a site rebuild, the next fleet-lighthouse run, and refresh preview. (2) Form Functionality: never measured; form-e2e self-skips Sonder (no `forms.testMode` in `/health`) and no safe probe exists before a Sonder deploy (#779 item 26). |
+| now   | 29 Navy                                       | Maintenance 2026-09                            | Draft ready, 0 blockers, pending since ~09-18. Recipients are correct as they are (settled, see below); press refresh preview, then approve.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 10-01 | Sonder                                        | Maintenance                                    | Needs fresh evidence (P0-1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | LAHI blocked by #911 (P0-3). Revogen will draw no analytics: `ga4_property_id` NULL (#921).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
-Also from the continuity runbook: MSOT's and Revogen's recipients both resolve
-to `accounting@revogenbiologics.com`. Fix those cells before approving either.
+**Settled — do not flag again (operator, 2026-09-29, after being asked
+several times):** the report recipients are correct as they are. MSOT and
+Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
+29 Navy's send going to MatthewB@worthe.com is intended.
 
 ---
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                           | Done when                                                                                                  |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| P1-3  | **#912**: PR 1 (#986) stores the verdict nightly (`roster-urls` → `site_health.url_resolves`/`url_status`/`url_checked_at`); remains: the surface (PR 2; #975 merged, so it can start). #889 (blank repo / Netlify ID) is done in #962                                                                                                                                                                                                                                                                                                                                                                                                                                              | 🟡   | M      | see "P1-3 start here" below this table                                                               | PR 2: a `fail` row reaches the digest, a stale `url_checked_at` is caught, an accept key mutes only `fail` |
-| P1-7  | **#910**: store the a11y route counts, not only the violation count                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 🟢   | S–M    | `src/audits/a11y-fields.ts`, `src/db/migrations.ts`, `field-map.ts`, `site-row.ts`, `fleet-state.ts` | A 1-of-2-routes run reads differently from a 2-of-2 run, round-tripped through Turso                       |
-| P1-12 | `scripts/` drift: schedule `sync-configs --dry` as a weekly drift report (no workflow runs it [M])                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 🟢   | S–M    | `.github/workflows/`                                                                                 | A weekly run posts drift to a tracking issue, with a positive control                                      |
-| P1-22 | Read `RULESET_BYPASS` from the first scheduled fleet-security run after #985, and settle P1-17's measurement fork. `unread` > 0 means the reddoor-renovate App token gets no `bypass_actors`, so the default-branch floor (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night: write an Operator decisions line with the run URL and both numbers, asking which credential lets `protection-audit` see bypass lists — (a) Administration read/write on reddoor-renovate, (b) a dedicated audit-only App or token, (c) accept "unverified" fleet-wide (all 🔴). `unread=0` closes the fork. Do NOT dispatch `fleet-security.yml` to get the number (P0-1) | 🟢   | S      | the `RULESET_BYPASS unread=N read=M` line in the protection-audit step of the scheduled run          | An Operator decisions line with the run URL and numbers, or a Done line saying `unread=0`                  |
-
-### P1-3 start here (#912)
-
-Tier corrected to 🟡 on 2026-09-29: PR 1 added three migrations, a CLI command
-and a nightly Turso write, which `AUTONOMY.md` puts behind the 3-lens review.
-
-**PR 1 (#986) is the store.** `reddoor-maint roster-urls --fleet --write-back`
-GETs every non-archived roster `url` (every status, including `building`,
-`external` and `hosted-only`) and writes `url_resolves` (`pass` = final 2xx,
-`fail`, NULL for a blank url), `url_status` (the code, `404
-netlify-site-not-found`, `error: <code>`, `not an http(s) url`, `no url`) and
-`url_checked_at` (every outcome) through migrations 0030–0032. Two run-level
-controls (`no-such-site-zz9q.netlify.app` must read site-not-found,
-`the-tower-burbank-rd.netlify.app` must pass) gate every write. The nightly
-`fleet-lighthouse` runs it after the GitHub-signals sweep.
-
-It is a standalone command, not the `--only` audit this section used to
-suggest: every `audit --fleet turso` visits `selectFleetSites`, which is
-`maintained` rows only, so an audit would never see a `building` row like
-the-pointe-burbank; and a new audit name edits `src/types.ts` and
-`src/audits/index.ts`, which #918 owns.
-
-**PR 2, the surface** (needs `src/alerts/digest-collectors.ts`; #975, which
-owned it, merged 2026-09-29, so PR 2 can start):
-
-1. A digest collector over every non-archived row with `url_resolves = 'fail'`.
-   Building sites get no cockpit card (`isDashboardVisible`), so the digest is
-   where they surface.
-2. A freshness gate on `url_checked_at`: a control that misreads writes nothing
-   and the step is `continue-on-error`, so a stale stamp is the only trace.
-3. An `Accepted Watch Conditions` key (e.g. `url not deployed`) that mutes only
-   `fail`, so the check stays two-sided.
-4. Optionally, a cockpit watch candidate in `assignTier` for `maintained` rows.
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                  | Done when                                                                                 |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| P1-22 | Read `RULESET_BYPASS` from the first scheduled fleet-security run after #985, and settle P1-17's measurement fork. `unread` > 0 means the reddoor-renovate App token gets no `bypass_actors`, so the default-branch floor (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night: write an Operator decisions line with the run URL and both numbers, asking which credential lets `protection-audit` see bypass lists — (a) Administration read/write on reddoor-renovate, (b) a dedicated audit-only App or token, (c) accept "unverified" fleet-wide (all 🔴). `unread=0` closes the fork. Do NOT dispatch `fleet-security.yml` to get the number (P0-1) | 🟢   | S      | the `RULESET_BYPASS unread=N read=M` line in the protection-audit step of the scheduled run | An Operator decisions line with the run URL and numbers, or a Done line saying `unread=0` |
 
 ### Blocked behind another PR (do not start early)
 
@@ -196,9 +162,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
    exists, since its stored evidence predates the fix. If you disagree with the
    semantics (e.g. a maintained site on the placeholder Prismic sentinel), say so
    and it gets revisited; the logged send-anyway override still works either way.
-2. **29 Navy** — set `Report recipients (To)`, press "refresh preview" on
-   `/s/29-navy`, then approve.
-3. **MSOT / Revogen recipients** — fix the cells before approving either report.
+2. **29 Navy** — press "refresh preview" on `/s/29-navy`, then approve. Its
+   recipients are correct (settled 2026-09-29).
+3. **MSOT / Revogen recipients** — settled 2026-09-29: the shared
+   `accounting@revogenbiologics.com` is correct. Not an ask; never re-raise it.
 4. **Revogen GA4** — look up the numeric property ID in GA and set
    `ga4_property_id` (site editor), so its 10-05 report carries analytics (#921).
 5. **Release PR #952** — merged by the operator 2026-09-29 16:45Z; 0.101.0 on npm 17:01Z.
@@ -213,6 +180,25 @@ Ordered by what unblocks the most. Each line is the exact ask.
 7. **Webflow, hard date 2026-10-19** [M, Discord #website-maintenance 09-17]:
    two sites still to convert before the license renews; Domaru must stay up
    to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19.
+   **Answered 2026-09-30:** the conversions are Williamson Homes and
+   Williamson Construction, on native Prismic; Domaru lapses on 10-19 (the
+   client no longer wants it; no bridge); D5 yes. Phase 0 is running. Still
+   the operator's by 10-05, via Tim: D0 Webflow billing, D6 the Construction
+   form recipient, D7 the GoDaddy holder, D8 the Adobe Fonts kit owner. **Scoped
+   2026-09-29: see the plan, [`docs/webflow-conversions-2026-10.md`](webflow-conversions-2026-10.md).**
+   Three live sites still serve from Webflow [M]: Williamson Homes (10 pages),
+   Williamson Construction (14) and Domaru (7). The plan's pick is that the
+   Williamsons are the two conversions (native, Prismic) and Domaru gets a static
+   bridge on Netlify to 11-01. Cutover: Williamsons Wed 10-14, Domaru Thu 10-15,
+   with Webflow still serving to 10-19 as the rollback. **First ask (D1):**
+   confirm the two are the Williamsons, and say what Domaru needs: (a) a bridge,
+   then down on 11-01; (b) a transfer to the client's own Webflow workspace (your
+   login); or (c) a full conversion. **D0:** check Webflow billing for what
+   actually stops on 10-19; the roster's `"account owner"` dates (`dec 8`,
+   `jan 11`) may be site-plan renewals. D2–D8 (content, track, redirects,
+   fidelity, form recipients, DNS holders, Adobe Fonts) are due 10-05. Phase 0
+   (repos plus full capture of all three references) needs no decision and should
+   start 09-30; its brief is in the plan, §7.
 
 8. **Airtable residue** — PR #954 (another session, at your request, opened
    2026-09-29 05:52Z) removes the `settings.json` pre-approval and network allow
@@ -239,22 +225,67 @@ Ordered by what unblocks the most. Each line is the exact ask.
     keys in GCP, then close the four alerts.
 14. **Promotion authority (#623 → #545)** — pick identity A/B/C, apply the
     prepared staging ruleset, and promote reddoor-website `staging` → `main`.
-15. **Renovate delivery (#898)** — pick among `prCreation: "immediate"`, a
-    priority on the grouped rule, wider or staggered windows, and a separate App
-    identity for `release.yml`. `renovate/pnpm-12.x` is rate-limited on #490 now.
+15. **Renovate delivery (#898)** — decided 2026-09-29: `prCreation:
+"immediate"` on the grouped rule. The measurement agrees with #898: here,
+    `renovate/all-minor-patch` was pushed at 02:07Z on 09-28 and the next run
+    started at 18:48Z, after the window, so no PR opened that week. The preset
+    change is written, validated and stored as
+    `docs/patches/2026-09-29-github-renovate-grouped-pr-immediate.patch`, but
+    **no `.github` PR exists**: a cloud session cannot attach `reddoorla/.github`
+    (its name starts with a dot), so the push was refused. **Ask:** open it from
+    the laptop (`git am` the patch in a `.github` checkout, then open the PR for
+    your review). It does nothing for `renovate/pnpm-12.x`, a major held by
+    Renovate's own PR/branch limits; a `prPriority` or a higher `prHourlyLimit`
+    is still the lever for that.
 16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
+    **Answered 2026-09-29 ("go"); built in PR #1017, held after two review
+    rounds (item 32).**
+    The probe now fills required fields outside its standard four: the first
+    real option of a select, and synthetic values for text, checkbox and radio.
+    The nightly names its uncovered sites, and a localhost positive control runs
+    before the sweep. The widening covers no new site by itself, because every
+    site it helps still needs a client deploy to declare `forms.testMode`. See
+    item 31.
 17. **Client email copy (#957 follow-up).** The Maintenance email draws a green
     ✓ beside every checklist row whatever the evidence says
     (`maintenance-email/template.ts` → `email-sections.ts`). With #957, LAHI's
     email will say "CMS Checked ✓" for a site with no CMS, as Form Functionality
     already does for sites without a form. Decide whether `n/a` rows render
-    differently or drop out.
-18. **Standing product calls** — #943 (what "Search Console set up" means),
-    #948 (hydration signal), #690 (pnpm pin questions), #672 (cockpit design),
-    #674 (design-review tool), #711 (close into CLAUDE.md or scope one lint),
-    #728 (beachfront `matching/`), #776 (confirm closed), and on the laptop,
-    #773 (local-only git objects).
+    differently or drop out. **Answered 2026-09-29: they drop out**, neither ✓
+    nor "N/A". Done in #1015, on every render path (send, refresh preview,
+    stored draft body, `report --preview`, `selftest email`). A draft stored
+    before that release keeps its old body until "refresh preview". The next
+    [TEST] send is the change's first real check. The Announcement email's
+    checklist is unchanged, since it is not evidence and not named here.
+18. **Standing product calls** — answered 2026-09-29, except #773:
+    - #943 (what "Search Console set up" means): evidence-based. Built in
+      #1016, which waits on the freshness window in item 28.
+    - #948 (hydration signal): audit the built preview (`vite preview`), not
+      the dev server; queued until the a11y PRs in flight land.
+    - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
+      101 self- or dead-host comparers removed, #728 closed.
+    - #776: closed as done.
+    - #711: closed into `CLAUDE.md` ("Prove the instrument", the paragraph on
+      a derived view read as the state).
+    - #690 (pnpm pin questions): Renovate owns the pin. Verified 2026-09-29
+      across all 27 public, non-archived `reddoorla` repos: 21 are on
+      `pnpm@12.5.1` via merged Renovate PRs (reddoor-starter#157 and 20
+      more, 2026-09-22), and the 5 still on `pnpm@11.11.0` (29-navy,
+      erp-industrial, reddoor-maintenance, reddoor-md-pdf, roalson-interests)
+      each list "update pnpm to v12" under Awaiting Schedule on their
+      Dependency Dashboard; `.github` has no `package.json`. Closed with the
+      table.
+    - #672 (cockpit design): design brief first. Brief written, awaiting the
+      operator's markup:
+      [`docs/cockpit-design-brief-2026-09.md`](cockpit-design-brief-2026-09.md).
+    - #674 (design-review tool): mine the rules only. Rules mined in
+      `docs/design-review-rules-2026-09.md` (#1012). Answered 2026-09-29:
+      rule 23 became a flag, six single-site rules and five seen-once rules
+      kept, and the full-bleed opt-in is `data-bleed`. The second pass (Discord,
+      Figma, MarkUp) waits on credentials, Figma team or project IDs, and a
+      private home for the corpus; the file's last section lists them.
+    - Still open, on the laptop: #773 (local-only git objects).
 19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
     rule, then, after two sessions built it in parallel (`f6d5ee8c` on #975,
     `7925133d` on `claude/digest-send-exact-rule`), "do yours": #975 lands
@@ -309,6 +340,12 @@ Ordered by what unblocks the most. Each line is the exact ask.
     unreviewed.
     **Answered 2026-09-29 ~20:50Z: ship 0.102.0; vida's call (exempt the
     blend-mode crash, or change the design) stays open.**
+    **Answered later on 2026-09-29: do both.** The design fix is open for
+    review as [vida-legacy-foundation#86](https://github.com/reddoorla/vida-legacy-foundation/pull/86)
+    (`text-red-700`, 5.93:1 on beige, CI green; not to be merged by an agent).
+    The gate exemption is [#1014](https://github.com/reddoorla/reddoor-maintenance/pull/1014),
+    held after two review rounds: see item 29. Vida's gate is green only
+    with #1014, #86 **and** the 13 palette lines, which no PR carries yet.
 
 24. **P1-12, weekly config-drift report (#983, PR #995)**: two review rounds
     each found real defects, so #995 is held for your call instead of going to a
@@ -330,6 +367,9 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `node scripts/land-prs.mjs 995`, then dispatch `fleet-config-drift.yml` once
     on `main` (the brief's live proof: control passes, summary total = roster
     size, issue filed to match).
+    **Resolved 2026-09-29 ~21:45Z (PM brief: rerun round 2, land if clean):
+    the rerun found no blocker or major; its four minor test gaps are pinned
+    in #995, which lands.**
 25. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** —
     answered 2026-09-29: land as it is, no third round; #989 lands with this line. Two
     review rounds each found a real defect, so #989 is held for your call, not a
@@ -349,6 +389,200 @@ Ordered by what unblocks the most. Each line is the exact ask.
     tests were added), or run a third review round first. Landing it is
     `git merge origin/main` (keep both sides of BACKLOG and the journal), CI
     green, then `node scripts/land-prs.mjs 989`.
+26. **P1-3 PR 2, the roster-url surface (#912, PR #1004)**: two review rounds
+    each found a real defect, so #1004 is held for your call, not a third
+    round. It adds a digest item `url-unresolved:<siteId>` for a fresh `fail` on
+    any non-archived row (it names the url and status), one fleet item
+    `url-probe-stale` (metric = count) for stale stamps, and `url not deployed`
+    in Accepted Watch Conditions, which mutes only `fail`. Maintained rows also
+    watch on the cockpit, with a filter chip. Round 1 (on `5471c319`) found that
+    a never-stamped row read "not checked in 3 days", plus four missing tests
+    (a null verdict on the cockpit, a future stamp, the alias, `now` wiring).
+    All were fixed in `6400ea42`. Round 2 (on `6400ea42`) found one behaviour
+    defect: a site added between the day's probe and the 09:23 digest (runs
+    start late, so the probe can land after lunch PT) mailed "the probe is
+    behind, check the step" about a step that is working. It also found four
+    test gaps. Fixed in `490e6be2`. **The product fork, and my pick:** a
+    never-stamped row now counts only while no row in the fleet is fresh. A
+    probe that never ran or has stopped leaves no fresh row, so it is still
+    caught. The cost is that one row the probe keeps failing to stamp while it
+    stamps the rest is not caught. Round 2's correctness lens found no path that
+    creates such a row (every insert creates its `site_health` row). The other
+    choice is to alarm on it anyway and accept one false mail per new site.
+    All 32 mutations (the brief's 12 plus both rounds' survivors) turn a test
+    red. The full suite passes (8061), and lint and typecheck are clean. The
+    ask: land #1004 as it is (my pick), or pick the other never-stamped rule,
+    or run a third round first. Landing it is `git merge origin/main` (keep
+    both sides of BACKLOG), CI green, `node scripts/land-prs.mjs 1004`. The
+    first stamp comes from tonight's nightly (item 20). Item 21's url fix
+    clears the-pointe-burbank's item.
+    **Answered 2026-09-30: land as it is.** #1004 lands with this line.
+27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
+    #1003)** — two review rounds each found a real defect, so #1003 is held for
+    your call, not a third round.
+    - Round 1 (`a9565ac3`) found a major: stdout's generic "Process from
+      config.webServer was not able to start" line displaced the web server's
+      own cause on stderr ("Port 5173 is already in use"). It also found four
+      test gaps. All are fixed in `8dc2405e`.
+    - Round 2 found no defect in the #949 fix or the missing-browser line, and
+      the full suite passed (7769 tests). Its one confirmed defect is minor: a
+      stdout failure that does not start with `Error:` (a `TypeError`, a test
+      timeout) gets no detail once stderr is only npm warnings. The rest were
+      test gaps. All are filed as #1018; every such case still fails.
+    - All 17 mutations turn a test red. Head `d9dc1ede` is merged with `main`,
+      with CI green.
+    - The ask: land #1003 as it is, with #1018 as the follow-up, or run a
+      third round first. My pick is to land: the round-2 finding narrows a
+      summary's detail, and `freezeMotion` has not changed since round 1.
+    - Landing: `git merge origin/main` (keep both sides of BACKLOG and the
+      journal), CI green, then `node scripts/land-prs.mjs 1003`.
+28. **#943, the Search Console freshness window (PR #1016)**: how long does a
+    resolved Search Console lookup count as evidence for the launch check?
+    #943 says "N days" and leaves N open. My pick: the site's shorter report
+    cadence plus 14 days, which is 45 days for monthly, 106 for quarterly and
+    380 for yearly (and 45 when both cadences are None). The reason is that
+    evidence only arrives when a report drafts, so any fixed N shorter than a
+    site's cadence fails that site by construction. The monthly value matches
+    `ANALYTICS_SOFT_FAIL_STALE_DAYS`. The alternative is one fixed N for every
+    site. #1016 is green, merged with `main`, and one review round found no
+    source defect; the three test gaps it found are fixed. A different answer
+    changes one constant in `src/fleet/search-console-evidence.ts`. Landing
+    it is `git merge origin/main` (#1005 also adds migrations, 0033/0034, so
+    keep both sides of the migration id lists), CI green, then
+    `node scripts/land-prs.mjs 1016`, then close #943.
+29. **#1014, axe's plus-lighter crash is "not measured" (vida, item 23)**:
+    two review rounds each found a real defect, so #1014 is held for your
+    call instead of going to a third round.
+    - **The design.** When axe files `blendFunctions[blendMode] is not a
+function` on a top-level element, the spec re-runs that rule with the
+      element excluded and its children included again, until the crash
+      stops (25 runs at most). It counts each excluded element as not
+      measured and warns. Every other crash, and every crash inside a frame,
+      still fails.
+    - **Round 1.** Major: axe's exclude dropped the crashed node's whole
+      subtree, so a faint paragraph inside a crashed wrapper, 200px from the
+      grain, went unmeasured and the page warned instead of failing. Minor:
+      a third party's grain frame moved the site to warn. Also test gaps. All
+      fixed in `1d2eefae`, with 10 mutations that each turn a test red.
+    - **Round 2.** Major, reproduced live: a crash filed on a **shadow host**
+      (slotted light text over the grain) excludes the whole shadow tree.
+      Children are re-included from the light DOM only, so a 2.32:1 paragraph
+      in the shadow root was dropped and the page warned. Minor test gaps:
+      the wrapper fixture has one child, so `:nth-of-type` or "first child
+      only" would pass, and the blend-mode name is only ever plus-lighter.
+      Integration was clean: 7991 tests passed, no `__name` in `dist`.
+    - **The ask:** authorise one narrow fix and land. The fix: a crash whose
+      element has a `shadowRoot` is not excludable, so it fails as
+      `rule-errored` as today. Add a live shadow-host fixture and a
+      two-child wrapper. That fix only narrows the exemption, and vida has no
+      shadow DOM (measured on the packed build: exit 0, `/` and `/es` 24
+      contrast nodes each). The alternative is a third full review round.
+    - **Landing it:** make the fix on `claude/a11y-blend-mode-unmeasured`,
+      `git merge origin/main` (keep both sides of BACKLOG and the journal),
+      CI green, then `node scripts/land-prs.mjs 1014`.
+    - **Vida separately:** vida's gate also needs its 13 palette lines
+      (`--color-neutral-*: oklch(… 0 0)` in `@theme`, as in 29-navy#58).
+      With #1014 packed, #86 and those lines applied locally, its gate exits 0. Without the palette lines it fails `rule-errored on a11y fixtures`.
+    - **Answered 2026-09-30: authorise the fix and land.** The shadow-host
+      fix is `cf338c68`: a crash filed on an element with a `shadowRoot` is
+      not excluded, and fails. #1014 landed with it. vida#86 was merged by
+      the operator. The palette lines go to vida as their own PR.
+
+30. **Sonder's Testing report, due 2026-09-30 (P0-4)** — measured 2026-09-29
+    ~23:55Z. Two blockers, and only the first can be fixed by 09-30.
+    - **Titles & Meta [M].** fleet-lighthouse run 36584559490 names one
+      problem on 15 routes: `https://gallerysonder.com/artists: title 90 chars
+(max 70)`. The title is Prismic `page` document `artists`
+      (`ZjwQtxIAANaT82IQ`), field `meta_title` =
+      `Artists - Ruben Benjamin - Borja Colom - Theo Hirschfield - Anthony James`
+      (73 chars), and the site's `brandedTitle` adds ` | Gallery Sonder` (17).
+      The audit is right, so nothing is changed in code. **Ask:** in Prismic, set
+      that `meta_title` to 53 characters or fewer, e.g.
+      `Artists: Benjamin, Colom, Hirschfield, James` (44, so 61 on the page),
+      and publish. The site is prerendered, so check that
+      `curl -s https://gallerysonder.com/artists | grep -o '<title>[^<]*'`
+      shows the new title. A deploy on 09-25 with no commit since 09-22
+      suggests a publish rebuilds the site [I]. The next fleet-lighthouse run
+      (Sonder about 15:00Z on 09-30, if it fires like 09-29) re-stamps
+      `titles_meta_ok`, and then **refresh preview** on the draft.
+    - **Form Functionality [M].** `form_e2e_checked_at` is NULL. Last night's
+      form-e2e run 36598340500 skipped Sonder: "site /health does not declare
+      forms.testMode — probe refused". `/health` has no `testMode`, and the
+      four `<form>`s on `/contact` are hidden Netlify stubs. A marked probe
+      needs a Sonder PR and a deploy (testMode forwarding, a `/health`
+      declaration, and the forms restructure in item 26), so no safe
+      measurement is possible by 09-30. Independent evidence from production:
+      Sonder received 10 real submissions from 09-22 to 09-29 (inquiry 3,
+      newsletter 6, rsvp 1; the latest on 09-28), all with notifications sent
+      and Mailchimp fanout ok. The `contact` form's latest is 09-02.
+    - **The product call.** Can the first Testing report ship with Form
+      Functionality unmeasured? Under a send-anyway override, the email still
+      draws "Form Functionality ✓" (`shownChecklistLabels` drops only `n/a`
+      rows), and the override also lifts every other health blocker. **My
+      pick:** fix the title first. When refresh preview shows Form
+      Functionality as the only blocker, send on 09-30 with the logged
+      override, reason "form-e2e cannot probe Sonder until its forms forward
+      testMode (#779); 10 real submissions in 7 days delivered". Then book the
+      Sonder forms PR (item 26) so the next Testing report is measured. The
+      alternative is to hold the report until that PR deploys.
+    - Also seen: the gate's note for a Titles fail says "Missing/duplicate
+      title or missing meta description" (`src/reports/auto-tick.ts:356-360`)
+      even when the fault is length. It pointed the wrong way here, and a
+      small copy fix would correct it.
+31. **#779, the client half of form-e2e coverage** — the central widening
+    (item 16) covers no new site on its own. Measured 2026-09-29 from the live
+    roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
+    covered, and Vida is covered from tonight (it declares `testMode:true` and
+    went maintained after last night's run started). Two sites have no form:
+    29 Navy (its `/health` says `testMode:false` on purpose) and CalTex, so
+    `skipped` cannot go below 2. The other six have forms, and none of them
+    declares `forms.testMode`. Probing an undeclared site would post a real lead
+    to the client, so each one needs a PR in its own repo: forward `testMode`
+    in `buildPayload`, declare it in `/health`, and add the site-specific piece:
+    - ERP Industrials: add a `role="status"` success element. Its required
+      `interest` select is covered by the widening now.
+    - Revogen: add a `/contact` entry to `/distribution-opportunities`.
+    - Data Dynamiq, LA Homelessness Initiative and LA Homelessness Youth: the
+      form sits in a closed modal. Use Beachfront's `/contact` → `#hash`
+      redirect, and add `role="status"` on the two LA sites.
+    - Sonder: hidden Netlify stub forms come first in the DOM, and the real
+      input is outside any `<form>`. This needs a forms restructure.
+
+    The ask: book these as client PRs, one per site in its release window. My
+    pick is ERP first, since it is two small changes now. #779's second idea, a
+    per-site contact-path override in the roster, was not built. It was meant to
+    reach Revogen "without touching the site", but Revogen has to deploy anyway
+    to declare `testMode`, so that same deploy can add a `/contact` redirect.
+    Say if you want the column anyway.
+
+32. **#779's central widening, PR #1017**: two review rounds each found real
+    defects, so #1017 is held for your call instead of going to a third round.
+    Round 1 (on `6a042beb`) found one real major: the test named "can stop the
+    sweep" checked only the positive-control step's own keys, so `|| true` on
+    the control or `if: always()` on the sweep left it green. It also found
+    five minors: a disabled option that was never tested, a `time` input
+    reported as synthesized when its value never stuck, a control inside a
+    disabled fieldset, a failure summary without the synthesized list, and a
+    marker test that would pass if a probe were persisted as spam. A claimed
+    hydration revert of a synthesized `<select>` was refuted by measurement
+    against a real Svelte 5 component. All of it is fixed in `63d0502a`.
+    Round 2 (on `63d0502a`) found two real majors. First, the revert fixture
+    raced a 300 ms page-load timer and failed 1 run in 3 on a loaded single
+    core; this file is the nightly's positive control, so a flake there stops
+    the whole sweep. Second, nothing tested that a failed run carries the
+    synthesized list. It also found minors: a reverted field was called a
+    re-render wipe, re-synthesized names were never listed, the throw path
+    dropped the list, and the fixture recorded both events. All are fixed in
+    `3d1274e1`: the revert now fires on the probe's own change event (3/3 on a
+    pinned, loaded core). Full suite: 8008 passed. 27 mutations (11 named
+    first, 16 from the rounds) all turn a test red. Two minors were left: the
+    tests do not require the control and the sweep to share a job, and a few
+    type branches of the synthesizer are untested. The ask: land #1017 as it
+    is (my pick: round 2's defects were in the tests, and the one behaviour
+    change is naming), or run a third round first. Landing it is
+    `git merge origin/main` (keep both sides of BACKLOG), CI green, then
+    `node scripts/land-prs.mjs 1017`. The first nightly after merge is its
+    first live run; a dispatch is not needed.
 
 ---
 
@@ -407,6 +641,29 @@ verdict is its only input, because no client and no check sees the email.
 
 ## Done (move items here when they land)
 
+- 2026-09-29 — P1-3 / #912, PR 2 (the surface): a fresh `url_resolves = 'fail'`
+  on any non-archived row reaches the digest as `url-unresolved:<siteId>`,
+  naming the url and the status; stale stamps (older than three days, unreadable, or never
+  set while no row in the fleet is fresh) roll into one `url-probe-stale` fleet item whose metric is the count; `url not deployed`
+  in Accepted Watch Conditions mutes only the failure; maintained rows also watch
+  on the cockpit. PR 1 (#986) stores the verdict.
+
+- 2026-09-29 — P1-7 / #910: the a11y audit's route coverage is stored next to
+  its violation count. `details.routes = { scanned, total }` (the numbers the
+  summary's "N of M routes" prints) is written by `audit --write-back` to
+  `site_health.a11y_routes_scanned` / `a11y_routes_total` (migrations
+  0033–0034). A 1-of-2 run and a 2-of-2 run with the same violation count now
+  read back from Turso as different rows (`tests/audits/a11y-routes-turso.test.ts`).
+  The site page's Accessibility tile and the cockpit card say when a run was
+  partial. Not done, and still #910's larger half: no fleet sweep runs the
+  a11y audit, so the columns fill only when someone runs `audit --write-back`
+  from a site checkout. The report gate does not read them.
+
+- 2026-09-29 — Operator decisions 17: a checklist row whose evidence is
+  `n/a` (no CMS, no form, no CI) is dropped from the client Maintenance and
+  Testing email on every render path, and a list that empties takes its heading
+  with it (#1015).
+
 - 2026-09-29 — #969: a timed-out spawn reaps the process groups its
   descendants detached into (Playwright's webServer, Chrome under
   chrome-launcher), found from a `ps -A -o pid=,ppid=,pgid=` snapshot taken
@@ -418,6 +675,15 @@ verdict is its only input, because no client and no check sees the email.
   ruleset's `bypass_actors`; a branch every one of whose gating rulesets can be
   bypassed is a gap, and a ruleset read without the field is unverified (#985).
   The new `RULESET_BYPASS` line's first live number is P1-22.
+
+- 2026-09-29 — P1-12 / #983: `fleet-config-drift.yml` runs
+  `sync-configs --fleet turso --dry` every Sunday at 07:23 UTC behind a
+  three-fixture positive control, and files "Fleet config drift" with the DRIFT
+  and SKIPPED lines (#995). It closes only when every repo in the issue's
+  own body comes back CLEAN. `--dry` now reports a tracked `build/` file as
+  `.gitignore` drift, as the real run already committed it. The Verify line held:
+  no workflow ran `sync-configs`, and the probe printed `no changes needed`
+  against the real run's `applied: 1 commit(s)` on `e2d4aa67`.
 
 - 2026-09-29 — P1-16 / #980: a prospect audit that throws after a paid stage
   (or in its render) marks its row `failed`, re-stamped to the failure, which

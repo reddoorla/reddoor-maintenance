@@ -21,6 +21,14 @@ import {
 } from "./util/contrast-unmeasured.js";
 import { readAxeResults } from "./util/axe-results.js";
 import {
+  describeBlendUnmeasured,
+  canExcludeBlendNode,
+  isExcludableBlendCrash,
+  reincludedChildren,
+  unsupportedBlendModeAt,
+  type BlendUnmeasured,
+} from "./util/blend-mode.js";
+import {
   collectFrameErrorLogs,
   firstStackUrl,
   frameOnPathIsForeign,
@@ -93,6 +101,8 @@ type NormalizedA11y = {
   thirdPartyErrors?: ThirdPartyError[];
   /** Absent in an artifact written by a spec from before this field existed. */
   measured?: MeasuredRoute[];
+  /** Absent in an artifact written by a spec from before this field existed. */
+  blendUnmeasured?: BlendUnmeasured[];
 };
 
 /** One route as the generated spec sees it. `placeholder404Ok` is set only on
@@ -425,6 +435,16 @@ const ruleErroredHelp = ${ruleErroredHelp.toString()};
 const unparseableColourRemedy = ${unparseableColourRemedy.toString()};
 // Injected the same way — see src/audits/util/axe-results.ts (#916 review).
 const readAxeResults = ${readAxeResults.toString()};
+// Injected the same way — see src/audits/util/blend-mode.ts.
+const isExcludableBlendCrash = ${isExcludableBlendCrash.toString()};
+const unsupportedBlendModeAt = ${unsupportedBlendModeAt.toString()};
+const reincludedChildren = ${reincludedChildren.toString()};
+const canExcludeBlendNode = ${canExcludeBlendNode.toString()};
+// How many times one rule is re-run on one route, each time excluding the
+// nodes the last run crashed on for a blend mode. One band of text over a
+// grain crashes once per text node; a page that still crashes after this many
+// keeps the crash, which fails as rule-errored.
+const BLEND_RERUN_MAX = 25;
 // Every read of a frame is bounded: a lazy iframe that never loaded is listed
 // with no document, and waiting on it hung the whole run (#100 review).
 const FRAME_READ_TIMEOUT_MS = 2000;
@@ -462,6 +482,9 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
   const skipped = [];
   // Which rules produced positive evidence on each route (#888).
   const measured = [];
+  // Elements a rule could not measure because axe has no function for their
+  // backdrop's blend mode, per route: named and counted, never failed.
+  const blendSkipped = [];
   // One entry per scanned route: what the reveal pass did there. Written to
   // the artifact so a pass that stopped short can be named, not assumed.
   const reveals = [];
@@ -648,12 +671,66 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
       // The raw report keeps every group and every crash node, in the frame it
       // happened in; readAxeResults (src/audits/util/axe-results.ts) reads it
       // back into the shape below, with the crashes set apart.
-      const results = readAxeResults(
-        await new AxeBuilder({ page })
-          .options({ preload: false, reporter: "raw" })
-          .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
-          .analyze(),
-      );
+      const runAxe = async (rules, excluded) => {
+        let builder = new AxeBuilder({ page }).options({ preload: false, reporter: "raw" });
+        builder = rules
+          ? builder.withRules(rules)
+          : builder.withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"]);
+        // Each excluded node's children are included again, so only the
+        // crashed node's own text goes unmeasured -- see reincludedChildren.
+        if (excluded.length > 0) {
+          builder = builder.include("html");
+          for (const selector of excluded) builder = builder.exclude(selector);
+          for (const child of await page.evaluate(reincludedChildren, excluded)) {
+            builder = builder.include(child);
+          }
+        }
+        return readAxeResults(
+          await builder.analyze(),
+        );
+      };
+      const results = await runAxe(null, []);
+      // A blend mode axe has no function for (plus-lighter) throws inside the
+      // rule and skips it for the whole document -- see
+      // src/audits/util/blend-mode.ts. Re-run that rule alone with each node
+      // it crashed on excluded, until it stops crashing, so the rest of the
+      // page is measured; each excluded node is recorded as not measured. Only
+      // a crash in the site's top-level document is re-run around, and
+      // anything still crashing after BLEND_RERUN_MAX runs stays a crash and
+      // fails below. A crash inside a frame stays a crash too, and the frame
+      // split below decides it as it always has.
+      // A shadow host is not excluded either: see canExcludeBlendNode.
+      const blendExcludable = async (c) =>
+        isExcludableBlendCrash(c) && (await page.evaluate(canExcludeBlendNode, c.nodes[0].target[0]));
+      const blendRules = [];
+      for (const c of results.crashes) {
+        if (!blendRules.includes(c.rule) && (await blendExcludable(c))) blendRules.push(c.rule);
+      }
+      for (const rule of blendRules) {
+        const excluded = [];
+        let rerun = { violations: [], passes: [], incomplete: [], crashes: results.crashes.filter((c) => c.rule === rule) };
+        for (let round = 0; round < BLEND_RERUN_MAX; round++) {
+          const crashing = [];
+          for (const c of rerun.crashes) if (await blendExcludable(c)) crashing.push(c);
+          if (crashing.length === 0) break;
+          for (const c of crashing) excluded.push(c.nodes[0].target[0]);
+          rerun = await runAxe([rule], excluded);
+        }
+        for (const group of ["violations", "passes", "incomplete"]) {
+          results[group] = results[group].filter((r) => r.id !== rule).concat(rerun[group]);
+        }
+        results.crashes = results.crashes.filter((c) => c.rule !== rule).concat(rerun.crashes);
+        for (const selector of excluded) {
+          let blendMode = null;
+          try {
+            const handle = await page.evaluateHandle(resolveTargetElement, selector);
+            blendMode = await handle.evaluate(unsupportedBlendModeAt);
+          } catch {
+            blendMode = null;
+          }
+          blendSkipped.push({ route: name, rule, blendMode, target: [selector] });
+        }
+      }
       // #888: contrast axe never measured, which an empty violations list
       // cannot tell from legible text. A colour axe cannot parse (Tailwind
       // 4.3's none-hued neutral palette, which Chrome renders fine) reaches it
@@ -794,6 +871,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
           frameNodesDropped,
           thirdPartyErrors,
           measured,
+          blendUnmeasured: blendSkipped,
         },
         null,
         2,
@@ -1196,11 +1274,20 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     const frameNote = describeFrameNodesDropped(
       Array.isArray(artifact.frameNodesDropped) ? artifact.frameNodesDropped : [],
     );
+    // A blend mode axe cannot compute is axe's gap, not the site's defect, so
+    // it never fails; but contrast went unmeasured there, so it warns.
+    const blendNote = describeBlendUnmeasured(
+      Array.isArray(artifact.blendUnmeasured) ? artifact.blendUnmeasured : [],
+    );
     const absenceDowngrade =
       undeclaredAbsent.length > 0 && absentSkips.some((r) => undeclaredAbsent.includes(r.path));
     const status: AuditResult["status"] = hasSerious
       ? "fail"
-      : hasAny || absenceDowngrade || revealNote.length > 0 || thirdPartyNote.length > 0
+      : hasAny ||
+          absenceDowngrade ||
+          revealNote.length > 0 ||
+          thirdPartyNote.length > 0 ||
+          blendNote.length > 0
         ? "warn"
         : "pass";
 
@@ -1258,17 +1345,21 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
       (status === "pass"
         ? `a11y: 0 violations across ${scanned} (${smokeNote})`
         : `a11y: ${artifact.totalViolations} violations across ${scanned}${named ? ` — ${named}` : ""}`) +
-      [revealNote, thirdPartyNote, frameNote]
+      [revealNote, thirdPartyNote, blendNote, frameNote]
         .filter((note) => note.length > 0)
         .map((note) => `; ${note}`)
         .join("");
+
+    // #910: the same two numbers the summary's count phrase prints, stored so a
+    // run that covered 1 of 2 routes is a different row from one that covered 2.
+    const routes = { scanned: axePages.length - skippedRoutes.length, total: axePages.length };
 
     return {
       audit: "a11y",
       site: label,
       status,
       summary,
-      details: artifact,
+      details: { ...artifact, routes },
     };
   } finally {
     await rm(specDir, { recursive: true, force: true });
