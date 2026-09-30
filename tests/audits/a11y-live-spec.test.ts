@@ -1365,21 +1365,30 @@ describe("audits/a11y — each #888 finding fails the audit on its own (#916 rev
  *     in the grain's text, which crashes link-in-text-block too, so two rules
  *     are re-run around, each with its own exclusions. `/xo-grain` holds the
  *     grain only inside a cross-origin frame: that crash is the third party's,
- *     counted by the frame split and never re-run around. Nothing else is
- *     wrong with these pages, so the site must not fail.
+ *     counted by the frame split and never re-run around. `/grain-darker`
+ *     crashes on a blend mode other than plus-lighter (see FAKE_BLEND), which
+ *     is re-run around and named. Nothing else is wrong with these pages, so
+ *     the site must not fail.
  *   - SITE_BF: pages whose own contrast is wrong beside the grain, which a
  *     rule skipped for the whole document would never find. `/grain-faint`:
  *     `#faint` (#aaa on white), a none-hued colour (#888's incomplete shape),
  *     and faint text inside a same-origin frame. `/grain-wrap`: the crash is
- *     filed on a wrapper with text of its own, and faint text 200px below the
- *     grain sits inside that wrapper; excluding the wrapper's subtree would
- *     drop it. `/grain-hero`: after the grain is re-run around, the Hero's
+ *     filed on a wrapper with text of its own, then on its first child, and
+ *     faint text 200px below the grain is its second child; excluding the
+ *     wrapper's subtree would drop it. `/grain-shadow`: the crash is filed on
+ *     a shadow host whose shadow root holds faint text, so it is not excluded
+ *     and fails. `/grain-hero`: after the grain is re-run around, the Hero's
  *     unparseable colour crashes the rule, which must still fail.
  *   - SITE_CAP: 25 paragraphs over the grain are re-run around one run at a
  *     time and pass; the 26th is past BLEND_RERUN_MAX and fails.
  */
 const GRAIN = `<div class="grain" style="pointer-events: none; position: absolute; inset: 0; opacity: 0.2; mix-blend-mode: plus-lighter; background: #888"></div>`;
 const GRAIN_BAND = `<section id="grain-band" style="position: relative; background: #172303; color: #fff; padding: 24px">${GRAIN}<p id="over-grain" style="position: relative">${T}</p><p id="over-grain-2" style="position: relative">${T}</p></section>`;
+// Chromium renders no blend mode axe lacks but plus-lighter (plus-darker is
+// WebKit's), so /grain-darker reports one: getComputedStyle answers
+// "plus-darker" for the element marked data-fake-blend, and axe's blend
+// lookup throws on it exactly as it does on plus-lighter.
+const FAKE_BLEND = `<script>{ const gcs = window.getComputedStyle; window.getComputedStyle = function (el, pseudo) { const s = gcs.call(window, el, pseudo); const mode = el instanceof Element ? el.getAttribute("data-fake-blend") : null; if (!mode) return s; return new Proxy(s, { get(t, k) { if (k === "mixBlendMode") return mode; if (k === "getPropertyValue") return (p) => (p === "mix-blend-mode" ? mode : t.getPropertyValue(p)); const v = Reflect.get(t, k, t); return typeof v === "function" ? v.bind(t) : v; } }); }; }</script>`;
 const grainOf = (n: number): string =>
   `<section style="position: relative; background: #172303; color: #fff; padding: 24px">${GRAIN}${Array.from({ length: n }, (_, i) => `<p id="g${i}" style="position: relative">${T}</p>`).join("")}</section>`;
 const SITE_B: SiteConfig = {
@@ -1396,8 +1405,12 @@ const SITE_B: SiteConfig = {
       "Third-party grain",
       `<p id="xo-plain">${T}</p><iframe id="xo-grain" title="Widget" src="CROSS_ORIGIN/grain.html"></iframe>`,
     ),
+    "/grain-darker": sitePage(
+      "Grain in another blend mode",
+      `${FAKE_BLEND}<section style="position: relative; background: #172303; color: #fff; padding: 24px"><div class="grain" data-fake-blend="plus-darker" style="pointer-events: none; position: absolute; inset: 0; opacity: 0.2; mix-blend-mode: multiply; background: #888"></div><p id="darker-para" style="position: relative">${T}</p></section>`,
+    ),
   },
-  a11yRoutes: ["/grain", "/grain-link", "/xo-grain"],
+  a11yRoutes: ["/grain", "/grain-link", "/xo-grain", "/grain-darker"],
 };
 const SITE_BF: SiteConfig = {
   pages: {
@@ -1411,7 +1424,7 @@ const SITE_BF: SiteConfig = {
     "/own-faint": sitePage("Own faint", `<p id="faint-in-frame" style="color: #aaa">${T}</p>`),
     "/grain-wrap": sitePage(
       "Grain over a wrapper",
-      `<section style="position: relative; background: #fff; color: #000"><div class="grain" style="pointer-events: none; position: absolute; top: 0; left: 0; right: 0; height: 30px; opacity: 0.2; mix-blend-mode: plus-lighter; background: #888"></div><div id="wrap" style="position: relative">Intro words here<span id="wrap-lead" style="display: block; margin-top: 100px">${T}</span><p id="wrap-faint" style="color: #aaa; margin-top: 200px">${T}</p></div></section><p id="after-faint" style="color: #aaa">${T}</p>`,
+      `<section style="position: relative; background: #fff; color: #000"><div class="grain" style="pointer-events: none; position: absolute; top: 0; left: 0; right: 0; height: 60px; opacity: 0.2; mix-blend-mode: plus-lighter; background: #888"></div><div id="wrap" style="position: relative">Intro words here<span id="wrap-lead" style="display: block">${T}</span><p id="wrap-faint" style="color: #aaa; margin-top: 200px">${T}</p></div></section><p id="after-faint" style="color: #aaa">${T}</p>`,
     ),
     "/grain-hero": sitePage("Grain then Hero", `${GRAIN_BAND}${HERO_SECTION}`),
     "/grain-shadow": sitePage(
@@ -1491,6 +1504,15 @@ describe("audits/a11y — a blend mode axe cannot compute is not measured, not a
     ]);
   });
 
+  it("re-runs around a blend mode other than plus-lighter, and names it", () => {
+    expect(blendOf(grain, "/grain-darker")).toEqual([
+      'color-contrast ["#darker-para"] plus-darker',
+    ]);
+    expect(grain?.summary).toContain(
+      'element(s) not measured for color-contrast — axe has no "plus-darker" blend mode: /grain-darker (1)',
+    );
+  });
+
   it("names the count, the rule, the blend mode and the route on the summary line", () => {
     expect(grain?.summary).toContain(
       'element(s) not measured for color-contrast — axe has no "plus-lighter" blend mode: /grain (2), /grain-link (',
@@ -1533,7 +1555,12 @@ describe("audits/a11y — a blend mode axe cannot compute is not measured, not a
       "#after-faint",
       "#wrap-faint",
     ]);
-    expect(blendOf(grainFaint, "/grain-wrap")).toEqual(['color-contrast ["#wrap"] plus-lighter']);
+    // #wrap-lead, the first child, sits over the grain too, so it is excluded
+    // and #wrap-faint is included again as the second child on its own.
+    expect(blendOf(grainFaint, "/grain-wrap")).toEqual([
+      'color-contrast ["#wrap"] plus-lighter',
+      'color-contrast ["#wrap-lead"] plus-lighter',
+    ]);
   });
 
   it("still fails a crash that is not the blend mode, found after the blend crash is re-run around", () => {
