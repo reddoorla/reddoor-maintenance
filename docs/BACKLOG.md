@@ -845,7 +845,8 @@ preview`, `VITE_REDDOOR_GATE_FIXTURES=1`, probed on `/_app/version.json`),
   race is the #947 item above. **Rollout:** each of the 25 site repos with the
   one-line guard needs its guard PR merged before it takes a
   `@reddoorla/maintenance` bump carrying #1039, or its a11y gate fails with a
-  line naming the guard.
+  line naming the guard. Landed `f1ad1cec`. The 25 guard PRs are open and green,
+  waiting on the operator's go: roalson-interests#219, williamson-construction-co#1, williamson-homes#4, vida-legacy-foundation#88, reddoor-website#233, reddoor-starter-blux#37, beachfront-dentistry#70, 29-navy#59, medical-solutions-of-texas#70, revogen#89, caltex-landing#68, erp-industrial#64, vineyard-custom-homes#70, espada#78, alamo-anatomy#61, 1836dig#23, data-dynamiq#56, the-pointe-burbank#40, gallerysonder#104, la-homelessness-initiative#48, canvas-starter#30, the-tower-burbank#27, composition-hospitality#36, la-homelessness-youth#28, hedloc#51.
 
 - 2026-09-30 — #779 central widening (PR #1017, `d1e42c4a`): the form-e2e probe
   fills required select, checkbox, radio and text fields outside its standard
