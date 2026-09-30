@@ -680,6 +680,31 @@ search=measured`. Read back (SELECT only) at 19:20Z:
       - `approveBlockers` on the live row is `[]`.
 
       No override is needed. Nothing was sent.
+
+    - **Update 2026-09-30 ~21:03Z: the header no longer shows the cookie
+      banner.** #654 was closed by #814, but the draft's header still showed
+      Sonder's consent panel and its blur scrim over the hero. Sonder's banner
+      mounts after hydration, 3–5s after `load`, which is after #814's one
+      click. Its classes are utility-only, so the CSS fallback never matched.
+      #1070 (`d269b9cf`) now clicks only buttons inside a consent overlay,
+      looks again after the settle, and refuses to store a shot whose banner
+      will not leave. The plate was regenerated with `header-image sonder
+--write-back` and inspected: 21:02:23Z, 888,694 bytes, the "Theo
+      Hirschfield / Euphorbia" hero with no banner. The preview was refreshed
+      (run 36776796655), and `approveBlockers` is still `[]`. Test emails to
+      the operator inbox only: `01a0f3e7…` (old header),
+      `01a0f41d…` (**broken, disregard**: an unstyled capture, see below) and
+      `01a0f421…` (correct). Still ready for your approve and send.
+    - **Follow-up (not built): an unstyled capture passes every check.** One of
+      four cloud captures at 20:58Z rendered Sonder without its stylesheet:
+      plain-text banner copy and two giant SONDER logos. `assertNotBlank` passed
+      it, and so did the consent backstop, because an unstyled banner is not
+      `position: fixed`. It was stored, and it went out in a test email before I
+      looked at it. Three later captures were fine. The likely cause is this
+      container's egress proxy [I], but nothing would stop the same shot in
+      Actions. **Ask:** should the capture refuse a page whose stylesheets did
+      not all load (`document.styleSheets` vs `<link rel=stylesheet>`)? My pick:
+      yes, the same refusal shape as the consent backstop, as its own PR.
 31. **#779, the client half of form-e2e coverage** — the central widening
     (item 16) covers no new site on its own. Measured 2026-09-29 from the live
     roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
