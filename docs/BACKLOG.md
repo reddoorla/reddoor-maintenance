@@ -906,6 +906,7 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     #3's head into `claude/intake-form`, now draft PR #5 (base
     `claude/site-build`). If the answer is (b), revert `783423e`/`b57e99b`;
     nothing else depends on them.
+    **Answered 2026-09-30: re-dispatch; #3 landed at b57e99b as eec070be.**
 
 39. **OD7-P2, williamson-construction-co#3: round 2 found real minors; land
     at `b57e99b` on green, or run a third round?** #3's head `b57e99b` passes
@@ -929,6 +930,7 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     in `ar0odRIAAC0ARR3x` is changed from "Contact" to "Hire Us". The wiring
     PR follows the publish and carries Homes' preview fix (williamson-homes#7).
     #5, the intake form, needs its own review after #3 lands.
+    **Answered 2026-09-30: re-dispatch; #3 landed at b57e99b as eec070be.**
 
 ---
 
