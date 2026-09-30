@@ -1,5 +1,177 @@
 # @reddoorla/maintenance
 
+## 0.102.0
+
+### Minor Changes
+
+- f1ad1ce: a11y: the axe scan runs on a production build the audit makes itself (`npm run build && npm run preview`, with `VITE_REDDOOR_GATE_FIXTURES=1`), never on `vite dev` (#948). A site's `/dev` guard must let that build serve the fixtures (reddoor-starter's guard does); a guard that refuses every non-dev build fails the audit with a line naming the guard and the flag. `reddoor.gateServer` now decides only where the hydration smoke runs.
+- 18054c6: `reddoor-maint audit --only analytics` pairs a site's GA4 tag against the property its monthly report reads. In this release it is advisory: it reports `warn`, never `fail`, so it cannot fail a site's CI.
+
+  It is advisory because its evidence can still be wrong in a way that looks certain. Review found the browser probe calling reddoor's tag "blocked or dead" while that tag is working and has 92 real users. reddoor's loader waits for the first interaction, and the probe never interacts. Hard failures wait for a week of fleet data. Until then, every case below that would fail is reported as a `warn`, with the same text.
+
+  Since 0.100.0 the setup check asks every maintained site for a GA4 property on its row, or a `no analytics` opt-out. That check reads the row only. This audit reads both ends: the tag declared in the site's checkout, and the property on the row. Each end can look fine on its own while the pair is broken, and both failures are silent. On 2026-09-22 a fleet-wide measurement found four sites broken at one end. `revogen` had a live tag and no property, so it was collecting into a property no report reads. `la-homelessness-youth`, `alamo-anatomy` and `hedloc` had a property and no tag, so their properties could only ever answer zero.
+
+  - The declaration is read from every `initAnalytics` reference under `src/`: the `src/hooks.client.ts` that `analytics-tag` writes, a `hooks.client.js`, or a root layout. If the code takes its values from `src/lib/site-config.json`, they are read from there. A value the reader cannot see as a literal, such as an imported ID, a dev/prod ternary or two calls that disagree, is reported as unknown (`warn`), never as a defect.
+  - The pairing needs no browser and no GA credentials. It flags a declared tag with no property on the row. It flags a property with no declared tag only once the probe, or a plain GET of the page together with a full scan of `src/`, shows no loader.
+  - The browser probe runs only when `REDDOOR_ANALYTICS_PROBE` is `1`, `true`, `yes` or `on`. It counts a loader only when the loader arrives, and it names a loader that the page's Content-Security-Policy refused. It does not interact with the page. If the probe saw no loader but the served HTML names one, the evidence is reported as conflicting, not as absence. A navigation that does not answer 2xx, such as a 503 or 401, counts as not checked.
+  - When the GA read shows real users, no verdict claims zero users or a dead tag. The text says the evidence conflicts and names both sides.
+  - A site whose row accepts `no analytics` is skipped with no fetch, browser or Data API call. `--fleet` still clones every roster site before any audit runs.
+  - A checkout audited by path has no fleet row, so the audit skips it rather than pairing it against a property it never read. Use `--fleet turso` to pair against the row. The roster covers `maintained` sites only.
+  - A site install has no GA client libraries, so the property half is reported as not checked. GA credentials refused for the whole fleet (`invalid_grant`, UNAUTHENTICATED) are a `warn` that points to the credentials, not a fault on each site.
+  - The verdict is printed, not stored. The fleet write-back ignores `analytics` results, and no nightly workflow runs this audit.
+
+  `Site` gains `ga4PropertyId`, which is `null` when a row was read and has no property, and `analyticsOptedOut`. The Turso roster sets both, and a JSON inventory can carry `ga4PropertyId`. The monthly report now trims the property ID before querying GA, as the audit does.
+
+- 86becfa: `reddoor-maint analytics-tag <site> --measurement-id G-… --production-host <host>` turns GA4 on for one site, and `csp: { analytics: true }` lets the browser run it.
+
+  The recipe writes `src/hooks.client.ts`, which starts `initAnalytics` from SvelteKit's `init` export. It does not edit `src/routes/+layout.svelte`: the root layouts run from 2.7KB to 9.7KB of hand-maintained markup with nothing in common to anchor an edit on.
+
+  It runs on one site at a time and needs both flags. Every site has its own GA4 web stream, so there is no fleet-wide measurement ID. `--production-host` must be a bare hostname such as `www.example.com`. A URL is refused, because `initAnalytics` compares the host to `location.hostname` and a URL would keep the tag off everywhere.
+
+  It writes nothing, and says why, when:
+
+  - The site already calls `initAnalytics`, anywhere under `src/`. A second run with the same ID on the same host is a noop. A different ID, or one it cannot read, is a refusal that names both, not a noop.
+  - The site already has a client hook in any form SvelteKit reads (`hooks.client.js`, `.ts`, `.mjs`, `.mts`, a `hooks.client/` directory, or a custom `kit.files.hooks.client`). The refusal prints the lines to add to that hook by hand.
+  - The site already loads a tag some other way. `initAnalytics` stands down only for its own measurement ID, so a second loader would double every session. Remove it, commit the removal, then run the recipe.
+  - `src/` is too large to scan for an existing loader.
+  - The site's `@reddoorla/maintenance` range allows a version before 0.102.0, the first that exports `initAnalytics`, or its `@sveltejs/kit` range allows a version before 2.10.0, the first with a client `init` hook.
+
+  `createSvelteConfig` gains `csp: { analytics: true }`, which adds the hosts in `ANALYTICS_CSP` after the site's own directives. That list is Google's published CSP list for GA4 without Ads features: `script-src` `https://www.googletagmanager.com`; `img-src` `https://www.googletagmanager.com` and `https://*.google-analytics.com`; `connect-src` `https://www.googletagmanager.com`, `https://*.google-analytics.com` and `https://*.google.com`. The emitted policy carries no `'strict-dynamic'`, so without these hosts the browser refuses the loader and the property records nothing.
+
+  The recipe edits `svelte.config.js` only where `csp` is the literal option object of a `createSvelteConfig(` call. SvelteKit's own `kit.csp` rejects unknown keys and would fail the build. Every other shape is left alone, and the note gives the full host list to add by hand. It says the browser refuses the loader only when it actually found a CSP. On the 28 fleet configs measured on 2026-09-23 the recipe edits none: 13 set SvelteKit's own `kit.csp` and 15 have no `csp` option. On roalson-interests, a regex literal in `svelte.config.js` stops the parse before the CSP, so the note gives the hosts and says "if". A policy set outside `svelte.config.js`, such as a `netlify.toml` header, is not checked, and the note says so.
+
+- 18054c6: `initAnalytics` on `@reddoorla/maintenance/client` — one GA4 tag mechanism for the fleet, replacing four.
+
+  Nine repos carried analytics in four shapes: a raw inline snippet in `app.html` (seven sites, firing on `localhost` and every deploy preview), a hand-rolled deferred loader, a Svelte component with a hostname gate, and a GTM container. `initAnalytics({ measurementId, productionHost })` is framework-free, idempotent, SSR-safe, and inert off the production hostname and its apex/www twin.
+
+  The apex/www rule now lives in one place, `siteHostnames`, which both the tag's gate and the monthly report's Data API filter (`measuredHostnames`) import. Two copies would let the emit side and the read side drift, and a site that emits on a host the reader filters out reads as "no traffic" rather than as a bug.
+
+  Callers get an `AnalyticsOutcome` back rather than nothing, so the inert paths are distinguishable: `loaded`, `already-loaded`, `no-id`, `off-host`, `gated`, `no-dom`.
+
+- d1e42c4: form-e2e: the probe now fills `required` fields outside name/email/phone/message. A select gets its first non-empty, enabled option; text, checkbox and radio fields get synthetic values; optional fields and the honeypot are left alone. A pass names the fields it synthesized.
+
+  The probe also re-adds its `testMode` marker in a capturing submit listener, so a page that re-renders on the click's blur cannot send an unmarked submission, and it refuses to click when the marker is missing from the form just before submit. A field is claimed as synthesized only when the browser accepts the value (pattern, min/max), and a select whose selected placeholder is disabled counts as unfilled.
+
+- a860dd0: protection-audit: a non-default Renovate base branch's required status check counts only if no one can bypass it (#981). Each `required_status_checks` rule from `rules/branches/{b}` is joined through its `ruleset_id` to that ruleset's `bypass_actors`. The branch is a gap when every contributing ruleset has a bypass actor, of any type and mode, and no classic required context gates it. A ruleset returned without `bypass_actors`, a rule with no `ruleset_id`, or a ruleset read that fails reads `(unverified, not clean)`. A new non-gating `RULESET_BYPASS unread=N read=M` summary line counts the rulesets read without a `bypass_actors` field, which shows whether the sweep's token can see bypass lists at all. `branchRequiredChecks` now returns each rule's `ruleset_id`.
+- e86abd7: New `reddoor-maint roster-urls --fleet --write-back` (#912): one GET (redirects followed, 15 s) of every non-archived roster `url`, whatever the row's status, stored in `site_health` as `url_resolves` (`pass` for a final 2xx, `fail` for anything else, NULL for a blank url), `url_status` (the code, `404 netlify-site-not-found` for Netlify's unclaimed-host page, `error: <code>`, `not an http(s) url` or `no url`) and `url_checked_at`, stamped on every outcome. Two controls run first, a host Netlify does not serve and a deployed site; if either misreads, nothing is written and the run exits 1. A failing row prints a `::warning::` and is a finding, not a failed run. The nightly `fleet-lighthouse` runs it after the GitHub-signals sweep. Migrations `0030`–`0032` add the three columns. Nothing reads them yet; the digest surface is a follow-up.
+- ed2f3ae: The daily digest now reports a non-archived site whose roster url the nightly `roster-urls` probe reads as failing, naming the url and the status, and raises one fleet item when probe stamps go older than three days. `url not deployed` in Accepted Watch Conditions mutes only the failure; the cockpit shows the same failure as a watch on maintained sites.
+- 3d1c937: The "Search Console set up" launch check now passes only on evidence (#943). A recorded property no longer passes it on its own.
+
+  - **What is stored.** Every report draft and announcement whose Search Console lookup runs writes the result to `site_health`, in three new columns (migrations `0035`–`0037`):
+    - `search_console_outcome`: `resolved`, `no-property` or `soft-fail`;
+    - `search_console_resolved`: the property the query ran against, or NULL unless the outcome is `resolved`;
+    - `search_console_checked_at`: when the lookup ran.
+  - **When nothing is written.** A lookup that did not run writes nothing, so an environment without credentials never erases the evidence. That covers a site that is not enrolled, one that opted out, and a run with no GA credentials.
+  - **When the check passes.** It passes on a `resolved` lookup inside the site's own report cadence plus 14 days: 45 days for a monthly site, 106 for quarterly, 380 for yearly, using the shorter of the maintenance and testing cadences. A "no search console" opt-out still passes, and it wins over any stored outcome.
+  - **When it does not pass.** A soft-fail reads as unknown, never as pass, and so does a missing or unparseable timestamp. The setup line names which case applies: no lookup on record, no property matched `<host>`, the last lookup errored, or the last resolved lookup is older than the window.
+  - **The cockpit watch.** The watch `search-console-unrecorded` ("Search Console property not recorded") is replaced by `search-console-no-property`. It is raised only when a maintained site's last lookup matched no property, and it names the host and the lookup date. The "no search console" keys still mute it.
+  - **API change.** `SearchPresence` gains `property`, the property the query ran against.
+
+- c1410fa: a11y audit: contrast that axe never measured is now a failure, not a clean page (#888)
+
+  The a11y gate fails only on axe's `violations`. Where axe could not measure a
+  colour, a page therefore read as clean. The common cause is Tailwind 4.3's
+  palette. It writes 13 entries with a `none` hue: every `neutral-*`, plus
+  `zinc-50` and `mauve-50`. For example, `neutral-900` is `oklch(20.5% 0 none)`.
+  Browsers render `none` as 0. axe-core 4.13.0, the latest release, cannot parse
+  it.
+
+  **What now fails.** Each shape below was measured in Chromium.
+  `scripts/probe-axe-contrast.mjs` re-runs the first five rows.
+
+  | On an audited route                                                                                    | What axe does                                                               | Reported as           |
+  | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- | --------------------- |
+  | Text on such a colour (the first opaque background behind it)                                          | leaves that node unmeasured (`colorParse`) and checks the rest              | `contrast-unmeasured` |
+  | Text **coloured** with one (`text-neutral-*`)                                                          | the same                                                                    | `contrast-unmeasured` |
+  | Such a colour **beneath** an opaque background: a white CTA or card in the band (the starter's `Hero`) | the color-contrast rule **throws**, and that whole document goes unmeasured | `rule-errored`        |
+  | A `text-shadow` in such a colour                                                                       | color-contrast throws                                                       | `rule-errored`        |
+  | A link inside a text block, coloured or bordered with one                                              | link-in-text-block throws                                                   | `rule-errored`        |
+  | Any other axe rule that throws                                                                         | that rule measures nothing in that document                                 | `rule-errored`        |
+
+  Both findings are serious, so each fails the gate on its own. These pages
+  were never clean, because contrast on them was never measured. The Hero shape
+  is #888 as it was reported: 0 contrast nodes on a page that measures 61 once
+  the colour is gone.
+
+  **The fix, stated in each finding.** For a colour with `none`, the summary line
+  says to write 0 there, and it names the colour's own function, e.g.
+  `write 0 for "none" in the oklch() token`. Because browsers already render
+  `none` as 0, nothing on screen changes. The screenshots are byte-identical at
+  all 11 of the palette's lightness values. For the starter's palette this is a
+  13-token `@theme` override, staged in reddoor-starter. With it, the starter's
+  own gate goes from `rule-errored on a11y fixtures` (0 contrast nodes measured)
+  to 0 violations (64 measured). The Blux-track template, reddoor-starter-blux,
+  has the same Hero and goes red the same way. The same override takes it to
+  0 violations (66 measured), and that fix is to follow.
+
+  **A crash is attributed to the frame it happened in.** axe runs each frame
+  separately:
+
+  - A crash inside a third party's cross-origin frame is counted in
+    `frameNodesDropped` and named in the summary, never failed. This follows
+    0.101.0's rule for third-party frames.
+  - A crash in the site's own document, in a same-origin frame, or with no node
+    to attribute fails as `rule-errored`, naming the rule and axe's message. Two
+    rules that threw on one route are listed separately.
+
+  To make that possible, the audit now reads axe's **raw** report. When a rule
+  threw in any frame, axe's default report keeps only that rule's `incomplete`
+  group. So a color-contrast crash inside an embed used to erase the site's own
+  contrast violations and passes. The raw report keeps every group of every
+  rule, and places each crash in its own frame. For a rule that did not throw,
+  the report reads exactly as before, and 0.101.0's live tests pass unchanged.
+
+  **Not reported:** color-contrast's other `incomplete` reasons (`bgImage`,
+  `bgGradient`, `imgNode`, `elmPartiallyObscured`, `shortTextContent`, and the
+  rest of axe's list). Those are properties of the page, where "axe cannot be
+  sure" is the honest answer.
+
+  **Not caught:** a colour with `none` in its **alpha** slot (`/ none`). axe
+  parses it and treats it as opaque, so text on it or in it is measured wrongly
+  and passes. For example, white text on an `oklch(0.2 0 0 / none)` band reads
+  18.09:1, though the band renders transparent and the text white on white.
+  Nothing in axe's output tells that case apart from a real pass. Tailwind
+  4.3.3's CSS never writes a `none` alpha.
+
+  **Recorded, not gated:** `measured: [{ route, ruleNodes }]` in the artifact.
+  It counts, per rule, the nodes axe passed on each route.
+
+  `tests/audits/a11y-live-spec.test.ts` runs the table's first three rows and its
+  last one through the real audit. The probe covers the `text-shadow` and link
+  rows. The live test also runs:
+
+  - each finding alone failing the gate;
+  - a crash inside a third-party frame that leaves the site's own failure
+    standing;
+  - the site's crash beside a third party's;
+  - a crash in a same-origin frame;
+  - a reveal on such a colour.
+
+### Patch Changes
+
+- a00d50d: The a11y gate no longer fails a page because axe-core cannot compute its blend mode. axe-core 4.13 has no `plus-lighter` blend function, so text over a `mix-blend-mode: plus-lighter` layer (Tailwind's `mix-blend-plus-lighter`) makes its `color-contrast` rule, and `link-in-text-block` beside it, throw `blendFunctions[blendMode] is not a function`, which skips the rule for the whole page. The `rule-errored` check that ships in the same release would have failed that page; vida-legacy-foundation's grain overlays hit it on `/` and `/es`.
+
+  That one error is now "not measured" when axe files it on an element of the page's own top-level document. The spec re-runs the rule with that element excluded and its child elements included again, until the rule stops crashing, so only that element's own text goes unmeasured and the rest of the page's contrast is still measured. Each excluded element is recorded in the artifact (`blendUnmeasured`) and counted on the summary line with the rule, the blend mode and the route. It moves a clean run to `warn`, never to `fail`.
+
+  Every other crash still fails as `rule-errored`, as does a blend crash still recurring after 25 re-runs of one rule on one route. Nor is one filed on a shadow host, since excluding the host would drop its whole shadow tree: it fails as `rule-errored`. A blend crash inside a frame is not re-run around: one in a third party's frame is counted and does not fail, as before, and one in the site's own frame fails.
+
+- b4aa194: The a11y gate's blend-mode exemption no longer widens when a page changes while it re-runs a rule. axe names a crashed element by the shortest selector unique at that moment (such as `h2`), and the spec reused it on every re-run, so an element that appeared or was swapped in later (hydration, a carousel) could be excluded too and go unmeasured under a warning. After each re-run, the spec now checks that every excluded selector still names exactly the element that crashed; if one does not, the rule is not re-run around and its crash fails as `rule-errored`.
+- c3c7ec9: The a11y audit now stores how many routes it scanned and how many it was given, next to the violation count (#910). `audit --write-back` writes `A11y Routes Scanned` and `A11y Routes Total` to `site_health` (migrations 0033–0034, `a11y_routes_scanned` / `a11y_routes_total`). They are the same two numbers the summary prints as "1 of 2 routes", so a run that skipped a route is no longer stored the same as a run that scanned them all. The site page's Accessibility tile reads "only 1 of 2 routes scanned" or "2 of 2 routes scanned", and the cockpit card shows "0 (1/2 routes)" for a partial run. A result that carries no route counts stores NULL, which clears the previous run's counts.
+- b8e18d0: The a11y audit runs on a site whose CSP has no `'unsafe-inline'` in `style-src` (#949). The generated spec injected its motion-freezing sheet with `page.addStyleTag`, a `<style>` element such a CSP refuses, so the call threw and the audit failed with no results. The sheet is now a constructed stylesheet adopted by the document, which CSP does not govern; the page's own CSP stays enforced for everything else the audit measures. When the spec writes no results, the summary now names the error Playwright printed to stdout (a plain `Error:`, a typed one such as `TypeError:`, or a test timeout), followed by what the web server wrote to stderr less npm's config warnings, so a port clash or failed build is still named (#905), and a missing browser after a Playwright upgrade reads `a11y: Playwright's browser is not installed (no <path>) — run \`npx playwright install chromium\` in the site`. Both still fail the audit.
+- b114967: The operator digest sends only when it has something new to say, or once a week as a heartbeat (P1-20). From 2026-09-18 to 09-28 it repeated "29 Navy Maintenance draft can't be approved — health-gate (+4 more)" eleven days running, because the only skips were an empty day and a same-day resend. A new `digest_send_log` row in `digest_state` (no migration; the table already holds one row per purpose) records the day of the last send, a baseline metric for every item and every part of a blocked draft's ask, and the first-seen day of each report waiting for approval. The digest sends when an item or ask part appears that the record does not hold, when a metric beats its baseline (by more than 5 points for a Lighthouse score, which is re-measured nightly and jitters), when seven days have passed since the last send, or when the record cannot be read (fail open, as before). The baseline moves only on a send, and only upward, so a send caused by one item does not lower another's and a score sliding a few points a night is mailed once it is 5 past what was last mailed. An item or ask part absent for two runs in a row is forgotten, so a problem that was fixed and comes back is mailed again at once, while a single-run flap is not. A Lighthouse item is remembered for 28 days after it clears, so a score hovering at the floor is judged against its tolerance when it dips back, not re-mailed as new (a simulated year of four scores centred on the floor went from 168 mails to 53, against 52 for the weekly heartbeat alone). A critical item (a dead letter, a bounced lead notification, an exhausted vulnerability, an approved report that will fail) gets no grace, and its baseline follows its count down between sends: back after one clean run, or rising again after a partial fix, it is mailed. A health-gate field counts as one ask part whether it reads failing or unknown. A resolution alone does not send; it rides the next one. A repeated item shows its age, "(3 days)", and a report waiting for approval reads "(waiting 3 days)". A blocked draft now carries the exact ask under its title, e.g. "set Report recipients (To) on /s/29-navy, then approve", with every failing health-gate field named. The run prints `DIGEST_SEND_LOG write=1|0 decision=<reason>`, and `daily-reports` fails when that line is missing or reads `write=0`.
+- b00a84e: The client Maintenance and Testing email no longer shows a checklist row whose evidence is `n/a`. A site with no CMS no longer gets "CMS Checked ✓", a site with no contact form no longer gets "Form Functionality ✓", and a repository with no CI no longer gets "Tested After Updates ✓". The row is left out, not marked "N/A". Rows whose evidence is `pass`, `fail` or `unknown`, and rows with no evidence record, render as before. The pre-send gate is unchanged.
+
+  The same rule applies on every path that renders the email: the send, the stored draft body behind the dashboard preview, "refresh preview", `report --preview`, and `selftest email`. If a whole list is `n/a`, its heading and intro are dropped with it.
+
+  A draft stored before this release keeps its old body, n/a rows included, until someone clicks "refresh preview" on it. Its send already renders from the row and drops the rows.
+
+- 8ba60fe: A report whose site matched no Search Console property now stores `search_found_page1` as NULL ("not measured") instead of 0 ("not on page 1"), on the draft create path and on the announce create and reuse paths. A property-found miss still stores 0. No rendered surface changes: every reader shows NULL and 0 the same way; only the stored value differs.
+- 9351410: A prospect audit that throws after a paid stage (analyze, probes or accuracy) has started, or whose report render throws, now marks its row `failed` instead of leaving it `running` (P1-16). A `failed` row counts toward the daily cap for the full 24 hours from the failure. A `running` row stops counting two hours after its claim, so a bug that threw after every paid run used to be held to about 25 runs per two hours instead of 25 a day. A throw before any paid stage still gives the slot back, and the CLI still exits with the pipeline's own error even when marking the row fails. A `failed` row has no report: it returns 404 from `/api/audit-report/:token`, shows as "Failed" with no report link on `/audits`, is skipped by `scripts/replay-checks.mts`, and a re-click on its url inside 10 minutes gets a 409 saying the run failed, with no report link. Those readers take the statuses without a report from one exported list, `NO_REPORT_STATUSES`. No migration: `status` is free text.
+- 83f6faa: A branch-protection read that failed can no longer become a branch-protection write. `self-updating` (and so `launch`) used to read any failed `branches/{branch}/protection` read as "no protection configured": a 403, a 5xx, a rate limit or a gh network error. It then PUT a replacement protection object whose only required check was `ci / ci`, with reviews and restrictions set to null. Now only `Branch not protected (HTTP 404)` reads as unprotected. Anything else, including the other two 404s (`Branch not found`, and `Not Found` for a repo the token cannot see), fails the recipe with "could not read branch protection on <branch>, so it was not written", and no branch protection or ruleset is written. Steps that run earlier in the same `self-updating` run (opening the Renovate config PR, turning platform auto-merge off) still run, and the failure note lists them as completed. On the same principle, `fileContentsOnBranch` now treats only a 404 as an absent file and throws on anything else. A refused read of the Renovate config used to count as missing, so `self-updating` would open a PR rewriting both config files from the template, putting the template's action pins over the site's own in `renovate.yml`. `prismic-ci` could likewise open its PR over a workflow it had not read. Both recipes now fail instead. `self-updating` no longer falls back to `main` when it cannot read the default branch.
+- 8819e84: A timed-out audit spawn now also kills the process groups its descendants detached into, so Playwright's webServer (the site's dev server) and Chrome under lhci no longer outlive the timeout holding their port.
+- 84b9155: `sync-configs --dry` now agrees with the real run on tracked build artifacts: a `.gitignore` that is already complete but has a tracked `build/` (or other canonically ignored directory) file is reported as `.gitignore` drift instead of `no changes needed`. The dry run also prints machine-readable lines after the human text: `DRIFT <repo> <path>` for each file the real run would change, `CLEAN <repo>` when nothing would, `SKIPPED <repo> <reason>` for each site fleet prep dropped or could not plan, and one `SYNC_CONFIGS_DRIFT drifted=N clean=M skipped=K total=T` summary. Fleet lines name the site's `owner/repo`, not its slug.
+- 51a668b: The browser audit's titles check no longer fails a page for a long `<title>`. Length is measured without the brand suffix the sampled pages share (e.g. " | Gallery Sonder"), and a title still over 70 characters is a warning in the audit's note and `titleLengthWarnings`, not a "Page Titles & Meta" fail. Empty titles, missing meta descriptions and duplicate titles still fail.
+
 ## 0.101.0
 
 ### Minor Changes
