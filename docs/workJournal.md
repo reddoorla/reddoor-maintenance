@@ -6303,3 +6303,26 @@ which carried #1003's a11y change and no form-e2e change. BACKLOG item 32 is
 marked landed, item 16 now says so, and a Done line records it. The first
 nightly after merge is the widening's first live run. Item 31, the client
 half that makes the widening cover any new site, is still open.
+
+## 2026-09-30 — PM night shift: third review rounds pay for themselves, and a title rule loosened (#1034, `51a668b1`; #1003, #1017, #1032 landed)
+
+The PM session spent 00:30–04:00Z putting held PRs to the operator and relaying the answers to worker sessions. Four PRs sat under "two dirty review rounds, then stop": #1003, #1014, #1017 and #1032. The recommendation each time was "land as is", and for #1003, #1017 and #1032 the operator chose a third round instead. **Every one of those third rounds found a real behaviour defect that two rounds had missed.** The one that matters: #1017's form probe, on a page that re-renders its form on a `change` event, dropped its own `testMode` marker and would have posted a synthetic submission as a real lead, stored, counted and emailed to the client. Even the first fix for it (re-inject after re-synthesis) was not enough, because the click blurs the last field and that `change` drops the marker again. It took a capturing `submit` listener to close it. #1032's third round found a percent-encoded `../` that let `capture.mjs` write outside `--out` and then read its own file back as a pass. #1003's found that the failure summary kept stderr's head while web servers print their cause last. The belief this corrects is ours, not the rule's: "round 2 found only test gaps, so land" was the pick three times, and it was wrong three times. The two-round rule stops workers from looping. It is not evidence that a third look would find nothing.
+
+#1014 did not get its third round. The operator had answered item 29 ("authorise the fix and land") directly in the vida worker's own session at ~00:42Z, and that worker landed it at 01:05Z with the shadow-host fix. The PM's own question to the operator went out at ~01:00Z and came back "third full round" after the merge. An answer given in two places reaches whichever session acts first. Relaying answers only through the PM, or only through BACKLOG, would have kept the two from diverging. The round-3 worker for #1014 instead reviewed the merged code and landed #1035/#1036.
+
+**Why 70 characters.** The operator asked where the title limit came from. It is our own heuristic, from the 2026-07-06 report health-gate spec (`src/audits/browser.ts`), not Google's rule. Google truncates titles by pixel width (about 600px, so roughly 50–60 characters), does not rank long titles lower, and sometimes rewrites them. Sonder's first Testing report was blocked on `/artists` at 90 characters (73 without " | Gallery Sonder"). The operator's answer: don't count the brand suffix, and make it a warning. #1034 takes length out of `titleMetaOk` and reports it in `titleLengthWarnings` and the audit note. The first cut picked the brand suffix as "the tail most titles share, longer wins on a tie". Review showed a longer tail always ties with the brand tail inside it, so " - Blog | Brand" was stripped as if it were the brand and a real warning vanished. It also showed a two-page sample whose home is titled just "Brand" found no suffix at all. The rule now counts a bare-brand page as backing its suffix and breaks ties toward the shorter tail. On the live site, only `/artists` warns (73). The warning reaches only the nightly log; persisting it needs a column, which nobody has asked for. The prospect audit's own 10–70 title check (`src/prospect/site-checks.ts`) is untouched.
+
+**Workers asking mid-flight.** Two round-3 workers stopped to ask for a "go" despite a brief that said they never ask: #1003's after merging main, and #1017's at "CI green, awaiting land decision" (that one was correct, since round 3 had found a defect). Restarted briefs now open with "This prompt is the go: do not ask for confirmation at any point", and the restart worked.
+
+**Small mechanics worth keeping.**
+
+- `land-prs.mjs` stops a batch at the first PR that conflicts. Every PR here conflicted only in `docs/workJournal.md`, because all of them append to its bottom. Keeping both sides is always right there.
+- A background "wait for land-prs" loop using `pgrep -f "land-prs.mjs 1017 1032"` never ended, because the pattern matched its own shell's command line. It ran to its time limit after both merges had finished.
+- The Williamson capture bytes (~290 MiB) live on branch `capture/od7-williamson-2026-09-30`, per the operator's 33(c). Until Phase 1 copies them into the site repos and the branch is deleted, every default clone and every `fetch-depth: 0` checkout of this repo downloads them.
+
+Still open at the end of the shift:
+
+- The operator creates `reddoorla/williamson-homes` and `reddoorla/williamson-construction-co` (the cloud gets 403). Phase 1 waits on that.
+- Release #988 (0.102.0) is the operator's click.
+- The #948 worker is moving the axe scan to a built preview. That has to keep the `/dev/*` fixture routes in a gate-only build and out of the deployed one, which is why #700 deliberately left the scan on dev.
+- Sonder's Testing report needs the operator's send with a Form Functionality override, once the next fleet-lighthouse run re-stamps Titles.

@@ -419,7 +419,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
 27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
     #1003)** — **Answered 2026-09-30: third round.** Round 3 found a
     behaviour defect, fixed in `7fa108a2`; **operator: land or not.** No
-    fourth round.
+    fourth round. **Answered 2026-09-30 ~03:25Z: land at this head.** Landed
+    by `land-prs.mjs` as `b8e18d04` (head `2660bec5`).
     - Round 3 (on `35866ca1`, 4 lenses, 3 skeptics each, 3/3 unrefuted):
       stderr kept its first 200 characters, but a web server prints its cause
       last. A preview build (`npm run build && npm run preview`) with two
@@ -689,7 +690,9 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       (branch protection, secret scanning, Prismic repositories and tokens, Netlify
       sites, env vars, hooks) stay the operator's, after (a).
 34. **OD7-P0, the capture tools, PR #1032: round 3 found behaviour defects, all
-    fixed in `db83c30f`; land or not.** The operator answered this item on
+    fixed in `db83c30f`; land or not.** **Answered 2026-09-30 ~03:25Z: land
+    at this head.** Landed by `land-prs.mjs` as `96e10a2a` (head `5e06f8c6`,
+    main merged in; only the journal conflicted). The operator answered this item on
     2026-09-30 with "run a third review round". Round 3 confirmed 24 findings (4
     lenses, 3 refuting skeptics each, confirmed when 2 of 3 could not refute
     it): 11 behaviour defects, 12 test gaps, 1 wording. The most serious
