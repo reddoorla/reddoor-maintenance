@@ -112,12 +112,12 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----- | --------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Not approvable on 09-30 without an override (operator decision 30).** 2 blockers [M, 2026-09-29 23:53Z, `approveBlockers` on live rows]. (1) Titles & Meta: the one problem is `/artists` title 90 chars (max 70), from Prismic `page` `artists` (`ZjwQtxIAANaT82IQ`) `meta_title`; a content edit, not code or the audit. Clears after the Prismic edit, a site rebuild, the next fleet-lighthouse run, and refresh preview. (2) Form Functionality: never measured; form-e2e self-skips Sonder (no `forms.testMode` in `/health`) and no safe probe exists before a Sonder deploy (#779 item 26). |
-| now   | 29 Navy                                       | Maintenance 2026-09                            | Draft ready, 0 blockers, pending since ~09-18. Recipients are correct as they are (settled, see below); press refresh preview, then approve.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 10-01 | Sonder                                        | Maintenance                                    | Needs fresh evidence (P0-1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | LAHI blocked by #911 (P0-3). Revogen will draw no analytics: `ga4_property_id` NULL (#921).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **1 blocker left, not Form Functionality (operator decision 30).** [M, 2026-09-30 ~15:45Z] Form Functionality `pass` (gallerysonder#105 + fleet-form-e2e run 36738059445, 15:42Z) and Titles & Meta `pass`. Remaining: Maint: Google Indexed `unknown`, because Sonder is not search-enrolled (no GA4 / Search Console property on the row). No draft row yet; today's daily-reports had not fired at 15:45Z. |
+| now   | 29 Navy                                       | Maintenance 2026-09                            | Draft ready, 0 blockers, pending since ~09-18. Recipients are correct as they are (settled, see below); press refresh preview, then approve.                                                                                                                                                                                                                                                                  |
+| 10-01 | Sonder                                        | Maintenance                                    | Needs fresh evidence (P0-1)                                                                                                                                                                                                                                                                                                                                                                                   |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | LAHI blocked by #911 (P0-3). Revogen will draw no analytics: `ga4_property_id` NULL (#921).                                                                                                                                                                                                                                                                                                                   |
 
 **Settled — do not flag again (operator, 2026-09-29, after being asked
 several times):** the report recipients are correct as they are. MSOT and
@@ -591,6 +591,27 @@ function` on a top-level element, the spec re-runs that rule with the
       is 73 without " | Gallery Sonder", so it warns. Once this lands (the nightly
       builds from main, so no release is needed) and the
       next fleet-lighthouse run re-stamps `titles_meta_ok`, refresh preview.
+    - **Update 2026-09-30 ~15:45Z: Form Functionality is measured, and one
+      different blocker remains.** gallerysonder#105 (`0eb2bee`) made the four
+      forms real and forwards `testMode`, and production `/health` declares it
+      from 15:36Z. A dispatched `fleet-form-e2e` (run 36738059445) wrote
+      `form_e2e_ok = pass`, `form_e2e_checked_at = 2026-09-30T15:42:24.675Z`
+      and `turnstile_widget = pass` [M, live Turso]. `titles_meta_ok` is also
+      `pass`. On `autoTickChecklist` + `approveBlockers` against the live row
+      (the draft's own code, run read-only), 12 of 13 gating items pass. The one
+      blocker left is **Maint: Google Indexed: unknown, "Not yet measured"**,
+      because Sonder is not search-enrolled: `ga4_property_id`,
+      `search_query` and `search_console_property` are all NULL
+      (`searchEnrolled` false). That is true in every environment, so it is not
+      a credentials gap. No Testing draft row exists yet: at 15:45Z today's
+      `daily-reports` schedule had not fired (it ran at 16:00Z on 09-29), so the
+      draft it creates will carry this evidence without a refresh.
+      **Ask:** record Sonder's Search Console property (or GA4 property id) on
+      the row so Google Indexed measures, or send with a logged override naming
+      only that item. My pick: record the property if the service account has
+      access to it (then the next draft is clean), and otherwise override,
+      reason "Sonder is not enrolled in Search Console yet (#939); every other
+      gate measured green on 09-30". The send is yours either way.
 31. **#779, the client half of form-e2e coverage** — the central widening
     (item 16) covers no new site on its own. Measured 2026-09-29 from the live
     roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
@@ -607,8 +628,12 @@ function` on a top-level element, the spec re-runs that rule with the
     - Data Dynamiq, LA Homelessness Initiative and LA Homelessness Youth: the
       form sits in a closed modal. Use Beachfront's `/contact` → `#hash`
       redirect, and add `role="status"` on the two LA sites.
-    - Sonder: hidden Netlify stub forms come first in the DOM, and the real
-      input is outside any `<form>`. This needs a forms restructure.
+    - Sonder: **covered since 2026-09-30.** gallerysonder#105 (`0eb2bee`)
+      restructured the forms and declares `testMode`; the dispatched run
+      36738059445 passed it, and `skipped` fell from 8 to 7 of 15. Still
+      uncovered: 29-navy and caltex (no form, the floor of 2), and
+      data-dynamiq, erp-industrials, la-homelessness-initiative,
+      la-homelessness-youth and revogen.
 
     The ask: book these as client PRs, one per site in its release window. My
     pick is ERP first, since it is two small changes now. #779's second idea, a
