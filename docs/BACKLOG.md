@@ -900,6 +900,35 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     by `TURNSTILE_SECRET_KEY_2`) already lists `williamson-construction.com`.
     Set it as `PUBLIC_TURNSTILE_SITE_KEY` at launch. The netlify.app preview
     host would take that widget's last slot.
+    **Update 2026-09-30 ~17:25Z (session `0198…`):** it acted on pick (a)
+    before the answer, because its own brief said "continue PR #3". It
+    cherry-picked `50799ca` onto #3 (`783423e`, fold-in `b57e99b`) and merged
+    #3's head into `claude/intake-form`, now draft PR #5 (base
+    `claude/site-build`). If the answer is (b), revert `783423e`/`b57e99b`;
+    nothing else depends on them.
+
+39. **OD7-P2, williamson-construction-co#3: round 2 found real minors; land
+    at `b57e99b` on green, or run a third round?** #3's head `b57e99b` passes
+    locally (lint, check, build, 77 files / 659 tests); CI ran green on
+    `2e1ff42`. **Round 1** (three lenses, on `dd47476`) found no blocker and
+    four majors: a navy focus ring invisible on the navy bands; three looping
+    background videos with no pause (WCAG 2.2.2); editor-picked button styles
+    that could render white on white; and PR claim 3 ("Homes'
+    `hover:bg-secondary/10` goes red") being false for this palette. All four
+    were fixed in `99637f5`, and each fix has a test that goes red on revert
+    (21 mutations in the PR body). **Round 2** (one reviewer, the fix commit)
+    found three minors in the new video control (it guessed its state, showed
+    on a band with no video, and did nothing before hydration) and a nit (a
+    weak focus cue on white-bodied buttons over navy). All four were fixed in
+    `2e1ff42`; five of six mutations go red, and the pre-hydration gate cannot
+    be tested under jsdom. The first worker's five round-1 fixes are on top
+    (see 38). _Ask:_ (a) land #3 at `b57e99b` on CI green, with no third
+    round; or (b) a third round. _Pick:_ (a). Round 2 found nothing above
+    minor, and every fix is bound by a test. Separately, the operator still
+    owns: publishing migration release `ar0oXBIAAC0ARR2n`, after About's CTA
+    in `ar0odRIAAC0ARR3x` is changed from "Contact" to "Hire Us". The wiring
+    PR follows the publish and carries Homes' preview fix (williamson-homes#7).
+    #5, the intake form, needs its own review after #3 lands.
 
 ---
 
