@@ -382,7 +382,22 @@ Each is the exact ask, with the pick this plan would make.
 - **D7 — DNS holders.** Who holds GoDaddy for both Williamson domains and
   Dynadot for Domaru, and can they make the change on 10-14 and 10-15? The
   worker cannot find this out; Tim or Erik can.
-- **D8 — Adobe Fonts.** Who owns kit `htt1asl`? _Pick:_ keep it if the owner
+- **D8 — Adobe Fonts. Answered 2026-09-30 ~20:05Z: not `htt1asl`; Reddoor's
+  own kit `noj4tji` serves the rebuild.** `htt1asl` belongs to the Webflow
+  build and is not carried over. On 09-30 `noj4tji.css` had no
+  `freight-sans-pro` [M: 0 matches], so the operator added it. **Done
+  2026-09-30 ~20:10Z [M, live `noj4tji.css`]:** `freight-sans-pro` at 400,
+  500, 600, 700 and 900, and the separate family `freight-sans-pro-lights`
+  at 100–300, each roman and italic. Adobe ships Light (300) only as
+  `freight-sans-pro-lights`, so the build must give the reference's
+  weight-300 rules (`.our-mission-text`, `.font-weight-thin`, `.form-label`,
+  and the centred `text-size-4xl` intro) `font-family: "freight-sans-pro-lights"`
+  at weight 300. Otherwise the browser synthesizes them from 400.
+  The operator also added `williamson-construction-co.netlify.app` and the
+  production apex and `www` to the kit's domains (not verifiable from a cloud session; the first proof is the preview in a browser). The build then swaps Lato
+  for `freight-sans-pro` from `use.typekit.net/noj4tji.css`, with
+  `use.typekit.net` in `style-src`/`font-src` and `p.typekit.net` in
+  `style-src`, and resolves `TODO(D8)` in `src/app.css`. The question as it was asked: Who owns kit `htt1asl`? _Pick:_ keep it if the owner
   adds the Netlify preview domain; otherwise substitute the closest Google
   font and say so to the client.
 - **Analytics (optional).** None of the three has any analytics today. _Pick:_
