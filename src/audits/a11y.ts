@@ -1031,7 +1031,13 @@ export function describeNoResults(raw: SpawnResult): string {
   // server itself fails, stdout says only "Process from config.webServer was
   // not able to start" and the cause ("Port 5173 is already in use", a failed
   // build) is on stderr. npm's config warnings are dropped as noise.
-  const stdoutError = /^\s*Error: (.+)$/m.exec(stdout)?.[1]?.trim() ?? "";
+  // A plain `Error:` loses its prefix; a typed one (`TypeError:`) keeps it,
+  // because the type is part of the diagnosis. A test timeout has no prefix
+  // at all (#1018).
+  const errorLine = /^\s*(?:Error: (.+)|(\w+Error: .+)|(Test timeout of \d+ms exceeded.*))$/m.exec(
+    stdout,
+  );
+  const stdoutError = (errorLine?.[1] ?? errorLine?.[2] ?? errorLine?.[3] ?? "").trim();
   const stderrLines = stderr
     .split("\n")
     .map((line) => line.trim())

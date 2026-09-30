@@ -441,8 +441,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
     first stamp comes from tonight's nightly (item 20). Item 21's url fix
     clears the-pointe-burbank's item.
 27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
-    #1003)** — two review rounds each found a real defect, so #1003 is held for
-    your call, not a third round.
+    #1003)** — answered 2026-09-30: third round. #1018's items are fixed on
+    #1003 and a third review round runs; #1003 lands with this line if it
+    comes back clean. Two review rounds each found a real defect, so #1003 was
+    held for your call, not a third round.
     - Round 1 (`a9565ac3`) found a major: stdout's generic "Process from
       config.webServer was not able to start" line displaced the web server's
       own cause on stderr ("Port 5173 is already in use"). It also found four

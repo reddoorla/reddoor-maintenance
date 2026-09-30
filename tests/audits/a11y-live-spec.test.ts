@@ -4,7 +4,9 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { chromium, type Browser } from "@playwright/test";
 import { a11yAudit } from "../../src/audits/a11y.js";
+import { freezeMotion } from "../../src/audits/util/freeze-motion.js";
 import { defaultSpawn, type SpawnFn } from "../../src/audits/util/spawn.js";
 import type { AuditResult } from "../../src/types.js";
 
@@ -1471,5 +1473,50 @@ describe("audits/a11y — Playwright's browser is not installed (#905)", () => {
     expect(result?.summary).toContain(`${browsers}/chromium`);
     expect(result?.summary).toContain("npx playwright install chromium");
     expect(result?.summary).not.toContain("npm warn");
+  });
+});
+
+/**
+ * #1018. The #949 fixture above proves the frozen sheet applies to elements;
+ * nothing there animates a pseudo-element, so `*::before,*::after` was held by
+ * no test. This runs freezeMotion itself in Chromium and reads the computed
+ * style of an element and both of its pseudo-elements, each with a running
+ * transition and a keyframe animation.
+ */
+describe("audits/a11y — freezeMotion reaches ::before and ::after (#1018)", () => {
+  let browser: Browser | undefined;
+  type Computed = { transitionProperty: string; animationName: string };
+  let computed: Record<string, Computed> = {};
+
+  beforeAll(async () => {
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.setContent(`<!doctype html><html><head><style>
+      @keyframes spin { from { opacity: 0.2 } to { opacity: 1 } }
+      #target, #target::before, #target::after {
+        transition: color 30s linear;
+        animation: spin 30s linear infinite;
+      }
+      #target::before { content: "before"; }
+      #target::after { content: "after"; }
+    </style></head><body><p id="target">text</p></body></html>`);
+    await page.evaluate(freezeMotion);
+    computed = await page.evaluate(() => {
+      const el = document.getElementById("target") as Element;
+      const read = (pseudo: string | null) => {
+        const style = getComputedStyle(el, pseudo);
+        return { transitionProperty: style.transitionProperty, animationName: style.animationName };
+      };
+      return { element: read(null), before: read("::before"), after: read("::after") };
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  it("cancels the transition and the animation on the element and both pseudo-elements", () => {
+    const frozen = { transitionProperty: "none", animationName: "none" };
+    expect(computed).toEqual({ element: frozen, before: frozen, after: frozen });
   });
 });

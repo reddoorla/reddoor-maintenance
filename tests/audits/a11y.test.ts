@@ -258,6 +258,85 @@ describe("audits/a11y", () => {
     );
   });
 
+  // #1018: the failure shapes the first two rounds left untested.
+  const summaryOf = async (stdout: string, stderr: string): Promise<string> => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({ code: 1, stdout, stderr }),
+    });
+    expect(result.status).toBe("fail");
+    return result.summary;
+  };
+
+  it("names a TypeError from stdout, with its type, when stderr holds only npm warnings", async () => {
+    expect(
+      await summaryOf(
+        lineReporterFailure(
+          "TypeError: Cannot read properties of undefined (reading 'foo')",
+        ).replace("Error: TypeError", "TypeError"),
+        NPM_WARN,
+      ),
+    ).toBe(
+      "a11y: no results written (exit 1) — TypeError: Cannot read properties of undefined (reading 'foo')",
+    );
+  });
+
+  it("names a test timeout from stdout", async () => {
+    expect(
+      await summaryOf(
+        "\n  1) a11y.spec.ts:1:1 › a11y\n\n    Test timeout of 300000ms exceeded.\n\n  1 failed\n",
+        NPM_WARN,
+      ),
+    ).toBe("a11y: no results written (exit 1) — Test timeout of 300000ms exceeded.");
+  });
+
+  it("takes the first error line on stdout, not a later one", async () => {
+    expect(
+      await summaryOf("    Error: the first failure\n\n    Error: a later failure\n", ""),
+    ).toBe("a11y: no results written (exit 1) — the first failure");
+  });
+
+  it("strips colour from stderr, and drops a coloured npm warning", async () => {
+    const esc = String.fromCharCode(27);
+    const summary = await summaryOf(
+      "",
+      [
+        `npm ${esc}[33mwarn${esc}[39m Unknown env config "manage-package-manager-versions".`,
+        `[WebServer] ${esc}[1;31merror${esc}[39m during build:`,
+      ].join("\n"),
+    );
+    expect(summary).toBe("a11y: no results written (exit 1) — [WebServer] error during build:");
+  });
+
+  it("drops blank stderr lines and trims each one", async () => {
+    expect(
+      await summaryOf("", "\n  [WebServer] first cause  \n\n   \n[WebServer] second cause\n"),
+    ).toBe(
+      "a11y: no results written (exit 1) — [WebServer] first cause / [WebServer] second cause",
+    );
+  });
+
+  it("drops npm's older upper-case WARN lines too", async () => {
+    expect(
+      await summaryOf(
+        "",
+        "npm WARN config production Use `--omit=dev` instead.\nspec failed to compile",
+      ),
+    ).toBe("a11y: no results written (exit 1) — spec failed to compile");
+  });
+
+  it("finds a missing browser reported on stderr", async () => {
+    expect(
+      await summaryOf(
+        "",
+        "Error: browserType.launch: Executable doesn't exist at /cache/chromium-1243/chrome-linux/chrome",
+      ),
+    ).toBe(
+      "a11y: Playwright's browser is not installed (no /cache/chromium-1243/chrome-linux/chrome) — run `npx playwright install chromium` in the site",
+    );
+  });
+
   it("skips when playwright is missing", async () => {
     const cwd = await tmpSite();
     const result = await a11yAudit({
