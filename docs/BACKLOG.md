@@ -714,6 +714,34 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     land. Every round-3 defect is fixed and bound by a test, and none changed a
     real capture. Landing: CI green, then `node scripts/land-prs.mjs 1032`.
 
+35. **#948: the preview alone does not end the hydration race. Pick the
+    signal (drafts #1039 and reddoor-starter#163, 2026-09-30).** Item 18
+    answered #948 with "audit the built preview, not the dev server". Built and
+    measured, the preview narrows the race but does not remove it. #948's bar
+    was "identical on every cold run and equal to the hydrated count". Numbers
+    are roalson `/dev/a11y-fixtures` color-contrast nodes, each run cold:
+    old dev gate 191, 201, 191, 208, 191 (191 is the never-hydrated page, which
+    blocking the entry chunks reproduces exactly; hydrated is 208). #1039's
+    preview: 12 runs at 208 and 2 at 217, plus one 300 s spec timeout; 217 − 208
+    = 9, the featured cards that the hydrated reveal hides. Preview plus a wait
+    for `html[data-hydrated]` (roalson #57 sets it in the root layout's
+    onMount): 208 in 10 of 10 runs at no added time. That variant is scratch
+    only, not in #1039. The fixture half is done and proven: the guard passes
+    only a build made with `VITE_REDDOOR_GATE_FIXTURES=1`, the flag is baked in
+    at build time, and Netlify refuses it; mutations 1–5 all turn tests red.
+    Cost: a second build per run, +11 s median on roalson. _Ask:_ which
+    hydration signal does the gate wait for? (a) #947's marker: the starter's
+    root layout sets `data-hydrated`, the spec waits for it on sites that
+    declare it, and #947's recipe half is fixed in the same change. (b) Land
+    #1039 and #163 as they are and accept about 1 run in 7 reading
+    mid-hydration, until (a). (c) Wait on `networkidle` plus 3 s: 208 in 3 of 3
+    runs, but +25 s per run, and it can hang on sites that poll. _Pick:_ (b)
+    now, then (a). The preview is needed either way, and the marker is the only
+    signal that measured clean. Ordering: until a site's `/dev` guard passes the
+    flag, #1039 fails that site's gate with a line naming the guard. So the
+    starter PR, then one PR per site with fixtures, must land before any
+    `@reddoorla/maintenance` bump that carries #1039.
+
 ---
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
