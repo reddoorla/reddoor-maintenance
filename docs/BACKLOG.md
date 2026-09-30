@@ -1048,7 +1048,7 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       (b)(2) that host would refuse every submission.
 
     Still open from item 7: D6 (the form stays held on the operator, and the
-    row stays `building`) and D8 (Lato, `TODO(D8)`; **answered 2026-09-30 ~19:50Z: the operator owns kit `htt1asl`**, see the plan's D8 line). No live form was
+    row stays `building`) and D8 (Lato, `TODO(D8)`; **answered 2026-09-30 ~20:05Z: Reddoor's kit `noj4tji`, with `freight-sans-pro` added**, see the plan's D8 line). No live form was
     submitted.
 
 41. **Vida Legacy Foundation's first Maintenance report (new 2026-09-30).**
