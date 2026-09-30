@@ -53,6 +53,7 @@ beforeEach(() => {
     defaultQueryMissed: false,
     propertyMissing: false,
     notConfigured: false,
+    lookup: null,
   });
 });
 
@@ -107,6 +108,7 @@ describe("buildReportDataForSite", () => {
       defaultQueryMissed: false,
       propertyMissing: false,
       notConfigured: false,
+      lookup: null,
     });
     const d = await buildReportDataForSite(site(), "Maintenance", NOW, { scores, header: HEADER });
     expect(d.gaUsersCurrent).toBeUndefined();

@@ -259,8 +259,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     [TEST] send is the change's first real check. The Announcement email's
     checklist is unchanged, since it is not evidence and not named here.
 18. **Standing product calls** — answered 2026-09-29, except #773:
-    - #943 (what "Search Console set up" means): evidence-based. Built in
-      #1016, which waits on the freshness window in item 28.
+    - #943 (what "Search Console set up" means): evidence-based. Done in
+      #1016, with the freshness window answered in item 28.
     - #948 (hydration signal): audit the built preview (`vite preview`), not
       the dev server; queued until the a11y PRs in flight land.
     - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
@@ -450,6 +450,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     it is `git merge origin/main` (#1005 also adds migrations, 0033/0034, so
     keep both sides of the migration id lists), CI green, then
     `node scripts/land-prs.mjs 1016`, then close #943.
+    **Answered 2026-09-30: the cadence + 14 days (as picked).** #1016 lands with
+    this line; #943 closes with it.
 29. **#1014, axe's plus-lighter crash is "not measured" (vida, item 23)**:
     two review rounds each found a real defect, so #1014 is held for your
     call instead of going to a third round.
@@ -647,7 +649,17 @@ verdict is its only input, because no client and no check sees the email.
   set while no row in the fleet is fresh) roll into one `url-probe-stale` fleet item whose metric is the count; `url not deployed`
   in Accepted Watch Conditions mutes only the failure; maintained rows also watch
   on the cockpit. PR 1 (#986) stores the verdict.
-
+- 2026-09-30 — #943: the "Search Console set up" launch check passes only on
+  evidence (#1016). Every draft or announcement whose Search Console lookup
+  runs stores its outcome in `site_health` (`search_console_outcome` /
+  `_resolved` / `_checked_at`, migrations 0035–0037). The check passes on a
+  resolved lookup within the site's shorter report cadence + 14 days
+  (45/106/380 days), or on the "no search console" opt-out, which wins. A
+  soft-fail reads as unknown. The cockpit watch `search-console-no-property`
+  names the host whose lookup matched nothing. No backfill: each site
+  reads "no report lookup on record" until its next draft. #943's point 3
+  (falling back from a recorded property to the by-host candidates) is not
+  done.
 - 2026-09-29 — P1-7 / #910: the a11y audit's route coverage is stored next to
   its violation count. `details.routes = { scanned, total }` (the numbers the
   summary's "N of M routes" prints) is written by `audit --write-back` to

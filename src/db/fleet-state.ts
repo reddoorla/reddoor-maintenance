@@ -42,6 +42,7 @@ import {
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
 import type { EvidenceRecord } from "../reports/auto-tick.js";
 import { canonicalizeStatus } from "../fleet/site-status.js";
+import { toSearchConsoleOutcome } from "../fleet/search-console-evidence.js";
 import {
   parseNotifyRouting,
   parseSecurityAdvisories,
@@ -168,6 +169,9 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     urlResolves: toVerdict(r.url_resolves),
     urlStatus: str(r.url_status),
     urlCheckedAt: str(r.url_checked_at),
+    searchConsoleOutcome: toSearchConsoleOutcome(r.search_console_outcome),
+    searchConsoleResolved: str(r.search_console_resolved),
+    searchConsoleCheckedAt: str(r.search_console_checked_at),
     nextMaintenanceAt: str(r.next_maintenance_at),
     nextTestingAt: str(r.next_testing_at),
   };
