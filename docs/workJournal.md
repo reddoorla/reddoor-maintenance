@@ -6267,3 +6267,13 @@ Two test gaps were confirmed as well. The ANSI strip on stdout's error line was 
 | M22 typed alternative is `TypeError` only | both `it.each` cases                   |
 
 Per the brief, a confirmed behaviour defect means no landing and no fourth round. BACKLOG 27 now asks "land or not". My pick is to land. #1018 stays open until #1003 lands, and the PR now closes it on merge.
+
+## 2026-09-30 — #1017 lands on the operator's merge (`d1e42c4a`)
+
+This follows the round-3 entry above, which held #1017 for the operator. The
+operator merged it at 03:32:33Z. The merged head `a8359581` differs from the
+last one this session pushed (`a538c114`) by a single base merge of main,
+which carried #1003's a11y change and no form-e2e change. BACKLOG item 32 is
+marked landed, item 16 now says so, and a Done line records it. The first
+nightly after merge is the widening's first live run. Item 31, the client
+half that makes the widening cover any new site, is still open.
