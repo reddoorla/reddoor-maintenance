@@ -213,7 +213,21 @@ Ordered by what unblocks the most. Each line is the exact ask.
    them; (e) **any reaction from the operator on a Discord message closes it**.
 7. **Webflow, hard date 2026-10-19** [M, Discord #website-maintenance 09-17]:
    two sites still to convert before the license renews; Domaru must stay up
-   to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19.
+   to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19. **Scoped
+   2026-09-29: see the plan, [`docs/webflow-conversions-2026-10.md`](webflow-conversions-2026-10.md).**
+   Three live sites still serve from Webflow [M]: Williamson Homes (10 pages),
+   Williamson Construction (14) and Domaru (7). The plan's pick is that the
+   Williamsons are the two conversions (native, Prismic) and Domaru gets a static
+   bridge on Netlify to 11-01. Cutover: Williamsons Wed 10-14, Domaru Thu 10-15,
+   with Webflow still serving to 10-19 as the rollback. **First ask (D1):**
+   confirm the two are the Williamsons, and say what Domaru needs: (a) a bridge,
+   then down on 11-01; (b) a transfer to the client's own Webflow workspace (your
+   login); or (c) a full conversion. **D0:** check Webflow billing for what
+   actually stops on 10-19; the roster's `"account owner"` dates (`dec 8`,
+   `jan 11`) may be site-plan renewals. D2–D8 (content, track, redirects,
+   fidelity, form recipients, DNS holders, Adobe Fonts) are due 10-05. Phase 0
+   (repos plus full capture of all three references) needs no decision and should
+   start 09-30; its brief is in the plan, §7.
 
 8. **Airtable residue** — PR #954 (another session, at your request, opened
    2026-09-29 05:52Z) removes the `settings.json` pre-approval and network allow
