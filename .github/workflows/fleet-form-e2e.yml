@@ -49,6 +49,23 @@ jobs:
       # a bare ubuntu runner.
       - run: pnpm exec playwright install --with-deps chromium
 
+      - name: Positive control — the probe passes a known-good local form
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          if ! pnpm exec vitest run tests/audits/form-e2e-live-runner.test.ts --reporter=default --reporter=json --outputFile.json=form-e2e-control.json; then
+            echo "::error::form-e2e positive control failed — the sweep did not run and no site was probed tonight."
+            exit 1
+          fi
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("form-e2e-control.json", "utf-8"));
+            if ([!r.success, r.numPassedTests < 1, r.numPendingTests > 0, r.numTodoTests > 0].some(Boolean)) {
+              console.log(`::error::form-e2e positive control measured nothing: ${r.numPassedTests} passed, ${r.numPendingTests} skipped, ${r.numTodoTests} todo — the sweep did not run.`);
+              process.exit(1);
+            }
+            console.log(`FORM_E2E_CONTROL passed=${r.numPassedTests}`);
+          '
+
       - name: Fleet form-e2e + write-back
         # Checkout-free and preflight-gated: undeclared sites cost one /health
         # fetch each, declared sites one browser session — far lighter than
@@ -113,8 +130,10 @@ jobs:
           # treat as a step failure.
           selfskipped=$(grep -c "does not declare forms.testMode" "$out" || true)
           echo "FLEET_FORM_E2E skipped=$selfskipped total=$total"
+          uncovered=$(grep -B1 "does not declare forms.testMode" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
+          echo "FLEET_FORM_E2E_UNCOVERED sites=${uncovered:-none}"
           if [ "$selfskipped" -gt 0 ]; then
-            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration) — those sites had NO end-to-end coverage tonight."
+            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration) — those sites had NO end-to-end coverage tonight: ${uncovered:-unnamed}."
           fi
 
           # Surface every partial miss as a visible warning.

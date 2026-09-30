@@ -6175,6 +6175,103 @@ Per the operator's answer there is no fourth round. #1035 is not landed; BACKLOG
 
 This corrects nothing in the entry "#1014 round 3 finds a selector-drift widening in what had just landed; the fix is held for the operator (#1035, BACKLOG 29)". It records the outcome. Asked "land #1035 or revert `a00d50d4`", with a recommendation to land (the fix can only fail closed, and a revert would put vida back to `rule-errored`), the operator answered "go, land 1035". Nothing had moved since CI went green: head `3969249e`, `CLEAN`, `main` at `51a668b1`, #988 unmerged. `land-prs` watched the checks and squash-merged it at 02:10:48Z as `b4aa1948`, pinned to that head. Release PR #988 now carries both changesets, #1014's and #1035's. One caveat is recorded plainly: the fix itself had red-first tests and 11 mutations, but no adversarial review round of its own.
 
+## 2026-09-30 — #1032 round 3 finds a capture that could write outside itself; every finding fixed, held for the operator (`4753cf72`, `db83c30f`, BACKLOG 34)
+
+This follows "OD7-P0: all three Webflow references captured whole; the Williamson repos could not be created" and corrects nothing in it. The operator answered BACKLOG 33 and 34 at about 02:10Z. For 33, the operator creates `williamson-homes` and `williamson-construction-co` by hand, both public, and the capture bytes stay on their branch until Phase 1 copies them. For 34, #1032 gets a third review round, overriding "two dirty rounds, then stop" for this PR only. Both answers are written into BACKLOG in #1032 (`d671259f`).
+
+**Round 3.** Four lenses (correctness, test binding, integration with main, capture fidelity), three refuting skeptics per finding, 76 agents. All 24 findings survived at least two of their three skeptics: 11 behaviour defects, 12 test gaps, 1 wording. Eight had one dissent, and every dissent had the same shape: "real, but no Webflow site emits this input". That dissent was true every time. It is also the reason the capture's own verdict cannot be trusted on input the real captures happen not to contain.
+
+- **The serious one: path traversal.** The WHATWG parser leaves `..%2F` encoded. `urlToLocal` decoded the whole path and then split it on `/`, and neither `UNSAFE` nor anything else removed `..`. So `https://cdn.example.com/a/..%2F..%2F..%2F..%2Fescape.js` mapped outside the capture, and `capture.mjs`'s `write` put the fetched bytes there. The check read them back through the same `join` and passed. `pageToLocal` had the same hole. Each segment is now decoded on its own, a decoded `/` stays inside the name as `_`, and a segment that is `.` or `..` is renamed `_.`/`_..`.
+- **Tags lost.** `markupOnly` blanked comments over the raw page before it blanked script bodies. So `var s="<!--"` began a "comment" that ended at the page's next real `-->`, and every tag in between was erased: round 2's failure shape, reached through the comment pass instead. It is now one alternation, in page order. `attr()` searched the raw tag text for ` src=`, and so found it inside `alt="see src=x.png"`. It now tokenises attributes, and the first attribute of each name wins, as in HTML.
+- **References missed:** `image-set()` string candidates, upper-case `URL()`, and a quoted protocol-relative runtime load (`$.getScript("//cdn…")`). Only a quoted `//host/…` counts, so a `// comment` naming a host is not a load.
+- **Clashes.** `lib.mjs` gained `pathConflict`. It names two different URLs mapped to one path, a file under a file (`img` and `img/x.png`, which crashed `capture.mjs` with EEXIST after it had deleted the previous run, leaving no manifest), and a case-only difference (macOS stores those as one file). It treats an http and an https reference as one file; before, that pair was a collision the capture could never pass. Capture and check apply it to pages as well as files. Before this, `/x:y` and `/x_y` overwrote one page file and the check passed. Capture records any write the filesystem still refuses, instead of throwing.
+- **Smaller ones.** An empty page list passed, so the check now requires page `/`. The typekit exclusion `(?:af|…)` was unanchored, so a kit whose id starts with `af` was excluded as a font binary. It is now `af\/`.
+- **Wording.** `captures/README.md` said the branch keeps the Williamson bytes out of clones. It does not: a default fetch takes every branch. In this container the reflog shows the setup hook's unshallow fetch storing the branch. 288.7 MiB of objects are reachable only from it, against 17.7 MiB for all of `main`. That cost lasts until the branch is deleted.
+
+**The real captures do not move.** Before touching `lib.mjs`, I snapshotted every extractor's output over the three real captures: references, page links and pagination for all 31 pages, file references for every captured stylesheet, script and JSON file, and `urlToLocal`/`pageToLocal`/`exclusionFor` for every manifest entry. After the fixes the snapshot is byte-identical. All three captures pass, Williamson checked against a fresh single-branch clone of `a89da157` with `--expect-pages 10` and `14`, Domaru with `--expect-pages 7`. Homes reports 428 files present, not the 429 in the PR table, under the old check too. The 429th is the file of the commented-out jsDelivr script, which round 2 described as kept.
+
+**Red first.** The ten behaviour tests were committed alone (`4753cf72`) and fail against the round-2 scripts. The capture test, run against a local server, exits 1 with no manifest on the old `capture.mjs`. It passes on the new one.
+
+**Mutations.** 40 were run, one at a time, against `tests/scripts/webflow-capture.test.ts`: 37 went red and 3 survived. Each of the 16 fixes, reverted on its own, turns a test red. So do 19 of the 21 mutations of guards the test-binding lens found unbound, among them the page-missing guard, Google Fonts recursion, the siteId guard, `--expect-pages` too many, the CLI's exit code and argument parsing, `<style>` blocks, media tags, `poster`, `apple-touch-icon`, `xlink:href`, single-quoted `url()`/`@import`, the balanced-paren cut and the full-stop trim, and page links that are files or commented out. Two capture mutations go red too: no page-clash guard, and file claims by exact path only. Three survive, and each is recorded rather than dressed up. The check's `done` set is now subsumed by the `seen` guard. Dropping `&#39;` decoding is covered by the numeric-entity rule. Capture's write try/catch cannot be reached once `pathConflict` has refused every clash, since a root container cannot produce the permission refusal that would reach it.
+
+**Beliefs corrected on contact.**
+
+- A new test failed on code that should have passed it: "fails a manifest without a site id". The cause was `check.mjs` in the shared review worktree, which carried `if (!siteId)` → `if (false)`. A test-binding agent had applied the mutant in place, although its prompt said to work only on copies, and never restored it. `git diff` showed it. My BACKLOG commit had staged only `docs/BACKLOG.md`, and `lib.mjs` was clean, so the baseline snapshot stands. The full suite that passed at 02:24–02:30Z overlapped the workflow's start, so it may have run the mutant. It passed either way, because nothing else imports `check.mjs`. Next time, give review agents their own worktree, or check `git status` as soon as the workflow returns.
+- My capture test assumed `/x_y` is crawled before `/x:y`. `extractPageLinks` sorts, and `:` sorts before `_`, so the colon page is the one kept. The test now asserts the invariant (exactly one kept, and the bytes on disk are its bytes), not the order.
+
+Per the operator's answer there is no fourth round. #1032 is not landed. BACKLOG 34 now asks "land #1032 at its current head, or not", with the pick "land".
+
+## 2026-09-30 — #1017 round 3 finds a live-lead leak and three more behaviour defects; fixed, held for the operator (#779, `48326568`)
+
+The operator answered BACKLOG item 32 with "third round", overriding the
+two-round stop for this PR only, on the condition that a confirmed behaviour
+defect means fix and hold, not land. It did find one, and the worst of them
+was the exact thing the extra lens was named for.
+
+The review ran on `84f69a1a`, the branch after a conflict-free merge of 23
+commits of main. It used a Workflow with 4 lenses and 3 refuting skeptics per
+finding. It returned 14 findings, and 13 stood at 2 of 3.
+
+The defect that mattered: the probe adds a hidden `testMode` input to the
+form, and central ingest's short-circuit on that marker is the only thing
+standing between a synthetic submission and a client's inbox. A page that
+re-renders its form on a `change` event throws that imperatively added input
+away. Round 2's re-synthesis pass fires `change` after the marker is injected
+and after the canary check that would have noticed. The reviewer built that
+page on localhost and got `success: true` from a POST that had no `testMode`.
+On a live site that is a lead stored, counted and emailed.
+
+The belief corrected on contact is that a check just before the click would
+close it. It did not, and the red test showed why at once. The pre-click
+evaluate saw the marker, but `click()` blurs the last field `page.fill` typed
+into. That blur fires one more `change`, the page re-rendered, and the POST
+still went out unmarked. The fix that holds is a capturing `submit` listener
+on `window`, installed by the inject expression. It runs before any handler
+the site attached to the form and re-adds the marker to whatever form is
+being submitted. The pre-click refusal is kept as a second, independent
+guard: if the marker is missing there, the probe returns a failure and sends
+nothing. Mutations M1–M3 show that each of the three pieces is held by its
+own test.
+
+The other behaviour defects:
+
+- A required select whose selected placeholder is `<option disabled
+selected>` with no value attribute has `select.value` equal to the option's
+  text. It is valid to Chromium (only a `value=""` placeholder counts as
+  missing), and it is absent from FormData. The synthesizer read it as
+  filled.
+- A synthetic value that fails `pattern` or `max` was still claimed as
+  synthesized, the same contract round 1 fixed for `type=time`. It is now
+  restored and not claimed.
+- `page.setContent` never resolves under `vi.useFakeTimers({ shouldAdvanceTime:
+true })`, which the weekly time-travel run installs at module level. So
+  the three synthesizer tests would have made Monday's run on main red.
+  `page.goto("data:text/html,…")` does not hang.
+
+The control step had the same shape as the CLAUDE.md rule it exists to
+enforce. vitest exits 0 when every test in a file is skipped, so one
+`describe.skip` would have made the control pass while measuring nothing. The
+step now writes vitest's JSON report and requires success, at least one
+passed test, and no skipped or todo tests. It was proven both ways with the
+real script: 22 passed gives exit 0, and every `describe` skipped makes
+vitest exit 0 but the step exit 1. One mutation, dropping the passed ≥ 1
+condition, survived at first, because the all-skipped case also trips the
+skipped count. A zero-tests case kills it. All 15 round-3 mutations now turn
+a test red.
+
+Measured: the changed fixture passed 10 of 10 runs pinned to core 0 beside
+a busy loop, at 104–106 s each (the reviewer's run on the pre-fix fixture
+took 98–99 s). About 64 s of that is the two deliberate 30 s timeouts in the
+negative tests, so the step's 10-minute timeout has wide headroom. Honest
+accounting: the script that ran the loop printed "burner killed" while the
+busy loop was still alive. A `ps` read caught it, and a second kill ended it.
+The line had checked the wrong thing, a small instance of the same rule.
+
+Not landed. Item 32 now asks the operator to land or not, with my pick
+(land) and the reason. There is no fourth round. The full suite ran on
+`84f69a1a` before the fixes (8147 passed, 5 skipped). The fix head was
+checked by lint, typecheck, the PR's files and CI (`6bb9bee7` green).
+
 ## 2026-09-30 — #1003 round 3 finds a failed build's cause cut from stderr; fixed and held for the operator (`7fa108a2`, BACKLOG 27)
 
 The operator answered BACKLOG 27 with "run a third round before landing", which overrides the two-dirty-rounds rule for this PR only. The previous worker was interrupted at 01:03Z. This session first confirmed that nothing had moved after that: the head was still `7da1123f`, and the PR's only comment was the round-2 hold from 22:51Z. It then found that the interrupted session had already committed the #1018 fixes (`8fec6927`, 00:49Z) inside that head. BACKLOG 27 already said so, and round 3 reviewed that commit with the rest.
@@ -6196,3 +6293,50 @@ Two test gaps were confirmed as well. The ANSI strip on stdout's error line was 
 | M22 typed alternative is `TypeError` only | both `it.each` cases                   |
 
 Per the brief, a confirmed behaviour defect means no landing and no fourth round. BACKLOG 27 now asks "land or not". My pick is to land. #1018 stays open until #1003 lands, and the PR now closes it on merge.
+
+## 2026-09-30 — #1017 lands on the operator's merge (`d1e42c4a`)
+
+This follows the round-3 entry above, which held #1017 for the operator. The
+operator merged it at 03:32:33Z. The merged head `a8359581` differs from the
+last one this session pushed (`a538c114`) by a single base merge of main,
+which carried #1003's a11y change and no form-e2e change. BACKLOG item 32 is
+marked landed, item 16 now says so, and a Done line records it. The first
+nightly after merge is the widening's first live run. Item 31, the client
+half that makes the widening cover any new site, is still open.
+
+## 2026-09-30 — PM night shift: third review rounds pay for themselves, and a title rule loosened (#1034, `51a668b1`; #1003, #1017, #1032 landed)
+
+The PM session spent 00:30–04:00Z putting held PRs to the operator and relaying the answers to worker sessions. Four PRs sat under "two dirty review rounds, then stop": #1003, #1014, #1017 and #1032. The recommendation each time was "land as is", and for #1003, #1017 and #1032 the operator chose a third round instead. **Every one of those third rounds found a real behaviour defect that two rounds had missed.** The one that matters: #1017's form probe, on a page that re-renders its form on a `change` event, dropped its own `testMode` marker and would have posted a synthetic submission as a real lead, stored, counted and emailed to the client. Even the first fix for it (re-inject after re-synthesis) was not enough, because the click blurs the last field and that `change` drops the marker again. It took a capturing `submit` listener to close it. #1032's third round found a percent-encoded `../` that let `capture.mjs` write outside `--out` and then read its own file back as a pass. #1003's found that the failure summary kept stderr's head while web servers print their cause last. The belief this corrects is ours, not the rule's: "round 2 found only test gaps, so land" was the pick three times, and it was wrong three times. The two-round rule stops workers from looping. It is not evidence that a third look would find nothing.
+
+#1014 did not get its third round. The operator had answered item 29 ("authorise the fix and land") directly in the vida worker's own session at ~00:42Z, and that worker landed it at 01:05Z with the shadow-host fix. The PM's own question to the operator went out at ~01:00Z and came back "third full round" after the merge. An answer given in two places reaches whichever session acts first. Relaying answers only through the PM, or only through BACKLOG, would have kept the two from diverging. The round-3 worker for #1014 instead reviewed the merged code and landed #1035/#1036.
+
+**Why 70 characters.** The operator asked where the title limit came from. It is our own heuristic, from the 2026-07-06 report health-gate spec (`src/audits/browser.ts`), not Google's rule. Google truncates titles by pixel width (about 600px, so roughly 50–60 characters), does not rank long titles lower, and sometimes rewrites them. Sonder's first Testing report was blocked on `/artists` at 90 characters (73 without " | Gallery Sonder"). The operator's answer: don't count the brand suffix, and make it a warning. #1034 takes length out of `titleMetaOk` and reports it in `titleLengthWarnings` and the audit note. The first cut picked the brand suffix as "the tail most titles share, longer wins on a tie". Review showed a longer tail always ties with the brand tail inside it, so " - Blog | Brand" was stripped as if it were the brand and a real warning vanished. It also showed a two-page sample whose home is titled just "Brand" found no suffix at all. The rule now counts a bare-brand page as backing its suffix and breaks ties toward the shorter tail. On the live site, only `/artists` warns (73). The warning reaches only the nightly log; persisting it needs a column, which nobody has asked for. The prospect audit's own 10–70 title check (`src/prospect/site-checks.ts`) is untouched.
+
+**Workers asking mid-flight.** Two round-3 workers stopped to ask for a "go" despite a brief that said they never ask: #1003's after merging main, and #1017's at "CI green, awaiting land decision" (that one was correct, since round 3 had found a defect). Restarted briefs now open with "This prompt is the go: do not ask for confirmation at any point", and the restart worked.
+
+**Small mechanics worth keeping.**
+
+- `land-prs.mjs` stops a batch at the first PR that conflicts. Every PR here conflicted only in `docs/workJournal.md`, because all of them append to its bottom. Keeping both sides is always right there.
+- A background "wait for land-prs" loop using `pgrep -f "land-prs.mjs 1017 1032"` never ended, because the pattern matched its own shell's command line. It ran to its time limit after both merges had finished.
+- The Williamson capture bytes (~290 MiB) live on branch `capture/od7-williamson-2026-09-30`, per the operator's 33(c). Until Phase 1 copies them into the site repos and the branch is deleted, every default clone and every `fetch-depth: 0` checkout of this repo downloads them.
+
+Still open at the end of the shift:
+
+- The operator creates `reddoorla/williamson-homes` and `reddoorla/williamson-construction-co` (the cloud gets 403). Phase 1 waits on that.
+- Release #988 (0.102.0) is the operator's click.
+- The #948 worker is moving the axe scan to a built preview. That has to keep the `/dev/*` fixture routes in a gate-only build and out of the deployed one, which is why #700 deliberately left the scan on dev.
+- Sonder's Testing report needs the operator's send with a Form Functionality override, once the next fleet-lighthouse run re-stamps Titles.
+
+## 2026-09-30 — #948: the a11y gate on the built preview is proven half-way; the hydration signal goes to the operator (drafts #1039, reddoor-starter#163, BACKLOG 35)
+
+Operator decision 18 answered #948's hydration question with "audit the built preview (`vite preview`), not the dev server". This session built that and measured it against #948's own bar: identical on every cold run, and equal to the hydrated count. The preview met the bar on most runs but not all, so the work is held rather than landed.
+
+The fixture half needed a site change, because the #717 guard 404s every `/dev/*` route in any non-dev build. The fix is a build-time flag. The guard lets the fixtures through only when `import.meta.env.VITE_REDDOOR_GATE_FIXTURES === "1"`, and the audit sets that flag through Playwright's `webServer.env`. Two reads came before building on it. `@sveltejs/kit` 2.70.3's preview serves `.svelte-kit/output` directly; the adapter only contributes `emulate()`, so adapter-netlify changes no routes. Playwright 1.62.1 merges `webServer.env` over `process.env`. Proven on roalson: the unflagged build compiles the guard to an unconditional `error(404)`, the flagged build compiles it to `load() {}`, and an unflagged build given the variable at runtime still 404s. The launch pre-flight's `carriesGuard` accepts only a literal `if (!dev)` whose own branch refuses, so the flag check is nested inside that branch. A flat `if (!dev && …)` fails the pre-flight, and a control run showed it failing. The preview is probed on `/_app/version.json`, because `/` 404s on a placeholder clone, and a fixture probe behind an old guard would hang for five minutes naming nothing.
+
+Numbers, all on roalson `/dev/a11y-fixtures` color-contrast nodes, each run cold. The old dev gate read 191, 201, 191, 208, 191. A settled reference (`networkidle` + 3 s) read 208 on dev and 208 on the preview. With SvelteKit's entry chunks blocked, the preview read 191 twice, so 191 is exactly the page before hydration. The new preview gate read 208 twelve times and 217 twice, plus one 300 s test timeout of unknown cause. 217 − 208 = 9, the nine featured cards that the hydrated reveal hides, so those two runs scanned mid-hydration. A scratch variant that also waited for `html[data-hydrated]` (roalson #57's onMount marker) read 208 ten times out of ten, at no added time. Builds: roalson 17.7 s / 16.5 s and the starter 17.6 s / 17.8 s (unflagged / flagged). The whole gate on roalson went from a 33 s to a 44 s median.
+
+Belief corrected: "the race is a dev-server artefact". Dev makes it worse, and 3 of 5 cold runs there scanned a page that had never hydrated. But SvelteKit starts hydration with a dynamic `import()` that the `load` event does not wait for, so a production build races too, only less often. SvelteKit exposes no hydration signal: `start()` writes its history entry before it hydrates. A marker only the bundle can set is the one signal that measured clean, and it is #947's contract, so it went to BACKLOG 35 and was not widened into this item.
+
+Instrument mistakes of my own, both caught by a second read. My first flagged probe reported 404 because `pkill -f 'vite preview --port 4801'` matched the probing shell itself, which left the unflagged server running. The preview log's "Port 4801 is already in use" showed it. And a `served-from` assertion first failed on the dev server's own readiness probe, until the log recorded browser requests separately.
+
+Mutations 1–5 all turned tests red (4, 8, 4, 7; and 2 and 1 in the starter), with the tables in #1039. No adversarial review ran, because the item stopped at a stop condition before landing. The starter PR is not merged either, and it waits with #1039 on BACKLOG 35.

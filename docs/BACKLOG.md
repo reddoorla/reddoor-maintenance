@@ -238,8 +238,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     is still the lever for that.
 16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
     sites have no form end-to-end check [M].
-    **Answered 2026-09-29 ("go"); built in PR #1017, held after two review
-    rounds (item 32).**
+    **Answered 2026-09-29 ("go"); built in PR #1017, which landed
+    2026-09-30 03:32:33Z as `d1e42c4a` after a third review round (item 32).**
     The probe now fills required fields outside its standard four: the first
     real option of a select, and synthetic values for text, checkbox and radio.
     The nightly names its uncovered sites, and a localhost positive control runs
@@ -419,7 +419,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
 27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
     #1003)** — **Answered 2026-09-30: third round.** Round 3 found a
     behaviour defect, fixed in `7fa108a2`; **operator: land or not.** No
-    fourth round.
+    fourth round. **Answered 2026-09-30 ~03:25Z: land at this head.** Landed
+    by `land-prs.mjs` as `b8e18d04` (head `2660bec5`).
     - Round 3 (on `35866ca1`, 4 lenses, 3 skeptics each, 3/3 unrefuted):
       stderr kept its first 200 characters, but a web server prints its cause
       last. A preview build (`npm run build && npm run preview`) with two
@@ -608,34 +609,40 @@ function` on a top-level element, the spec re-runs that rule with the
     to declare `testMode`, so that same deploy can add a `/contact` redirect.
     Say if you want the column anyway.
 
-32. **#779's central widening, PR #1017**: two review rounds each found real
-    defects, so #1017 is held for your call instead of going to a third round.
-    Round 1 (on `6a042beb`) found one real major: the test named "can stop the
-    sweep" checked only the positive-control step's own keys, so `|| true` on
-    the control or `if: always()` on the sweep left it green. It also found
-    five minors: a disabled option that was never tested, a `time` input
-    reported as synthesized when its value never stuck, a control inside a
-    disabled fieldset, a failure summary without the synthesized list, and a
-    marker test that would pass if a probe were persisted as spam. A claimed
-    hydration revert of a synthesized `<select>` was refuted by measurement
-    against a real Svelte 5 component. All of it is fixed in `63d0502a`.
-    Round 2 (on `63d0502a`) found two real majors. First, the revert fixture
-    raced a 300 ms page-load timer and failed 1 run in 3 on a loaded single
-    core; this file is the nightly's positive control, so a flake there stops
-    the whole sweep. Second, nothing tested that a failed run carries the
-    synthesized list. It also found minors: a reverted field was called a
-    re-render wipe, re-synthesized names were never listed, the throw path
-    dropped the list, and the fixture recorded both events. All are fixed in
-    `3d1274e1`: the revert now fires on the probe's own change event (3/3 on a
-    pinned, loaded core). Full suite: 8008 passed. 27 mutations (11 named
-    first, 16 from the rounds) all turn a test red. Two minors were left: the
-    tests do not require the control and the sweep to share a job, and a few
-    type branches of the synthesizer are untested. The ask: land #1017 as it
-    is (my pick: round 2's defects were in the tests, and the one behaviour
-    change is naming), or run a third round first. Landing it is
-    `git merge origin/main` (keep both sides of BACKLOG), CI green, then
-    `node scripts/land-prs.mjs 1017`. The first nightly after merge is its
-    first live run; a dispatch is not needed.
+32. **#779's central widening, PR #1017. Answered 2026-09-30: third round,
+    then land.** The operator merged it 03:32:33Z as `d1e42c4a` (head
+    `a8359581`). The first nightly after merge is its first live run.
+    Round 3 found behaviour defects, fixed in `48326568`; the text below is
+    what the operator decided on.
+    Rounds 1 and 2 are in the PR body. Round 3 (on `84f69a1a`, after merging
+    main) used 4 lenses and 3 refuting skeptics per finding; 13 of 14 findings
+    were confirmed. Behaviour defects, all fixed with a red test first:
+    (1) **live-lead leak**: a page that re-renders its form on a change event
+    dropped the probe's hidden `testMode` input after the re-synthesis pass,
+    and the click went out unmarked, so it would have been stored, counted and
+    emailed as a real lead. The first fix, re-injecting after re-synthesis,
+    was not enough: the click itself blurs the last filled field, whose change
+    event drops the marker again. The probe now re-adds the marker in a
+    capturing `submit` listener that runs before the site's handler, and it
+    refuses to click (no POST) when the marker is missing just before submit.
+    (2) A required select counted as filled when its selected placeholder
+    was `<option disabled selected>` with no value attribute, so the POST
+    omitted it. (3) A synthetic value the field rejects (`pattern`, `max`) was still
+    claimed as synthesized. (4) Three synthesizer tests used `setContent`,
+    which hangs under the weekly time-travel clock, so Monday's run on main
+    would have gone red. Also fixed: the control step passed when every
+    fixture test was skipped (it now reads vitest's JSON report and requires
+    passed ≥ 1, skipped = 0, todo = 0); the control and the sweep must share a
+    job (`84f69a1a`); the throw path dropped `resynthesized`; wording for a
+    field that became required after the first fill; and four test gaps
+    (date `min`, `maxlength`, no `resynthesized` on a quiet page, no-banner
+    path). One finding was refuted (2 of 3). 15 round-3 mutations each turn a
+    test red; a real all-skipped fixture makes the real control step exit 1. The
+    changed fixture passed 10 of 10 runs pinned to one busy core (104–106 s
+    each, 22/22 tests), and CI is green on `6bb9bee7`. My pick: land. The defects
+    were real, but each now has a test that fails without its fix, and the
+    marker now has two independent guards. Landing it is CI green on the head,
+    then `node scripts/land-prs.mjs 1017`.
 
 33. **OD7-P0, the Williamson repos (#1029)** — the cloud session was refused
     creating org repos (`POST /orgs/reddoorla/repos` → 403 "Resource not
@@ -674,18 +681,66 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       and a Netlify site with `FORMS_INGEST_URL`, `FORMS_INGEST_TOKEN`, a build
       hook and the Prismic publish/unpublish webhook. No roster write is needed:
       both rows exist as `building`, and `git_repo` is filled at launch.
-34. **OD7-P0, the capture tools, PR #1032: held after two review rounds.**
-    #1032 adds `scripts/webflow-capture/` (capture, an offline check and their
-    tests), Domaru's archive capture and the Williamson manifests. Both rounds
-    found real defects in the check, for input the three real captures do not
-    contain. Round 2 confirmed that old and new code give identical results on
-    every real page. Every defect is fixed, and each fix has a test that fails
-    without it. The captures themselves passed both reviewers' independent
-    scans. _Ask:_ merge #1032 as it stands, or send it to a third review round?
-    _Pick:_ merge. It changes no product code, and the bytes it protects are
-    already on GitHub either way (#1032's branch and
-    `capture/od7-williamson-2026-09-30`). Landing: CI green, then
-    `node scripts/land-prs.mjs 1032`.
+    - **Answered 2026-09-30:** (a) the operator creates `reddoorla/williamson-homes`
+      and `reddoorla/williamson-construction-co` by hand, both **public**, from the
+      reddoor-starter template; the cloud cannot. (b) The name is
+      `williamson-construction-co`, matching the roster slug. (c) The capture bytes
+      stay on the branch: Phase 1 copies each capture into its site repo's
+      `matching/spec/`, and then the operator deletes the branch. (d) The RED steps
+      (branch protection, secret scanning, Prismic repositories and tokens, Netlify
+      sites, env vars, hooks) stay the operator's, after (a).
+34. **OD7-P0, the capture tools, PR #1032: round 3 found behaviour defects, all
+    fixed in `db83c30f`; land or not.** **Answered 2026-09-30 ~03:25Z: land
+    at this head.** Landed by `land-prs.mjs` as `96e10a2a` (head `5e06f8c6`,
+    main merged in; only the journal conflicted). The operator answered this item on
+    2026-09-30 with "run a third review round". Round 3 confirmed 24 findings (4
+    lenses, 3 refuting skeptics each, confirmed when 2 of 3 could not refute
+    it): 11 behaviour defects, 12 test gaps, 1 wording. The most serious
+    behaviour defect: a percent-encoded `../` in a reference could make
+    `capture.mjs` write a file outside `--out`, and the check then read it back
+    from there and passed. Also found: a `<!--` in script code and ` src=`
+    inside another attribute's value hid real tags; `image-set()`, `URL()` and
+    protocol-relative runtime loads were missed; file-under-file, case-only
+    and page-on-page path clashes overwrote a file or crashed a run with no
+    manifest; an http/https pair to one file was a false collision; an empty
+    page list passed; and a typekit kit whose id starts with `af` was excluded.
+    Each has a test that was red before the fix (`4753cf72`). None of it
+    touches the real captures: on all 31 pages and every captured file, the
+    extracted references, page links and path mappings are byte-identical
+    before and after, and all three captures pass. Note for 33(c): while
+    `capture/od7-williamson-2026-09-30` exists, every default clone, cloud
+    setup and `fetch-depth: 0` CI checkout downloads its ~290 MiB. _Ask:_
+    land #1032 at its current head, or not? There is no fourth round. _Pick:_
+    land. Every round-3 defect is fixed and bound by a test, and none changed a
+    real capture. Landing: CI green, then `node scripts/land-prs.mjs 1032`.
+
+35. **#948: the preview alone does not end the hydration race. Pick the
+    signal (drafts #1039 and reddoor-starter#163, 2026-09-30).** Item 18
+    answered #948 with "audit the built preview, not the dev server". Built and
+    measured, the preview narrows the race but does not remove it. #948's bar
+    was "identical on every cold run and equal to the hydrated count". Numbers
+    are roalson `/dev/a11y-fixtures` color-contrast nodes, each run cold:
+    old dev gate 191, 201, 191, 208, 191 (191 is the never-hydrated page, which
+    blocking the entry chunks reproduces exactly; hydrated is 208). #1039's
+    preview: 12 runs at 208 and 2 at 217, plus one 300 s spec timeout; 217 − 208
+    = 9, the featured cards that the hydrated reveal hides. Preview plus a wait
+    for `html[data-hydrated]` (roalson #57 sets it in the root layout's
+    onMount): 208 in 10 of 10 runs at no added time. That variant is scratch
+    only, not in #1039. The fixture half is done and proven: the guard passes
+    only a build made with `VITE_REDDOOR_GATE_FIXTURES=1`, the flag is baked in
+    at build time, and Netlify refuses it; mutations 1–5 all turn tests red.
+    Cost: a second build per run, +11 s median on roalson. _Ask:_ which
+    hydration signal does the gate wait for? (a) #947's marker: the starter's
+    root layout sets `data-hydrated`, the spec waits for it on sites that
+    declare it, and #947's recipe half is fixed in the same change. (b) Land
+    #1039 and #163 as they are and accept about 1 run in 7 reading
+    mid-hydration, until (a). (c) Wait on `networkidle` plus 3 s: 208 in 3 of 3
+    runs, but +25 s per run, and it can hang on sites that poll. _Pick:_ (b)
+    now, then (a). The preview is needed either way, and the marker is the only
+    signal that measured clean. Ordering: until a site's `/dev` guard passes the
+    flag, #1039 fails that site's gate with a line naming the guard. So the
+    starter PR, then one PR per site with fixtures, must land before any
+    `@reddoorla/maintenance` bump that carries #1039.
 
 ---
 
@@ -743,6 +798,15 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-30 — #779 central widening (PR #1017, `d1e42c4a`): the form-e2e probe
+  fills required select, checkbox, radio and text fields outside its standard
+  four, names what it synthesized, and keeps its `testMode` marker on the form
+  at submit (a capturing `submit` listener, plus a refusal to click when the
+  marker is missing). The nightly runs a localhost positive control in the
+  sweep's own job first and fails when that control measured nothing, and it
+  names each uncovered site. It covers no new site by itself: item 31, the
+  client half, is still open.
 
 - 2026-09-30 — #905, #949, #1018: the a11y spec's motion-freezing sheet is adopted
   through CSSOM (`freezeMotion`), so a CSP without `'unsafe-inline'` in

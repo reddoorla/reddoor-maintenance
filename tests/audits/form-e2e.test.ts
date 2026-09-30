@@ -629,3 +629,68 @@ describe("audits/form-e2e refill surfacing", () => {
     expect(r.summary).not.toMatch(/re-filled/);
   });
 });
+
+describe("audits/form-e2e synthesized required fields (#779)", () => {
+  it("names the fields the probe chose values for on a pass, and keeps the verdict a clean pass", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({
+        submit: async () => ({ formPresent: true, success: true, synthesized: ["interest"] }),
+      }),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.summary).toBe(
+      "form-e2e: synthetic submission succeeded — synthesized required field(s): interest",
+    );
+    expect(r.details).toEqual({
+      ok: "pass",
+      formPresent: true,
+      checkedAt: NOW.toISOString(),
+      turnstileWidget: null,
+    });
+  });
+
+  it("names the synthesized fields on a failure too, so a rejected value is traceable", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({
+        submit: async () => ({
+          formPresent: true,
+          success: false,
+          detail: "no success banner after submit — POST 400",
+          synthesized: ["interest"],
+        }),
+      }),
+    });
+    expect(r.status).toBe("warn");
+    expect(r.summary).toBe(
+      "form-e2e: synthetic submission failed — no success banner after submit — POST 400 — synthesized required field(s): interest",
+    );
+  });
+
+  it("names a synthesized field the page reverted, without calling it a re-render wipe", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({
+        submit: async () => ({
+          formPresent: true,
+          success: true,
+          synthesized: ["interest"],
+          resynthesized: ["interest"],
+        }),
+      }),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.summary).toBe(
+      "form-e2e: synthetic submission succeeded — synthesized required field(s): interest — set again before submit (the page reverted it, or it became required after the first fill): interest",
+    );
+  });
+
+  it("says nothing about synthesis when the standard fills were enough", async () => {
+    const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
+    expect(r.summary).toBe("form-e2e: synthetic submission succeeded");
+  });
+});
