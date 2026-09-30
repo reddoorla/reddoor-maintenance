@@ -174,6 +174,19 @@ describe("configs/playwright-a11y — gateServer (#700)", () => {
     expect(server.command).toBe("npm run build && npm run preview -- --port 41234 --strictPort");
   });
 
+  // #948: the same flag as the a11y audit's build, so two builds racing into
+  // one .svelte-kit/output bake the same /dev guard.
+  it("builds the preview with the gate's fixture flag, and dev without it", async () => {
+    const preview = (await importWithGate("preview")).default.webServer as Server & {
+      env?: Record<string, string>;
+    };
+    expect(preview.env).toEqual({ VITE_REDDOOR_GATE_FIXTURES: "1" });
+    const dev = (await importWithGate(undefined)).default.webServer as Server & {
+      env?: Record<string, string>;
+    };
+    expect(dev.env).toBeUndefined();
+  });
+
   // The trap, asserted directly.
   it("never probes a /dev/* route under preview", async () => {
     const mod = await importWithGate("preview");

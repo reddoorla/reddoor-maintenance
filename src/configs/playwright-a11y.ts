@@ -16,6 +16,17 @@ export type A11yRoute = { path: string; name: string };
  */
 export const DEV_PROBE_ROUTE = "/dev/a11y-fixtures";
 
+/**
+ * Set on every preview build a gate makes, and only there (#948). The site's
+ * `/dev` layout guard reads it at build time as
+ * `import.meta.env.VITE_REDDOOR_GATE_FIXTURES`, so the fixtures exist in that
+ * bundle and never in a build without it. The a11y audit and this config set it
+ * alike: they can build into the same `.svelte-kit/output` at once during a
+ * full `reddoor-maint audit`, and two different guards baked into one unhashed
+ * file would decide the audit by which build finished last.
+ */
+export const GATE_FIXTURES_ENV = "VITE_REDDOOR_GATE_FIXTURES";
+
 export const a11yRoutes: A11yRoute[] = [
   { path: DEV_PROBE_ROUTE, name: "a11y fixtures" },
   { path: "/dev/animate-in", name: "animate-in demo" },
@@ -222,6 +233,7 @@ const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
     // or the run dies on "Timed out waiting ... from config.webServer" while
     // the build was still working.
     timeout: previewing ? 5 * 60_000 : 120_000,
+    ...(previewing ? { env: { [GATE_FIXTURES_ENV]: "1" } } : {}),
   },
 });
 
