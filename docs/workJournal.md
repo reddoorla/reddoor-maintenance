@@ -6711,3 +6711,7 @@ The write went through `setSiteDetail` with `getSiteBySlug` and `mirrorWrite`/`m
 One slip of my own instrument. The script's before and after lines printed `undefined`, because I read `row.fields.url` and `WebsiteRow` is flat (`row.url`). The write had worked. That was established from the SELECT readback, not from those lines.
 
 The row's `url_resolves` stays `fail` until tonight's nightly re-probes it. #1004's never-stamped rule and item 26 expect exactly that: the next run should flip it to `pass`.
+
+## 2026-09-30 — Two answers recorded: VLF's September report is skipped, and the operator owns the Adobe Fonts kit (BACKLOG 41, D8)
+
+The operator answered two items from the day's morning report. VLF's 2026-09 Maintenance draft (`report_01M3SGR33D4JA5YHKKT3756XY2`) will not be sent, so October's report is VLF's first. For Williamson Construction's D8, the operator owns Adobe Fonts kit `htt1asl`, so `freight-sans-pro` stays. What the kit needs is the Netlify preview host on its domain list, `williamson-construction-co.netlify.app`, alongside the production apex and `www`. Once it has that, the build swaps its self-hosted Lato for the kit's CSS embed. It uses the CSS embed rather than the `.js` loader the Webflow reference used, because the site's nonce CSP refuses inline loaders; that repo's journal measured it for the Typekit swap on another site. Nothing was built here: it is the Construction worker's `TODO(D8)` in `src/app.css`.

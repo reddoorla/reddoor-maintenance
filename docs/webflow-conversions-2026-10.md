@@ -382,7 +382,15 @@ Each is the exact ask, with the pick this plan would make.
 - **D7 — DNS holders.** Who holds GoDaddy for both Williamson domains and
   Dynadot for Domaru, and can they make the change on 10-14 and 10-15? The
   worker cannot find this out; Tim or Erik can.
-- **D8 — Adobe Fonts.** Who owns kit `htt1asl`? _Pick:_ keep it if the owner
+- **D8 — Adobe Fonts. Answered 2026-09-30 ~19:50Z: the operator owns kit
+  `htt1asl`**, so the kit is kept. The operator adds
+  `williamson-construction-co.netlify.app` to the kit's domains, and keeps
+  `williamson-construction.com` and `www.williamson-construction.com`. The build then swaps
+  Lato for `freight-sans-pro` from the kit's CSS embed
+  (`use.typekit.net/htt1asl.css`, not the `.js` loader the reference uses),
+  with `use.typekit.net` in `style-src` and `font-src` and `p.typekit.net` in
+  `style-src` (see williamson-construction-co's journal on the nonce CSP), and
+  resolves `TODO(D8)` in `src/app.css`. The question as it was asked: Who owns kit `htt1asl`? _Pick:_ keep it if the owner
   adds the Netlify preview domain; otherwise substitute the closest Google
   font and say so to the client.
 - **Analytics (optional).** None of the three has any analytics today. _Pick:_
