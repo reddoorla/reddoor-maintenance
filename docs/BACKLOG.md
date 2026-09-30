@@ -813,6 +813,7 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     `williamson-homes` and sets `a11yRoutes`. Its build prerenders all 10
     reference paths from the live repository. Still the operator's (#3):
     Prismic publish/unpublish webhooks, branch protection, secret scanning.
+    **Answered 2026-09-30 ~14:40Z: land it.** williamson-homes#5 merged as 6ae87bda.
 
 ---
 
