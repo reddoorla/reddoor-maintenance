@@ -893,6 +893,18 @@ describe("renderSiteDashboardHtml — withdraw a draft (P1-28)", () => {
     expect(html).toContain('<span class="muted withdrawn">Withdrawn 2026-09-30</span>');
     expect(html).not.toContain('data-commentary-for="recREP1"');
   });
+
+  it("a SENT row never reads Withdrawn, even if a withdrawal stamp is somehow on it", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      withdrawn(),
+      reportRow({
+        id: "recSENT",
+        sentAt: "2026-09-30T09:23:00Z",
+        withdrawnAt: "2026-09-30T12:00:00.000Z",
+      }),
+    ]);
+    expect(html.match(/class="muted withdrawn"/g) ?? []).toHaveLength(1);
+  });
 });
 
 describe("renderSiteDashboardHtml — pending-your-yes list", () => {

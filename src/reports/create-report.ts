@@ -39,7 +39,8 @@ export async function createReportDraft(
  * drafting — the re-run dedupe the `launch` and `announce` recipes make before
  * they draft. The site scope IS the query (`forSite`, served by
  * idx_reports_site) and the triple is matched in memory over one site's handful
- * of reports.
+ * of reports. A withdrawn row (P1-28) is never reused: it can never send, so a
+ * re-run drafts a fresh row instead.
  */
 export async function findReportForPeriod(
   store: { forSite: (siteId: string) => Promise<ReportRow[]> },
@@ -48,5 +49,9 @@ export async function findReportForPeriod(
   period: string,
 ): Promise<ReportRow | null> {
   const rows = await store.forSite(siteId);
-  return rows.find((r) => r.reportType === reportType && r.period === period) ?? null;
+  return (
+    rows.find(
+      (r) => r.reportType === reportType && r.period === period && r.withdrawnAt === null,
+    ) ?? null
+  );
 }

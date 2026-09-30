@@ -278,6 +278,21 @@ async function alertOnFleetAnalyticsFailure(health: AnalyticsRunHealth): Promise
   }
 }
 
+/** The row already drafted for a (site, type, period), preferring one that is
+ *  not withdrawn (P1-28): a live row beside a withdrawn one is the one to
+ *  complete or skip on. */
+export function findExistingForPeriod(
+  reports: ReportRow[],
+  siteId: string,
+  reportType: ReportType,
+  period: string,
+): ReportRow | undefined {
+  const matches = reports.filter(
+    (r) => r.siteId === siteId && r.reportType === reportType && r.period === period,
+  );
+  return matches.find((r) => r.withdrawnAt === null) ?? matches[0];
+}
+
 /**
  * Write each site's code-computed next-maintenance / next-testing date into
  * site_schedule (date-only, or null when there's no schedule), so the "next" dates
@@ -417,9 +432,7 @@ export async function draftDueReports(
     // recurrence. The dueDate's YYYY-MM is the stable per-cycle key. Match against the
     // reports we already fetched — no extra query on the hot path.
     const period = reportPeriodKey(item.dueDate);
-    const existing = reports.find(
-      (r) => r.siteId === item.site.id && r.reportType === item.reportType && r.period === period,
-    );
+    const existing = findExistingForPeriod(reports, item.site.id, item.reportType, period);
 
     // A row already exists for THIS period. Two cases:
     //   - Draft ready → truly done, skip (the idempotent re-run path).

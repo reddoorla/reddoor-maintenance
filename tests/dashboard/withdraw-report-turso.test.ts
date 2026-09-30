@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,8 +36,9 @@ const CLEAN_EVIDENCE = JSON.stringify(
 // "op:s3cret" base64 — username ignored, password is the gate.
 const AUTH = "Basic " + Buffer.from("op:s3cret").toString("base64");
 
-const DIR = mkdtempSync(join(tmpdir(), "withdraw-report-turso-"));
-let dbSeq = 0;
+// A fresh directory per test, removed after it: no test can open a database
+// another test (or another file in the same worker) left behind.
+let dir: string;
 let db: Db;
 
 async function post(
@@ -112,7 +113,8 @@ beforeEach(async () => {
   process.env = { ...ORIGINAL_ENV };
   process.env.DASHBOARD_PASSWORD = "s3cret";
   delete process.env.TURSO_AUTH_TOKEN;
-  const url = `file:${join(DIR, `db-${++dbSeq}.sqlite`)}`;
+  dir = mkdtempSync(join(tmpdir(), "withdraw-report-turso-"));
+  const url = `file:${join(dir, "db.sqlite")}`;
   process.env.TURSO_DATABASE_URL = url;
   db = await openDb({ url });
 });
@@ -120,10 +122,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await db.destroy();
   process.env = { ...ORIGINAL_ENV };
-});
-
-afterAll(() => {
-  rmSync(DIR, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
 });
 
 describe("withdraw-report writes to Turso", () => {

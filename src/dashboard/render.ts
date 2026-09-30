@@ -353,7 +353,7 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
   // Same gate as the pending section: an approve action in the history table
   // must not be a side door around the send-blocker gate.
   const action =
-    r.withdrawnAt !== null
+    r.sentAt === null && r.withdrawnAt !== null
       ? withdrawnLabel(r)
       : isPendingApproval(r)
         ? approveButton(
@@ -965,8 +965,16 @@ export function renderSiteDashboardHtml(
     // state change has to reach both, or the two places you look disagree: one
     // says "Approved", the other still says "Approve" and (with the gate clear)
     // is still enabled.
+    function buttonsFor(cls, id) {
+      return Array.from(document.querySelectorAll("button." + cls + '[data-report-id="' + CSS.escape(id) + '"]'));
+    }
     function approveButtonsFor(id) {
-      return Array.from(document.querySelectorAll('button.approve[data-report-id="' + id + '"]'));
+      return buttonsFor("approve", id);
+    }
+    // Once a report is approved, overridden or withdrawn, the other actions on it
+    // can only be refused by the server, so they go dead.
+    function disableAll(buttons) {
+      buttons.forEach((t) => { t.disabled = true; });
     }
     document.querySelectorAll("button.approve").forEach((b) => {
       b.addEventListener("click", async () => {
@@ -987,12 +995,16 @@ export function renderSiteDashboardHtml(
               t.textContent = "Approved";
               t.classList.add("is-approved");
             });
+            disableAll(buttonsFor("withdraw", b.dataset.reportId));
           } else {
             // A 409 carries { reason, blockers } — surface WHY instead of a bare
             // "Failed" next to a possibly-stale green chip. textContent/title
             // assignment only (no innerHTML), so server strings stay inert.
             const data = await res.json().catch(() => null);
-            const label = data && data.reason === "send-blocked" ? "Blocked" : "Failed";
+            // A withdrawn report can never be approved: say so, and leave the
+            // buttons dead rather than inviting a retry that will be refused too.
+            const withdrawn = !!data && data.reason === "withdrawn";
+            const label = withdrawn ? "Withdrawn" : data && data.reason === "send-blocked" ? "Blocked" : "Failed";
             // Double-backslash, NOT single: this whole block lives inside the renderer's
             // template literal, so a single-backslash escape is consumed HERE at build
             // time and emits a real newline into the served HTML — an unterminated string
@@ -1005,8 +1017,9 @@ export function renderSiteDashboardHtml(
             twins.forEach((t) => {
               t.textContent = label;
               if (title !== null) t.title = title;
-              t.disabled = false;
+              t.disabled = withdrawn;
             });
+            if (withdrawn) disableAll(buttonsFor("withdraw", b.dataset.reportId));
           }
         } catch {
           // Network rejection (offline, DNS, abort): mirror the !res.ok path so
@@ -1065,6 +1078,7 @@ export function renderSiteDashboardHtml(
             approveButtonsFor(b.dataset.reportId).forEach((t) => {
               t.textContent = "Overridden";
             });
+            disableAll(buttonsFor("withdraw", b.dataset.reportId));
           } else {
             // A 409 carries { reason, blockers } — surface WHY (textContent only,
             // never innerHTML, so server strings stay inert).
@@ -1099,6 +1113,8 @@ export function renderSiteDashboardHtml(
               t.textContent = "Withdrawn";
               t.disabled = true;
             });
+            disableAll(buttonsFor("override-toggle", b.dataset.reportId));
+            disableAll(buttonsFor("override-submit", b.dataset.reportId));
           } else {
             const data = await res.json().catch(() => null);
             b.textContent = data && typeof data.reason === "string" ? "Failed: " + data.reason : "Failed";

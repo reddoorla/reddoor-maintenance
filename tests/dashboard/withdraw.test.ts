@@ -82,4 +82,20 @@ describe("withdrawReport", () => {
     });
     expect(d.withdrawReportRow).not.toHaveBeenCalled();
   });
+
+  it("a guarded write that matched nothing is named from a re-read (an approve won the race)", async () => {
+    const d: WithdrawDeps = {
+      getReportById: vi
+        .fn()
+        .mockResolvedValueOnce(reportRow())
+        .mockResolvedValueOnce(reportRow({ approvedToSend: true })),
+      withdrawReportRow: vi.fn().mockResolvedValue(false),
+      now: () => NOW,
+    };
+    expect(await withdrawReport(d, "recREP1")).toEqual({
+      status: "noop",
+      reportId: "recREP1",
+      reason: "already-approved",
+    });
+  });
 });

@@ -27,9 +27,11 @@ export type ApproveResult =
  */
 export type ApproveDeps = {
   getReportById: (id: string) => Promise<ReportRow | null>;
-  approveReportRow: (id: string, approvedAt: Date, approvedBy: string) => Promise<void>;
+  /** Resolves `false` when the conditioned write matched no row: the row was
+   *  withdrawn or sent after it was read (P1-28). */
+  approveReportRow: (id: string, approvedAt: Date, approvedBy: string) => Promise<boolean | void>;
   /** Raw writer for the logged override: stamps Send override + reason/by/at + Approved to send. */
-  overrideReport: (id: string, at: Date, by: string, reason: string) => Promise<void>;
+  overrideReport: (id: string, at: Date, by: string, reason: string) => Promise<boolean | void>;
   now: () => Date;
   /** Send-blocking problems for this report (empty = clear to approve). The .mts
    *  adapter binds approveBlockers() over the live Websites row; tests bind fakes.
@@ -71,7 +73,8 @@ export async function approveReport(
     const blockers = await deps.sendBlockers(overridden);
     if (blockers.length > 0)
       return { status: "blocked", reportId, reason: "send-blocked", blockers };
-    await deps.overrideReport(reportId, deps.now(), APPROVED_BY, reason);
+    if ((await deps.overrideReport(reportId, deps.now(), APPROVED_BY, reason)) === false)
+      return lostRace(deps, reportId);
     return { status: "overridden", reportId, reason };
   }
 
@@ -80,6 +83,17 @@ export async function approveReport(
   // scores) only schedules a red cron run — block with the reasons instead.
   const blockers = await deps.sendBlockers(report);
   if (blockers.length > 0) return { status: "blocked", reportId, reason: "send-blocked", blockers };
-  await deps.approveReportRow(reportId, deps.now(), APPROVED_BY);
+  if ((await deps.approveReportRow(reportId, deps.now(), APPROVED_BY)) === false)
+    return lostRace(deps, reportId);
   return { status: "approved", reportId };
+}
+
+/** The write matched nothing, so the row changed after it was read. Name what
+ *  changed from a fresh read. */
+async function lostRace(deps: ApproveDeps, reportId: string): Promise<ApproveResult> {
+  const now = await deps.getReportById(reportId);
+  if (!now) return { status: "not-found", reportId };
+  if (now.sentAt !== null) return { status: "noop", reportId, reason: "already-sent" };
+  if (now.withdrawnAt !== null) return { status: "noop", reportId, reason: "withdrawn" };
+  throw new Error(`approve ${reportId}: the write matched no row, and a re-read cannot say why`);
 }

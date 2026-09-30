@@ -5,7 +5,8 @@
  * The mirror FACTORIES (`makeSiteMirror`, `makeReportMirror`, the health mirrors)
  * do this internally. The Netlify request handlers do not use those factories —
  * `approve-report`, `report-commentary`, `resend-webhook` and `site-details` each
- * call `mirrorReportPatch` / `mirrorSiteField` directly, through this. The
+ * call `mirrorReportPatch` / `mirrorSiteField` directly (approve-report and
+ * withdraw-report call the conditioned `patchReportIfOpen`), through this. The
  * caller's own error handling decides what a throw means for the response; what
  * it must not mean is "logged and forgotten", because Turso is the only store
  * and nothing converges a write it lost.

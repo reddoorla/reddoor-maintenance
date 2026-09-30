@@ -3,7 +3,7 @@ import { withdrawReport, requireOperator, denialResponse } from "../../src/dashb
 
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { mirrorWrite } from "../../src/db/mirror-write.js";
-import { mirrorReportPatch, getReportById } from "../../src/db/fleet-state.js";
+import { patchReportIfOpen, getReportById } from "../../src/db/fleet-state.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -64,14 +64,20 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     const result = await withdrawReport(
       {
         getReportById: (rid: string) => getReportById(db, rid),
+        // Conditioned on the row still being pending: a miss is a lost race,
+        // which withdrawReport names from a re-read, not a store failure.
         withdrawReportRow: async (rid: string, at: Date, by: string) => {
+          let landed = false;
           await mirrorWrite(`withdraw-report ${rid}`, async () => {
             const wdb = await openDb(readDbConfig());
-            return mirrorReportPatch(wdb, rid, {
-              withdrawn_at: at.toISOString(),
-              withdrawn_by: by,
-            });
+            landed = await patchReportIfOpen(
+              wdb,
+              rid,
+              { withdrawn_at: at.toISOString(), withdrawn_by: by },
+              "withdrawable",
+            );
           });
+          return landed;
         },
         now: () => new Date(),
       },

@@ -72,7 +72,8 @@ function lastSentForType(reports: ReportRow[], siteId: string, type: ReportType)
  *
  * baseDate = the last `Sent at` for this (site, type), else the site's
  * `maintenance day`/`testing day` anchor. With no baseDate at all the next report is
- * due now (returns `today` at UTC midnight). Otherwise baseDate + frequency.
+ * due now (returns `today` at UTC midnight). Otherwise baseDate + frequency. Either
+ * way, a cycle whose period holds a withdrawn draft is skipped to the next one.
  *
  * Shared with {@link findDueReports} so the scheduler and any schedule display can't
  * drift on what "next" means.
@@ -89,8 +90,21 @@ export function nextDueDate(
   const lastSent = lastSentForType(reports, site.id, type);
   const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;
   const baseIso = lastSent ?? fallback;
-  if (!baseIso) return startOfDay(today);
-  return addMonths(new Date(baseIso), MONTHS[freq]);
+  const base = baseIso ? new Date(baseIso) : startOfDay(today);
+  // P1-28: a withdrawn draft consumes its cycle. Nothing was sent, so without
+  // this the due date would keep naming the withdrawn period forever. Each step
+  // is taken from `base` so a month-end day is not clamped cumulatively.
+  const withdrawnPeriods = new Set(
+    reports
+      .filter((r) => r.siteId === site.id && r.reportType === type && r.withdrawnAt !== null)
+      .map((r) => r.period),
+  );
+  let cycles = baseIso ? 1 : 0;
+  let due = addMonths(base, MONTHS[freq] * cycles);
+  for (let i = 0; i < withdrawnPeriods.size && withdrawnPeriods.has(reportPeriodKey(due)); i++) {
+    due = addMonths(base, MONTHS[freq] * ++cycles);
+  }
+  return due;
 }
 
 /**

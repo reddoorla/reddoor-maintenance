@@ -320,6 +320,42 @@ describe("recipes/announce", () => {
     });
   });
 
+  it("does not reuse a WITHDRAWN Announcement row — drafts a fresh one (P1-28)", async () => {
+    const seed: Seed = {
+      Websites: [
+        {
+          id: "rec_acme",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintained",
+            "Report recipients (To)": "client@acme.example.com",
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [
+        {
+          id: "rec_withdrawn_announce",
+          fields: {
+            "Report ID": "Acme Co — Announcement — withdrawn",
+            Site: ["rec_acme"],
+            "Report type": "Announcement",
+            Period: PERIOD,
+            "Draft ready": true,
+            "Withdrawn at": "2026-01-01T00:00:00.000Z",
+          },
+        },
+      ],
+    };
+
+    const result = await announce(A(seed));
+
+    expect(result.results[0]).toMatchObject({ site: "Acme Co", status: "drafted" });
+    expect(writer.inserts).toHaveLength(1);
+    expect(writer.patches.filter((p) => p.id === "rec_withdrawn_announce")).toEqual([]);
+  });
+
   it("mirrors the reused row's refreshed scores (#539 Phase 5)", async () => {
     // The reuse path exists so the eventually-sent email is not stale. The
     // console reads the same numbers from Turso, so a mirror that covered only

@@ -14,7 +14,13 @@ export type WithdrawResult =
  *  tests bind fakes. */
 export type WithdrawDeps = {
   getReportById: (id: string) => Promise<ReportRow | null>;
-  withdrawReportRow: (id: string, withdrawnAt: Date, withdrawnBy: string) => Promise<void>;
+  /** Resolves `false` when the conditioned write matched no row: the row left
+   *  the pending state after it was read. */
+  withdrawReportRow: (
+    id: string,
+    withdrawnAt: Date,
+    withdrawnBy: string,
+  ) => Promise<boolean | void>;
   now: () => Date;
 };
 
@@ -29,12 +35,21 @@ export async function withdrawReport(
   deps: WithdrawDeps,
   reportId: string,
 ): Promise<WithdrawResult> {
-  const report = await deps.getReportById(reportId);
+  const refusal = refuse(await deps.getReportById(reportId), reportId);
+  if (refusal) return refusal;
+  if ((await deps.withdrawReportRow(reportId, deps.now(), APPROVED_BY)) === false) {
+    const lost = refuse(await deps.getReportById(reportId), reportId);
+    if (lost) return lost;
+    throw new Error(`withdraw ${reportId}: the write matched no row, and a re-read cannot say why`);
+  }
+  return { status: "withdrawn", reportId };
+}
+
+function refuse(report: ReportRow | null, reportId: string): WithdrawResult | null {
   if (!report) return { status: "not-found", reportId };
   if (report.sentAt !== null) return { status: "noop", reportId, reason: "already-sent" };
   if (report.withdrawnAt !== null) return { status: "noop", reportId, reason: "already-withdrawn" };
   if (report.approvedToSend) return { status: "noop", reportId, reason: "already-approved" };
   if (!report.draftReady) return { status: "noop", reportId, reason: "not-draft-ready" };
-  await deps.withdrawReportRow(reportId, deps.now(), APPROVED_BY);
-  return { status: "withdrawn", reportId };
+  return null;
 }

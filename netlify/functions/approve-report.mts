@@ -4,7 +4,7 @@ import { approveReport, requireOperator, denialResponse } from "../../src/dashbo
 import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { mirrorWrite } from "../../src/db/mirror-write.js";
-import { mirrorReportPatch, getReportById, getSiteById } from "../../src/db/fleet-state.js";
+import { patchReportIfOpen, getReportById, getSiteById } from "../../src/db/fleet-state.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -110,30 +110,38 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // converges a lost write. The row
     // count is handed through (#647): an approve for a row Turso never held is
     // `missed`, not a green no-op.
-    const mirror = async (rid: string, patch: Parameters<typeof mirrorReportPatch>[2]) =>
-      mirrorWrite(`approve-report ${rid}`, async () => {
+    // P1-28: conditioned on the row still being unsent and unwithdrawn, so a
+    // withdraw that lands after the read is not overwritten. A miss resolves
+    // false and approveReport names it from a re-read; a store failure throws.
+    const mirror = async (
+      rid: string,
+      patch: Parameters<typeof patchReportIfOpen>[2],
+    ): Promise<boolean> => {
+      let landed = false;
+      await mirrorWrite(`approve-report ${rid}`, async () => {
         const db = await openDb(readDbConfig());
-        return mirrorReportPatch(db, rid, patch);
+        landed = await patchReportIfOpen(db, rid, patch, "approvable");
       });
+      return landed;
+    };
     const deps = {
       // Phase 2 (#539): reads from Turso (the authoritative write keeps it
       // current within this very request).
       getReportById: (rid: string) => getReportById(db2, rid),
-      approveReportRow: async (rid: string, at: Date, by: string) => {
-        await mirror(rid, {
+      approveReportRow: async (rid: string, at: Date, by: string) =>
+        mirror(rid, {
           approved_to_send: 1,
           approved_at: at.toISOString(),
           approved_by: by,
-        });
-      },
+        }),
       // The override takes the SAME ordering and the same failure semantics as
       // the plain approve, deliberately: both are one stamp on one Reports row,
       // both are idempotent, both have already passed every gate above by the
       // time they run, and both are read back out of Turso by the same send
       // batch. Splitting them would give one button two failure stories.
-      overrideReport: async (rid: string, at: Date, by: string, reason: string) => {
-        // An override ALSO flips Approved to send with the same stamp.
-        await mirror(rid, {
+      // An override ALSO flips Approved to send with the same stamp.
+      overrideReport: async (rid: string, at: Date, by: string, reason: string) =>
+        mirror(rid, {
           send_override: 1,
           override_reason: reason,
           override_by: by,
@@ -141,8 +149,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
           approved_to_send: 1,
           approved_at: at.toISOString(),
           approved_by: by,
-        });
-      },
+        }),
       now: () => new Date(),
       sendBlockers: async (report: Parameters<typeof approveBlockers>[1]) => {
         // One indexed Turso lookup per approve click. A missing Site row is

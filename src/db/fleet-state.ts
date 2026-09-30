@@ -751,6 +751,28 @@ export async function mirrorReportPatch(
   return res.numUpdatedRows > 0n;
 }
 
+/** P1-28: the approve and withdraw writes, conditioned on the state their
+ *  handler decided on. Both require the row unsent and unwithdrawn; a withdraw
+ *  also requires it ready and unapproved. Returns whether a row matched, so a
+ *  write that lost a race to the other one is a refusal, not a silent overwrite. */
+export async function patchReportIfOpen(
+  db: Db,
+  reportId: string,
+  patch: ReportMirrorPatch,
+  guard: "approvable" | "withdrawable",
+): Promise<boolean> {
+  let q = db
+    .updateTable("reports")
+    .set(patch)
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null);
+  if (guard === "withdrawable")
+    q = q.where("approved_to_send", "=", 0).where("draft_ready", "=", 1);
+  const res = await q.executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
 /** Upsert a report row from a column-named record (#539 Phase 5; a new draft
  *  is inserted by {@link insertReportRow} since #646 step 4).
  *

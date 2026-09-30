@@ -374,3 +374,69 @@ describe("nextDueDate", () => {
     warn.mockRestore();
   });
 });
+
+describe("a withdrawn draft consumes its cycle (P1-28)", () => {
+  const withdrawn = (period: string, over: Partial<ReportRow> = {}) =>
+    report({
+      id: `rec_w_${period}`,
+      period,
+      sentAt: null,
+      approvedToSend: false,
+      deliveryStatus: "pending",
+      withdrawnAt: `${period}-28T00:00:00.000Z`,
+      withdrawnBy: "dashboard",
+      ...over,
+    });
+  const ymd = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
+
+  it("anchor case (the VLF shape): September withdrawn → next due 2026-10-30, period 2026-10", () => {
+    const s = site({ maintenanceFreq: "Monthly", maintenanceDay: "2026-08-30" });
+    const sept30 = new Date("2026-09-30T12:00:00Z");
+    expect(ymd(nextDueDate(s, [], "Maintenance", sept30))).toBe("2026-09-30");
+    const next = nextDueDate(s, [withdrawn("2026-09")], "Maintenance", sept30);
+    expect(ymd(next)).toBe("2026-10-30");
+    expect(reportPeriodKey(next!)).toBe("2026-10");
+    expect(findDueReports([s], [withdrawn("2026-09")], sept30)).toEqual([]);
+    const oct30 = findDueReports([s], [withdrawn("2026-09")], new Date("2026-10-30T12:00:00Z"));
+    expect(oct30.map((d) => reportPeriodKey(d.dueDate))).toEqual(["2026-10"]);
+  });
+
+  it("no anchor, no history: a withdrawn current-month draft pushes the due date a cycle out", () => {
+    const sept30 = new Date("2026-09-30T12:00:00Z");
+    expect(ymd(nextDueDate(site(), [], "Maintenance", sept30))).toBe("2026-09-30");
+    expect(ymd(nextDueDate(site(), [withdrawn("2026-09")], "Maintenance", sept30))).toBe(
+      "2026-10-30",
+    );
+  });
+
+  it("sent-history case: last sent 2026-03-15, April withdrawn → May is next, not April forever", () => {
+    const sent = report({ sentAt: "2026-03-15T12:00:00.000Z", period: "2026-03" });
+    const reports = [sent, withdrawn("2026-04")];
+    expect(findDueReports([site()], reports, new Date("2026-04-16T12:00:00Z"))).toEqual([]);
+    for (const today of ["2026-05-26", "2026-09-30"]) {
+      const due = findDueReports([site()], reports, new Date(`${today}T12:00:00Z`));
+      expect(due.map((d) => reportPeriodKey(d.dueDate))).toEqual(["2026-05"]);
+    }
+    expect(ymd(nextDueDate(site(), reports, "Maintenance", TODAY))).toBe("2026-05-15");
+  });
+
+  it("consecutive withdrawals each consume a cycle", () => {
+    const sent = report({ sentAt: "2026-03-15T12:00:00.000Z", period: "2026-03" });
+    const reports = [sent, withdrawn("2026-04"), withdrawn("2026-05")];
+    expect(ymd(nextDueDate(site(), reports, "Maintenance", TODAY))).toBe("2026-06-15");
+  });
+
+  it("negative controls: no withdrawn row, another type's, site's or period's leave the date unchanged", () => {
+    const sent = report({ sentAt: "2026-03-15T12:00:00.000Z", period: "2026-03" });
+    const base = ymd(nextDueDate(site(), [sent], "Maintenance", TODAY));
+    expect(base).toBe("2026-04-15");
+    for (const other of [
+      withdrawn("2026-04", { reportType: "Testing" }),
+      withdrawn("2026-04", { siteId: "rec_other" }),
+      withdrawn("2026-06"),
+      withdrawn("2026-04", { withdrawnAt: null }),
+    ]) {
+      expect(ymd(nextDueDate(site(), [sent, other], "Maintenance", TODAY))).toBe(base);
+    }
+  });
+});

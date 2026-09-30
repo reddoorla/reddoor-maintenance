@@ -312,6 +312,32 @@ describe("draftReportForSite", () => {
     expect(fields["Period start"]).toBe("2026-04-27");
   });
 
+  it("does not count a WITHDRAWN report's periodEnd — its traffic is still unreported (P1-28)", async () => {
+    writer.rows.push(
+      mapRow({
+        id: "rec_sent",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          "Period end": "2026-03-26",
+          "Sent at": "2026-03-26T10:00:00.000Z",
+        },
+      }),
+      mapRow({
+        id: "rec_withdrawn",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          "Period end": "2026-04-26",
+          "Draft ready": true,
+          "Withdrawn at": "2026-04-27T10:00:00.000Z",
+        },
+      }),
+    );
+    await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
+    expect(writer.inserts[0]!.fields["Period start"]).toBe("2026-03-27");
+  });
+
   it("falls back to 30-days-ago for periodStart when no prior reports exist", async () => {
     await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
     const fields = writer.inserts[0]!.fields;
