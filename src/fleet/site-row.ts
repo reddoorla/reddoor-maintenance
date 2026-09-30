@@ -188,7 +188,8 @@ export type WebsiteRow = {
    *  `pass`/`fail`; null = never ran. Point-in-time. Freshness-gated by `browserCheckedAt`. */
   reachableOk: "pass" | "fail" | null;
   /** Titles & meta verdict (browser audit, chromium): every sampled route has a non-empty `<title>`
-   *  ≤ 70 chars + a non-empty meta description, and no duplicate titles across the sample.
+   *  + a non-empty meta description, and no duplicate titles across the sample. Title length is
+   *  a warning in the audit note only, never a fail.
    *  Single-select `pass`/`fail`; null = never ran. Freshness-gated by `browserCheckedAt`. */
   titleMetaOk: "pass" | "fail" | null;
   /** Per-site copy overrides (M6a). Blank → null → the DEFAULT_COPY value. */

@@ -436,6 +436,44 @@ export async function reverifyLinks(
 const fmtEntryStatus = (s?: number | null): string =>
   typeof s === "number" && !isOkStatus(s) ? ` → ${s}` : "";
 
+const TITLE_WARN_MAX = 70;
+const TITLE_SEPARATORS = [" | ", " — ", " – ", " - ", " · ", " :: "];
+
+/** The "<separator><brand>" tail to leave out of a title's length (e.g. " | Gallery Sonder"), or
+ *  null. A tail counts once per title that ends with it, plus once more when a page is titled with
+ *  the bare brand (a home page titled "Gallery Sonder" backs " | Gallery Sonder"); it needs a count
+ *  of two. A brand-backed tail wins, then the higher count, then the SHORTER tail, so a section
+ *  name every sampled page shares (" - Blog | Brand") is never stripped as if it were the brand.
+ *  With no tail shared, the whole title is counted. */
+export function sharedTitleSuffix(titles: string[]): string | null {
+  const bare = new Set(titles);
+  const counts = new Map<string, number>();
+  for (const t of titles) {
+    const tails = new Set<string>();
+    for (const sep of TITLE_SEPARATORS) {
+      for (let at = t.indexOf(sep); at !== -1; at = t.indexOf(sep, at + 1)) {
+        if (at > 0) tails.add(t.slice(at));
+      }
+    }
+    for (const tail of tails) counts.set(tail, (counts.get(tail) ?? 0) + 1);
+  }
+  const backed = (tail: string) =>
+    TITLE_SEPARATORS.some((sep) => tail.startsWith(sep) && bare.has(tail.slice(sep.length)));
+  let best: { tail: string; backed: boolean; count: number } | null = null;
+  for (const [tail, n] of counts) {
+    const b = backed(tail);
+    const count = n + (b ? 1 : 0);
+    if (count < 2) continue;
+    const better =
+      best === null ||
+      (b && !best.backed) ||
+      (b === best.backed &&
+        (count > best.count || (count === best.count && tail.length < best.tail.length)));
+    if (better) best = { tail, backed: b, count };
+  }
+  return best?.tail ?? null;
+}
+
 /**
  * Reduce raw per-route observations to the three checklist verdicts. PURE.
  * - desktopOk: EVERY route loaded cleanly in EVERY desktop engine (a WAF-challenged entry
@@ -446,34 +484,6 @@ const fmtEntryStatus = (s?: number | null): string =>
  * Every fail names its offenders (desktopFailures/mobileFailures/brokenLinkUrls, mirroring
  * unreachableUrls) so a red box is actionable, never a bare "fail".
  */
-const TITLE_WARN_MAX = 70;
-const TITLE_SEPARATORS = [" | ", " — ", " – ", " - ", " · ", " :: "];
-
-/** The "<separator><brand>" tail that the most sampled titles end with, when at least two share
- *  it (e.g. " | Gallery Sonder"). Null when no tail is shared, so a lone title is counted whole
- *  and a separator inside a page's own words is never mistaken for the brand. On a tie the longer
- *  tail wins. */
-export function sharedTitleSuffix(titles: string[]): string | null {
-  const counts = new Map<string, number>();
-  for (const t of titles) {
-    const tails = new Set<string>();
-    for (const sep of TITLE_SEPARATORS) {
-      const at = t.lastIndexOf(sep);
-      if (at > 0) tails.add(t.slice(at));
-    }
-    for (const tail of tails) counts.set(tail, (counts.get(tail) ?? 0) + 1);
-  }
-  let best: string | null = null;
-  let bestCount = 1;
-  for (const [tail, n] of counts) {
-    if (n > bestCount || (n === bestCount && best !== null && tail.length > best.length)) {
-      best = tail;
-      bestCount = n;
-    }
-  }
-  return best;
-}
-
 export function summarizeBrowser(
   routes: RouteResult[],
   links: LinkResult[],
@@ -547,7 +557,7 @@ export function summarizeBrowser(
   const titleLengthWarnings: string[] = [];
   for (const r of routes) {
     const t = (r.title ?? "").trim();
-    const stripped = suffix && t.endsWith(suffix) && t.length > suffix.length;
+    const stripped = suffix !== null && t.endsWith(suffix);
     const length = stripped ? t.length - suffix.length : t.length;
     if (length <= TITLE_WARN_MAX) continue;
     titleLengthWarnings.push(

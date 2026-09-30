@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   summarizeBrowser,
+  sharedTitleSuffix,
   browserAudit,
   canonicalizeBaseUrl,
   defaultDiscoverDeps,
@@ -185,7 +186,7 @@ describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
     expect(summarizeBrowser([], [], {}).reachableOk).toBe(false);
   });
 
-  it("titleMetaOk true when every route has a non-empty title ≤70 + meta, all titles unique", () => {
+  it("titleMetaOk true when every route has a non-empty title + meta, all titles unique", () => {
     const s = summarizeBrowser(
       [
         route("https://a.com/", true, true, [], { title: "Home", metaDescription: "Welcome home" }),
@@ -322,6 +323,133 @@ describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
       { "/": 2 },
     );
     expect(s.titleLengthWarnings).toEqual(["https://a.com/: title 73 chars (over 70)"]);
+  });
+
+  it.each([" | ", " — ", " – ", " - ", " · ", " :: "])(
+    "strips a shared brand suffix after %j",
+    (sep) => {
+      const s = summarizeBrowser(
+        [
+          route("https://a.com/", true, true, [], {
+            title: `${"p".repeat(69)}${sep}Brand`,
+            metaDescription: "d",
+          }),
+          route("https://a.com/c", true, true, [], {
+            title: `Contact${sep}Brand`,
+            metaDescription: "d",
+          }),
+        ],
+        [],
+        { "/": 2 },
+      );
+      expect(s.titleLengthWarnings).toEqual([]);
+    },
+  );
+
+  it("counts a long title whole when it lacks the suffix the other pages share", () => {
+    const own = "Gallery Sonder: Contemporary Art from Los Angeles Artists, on View Now!";
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], { title: own, metaDescription: "d" }),
+        route("https://a.com/a", true, true, [], {
+          title: "About | Gallery Sonder",
+          metaDescription: "d",
+        }),
+        route("https://a.com/c", true, true, [], {
+          title: "Contact | Gallery Sonder",
+          metaDescription: "d",
+        }),
+      ],
+      [],
+      { "/": 3 },
+    );
+    expect(own.length).toBe(71);
+    expect(s.titleLengthWarnings).toEqual(["https://a.com/: title 71 chars (over 70)"]);
+  });
+
+  it("a page titled with the bare brand backs its suffix, even on a two-page sample", () => {
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], { title: "Brand", metaDescription: "d" }),
+        route("https://a.com/p", true, true, [], {
+          title: `${"a".repeat(64)} | Brand`,
+          metaDescription: "d",
+        }),
+      ],
+      [],
+      { "/": 2 },
+    );
+    expect(s.titleLengthWarnings).toEqual([]);
+  });
+
+  it("never strips a section name every page shares as if it were the brand", () => {
+    const long = "How We Restored a 1920s Craftsman Bungalow Kitchen in Pasadena CA";
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], { title: "Brand", metaDescription: "d" }),
+        route("https://a.com/1", true, true, [], {
+          title: `${long} - Blog | Brand`,
+          metaDescription: "d",
+        }),
+        route("https://a.com/2", true, true, [], {
+          title: "Ten Tips for Choosing Cabinet Hardware - Blog | Brand",
+          metaDescription: "d",
+        }),
+      ],
+      [],
+      { "/": 3 },
+    );
+    expect(s.titleLengthWarnings).toEqual([
+      `https://a.com/1: title ${long.length + 7} chars without the " | Brand" suffix (over 70)`,
+    ]);
+  });
+
+  it("on a tie with no bare-brand page, the shorter shared tail wins", () => {
+    expect(
+      sharedTitleSuffix([
+        `${"a".repeat(65)} - Kitchen Projects | Brand`,
+        "Bathroom Refresh - Kitchen Projects | Brand",
+      ]),
+    ).toBe(" | Brand");
+    expect(
+      sharedTitleSuffix([
+        `${"a".repeat(64)} | Services - Brand`,
+        "SEO | Services - Brand",
+        `${"c".repeat(64)} | Brand`,
+      ]),
+    ).toBe(" - Brand");
+  });
+
+  it("a brand containing a separator is kept whole when a page carries the bare brand", () => {
+    expect(
+      sharedTitleSuffix([
+        "Smith - Jones Law",
+        "Contact | Smith - Jones Law",
+        "About | Smith - Jones Law",
+      ]),
+    ).toBe(" | Smith - Jones Law");
+  });
+
+  it("a brand-backed tail beats a more common unbacked one", () => {
+    expect(sharedTitleSuffix(["Brand", "Q | Brand", "X - LA", "Y - LA", "Z - LA"])).toBe(
+      " | Brand",
+    );
+  });
+
+  it("the note names the first three long titles and counts the rest", () => {
+    const s = summarizeBrowser(
+      ["a", "b", "c", "d"].map((p) =>
+        route(`https://a.com/${p}`, true, true, [], {
+          title: p.repeat(71),
+          metaDescription: "d",
+        }),
+      ),
+      [],
+      { "/": 4 },
+    );
+    expect(s.titleLengthWarnings).toHaveLength(4);
+    expect(s.note).toContain("https://a.com/c: title 71 chars (over 70) (+1 more)");
+    expect(s.note).not.toContain("https://a.com/d: title");
   });
 
   it("titleMetaOk false for empty observations (nothing proven)", () => {
