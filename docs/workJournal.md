@@ -6853,3 +6853,41 @@ At 23:20:42Z the cockpit had 1 attention (Reddoor, until the nightly), 3 watch a
 - **A flake that was probably ours.** One cold failure of the handler test matched a round-1 reviewer's in-place mutation (the reader always returning `withdrawnAt: null`) running while another reviewer ran tests in the same worktree. Round 2's reviewers each mutated only a copy.
 
 **Not done.** Nobody has withdrawn VLF's September draft. That is the operator's click after #1078 lands, and it must land before October's due date, 10-30.
+
+## 2026-09-30 — Williamson Construction fidelity pass: favicon, freight-sans-pro, the reference's hovers and its IX2 menu (williamson-construction-co#8; BACKLOG 44, 52)
+
+OD7-P2b from the plan's §7 brief, worked in a cloud session after the P2 worker ended. Both Verify lines still held at 21:01Z: the favicon was the starter's (md5 `3a387408…`) and `TODO(D8)` sat at `src/app.css:5`. Every `claude/*` branch in the repo was merged or closed, and main was `e15517e`.
+
+**Measured before building.** Reading the CSS was not enough, because of the cascade. I built an offline instrument: Chromium loads the capture, `page.route` answers every URL from `manifest.json`, and the probe hovers every element on all 14 pages at 1440 and 390. It passed its control first: the base `.button-default` read `rgba(198,166,71,0.55)`, as the stylesheet says. Forced `:hover` through CDP then settled the cases a real pointer could not reach. It found what reading missed:
+
+- Three rules are undone by later rules at equal specificity, so those buttons have no hover at all in the reference: `.button-default.bg-color-white`, `.button-default.bg-color-transparent`, and `a:hover`'s fill against `.number-bubble`.
+- Webflow's own script writes `transition: fill 400ms` inline onto every plan polygon and rect. That makes their opacity snap to 0.6, and only the discs fade. Two reviewers said the polygons should fade. The capture says they don't, and the spec now asserts both transitions.
+
+**Two beliefs corrected on contact.**
+
+- _Typekit's domain allowlist._ The brief expected the kit to serve fonts only on its listed domains, so the font check would have to run on the Netlify host. The negative control disagreed: font files come back 200 with `Referer: example.com` too, from curl. CI's `document.fonts` check on localhost passed, and so did a browser on `deploy-preview-8--…netlify.app`, which is not on the kit's list. The first proof on the production preview host is still the browser after merge.
+- _Hover contrast._ The P2 LEDGER already held the line that hover states meet AA. The reference's link fade (`a:hover`, opacity 0.55) keeps black on white at 4.57:1 but drops primary on white to 2.82:1. Links now fade to exactly 0.55 wherever that passes AA, and to a measured floor where it does not. The spec refuses any value but 0.55 where 0.55 passes. Gold buttons take the reference's gold at 55% on white grounds (8.9:1). On blue, gold at 55% is 3.13:1, so the white substitute stays there.
+
+**Defects the tests caught, and defects only review caught.**
+
+- The new geometry test caught the menu button squeezed from 64px to 60px by the logo.
+- Review round 1 caught the rest, and every one had passed a green suite:
+  - The panel never slid. Tailwind v4's `translate-y-*` sets `translate`, and I had transitioned `transform`. The test had read the transition _string_, so it passed on the broken code. It now samples position mid-slide.
+  - Tab in the 0.5s after close landed in the off-screen panel. The panel is now `inert` when closed.
+  - Tab past the last link focused a video button under the open panel.
+  - The menu icon returned 700ms early. IX2 chains a-4's second group after the 700ms fade.
+  - Phase bubbles and the left slider arrow faded when the reference's don't.
+- The Tab test then flaked under parallel load. An event log showed the menu open and a Tab 25ms later skipping the panel. Measured under the fleet preset's reduced motion, the first link is invisible for one ~15ms frame after opening. The test now waits for it.
+
+**Mistakes of my own worth a line.**
+
+- A Python one-liner opened a file for writing before reading it and truncated `SiteHeader.test.ts`. The suite caught it ("No test suite found").
+- A mutation's `git checkout` reverted uncommitted round-1 work in `SiteHeader.svelte`, and I re-applied it from the edit scripts.
+- The rule I now follow: commit before mutating, and restore mutations from a saved copy, never from git.
+- A `pkill -f "vite preview"` matched its own shell twice (exit 144).
+
+**Not done: the matching gate.** `gate.sh` needs the `matching-a-page` skill's `page-diff.mjs`. It is laptop-only and not in the container. Construction also has no `matching/SPEC.md`, so the gate would refuse the page anyway. `harness.json` has no masks, and `floors.mjs` and `census-deviations.mjs` are empty, so there is no unledgered mask. The rest is an Operator decisions line in BACKLOG.
+
+**Cloud mechanics.** The pinned Playwright wants browser build 1243 and the image has 1234. `PLAYWRIGHT_BROWSERS_PATH` pointed at a scratch directory of symlinks ran both the axe audit and the suite without `playwright install`.
+
+**Where it stopped.** Round 2 found no major but two real minors: a page click closes the open menu (`<main tabindex="-1">` takes focus, against the code's own intent), and one assertion in the Tab test cannot fail because `elementFromPoint` skips `inert`. It also found two nits. Under "two dirty review rounds, then stop", #8 is held at `a7acae5` (CI green) and goes to the operator as BACKLOG 52, with my pick: fix the four and land without a third round. Nothing was merged.

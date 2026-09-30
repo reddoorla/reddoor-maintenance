@@ -1170,6 +1170,9 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     held for item 47. #9 builds a first scroll reveal for the steps; the
     reference's sticky numbering (`countersAnim.js`) replaces or extends it.
     Start Homes' P1b from whichever #9 head the operator merges.
+    **Construction's P2b is built and held for item 52** (session
+    `session_015T9mFHiAiALPXV1YnMoDCH`, williamson-construction-co#8, head
+    `a7acae5`, CI green).
 45. **Privacy policy wording (P1-26): one legal review of the template.**
     The template's text speaks for each client's business, and it discloses
     what the fleet actually does with visitor data. _Ask:_ send the draft in
@@ -1252,6 +1255,51 @@ analytics"]`). The operator creates properties for the other three. When the
     scheduling, plus the UI fixes, then land; (b) land `d4605b7b` as it is and
     file the minors; or (c) a third round after (a). **Pick: (a)**; VLF is due
     2026-10-30 under either rule. Detail: the #1078 comment.
+
+52. **williamson-construction-co#8 (Construction fidelity, OD7-P2b): round 2
+    found minors, so the merge is yours.** The PR ships:
+    - the reference's favicon and apple-touch-icon;
+    - `freight-sans-pro` / `-lights` from kit `noj4tji`, loaded in CI and on
+      the deploy preview [M];
+    - every reference hover, measured in Chromium on the capture;
+    - the IX2 mobile menu, a white panel sliding from -15rem, replacing the
+      blue dialog.
+
+    `src/hover-rules.test.ts` pins all 18 `:hover` rules and the IX2 click
+    targets. 11 mutations each turned a test red. The head is `a7acae5`: CI
+    green, 743 unit tests, 55 Playwright tests, axe 0 violations across 8
+    routes.
+
+    Round 1 (three lenses) found three majors, all fixed in `44c96d1` and
+    `a7acae5`:
+    - the panel never slid (the `translate` vs `transform` property);
+    - Tab could land in the closing panel, or on a control under the open one;
+    - the menu icon returned 700ms early.
+
+    Round 2 found no major, but it did find two minors and two nits:
+    - (i) Any click or tap on the page closes the open menu, because `<main
+tabindex="-1">` takes focus. The code and its test meant to keep it
+      open, and the LEDGER does not record it.
+    - (ii) The "not under the panel" half of the Tab test can never fail,
+      because `elementFromPoint` skips `inert`.
+    - (iii) A phase with no anchor still fades on hover.
+    - (iv) The plan shapes use Tailwind's default easing where the reference
+      uses `ease`.
+
+    Each is a line or two. _Ask:_ (a) fix all four at the current head and
+    land without a third review; (b) land `a7acae5` as it is and file the
+    four; or (c) a third round. _Pick:_ (a). For (i), my pick is to keep
+    "a page click closes the menu", which is better on a phone, and ledger it
+    as a deviation rather than suppress it.
+
+    **Also yours, from the same brief.** "The matching gate passes" cannot be
+    shown from a cloud session. `gate.sh` needs the laptop-only
+    `matching-a-page` skill (`page-diff.mjs`). Construction also has no
+    `matching/SPEC.md`: Phase 1 was never done, so the gate refuses the page.
+    There is no mask, floor or declared deviation, so nothing is unledgered.
+    _Ask:_ run Phase 1 and the gate from the laptop, or drop that done-when
+    for P2b. _Pick:_ drop it for P2b, and make Phase 1 its own item if you
+    want the pixel gate on this site.
 
 ---
 
