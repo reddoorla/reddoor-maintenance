@@ -325,6 +325,18 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `ROSTER_URL_SUMMARY checked=34 pass=31 fail=1 no_url=2`, and the one fail is
     `the-pointe-burbank https://the-pointe-burbank.netlify.app 404
 netlify-site-not-found`. The ask stands: set the url now.
+    **Answered and done 2026-09-30 19:33:07Z [M].** The gate held first:
+    fleet-lighthouse run 36731239566 (schedule, success) logged one warning,
+    `the-pointe-burbank https://the-pointe-burbank.netlify.app 404`
+    `netlify-site-not-found`, and the summary
+    `ROSTER_URL_SUMMARY checked=34 pass=31 fail=1 no_url=2 mirrored=34`.
+    A SELECT read `url_resolves = fail`, `url_status = 404 netlify-site-not-found`
+    and `url_checked_at = 2026-09-30T15:06:30.087Z`. The url was then written
+    through `setSiteDetail` (bound as `netlify/functions/site-details.mts` binds
+    it), with result `updated`. Before: `https://the-pointe-burbank.netlify.app`.
+    After: `https://the-pointe-burbank-rd.netlify.app`, read back from Turso. The
+    new host answers 200, and the old one still answers 404. The health columns
+    keep today's `fail` until the next nightly re-probes the row.
 22. **P1-17, bypass actors on a Renovate base branch (#981, PR #985)** — two
     review rounds each found a real defect, so #985 is held for your call, not a
     third round. Both defects were missing TESTS, and both are now fixed on the

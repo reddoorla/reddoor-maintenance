@@ -6699,3 +6699,15 @@ The scheduled Routine failed at its bootstrap step, so this pass started at 18:5
 **New.** Today's run also drafted VLF's first Maintenance report, two seconds before it sent VLF's Launch email (BACKLOG 41; renumbered from 40 when #1062 took 40 first). The drift sweep has no `PRISMIC_TOKEN_VIDA_LEGACY` (42, 🔴). #1055, no privacy policy anywhere in the fleet, is a product call (43). #1056, `launch` scoring the local checkout, is P1-23, and #947's starter and recipe half is P1-24; both have briefs in the report. Discord has one open ask older than two days: Tim's slideshow ease-in in #worthe-web-maintenance, 09-17. The detector was proven on a reaction-closed ask and a reply-closed ask, and it correctly ignored a non-operator reaction.
 
 **Honest accounting.** A morning report written at 19:00Z mostly describes a day that already happened. Most of the P1 queue it would have ranked was built and landed overnight by worker sessions. The streak is 1, with no `awaiting` row.
+
+## 2026-09-30 — the-pointe-burbank's roster url set to the `-rd` host, after the nightly stored its fail (BACKLOG 21)
+
+The operator's condition was that the first roster-urls write should store the-pointe-burbank's `fail` before the url is corrected. That row was the only live positive case the probe's failure path had. If the url were fixed first, the fail path would never have been seen writing real data.
+
+Both authorities agreed before the write. First, the step log of today's scheduled fleet-lighthouse run 36731239566 (completed success, step "Probe roster urls to Turso" from 15:06:28Z to 15:06:36Z). It printed one warning, `the-pointe-burbank https://the-pointe-burbank.netlify.app 404 netlify-site-not-found`, and `ROSTER_URL_SUMMARY checked=34 pass=31 fail=1 no_url=2 mirrored=34 mirror_failed=0`. Second, a parameterised SELECT against live Turso, joining `sites` to `site_health` on the column names in migrations 0030 to 0032. It read `fail`, `404 netlify-site-not-found` and `2026-09-30T15:06:30.087Z`. The same script asked for a slug that does not exist and got 0 rows, as its negative control.
+
+The write went through `setSiteDetail` with `getSiteBySlug` and `mirrorWrite`/`mirrorSiteField`, exactly the binding in `netlify/functions/site-details.mts`, from a throwaway tsx script. No SQL was written by hand. It returned `updated` at 19:33:07Z. The row reads `https://the-pointe-burbank-rd.netlify.app` (it was `https://the-pointe-burbank.netlify.app`). The new host answers 200 and the old one still 404. `mirrorSiteFields` patches only the columns named, so no other field or row was touched.
+
+One slip of my own instrument. The script's before and after lines printed `undefined`, because I read `row.fields.url` and `WebsiteRow` is flat (`row.url`). The write had worked. That was established from the SELECT readback, not from those lines.
+
+The row's `url_resolves` stays `fail` until tonight's nightly re-probes it. #1004's never-stamped rule and item 26 expect exactly that: the next run should flip it to `pass`.
