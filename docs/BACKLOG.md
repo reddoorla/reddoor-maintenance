@@ -451,6 +451,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
     it is `git merge origin/main` (#1005 also adds migrations, 0033/0034, so
     keep both sides of the migration id lists), CI green, then
     `node scripts/land-prs.mjs 1016`, then close #943.
+    **Answered 2026-09-30: the cadence + 14 days (as picked).** #1016 lands with
+    this line; #943 closes with it.
 29. **#1014, axe's plus-lighter crash is "not measured" (vida, item 23)**:
     two review rounds each found a real defect, so #1014 is held for your
     call instead of going to a third round.
