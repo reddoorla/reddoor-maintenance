@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { FORM_E2E_TESTMODE_UNDECLARED_SUMMARY } from "../../src/audits/form-e2e.js";
-import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
+import { stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -40,11 +40,21 @@ const execFileAsync = promisify(execFile);
 
 const FORM_E2E_STEP = "Fleet form-e2e + write-back";
 
+const POSITIVE_CONTROL_STEP = "Positive control — the probe passes a known-good local form";
+
+const PASSED_REPORT = {
+  success: true,
+  numPassedTests: 22,
+  numPendingTests: 0,
+  numTodoTests: 0,
+};
+
 let gate: string;
+let workflow: string;
 
 beforeAll(async () => {
-  const wf = await readFile(workflowPath("fleet-form-e2e.yml"), "utf-8");
-  gate = stepRunScript(wf, FORM_E2E_STEP);
+  workflow = await readFile(workflowPath("fleet-form-e2e.yml"), "utf-8");
+  gate = stepRunScript(workflow, FORM_E2E_STEP);
 });
 
 /**
@@ -197,5 +207,128 @@ describe("fleet-form-e2e — the gate cannot go green having probed nothing", ()
     const r = await runGate({ stdout: `boom\n`, exit: 1 });
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("printed no write summary");
+  });
+});
+
+describe("fleet-form-e2e — an uncovered site is named, not only counted (#779)", () => {
+  it("names every self-skipped site on the FLEET_FORM_E2E_UNCOVERED line and in the warning", async () => {
+    const r = await runGate({
+      stdout: `${probed(SIX_COVERED)}\n${selfSkips(FIVE_UNCOVERED)}\n${writeSummary(11, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(`FLEET_FORM_E2E_UNCOVERED sites=${FIVE_UNCOVERED.join(",")}`);
+    const warning = r.out.split("\n").find((l) => l.includes("self-skipped")) ?? "";
+    for (const site of FIVE_UNCOVERED) expect(warning).toContain(site);
+  });
+
+  it("does not name a probed site as uncovered", async () => {
+    const r = await runGate({
+      stdout: `${probed(SIX_COVERED)}\n${selfSkips(["revogen"])}\n${writeSummary(7, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.out).toContain("FLEET_FORM_E2E_UNCOVERED sites=revogen\n");
+  });
+
+  it("prints sites=none on a fully covered sweep rather than staying silent", async () => {
+    const r = await runGate({
+      stdout: `${probed(SIX_COVERED)}\n${writeSummary(6, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.out).toContain("FLEET_FORM_E2E_UNCOVERED sites=none");
+  });
+});
+
+describe("fleet-form-e2e — a positive control runs before any client row is written (#779)", () => {
+  const step = (label: string) => workflowSteps(workflow).findIndex((s) => s.label === label);
+
+  it("runs the live-runner fixture test before the fleet sweep", () => {
+    const control = step(POSITIVE_CONTROL_STEP);
+    expect(control).toBeGreaterThan(-1);
+    expect(control).toBeLessThan(step(FORM_E2E_STEP));
+    expect(stepRunScript(workflow, POSITIVE_CONTROL_STEP)).toContain(
+      "tests/audits/form-e2e-live-runner.test.ts",
+    );
+  });
+
+  it("can stop the sweep: no continue-on-error and no if", () => {
+    const s = workflowSteps(workflow)[step(POSITIVE_CONTROL_STEP)];
+    expect(s).toBeDefined();
+    expect(s?.continueOnError).toBeUndefined();
+    expect(s?.if).toBeUndefined();
+  });
+
+  it("runs in the same job as the sweep, so a failed control cannot leave a sibling job sweeping", () => {
+    const steps = workflowSteps(workflow);
+    const control = steps[step(POSITIVE_CONTROL_STEP)];
+    const sweep = steps[step(FORM_E2E_STEP)];
+    expect(control?.job).toBeTruthy();
+    expect(control?.job).toBe(sweep?.job);
+  });
+
+  it("nothing between the control and the sweep, nor the sweep itself, runs after a failure", () => {
+    const steps = workflowSteps(workflow);
+    const between = steps.slice(step(POSITIVE_CONTROL_STEP) + 1, step(FORM_E2E_STEP) + 1);
+    expect(between.map((s) => s.label)).toContain(FORM_E2E_STEP);
+    for (const s of between) expect(s.if).toBeUndefined();
+  });
+
+  it("runs the whole fixture file and cannot swallow its failure", () => {
+    const script = stepRunScript(workflow, POSITIVE_CONTROL_STEP);
+    expect(script).not.toMatch(/\|\||--passWithNoTests|\s-t\s|--testNamePattern|--bail/);
+  });
+
+  const runControl = async (exit: number, report: Record<string, unknown> = PASSED_REPORT) => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-form-e2e-control-"));
+    const bin = join(dir, "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(
+      join(bin, "pnpm"),
+      `#!/bin/sh\ncat > form-e2e-control.json <<'JSON'\n${JSON.stringify(report)}\nJSON\nexit ${exit}\n`,
+      "utf-8",
+    );
+    await chmod(join(bin, "pnpm"), 0o755);
+    const script = stepRunScript(workflow, POSITIVE_CONTROL_STEP);
+    return execFileAsync("bash", ["-e", "-c", script], {
+      cwd: dir,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    }).then(
+      () => 0,
+      (e: { code?: number }) => e.code ?? 1,
+    );
+  };
+
+  it("exits 0 when the fixture test passes", async () => {
+    expect(await runControl(0)).toBe(0);
+  });
+
+  it("exits non-zero when the fixture test fails, which stops the job before the sweep", async () => {
+    expect(await runControl(1)).not.toBe(0);
+  });
+
+  it("exits non-zero when every fixture test was skipped, because a control that measured nothing is not a pass", async () => {
+    expect(
+      await runControl(0, { ...PASSED_REPORT, numPassedTests: 0, numPendingTests: 22 }),
+    ).not.toBe(0);
+  });
+
+  it("exits non-zero when the fixture ran no test at all", async () => {
+    expect(await runControl(0, { ...PASSED_REPORT, numPassedTests: 0 })).not.toBe(0);
+  });
+
+  it("exits non-zero when the report says the run did not succeed", async () => {
+    expect(await runControl(0, { ...PASSED_REPORT, success: false })).not.toBe(0);
+  });
+
+  it("exits non-zero when any fixture test was skipped or left todo", async () => {
+    expect(await runControl(0, { ...PASSED_REPORT, numPendingTests: 1 })).not.toBe(0);
+    expect(await runControl(0, { ...PASSED_REPORT, numTodoTests: 1 })).not.toBe(0);
+  });
+
+  it("carries no store credentials and does not arm the live runner", () => {
+    const s = workflowSteps(workflow)[step(POSITIVE_CONTROL_STEP)];
+    expect(s).toBeDefined();
+    expect(s?.source).not.toContain("TURSO_");
+    expect(s?.source).not.toContain("REDDOOR_FORM_E2E_LIVE");
   });
 });

@@ -62,6 +62,8 @@ export type FormSubmitOutcome =
        *  re-filled once before the click. On a pass this is production proof the
        *  wipe happens; on a failure it says one refill wasn't enough. */
       refilled?: boolean;
+      synthesized?: string[];
+      resynthesized?: string[];
       /** What the site's REAL Turnstile widget did while the probe was on the
        *  page. The probe does NOT swap the sitekey — `testSitekey` only names the
        *  fake token VALUE it injects — so the real widget renders with the real
@@ -475,6 +477,13 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       };
     }
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
+    const synthesizedNote =
+      (outcome.synthesized?.length
+        ? ` — synthesized required field(s): ${outcome.synthesized.join(", ")}`
+        : "") +
+      (outcome.resynthesized?.length
+        ? ` — set again before submit (the page reverted it, or it became required after the first fill): ${outcome.resynthesized.join(", ")}`
+        : "");
     // ALWAYS defined on this path, never omitted — because this path refreshes
     // `Form E2E checked at`, which is the clock the CRITICAL alarm ages the verdict
     // against. Omitting the verdict here would preserve an older one beside a fresh
@@ -500,7 +509,7 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "form-e2e",
         site: label,
         status: "warn",
-        summary: `form-e2e: synthetic submission failed${outcome.detail ? ` — ${outcome.detail}` : ""}`,
+        summary: `form-e2e: synthetic submission failed${outcome.detail ? ` — ${outcome.detail}` : ""}${synthesizedNote}`,
         details,
       };
     }
@@ -524,9 +533,9 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     // Surfaced on a PASS too: a wiped-then-refilled run is the production
     // evidence that the re-render race exists on this site, and the nightly log
     // is where that evidence has to land for anyone to see it.
-    const refillNote = outcome.refilled
-      ? " — fields were wiped by a client re-render and re-filled once"
-      : "";
+    const refillNote =
+      (outcome.refilled ? " — fields were wiped by a client re-render and re-filled once" : "") +
+      synthesizedNote;
     return {
       audit: "form-e2e",
       site: label,
@@ -540,6 +549,60 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     await runner.close?.();
   }
 }
+
+export const SYNTHETIC_TEXT = "Synthetic end-to-end health check — please ignore.";
+
+export const SYNTHESIZE_REQUIRED_EXPR = `
+  (function () {
+    const f = document.querySelector("form");
+    if (!f) return [];
+    const done = [];
+    const fire = (el) => {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    const skip = ["hidden", "file", "submit", "button", "reset", "image"];
+    const text = (el, type) => {
+      if (type === "email") return "monitor+e2e@reddoorla.com";
+      if (type === "tel") return "5555550123";
+      if (type === "url") return "https://reddoorla.com";
+      if (type === "number" || type === "range") return el.min || "1";
+      if (type === "date") return el.min || "2026-01-01";
+      const v = ${JSON.stringify(SYNTHETIC_TEXT)};
+      return el.maxLength > 0 ? v.slice(0, el.maxLength) : v;
+    };
+    for (const el of Array.from(f.elements)) {
+      if (!el.required || el.matches(":disabled") || !el.name) continue;
+      const type = String(el.type || "").toLowerCase();
+      if (el.tagName === "SELECT") {
+        const current = el.selectedOptions[0];
+        if (current && !current.disabled && el.value) continue;
+        const opt = Array.from(el.options).find((o) => o.value !== "" && !o.disabled);
+        if (!opt) continue;
+        el.value = opt.value;
+      } else if (type === "checkbox") {
+        if (el.checked) continue;
+        el.checked = true;
+      } else if (type === "radio") {
+        const group = Array.from(f.elements).filter((r) => r.type === "radio" && r.name === el.name);
+        if (group.some((r) => r.checked)) continue;
+        el.checked = true;
+      } else if (skip.includes(type) || String(el.value).trim()) {
+        continue;
+      } else {
+        const before = el.value;
+        el.value = text(el, type);
+        if (!String(el.value).trim() || !el.validity.valid) {
+          el.value = before;
+          continue;
+        }
+      }
+      fire(el);
+      if (!done.includes(el.name)) done.push(el.name);
+    }
+    return done;
+  })();
+`;
 
 /** Minimum plausible fill time the site's bot-timing screen enforces (client.ts
  *  MIN_FILL_MS = 800). A too-fast submit is silently dropped (success shown, ingest
@@ -732,6 +795,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
       // used to discard a container the run had already seen and hand back
       // "looked, cannot tell" — clearing a verdict it had positively earned.
       let containerPresent = false;
+      const synthesized: string[] = [];
+      let resynthesized: string[] = [];
       const browser = await chromium.launch();
       try {
         const ctx = await browser.newContext();
@@ -816,18 +881,35 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           (function () {
             const f = document.querySelector("form");
             if (!f) return;
-            const add = (name, value) => {
-              let el = f.querySelector('input[name="' + name + '"]');
-              if (!el) {
-                el = document.createElement("input");
-                el.type = "hidden";
-                el.name = name;
-                f.appendChild(el);
-              }
-              el.value = value;
+            const mark = (form) => {
+              const add = (name, value) => {
+                let el = form.querySelector('input[name="' + name + '"]');
+                if (!el) {
+                  el = document.createElement("input");
+                  el.type = "hidden";
+                  el.name = name;
+                  form.appendChild(el);
+                }
+                el.value = value;
+              };
+              add("testMode", "true");
+              add("cf-turnstile-response", ${JSON.stringify(tokenValue)});
             };
-            add("testMode", "true");
-            add("cf-turnstile-response", ${JSON.stringify(tokenValue)});
+            mark(f);
+            // The click blurs the last filled field, and a page that re-renders on
+            // that change event drops the hidden inputs added above. A capturing
+            // listener on window runs before the site's own submit handler, so the
+            // form it reads carries the marker whatever happened since.
+            if (!window.__formE2eMarkerGuard) {
+              window.__formE2eMarkerGuard = true;
+              window.addEventListener(
+                "submit",
+                (e) => {
+                  if (e.target instanceof HTMLFormElement) mark(e.target);
+                },
+                true,
+              );
+            }
           })();
         `;
         // Fills are per-field best-effort (a site may lack a phone field), but
@@ -839,7 +921,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           { selector: '[name="phone"]', value: "5555550123" },
           {
             selector: '[name="message"]',
-            value: "Synthetic end-to-end health check — please ignore.",
+            value: SYNTHETIC_TEXT,
           },
         ];
         const filled: { selector: string; value: string }[] = [];
@@ -851,6 +933,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
               .catch(() => false);
             if (landed && !filled.some((s) => s.selector === f.selector)) filled.push(f);
           }
+          const more = (await page.evaluate(SYNTHESIZE_REQUIRED_EXPR).catch(() => [])) as string[];
+          for (const name of more) if (!synthesized.includes(name)) synthesized.push(name);
           await page.evaluate(injectExpr);
         };
         await fillAll();
@@ -889,8 +973,38 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         `,
           )
           .catch(() => 0)) as number;
+        resynthesized =
+          wipedCount > 0
+            ? []
+            : ((await page.evaluate(SYNTHESIZE_REQUIRED_EXPR).catch(() => [])) as string[]);
+        for (const name of resynthesized) if (!synthesized.includes(name)) synthesized.push(name);
         const refilled = wipedCount > 0;
-        if (refilled) await fillAll();
+        if (wipedCount > 0) await fillAll();
+        else if (resynthesized.length > 0) await page.evaluate(injectExpr);
+        // The last thing before the click: the marker must be on the form. A page
+        // that re-renders on a change event drops the hidden input this probe
+        // added, and an unmarked submission is a real lead to the client. Refuse
+        // to click rather than send one.
+        const markerPresent = (await page
+          .evaluate(
+            `(function () {
+              const el = document.querySelector('form [name="testMode"]');
+              return !!el && el.value === "true";
+            })();`,
+          )
+          .catch(() => false)) as boolean;
+        if (!markerPresent)
+          return {
+            formPresent: true,
+            success: false,
+            ...(refilled ? { refilled } : {}),
+            ...(synthesized.length > 0 ? { synthesized } : {}),
+            ...(resynthesized.length > 0 ? { resynthesized } : {}),
+            detail:
+              "testMode marker missing from the form at submit — did not click, so no unmarked probe was sent",
+            turnstile: turnstileSeen(),
+            formsHealth,
+          };
         // Capture the action POST so a failure names the real server response
         // (espada 2026-07-10: three "no success banner" warns were undiagnosable
         // without it — the POST status/alert text is the evidence). SAME-SITE
@@ -944,6 +1058,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
             elapsedMs,
             ...(postElapsedMs !== undefined ? { postElapsedMs } : {}),
             ...(refilled ? { refilled } : {}),
+            ...(synthesized.length > 0 ? { synthesized } : {}),
+            ...(resynthesized.length > 0 ? { resynthesized } : {}),
             turnstile: turnstileSeen(),
             formsHealth,
           };
@@ -984,6 +1100,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           formPresent: true,
           success: false,
           ...(refilled ? { refilled } : {}),
+          ...(synthesized.length > 0 ? { synthesized } : {}),
+          ...(resynthesized.length > 0 ? { resynthesized } : {}),
           detail: noBannerDetail({ post, alertText, formState, hydrationMismatch, refilled }),
           turnstile: turnstileSeen(),
           formsHealth,
@@ -1001,6 +1119,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           formPresent: true,
           success: false,
           detail: String(err).slice(0, 120),
+          ...(synthesized.length > 0 ? { synthesized } : {}),
+          ...(resynthesized.length > 0 ? { resynthesized } : {}),
           turnstile: {
             containerPresent,
             scriptLoaded: turnstileScriptLoaded,
