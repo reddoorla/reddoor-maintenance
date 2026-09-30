@@ -22,7 +22,7 @@ Clean [TEST] sends in a row: **1** (29 Navy, 2026-09-28, clean). There is no `aw
 3. **By 10-05 — Webflow conversions (hard date 10-19).**
    - Via Tim: D0 (Webflow billing), D6 (Construction form recipient), D7 (GoDaddy holder), D8 (Adobe Fonts kit owner).
    - Construction: change About's CTA to "Hire Us" in `ar0odRIAAC0ARR3x`, then publish migration release `ar0oXBIAAC0ARR2n`. The wiring PR waits on that publish.
-   - Homes: williamson-homes#7 is still open at BACKLOG 37. The pick is (a): three CSP edits, then land.
+   - Homes: nothing is waiting on you. williamson-homes#7 merged as `ca6027f` on your "continue" (BACKLOG 37). `williamson-homes.netlify.app` serves it: all 10 reference paths answer 200 [#1059].
 4. **10-05 — Data Dynamiq, Espada, LAHI, Revogen, Vineyard Maintenance.** Nothing to do yet. There are no draft rows. Preflight is clean on all five, and function health was stamped 09-30 between 14:50Z and 15:04Z [M]. Data Dynamiq will draw no analytics section: it has no GA4 and no search enrolment.
 5. **Undated:**
    - **29 Navy.** Press refresh preview on `/s/29-navy`, then approve. The draft has had 0 blockers since 09-17, and it re-verified today as this pass's positive control.
@@ -92,7 +92,7 @@ No "Nightly … failing" issue opened or closed. The only open bot-filed issues 
 ## Live worker sessions (reported, not touched)
 
 - **Sonder Google Indexed:** owns top-of-stack item 1.
-- **Williamson Homes:** #7 is at BACKLOG 37.
+- **Williamson Homes:** #7 merged as `ca6027f` and serves on Netlify (#1059).
 - **Williamson Construction:** #3 has landed. #5, the intake form (draft), needs its own review.
 - **#674 rules:** the second pass landed in #1050. It is waiting on your accept or cut of 34 candidates.
 

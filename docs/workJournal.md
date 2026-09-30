@@ -6610,6 +6610,20 @@ Every fix has a test that goes red on revert; the PR body lists 21 mutations.
 - The a11y gate has run only in CI.
 - The brief's four mutations were re-run against the predecessor's form after the merge, and all went red; one of them is in central `resolveRecipients` (4 red), and it was restored after. #5 has had no review of its own.
 
+## 2026-09-30 — OD7-P1: Williamson Homes serves from Prismic on Netlify (williamson-homes#7, `ca6027f`; BACKLOG 37 answered)
+
+This follows "OD7-P1 follow-ups: #5's round-2 fixes landed…". The operator answered BACKLOG 37 with "continue", which I read as its pick (a). I applied the three CSP edits in `d9cccee`:
+
+- `https://html2canvas.hertzen.com/dist/html2canvas.min.js`, the one file the toolbar's Share button loads;
+- `https://prismic.io` narrowed to `https://prismic.io/prismic-toolbar/`;
+- `https://*.prismic.io` in `frame-src` narrowed to `https://williamson-homes.prismic.io`.
+
+The toolbar path was checked live, not assumed. `prismic.js` pins toolbar `4.1.10`, and `https://prismic.io/prismic-toolbar/4.1.10/toolbar.js` answers 200 with no redirect, so a path-scoped source matches it. My first probe for that file grepped an empty version and fetched a 404 marketing page. Its host list was the wrong page's and was discarded before anything was built on it. Reverting any of the three CSP edits turns its test red. #7 merged on green CI as `ca6027f`, with 547 unit tests and 21 smoke tests passing.
+
+Production answered with the real site about a minute after the merge. That is fast enough to doubt. So production was checked with something only #7 carries: the served page's CSP names the html2canvas file and `williamson-homes.prismic.io`, which is #7's build and not an older deploy. At 18:57:59Z, all 10 reference paths answered 200 on `williamson-homes.netlify.app`, `/nope` answered 404, and the home page had no `website-files.com`.
+
+That closes Phase 1's "Done when", except the harness gate at 1440/834/390 for home and one project page. The gate needs the laptop's `matching-a-page` scripts and a `matching/SPEC.md`, and neither exists in the cloud. The operator items on williamson-homes#3 are still open: the Prismic publish and unpublish webhooks, branch protection, secret scanning, and Tim's content questions.
+
 ## 2026-09-30 — PM pass, run by hand 14 hours late: nightlies all green, and a re-render that cannot clear Sonder's blocker (morning report 2026-09-30)
 
 The scheduled Routine failed at its bootstrap step, so this pass started at 18:55Z from a session with the repo already attached. Four read-only surveys ran in parallel: nightlies, PRs and issues, Discord, and the reports due. Each read its clock with `date -u` at 18:56Z.
