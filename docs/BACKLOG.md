@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-09-29 ~06:00Z; state updated ~17:30Z** (cloud PM session, `claude/lucid-wozniak-wj8gaj`).
+**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-09-30 ~19:10Z** (cloud PM pass, `claude/pm-pass-2026-09-30`).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -112,12 +112,13 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **1 blocker left, not Form Functionality (operator decision 30).** [M, 2026-09-30 ~15:45Z] Form Functionality `pass` (gallerysonder#105 + fleet-form-e2e run 36738059445, 15:42Z) and Titles & Meta `pass`. Remaining: Maint: Google Indexed `unknown`, because Sonder is not search-enrolled (no GA4 / Search Console property on the row). No draft row yet; today's daily-reports had not fired at 15:45Z. |
-| now   | 29 Navy                                       | Maintenance 2026-09                            | Draft ready, 0 blockers, pending since ~09-18. Recipients are correct as they are (settled, see below); press refresh preview, then approve.                                                                                                                                                                                                                                                                  |
-| 10-01 | Sonder                                        | Maintenance                                    | Needs fresh evidence (P0-1)                                                                                                                                                                                                                                                                                                                                                                                   |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | LAHI blocked by #911 (P0-3). Revogen will draw no analytics: `ga4_property_id` NULL (#921).                                                                                                                                                                                                                                                                                                                   |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----- | --------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **13/13, 0 blockers; yours to approve and send (operator decision 30).** [M, #1063, 19:20Z] Draft `report_01M3SGQRB1P4AX68Z20PME512P` re-rendered by run 36764821092 on `8ae1bf8c` (#1060): `evidence=reticked search=measured`, Google Indexed "Page 1 on Google (#2)", `approveBlockers` `[]`. The cause was an opt-out (`accepted_watch_conditions` held `no search console`), not missing enrolment. Nothing sent. |
+| hold  | 29 Navy                                       | Maintenance 2026-09                            | Draft `rec67VEr1fwaZyNtv` ready, 0 blockers [M, positive control 09-30 ~19:00Z], unsent since 09-17. Not due in this window: its schedule is yearly (`next_maintenance_at` 2027-09-17). Recipients settled. Press refresh preview, then approve.                                                                                                                                                                       |
+| 09-30 | Vida Legacy Foundation                        | Maintenance 2026-09                            | **New.** Drafted 16:00:48Z by today's daily-reports, 0 blockers [M]. VLF's Launch email went out two seconds later and flipped it to maintained. Operator decision 41.                                                                                                                                                                                                                                                 |
+| 10-01 | Sonder                                        | Maintenance                                    | No row yet; evidence fresh (FH 09-30 15:01Z). Drafts `draft_ready=0` behind the unsent Testing report (`src/reports/queue.ts`, higher tier pending) [I, read from code], so it waits on the Testing blocker.                                                                                                                                                                                                           |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; preflight clean on all five; FH stamped 09-30 14:50–15:04Z [M]. Revogen **is** GA4-enrolled (`ga4_property_id` 545817747). Data Dynamiq has no GA4 and no search enrolment, so it draws no analytics section.                                                                                                                                                                                             |
 
 **Settled — do not flag again (operator, 2026-09-29, after being asked
 several times):** the report recipients are correct as they are. MSOT and
@@ -128,13 +129,14 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Tier | Effort | Start here                                                                                  | Done when                                                                                 |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| P1-22 | Read `RULESET_BYPASS` from the first scheduled fleet-security run after #985, and settle P1-17's measurement fork. `unread` > 0 means the reddoor-renovate App token gets no `bypass_actors`, so the default-branch floor (`src/github/rulesets.ts:148`) has been reading "no bypass actors" every night: write an Operator decisions line with the run URL and both numbers, asking which credential lets `protection-audit` see bypass lists — (a) Administration read/write on reddoor-renovate, (b) a dedicated audit-only App or token, (c) accept "unverified" fleet-wide (all 🔴). `unread=0` closes the fork. Do NOT dispatch `fleet-security.yml` to get the number (P0-1) | 🟢   | S      | the `RULESET_BYPASS unread=N read=M` line in the protection-audit step of the scheduled run | An Operator decisions line with the run URL and numbers, or a Done line saying `unread=0` |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Tier | Effort | Start here                                                                                  | Done when                                                                                                  |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| P1-23 | #1056: `launch` scores Lighthouse on the local checkout, not the live site, and mails that score to the client. `src/recipes/launch.ts:618` calls `audit(site)` on the site `src/cli/commands/launch.ts:43` resolves from the checkout; `src/audits/lighthouse.ts:285-287` falls back to `checkoutLighthouse` whenever `deployedUrl` is unset, and `src/inventory/select.ts` sets it only for `maintained` rows. VLF's stored launch baseline was 52/100/100/61 against 85/100/100/100 live (journal 2026-09-29). roalson-interests is the next launch [I] | 🟡   | S–M    | `src/recipes/launch.ts:618`, `src/audits/lighthouse.ts:285`, `tests/recipes/launch.test.ts` | A launch of a site with a live `url` scores that url, and a test goes red if it falls back to the checkout |
+| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                               | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                             | Starter PR and central recipe PR landed; the recipe's test pins the marker                                 |
 
 ### Blocked behind another PR (do not start early)
 
-- **#947 (recipe half) + #948's residual race: unblocked 2026-09-30** (item 35
+- **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
   scaffolds `hydrationMarker: "footer"`, which cannot prove hydration. Do it
   together with the a11y spec waiting for a bundle-only marker
@@ -143,7 +145,7 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   cold runs (217 twice, mid-hydration); preview + that wait 208 in 10 of 10.
   Starter first, then the recipe, then the fleet. Blocked only on the 25 site
   PRs for #948's guard flag landing first (see Done, #948).
-- **#921 persistence**: do it the #910 way once #918 merges.
+- **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
 
@@ -169,6 +171,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
    `accounting@revogenbiologics.com` is correct. Not an ask; never re-raise it.
 4. **Revogen GA4** — look up the numeric property ID in GA and set
    `ga4_property_id` (site editor), so its 10-05 report carries analytics (#921).
+   **Done [M, 2026-09-30 ~19:00Z]:** the row has `ga4_property_id = 545817747`
+   and `search_console_property = https://revogen.com/`. Not an ask any more.
 5. **Release PR #952** — merged by the operator 2026-09-29 16:45Z; 0.101.0 on npm 17:01Z.
 6. **Operating-model review — answered 2026-09-29** (`docs/operating-model-review-2026-09-29.md` §7):
    (a) zero-blocker Maintenance reports **keep the click**; revisit only after
@@ -317,6 +321,10 @@ Ordered by what unblocks the most. Each line is the exact ask.
     The probe named it on 2026-09-29 (`404 netlify-site-not-found`, and the
     `-rd` host 200) in #986's pre-merge run. Wait until item 20's run has
     stored the `fail`, since that row is the live positive case.
+    **Ready 2026-09-30 [M]:** fleet-lighthouse run 36731239566 stored it:
+    `ROSTER_URL_SUMMARY checked=34 pass=31 fail=1 no_url=2`, and the one fail is
+    `the-pointe-burbank https://the-pointe-burbank.netlify.app 404
+netlify-site-not-found`. The ask stands: set the url now.
     **Answered and done 2026-09-30 19:33:07Z [M].** The gate held first:
     fleet-lighthouse run 36731239566 (schedule, success) logged one warning,
     `the-pointe-burbank https://the-pointe-burbank.netlify.app 404`
@@ -624,6 +632,19 @@ function` on a top-level element, the spec re-runs that rule with the
       access to it (then the next draft is clean), and otherwise override,
       reason "Sonder is not enrolled in Search Console yet (#939); every other
       gate measured green on 09-30". The send is yours either way.
+    - **Update 2026-09-30 ~19:00Z (PM pass) [M]:** the draft exists
+      (`report_01M3SGQRB1P4AX68Z20PME512P`, 16:00:37Z) and was re-rendered at
+      18:40Z (run 36760315621, `evidence=reticked`). The row now carries
+      `search_console_property = https://gallerysonder.com/`, but the blocker
+      is unchanged: `site_health.search_console_outcome` is NULL, and a
+      re-render cannot fill it, because `src/reports/retick.ts:5` keeps
+      `Maint: Google Indexed` draft-time-only. It clears only by a re-draft
+      that runs the lookup, or by the logged override. A live worker owns the
+      Google Indexed work today; this line reports it and does not re-plan it.
+      **Later, 19:18Z:** that worker's #1060 (`8ae1bf8c`) landed. Refresh
+      preview now runs the Search Console lookup for an unsent, unapproved
+      draft of a search-enrolled site, so the ask is: press refresh preview,
+      then approve if Google Indexed measures.
     - **Update 2026-09-30 ~19:20Z: 13/13 measured, no blockers. Ready for
       your approve and send.** The diagnosis above was wrong about the cause.
       Sonder was not "not enrolled"; it was **opted out**:
@@ -1030,6 +1051,27 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     row stays `building`) and D8 (Lato, `TODO(D8)`). No live form was
     submitted.
 
+41. **Vida Legacy Foundation's first Maintenance report (new 2026-09-30).**
+    Today's daily-reports run drafted VLF Maintenance 2026-09
+    (`report_01M3SGR33D4JA5YHKKT3756XY2`, 16:00:48Z, 0 blockers [M]) and, two
+    seconds later, sent VLF's Launch email and flipped the site to maintained
+    [M, run 36740864230]. _Ask:_ (a) approve it as it is, a day after the
+    launch email; or (b) leave it unsent and let October's report be the first.
+    _Pick:_ (b) [I], since the launch email already carries the same evidence.
+    Either way it is yours; no agent approves or sends.
+42. **`PRISMIC_TOKEN_VIDA_LEGACY` is not set (🔴 secret).** fleet-prismic-drift
+    (run 36704968338, `wrote=15 failed=0`) warns `[vida-legacy-foundation] no
+write token for Prismic repository "vida-legacy"`. VLF went maintained
+    today, so its drift is now read without a token. _Ask:_ mint the token and
+    set the secret, per `prismic-models --fleet turso --tokens` (read-only
+    checklist). No agent mints it.
+43. **#1055, no site in the fleet has a privacy policy** (filed 2026-09-30).
+    GA4's terms require one, and design D4 of the fleet-analytics spec makes
+    Reddoor the owner. It is a product and copy call (who writes the policy,
+    one fleet template or per client), so it is not agent-ready. _Ask:_ say
+    whether a starter-level privacy page, with a per-site data notice on each
+    form, is the direction; then it becomes a P1 item.
+
 ---
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
@@ -1086,6 +1128,11 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-30 — P1-22 closed by measurement, not code: the first scheduled
+  fleet-security run after #985 (run 36709631159, 11:37Z) printed
+  `RULESET_BYPASS unread=0 read=28`. The reddoor-renovate token reads every
+  bypass list, so P1-17's credential fork does not arise.
 
 - 2026-09-30 — #948 (PR #1039, reddoor-starter#163): the a11y audit's axe scan
   runs on a production build it makes itself (`npm run build && npm run
