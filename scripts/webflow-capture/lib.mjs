@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 
 /** A path ending in one of these is a file a page loads, not a page to crawl. */
 export const ASSET_EXT =
-  /\.(?:css|js|mjs|json|jpe?g|png|gif|svg|webp|avif|ico|bmp|tiff?|mp4|webm|mov|m4v|ogv|mp3|wav|pdf|docx?|xlsx?|zip|woff2?|ttf|otf|eot|txt|xml|webmanifest)$/i;
+  /\.(?:css|js|mjs|json|jpe?g|png|gif|svg|webp|avif|ico|bmp|tiff?|mp4|webm|mov|m4v|ogv|mp3|wav|pdf|lottie|docx?|xlsx?|zip|woff2?|ttf|otf|eot|txt|xml|webmanifest)$/i;
 
 /** `<link rel>` values whose href is a file the page loads. preconnect,
  *  dns-prefetch, canonical and alternate name hosts or pages, not files. */
@@ -78,7 +78,24 @@ const decodeEntities = (s) =>
     .replace(/&quot;/g, '"')
     .replace(/&#x27;|&#39;/g, "'")
     .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+    .replace(/&gt;/g, ">")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)));
+
+/** decodeURIComponent that keeps a bare `%` (e.g. `50%off.jpg`) instead of throwing. */
+export function safeDecode(s) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s.replace(/%([0-9a-f]{2})/gi, (m) => {
+      try {
+        return decodeURIComponent(m);
+      } catch {
+        return m;
+      }
+    });
+  }
+}
 
 /** Resolve `raw` against `base`; null for anything that is not a fetchable http(s) URL. */
 export function resolve(raw, base) {
@@ -97,11 +114,16 @@ export function resolve(raw, base) {
 
 const isAssetUrl = (href) => {
   try {
-    return ASSET_EXT.test(decodeURIComponent(new URL(href).pathname));
+    return ASSET_EXT.test(safeDecode(new URL(href).pathname));
   } catch {
     return false;
   }
 };
+
+/** Tags whose attribute values may contain `>` (an `alt="a > b"`): a quote-aware
+ *  scan, because `<img[^>]*>` ends inside the alt and never reads the src. */
+const tags = (html, names) =>
+  html.matchAll(new RegExp(`<(?:${names})\\b(?:[^>"']|"[^"]*"|'[^']*')*>`, "gi"));
 
 function attr(tag, name) {
   const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(tag);
@@ -110,10 +132,29 @@ function attr(tag, name) {
 
 /** Every srcset candidate URL: comma-separated, each "url [descriptor]". */
 export function srcsetUrls(value) {
-  return value
-    .split(/,\s+|,(?=https?:|\/)/)
-    .map((part) => part.trim().split(/\s+/)[0])
-    .filter(Boolean);
+  // The HTML spec's own parse, not a split: a candidate's URL is a run of
+  // non-space (so a comma INSIDE it is kept), trailing commas end it, and its
+  // descriptors run to the next comma ("a/r1.jpg 1x,a/r2.jpg 2x").
+  const out = [];
+  let i = 0;
+  while (i < value.length) {
+    while (i < value.length && /[\s,]/.test(value[i])) i++;
+    let j = i;
+    while (j < value.length && !/\s/.test(value[j])) j++;
+    let url = value.slice(i, j);
+    i = j;
+    if (url.endsWith(",")) url = url.replace(/,+$/, "");
+    else {
+      let depth = 0;
+      while (i < value.length && (value[i] !== "," || depth > 0)) {
+        if (value[i] === "(") depth++;
+        else if (value[i] === ")") depth--;
+        i++;
+      }
+    }
+    if (url) out.push(url);
+  }
+  return out;
 }
 
 /**
@@ -139,10 +180,29 @@ export function webfontGoogleCssUrls(text) {
 /** Absolute http(s) URLs anywhere in `text` whose path ends in an asset extension. */
 export function absoluteAssetUrls(text, base) {
   const out = [];
-  for (const m of text.matchAll(/https?:\/\/[^\s"'<>()\\,`]+/g)) {
-    const raw = m[0].replace(/[.;:]+$/, "");
-    const u = resolve(raw, base);
-    if (u && isAssetUrl(u)) out.push(u);
+  // JSON escapes its slashes ("https:\/\/…"). Parentheses and commas are legal
+  // in a Webflow filename ("Untitled design (16).png"), so they are admitted and
+  // then trimmed back: a comma only where a second URL starts, a `)` only while
+  // it is unbalanced (the close of a surrounding call or url()).
+  // then cut back: each run starting at "http" gives the LONGEST prefix, ending
+  // at a `)`, `(`, `,` or `;` boundary, that has balanced parentheses and an
+  // asset extension. So `url(…/a.png),url(…/b.png)` yields both files and
+  // `load(…/a.js);init()` yields a.js.
+  const balanced = (s) => s.split("(").length === s.split(")").length;
+  for (const m of text.replace(/\\\//g, "/").matchAll(/https?:\/\/[^\s"'<>\\`]+/g)) {
+    for (const seg of m[0].split(/(?=https?:\/\/)/)) {
+      const cuts = [seg.length];
+      for (let k = seg.length - 1; k > 0; k--) if ("(),;".includes(seg[k])) cuts.push(k);
+      for (const k of cuts) {
+        const raw = seg.slice(0, k).replace(/[.;:,]+$/, "");
+        if (!balanced(raw)) continue;
+        const u = resolve(raw, base);
+        if (u && isAssetUrl(u)) {
+          out.push(u);
+          break;
+        }
+      }
+    }
   }
   return out;
 }
@@ -194,14 +254,29 @@ export function extractFromLottie(text, base) {
 }
 
 /** Every file a captured HTML page references, with where it was found. */
-export function extractFromHtml(html, pageUrl) {
+/**
+ * The page with every inline script's body and every comment blanked. The tag
+ * scans run over this, never the raw page: a `<` in script code
+ * (`i<a.length`) starts a false tag, and an apostrophe in a comment after it
+ * (`// don't`) then makes the quote-aware scan swallow the page up to the next
+ * apostrophe, hiding every real tag in between (review round 2). Script BODIES
+ * are read separately, by the inline-script pass.
+ */
+export function markupOnly(html) {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script>)/gi, "$1$2");
+}
+
+export function extractFromHtml(rawHtml, pageUrl) {
+  const html = markupOnly(rawHtml);
   const out = [];
   const push = (raw, kind) => {
     const u = resolve(raw, pageUrl);
     if (u) out.push({ url: u, kind });
   };
 
-  for (const [tag] of html.matchAll(/<link\b[^>]*>/gi)) {
+  for (const [tag] of tags(html, "link")) {
     const rels = (attr(tag, "rel") ?? "").toLowerCase().split(/\s+/);
     const href = attr(tag, "href");
     if (!href || !rels.some((r) => LINK_RELS.has(r))) continue;
@@ -211,46 +286,59 @@ export function extractFromHtml(html, pageUrl) {
     if (u && (rels.includes("stylesheet") || isAssetUrl(u)))
       out.push({ url: u, kind: `link:${rels.join("+")}` });
   }
-  for (const [tag] of html.matchAll(
-    /<(?:script|img|source|video|audio|track|embed|input)\b[^>]*>/gi,
-  )) {
+  for (const [tag] of tags(html, "script|img|source|video|audio|track|embed|input|iframe")) {
     const src = attr(tag, "src");
-    if (src) push(src, "src");
+    if (src) push(src, tag.slice(1, 7).toLowerCase() === "iframe" ? "iframe" : "src");
     const poster = attr(tag, "poster");
     if (poster) push(poster, "poster");
   }
-  for (const [tag] of html.matchAll(/<iframe\b[^>]*>/gi)) {
-    const src = attr(tag, "src");
-    if (src) push(src, "iframe");
+  for (const [tag] of tags(html, "image")) {
+    const href = attr(tag, "href") ?? attr(tag, "xlink:href");
+    if (href) push(href, "svg-image");
   }
-  for (const m of html.matchAll(/\ssrcset\s*=\s*"([^"]*)"/gi))
-    for (const u of srcsetUrls(decodeEntities(m[1]))) push(u, "srcset");
-  // Webflow background video: both transcodes in one comma-separated attribute.
-  for (const m of html.matchAll(/\sdata-video-urls\s*=\s*"([^"]*)"/gi))
-    for (const u of decodeEntities(m[1]).split(",")) push(u, "data-video-urls");
-  for (const m of html.matchAll(/\sdata-poster-url\s*=\s*"([^"]*)"/gi))
-    push(m[1], "data-poster-url");
-  // Lottie (data-animation-type="lottie") and any other lazy data-src.
-  for (const m of html.matchAll(/\sdata-src\s*=\s*"([^"]*)"/gi)) push(m[1], "data-src");
-  for (const [tag] of html.matchAll(/<meta\b[^>]*>/gi)) {
+  for (const [tag] of tags(html, "object")) {
+    const data = attr(tag, "data");
+    if (data) push(data, "object");
+  }
+  for (const [tag] of tags(html, "meta")) {
     const c = attr(tag, "content");
     const u = c ? resolve(c, pageUrl) : null;
-    if (u && /^https?:\/\//i.test(c.trim()) && isAssetUrl(u)) out.push({ url: u, kind: "meta" });
+    if (u && /^(?:https?:)?\/|^[\w.-]+\//i.test(c.trim()) && isAssetUrl(u))
+      out.push({ url: u, kind: "meta" });
   }
-  for (const m of html.matchAll(/<a\b[^>]*>/gi)) {
-    const href = attr(m[0], "href");
+  for (const [tag] of tags(html, "a")) {
+    const href = attr(tag, "href");
     const u = href ? resolve(href, pageUrl) : null;
     if (u && isAssetUrl(u)) out.push({ url: u, kind: "a-file" });
   }
-  for (const m of html.matchAll(/\sstyle\s*=\s*"([^"]*)"/gi))
-    out.push(
-      ...extractFromCss(decodeEntities(m[1]), pageUrl).map((r) => ({ ...r, kind: "style-attr" })),
-    );
-  for (const m of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi))
+  // Attributes any element may carry, in either quote style.
+  for (const [tag] of tags(html, "[a-z][\\w:-]*")) {
+    for (const name of ["srcset", "imagesrcset"]) {
+      const v = attr(tag, name);
+      if (v) for (const u of srcsetUrls(decodeEntities(v))) push(u, "srcset");
+    }
+    // Webflow background video: both transcodes in one comma-separated attribute.
+    const videos = attr(tag, "data-video-urls");
+    if (videos) for (const u of decodeEntities(videos).split(",")) push(u, "data-video-urls");
+    const poster = attr(tag, "data-poster-url");
+    if (poster) push(poster, "data-poster-url");
+    // Lottie (data-animation-type="lottie") and any other lazy data-src.
+    const dataSrc = attr(tag, "data-src");
+    if (dataSrc) push(dataSrc, "data-src");
+    const style = attr(tag, "style");
+    if (style)
+      out.push(
+        ...extractFromCss(decodeEntities(style), pageUrl).map((r) => ({
+          ...r,
+          kind: "style-attr",
+        })),
+      );
+  }
+  for (const m of rawHtml.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi))
     out.push(...extractFromCss(m[1], pageUrl).map((r) => ({ ...r, kind: "style-block" })));
   // Inline scripts: a runtime load names its file only inside code
   // ($.getScript("https://raw.githack.com/…/countersAnim.js")).
-  for (const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+  for (const m of rawHtml.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
     for (const u of absoluteAssetUrls(m[1], pageUrl)) out.push({ url: u, kind: "inline-script" });
     for (const u of webfontGoogleCssUrls(m[1])) out.push({ url: u, kind: "webfont-google" });
   }
@@ -258,16 +346,38 @@ export function extractFromHtml(html, pageUrl) {
 }
 
 /** Same-origin page links (the crawl frontier): no files, no fragments, no queries. */
-export function extractPageLinks(html, pageUrl) {
-  const origin = new URL(pageUrl).origin;
+const siteHost = (host) => host.replace(/^www\./, "");
+
+/** Same-site page links (the crawl frontier): no files, no fragments. The apex
+ *  and `www` count as one site, so an absolute link to either is a page to have. */
+export function extractPageLinks(rawHtml, pageUrl) {
+  const html = markupOnly(rawHtml);
+  const host = siteHost(new URL(pageUrl).host);
   const out = new Set();
-  for (const m of html.matchAll(/<a\b[^>]*>/gi)) {
-    const href = attr(m[0], "href");
+  for (const [tag] of tags(html, "a")) {
+    const href = attr(tag, "href");
     const u = href ? resolve(href, pageUrl) : null;
     if (!u) continue;
     const url = new URL(u);
-    if (url.origin !== origin || isAssetUrl(u)) continue;
+    if (siteHost(url.host) !== host || isAssetUrl(u)) continue;
     out.add(normalizePagePath(url.pathname));
+  }
+  return [...out].sort();
+}
+
+/**
+ * Webflow collection pagination (`?<id>_page=2`). The capture stores pages by
+ * path only, so page 2 of a list would be silently absent: these are reported
+ * so that capture and check can refuse, rather than pass a partial list.
+ */
+export function paginationLinks(rawHtml, pageUrl) {
+  const host = siteHost(new URL(pageUrl).host);
+  const out = new Set();
+  for (const [tag] of tags(markupOnly(rawHtml), "a")) {
+    const href = attr(tag, "href");
+    const u = href ? resolve(href, pageUrl) : null;
+    if (u && siteHost(new URL(u).host) === host && /[?&][\w-]*_page=\d/.test(new URL(u).search))
+      out.add(u);
   }
   return [...out].sort();
 }
@@ -279,7 +389,7 @@ export function normalizePagePath(pathname) {
 
 /** Which extractor a captured file gets, by its URL. */
 export function extractFromFile(url, text) {
-  const path = decodeURIComponent(new URL(url).pathname).toLowerCase();
+  const path = safeDecode(new URL(url).pathname).toLowerCase();
   const host = new URL(url).host;
   if (path.endsWith(".css") || host === "fonts.googleapis.com") return extractFromCss(text, url);
   if (path.endsWith(".js") || path.endsWith(".mjs")) return extractFromJs(text, url);
@@ -288,7 +398,7 @@ export function extractFromFile(url, text) {
 }
 
 export const isTextFile = (url) => {
-  const path = decodeURIComponent(new URL(url).pathname).toLowerCase();
+  const path = safeDecode(new URL(url).pathname).toLowerCase();
   return /\.(?:css|js|mjs|json)$/.test(path) || new URL(url).host === "fonts.googleapis.com";
 };
 
@@ -297,7 +407,7 @@ function dedupe(refs) {
   return refs.filter((r) => (seen.has(r.url) ? false : (seen.add(r.url), true)));
 }
 
-const UNSAFE = /[<>:"|?*\\\u0000-\u001f]/g;
+const UNSAFE = /[<>:"|?*\\\p{Cc}]/gu;
 
 /**
  * Where a URL's bytes live inside a capture: `files/<host>/<decoded path>`.
@@ -308,7 +418,7 @@ const UNSAFE = /[<>:"|?*\\\u0000-\u001f]/g;
  */
 export function urlToLocal(href) {
   const u = new URL(href);
-  let path = decodeURIComponent(u.pathname);
+  let path = safeDecode(u.pathname);
   if (path.endsWith("/") || path === "") path += "index";
   const segs = path
     .split("/")
@@ -330,7 +440,7 @@ export function pageToLocal(pagePath) {
   if (p === "/") return "pages/index.html";
   return `pages${p
     .split("/")
-    .map((s) => decodeURIComponent(s).replace(UNSAFE, "_"))
+    .map((s) => safeDecode(s).replace(UNSAFE, "_"))
     .join("/")}/index.html`;
 }
 

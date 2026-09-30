@@ -15,7 +15,10 @@
  *   dropped page is a gap, not a smaller site);
  * - every captured page to carry the site's `data-wf-site` id (the capture is
  *   of the reference, not of something that answered in its place);
- * - every file's sha256 to equal the manifest's (the bytes are the ones fetched);
+ * - every page's and file's sha256 to equal the manifest's (the bytes are the
+ *   ones fetched: a page cut short would otherwise lose its references quietly);
+ * - no two references to share one file path, no collection pagination, and no
+ *   download or page failure recorded in the manifest by the capture itself;
  * - with --expect-pages, exactly that many pages.
  *
  * Exit 0 when all hold, 1 naming every failure, 2 on usage.
@@ -28,6 +31,7 @@ import {
   extractFromFile,
   extractFromHtml,
   extractPageLinks,
+  paginationLinks,
   isTextFile,
   pageToLocal,
   sha256,
@@ -52,6 +56,10 @@ export function checkCapture(dir, { expectPages } = {}) {
   if (!siteId)
     failures.push("manifest.json has no siteId: nothing proves these pages are the reference");
   const shaByFile = new Map([...manifest.pages, ...manifest.files].map((f) => [f.file, f.sha256]));
+  for (const f of manifest.failed ?? [])
+    failures.push(`capture recorded a failure: ${f.url} ${f.status} ${f.note ?? ""}`.trim());
+  for (const f of manifest.pageFailures ?? [])
+    failures.push(`capture recorded a page failure: ${f}`);
 
   const refs = new Map();
   const note = (url, from) => {
@@ -66,7 +74,10 @@ export function checkCapture(dir, { expectPages } = {}) {
       failures.push(`page ${p.path} is missing: ${file}`);
       continue;
     }
-    const html = readFileSync(abs, "utf8");
+    const pageBuf = readFileSync(abs);
+    if (pageBuf.length === 0 || shaByFile.get(file) !== sha256(pageBuf))
+      failures.push(`changed: ${file} does not match its manifest sha256`);
+    const html = pageBuf.toString("utf8");
     if (siteId && !html.includes(`data-wf-site="${siteId}"`))
       failures.push(`page ${p.path} does not carry data-wf-site="${siteId}": not the reference`);
     const pageUrl = origin + p.path;
@@ -74,6 +85,10 @@ export function checkCapture(dir, { expectPages } = {}) {
     for (const link of extractPageLinks(html, pageUrl))
       if (!pagePaths.has(link))
         failures.push(`page ${p.path} links to ${link}, which was not captured`);
+    for (const link of paginationLinks(html, pageUrl))
+      failures.push(
+        `page ${p.path} paginates (${link}): list pages beyond the first are not captured`,
+      );
   }
   if (expectPages !== undefined && manifest.pages.length !== expectPages)
     failures.push(`${manifest.pages.length} pages captured, expected ${expectPages}`);
@@ -81,6 +96,7 @@ export function checkCapture(dir, { expectPages } = {}) {
   const excluded = [];
   let present = 0;
   const done = new Set();
+  const owner = new Map();
   const queue = [...refs.keys()];
   while (queue.length) {
     const url = queue.shift();
@@ -93,6 +109,11 @@ export function checkCapture(dir, { expectPages } = {}) {
     }
     const file = urlToLocal(url);
     const abs = join(dir, file);
+    if (owner.has(file)) {
+      failures.push(`collision: ${url} and ${owner.get(file)} both map to ${file}`);
+      continue;
+    }
+    owner.set(file, url);
     if (!existsSync(abs) || statSync(abs).size === 0) {
       failures.push(`missing: ${url} -> ${file} (referenced by ${refs.get(url)})`);
       continue;
@@ -118,8 +139,8 @@ const invokedDirectly =
   process.argv[1] && import.meta.url === pathToFileURL(resolvePath(process.argv[1])).href;
 if (invokedDirectly) {
   const args = process.argv.slice(2);
-  const dir = args.find((a) => !a.startsWith("--"));
   const i = args.indexOf("--expect-pages");
+  const dir = args.find((a, k) => !a.startsWith("--") && !(i >= 0 && k === i + 1));
   const expectPages = i >= 0 ? Number(args[i + 1]) : undefined;
   if (!dir || (i >= 0 && !Number.isInteger(expectPages))) {
     console.error("usage: check.mjs <capture-dir> [--expect-pages N]");

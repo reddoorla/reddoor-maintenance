@@ -10,6 +10,7 @@ import {
   extractFromLottie,
   extractPageLinks,
   pageToLocal,
+  paginationLinks,
   sha256,
   urlToLocal,
   webfontGoogleCssUrls,
@@ -65,6 +66,103 @@ describe("extractFromHtml", () => {
     const html = `<a href="/about-us">a</a><a href="/about-us/">b</a><a href="/projects/x#top">c</a>
       <a href="https://other.com/p">d</a><a href="mailto:info@x.com">e</a><a href="${CDN}/f.pdf">f</a><a href="#">g</a>`;
     expect(extractPageLinks(html, PAGE)).toEqual(["/about-us", "/projects/x"]);
+  });
+});
+
+describe("review round 1: reference forms a check must not skip", () => {
+  it("reads single-quoted attributes, a `>` inside alt, svg <image>, <object>, relative og:image and imagesrcset", () => {
+    const html = `
+      <img alt="a > b" src="${CDN}/alt.jpg"/>
+      <img srcset='${CDN}/q-p-500.jpg 500w, ${CDN}/q.jpg 900w'/>
+      <div style='background-image:url(${CDN}/sq.jpg)' data-src='${CDN}/sq.json'></div>
+      <div data-video-urls='${CDN}/v2.mp4,${CDN}/v2.webm'></div>
+      <svg><image href="${CDN}/svgimg.png"/></svg>
+      <object data="${CDN}/doc.pdf"></object>
+      <meta property="og:image" content="/og.jpg"/>
+      <meta name="description" content="A site about homes"/>
+      <link rel="preload" as="image" imagesrcset="${CDN}/pre-p-500.jpg 500w, ${CDN}/pre.jpg 900w"/>`;
+    expect(urls(extractFromHtml(html, PAGE))).toEqual(
+      expect.arrayContaining([
+        `${CDN}/alt.jpg`,
+        `${CDN}/q-p-500.jpg`,
+        `${CDN}/q.jpg`,
+        `${CDN}/sq.jpg`,
+        `${CDN}/sq.json`,
+        `${CDN}/v2.mp4`,
+        `${CDN}/v2.webm`,
+        `${CDN}/svgimg.png`,
+        `${CDN}/doc.pdf`,
+        "https://www.example-wf.com/og.jpg",
+        `${CDN}/pre-p-500.jpg`,
+        `${CDN}/pre.jpg`,
+      ]),
+    );
+  });
+
+  it("keeps a script URL whose filename has parentheses or a comma, and reads escaped slashes", () => {
+    const html = `<script type="application/json" class="w-json">{"items":[
+      {"url":"${CDN}/zz_Untitled%20design%20(16).png"},{"url":"https:\\/\\/cdn.x.com\\/zz_a,b.jpg"}]}</script>
+      <script>load("${CDN}/anim.lottie")</script>`;
+    expect(urls(extractFromHtml(html, PAGE))).toEqual(
+      expect.arrayContaining([
+        `${CDN}/zz_Untitled%20design%20(16).png`,
+        "https://cdn.x.com/zz_a,b.jpg",
+        `${CDN}/anim.lottie`,
+      ]),
+    );
+  });
+
+  it("does not throw on a bare % in a filename", () => {
+    expect(urlToLocal(`${CDN}/zz_50%off.jpg`)).toBe(
+      "files/cdn.prod.website-files.com/645ec08251dadc9000a072e5/zz_50%off.jpg",
+    );
+  });
+
+  it("splits a srcset of relative candidates with no space after the comma", () => {
+    expect(urls(extractFromHtml(`<img srcset="a/r1.jpg 1x,a/r2.jpg 2x"/>`, PAGE))).toEqual([
+      "https://www.example-wf.com/a/r1.jpg",
+      "https://www.example-wf.com/a/r2.jpg",
+    ]);
+  });
+
+  it("counts an absolute link to the apex as a page of the www site", () => {
+    expect(extractPageLinks(`<a href="https://example-wf.com/secret">s</a>`, PAGE)).toEqual([
+      "/secret",
+    ]);
+  });
+});
+
+describe("review round 2: the round-1 fixes must not lose references", () => {
+  it("reads the tags after an inline script whose code has `<` and a comment with an apostrophe", () => {
+    const html = `<script>for(var i=0;i<a.length;i++){} // don't</script>
+      <nav><a href="/about">a</a><a href="/work">w</a><a href="/contact">c</a><a href="/blog?c2b1_page=2">n</a></nav>
+      <div style="background:url(${CDN}/one.jpg)"></div><div style="background:url(${CDN}/two.jpg)"></div>
+      <p>We're here</p>`;
+    expect(extractPageLinks(html, PAGE)).toEqual(["/about", "/blog", "/contact", "/work"]);
+    expect(paginationLinks(html, PAGE)).toEqual(["https://www.example-wf.com/blog?c2b1_page=2"]);
+    expect(urls(extractFromHtml(html, PAGE))).toEqual(
+      expect.arrayContaining([`${CDN}/one.jpg`, `${CDN}/two.jpg`]),
+    );
+  });
+
+  it("finds both files of url(a),url(b) and a file loaded as f(a.js);g() in script code", () => {
+    const js = `el.style.background="url(https://cdn.x.com/a.png),url(https://cdn.x.com/b.png)"; loadScript(https://cdn.x.com/a.js);init()`;
+    expect(urls(extractFromJs(js, "https://x.com/"))).toEqual([
+      "https://cdn.x.com/a.png",
+      "https://cdn.x.com/b.png",
+      "https://cdn.x.com/a.js",
+    ]);
+  });
+
+  it("keeps a comma inside a srcset URL", () => {
+    expect(
+      urls(
+        extractFromHtml(
+          `<img srcset="https://c.com/a,b-p-500.jpg 500w, https://c.com/c.jpg 800w"/>`,
+          PAGE,
+        ),
+      ),
+    ).toEqual(["https://c.com/a,b-p-500.jpg", "https://c.com/c.jpg"]);
   });
 });
 
@@ -215,6 +313,51 @@ describe("checkCapture", () => {
     const f = checkCapture(dir, { expectPages: 10 }).failures;
     expect(f).toContain("page / links to /projects, which was not captured");
     expect(f).toContain("1 pages captured, expected 10");
+  });
+
+  it("fails a page whose bytes were cut short, even though its site id survives", () => {
+    build();
+    const home = join(dir, pageToLocal("/"));
+    const html = readFileSync(home, "utf8");
+    writeFileSync(home, html.slice(0, html.indexOf("<img")));
+    expect(checkCapture(dir).failures).toContain(
+      "changed: pages/index.html does not match its manifest sha256",
+    );
+  });
+
+  it("fails when the capture itself recorded a failed download or page", () => {
+    build();
+    const m = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    m.failed = [{ url: `${CDN}/gone.jpg`, status: 404, note: "0 bytes" }];
+    m.pageFailures = ["/old: 404"];
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(m));
+    const f = checkCapture(dir).failures;
+    expect(f).toContain(`capture recorded a failure: ${CDN}/gone.jpg 404 0 bytes`);
+    expect(f).toContain("capture recorded a page failure: /old: 404");
+  });
+
+  it("fails two references that map to one file", () => {
+    build({
+      pages: {
+        "/": `<html data-wf-site="${SITE}"><img src="${CDN}/p.jpg"/><img src="${CDN}/p.jpg?v=1"/><img src="${CDN}/x%3Fy.jpg"/><img src="${CDN}/x_y.jpg"/></html>`,
+      },
+    });
+    writeFileSync(join(dir, urlToLocal(`${CDN}/x_y.jpg`)), "xy");
+    const f = checkCapture(dir).failures.join("\n");
+    expect(f).toMatch(
+      /collision: .*x_y\.jpg and .*x%3Fy\.jpg|collision: .*x%3Fy\.jpg and .*x_y\.jpg/,
+    );
+  });
+
+  it("fails a page that paginates a collection list", () => {
+    build({
+      pages: {
+        "/": `<html data-wf-site="${SITE}"><a href="?a1b2c3_page=2" class="w-pagination-next">Next</a></html>`,
+      },
+    });
+    expect(checkCapture(dir).failures).toEqual([
+      "page / paginates (https://www.example-wf.com/?a1b2c3_page=2): list pages beyond the first are not captured",
+    ]);
   });
 
   it("fails a page that does not carry the site id", () => {

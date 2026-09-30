@@ -25,6 +25,7 @@ import {
   extractFromFile,
   extractFromHtml,
   extractPageLinks,
+  paginationLinks,
   isTextFile,
   normalizePagePath,
   pageToLocal,
@@ -112,6 +113,10 @@ while (frontier.length) {
   pages.push({ path, file, status: r.status, bytes: r.buf.length, sha256: sha256(r.buf) });
   console.error(`page ${pages.length}: ${path} (${r.buf.length} bytes)`);
   for (const x of extractFromHtml(html, url)) addRef(x.url, { where: path, kind: x.kind });
+  for (const link of paginationLinks(html, url))
+    pageFailures.push(
+      `${path} paginates (${link}): not supported, list pages beyond the first would be missing`,
+    );
   for (const link of extractPageLinks(html, url)) {
     if (!seen.has(link)) {
       seen.add(link);
