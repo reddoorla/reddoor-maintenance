@@ -256,6 +256,32 @@ describe("audits/a11y", () => {
     );
   });
 
+  it("keeps a failed build's cause when the build's warnings come before it (round 3)", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: async () => ({
+        code: 1,
+        stdout: "\nError: Process from config.webServer was not able to start. Exit code: 1\n",
+        stderr: [
+          NPM_WARN,
+          "[WebServer] 12:01:02 [vite-plugin-svelte] src/lib/slices/Hero/index.svelte:14:4 A11y: <img> element should have an alt attribute",
+          "[WebServer] 12:01:02 [vite-plugin-svelte] src/lib/slices/Cards/index.svelte:22:6 A11y: A form label must be associated with a control.",
+          "[WebServer] x Build failed in 3.21s",
+          "[WebServer] error during build:",
+          '[WebServer] [vite]: Rollup failed to resolve import "@prismicio/svelte/kit" from "src/routes/+layout.svelte".',
+        ].join("\n"),
+      }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toMatch(
+      /^a11y: no results written \(exit 1\) — Process from config\.webServer was not able to start\. Exit code: 1 — …/,
+    );
+    expect(result.summary).toMatch(
+      /\[WebServer\] error during build: \/ \[WebServer\] \[vite\]: Rollup failed to resolve import "@prismicio\/svelte\/kit" from "src\/routes\/\+layout\.svelte"\.$/,
+    );
+  });
+
   it("caps each half of the detail at 200 characters", async () => {
     const cwd = await tmpSite();
     const result = await a11yAudit({
@@ -268,7 +294,7 @@ describe("audits/a11y", () => {
     });
     const expected = `locator.click: ${"a".repeat(400)}`.slice(0, 200);
     expect(result.summary).toBe(
-      `a11y: no results written (exit 1) — ${expected} — ${"b".repeat(200)}`,
+      `a11y: no results written (exit 1) — ${expected} — …${"b".repeat(199)}`,
     );
   });
 
@@ -294,6 +320,25 @@ describe("audits/a11y", () => {
     ).toBe(
       "a11y: no results written (exit 1) — TypeError: Cannot read properties of undefined (reading 'foo')",
     );
+  });
+
+  it.each([
+    ["RangeError: Invalid array length"],
+    ["ReferenceError: revealBelowFold is not defined"],
+  ])("names any typed error from stdout, not only a TypeError: %s", async (error) => {
+    expect(await summaryOf(`\n  1) a11y.spec.ts:1:1 › a11y\n\n    ${error}\n`, NPM_WARN)).toBe(
+      `a11y: no results written (exit 1) — ${error}`,
+    );
+  });
+
+  it("strips colour from stdout's error line", async () => {
+    const esc = String.fromCharCode(27);
+    expect(
+      await summaryOf(
+        `\n    Error: ${esc}[2mexpect(${esc}[22m${esc}[31mreceived${esc}[39m${esc}[2m).toBe(${esc}[22m${esc}[32mexpected${esc}[39m${esc}[2m)${esc}[22m\n`,
+        NPM_WARN,
+      ),
+    ).toBe("a11y: no results written (exit 1) — expect(received).toBe(expected)");
   });
 
   it("names a test timeout from stdout", async () => {

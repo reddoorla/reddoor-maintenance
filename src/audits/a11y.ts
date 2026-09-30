@@ -1130,14 +1130,15 @@ export function describeNoResults(raw: SpawnResult): string {
     stdout,
   );
   const stdoutError = (errorLine?.[1] ?? errorLine?.[2] ?? errorLine?.[3] ?? "").trim();
+  // stderr keeps its tail: a web server prints why it died last, after
+  // whatever the build warned about on the way (round 3).
   const stderrLines = stderr
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "" && !/\bnpm warn\b/i.test(line))
     .join(" / ");
-  const detail = [stdoutError.slice(0, 200), stderrLines.slice(0, 200)]
-    .filter((part) => part !== "")
-    .join(" — ");
+  const stderrTail = stderrLines.length > 200 ? `…${stderrLines.slice(-199)}` : stderrLines;
+  const detail = [stdoutError.slice(0, 200), stderrTail].filter((part) => part !== "").join(" — ");
   return `a11y: no results written (exit ${raw.code})${detail ? ` — ${detail}` : ""}`;
 }
 
