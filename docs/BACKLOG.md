@@ -134,9 +134,15 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ### Blocked behind another PR (do not start early)
 
-- **#947 (recipe half)**: `src/recipes/smoke-suite/template.ts:32` scaffolds
-  `hydrationMarker: "footer"`, which cannot prove hydration. It is agent-ready,
-  but pairs with #948's hydration-signal decision.
+- **#947 (recipe half) + #948's residual race: unblocked 2026-09-30** (item 35
+  answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
+  scaffolds `hydrationMarker: "footer"`, which cannot prove hydration. Do it
+  together with the a11y spec waiting for a bundle-only marker
+  (`html[data-hydrated]`, set in the root layout's onMount as roalson #57 does)
+  before the reveal pass. Measured on roalson: preview alone 208 in 12 of 14
+  cold runs (217 twice, mid-hydration); preview + that wait 208 in 10 of 10.
+  Starter first, then the recipe, then the fleet. Blocked only on the 25 site
+  PRs for #948's guard flag landing first (see Done, #948).
 - **#921 persistence**: do it the #910 way once #918 merges.
 
 ### Watching (owned elsewhere, or parked)
@@ -732,6 +738,9 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
 
 35. **#948: the preview alone does not end the hydration race. Pick the
     signal (drafts #1039 and reddoor-starter#163, 2026-09-30).** Item 18
+    **Answered 2026-09-30: the pick, (b) now and (a) after.** #1039 and
+    reddoor-starter#163 land as they are. (a), #947's hydration marker, is
+    now agent-ready (see "Blocked behind another PR", unblocked).
     answered #948 with "audit the built preview, not the dev server". Built and
     measured, the preview narrows the race but does not remove it. #948's bar
     was "identical on every cold run and equal to the hydrated count". Numbers
@@ -814,6 +823,17 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-30 — #948 (PR #1039, reddoor-starter#163): the a11y audit's axe scan
+  runs on a production build it makes itself (`npm run build && npm run
+preview`, `VITE_REDDOOR_GATE_FIXTURES=1`, probed on `/_app/version.json`),
+  never on `vite dev`. The starter's `/dev` guard lets only that build serve
+  the fixtures, and Netlify refuses the flag. Cold runs on roalson went from
+  191/201/191/208/191 on dev to 208 in 12 of 14 on the preview; the residual
+  race is the #947 item above. **Rollout:** each of the 25 site repos with the
+  one-line guard needs its guard PR merged before it takes a
+  `@reddoorla/maintenance` bump carrying #1039, or its a11y gate fails with a
+  line naming the guard.
 
 - 2026-09-30 — #779 central widening (PR #1017, `d1e42c4a`): the form-e2e probe
   fills required select, checkbox, radio and text fields outside its standard
