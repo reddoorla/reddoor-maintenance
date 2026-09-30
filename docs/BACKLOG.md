@@ -842,7 +842,12 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
 
 37. **OD7-P1, williamson-homes#7 (wire the live Prismic repository): round 2
     found one minor defect; land after two small CSP edits, or a third
-    round?** #7 replaces the `your-prismic-repo-name` sentinel with
+    round?** **Answered 2026-09-30 ~18:48Z ("continue"): pick (a).**
+    Applied in `d9cccee` (html2canvas's one file, `prismic.io/prismic-toolbar/`,
+    this repository's host in frame-src; each bound by a test that goes red on
+    revert) and merged on green as `ca6027f`. Production
+    `williamson-homes.netlify.app` served #7's build by 18:57:59Z: all 10
+    reference paths answer 200, `/nope` 404, no `website-files.com`. #7 replaces the `your-prismic-repo-name` sentinel with
     `williamson-homes` and sets `a11yRoutes`. Its head `6b7ddff` is CI green.
     CI's first run on real pages: the a11y gate reported "0 violations across 7
     routes (2 fixtures + 5 from package.json)" and smoke passed 21 of 21, both
