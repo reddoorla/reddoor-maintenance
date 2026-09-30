@@ -251,6 +251,14 @@ describe("fleet-form-e2e — a positive control runs before any client row is wr
     expect(s?.if).toBeUndefined();
   });
 
+  it("runs in the same job as the sweep, so a failed control cannot leave a sibling job sweeping", () => {
+    const steps = workflowSteps(workflow);
+    const control = steps[step(POSITIVE_CONTROL_STEP)];
+    const sweep = steps[step(FORM_E2E_STEP)];
+    expect(control?.job).toBeTruthy();
+    expect(control?.job).toBe(sweep?.job);
+  });
+
   it("nothing between the control and the sweep, nor the sweep itself, runs after a failure", () => {
     const steps = workflowSteps(workflow);
     const between = steps.slice(step(POSITIVE_CONTROL_STEP) + 1, step(FORM_E2E_STEP) + 1);
