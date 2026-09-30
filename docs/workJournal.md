@@ -6753,6 +6753,29 @@ The operator asked for four follow-ups after Williamson Homes went live on nativ
 
 **A collision between my own reviewers.** Two review agents wrote `scratchpad/mut.sh` at the same path. For about eight minutes, #9's reviewer ran #164's mutations against reddoor-starter while reading the output as its own. #164's reviewer noticed and reported it. The results were discarded and re-run from separate paths, with a passing control first. Nothing was committed from the wrong tree. The rule for next time: give each agent its own scratch subdirectory in the brief. A shared scratchpad counts as a shared checkout.
 
+## 2026-09-30 — Sonder's header: #654 was never fixed in production; late consent banners are now caught (#1070, `d269b9cf`; BACKLOG 30)
+
+The operator looked at the header in a test email of Sonder's Testing report and remembered an unfinished issue. It was #654: the cookie-consent panel and its blur scrim photographed over the hero. #814 had closed it on 09-15. The header stored at 16:00Z today still showed the panel, and the hero was a brown blur.
+
+**Why #814 never worked on the site it was written for.** Main's own `captureHomepage`, run against live gallerysonder.com, reproduced the stored header exactly. At about 2.4s after navigation, when #814's single click runs, `getByRole('button', {name: CONSENT_BUTTON_NAME})` found **0** buttons. Sonder's banner mounts after hydration, between about 3s and 5.3s across three probes, so it arrives during the 2.5s settle. Its classes are Tailwind utilities only (`w-screen h-screen fixed top-0 left-0 z-50`, a `backdrop-blur-sm bg-black/40` scrim), so the `[class*=cookie|consent]` CSS fallback matched **0** elements. The "blurry hero" was that scrim. A click after the banner mounts leaves the hero sharp. #814's tests drove a fake page object, so the timing was never exercised. That is the "prove the instrument" rule once more: the fix had only ever passed against a fake.
+
+**The fix.**
+
+- Only a button inside a consent overlay is clicked: a visible accept/reject-named button whose nearest fixed or sticky ancestor has cookie/consent text of its own. A fixed ancestor whose content is over 1.5 viewports tall is a scroll wrapper and is skipped.
+- There is an early look before the settle, and a late look after it: 7 polls, 250ms apart. That is the 1.5s a banner-less site already paid in #814's click timeout.
+- If the banner will not leave, `ConsentStillVisibleError` refuses the shot, and draft and announce keep the stored header.
+- A real-Chromium test serves local pages: banners at 0s, 1.5s and 3.5s, a stuck banner, a content "OK" before a late banner, a content "OK" beside a cookie-policy link, and a scroll wrapper. The late-banner and stuck cases fail on main.
+- Seven mutations each turned a test red. One was first green on the real 3.5s case, because the shot fired before that banner mounted. That is why the 1.5s case exists.
+
+**Review, three rounds.**
+
+- Round 1: a major, which I fixed. The backstop matched cookie copy anywhere on the page, so an in-page "OK" next to a "Cookie Policy" link would have frozen that site's header for good.
+- Round 2: two minors. A full-page scroll wrapper was read as an overlay, and `first()` picked a content button over the banner's. Under the two-round rule these went to the operator, who chose "fix both, then land".
+- Fixing them showed that #814's early click was itself a hazard: it clicked the first "OK" or "Agree" anywhere. On the scroll-wrapper fixture it scrolled the shot, and on a real form it could submit. That click is gone.
+- A string passed to `locator.evaluate` runs as an expression and never receives the element. The stuck-banner test caught that before any push.
+
+**What went wrong after landing, stated plainly.** The first `header-image sonder --write-back` after the merge (20:58Z) stored an **unstyled** capture: plain-text banner copy, a raw "Skip to content" link, and two giant SONDER logos. I refreshed the preview and sent a test email with it (`01a0f41d…`) before looking at the image. Three later captures from the same CLI were correct. So this was a one-off: the stylesheet did not load on that run, most likely because of this container's egress proxy [I]. No check caught it. `assertNotBlank` looks only for near-white, and the consent backstop looks only at fixed overlays, which an unstyled page has none of. A later capture, stored at 21:00Z, was clean but had no hero title. Timing the page showed the title fades in 2–4s after load and the logo is a wordmark that cycles every ~4s, so that shot had landed mid-fade. The capture I kept, 21:02:23Z at 888,694 bytes, I inspected before anything read it. The preview was refreshed (run 36776796655), the gate is still `[]`, and the corrected test email is `01a0f421…`. The lesson is the one this file keeps recording: look at an image before storing it or sending it. "The command printed ✔" is not "the header is right". An unstyled-page refusal is proposed under BACKLOG 30 and not built.
+
 ## 2026-09-30 — VLF's Prismic write token reaches the fleet drift sweep (#1076; BACKLOG 42)
 
 The night VLF flipped to `maintained`, fleet-prismic-drift (run 36704968338, `wrote=15 failed=0`) warned `[vida-legacy-foundation] no write token for Prismic repository "vida-legacy"`, so the one newly live site was the one whose drift nobody could read. The secret was only half of what was missing: the workflow passes every token into the sweep step's env by name, and the vida-legacy line was not there. #1044 did the same for the Williamsons a day earlier, and this is that change one site later, with the operator's approval to set this one secret from the laptop.
