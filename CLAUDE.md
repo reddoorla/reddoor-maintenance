@@ -142,6 +142,19 @@ then. So a worker started from a backlog item or a brief
   test went red, and put the table in the PR body. A test no mutation turns
   red is not yet evidence (see "Prove the instrument", above).
 
+## Research runs on Sonnet; writing and review run on the session model
+
+Set by the operator 2026-09-30. Agents that read and extract (a site crawl, a
+Discord channel, a folder of PDFs, a repo, a list of claims to verify) run on
+Sonnet at medium effort. Synthesis, adversarial review, and anything that
+writes prose the operator or a client will read run on the session's own
+model. Both the Agent tool and the Workflow `agent()` call take `model` and
+`effort` per call, and both inherit the session by default, so the light tier
+has to be named on every research call. The day it was set, a seven-reader
+sweep had inherited the session model and was on course to take twice as long
+as the extraction warranted; the readers were restarted on Sonnet and the two
+already finished were kept from cache.
+
 ## Before a fleet sweep, ask which repos can receive a push
 
 ```sh
