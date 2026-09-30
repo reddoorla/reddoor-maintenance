@@ -44,6 +44,24 @@ export const CONSENT_BUTTON_NAME =
  *  swallowed. Sized so the 14 consent-free fleet sites pay ≤1.5s each. */
 const CONSENT_CLICK_TIMEOUT_MS = 1_500;
 
+/** Time a late-dismissed banner gets to leave before the shutter. Sonder's panel
+ *  and its blur scrim are gone within a second of the click. */
+const LATE_DISMISS_SETTLE_MS = 1_000;
+
+/** Copy that marks a still-visible accept/reject button as consent UI rather
+ *  than page content, for the pre-shutter backstop. */
+const CONSENT_COPY = /\bcookies?\b|\bconsent\b/i;
+
+/** Thrown when consent UI is still on screen at the shutter. `refreshHeaderImage`
+ *  keeps the stored header on any capture failure, so a stale header ships
+ *  instead of a photographed consent banner. */
+export class ConsentStillVisibleError extends Error {
+  constructor(url: string) {
+    super(`consent banner still visible at the shutter on ${url}; keeping the stored header`);
+    this.name = "ConsentStillVisibleError";
+  }
+}
+
 /**
  * The CSS rule that hides consent UI before the shutter. `consentSelector` is a
  * per-site addition for banners the heuristic misses (a newsletter interstitial,
@@ -130,6 +148,20 @@ export async function defaultShooter(): Promise<Shooter> {
           .catch(() => {});
         await page.addStyleTag({ content: consentHideRule(opts.consentSelector) });
         await page.waitForTimeout(opts.settleMs);
+        // A banner that mounts after hydration misses the first click and, with
+        // utility-only classes, the style rule too. Sonder's appears 2.5–5s after
+        // `load`, so it arrived during the settle and shipped in every header
+        // after #814. Look again now; `count` is instant, so a site with no banner
+        // pays nothing.
+        const consentButton = page.getByRole("button", { name: CONSENT_BUTTON_NAME });
+        if ((await consentButton.count()) > 0) {
+          await consentButton
+            .first()
+            .click({ timeout: CONSENT_CLICK_TIMEOUT_MS })
+            .catch(() => {});
+          await page.waitForTimeout(LATE_DISMISS_SETTLE_MS);
+          if (await consentStillVisible(page)) throw new ConsentStillVisibleError(opts.url);
+        }
         const buf = await page.screenshot({ type: "png" });
         return new Uint8Array(buf);
       } finally {
@@ -137,4 +169,25 @@ export async function defaultShooter(): Promise<Shooter> {
       }
     },
   };
+}
+
+type ConsentProbePage = {
+  getByRole: (
+    role: "button",
+    opts: { name: RegExp },
+  ) => { first: () => { isVisible: () => Promise<boolean> } };
+  evaluate: (fn: string) => Promise<unknown>;
+};
+
+/** True when an accept/reject button is still visible and the page carries
+ *  cookie or consent copy, i.e. the dismissal did not take. */
+async function consentStillVisible(page: ConsentProbePage): Promise<boolean> {
+  const visible = await page
+    .getByRole("button", { name: CONSENT_BUTTON_NAME })
+    .first()
+    .isVisible()
+    .catch(() => false);
+  if (!visible) return false;
+  const text = await page.evaluate("document.body ? document.body.innerText : ''");
+  return CONSENT_COPY.test(String(text));
 }

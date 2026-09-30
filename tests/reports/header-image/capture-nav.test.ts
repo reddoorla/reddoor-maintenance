@@ -19,6 +19,8 @@ let idleRejects = false;
 /** Set per-test to make the best-effort consent click reject, the way a site
  *  with no banner makes it reject in production (no button → click times out). */
 let consentClickRejects = false;
+/** Consent buttons present after the settle: 0 unless a test mounts a late banner. */
+let lateConsentButtons = 0;
 
 const SHOT = new Uint8Array([137, 80, 78, 71]);
 
@@ -55,12 +57,20 @@ vi.mock("@playwright/test", () => {
     getByRole: (...args: unknown[]) => {
       record("getByRole", ...args);
       return {
+        count: async () => {
+          record("count");
+          return lateConsentButtons;
+        },
         first: () => ({
           click: async (...clickArgs: unknown[]) => {
             record("click", ...clickArgs);
             if (consentClickRejects) {
               throw new Error("locator.click: Timeout 1500ms exceeded.");
             }
+          },
+          isVisible: async () => {
+            record("isVisible");
+            return false;
           },
         }),
       };
@@ -102,6 +112,7 @@ describe("reports/header-image defaultShooter navigation", () => {
     closed = false;
     idleRejects = false;
     consentClickRejects = false;
+    lateConsentButtons = 0;
   });
 
   it("navigates on the load milestone, never on networkidle", async () => {
@@ -157,6 +168,7 @@ describe("reports/header-image defaultShooter consent handling (#654)", () => {
     closed = false;
     idleRejects = false;
     consentClickRejects = false;
+    lateConsentButtons = 0;
   });
 
   it("hides cookie/consent elements with a style tag before the shutter", async () => {
@@ -195,6 +207,25 @@ describe("reports/header-image defaultShooter consent handling (#654)", () => {
     expect(calledWith("waitForTimeout")?.args[0]).toBe(2500);
     expect(calledWith("screenshot")).toBeDefined();
     expect(closed).toBe(true);
+  });
+
+  it("looks again after the settle, clicks a late banner, and lets it leave before the shutter", async () => {
+    lateConsentButtons = 1;
+    await shoot();
+    const names = calls.map((c) => c.name);
+    const settle = names.indexOf("waitForTimeout");
+    const lateClick = names.indexOf("click", settle);
+    expect(names.indexOf("count")).toBeGreaterThan(settle);
+    expect(lateClick).toBeGreaterThan(settle);
+    expect(names.lastIndexOf("waitForTimeout")).toBeGreaterThan(lateClick);
+    expect(names.indexOf("isVisible")).toBeGreaterThan(lateClick);
+    expect(names.indexOf("isVisible")).toBeLessThan(order("screenshot"));
+  });
+
+  it("pays no extra wait when no banner appeared during the settle", async () => {
+    await shoot();
+    expect(calls.filter((c) => c.name === "waitForTimeout")).toHaveLength(1);
+    expect(calledWith("isVisible")).toBeUndefined();
   });
 
   it("appends a per-site consentSelector to the hide rule for banners the heuristic misses", async () => {
