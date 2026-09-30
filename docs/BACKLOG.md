@@ -456,7 +456,7 @@ Ordered by what unblocks the most. Each line is the exact ask.
     `node scripts/land-prs.mjs 1016`, then close #943.
     **Answered 2026-09-30: the cadence + 14 days (as picked).** #1016 lands with
     this line; #943 closes with it.
-29. **#1014's round-3 fix, PR #PRNUM (vida, item 23): land or not.**
+29. **#1014's round-3 fix, PR #1035 (vida, item 23): land or not.**
     #1014 itself landed at 01:05:07Z as `a00d50d4` (head `861fcff8`, merged
     by `tucksravin`, ten seconds into the round-3 session and before round 3
     ran). Round 3 then found a behaviour defect in what landed, which is now
@@ -495,8 +495,8 @@ function` on a top-level element, the spec re-runs that rule with the
       by the PM session. An earlier line here said "authorise the fix and
       land" and "#1014 landed", written at 00:47Z while #1014 was still
       open.) The narrow fix is `cf338c68`, and it landed in `a00d50d4`.
-    - **Round 3 found a behaviour defect, fixed in #PRNUM (`3876642a`);
-      operator: land #PRNUM or not.** A crash's selector is axe's shortest
+    - **Round 3 found a behaviour defect, fixed in #1035 (`3876642a`);
+      operator: land #1035 or not.** A crash's selector is axe's shortest
       selector unique _at that moment_ (`h2`), and it was reused in every
       re-run. If the page changed between runs (hydration, a carousel),
       `exclude("h2")` dropped a second, faint heading too, and the page
@@ -512,7 +512,7 @@ function` on a top-level element, the spec re-runs that rule with the
       was fixed too, and the narrow fix's missing tests were added (a crash
       named `plus-darker`; a wrapper whose first child is excluded, so
       `:nth-of-type` goes red). Per your answer there is no fourth round.
-      #PRNUM's body has the findings, votes and mutations. #PRNUM only
+      #1035's body has the findings, votes and mutations. #1035 only
       narrows the exemption. The alternative is to revert `a00d50d4`.
     - **Vida:** #86 (design) merged 00:29Z and #87 (palette lines) merged
       01:06Z, both by `tucksravin`, not by the round-3 session. vida `main`
