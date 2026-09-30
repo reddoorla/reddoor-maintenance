@@ -1089,6 +1089,20 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     whether a starter-level privacy page, with a per-site data notice on each
     form, is the direction; then it becomes a P1 item.
 
+44. **OD7-P1b / P2b, the Williamsons' fidelity pass (asked by the operator
+    2026-09-30 ~20:15Z): not a decision, queued work.** The operator asked for
+    a favicon on both sites and a much tighter match to the references,
+    including hover states and scroll animations (the sticky numbering on
+    Homes). Measured [M]: both sites ship the starter's favicon (md5
+    `3a387408…`), and the reference icons are in each capture. Homes' reference
+    has 12 sticky rules, driven by `countersAnim.js` (captured, 219 lines,
+    jQuery), and 10 IX2 scroll-into-view events; the rebuild has neither.
+    Construction's reference has 18 hover rules and click-only IX2. The briefs are
+    in the plan (§7, "Phase 1b / 2b"). Start each one only when that repo's
+    current worker has ended: at 20:17Z both were `WORKING`
+    (`session_01UHJ28GGynFCzakmooVUj76` on Homes, at 707k of 1M context;
+    `session_01TRyUVAryzCaxqiViHbw6XJ` on Construction).
+
 ---
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
