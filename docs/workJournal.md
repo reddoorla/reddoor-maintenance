@@ -6521,3 +6521,24 @@ an outside class, but it is a gutter lost as a side effect, and it fails on a re
 - **Recall depends on the source.** Round 1 alone caught 38–60% on the six Figma chunks and 71–74% on the two Discord
   ones. Terse comp comments are the easiest to pass over, which is why the second reader went everywhere.
 - **Scale.** The whole pass used about 53M subagent tokens over roughly ten hours of workflow wall clock.
+
+## 2026-09-30 — OD7-P1 follow-ups: #5's round-2 fixes landed (williamson-homes#6, `923007e`); the Prismic wiring stops after two rounds (williamson-homes#7, BACKLOG 37)
+
+This follows "OD7-P1: Williamson Homes bootstrap landed…", which put williamson-homes#5 in front of the operator as BACKLOG 36. The operator merged #5 at the held head `9bfc481` at about 14:37Z, without the round-2 fixes. So BACKLOG 36's pick became a follow-up PR.
+
+**#6 landed.**
+
+- **The hover tint went to 4%, not 5%.** 5% measures exactly 4.50:1 on `light`, which is on the line; 4% gives 4.56:1 there and 5.10:1 on white.
+- **The sticky bar never shows within 120px of the top.**
+- **Every round-1 fix #5's second round found unbound now has a test.** Seven mutations went red. One of them first "survived" because prettier had reflowed the line, so its `sed` never applied. It went red only once reapplied against the diff. That is the instrument rule again, caught this time.
+- **The review found one regression my fix caused.** Hiding the bar at the top set `inert` on the container of the focused link, so focus fell to `<body>`. Focus now moves to the header link with the same href before the bar hides.
+- **Round 2 was clean apart from a nit:** nothing asserts that `focusWithin` resets after the handoff. #6 merged pinned to `af18d28`.
+
+**#7 is held.** It is the two-line wiring change: the sentinel becomes `williamson-homes` and `a11yRoutes` gets the four pages and one project. The first push had to go to a new branch, `claude/wire-prismic-live`: the old `claude/wire-prismic` sat on a pre-squash commit of #5, and the brief forbids force-pushing.
+
+- **The real routes turned out fine.** CI's first run on real pages is the positive control the a11y gate never had on this site. The job log reads "0 violations across 7 routes (2 fixtures + 5 from package.json)", and smoke passed 21 of 21.
+- **What wiring makes live: two template defects, both found in round 1.**
+  - The starter's `/api/preview` has sent every Prismic preview to the home page since the client went routes-free. `redirectToPreviewURL` takes no `linkResolver`, and every document comes back with `url: null`. The fix passes the site's `linkResolver` through the client's own `resolvePreviewURL`.
+  - The toolbar's `toolbar.js` (from `prismic.io`) and its repository iframe were both outside the CSP.
+  - The starter and the shared CSP baseline have both defects too. They are fleet-wide rather than Williamson's, and they are candidates for their own items.
+- **Round 2 found that the toolbar's Share button** loads `html2canvas.hertzen.com`, which the CSP also blocks, and hangs with no error. That is minor and editor-only, but it is a real defect in a second round, so #7 went to BACKLOG 37 with a pick rather than into a third round.

@@ -815,6 +815,33 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     Prismic publish/unpublish webhooks, branch protection, secret scanning.
     **Answered 2026-09-30 ~14:40Z: land it.** williamson-homes#5 merged as 6ae87bda.
 
+37. **OD7-P1, williamson-homes#7 (wire the live Prismic repository): round 2
+    found one minor defect; land after two small CSP edits, or a third
+    round?** #7 replaces the `your-prismic-repo-name` sentinel with
+    `williamson-homes` and sets `a11yRoutes`. Its head `6b7ddff` is CI green.
+    CI's first run on real pages: the a11y gate reported "0 violations across 7
+    routes (2 fixtures + 5 from package.json)" and smoke passed 21 of 21, both
+    read from the job log. **Round 1** found no blocker. It found two majors
+    this wiring makes live, both fixed in `6b7ddff` with a test each that goes
+    red on revert. First, `/api/preview` sent every Prismic preview to `/`,
+    because the routes-free client returns `url: null` and
+    `redirectToPreviewURL` takes no `linkResolver`. Second, the CSP blocked
+    the Prismic toolbar (`toolbar.js` from `prismic.io`, an iframe from
+    `<repo>.prismic.io`). **Round 2** confirmed the preview fix against the
+    real `asLink` and found one minor: the toolbar's Share button loads
+    `https://html2canvas.hertzen.com/dist/html2canvas.min.js`, which
+    `script-src` blocks, and its loader has no error path, so Share hangs for
+    editors (visitors never load the toolbar). Nit: `https://prismic.io` and
+    `https://*.prismic.io` could be narrowed to `https://prismic.io/prismic-toolbar/`
+    and `https://williamson-homes.prismic.io`. _Ask:_ (a) add the html2canvas
+    host and narrow both entries, each bound by a test, then land on green; (b)
+    land as it is and accept that Share hangs until a follow-up; or (c) a third
+    round. _Pick:_ (a). The edits are three CSP entries in one file, and the
+    shared baseline in `@reddoorla/maintenance` has the same toolbar gap, which
+    is worth its own item. williamson-homes#6 (#5's round-2 fixes, plus a
+    focus handoff that its own review found) passed its second round and
+    merged as `923007e`.
+
 ---
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
