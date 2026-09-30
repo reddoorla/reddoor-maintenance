@@ -145,3 +145,102 @@ describe("retickEvidence (#890)", () => {
     expect(out.ticked).toEqual([]);
   });
 });
+
+describe("retickEvidence — a refresh that re-measured Google Indexed", () => {
+  const MEASURED = (value: {
+    foundOnPage1: boolean;
+    position: number | null;
+    propertyFound: boolean;
+  }) => ({ value, softFailed: false, notConfigured: false });
+  const SOFT_FAIL = { value: null, softFailed: true, notConfigured: false };
+  const testing = (over: Partial<ReportRow> = {}) =>
+    frozen({
+      reportType: "Testing",
+      autoEvidence: { ...frozen().autoEvidence, [GOOGLE]: NOT_MEASURED },
+      checklist: { ...frozen().checklist, [GOOGLE]: false },
+      ...over,
+    });
+
+  it("replaces 'Not yet measured' with a page-1 pass, ticks it, and carries both search columns", () => {
+    const out = retickEvidence(
+      SITE,
+      testing(),
+      NOW,
+      MEASURED({ foundOnPage1: true, position: 2, propertyFound: true }),
+    );
+    if (out.status !== "reticked") throw new Error("expected a re-tick");
+    expect(out.autoEvidence[GOOGLE]).toEqual({
+      result: "pass",
+      checkedAt: NOW.toISOString(),
+      note: "Page 1 on Google (#2)",
+    });
+    expect(out.ticked).toContain(GOOGLE);
+    expect(out.search).toEqual({ searchFoundPage1: true, searchPosition: 2 });
+  });
+
+  it("records off page 1 as a fail with found=false and no position", () => {
+    const out = retickEvidence(
+      SITE,
+      testing(),
+      NOW,
+      MEASURED({ foundOnPage1: false, position: 14, propertyFound: true }),
+    );
+    if (out.status !== "reticked") throw new Error("expected a re-tick");
+    expect(out.autoEvidence[GOOGLE]!.result).toBe("fail");
+    expect(out.checklist[GOOGLE]).toBe(false);
+    expect(out.search).toEqual({ searchFoundPage1: false, searchPosition: null });
+  });
+
+  it("writes NULL, not 0, when no Search Console property matched", () => {
+    const out = retickEvidence(
+      SITE,
+      testing(),
+      NOW,
+      MEASURED({ foundOnPage1: false, position: null, propertyFound: false }),
+    );
+    if (out.status !== "reticked") throw new Error("expected a re-tick");
+    expect(out.autoEvidence[GOOGLE]!.result).toBe("unknown");
+    expect(out.search).toEqual({ searchFoundPage1: null, searchPosition: null });
+  });
+
+  it("never records a soft-fail as a pass, and writes no search columns for it", () => {
+    const out = retickEvidence(SITE, testing(), NOW, SOFT_FAIL);
+    if (out.status !== "reticked") throw new Error("expected a re-tick");
+    expect(out.autoEvidence[GOOGLE]).toEqual({
+      result: "unknown",
+      checkedAt: NOW.toISOString(),
+      note: "Search Console unavailable this run",
+    });
+    expect(out.checklist[GOOGLE]).toBe(false);
+    expect(out.search).toBeNull();
+  });
+
+  it("keeps a drafted verdict when the re-measure comes back unknown", () => {
+    const google: EvidenceRecord = { result: "pass", checkedAt: CHECKED, note: "Page 1 on Google" };
+    for (const signal of [
+      SOFT_FAIL,
+      { value: null, softFailed: false, notConfigured: true },
+      MEASURED({ foundOnPage1: false, position: null, propertyFound: false }),
+    ]) {
+      const out = retickEvidence(
+        SITE,
+        testing({ autoEvidence: { ...frozen().autoEvidence, [GOOGLE]: google } }),
+        NOW,
+        signal,
+      );
+      if (out.status !== "reticked") throw new Error("expected a re-tick");
+      expect(out.autoEvidence[GOOGLE]).toEqual(google);
+      expect(out.search).toBeNull();
+    }
+  });
+
+  it("stays locked for an approved or a sent report, whatever the signal says", () => {
+    const pass = MEASURED({ foundOnPage1: true, position: 2, propertyFound: true });
+    expect(retickEvidence(SITE, testing({ approvedToSend: true }), NOW, pass)).toEqual({
+      status: "locked",
+    });
+    expect(
+      retickEvidence(SITE, testing({ sentAt: "2026-09-20T09:23:00.000Z" }), NOW, pass),
+    ).toEqual({ status: "locked" });
+  });
+});

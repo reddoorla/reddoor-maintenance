@@ -1,0 +1,72 @@
+import { describe, it, expect, vi } from "vitest";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
+
+const SITE = makeWebsiteRow({
+  id: "recSITE",
+  name: "Acme Co",
+  url: "https://acme.com",
+  searchConsoleProperty: "https://acme.com/",
+});
+const GOOGLE = "Maint: Google Indexed";
+const REPORT = {
+  id: "report_X",
+  reportId: "ACME-T",
+  siteId: "recSITE",
+  reportType: "Testing",
+  periodStart: "2026-08-31",
+  periodEnd: "2026-09-30",
+  sentAt: null,
+  approvedToSend: false,
+  checklist: { [GOOGLE]: false },
+  autoEvidence: { [GOOGLE]: { result: "unknown", checkedAt: null, note: "Not yet measured" } },
+  searchFoundPage1: null,
+  searchPosition: null,
+} as unknown as ReportRow;
+
+vi.mock("../../src/db/client.js", () => ({
+  openDb: async () => ({}),
+  readDbConfig: () => ({ url: "libsql://fake" }),
+}));
+vi.mock("../../src/db/header-images.js", () => ({
+  loadHeaderImage: async () => ({ bytes: new Uint8Array([1]) }),
+}));
+vi.mock("../../src/reports/send/render-from-row.js", () => ({
+  renderReportFromRow: async () => ({ html: "<html></html>" }),
+}));
+vi.mock("../../src/db/fleet-state.js", () => ({
+  getReportById: async () => REPORT,
+  getSiteById: async () => SITE,
+  storeRenderedHtml: async () => {},
+  storeChecklistEvidence: vi.fn(async () => true),
+}));
+vi.mock("../../src/reports/draft.js", () => ({
+  fetchSearch: vi.fn(async () => ({
+    value: { foundOnPage1: true, position: 2, propertyFound: true },
+    softFailed: false,
+    notConfigured: false,
+  })),
+}));
+
+import { runReportCommand } from "../../src/cli/commands/report.js";
+import { storeChecklistEvidence } from "../../src/db/fleet-state.js";
+import { fetchSearch } from "../../src/reports/draft.js";
+
+describe("report --rerender binds the Google Indexed re-measure to the real IO", () => {
+  it("measures with fetchSearch over the report's period and stores the search columns with the evidence", async () => {
+    const out = await runReportCommand(undefined, { rerender: "report_X" });
+    expect(out.code).toBe(0);
+    expect(out.output).toContain("search=measured");
+
+    const [site, start, end] = vi.mocked(fetchSearch).mock.calls[0]!;
+    expect(site.id).toBe("recSITE");
+    expect([start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)]).toEqual([
+      "2026-08-31",
+      "2026-09-30",
+    ]);
+
+    const call = vi.mocked(storeChecklistEvidence).mock.calls[0]!;
+    expect(call[3][GOOGLE]!.result).toBe("pass");
+    expect(call[4]).toEqual({ searchFoundPage1: true, searchPosition: 2 });
+  });
+});

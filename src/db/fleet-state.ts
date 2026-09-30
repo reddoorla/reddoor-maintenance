@@ -801,6 +801,7 @@ export async function storeChecklistEvidence(
   reportId: string,
   checklist: Record<string, boolean>,
   autoEvidence: Record<string, EvidenceRecord>,
+  search: { searchFoundPage1: boolean | null; searchPosition: number | null } | null = null,
 ): Promise<boolean> {
   const stored: Record<string, boolean> = {};
   for (const [key, field] of CHECKLIST_FIELD_BY_KEY) stored[key] = checklist[field] === true;
@@ -809,6 +810,13 @@ export async function storeChecklistEvidence(
     .set({
       checklist: JSON.stringify(stored),
       checklist_auto_evidence: JSON.stringify(autoEvidence),
+      ...(search
+        ? {
+            search_found_page1:
+              search.searchFoundPage1 === null ? null : search.searchFoundPage1 ? 1 : 0,
+            search_position: search.searchPosition,
+          }
+        : {}),
     })
     .where("id", "=", reportId)
     .where("sent_at", "is", null)
