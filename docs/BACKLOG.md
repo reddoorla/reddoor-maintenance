@@ -417,10 +417,25 @@ Ordered by what unblocks the most. Each line is the exact ask.
     clears the-pointe-burbank's item.
     **Answered 2026-09-30: land as it is.** #1004 lands with this line.
 27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
-    #1003)** — answered 2026-09-30: third round. #1018's items are fixed on
-    #1003 and a third review round runs; #1003 lands with this line if it
-    comes back clean. Two review rounds each found a real defect, so #1003 was
-    held for your call, not a third round.
+    #1003)** — **Answered 2026-09-30: third round.** Round 3 found a
+    behaviour defect, fixed in `7fa108a2`; **operator: land or not.** No
+    fourth round.
+    - Round 3 (on `35866ca1`, 4 lenses, 3 skeptics each, 3/3 unrefuted):
+      stderr kept its first 200 characters, but a web server prints its cause
+      last. A preview build (`npm run build && npm run preview`) with two
+      vite-plugin-svelte warnings on stderr lost the Rollup error that stopped
+      it, and the summary named only the warnings. This is not a regression:
+      `origin/main` cut stderr the same way. The status was always `fail`.
+      stderr now keeps its last 200 characters, behind an ellipsis. Two test
+      gaps were also fixed: nothing held the ANSI strip on stdout's error
+      line, and only `TypeError` held the typed-error alternative. A fourth
+      claim (a hard-coded exit code survives) was refuted 3/3 as identical on
+      `main`. Mutations M18–M22 each turn a test red.
+    - My pick is to land. The fix changes which end of stderr's detail is
+      kept, and `freezeMotion` has had no finding in three rounds. #1018 is
+      closed by `8fec6927`, which round 3 reviewed.
+    - Two review rounds each found a real defect, so #1003 was held for your
+      call, not a third round.
     - Round 1 (`a9565ac3`) found a major: stdout's generic "Process from
       config.webServer was not able to start" line displaced the web server's
       own cause on stderr ("Port 5173 is already in use"). It also found four
@@ -436,7 +451,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
       third round first. My pick is to land: the round-2 finding narrows a
       summary's detail, and `freezeMotion` has not changed since round 1.
     - Landing: `git merge origin/main` (keep both sides of BACKLOG and the
-      journal), CI green, then `node scripts/land-prs.mjs 1003`.
+      journal), CI green, then `node scripts/land-prs.mjs 1003`. #905 and #949
+      are already under Done in this PR.
 28. **#943, the Search Console freshness window (PR #1016)**: how long does a
     resolved Search Console lookup count as evidence for the launch check?
     #943 says "N days" and leaves N open. My pick: the site's shorter report
@@ -731,7 +747,8 @@ verdict is its only input, because no client and no check sees the email.
   `style-src` no longer fails the audit, and the page's CSP stays enforced
   (`bypassCSP` would have switched it off). A spec that writes no results is
   summarised from Playwright's stdout, where the line reporter prints the
-  error, followed by the web server's stderr less npm warnings; a missing
+  error, followed by the tail of the web server's stderr less npm warnings
+  (a dying server prints its cause last; review round 3); a missing
   browser gets its own line naming the absent executable and
   `npx playwright install chromium`. Both reproduced on `1b1c52fd` first: each
   summary read "no results written (exit 1) — [WebServer] npm warn …".
