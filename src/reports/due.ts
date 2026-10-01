@@ -96,7 +96,8 @@ function lastWithdrawnDraftForType(
  * next report to November. An overdue site catches up in one step.
  *
  * A Maintenance due date with a Testing report sent within a month of it moves
- * one Maintenance cycle later ({@link pushPastTesting}).
+ * later, one Maintenance cycle past the later of the two, and is checked again
+ * ({@link pushPastTesting}).
  *
  * Shared with {@link findDueReports} so the scheduler and any schedule display can't
  * drift on what "next" means.
@@ -216,7 +217,8 @@ export function nextDueDates(
  *  1. If freq === "None", skip.
  *  2. baseDate = max(last Sent at for this type, site's `maintenance/testing day` fallback).
  *  3. If no baseDate exists at all, the site is due now.
- *  4. dueDate = baseDate + frequency months.
+ *  4. dueDate = baseDate + frequency months; for Maintenance, pushed past any
+ *     Testing report within a month of it ({@link nextDueDate}).
  *  5. Due iff startOfDay(today) >= startOfDay(dueDate).
  */
 export function findDueReports(
