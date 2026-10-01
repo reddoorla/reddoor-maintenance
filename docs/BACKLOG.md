@@ -1490,6 +1490,15 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     two weeks). _Ask:_ D1–D3 there (Type Builder source of truth, delivery
     tool, generated-file layout); recommended (a), keep `prismic-models`,
     Prismic's layout.
+    **Answered 2026-10-01 ~17:25Z: "taking all your recommendations go for
+    it"** — D1 (a) Type Builder on with a nightly pull-sync PR, D2 keep
+    `prismic-models` + `prismic-ci`, D3 Prismic's file layout. Pilot is
+    reddoor-website#235. Phase 1 needs, from the laptop, for each of
+    alamo-anatomy, hedloc, reddoor-website, the-pointe-burbank,
+    the-tower-burbank, vida-legacy-foundation, williamson-homes: mint a
+    Custom Types write token (🔴), `gh secret set PRISMIC_WRITE_TOKEN --repo
+reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
+    refuses from a cloud session by design (secrets API).
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:

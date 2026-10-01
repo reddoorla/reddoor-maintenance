@@ -7248,3 +7248,19 @@ The fleet's own `audit --url … --only lighthouse` wrote no result in the cloud
 ## 2026-10-01 — Roalson MarkUp round closed: 12 of 12 pins (roalson-interests #246, #247, #248)
 
 The operator answered the last two pins in session. Home #3 is the progress bar's unfilled track at 20% while it times a slide; the position indicator keeps its 3:1 track (#246). Home #4 removes the PROPERTIES button and adds an ALL circle after the slideshow controls (#248). An unpinned ask also landed: the bar's hero controls at 75% garnet (#247). The full entry is in that repo's journal. Process note for this file: `pkill -f` and `ps | grep | kill` each matched the calling shell's own command line and killed it, so record a dev server's PID when you start it.
+
+## 2026-10-01 — The Slice Machine migration starts: decisions taken, pilot on reddoor-website (reddoor-website#235, this PR)
+
+> Follows 2026-10-01 — A plan to move the fleet off Slice Machine (#1104).
+
+The operator read the plan and answered "taking all your recommendations go for it": D1 (a), Type Builder on with the repo kept authoritative by a nightly pull-sync PR; D2, keep `prismic-models` + `prismic-ci` and never `prismic push`; D3, Prismic's generated-file layout. Item 57 records the answer.
+
+**The pilot is reddoor-website#235**, into `staging`. Slice Machine and its adapter are gone, as are `concurrently` (only the dev script used it) and `scripts/prismic/regen-types.mjs`. That script existed only because Slice Machine had no command to regenerate types after a hand edit; `prismic gen types` is that command. The regenerated types carry the same 117 exported names. Moving the file to the project root cost one `../` on 15 imports and nothing else: SvelteKit's generated tsconfig does not include a root `.d.ts`, but every consumer imports it by path, so svelte-check sees it (0 errors). That answers one of the plan's four open questions.
+
+**A new `prismic-codegen` workflow regenerates and fails on any diff.** It was proven before trusted: green on a clean copy, red on four mutations (a slice field, a hand-edited types file, a new slice, a custom-type field), then green in real CI on the PR. The CLI demands `--task-id`/`--user-intent` when it detects an agent; Actions is not detected, so the job needs neither, which the round-2 reviewer confirmed with `env -i CI=true`.
+
+**Belief corrected.** The plan said every site's CSP would block the Type Builder's framed simulator. reddoor-website already allows it: `CMS_FRAMED_ROUTES` in `src/lib/security/headers.ts`, added 2026-08-19 when its Page Builder previews broke, live on reddoorla.com at 17:34Z and on the deploy preview at 17:44Z. It is the only one of the 21 repos with it, and it becomes the pattern to port. The plan carries a correction note above the paragraph rather than a rewrite.
+
+**Review.** Round 1 found a major my own grep had missed because it never looked at `.mjs`: seven scripts under `scripts/` still read the deleted `slicemachine.config.json` and died at startup with `ERR_MODULE_NOT_FOUND`. No test imports them, so every gate was green. Fixed in `40d5d81`; round 2 was clean.
+
+**What the operator still owes before the pilot is signed off**, none of it doable from a cloud session: the `PRISMIC_WRITE_TOKEN` secret and `reddoor-maint prismic-ci reddoor-website` (the recipe fails closed without a readable secret, by design), then the Type Builder switch on `reddoor-la` and its simulator URL once the change reaches `main`. Until the workflow lands, nobody should change models on reddoor-website, because there is no longer a code-first push path there. Phases 3–4 (starters, central, the other 18 sites) wait for that sign-off, as the plan orders.
