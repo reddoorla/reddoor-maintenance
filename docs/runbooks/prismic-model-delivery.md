@@ -114,7 +114,18 @@ The reusable workflow's **source of truth is [`workflows/reusable/prismic-models
 `reddoor-maint prismic-ci [site]` lands the small caller workflow in a site repo as a PR. It refuses, per site, when:
 
 - the reusable-workflow pin is unresolved (see below);
-- the repo has no `PRISMIC_WRITE_TOKEN` secret (it would red the repo on its first model PR);
+- the repo has no `PRISMIC_WRITE_TOKEN` secret (it would red the repo on its first model PR), or the secrets list cannot be read for any reason other than the one below.
+
+**From a cloud session** the proxy refuses every Actions-secrets path, so the recipe cannot see the secret at all. There, and only for that exact refusal, it opens the PR anyway and says so in the PR body. The gate moves to the PR itself. The caller workflow triggers on its own path for `pull_request` (never for `push`), so the install PR runs the dry job, which calls Prismic with the token:
+
+- no token exits 1 ("no write token");
+- a dead token goes red;
+- `land-prs` merges only `CLEAN`.
+
+A green install PR therefore proves a working token, which the name lookup never did. Minting and setting the token stays the operator's (🔴). (#1113)
+
+The recipe also refuses when:
+
 - the repo's default branch is not `main` (the apply job guards `refs/heads/main`, so merged model changes would never reach Prismic);
 - the working tree is dirty, or a delivery PR is already open.
 

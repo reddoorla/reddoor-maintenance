@@ -131,6 +131,12 @@ on:
     paths:
       - "customtypes/**"
       - "src/lib/slices/**/model.json"
+      # This file itself, on pull_request ONLY. The PR that installs or changes
+      # this workflow then runs the dry job, which calls Prismic with
+      # ${SECRET} and goes red on a missing or dead one: the install PR
+      # proves the token works. Never add it under push, or merging such a PR
+      # would push models that were not reviewed as a model change.
+      - "${WORKFLOW_PATH}"
   push:
     branches: [${APPLY_BRANCH}]
     paths:

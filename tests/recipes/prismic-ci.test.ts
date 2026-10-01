@@ -198,6 +198,19 @@ describe("prismicCiWorkflow", () => {
     expect((live.match(/- "src\/lib\/slices\/\*\*\/model\.json"/g) ?? []).length).toBe(2);
   });
 
+  it("runs the dry job on the PR that installs or changes the workflow itself, and never applies on it", () => {
+    // The install PR is the proof that the site's token works: its dry job calls
+    // Prismic with PRISMIC_WRITE_TOKEN and goes red on a missing or dead one.
+    // The push trigger must NOT carry the self path, or merging the install PR
+    // would push models nobody reviewed as a model change.
+    const live = withoutComments(RENDERED);
+    const [prBlock, rest] = live.split(/^\s*push:\s*$/m);
+    const pushTrigger = rest!.split(/^jobs:\s*$/m)[0]!;
+    expect(prBlock).toContain(`- "${WORKFLOW_PATH}"`);
+    expect(pushTrigger).toContain(`- "customtypes/**"`);
+    expect(pushTrigger).not.toContain(WORKFLOW_PATH);
+  });
+
   it("filters the push trigger to main — the caller's half of the apply gate", () => {
     // ABSENCE ASSERTION. The reusable workflow's apply job guards
     // `github.ref == 'refs/heads/main'` and its own comment calls the caller's
@@ -502,6 +515,40 @@ describe("prismicCi", () => {
     expect(r.notes).not.toMatch(/gh secret set/);
     expect(pushed).toEqual([]);
     expect(d.github!.openPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("installs from behind the cloud proxy, and makes the PR's own check the gate", async () => {
+    // A cloud session's proxy refuses every Actions-secrets path. The secret is
+    // then unknowable from here, but the install PR's dry job proves a WORKING
+    // token, which is more than the name lookup ever did. land-prs merges only
+    // CLEAN, so a red check holds the PR.
+    await prismicSite();
+    const { d, pushed } = deps();
+    d.github!.secretExists = vi.fn(async () => {
+      throw new Error(
+        'gh api failed (code 1): {"message":"Access to this GitHub Actions path is not permitted ' +
+          'through this proxy."}gh: Access to this GitHub Actions path is not permitted through ' +
+          "this proxy. (HTTP 403)",
+      );
+    });
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("applied");
+    expect(pushed.length).toBe(1);
+    expect(r.notes).toMatch(/not checked/i);
+    expect(r.notes).toContain(SECRET);
+    const pr = vi.mocked(d.github!.openPullRequest).mock.calls[0]![1] as { body: string };
+    expect(pr.body).toMatch(/do not merge/i);
+    expect(pr.body).toContain(SECRET);
+  });
+
+  it("says nothing about an unchecked secret when the secret was checked", async () => {
+    await prismicSite();
+    const { d } = deps();
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("applied");
+    expect(r.notes).not.toMatch(/not checked/i);
+    const pr = vi.mocked(d.github!.openPullRequest).mock.calls[0]![1] as { body: string };
+    expect(pr.body).not.toMatch(/do not merge/i);
   });
 
   it("does not guess 'main' when the default branch cannot be read", async () => {
