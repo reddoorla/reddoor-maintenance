@@ -148,6 +148,38 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   `www` only, then `launch`) and P7 (cancel Blux 🔴). Each phase's "done
   when" is in the plan's §6. _Verify:_ `curl -sI https://mantislandscaping.com/`
   still shows Blux, and `captures/mantis-landscaping/manifest.json` exists.
+  **10-01 ~18:40Z: 59–62 answered; P0, P1 and P1b under way.**
+  - **P1b done:** the Turso row `site_01M3WA8PZXD4Q8N7P234MNYJNB`,
+    `building`, with `git_repo` `reddoorla/mantis-landscaping` (verified
+    by `SELECT`).
+  - **P1:** the Prismic repository `mantis-landscaping` exists; its
+    `/api/v2` answers 200, while a made-up name answers 404. The operator
+    reports the token and secrets set; they are not visible from this
+    container.
+  - **P0:** reddoorla/mantis-landscaping#1.
+  - **Next:** P2.
+  - **Still open:** the Netlify site's name (CI assumes
+    `mantis-landscaping`), and Nicole's answers (61: 1, 2 and 7, plus the
+    drafts).
+    **10-01 ~18:45Z: the operator answered the rest.**
+  - **61.1, the form recipient:** the client's address. It is on the row
+    as `point_of_contact` (verified by `SELECT`) and is not written here,
+    because this repo is public. Pre-launch rows still notify only the
+    operator (`src/forms/notify.ts`).
+  - **61.2, DNS:** asked for after the client reviews the build.
+  - **61.7, icons:** use Lucide, not the Noun Project PNGs.
+  - **The three draft projects:** ignored.
+  - **P3, Netlify:** created on the operator's authority as
+    `mantis-landscaping` (`f0ce133b`), on `main`, `pnpm run build` →
+    `build/`.
+    - `FORMS_INGEST_URL` and `FORMS_INGEST_TOKEN` are set; the token
+      matches Williamson's by sha256 prefix.
+    - A "Prismic publish" build hook is on `main`. Its Prismic webhook is
+      the operator's to add.
+    - `netlify_id` is on the row (verified by `SELECT`).
+  - **The first production build failed on Netlify's secret scan:** Blux's
+    `__analytics.js`, vendored in P0's `matching/spec/`, carries Blux's
+    browser API key. It was removed in mantis-landscaping#2.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -1558,6 +1590,12 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     native-starter work either way, and the site does not inherit a render
     layer that no CI exercises.
 
+    **Answered 2026-10-01 ~18:00Z (operator, "I'll take your picks"): (a),
+    native.** The operator generated the repo from `reddoor-starter`, first
+    as `tucksravin/mantis-landscaping` and then transferred to the org; it
+    is now `reddoorla/mantis-landscaping`. P0 is
+    reddoorla/mantis-landscaping#1.
+
 60. **Mantis Landscaping: the Blux export, and when Blux may be cancelled
     (#1107).** `blux catalog/convert` need the dashboard export
     (`site.json` plus each page's `index.html`). The live site does not
@@ -1569,6 +1607,21 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     session; (ii) keep the Blux site paid until 14 days after the DNS
     cutover.
     _Pick:_ (i) yes, now; (ii) yes. Blux serving is the rollback until then.
+
+    **Answered 2026-10-01 (operator): (i) and (ii) yes.** The export
+    arrived at ~18:13Z, and the operator still holds the Blux account. On
+    the export [M]:
+    - `blux convert` reports all 3 pages "FAITHFUL": 17 bands, 5
+      low-confidence blocks.
+    - It does not read the `projects` collection.
+    - It resolves only 2 of the 89 images the live pages use, with or
+      without `--probe`. So the seed uploads from the planning capture,
+      checked against `captures/mantis-landscaping/manifest.json`.
+    - The collection has 6 items. Three are disabled drafts (Urban
+      Farming, Vertical Gardens, Wood Work), at 8–11.5K characters each.
+    - The export names no form recipient. Its account email is an
+      `@mantislandscaping.com` address [I: probably where Blux delivers].
+
 61. **Mantis Landscaping: client facts, as one message for Nicole (#1107).**
     No agent contacts the client. The answers unblock P1-30's P4 and P6.
     1. The contact-form recipient. Today's is unknown, and leads may
@@ -1592,6 +1645,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
        Testing Yearly [I: what a six-page brochure site needs].
     9. Who signs off the alt text and meta descriptions we draft? _Pick:_
        Nicole.
+
+    **Answered 2026-10-01 (operator): the picks stand for 3–6, 8 and 9.**
+    The operator sent the message to Nicole, and 1, 2 and 7 are waiting on
+    her answers. Whether to publish the three draft projects (see 60) is
+    added to her questions. Until she answers, they stay out, which
+    matches pick 5.
+
 62. **Mantis Landscaping: improvements that change how the site looks or
     reads (#1107, plan §4).** The safe defaults need no sign-off: one host
     with 301s, `robots.txt`, labels and heading order, `alt` text, the
@@ -1607,6 +1667,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
 
     _Pick:_ (a)–(d) yes. (e) only once P1-26 is un-parked; until then the
     site launches without GA4, as it runs today.
+
+    **Answered 2026-10-01 (operator): (a)–(d) yes, (e) held.**
 
 63. **Background video: self-host from Prismic, Vimeo stays for content
     videos (answered 2026-10-01; rollout is the open half).** The operator

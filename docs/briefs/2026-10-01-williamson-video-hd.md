@@ -1,6 +1,6 @@
 ## Worker brief — OD7-P2c: Williamson Construction HD background video, content half and fleet follow-ups
 
-**Item.** Operator decision 60 · williamson-construction-co#12, #13 (merged) · 🟡 YELLOW · effort M
+**Item.** Operator decision 63 · williamson-construction-co#12, #13 (merged) · 🟡 YELLOW · effort M
 The site serves Webflow's 480p/360p transcodes at under 1.5 Mbps for all six
 background videos [M, ffprobe on the live files]. The Dropbox masters are 1080p
 (services 720p), matched to each clip by duration and frame [M]. The operator
@@ -76,7 +76,7 @@ referenced by any published document.
    sharpness and the doctor band's missing bars move), with a LEDGER line for
    any region that changes class.
 5. The recipe branch has a PR with its mutation table, a review, and lands.
-6. BACKLOG decision 60's "goes well" line is filled in with the measured
+6. BACKLOG decision 63's "goes well" line is filled in with the measured
    numbers, so the fleet rollout to the eight Vimeo sites is a reading, not a
    feeling.
 
@@ -108,5 +108,5 @@ before the code.
 4. Rewire the slices with the Prismic connector (`get_document` for the
    version id, `update_document` into a release, `present_release`, then
    `publish_release`).
-5. Measure (done-when 3 and 4), then the recipe PR, then BACKLOG 60 and the
+5. Measure (done-when 3 and 4), then the recipe PR, then BACKLOG 63 and the
    journal entries in both repos, landed before the session ends.
