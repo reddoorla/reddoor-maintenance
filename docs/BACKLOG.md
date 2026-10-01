@@ -1419,7 +1419,10 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
       not a dropdown. Which colour, and over what (the map tint, the
       featured card ground, or the dark strip under the bar), is the
       operator's to name; then it is a one-line change at 20%.
-    - (i) **Still open:** Erik's call.
+    - (i) **Answered (operator, 2026-10-01):** remove it; an ALL circle sits
+      beside the controls instead (roalson-interests#248).
+    - (ii) **Answered (operator):** the progress bar's unfilled track at 20%
+      (roalson-interests#246). All 12 pins are resolved.
 
 ---
 

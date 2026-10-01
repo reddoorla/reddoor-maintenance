@@ -7245,6 +7245,10 @@ The fleet's own `audit --url … --only lighthouse` wrote no result in the cloud
 
 **Facts nobody had.** The registrar is Squarespace Domains II LLC (RDAP), the domain expires 2027-05-09, and DNS still sits on Google Domains' nameservers with Google Workspace mail. Where Blux delivers contact-form submissions today is unknown. Those questions are for Nicole's partner, collected as one message in Operator decision 61.
 
+## 2026-10-01 — Roalson MarkUp round closed: 12 of 12 pins (roalson-interests #246, #247, #248)
+
+The operator answered the last two pins in session. Home #3 is the progress bar's unfilled track at 20% while it times a slide; the position indicator keeps its 3:1 track (#246). Home #4 removes the PROPERTIES button and adds an ALL circle after the slideshow controls (#248). An unpinned ask also landed: the bar's hero controls at 75% garnet (#247). The full entry is in that repo's journal. Process note for this file: `pkill -f` and `ps | grep | kill` each matched the calling shell's own command line and killed it, so record a dev server's PID when you start it.
+
 ## 2026-10-01 — The Slice Machine migration starts: decisions taken, pilot on reddoor-website (reddoor-website#235, this PR)
 
 > Follows 2026-10-01 — A plan to move the fleet off Slice Machine (#1104).
