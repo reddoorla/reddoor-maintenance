@@ -7166,6 +7166,22 @@ Research only, from the morning report's brief; no Prismic call with a write cre
 
 The pick, under Operator decisions 57: roll `prismic-ci` out first, then move the starters' codegen from Slice Machine to `prismic gen` behind our own gate. Prismic's full route (Type Builder on, `prismic push` from CI) conflicts with AUTONOMY's model-delete rule and the runbook's Type Builder rule, so it waits.
 
+## 2026-10-01 — A plan to move the fleet off Slice Machine, with the operator's lift (this PR)
+
+> Follows 2026-10-01 — P1-29: Slice Machine is deprecated (#1102).
+
+The operator read P1-29 and asked for the full migration ("we want everything up to date there") and an estimate of their own time. The plan is `docs/prismic-migration-plan-2026-10.md`. Nothing in it has been executed, and nothing was written to Prismic or to any site.
+
+**Measured, not assumed.** Turso's non-archived sites plus williamson-homes, williamson-construction-co and both starters, cloned read-only. 21 repos run Slice Machine across 18 distinct Prismic repositories (data-dynamiq points at the shared wireframer). Eight Prismic sites still have no `prismic-models.yml`, so #1090's williamson-homes drift is one of eight sites where a model change cannot reach Prismic through CI.
+
+**Codegen is a drop-in, checked rather than read.** On a copy of williamson-homes with a hand-written `prismic.config.json`, `prismic gen types` (CLI 1.21.0, offline) emitted the same 108 exported type names as Slice Machine's file, and `gen slice-index` the same component map. They differ only in formatting, the header line and location: the types land at the project root, and the index is `index.ts`. Whether SvelteKit's tsconfig picks up a root `.d.ts` is still open and is the pilot's first check. The CLI refuses to run without `--task-id` and `--user-intent` when it detects an agent; CI does not trip that detection.
+
+**A blocker nobody had named.** The Type Builder previews slices from a deployed `/slice-simulator` framed on prismic.io, where Slice Machine used localhost. Every site sends `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`, so the preview would be refused. The fix is a route-scoped exception, a security-header change that gets the full review.
+
+**The runtime dependency is narrower than feared.** Every simulator route imports `SliceSimulator` from `@slicemachine/adapter-sveltekit/simulator`, but `@prismicio/svelte` has exported the same component since 2.2.0, and every lockfile except erp-industrial's (1.5.0) already resolves 2.2.1 or later.
+
+Operator lift is about 3½ hours: tokens for the seven sites that lack the workflow, a Type Builder switch in 18 dashboards, a pilot sign-off and PR skims. Agent work is 5–7 days. Three decisions come first, recorded under Operator decisions 57.
+
 ## 2026-10-01 — P1-23: `launch` scores the live site, not the checkout (#1056, #1105)
 
 A worker session from the morning report's brief. `launch` now audits the Websites row's `url` with `deployedUrl` set, so `lighthouseAudit` takes `deployedLighthouse` and never boots the checkout's dev server. That dev server is where VLF's stored baseline of 52/100/100/61 came from, against 85/100/100/100 live (2026-09-29 entry).
