@@ -1182,6 +1182,8 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     **Construction's P2b landed 2026-09-30** as williamson-construction-co#8
     (`205608d`), after item 52 was answered; see Done. Homes' P1b is what
     remains of this item.
+    **Homes' P1b is williamson-homes#10 (2026-10-01), held after two review
+    rounds; see item 53.
 45. **Privacy policy wording (P1-26): one legal review of the template.**
     The template's text speaks for each client's business, and it discloses
     what the fleet actually does with visitor data. _Ask:_ send the draft in
@@ -1332,6 +1334,58 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     question above is still open.**
 
 ---
+
+53. **williamson-homes#10 (Homes fidelity, OD7-P1b): round 2 found a major,
+    which is fixed, so the merge is yours.**
+
+    The PR ships everything in the brief's done-when:
+    - The reference's favicon and apple-touch-icon.
+    - The sticky counters (`countersAnim.js` ported, with a reduced-motion
+      path).
+    - All 20 IX2 scroll events. They are header interactions, not content
+      reveals as the brief said.
+    - All 15 `:hover` rules, each named in a test.
+    - Matching Phase 1 (`matching/SPEC.md`).
+
+    The home gate passes in the cloud: r7, threshold 0.1, no masks, worst
+    region 7.8%. Before it, the instrument was proven by proxying the live
+    reference in as the candidate (0.0% in all 33 regions). This also answers
+    item 52's "cannot be shown from a cloud session". Clone
+    `reddoorla/claude-skills`, run `npm install` in
+    `skills/matching-a-page`, and set `MATCHING_SKILL_DIR`.
+
+    Round 1 (three lenses) found a blocker and eleven majors across the three lenses, all fixed:
+    - the fixed header never hid on project pages;
+    - focus could land on the off-screen header;
+    - live about-us's intro covered the pinned steps;
+    - two hover states fell below AA;
+    - the hamburger was white on white at 480–767;
+    - focus was obscured by the bar;
+    - three LEDGER claims were wrong.
+
+    Round 2 found one major, a round-1 regression: `inert` broke the sticky
+    bar's focus handback. It is fixed in `92a45c3` and pinned by a Chromium
+    spec that went red first. No third round was run.
+
+    _Ask:_ (a) land `92a45c3` as it is; (b) a third review first. _Pick:_ (a).
+    The fix is two lines, and a test that can fail now pins it.
+
+    **Three more calls in the same PR:**
+    - (i) **Hover fidelity versus AA.** The reference's hovers fade text to
+      .8 on a grey tint, which takes it to 2.0–4.1:1. The PR keeps every
+      property and transition, and clamps the value only where a flat
+      ground makes AA computable (LEDGER, `src/hover-rules.test.ts`). Say if
+      fidelity should win instead.
+    - (ii) **17 census rows.** All are colour or text-transform, none size or
+      geometry, and all are ACK-REQUIRED in the LEDGER. They include the
+      reference's own invisible footer links. Only you can move them into
+      `census-deviations.mjs`.
+    - (iii) **Live about-us content.** It needs `step_height: tall` set on
+      its ProcessSteps slice in Prismic. That is a content edit, which this
+      item excluded. Until then it uses 15rem steps.
+
+    about-us geometry (its baseline failed every region) is a follow-up item,
+    not part of this one.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
