@@ -1154,6 +1154,9 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       Netlify rebuild of `main` (ready 20:08Z) serves it on `/about-us`.
       There is still no Prismic → Netlify publish webhook, so a publish
       needs a manual rebuild until one is set.
+      **Corrected 2026-10-01 18:58Z:** a Netlify build hook "Prismic publish"
+      has existed since 2026-09-30 05:32Z and Prismic's webhook fires it; the
+      operator triggered it and three deploys followed. Publishes rebuild.
     - (b) "Remove it and let central decide." Landed as
       williamson-construction-co#7 (`e15517e`). Putting the refusal back
       turns the new route test red.
