@@ -96,7 +96,7 @@ function lastWithdrawnDraftForType(
  * next report to November. An overdue site catches up in one step.
  *
  * A Maintenance due date with a Testing report sent within a month of it moves
- * one Maintenance cycle later ({@link testingCoversMaintenance}).
+ * one Maintenance cycle later ({@link pushPastTesting}).
  *
  * Shared with {@link findDueReports} so the scheduler and any schedule display can't
  * drift on what "next" means.
@@ -121,12 +121,16 @@ export function nextDueDate(
   const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;
   const baseIso = latest ?? fallback;
   if (!baseIso) return startOfDay(today);
-  const due = addMonths(new Date(baseIso), MONTHS[freq]);
-  if (type === "Maintenance" && testingCoversMaintenance(reports, site.id, due)) {
-    return addMonths(due, MONTHS[freq]);
-  }
-  return due;
+  const base = new Date(baseIso);
+  const due = addMonths(base, MONTHS[freq]);
+  if (type !== "Maintenance") return due;
+  return pushPastTesting(reports, site.id, base, due, MONTHS[freq], today);
 }
+
+/** An approved Testing report not yet sent counts as "sent" for this long after
+ *  its approval: long enough for the next `daily-reports` send step, short
+ *  enough that a report stuck behind a failing gate stops covering Maintenance. */
+const APPROVED_UNSENT_GRACE_DAYS = 3;
 
 /**
  * The operator's rule (2026-10-01): a Testing report sent within a month either
@@ -134,22 +138,60 @@ export function nextDueDate(
  * Maintenance cycle. Testing is the higher tier (`queue.ts`), so it already
  * carries what the Maintenance report would have said.
  *
+ * The push is measured from the later of the due date and the covering Testing
+ * report, so Maintenance never falls due the day after the Testing report that
+ * covered it, and the pushed date is checked again: a site whose Testing runs as
+ * often as its Maintenance sends Testing only. Whole cycles are added to the
+ * base, so a month-end base is not clamped twice.
+ *
  * "Sent" includes a Testing report approved and not yet sent or withdrawn,
- * dated by its approval: `daily-reports` drafts before it sends, so on the day
- * the approved Testing report goes out, Maintenance is decided while it is
- * still unsent (Sonder, 2026-10-01). Pushes once: the window is measured
- * against the unpushed due date only.
+ * dated by its approval, for {@link APPROVED_UNSENT_GRACE_DAYS} after it:
+ * `daily-reports` drafts before it sends, so on the day the approved Testing
+ * report goes out, Maintenance is decided while it is still unsent (Sonder,
+ * 2026-10-01).
  */
-function testingCoversMaintenance(reports: ReportRow[], siteId: string, due: Date): boolean {
-  const from = addMonths(due, -1).getTime();
-  const to = addMonths(due, 1).getTime();
-  return reports.some((r) => {
-    if (r.siteId !== siteId || r.reportType !== "Testing" || r.withdrawnAt !== null) return false;
-    const at = r.sentAt ?? (r.approvedToSend ? r.approvedAt : null);
-    if (at === null) return false;
-    const t = startOfDay(new Date(at)).getTime();
-    return t >= startOfDay(new Date(from)).getTime() && t <= startOfDay(new Date(to)).getTime();
-  });
+function pushPastTesting(
+  reports: ReportRow[],
+  siteId: string,
+  base: Date,
+  due: Date,
+  months: number,
+  today: Date,
+): Date {
+  const graceFrom = startOfDay(today).getTime() - APPROVED_UNSENT_GRACE_DAYS * 86_400_000;
+  const testingDays = reports
+    .filter((r) => r.siteId === siteId && r.reportType === "Testing" && r.withdrawnAt === null)
+    .map((r) => {
+      if (r.sentAt !== null) return startOfDay(new Date(r.sentAt)).getTime();
+      if (!r.approvedToSend || r.approvedAt === null) return null;
+      const t = startOfDay(new Date(r.approvedAt)).getTime();
+      return t >= graceFrom ? t : null;
+    })
+    .filter((t): t is number => t !== null && !Number.isNaN(t));
+
+  // Each Testing day pushes at most once, and every push consumes at least one,
+  // so this ends; the cap is a guard, not a rule.
+  const used = new Set<number>();
+  let anchor = base;
+  let cycles = 1;
+  let candidate = due;
+  for (let i = 0; i < 64; i++) {
+    const day = startOfDay(candidate);
+    const from = addMonths(day, -1).getTime();
+    const to = addMonths(day, 1).getTime();
+    const covering = testingDays.filter((t) => t >= from && t <= to && !used.has(t));
+    if (covering.length === 0) return candidate;
+    for (const t of covering) used.add(t);
+    const latest = Math.max(...covering);
+    if (latest > day.getTime()) {
+      anchor = new Date(latest);
+      cycles = 1;
+    } else {
+      cycles += 1;
+    }
+    candidate = addMonths(anchor, cycles * months);
+  }
+  return candidate;
 }
 
 /** Both stored next-due dates for a site, date-only (`YYYY-MM-DD`) or null when

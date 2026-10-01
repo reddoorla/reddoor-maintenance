@@ -512,14 +512,48 @@ describe("a Testing report sent within a month of Maintenance pushes Maintenance
   it("Testing sent up to a month after the due date pushes; later than that does not", () => {
     const due = (t: string) =>
       ymd(nextDueDate(monthly, [maint("2026-09-01"), testing(t)], "Maintenance", on("2026-09-02")));
-    expect(due("2026-11-01")).toBe("2026-11-01");
+    // anchored on the Testing day: Maintenance never falls due the day after it
+    expect(due("2026-11-01")).toBe("2026-12-01");
     expect(due("2026-11-02")).toBe("2026-10-01");
   });
 
   it("pushes by one Maintenance cycle, not by a month (Quarterly Maintenance)", () => {
     const s = site({ maintenanceFreq: "Quarterly", testingFreq: "Yearly" });
-    const reports = [maint("2026-07-01"), testing("2026-10-03")];
+    const reports = [maint("2026-07-01"), testing("2026-09-28")];
     expect(ymd(nextDueDate(s, reports, "Maintenance", on("2026-10-04")))).toBe("2027-01-01");
+  });
+
+  it("a Testing report after the due date anchors the push: Testing 10-25 → Maintenance 11-25, pushed once", () => {
+    const reports = [maint("2026-09-01"), testing("2026-10-25")];
+    // 10-25 is also within a month of 11-25; one Testing report pushes once
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-10-26")))).toBe("2026-11-25");
+  });
+
+  it("Testing as often as Maintenance, each approved the evening before: only Testing sends", () => {
+    const s = site({ maintenanceFreq: "Monthly", testingFreq: "Monthly" });
+    const reports = [maint("2026-01-01"), testing("2026-01-01")];
+    for (const [eve, day] of [
+      ["2026-01-31", "2026-02-01"],
+      ["2026-02-28", "2026-03-01"],
+      ["2026-03-31", "2026-04-01"],
+    ] as const) {
+      const approved = approvedTesting(eve, { id: `rec_a_${day}` });
+      const due = findDueReports([s], [...reports, approved], on(day));
+      expect(due.map((d) => d.reportType)).not.toContain("Maintenance");
+      reports.push(testing(day));
+    }
+    expect(ymd(nextDueDate(s, reports, "Maintenance", on("2026-04-02")))).toBe("2026-05-01");
+  });
+
+  it("an approved Testing report stuck unsent stops covering Maintenance after the grace days", () => {
+    const reports = [maint("2026-09-01"), approvedTesting("2026-09-30")];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-10-03")))).toBe("2026-11-01");
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-10-04")))).toBe("2026-10-01");
+  });
+
+  it("whole cycles from a month-end base: sent 01-31, Testing 02-27 → due 03-31, not 03-28", () => {
+    const reports = [maint("2026-01-31"), testing("2026-02-27")];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-02-28")))).toBe("2026-03-31");
   });
 
   it("pushes once only: the next cycle after the pushed Maintenance send is normal", () => {
