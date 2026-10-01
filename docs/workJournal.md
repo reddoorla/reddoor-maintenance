@@ -6917,3 +6917,12 @@ The operator chose (a) for BACKLOG 51. The fold-in (`8affbff8`) replaced round 2
 The test named "VLF" in `due.test.ts` is monthly, so it never matched the live row. Four options went to the operator: switch to Monthly, accept 12-30, send the stale September draft, or a new rule that a pre-history withdrawal does not consume a cycle. The operator chose to keep Quarterly, so the first Maintenance report is 12-30.
 
 **Still open.** The operator presses "Don't send" on VLF's 2026-09 draft once #1078 is deployed. No agent changes a report. Until then the pending draft still holds VLF in "due today, blocked" every night, which is harmless.
+
+## 2026-10-01 — Cockpit warnings closed: 1 attention, 0 watch, 0 pending (VLF withdrawn, three GA4 IDs)
+
+This closes the 09-30 cockpit-warnings session. The operator answered the last two open items in session, and every value was checked before it was written.
+
+- **VLF's 2026-09 Maintenance draft.** The operator wrote "don't send". At 01:03Z the draft was still not withdrawn, although #1078 was deployed (the new columns existed). It was withdrawn at 01:03:47Z through the same `withdrawReport` and `patchReportIfOpen("withdrawable")` path the endpoint uses, followed by the same schedule refresh. VLF's stored `next_maintenance_at` moved from 2026-09-30 to 2026-12-30, matching the quarterly rule in the previous entry.
+- **GA4 IDs.** The operator created three properties. Before writing, the Admin API was checked under the reports account's subject: each ID is listed, and each display name matches its site. LAHI's 500039567 was the known-good control. Only 1836dig's property has a web stream. 29 Navy's and Data Dynamiq's have none, so a recorded ID clears the watch item but measures nothing until a stream and a tag exist. That tag work still waits on P1-26.
+
+Measured read-only on `main` at 01:03:58Z: 1 attention, 0 watch, 14 healthy, 2 pre-launch, 0 pending. The one attention item is Reddoor's stored Prismic verdict, which predates the operator's push. The next prismic-drift nightly re-reads it.
