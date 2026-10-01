@@ -1130,6 +1130,10 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     Maintenance report due **2026-12-30**, not in October. The operator chose
     to keep Quarterly and accept 12-30 as the first. **Yours:** press "Don't
     send" on that draft at `/s/vida-legacy-foundation` once #1078 is deployed.
+    **Done 2026-10-01 01:03:47Z** on the operator's word ("don't send"), through
+    the endpoint's own `withdrawReport` + `patchReportIfOpen` path:
+    `withdrawn_at` stamped, `withdrawn_by = dashboard`; VLF's stored
+    `next_maintenance_at` refreshed 2026-09-30 → 2026-12-30 [M].
 42. **`PRISMIC_TOKEN_VIDA_LEGACY` is not set (🔴 secret).** fleet-prismic-drift
     (run 36704968338, `wrote=15 failed=0`) warns `[vida-legacy-foundation] no
 write token for Prismic repository "vida-legacy"`. VLF went maintained
@@ -1237,6 +1241,13 @@ analytics"]`). The operator creates properties for the other three. When the
     numeric property IDs arrive (not the `G-` measurement IDs), a session records
     each in `ga4_property_id` after confirming the reports account lists it. The
     tag install is separate and waits on P1-26.
+    **Done 2026-10-01 01:03:49Z:** the operator gave 556936272 (1836dig),
+    556907604 (29 Navy) and 556916505 (Data Dynamiq). Each is listed by the
+    reports account ("1836 Dig", "29 Navy", "Data Dynamiq"), and each was written
+    NULL → that ID through `setSiteDetail`, read back [M]. Only 1836dig's
+    property has a web stream (`G-1ZYB95TKC1`, `https://1836dig.com/`); 29 Navy's
+    and Data Dynamiq's have none yet, so they collect nothing until a stream and
+    a tag exist (P1-26).
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
