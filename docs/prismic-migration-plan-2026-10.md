@@ -78,6 +78,12 @@ either extension. Whether SvelteKit's generated tsconfig includes a root
 `prismicio-types.d.ts` is **not yet verified** and is the first thing the
 pilot checks.
 
+> Corrected 2026-10-01 17:34Z by the pilot: reddoor-website already carries
+> this exception (`CMS_FRAMED_ROUTES` in `src/lib/security/headers.ts`, live on
+> reddoorla.com), added 2026-08-19 when its Page Builder previews broke. It is
+> the only one of the 21 repos with it, and it is the pattern to port. The
+> paragraph below is as written.
+
 **The CSP blocks the Type Builder's live preview.** The Type Builder loads
 slice previews from a deployed simulator URL, inside an iframe on
 prismic.io. Slice Machine used `localhost:9999`. Every site sends
@@ -213,6 +219,11 @@ review rounds and serial CI:**
 | 6, close-out          | ½ day     |
 
 ## 6. Unknowns the pilot must answer before phase 4
+
+> Status 2026-10-01: the tsconfig question is answered. SvelteKit's generated
+> `include` does not list a root `.d.ts`, but every consumer imports the types
+> file by relative path, so svelte-check sees it (0 errors on
+> reddoor-website#235). The rest stay open.
 
 - Is "Switch to type builder" reversible? Can Slice Machine still push to a
   repository after the switch? This sets whether phase 5 may run before a
