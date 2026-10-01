@@ -6773,3 +6773,7 @@ Three operator calls in ten minutes, each a one-line reason worth recording. The
 ## 2026-10-01 — Notes for Erik, final shape: two pages of his, the change table free to spill
 
 The two-page cut had thrown out two things the operator had asked for by name: the explanation of why the development hours sit where they do when agents do most of the typing, and the permission for Erik to move those hours ("they are a range, not a floor, because of how the work gets done now"). Both are back, in the developer's first person and in plain sentences, with the assumptions the hours rest on (training by video, English copy finished in Phase 3, Spanish supplied). The operator also clarified the rule: two pages was for Erik's content only; the change table is deterministic, he does not need to read all of it, and it may spill. So the document is now the short version and the open items on page 1, his four edits on page 2, and the table on pages 3 and 4, with a top-level heading forcing the table onto its own pages. A simplicity pass went over every sentence: one idea each, no stacked clauses.
+
+## 2026-10-01 — CMS off Erik's open items
+
+The CMS line came out of the notes for Erik on the operator's call: everyone at Reddoor who deals with GOLA knows what CMS is, so the item was only ever answering the developer's own confusion, and that is recorded two entries up. The open items that are actually Erik's are four: the sub-brand name, the referral system, who translates, and the maintenance tier.
