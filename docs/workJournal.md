@@ -6981,3 +6981,7 @@ Both negative controls now count as real mismatches.
 
 Branch `claude/homes-fidelity` is still on GitHub: the proxy refuses branch
 deletes.
+
+## 2026-10-01 — Roalson MarkUp round: 7 of 12 pins fixed and resolved (roalson-interests #240, #241; held #242, #243)
+
+A worker cleared Nicole's round overnight; the full entry is roalson-interests#244. Two PRs landed with `land-prs` and seven pins were resolved, each only after the production preview showed its fix. Two PRs are held, as Operator decisions 53 and 54. Three pins are questions, Operator decision 55. One process lesson for this file: a subagent's `pkill -f vite` killed another worktree's dev server mid-verify and produced 196 ECONNREFUSED failures that looked like a broken PR. In a shared container, stop your own server by its PID, never by name.

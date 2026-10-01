@@ -1339,6 +1339,43 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     delete, so `claude/od7-p2b-fidelity` is still on GitHub. **The gate
     question above is still open.**
 
+53. **roalson-interests#242 (MarkUp: "Improved Projects" tab matches Land):
+    held after two dirty review rounds.** Under its own tab Improved now has
+    Land's off-white ground, 40px strip, unpinned divider and sand cards, with
+    and without script. Round 1 found two majors: the cards were cream on a
+    cream ground, and the no-JS map offset was 145.4 instead of 100. Round 2
+    found a stale unit-test string and the carousel's photo-less box left
+    sand. All of it is fixed at `48e1c11`, and CI is green.
+    deploy-preview-242 on real listings reads identically to Land: card
+    234/231/228, photo box 243/241/239, heading 51px under the tabs.
+    _Ask:_ (a) land without a third round; (b) a third round. _Pick:_ (a).
+    Then resolve pin `2b18dce4` with "fixed in <sha>".
+54. **roalson-interests#243 (MarkUp: "the map bounces when I click a point")
+    reopens roalson-interests#136.** #136 was closed 09-28 with "keep the
+    three flights … reopen only if someone reports the press as janky", and
+    Nicole's pin is that report. The fix:
+    - The camera flies straight to the pressed listing: IH-35 was
+      `[potranco-road, ih-35]` and is now `[ih-35]`.
+    - `active` still comes only from the viewport centre.
+    - Reproduced red on origin/main, 8 mutations red, and one review round
+      clean apart from a reduced-motion guard (folded in, `ce12414`).
+
+    _Ask:_ land it, or keep the three flights. _Pick:_ land. Then resolve
+    pin `f4be21e8`.
+
+55. **Roalson MarkUp pins left open (questions, not fixes).**
+    - (i) **Homepage #4**, Nicole to Erik: keep the featured band's
+      PROPERTIES button? _Pick:_ keep it. It is the band's only route to the
+      full list.
+    - (ii) **Homepage #3**, "Drop down back color to 20% opacity": no
+      dropdown exists. In Nicole's screenshots the homepage map never drew
+      tiles, so she saw a solid maroon box. _Pick:_ ask Nicole which element
+      she means, and check whether the map tiles load on her browser, which
+      could be blocked by an extension or a network.
+    - (iii) **Properties #3**: is the property package an arrow or a
+      download? _Pick:_ a download glyph with the `download` attribute, since
+      it is a PDF. Whether it opens in a viewer stays the browser's choice.
+
 ---
 
 53. **williamson-homes#10 (Homes fidelity, OD7-P1b): answered 2026-10-01 and
