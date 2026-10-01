@@ -1341,57 +1341,25 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
 
 ---
 
-53. **williamson-homes#10 (Homes fidelity, OD7-P1b): round 2 found a major,
-    which is fixed, so the merge is yours.**
+53. **williamson-homes#10 (Homes fidelity, OD7-P1b): answered 2026-10-01 and
+    landed as `5ec2ddd` (head `bde334a`).** The operator chose a third review.
+    It was dirty: the fixed header box covered the sticky bar, so it could not
+    be clicked, plus two minors. All three were fixed with tests shown red
+    first, and the operator then approved the merge.
 
-    The PR ships everything in the brief's done-when:
-    - The reference's favicon and apple-touch-icon.
-    - The sticky counters (`countersAnim.js` ported, with a reduced-motion
-      path).
-    - All 20 IX2 scroll events. They are header interactions, not content
-      reveals as the brief said.
-    - All 15 `:hover` rules, each named in a test.
-    - Matching Phase 1 (`matching/SPEC.md`).
+    The calls the PR raised:
+    - (i) Accessibility wins on hover.
+    - (ii) The 17 census rows are accepted and declared as exact rows.
+      `census.sh home` exits 0.
 
-    The home gate passes in the cloud: r7, threshold 0.1, no masks, worst
-    region 7.8%. Before it, the instrument was proven by proxying the live
-    reference in as the candidate (0.0% in all 33 regions). This also answers
-    item 52's "cannot be shown from a cloud session". Clone
-    `reddoorla/claude-skills`, run `npm install` in
-    `skills/matching-a-page`, and set `MATCHING_SKILL_DIR`.
-
-    Round 1 (three lenses) found a blocker and eleven majors across the three lenses, all fixed:
-    - the fixed header never hid on project pages;
-    - focus could land on the off-screen header;
-    - live about-us's intro covered the pinned steps;
-    - two hover states fell below AA;
-    - the hamburger was white on white at 480–767;
-    - focus was obscured by the bar;
-    - three LEDGER claims were wrong.
-
-    Round 2 found one major, a round-1 regression: `inert` broke the sticky
-    bar's focus handback. It is fixed in `92a45c3` and pinned by a Chromium
-    spec that went red first. No third round was run.
-
-    _Ask:_ (a) land `92a45c3` as it is; (b) a third review first. _Pick:_ (a).
-    The fix is two lines, and a test that can fail now pins it.
-
-    **Three more calls in the same PR:**
-    - (i) **Hover fidelity versus AA.** The reference's hovers fade text to
-      .8 on a grey tint, which takes it to 2.0–4.1:1. The PR keeps every
-      property and transition, and clamps the value only where a flat
-      ground makes AA computable (LEDGER, `src/hover-rules.test.ts`). Say if
-      fidelity should win instead.
-    - (ii) **17 census rows.** All are colour or text-transform, none size or
-      geometry, and all are ACK-REQUIRED in the LEDGER. They include the
-      reference's own invisible footer links. Only you can move them into
-      `census-deviations.mjs`.
-    - (iii) **Live about-us content.** It needs `step_height: tall` set on
-      its ProcessSteps slice in Prismic. That is a content edit, which this
-      item excluded. Until then it uses 15rem steps.
-
-    about-us geometry (its baseline failed every region) is a follow-up item,
-    not part of this one.
+    **Still yours, from (iii):** push the ProcessSteps and PageHero slice
+    models from Slice Machine. Prismic has neither `step_height` (this PR)
+    nor PageHero's `height` (#9). The prismic-ci rollout cannot run from a
+    cloud session: the proxy hides the Actions secrets API, and the recipe
+    refuses when it cannot confirm `PRISMIC_WRITE_TOKEN`. Once the models
+    are pushed, an agent sets `step_height: tall` on about-us's
+    "Collaborative approach" ProcessSteps slice through the Prismic
+    connector. The operator has asked for that edit.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
