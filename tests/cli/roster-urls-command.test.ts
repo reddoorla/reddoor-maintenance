@@ -451,20 +451,45 @@ describe("runRosterUrlsCommand › a transport error is retried once (#1103)", (
     expect(r.output).toMatch(/ retried=0$/m);
   });
 
-  it("counts every retried target, and pauses once for the whole retry pass", async () => {
-    const sleep = vi.fn(async () => {});
+  it("retries only the transport fails, names each, counts them, and fetches again only after one full pause", async () => {
+    const events: string[] = [];
+    const base = worldFetch();
+    const sleep = vi.fn(async (_ms: number) => {
+      events.push("sleep-start");
+      await new Promise((r) => setImmediate(r));
+      events.push("sleep-end");
+    });
     const r = await runRosterUrlsCommand(
       { fleet: true, writeBack: true },
       deps({
         sleep,
+        fetch: async (url, init) => {
+          events.push(url);
+          return base(url, init);
+        },
         roster: async () => [
+          row("tower", "https://the-tower-burbank-rd.netlify.app", "maintained"),
           row("a", "https://a.invalid/", "maintained"),
           row("b", "https://b.invalid/", "maintained"),
-          row("tower", "https://the-tower-burbank-rd.netlify.app", "maintained"),
         ],
       }),
     );
     expect(sleep).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledWith(ROSTER_URL_RETRY_DELAY_MS);
+    const end = events.indexOf("sleep-end");
+    expect(end).toBeGreaterThan(-1);
+    for (const u of ["https://a.invalid/", "https://b.invalid/"]) {
+      const at = events.flatMap((e, i) => (e === u ? [i] : []));
+      expect(at).toHaveLength(2);
+      expect(at[0]).toBeLessThan(events.indexOf("sleep-start"));
+      expect(at[1]).toBeGreaterThan(end);
+    }
+    expect(events.filter((e) => e === "https://the-tower-burbank-rd.netlify.app")).toHaveLength(1);
+    const notices = r.output.split("\n").filter((l) => l.startsWith("::notice::"));
+    expect(notices).toEqual([
+      "::notice::roster-urls: a https://a.invalid/ retried after error: ENOTFOUND, second read error: ENOTFOUND",
+      "::notice::roster-urls: b https://b.invalid/ retried after error: ENOTFOUND, second read error: ENOTFOUND",
+    ]);
     expect(r.output).toContain("pass=1 fail=2 ");
     expect(r.output).toMatch(/ retried=2$/m);
   });

@@ -196,6 +196,9 @@ describe("isTransportFailure (#1103)", () => {
     for (const status of ["404", "503", NETLIFY_SITE_NOT_FOUND, "not an http(s) url"]) {
       expect(isTransportFailure({ resolves: "fail", status })).toBe(false);
     }
+    expect(isTransportFailure({ resolves: "fail", status: "error-page" })).toBe(false);
+    expect(isTransportFailure({ resolves: "fail", status: "502 error: upstream" })).toBe(false);
+    expect(isTransportFailure({ resolves: "pass", status: "error: odd" })).toBe(false);
     expect(isTransportFailure({ resolves: "pass", status: "200" })).toBe(false);
     expect(isTransportFailure({ resolves: null, status: "no url" })).toBe(false);
   });
