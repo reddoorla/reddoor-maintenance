@@ -1700,6 +1700,46 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
 
     **Answered 2026-10-01 (operator): (a)–(d) yes, (e) held.**
 
+63. **Background video: self-host from Prismic, Vimeo stays for content
+    videos (answered 2026-10-01; rollout is the open half).** The operator
+    asked "can we do better on video quality" on Williamson Construction and
+    then "Vimeo or roll our own?" The research is the 2026-10-01 journal
+    entry "Vimeo or our own player"; the short form:
+    - Measured: a Vimeo background embed is 20 requests, ~440 KB of player
+      and three Cloudflare cookies before a frame; a `<video>` is one request
+      and none. Vimeo's docs list `__cf_bm`, `_cfuvid` and `cf_clearance` as
+      essential on every plan, so the 06-29 belief that a higher tier removes
+      the Best Practices deduction was wrong. Our Vimeo path is 930 lines of
+      workaround (interaction gating, iOS heartbeat, bot-detection carve-out)
+      against 188 for `BgVideo`, and has no pause control.
+    - Traffic (GA, 90 days to 09-30): the busiest video site's home page has
+      ~630 views a month (Revogen), so Prismic Starter's 100 GB/month is an
+      order of magnitude away even unoptimised. Prismic's file CDN supports
+      byte ranges, so playback starts before the file finishes.
+    - **Operator's answers:** most sites are on Prismic Starter; traffic is
+      small; the Vimeo subscription stays for other uses; the operator owns
+      the videos but clients may swap one in Prismic; a dumb file CDN is
+      acceptable if ever needed; Williamson Construction first, then the
+      eight Vimeo sites if it goes well.
+    - **Landed:** williamson-construction-co#13 (`BgVideo` plays only near
+      the viewport, pauses off screen, phone rendition via
+      `<source media>`; `video_mp4_mobile` field pushed to Prismic). HD
+      encodes from the Dropbox masters are staged on a Netlify draft deploy;
+      three posters are in Prismic. #12 (an Actions job that uploads to the
+      Asset API, because the connector refuses video) went through two dirty
+      review rounds; the operator chose a third.
+    - **Hand-off:** the content half and the fleet follow-ups moved to their
+      own session on 2026-10-01 with `docs/briefs/2026-10-01-williamson-video-hd.md`.
+      The encode recipe `reddoor-maint video` sits unreviewed on
+      `claude/video-encode-command`.
+
+    _Goes well when_ (fill in with measured numbers before any rollout):
+    Best Practices ≥ 90 on the fixtures route; hero playing on first paint
+    with no interaction; under 3 MB of video per unscrolled home visit at
+    390px; zero Vimeo console errors in smoke. _Ask, once those are in:_ roll
+    `BgVideo` to the eight Vimeo sites as each is touched, or leave them.
+    _Pick:_ roll, site by site, never as a sweep.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
