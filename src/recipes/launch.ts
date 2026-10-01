@@ -706,10 +706,10 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     },
   });
 
-  // 4. Audit the LIVE site (#1056). A launching row is not `maintained`, so
-  //    `selectFleetSites` never set `deployedUrl` and `lighthouseAudit` fell
-  //    back to the checkout's dev server: VLF's stored baseline was 52/100/100/61
-  //    against 85/100/100/100 live. The url is set here, on the launch path only,
+  // 4. Audit the LIVE site (#1056). `launch` resolves its site from a local
+  //    path (`localPath`), which never carries `deployedUrl`, so
+  //    `lighthouseAudit` fell back to the checkout's dev server: VLF's stored
+  //    baseline was 52/100/100/61 against 85/100/100/100 live. The url is set here, on the launch path only,
   //    and only after dev-guard's /health control proved it answers, so an
   //    unreachable host stops the chain instead of scoring localhost.
   let results: AuditResult[];
@@ -727,9 +727,9 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     });
     return stop();
   }
-  // The launch announcement renders a numeric score per category; a metric that
+  // The Launch report row stores a numeric score per category; a metric that
   // errored this run (now null from lighthouseScoresFromResult) keeps the prior
-  // 0 behavior here rather than propagating null into the launch-email path. The
+  // 0 behavior here rather than propagating null into the report row. The
   // write-back path (write-audits) keeps the null → shows "—".
   const rawScores = lighthouseScoresFromResult(lhResult);
   const scores: LighthouseScores = {

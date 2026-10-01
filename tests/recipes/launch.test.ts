@@ -405,6 +405,48 @@ describe("recipes/launch", () => {
     expect(writer.inserts[0]!.fields["Lighthouse — Performance"]).toBe(85);
   });
 
+  it("hands the audit the row's url over any url the resolved site already carried (#1056)", async () => {
+    const seed = websitesSeed();
+    seed.Websites[0]!.fields.url = "https://acme.example.com/en/";
+    const audited: Site[] = [];
+    await launch(
+      { ...siteOf(), deployedUrl: "https://stale.example.com" },
+      {
+        ...deps(seed),
+        audit: async (s: Site): Promise<AuditResult[]> => {
+          audited.push(s);
+          return [lighthouseResult()];
+        },
+        probe: async (url: string) =>
+          url.includes("/dev/match/")
+            ? { status: 404, body: "<h1>404</h1>" }
+            : { status: 200, body: "{}" },
+      },
+    );
+    expect(audited.map((s) => s.deployedUrl)).toEqual(["https://acme.example.com/en/"]);
+  });
+
+  for (const failure of ["throws", "returns no real scores"] as const) {
+    it(`never falls back to the checkout when the live audit ${failure} (#1056)`, async () => {
+      const seed = websitesSeed();
+      const audited: Site[] = [];
+      const result = await launch(siteOf(), {
+        ...deps(seed),
+        audit: async (s: Site): Promise<AuditResult[]> => {
+          audited.push(s);
+          if (!s.deployedUrl) return [lighthouseResult()];
+          if (failure === "throws") throw new Error("lhci exploded");
+          return [{ audit: "lighthouse", site: "Acme Co", status: "fail", summary: "no lhr" }];
+        },
+      });
+      expect(result.complete).toBe(false);
+      expect(audited).toHaveLength(1);
+      expect(audited[0]!.deployedUrl).toBe("https://acme.example.com");
+      expect(result.steps.at(-1)).toMatchObject({ name: "audit", result: { kind: "error" } });
+      expect(writer.inserts).toHaveLength(0);
+    });
+  }
+
   it("does not audit at all when the live url does not answer (#1056)", async () => {
     const seed = websitesSeed();
     let audited = false;
@@ -444,28 +486,30 @@ describe("recipes/launch", () => {
     expect(audited).toBe(false);
   });
 
-  it("refuses a row whose url is not http(s) before auditing anything (#1056)", async () => {
-    const seed = websitesSeed();
-    seed.Websites[0]!.fields.url = "file:///etc/passwd";
-    let audited = false;
-    const probed: string[] = [];
-    const result = await launch(siteOf(), {
-      ...deps(seed),
-      audit: async (): Promise<AuditResult[]> => {
-        audited = true;
-        return [lighthouseResult()];
-      },
-      probe: async (url: string) => {
-        probed.push(url);
-        return { status: 200, body: "" };
-      },
+  for (const url of ["file:///etc/passwd", "acme.example.com", ""]) {
+    it(`refuses a row whose url is ${JSON.stringify(url)} before auditing anything (#1056)`, async () => {
+      const seed = websitesSeed();
+      seed.Websites[0]!.fields.url = url;
+      let audited = false;
+      const probed: string[] = [];
+      const result = await launch(siteOf(), {
+        ...deps(seed),
+        audit: async (): Promise<AuditResult[]> => {
+          audited = true;
+          return [lighthouseResult()];
+        },
+        probe: async (url: string) => {
+          probed.push(url);
+          return { status: 200, body: "" };
+        },
+      });
+      expect(result.complete).toBe(false);
+      expect(audited).toBe(false);
+      expect(probed).toEqual([]);
+      const guard = result.steps.find((s) => s.name === "dev-guard");
+      expect((guard?.result as { message: string }).message).toMatch(/not an http\(s\) url/);
     });
-    expect(result.complete).toBe(false);
-    expect(audited).toBe(false);
-    expect(probed).toEqual([]);
-    const guard = result.steps.find((s) => s.name === "dev-guard");
-    expect((guard?.result as { message: string }).message).toMatch(/not an http\(s\) url/);
-  });
+  }
 
   it("stops at dev-guard when the matching twin still answers 200 in production", async () => {
     const seed = websitesSeed();
