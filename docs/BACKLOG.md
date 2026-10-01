@@ -136,7 +136,6 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164            | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 
 | P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries | 🟢 | S | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed |
-| P1-28 | **#1078, held for operator decision 51 (operator asked 2026-09-30).** It also blocks the next period: `pendingEarlier` in `src/cli/commands/report.ts` skips a new draft while an earlier one is pending, so VLF's October report would never be drafted. A report draft the operator decided not to send has no state that takes it off the cockpit's pending list: `isPendingApproval` (`src/reports/report-row.ts:79`) is `draftReady && !approvedToSend && sentAt === null`, so VLF's skipped 2026-09 draft (item 41) shows as "Maintenance 2026-09 ready" forever. Add a withdrawn state for a draft, set from `/s/<slug>`. | 🟡 | S–M | `src/reports/report-row.ts:79`, `src/dashboard/fleet-cockpit.ts` | A withdrawn draft leaves the pending list and the Needs-you feed, and a test goes red if it comes back |
 
 ### Blocked behind another PR (do not start early)
 
@@ -1125,6 +1124,12 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
     Either way it is yours; no agent approves or sends.
     **Answered 2026-09-30 ~19:50Z: skip it. October is VLF's first
     Maintenance report.** The 2026-09 draft stays unsent; no agent sends it.
+    **Revised 2026-10-01 ~00:20Z, after #1078:** VLF's row is
+    `maintenance_freq = Quarterly` with no `maintenance_day` [M, live Turso], so
+    withdrawing the 2026-09 draft (`completed_on` 2026-09-30) makes its next
+    Maintenance report due **2026-12-30**, not in October. The operator chose
+    to keep Quarterly and accept 12-30 as the first. **Yours:** press "Don't
+    send" on that draft at `/s/vida-legacy-foundation` once #1078 is deployed.
 42. **`PRISMIC_TOKEN_VIDA_LEGACY` is not set (🔴 secret).** fleet-prismic-drift
     (run 36704968338, `wrote=15 failed=0`) warns `[vida-legacy-foundation] no
 write token for Prismic repository "vida-legacy"`. VLF went maintained
@@ -1255,6 +1260,12 @@ analytics"]`). The operator creates properties for the other three. When the
     scheduling, plus the UI fixes, then land; (b) land `d4605b7b` as it is and
     file the minors; or (c) a third round after (a). **Pick: (a)**; VLF is due
     2026-10-30 under either rule. Detail: the #1078 comment.
+    **Answered 2026-09-30 ~23:35Z: (a).** Folded in as `8affbff8`: the base
+    is the later of the last send and the latest withdrawn draft's
+    `completed_on` (the draft day, not the click), so an overdue site catches up
+    in one step. No third round. 8426 tests; every named mutation red. Landed
+    2026-10-01 00:19Z as `57f5049d` (#1078, head `cb68a2d9`). The "VLF 10-30"
+    line above was wrong: VLF is Quarterly, so it is 12-30 (see item 41).
 
 52. **williamson-construction-co#8 (Construction fidelity, OD7-P2b): round 2
     found minors, so the merge is yours.** The PR ships:
@@ -1366,6 +1377,12 @@ verdict is its only input, because no client and no check sees the email.
 
 ## Done (move items here when they land)
 
+- 2026-10-01 — P1-28, withdraw a report draft the operator decided not to
+  send: #1078, `57f5049d`. "Don't send" on `/s/<slug>`
+  (`POST /api/reports/:id/withdraw`, migrations 0038–0039). A withdrawn draft
+  leaves every pending list, can never be approved or sent, and its cycle
+  counts as used from the day it was drafted. Two review rounds plus an
+  operator-chosen fold-in (item 51).
 - 2026-09-30 — OD7-P2b, Construction's fidelity pass (BACKLOG 44 and 52):
   williamson-construction-co#8, `205608d`. It ships:
   - the reference's favicon and apple-touch-icon;

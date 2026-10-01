@@ -6830,6 +6830,8 @@ Third-party stylesheets are ignored. Sonder's layout CSS is `/_app/immutable/ass
 
 ## 2026-09-30 — Cockpit warnings triaged: 2 attention / 5 watch → 1 / 3, and a withdrawn-draft state held after two rounds (#1077, #1078)
 
+> Superseded in part by 2026-10-01 — #1078 lands; VLF's first Maintenance report is 12-30, not 10-30.
+
 A worker session from the 09-30 PM pass, charged with clearing the cockpit's attention and watch items with the operator.
 
 **Measured first, read-only.** `buildCockpitModel` ran from a throwaway script in a detached worktree against live Turso. It used the same inputs `fleet-homepage.mts` reads. The libSQL client was wrapped so that anything other than `SELECT`/`WITH`, and every `batch`/`transaction`/`executeMultiple`, throws. The guard was proven before it was trusted: a `DELETE … WHERE 1=0` was refused. `openDb()` was not called, because it runs migrations, and a migration is a write. At 21:30:50Z the cockpit had 2 attention, 5 watch, 8 healthy, 2 pre-launch and 1 pending. The 09-29 snapshot had 13 watch; the Search Console watch it described had already cleared.
@@ -6899,3 +6901,19 @@ OD7-P2b from the plan's §7 brief, worked in a cloud session after the P2 worker
 - **(iv)** The easing fix found one more miss of the same kind. The plan's discs were on Tailwind's easing too, not the reference's default `ease`. The spec now reads the timing function as well as property and duration.
 
 `land-prs --repo reddoorla/williamson-construction-co 8` merged `205608d`, pinned to `903fe79`. 744 unit and 56 Playwright tests passed locally, and CI was green. The matching-gate question in 52 is still open.
+
+## 2026-10-01 — #1078 lands; VLF's first Maintenance report is 12-30, not 10-30 (`57f5049d`)
+
+> Corrects 2026-09-30 — Cockpit warnings triaged (#1077, #1078), which said VLF's October report would come due 10-30.
+
+The operator chose (a) for BACKLOG 51. The fold-in (`8affbff8`) replaced round 2's "skip each withdrawn period" loop. The scheduling base is now the later of the last send and the latest withdrawn draft's `completed_on`. Using the withdrawal stamp was the rule round 2 proposed, and it was rejected before it was built: a September draft withdrawn in October would have pushed a monthly site to November. There was no third review round. The fold-in has its own mutation table: 8426 tests, every mutation red. `land-prs` merged it at `57f5049d`, after two update-branch rounds because `main` moved twice during CI.
+
+**The belief that was wrong.** Every message and document in the previous entry said VLF would be due on 10-30. Nobody had read VLF's frequency; 10-30 assumed Monthly. A read-only query before landing showed `maintenance_freq = Quarterly` with no `maintenance_day`. A probe on the landed rule, with "today" set to 10-05, gave:
+
+- still pending: due 10-05, but held by the pile-up guard;
+- withdrawn: 12-30;
+- the same row with Monthly: 10-30.
+
+The test named "VLF" in `due.test.ts` is monthly, so it never matched the live row. Four options went to the operator: switch to Monthly, accept 12-30, send the stale September draft, or a new rule that a pre-history withdrawal does not consume a cycle. The operator chose to keep Quarterly, so the first Maintenance report is 12-30.
+
+**Still open.** The operator presses "Don't send" on VLF's 2026-09 draft once #1078 is deployed. No agent changes a report. Until then the pending draft still holds VLF in "due today, blocked" every night, which is harmless.
