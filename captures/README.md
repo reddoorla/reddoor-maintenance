@@ -12,6 +12,12 @@ reference for the rebuilds from now on.
 | `williamson-construction/` | `https://www.williamson-construction.com` | `646d47bfeb53b0308e8d4379` | 14    | 333   | 143 MB | branch `capture/od7-williamson-2026-09-30` |
 | `domaru/`                  | `https://www.domaruhealthsupply.com`      | `61817e584460db988c9333a4` | 7     | 121   | 18 MB  | here, on `main`                            |
 
+`mantis-landscaping/` is a **Blux** site (`https://mantislandscaping.com`,
+captured 2026-10-01, 6 pages, 105 files, 244 MB). The Webflow tool cannot
+capture it, and its `CAPTURE.md` says why and how it was captured instead. Only
+the manifest is here. The bytes go to the site repo in P0 of
+`docs/mantis-landscaping-plan-2026-10.md`.
+
 The two Williamson captures are for their own site repos, which do not exist
 yet. Their bytes are not on `main`: 310 MB of photography and video would stay in
 this repo's history for good. `main` holds each one's `CAPTURE.md` and

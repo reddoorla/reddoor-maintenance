@@ -138,6 +138,18 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ### Blocked behind another PR (do not start early)
 
+- **P1-30 · Mantis Landscaping: Blux → native Reddoor stack (#1107) 🟡/🔴.
+  Blocked on Operator decisions 59–62.** The plan is
+  `docs/mantis-landscaping-plan-2026-10.md`. The phases are P0 (Blux
+  export, repo from the starter, capture into `matching/spec/`), P1
+  (Prismic repository and write token 🔴), P1b (`ensure-site`, status
+  `building`), P2 (model, slices, routes, seed from `blux convert`), P3
+  (Netlify), P4 (form intake on `/api/forms/mantis-landscaping` with
+  Turnstile), P5 (fidelity and §4 improvements), P6 (cutover of `A` and
+  `www` only, then `launch`) and P7 (cancel Blux 🔴). Each phase's "done
+  when" is in the plan's §6. _Verify:_ `curl -sI https://mantislandscaping.com/`
+  still shows Blux, and `captures/mantis-landscaping/manifest.json` exists.
+
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
   scaffolds `hydrationMarker: "footer"`, which cannot prove hydration. Do it
@@ -1448,7 +1460,8 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
 > "54", although P1-29 and the 03:36Z report already cite it as **57**.
 > Construction's #9 had landed as a second "55" (#1095, and that session's
 > journal entry); it is **58** now. Prettier numbers an ordered list from its
-> first item, so this note breaks the list to keep both labels. Next new item: 59.
+> first item, so this note breaks the list to keep both labels. Next new item: 63
+> (59–62 added 2026-10-01 for Mantis Landscaping, #1107).
 
 57. **#1090, how models reach Prismic (new 2026-10-01).** After P1-29's
     write-up: pick the route that replaces or supplements Slice Machine in the
@@ -1513,6 +1526,76 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     **Answered 2026-10-01 15:27Z (operator): (a).** The operator merged #9 at
     `f25cfb9` as `2ee22e8`, with no third review round. (c)–(e) were not
     taken up, so they stay as they are.
+
+59. **Mantis Landscaping: which starter (#1107, plan
+    `docs/mantis-landscaping-plan-2026-10.md`).** The operator asked for
+    the "reddoor stack" and for improvements. The repo's `blux` pipeline
+    renders only on `reddoor-starter-blux`: its `emit` and `catalog` write
+    `blux_*` slice ids [M]. The pipeline has been dormant since July, and
+    its last consumer, the-pointe, is archived.
+    _Ask:_ pick one.
+    - (a) **Native `reddoor-starter`**, using `blux convert` only to
+      extract content, assets and theme tokens, and seeding about seven
+      native slices from that.
+    - (b) **The Blux track:** `blux convert/emit/migrate` onto
+      `reddoor-starter-blux`. This is the fastest faithful copy, and the
+      hardest to improve afterwards.
+    - (c) Native, hand-seeded without the pipeline.
+
+    _Pick:_ (a). There are 6 pages, about 30 text blocks and 89 images, so
+    a native build is bounded. The improvements in plan §4 are
+    native-starter work either way, and the site does not inherit a render
+    layer that no CI exercises.
+
+60. **Mantis Landscaping: the Blux export, and when Blux may be cancelled
+    (#1107).** `blux catalog/convert` need the dashboard export
+    (`site.json` plus each page's `index.html`). The live site does not
+    serve `site.json` (404 at three paths [M]). The export also holds the
+    projects feed's unpublished items 2–4 and Blux's form settings, which
+    is where the contact form delivers today (plan R2, R4).
+    _Ask:_ (i) download the Mantis export from the Blux dashboard (or ask
+    whoever holds the Blux login) and attach it to #1107 or drop it in the
+    session; (ii) keep the Blux site paid until 14 days after the DNS
+    cutover.
+    _Pick:_ (i) yes, now; (ii) yes. Blux serving is the rollback until then.
+61. **Mantis Landscaping: client facts, as one message for Nicole (#1107).**
+    No agent contacts the client. The answers unblock P1-30's P4 and P6.
+    1. The contact-form recipient. Today's is unknown, and leads may
+       already be going to an unread inbox.
+    2. Who holds the Squarespace Domains account. RDAP shows only the
+       registrar, Squarespace Domains II LLC; the domain expires 2027-05-09
+       [M]. Who will change the apex `A` and the `www` `CNAME` at cutover?
+       Google Workspace mail (MX, SPF) stays untouched.
+    3. Apex or `www` as the one host. _Pick:_ the apex, which is what
+       people type.
+    4. `/ediblegardens` and `/projects/ediblegardens` are near-duplicates
+       (43 shared images; the first has 8 more). Which URL stays? _Pick:_
+       `/projects/edible-gardens`, as the fuller page, with 301s from both
+       old paths.
+    5. The "Pest control / IPM" and "Consulting" cards link to 404s. Supply
+       pages for them, or drop the cards? _Pick:_ drop them until there is
+       content.
+    6. Keep the Mailchimp newsletter? _Pick:_ yes.
+    7. Are the Noun Project icons licensed (plan R5)?
+    8. The report cadence once maintained. _Pick:_ Maintenance Quarterly,
+       Testing Yearly [I: what a six-page brochure site needs].
+    9. Who signs off the alt text and meta descriptions we draft? _Pick:_
+       Nicole.
+62. **Mantis Landscaping: improvements that change how the site looks or
+    reads (#1107, plan §4).** The safe defaults need no sign-off: one host
+    with 301s, `robots.txt`, labels and heading order, `alt` text, the
+    fleet form route with Turnstile, and redirects for the dead links.
+    _Ask:_ approve each of the following, or strike it.
+    - (a) Darken the gold to pass contrast. It measures 1.76:1 on the
+      contact form's Submit and 1.91:1 under white headings [M].
+    - (b) Fold the duplicate edible-gardens page (OD 61.4).
+    - (c) Meta descriptions on every page; none exist today.
+    - (d) A native newsletter signup in place of Mailchimp's embed.
+    - (e) GA4 via `analytics-tag`. This makes the parked `/privacy` page
+      (P1-26) a launch dependency.
+
+    _Pick:_ (a)–(d) yes. (e) only once P1-26 is un-parked; until then the
+    site launches without GA4, as it runs today.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
