@@ -7135,3 +7135,17 @@ therefore reached `main` reviewed only by its own tests (`slider-content.spec`,
 M18/M19) and green CI.
 
 One safety-net check-in ran at 05:36Z before the merge and found nothing new.
+
+## 2026-10-01 — P1-29: Slice Machine is deprecated, and what Prismic wants instead (#1090, this PR)
+
+Research only, from the morning report's brief; no Prismic call with a write credential and no site touched. The write-up is `docs/prismic-model-management-2026-10.md`.
+
+**The answer is yes, and it is recent.** npm marks `slice-machine-ui` 2.21.6 and the three `@slicemachine/*` packages deprecated, all published 2026-09-18 around 04:10Z: "replaced by the Prismic CLI and the Type Builder. Existing projects are still supported." The second source the brief asked for is Prismic's own Slice Machine page ("Slice Machine is deprecated … New projects must use the Type Builder", last updated September 2026); a third is the slice-machine repo's README at its 2026-09-18 release commit; a fourth is the new CLI's `init.ts`, which deletes `slicemachine.config.json` and uninstalls `slice-machine-ui` and the adapter on migration. The negative control held: the same `npm view … deprecated` prints nothing for `@prismicio/client`, `@prismicio/svelte`, `@prismicio/types-internal` or `prismic`. It also caught a trap: `@prismicio/cli` is itself deprecated in favour of the unscoped `prismic` package.
+
+**Belief corrected.** The runbook's §11 said Slice Machine was "declared unmaintained on 2026-07-20 with no sunset date". It is now deprecated with a named successor and a migration command; still no sunset date. §11 carries a one-line pointer rather than a rewrite.
+
+**What the CLI does, read from its source rather than its docs.** `prismic push` and `prismic pull` both delete to match. Push needs `--force` to delete a remote model; pull removes a local slice directory recursively, which takes `index.svelte` and the slice's tests with it, so the runbook's "do not run `prismic init`" still stands for the same reason. Push talks to the same `customtypes.prismic.io` API as `prismic-models`, authenticated by a browser login or `PRISMIC_TOKEN` (since 1.10.0). Whether a repository write token works there is unverified and was deliberately not tested. `gen types` writes `prismicio-types.d.ts` at the project root, where our sites keep it under `src/`.
+
+**What did not close williamson-homes's gap.** None of the tools: the site simply has no `prismic-models.yml` workflow (`ci.yml` and `renovate.yml` only, at `52812ea`), so route 2 never ran for it. The MCP connector has no model write tool at all.
+
+The pick, under Operator decisions 57: roll `prismic-ci` out first, then move the starters' codegen from Slice Machine to `prismic gen` behind our own gate. Prismic's full route (Type Builder on, `prismic push` from CI) conflicts with AUTONOMY's model-delete rule and the runbook's Type Builder rule, so it waits.
