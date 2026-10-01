@@ -7112,3 +7112,17 @@ The CDN answers `Access-Control-Allow-Origin: *`, so #245 (`72fa1c0`) fetches th
 One CI run on #242 took 41.7 minutes with three PRs' suites running at once. Its five motion-test failures sat on a superseded head and did not recur on the landed one.
 
 Still open are Home #3 (which colour to restore at 20%) and Home #4 (Erik).
+
+## 2026-10-01 — The scheduled PM pass: three nightlies green, the drift fixes proven, one queue belief corrected (this PR)
+
+> Follows 2026-10-01's 03:36Z PM pass (#1093), whose morning report this one replaces.
+
+The Routine fired twice for 10-01: at 03:36Z, before any nightly, and at its real slot, 11:49Z. This pass rewrote `MORNING_REPORT_2026-10-01.md` rather than adding a second file for the same date; the early edition stays in git history.
+
+**Nightlies, read from the job logs.** forms-deadletter-replay (06:35Z) `replayed=0 still_failing=0`; fleet-db-backup (11:06Z) `DUMP_VERIFY rows=1113 mismatches=0` on both copies, quota `verdict=ok`; fleet-prismic-drift (11:18Z) `FLEET_WRITE_SUMMARY wrote=15 failed=0 total=15`. The drift run closed out two items that had only been proven on a dispatch: VLF read with its token (18 models match, no warning) and Reddoor's `industry` label (25 models match). Security, lighthouse, daily-reports, smoke, form-e2e and release-health had not fired by 12:00Z.
+
+**Belief corrected on contact.** The 03:36Z pass wrote that Sonder's Maintenance report was held behind the approved-but-unsent Testing report, and marked the timing [I]. Reading the code says otherwise: `isPendingApproval` excludes an approved row, so `planQueue` sees no blocker, and the draft step runs before the send step in `daily-reports.yml`. Sonder Maintenance should draft and queue today. It stays [I] until today's run log shows it.
+
+**Instrument check.** The read-only Turso pass wraps the libSQL client so anything but SELECT/WITH throws, and an `UPDATE … WHERE 0` was refused before any result was trusted. `approveBlockers` returned `[]` for the two approved rows already known clear, and the due dates matched the 03:40Z read (five on 10-05). The npm deprecation check used for P1-29 printed a deprecation for `slice-machine-ui` and nothing for `@prismicio/client`, so it can answer no.
+
+**Housekeeping in BACKLOG.** Operator decision numbers collided a second time: Construction's #9 landed as another "55", and #1090's item was labelled "54" although P1-29 cited 57. They are now 57 and 58, and the next new item is 59. The first attempt at the relabel was silently undone by Prettier, which numbers an ordered list from its first item: that is how a second "55" came to exist at all. A blockquote note now breaks the list so the labels hold. A blank line had split the P1 table before P1-27; removed. Construction #9 (decision 58) is the operator's one new ask; its head is still `f25cfb9`. `list_sessions` is still not available to the Routine, so the GOLA session was read from its branch (unchanged since 02:25:59Z).
