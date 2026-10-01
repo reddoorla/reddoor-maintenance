@@ -1492,6 +1492,10 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     - (e) The reference's empty 45px paragraph on Providence Hospital. Pick
       for both: leave them.
 
+    **Answered 2026-10-01 15:27Z (operator): (a).** The operator merged #9 at
+    `f25cfb9` as `2ee22e8`, with no third review round. (c)–(e) were not
+    taken up, so they stay as they are.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
