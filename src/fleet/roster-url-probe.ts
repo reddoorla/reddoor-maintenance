@@ -27,6 +27,13 @@ export const NETLIFY_SITE_NOT_FOUND = "404 netlify-site-not-found";
 
 export const PROBE_TIMEOUT_MS = 15_000;
 
+/** A fail with no HTTP answer behind it (a timeout, DNS, a reset, TLS): the
+ *  request never reached the server's own verdict, so one read is not enough to
+ *  call it (#1103). A 4xx/5xx, site-not-found or a non-http url is definitive. */
+export function isTransportFailure(p: UrlProbe): boolean {
+  return p.resolves === "fail" && p.status.startsWith("error:");
+}
+
 export async function probeRosterUrl(
   raw: string,
   fetcher: UrlFetch = fetch,

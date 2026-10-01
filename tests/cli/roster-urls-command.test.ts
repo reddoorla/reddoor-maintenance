@@ -3,6 +3,7 @@ import {
   runRosterUrlsCommand,
   BOGUS_HOST_CONTROL,
   KNOWN_GOOD_CONTROL,
+  ROSTER_URL_RETRY_DELAY_MS,
   type RosterUrlsDeps,
 } from "../../src/cli/commands/roster-urls.js";
 import type { UrlFetch } from "../../src/fleet/roster-url-probe.js";
@@ -72,6 +73,7 @@ function deps(over: Partial<RosterUrlsDeps> & { writes?: Write[] } = {}): Partia
     makeMirror: recordingMirror(writes),
     fetch: worldFetch(),
     now: () => NOW,
+    sleep: async () => {},
     ...rest,
   };
 }
@@ -126,7 +128,7 @@ describe("runRosterUrlsCommand", () => {
     expect(r.output).toContain("::warning::roster-urls: hosted https://down.example.com 503");
     expect(r.output).not.toContain("::warning::roster-urls: tower");
     expect(r.output).toContain(
-      "ROSTER_URL_SUMMARY checked=7 pass=4 fail=2 no_url=1 mirrored=7 mirror_failed=0",
+      "ROSTER_URL_SUMMARY checked=7 pass=4 fail=2 no_url=1 mirrored=7 mirror_failed=0 retried=0",
     );
     expect(calls.filter((u) => u.includes("the-pointe-burbank"))).toHaveLength(1);
   });
@@ -310,5 +312,201 @@ describe("runRosterUrlsCommand", () => {
     const warnings = r.output.split("\n").filter((l) => l.startsWith("::warning::"));
     expect(warnings).toHaveLength(2);
     expect(r.output).not.toContain("::warning::roster-urls: blank");
+  });
+});
+
+function timeout(): Error {
+  return Object.assign(new Error("The operation was aborted due to timeout"), {
+    name: "TimeoutError",
+  });
+}
+
+function scripted(
+  host: string,
+  answers: (() => Response | Error)[],
+  calls: string[] = [],
+): UrlFetch {
+  const base = worldFetch(calls);
+  let n = 0;
+  return async (url, init) => {
+    if (new URL(url).hostname !== host) return base(url, init);
+    calls.push(url);
+    const a = answers[Math.min(n++, answers.length - 1)]!();
+    if (a instanceof Error) throw a;
+    return a;
+  };
+}
+
+const ONE_ROW = [row("msot", "https://medicalsolutionsoftx.com/", "maintained")];
+
+describe("runRosterUrlsCommand › a transport error is retried once (#1103)", () => {
+  const ok = () => new Response("<html>ok</html>", { status: 200 });
+
+  it("a target that times out once and then answers 200 is written as pass, after one pause", async () => {
+    const writes: Write[] = [];
+    const calls: string[] = [];
+    const sleeps: number[] = [];
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({
+        writes,
+        roster: async () => ONE_ROW,
+        fetch: scripted("medicalsolutionsoftx.com", [timeout, ok], calls),
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      }),
+    );
+    expect(r.code).toBe(0);
+    expect(byId(writes).msot).toEqual({
+      "URL Resolves": "pass",
+      "URL Status": "200",
+      "URL Checked At": NOW.toISOString(),
+    });
+    expect(calls.filter((u) => u.includes("medicalsolutionsoftx"))).toHaveLength(2);
+    expect(sleeps).toEqual([ROSTER_URL_RETRY_DELAY_MS]);
+    expect(r.output).toContain(
+      "::notice::roster-urls: msot https://medicalsolutionsoftx.com/ retried after error: TimeoutError, second read 200",
+    );
+    expect(r.output).not.toContain("::warning::");
+    expect(r.output).toContain("pass=1 fail=0 ");
+    expect(r.output).toMatch(/ retried=1$/m);
+  });
+
+  it("a target that times out twice is written as fail with its error status, after exactly two requests", async () => {
+    const writes: Write[] = [];
+    const calls: string[] = [];
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({
+        writes,
+        roster: async () => ONE_ROW,
+        fetch: scripted("medicalsolutionsoftx.com", [timeout, timeout, ok], calls),
+      }),
+    );
+    expect(byId(writes).msot).toMatchObject({
+      "URL Resolves": "fail",
+      "URL Status": "error: TimeoutError",
+    });
+    expect(calls.filter((u) => u.includes("medicalsolutionsoftx"))).toHaveLength(2);
+    expect(r.output).toContain(
+      "retried after error: TimeoutError, second read error: TimeoutError",
+    );
+    expect(r.output).toContain(
+      "::warning::roster-urls: msot https://medicalsolutionsoftx.com/ error: TimeoutError",
+    );
+    expect(r.output).toMatch(/ retried=1$/m);
+  });
+
+  it("the second read is the verdict even when it is a definitive HTTP fail", async () => {
+    const writes: Write[] = [];
+    await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({
+        writes,
+        roster: async () => ONE_ROW,
+        fetch: scripted("medicalsolutionsoftx.com", [
+          timeout,
+          () => new Response("bad gateway", { status: 502 }),
+        ]),
+      }),
+    );
+    expect(byId(writes).msot).toMatchObject({ "URL Resolves": "fail", "URL Status": "502" });
+  });
+
+  it("a 404, a site-not-found, a 5xx and a non-http url are each a fail after one read, with no pause", async () => {
+    const writes: Write[] = [];
+    const calls: string[] = [];
+    const sleep = vi.fn(async () => {});
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({
+        writes,
+        sleep,
+        roster: async () => [
+          row("pointe", "https://the-pointe-burbank.netlify.app", "building"),
+          row("hosted", "https://down.example.com", "hosted-only"),
+          row("missing", "https://ok.example.com/missing", "maintained"),
+          row("ftp", "ftp://ok.example.com", "maintained"),
+        ],
+        fetch: async (url, init) => {
+          if (url.endsWith("/missing")) {
+            calls.push(url);
+            return new Response("nope", { status: 404 });
+          }
+          return worldFetch(calls)(url, init);
+        },
+      }),
+    );
+    const got = byId(writes);
+    expect(got.pointe).toMatchObject({ "URL Status": "404 netlify-site-not-found" });
+    expect(got.hosted).toMatchObject({ "URL Status": "503" });
+    expect(got.missing).toMatchObject({ "URL Status": "404" });
+    expect(got.ftp).toMatchObject({ "URL Status": "not an http(s) url" });
+    expect(calls.filter((u) => u.includes("the-pointe-burbank"))).toHaveLength(1);
+    expect(calls.filter((u) => u.includes("down.example.com"))).toHaveLength(1);
+    expect(calls.filter((u) => u.endsWith("/missing"))).toHaveLength(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(r.output).not.toContain("::notice::");
+    expect(r.output).toMatch(/ retried=0$/m);
+  });
+
+  it("counts every retried target, and pauses once for the whole retry pass", async () => {
+    const sleep = vi.fn(async () => {});
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({
+        sleep,
+        roster: async () => [
+          row("a", "https://a.invalid/", "maintained"),
+          row("b", "https://b.invalid/", "maintained"),
+          row("tower", "https://the-tower-burbank-rd.netlify.app", "maintained"),
+        ],
+      }),
+    );
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(r.output).toContain("pass=1 fail=2 ");
+    expect(r.output).toMatch(/ retried=2$/m);
+  });
+
+  it("the controls keep a single read: a bogus host that times out stops the run without a retry", async () => {
+    const writes: Write[] = [];
+    const calls: string[] = [];
+    const sleep = vi.fn(async () => {});
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({
+        writes,
+        sleep,
+        fetch: scripted("no-such-site-zz9q.netlify.app", [timeout, siteNotFound], calls),
+      }),
+    );
+    expect(r.code).toBe(1);
+    expect(writes).toEqual([]);
+    expect(calls.filter((u) => u.includes("no-such-site-zz9q"))).toHaveLength(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(r.output).toContain(
+      `bogus-host control ${BOGUS_HOST_CONTROL.url} read fail error: TimeoutError`,
+    );
+  });
+
+  it("the known-good control keeps a single read too", async () => {
+    const calls: string[] = [];
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({ fetch: scripted("the-tower-burbank-rd.netlify.app", [timeout, ok], calls) }),
+    );
+    expect(r.code).toBe(1);
+    expect(calls.filter((u) => u.includes("the-tower-burbank-rd"))).toHaveLength(1);
+  });
+
+  it("the bogus-host control still reads fail on a single request", async () => {
+    const calls: string[] = [];
+    const r = await runRosterUrlsCommand(
+      { fleet: true, writeBack: true },
+      deps({ fetch: worldFetch(calls), roster: async () => [] }),
+    );
+    expect(r.code).toBe(0);
+    expect(calls.filter((u) => u.includes("no-such-site-zz9q"))).toHaveLength(1);
   });
 });
