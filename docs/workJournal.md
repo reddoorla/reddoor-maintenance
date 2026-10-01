@@ -7032,3 +7032,66 @@ they generalise:
 Landed with `land-prs.mjs`, pinned to `793d1e4`, after the operator's "land
 it". The matching gate was not re-run for this section, by the operator's
 call, and that is ledgered in the site repo.
+
+## 2026-10-01 — Williamson Construction's matching gate runs from the cloud, proven on the reference itself (williamson-construction-co#9, held at round 2)
+
+BACKLOG 52's open gate question was whether "the matching gate passes" could
+be shown from a cloud session. The answer is yes, and both blockers were
+setup:
+
+- The `matching-a-page` skill is a clone of `reddoorla/claude-skills` with
+  `MATCHING_SKILL_DIR=<clone>/skills/matching-a-page`.
+- Phase 1 had never been done. It now is, for all 14 pages, generated from
+  the live reference while it still serves (until 10-19), with the
+  extracts tracked.
+
+The instrument was proven before any FAIL counted. `harness.mjs --check-ref`
+refuses a candidate on the reference's host, so the known-good input is the
+apex domain, which 301s to www. On it the gate printed 14/14 pages, 165
+regions, 0 FAIL, max mismatch 0.0%. The negative control (torrance's
+candidate pointed at west) failed `top` at 65.6/74.0/52.4% while the
+shared footer passed.
+
+**For the Homes worker and any later cloud gate pass, the setup that is not
+in `cloud-session-setup.sh`:**
+
+- **Chromium.** A site on Playwright 1.63 wants a Chromium build the image
+  lacks, and `playwright install` is not allowed. An untracked config
+  override, listed in `.git/info/exclude`, sets `executablePath` from
+  `PW_CHROMIUM=/opt/pw-browsers/chromium-1234/chrome-linux64/chrome`.
+- **Stale dev server.** A Vite dev server left running in a git worktree
+  served stale client modules after `git checkout`. Hydration mismatches
+  reset half of every page, and gate runs r2–r5 measured a page that never
+  existed. Restart cold (`--force`) and check the served markup and the
+  `hydration_mismatch` count before taking evidence.
+- **Killing processes.** `pkill -f <pattern>` killed the very shell running
+  it. Kill by PID.
+- **Running node tests.** `node --test matching/` fails on Node 24; use
+  `node --test matching/*.test.mjs`.
+
+If the setup hook grows a step, the first two are the candidates.
+
+**Corrected on contact.**
+
+- **Breakpoints.** Webflow's `max-width: 991px` includes 991, and Tailwind's
+  `max-[991px]` does not. The matrix widths never touch those pixels, so the
+  gate could not see it; review did.
+- **Census declarations.** The first ones were wide enough to declare rows
+  they never compared. They are now exact before/after pairs with node
+  tests and mutations.
+- **Video bands.** They are 2:1 boxes, not 16:9 at 720px.
+- **Ghost button.** It was never a deviation: a three-class rule outranks
+  the two the first entry cited.
+
+**Held, by the two-dirty-rounds rule.**
+
+- Round 1 found four majors.
+- Round 2 found one: the min-height slides, which stop clipping the
+  reference's own focusable See More, put the absolutely placed controls
+  row over that button at 390.
+- The fix is `106d06e`, and nobody has reviewed it. That head is Operator
+  decision 55; the pick is to land it.
+
+Final gate r7 is on `7db29f3`: 8 of 14 pages pass, and every failing region
+is a LEDGER line. The full account is in the site repo's journal and #9's
+body.
