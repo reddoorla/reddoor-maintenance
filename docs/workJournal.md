@@ -6960,3 +6960,24 @@ browser is served.
 one major that round 1 had introduced (`inert` vs the focus handback) and
 that jsdom could not see. It is fixed, pinned by a browser test that went red
 first, and the PR is held under "two dirty rounds, then stop".
+
+## 2026-10-01 — williamson-homes#10 lands after a third review the operator asked for (`5ec2ddd`)
+
+The operator answered BACKLOG 53: accessibility wins on hover, the 17 census
+rows are accepted, a third review before landing, and models pushed from
+Slice Machine.
+
+Round 3 was dirty, and its blocker is worth remembering. The header had
+become `position: fixed`. Its content slid away, but its own 120px, full-width,
+transparent box stayed at z-50, above the sticky bar. No mouse could click
+the sticky bar. Every test reached the bar with `locator.focus()`, which
+does no hit-testing, so every test passed. A spec that clicks with the mouse
+went red, and the fix (`pointer-events: none` on the box, auto on its
+visible parts) turned it green.
+
+The census declarations were tightened to exact rows after round 3 showed a
+label-only match would absorb a regression on the header's "projects" link.
+Both negative controls now count as real mismatches.
+
+Branch `claude/homes-fidelity` is still on GitHub: the proxy refuses branch
+deletes.
