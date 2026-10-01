@@ -7248,3 +7248,35 @@ The fleet's own `audit --url … --only lighthouse` wrote no result in the cloud
 ## 2026-10-01 — Roalson MarkUp round closed: 12 of 12 pins (roalson-interests #246, #247, #248)
 
 The operator answered the last two pins in session. Home #3 is the progress bar's unfilled track at 20% while it times a slide; the position indicator keeps its 3:1 track (#246). Home #4 removes the PROPERTIES button and adds an ALL circle after the slideshow controls (#248). An unpinned ask also landed: the bar's hero controls at 75% garnet (#247). The full entry is in that repo's journal. Process note for this file: `pkill -f` and `ps | grep | kill` each matched the calling shell's own command line and killed it, so record a dev server's PID when you start it.
+
+## 2026-10-01 — Mantis Landscaping: the operator's answers, the Turso row, the export, and P0 (#1107, this PR)
+
+> Follows 2026-10-01 — Mantis Landscaping: a plan to move it off Blux (#1108).
+
+The operator took the plan's picks on Operator decisions 59–62 ("I'll take your picks"), so the build is native.
+
+**What happened in order.**
+
+- **The Turso row went in first**, because it needed nothing from anyone: `ensure-site mantis-landscaping`, status `building`, verified by `SELECT`. A grep first confirmed that sweeps skip pre-launch rows (`src/inventory/select.ts`), so a row whose repo did not exist yet could raise no alarm.
+- **Generating the repo from the template was refused as a public surface**, the same wall the Williamsons hit, so the operator made it.
+- **It landed as `tucksravin/mantis-landscaping`** on the operator's personal account. Fleet tooling, the central secrets and the row all assume `reddoorla`. That contradicted the row, so it was reported rather than worked around. The operator transferred it to the org.
+
+**The Blux export changed one belief from the plan.** The plan expected `blux convert` to be the seed source for content and assets. On the real export it does the pages well: 3 pages, 17 bands, every page "FAITHFUL". It also has two gaps:
+
+- It skips the `projects` collection.
+- It resolves only 2 of the 89 images the live pages use, with or without `--probe`, because the export's media library has no CDN URLs.
+
+So the planning session's capture, taken partly as insurance, turns out to be the only complete image source. The seed uploads from Blux's CDN and checks each file against the committed manifest's sha256. Blux stays paid until after launch for exactly this reason.
+
+**Privacy in a public repo.** The export's `site.json` carried 6 email addresses and the account's owner and collaborator records. The copy in the site repo's `matching/spec/` is redacted, and the original's sha256 is recorded. A structural check showed the redaction removed nothing else: the 370 KB → 170 KB drop is only the export's pretty-printing.
+
+**Two instrument notes from P0** (the detail is in mantis-landscaping#1 and that repo's journal):
+
+- The match harness's `--check-ref` passed with the Blux site id as `refMark`, and refused a deliberately wrong one.
+- The starter's axe step writes no results in a cloud container. An untouched checkout of the starter fails it identically, so the cause is the container, and CI's runner is the authority for that step.
+
+**Open:**
+
+- Nicole's answers: the form recipient, the domain login, the icon licence, and whether to publish the three draft projects.
+- The Netlify site's name.
+- P2.
