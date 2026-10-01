@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-09-30 ~19:10Z** (cloud PM pass, `claude/pm-pass-2026-09-30`).
+**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-10-01 ~04:00Z** (cloud PM pass, `claude/focused-cori-2uwaa5`; a diff, not a full re-rank).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -112,13 +112,13 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ----- | --------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **13/13, 0 blockers; yours to approve and send (operator decision 30).** [M, #1063, 19:20Z] Draft `report_01M3SGQRB1P4AX68Z20PME512P` re-rendered by run 36764821092 on `8ae1bf8c` (#1060): `evidence=reticked search=measured`, Google Indexed "Page 1 on Google (#2)", `approveBlockers` `[]`. The cause was an opt-out (`accepted_watch_conditions` held `no search console`), not missing enrolment. Nothing sent. |
-| hold  | 29 Navy                                       | Maintenance 2026-09                            | Draft `rec67VEr1fwaZyNtv` ready, 0 blockers [M, positive control 09-30 ~19:00Z], unsent since 09-17. Not due in this window: its schedule is yearly (`next_maintenance_at` 2027-09-17). Recipients settled. Press refresh preview, then approve.                                                                                                                                                                       |
-| 09-30 | Vida Legacy Foundation                        | Maintenance 2026-09                            | **New.** Drafted 16:00:48Z by today's daily-reports, 0 blockers [M]. VLF's Launch email went out two seconds later and flipped it to maintained. Operator decision 41.                                                                                                                                                                                                                                                 |
-| 10-01 | Sonder                                        | Maintenance                                    | No row yet; evidence fresh (FH 09-30 15:01Z). Drafts `draft_ready=0` behind the unsent Testing report (`src/reports/queue.ts`, higher tier pending) [I, read from code], so it waits on the Testing blocker.                                                                                                                                                                                                           |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; preflight clean on all five; FH stamped 09-30 14:50–15:04Z [M]. Revogen **is** GA4-enrolled (`ga4_property_id` 545817747). Data Dynamiq has no GA4 and no search enrolment, so it draws no analytics section.                                                                                                                                                                                             |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                |
+| ----- | --------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Approved by the operator 2026-09-30 21:18:16Z (dashboard), not yet sent** [M, live row 10-01 03:40Z]. `approveBlockers` `[]`; 13 evidence rows, checked 09-30 11:38–21:03Z. The next `daily-reports` run (cron 09:23Z, fires ~16:00Z) sends it with `--send-ready`.                                                |
+| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Approved by the operator 2026-09-30 21:20:01Z (dashboard), not yet sent** [M]. `approveBlockers` `[]`. Its stored evidence is still 09-27 and its body still reads "Completed on 09.17.2026": the same body the clean 09-28 [TEST] send rendered [I]. Sends with the next `daily-reports` run. Recipients settled. |
+| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                             |
+| 10-01 | Sonder                                        | Maintenance                                    | No row yet [M, 10-01 03:40Z]. Held behind the approved-but-unsent Testing report (`src/reports/queue.ts`, higher tier pending). Whether the same `daily-reports` run that sends Testing also drafts Maintenance, or the next night does, is not read from code [I].                                                  |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; preflight clean on all five; FH stamped 09-30 14:50–15:04Z [M]. Revogen **is** GA4-enrolled (`ga4_property_id` 545817747). Data Dynamiq has no GA4 and no search enrolment, so it draws no analytics section.                                                                                           |
 
 **Settled — do not flag again (operator, 2026-09-29, after being asked
 several times):** the report recipients are correct as they are. MSOT and
@@ -136,6 +136,7 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164            | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 
 | P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries | 🟢 | S | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed |
+| P1-29 | #1090, research half only: what is Prismic's current recommended way to manage slice and type models in a code-first SvelteKit project, and is Slice Machine deprecated? The operator raised it 2026-10-01 while landing williamson-homes#10; the issue marks it **unverified**. Read Prismic's docs and changelog and the npm status of `slice-machine-ui` and `@slicemachine/*`, cite each, and write the options against today's three routes (Slice Machine, `prismic-models` + `prismic-ci`, the MCP). The decision that follows is the operator's (Operator decisions 57) | 🟢 | S | #1090 body, `docs/runbooks/prismic-model-delivery.md`, a site's `package.json` (`slice-machine-ui`, e.g. williamson-homes) | A cited write-up in `docs/` and on #1090, with each claim backed by a second source, and a one-line pick under Operator decisions 57 |
 
 ### Blocked behind another PR (do not start early)
 
@@ -163,6 +164,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   a PDF sweep; at 21:17Z "sweep 50% done; PDFs ~23:00–23:15 UTC". No branch
   pushed yet, and no issue. The PM pass reports its state (`get_session`) and
   does not act on it.
+  **10-01 03:40Z [M]:** branch `claude/practical-ride-kbipzv`, 13 commits to
+  02:25:59Z, no PR. It touches `docs/workJournal.md` (+66) and `CLAUDE.md` (+13,
+  "research agents run on Sonnet"). `list_sessions` is not available to the PM
+  Routine, so its session state was not read.
 
 - **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
   the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
@@ -1378,6 +1383,10 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
 
 ---
 
+> Two items carry the number 53 (PM pass 2026-10-01): this one is Homes
+> (#1087, #1089, #1091); the one above is Roalson (#1092). Numbers are left as
+> landed because PR titles cite them; new items continue from 57.
+
 53. **williamson-homes#10 (Homes fidelity, OD7-P1b): answered 2026-10-01 and
     landed as `5ec2ddd` (head `bde334a`).** The operator chose a third review.
     It was dirty: the fixed header box covered the sticky bar, so it could not
@@ -1405,6 +1414,12 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
       `curl …/about-us | grep -c 'md:min-h-\[40rem\]'` returned 1.
     - Nothing in (iii) is open. The question of how models should reach
       Prismic in the first place is #1090.
+
+54. **#1090, how models reach Prismic (new 2026-10-01).** After P1-29's
+    write-up: pick the route that replaces or supplements Slice Machine in the
+    starters and in `prismic-models`/`prismic-ci`, including type generation
+    (`prismicio-types.d.ts`) and the generated slice index. Not an ask until
+    P1-29 lands; listed so the PM pass carries it.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
