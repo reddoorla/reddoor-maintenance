@@ -131,12 +131,23 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 | #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                                       | Done when                                                                                                          |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| P1-23 | **Handed to a worker by the operator 10-01 ~16:20Z (task card from the PM brief); check #1056 for its claim.** #1056: `launch` scores Lighthouse on the local checkout, not the live site, and mails that score to the client. `src/recipes/launch.ts:618` calls `audit(site)` on the site `src/cli/commands/launch.ts:43` resolves from the checkout; `src/audits/lighthouse.ts:285-287` falls back to `checkoutLighthouse` whenever `deployedUrl` is unset, and `src/inventory/select.ts` sets it only for `maintained` rows. VLF's stored launch baseline was 52/100/100/61 against 85/100/100/100 live (journal 2026-09-29). roalson-interests is the next launch [I]                                                                                                                                                                                                                             | 🟡   | S–M    | `src/recipes/launch.ts:618`, `src/audits/lighthouse.ts:285`, `tests/recipes/launch.test.ts`      | A launch of a site with a live `url` scores that url, and a test goes red if it falls back to the checkout         |
 | P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                                  | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164                 | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 | P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries                                                                                                                                                                                                                                                                                                                 | 🟢   | S      | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed                  |
 
 ### Blocked behind another PR (do not start early)
+
+- **P1-30 · Mantis Landscaping: Blux → native Reddoor stack (#1107) 🟡/🔴.
+  Blocked on Operator decisions 59–62.** The plan is
+  `docs/mantis-landscaping-plan-2026-10.md`. The phases are P0 (Blux
+  export, repo from the starter, capture into `matching/spec/`), P1
+  (Prismic repository and write token 🔴), P1b (`ensure-site`, status
+  `building`), P2 (model, slices, routes, seed from `blux convert`), P3
+  (Netlify), P4 (form intake on `/api/forms/mantis-landscaping` with
+  Turnstile), P5 (fidelity and §4 improvements), P6 (cutover of `A` and
+  `www` only, then `launch`) and P7 (cancel Blux 🔴). Each phase's "done
+  when" is in the plan's §6. _Verify:_ `curl -sI https://mantislandscaping.com/`
+  still shows Blux, and `captures/mantis-landscaping/manifest.json` exists.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -1448,7 +1459,8 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
 > "54", although P1-29 and the 03:36Z report already cite it as **57**.
 > Construction's #9 had landed as a second "55" (#1095, and that session's
 > journal entry); it is **58** now. Prettier numbers an ordered list from its
-> first item, so this note breaks the list to keep both labels. Next new item: 59.
+> first item, so this note breaks the list to keep both labels. Next new item: 63
+> (59–62 added 2026-10-01 for Mantis Landscaping, #1107).
 
 57. **#1090, how models reach Prismic (new 2026-10-01).** After P1-29's
     write-up: pick the route that replaces or supplements Slice Machine in the
@@ -1523,6 +1535,76 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `f25cfb9` as `2ee22e8`, with no third review round. (c)–(e) were not
     taken up, so they stay as they are.
 
+59. **Mantis Landscaping: which starter (#1107, plan
+    `docs/mantis-landscaping-plan-2026-10.md`).** The operator asked for
+    the "reddoor stack" and for improvements. The repo's `blux` pipeline
+    renders only on `reddoor-starter-blux`: its `emit` and `catalog` write
+    `blux_*` slice ids [M]. The pipeline has been dormant since July, and
+    its last consumer, the-pointe, is archived.
+    _Ask:_ pick one.
+    - (a) **Native `reddoor-starter`**, using `blux convert` only to
+      extract content, assets and theme tokens, and seeding about seven
+      native slices from that.
+    - (b) **The Blux track:** `blux convert/emit/migrate` onto
+      `reddoor-starter-blux`. This is the fastest faithful copy, and the
+      hardest to improve afterwards.
+    - (c) Native, hand-seeded without the pipeline.
+
+    _Pick:_ (a). There are 6 pages, about 30 text blocks and 89 images, so
+    a native build is bounded. The improvements in plan §4 are
+    native-starter work either way, and the site does not inherit a render
+    layer that no CI exercises.
+
+60. **Mantis Landscaping: the Blux export, and when Blux may be cancelled
+    (#1107).** `blux catalog/convert` need the dashboard export
+    (`site.json` plus each page's `index.html`). The live site does not
+    serve `site.json` (404 at three paths [M]). The export also holds the
+    projects feed's unpublished items 2–4 and Blux's form settings, which
+    is where the contact form delivers today (plan R2, R4).
+    _Ask:_ (i) download the Mantis export from the Blux dashboard (or ask
+    whoever holds the Blux login) and attach it to #1107 or drop it in the
+    session; (ii) keep the Blux site paid until 14 days after the DNS
+    cutover.
+    _Pick:_ (i) yes, now; (ii) yes. Blux serving is the rollback until then.
+61. **Mantis Landscaping: client facts, as one message for Nicole (#1107).**
+    No agent contacts the client. The answers unblock P1-30's P4 and P6.
+    1. The contact-form recipient. Today's is unknown, and leads may
+       already be going to an unread inbox.
+    2. Who holds the Squarespace Domains account. RDAP shows only the
+       registrar, Squarespace Domains II LLC; the domain expires 2027-05-09
+       [M]. Who will change the apex `A` and the `www` `CNAME` at cutover?
+       Google Workspace mail (MX, SPF) stays untouched.
+    3. Apex or `www` as the one host. _Pick:_ the apex, which is what
+       people type.
+    4. `/ediblegardens` and `/projects/ediblegardens` are near-duplicates
+       (43 shared images; the first has 8 more). Which URL stays? _Pick:_
+       `/projects/edible-gardens`, as the fuller page, with 301s from both
+       old paths.
+    5. The "Pest control / IPM" and "Consulting" cards link to 404s. Supply
+       pages for them, or drop the cards? _Pick:_ drop them until there is
+       content.
+    6. Keep the Mailchimp newsletter? _Pick:_ yes.
+    7. Are the Noun Project icons licensed (plan R5)?
+    8. The report cadence once maintained. _Pick:_ Maintenance Quarterly,
+       Testing Yearly [I: what a six-page brochure site needs].
+    9. Who signs off the alt text and meta descriptions we draft? _Pick:_
+       Nicole.
+62. **Mantis Landscaping: improvements that change how the site looks or
+    reads (#1107, plan §4).** The safe defaults need no sign-off: one host
+    with 301s, `robots.txt`, labels and heading order, `alt` text, the
+    fleet form route with Turnstile, and redirects for the dead links.
+    _Ask:_ approve each of the following, or strike it.
+    - (a) Darken the gold to pass contrast. It measures 1.76:1 on the
+      contact form's Submit and 1.91:1 under white headings [M].
+    - (b) Fold the duplicate edible-gardens page (OD 61.4).
+    - (c) Meta descriptions on every page; none exist today.
+    - (d) A native newsletter signup in place of Mailchimp's embed.
+    - (e) GA4 via `analytics-tag`. This makes the parked `/privacy` page
+      (P1-26) a launch dependency.
+
+    _Pick:_ (a)–(d) yes. (e) only once P1-26 is un-parked; until then the
+    site launches without GA4, as it runs today.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
@@ -1577,6 +1659,17 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-10-01 — P1-23, `launch` scores the live site, not the checkout:
+  #1056. `launch` resolves its site from a local path, which never carries
+  `deployedUrl`, so Lighthouse scored the checkout's dev server. It now looks
+  up the row, refuses a url that is not http(s), runs dev-guard (whose
+  `/health` control proves the url answers) before the audit, and audits with
+  `deployedUrl` set to the row's url; a failed live audit stops the chain
+  rather than falling back. Two review rounds (round 1 test gaps, round 2
+  clean), 12 mutations all red. Correction to the item: the go-live email
+  renders no Lighthouse; the scores land in `site_health` and on the Launch
+  report row.
 
 - 2026-10-01 — `roster-urls` retries a transport error once before writing
   a fail: #1103, #1106. MSOT's 10-01 `error: TimeoutError` was a blip (the

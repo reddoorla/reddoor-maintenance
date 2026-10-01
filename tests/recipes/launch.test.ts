@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launch, matchingDisposition, UNGUARDED_TWIN_MARKER } from "../../src/recipes/launch.js";
+import { lighthouseAudit } from "../../src/audits/lighthouse.js";
+import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import {
   MATCH_ROUTE_SERVER_TEMPLATE,
   UNGUARDED_TWIN_TELL,
@@ -348,6 +350,167 @@ describe("recipes/launch", () => {
     expect(writer.patches).toEqual([{ id: writer.inserts[0]!.id, patch: { draft_ready: 1 } }]);
   });
 
+  it("audits the row's live url, not the checkout (#1056)", async () => {
+    const seed = websitesSeed();
+    const audited: Site[] = [];
+    const result = await launch(siteOf(), {
+      ...deps(seed),
+      audit: async (s: Site): Promise<AuditResult[]> => {
+        audited.push(s);
+        return [lighthouseResult()];
+      },
+    });
+    expect(result.complete).toBe(true);
+    expect(audited).toHaveLength(1);
+    expect(audited[0]!.deployedUrl).toBe("https://acme.example.com");
+    expect(audited[0]!.path).toBe(checkoutDir);
+  });
+
+  it("runs the real lighthouse audit in deployed mode against the row's url, never a dev server (#1056)", async () => {
+    const seed = websitesSeed();
+    const calls: Array<{ cwd: string | undefined; collect: Record<string, unknown> }> = [];
+    const spawn: SpawnFn = async (_cmd, args, opts = {}) => {
+      const configArg = args.find((a) => a.startsWith("--config="))!;
+      const config = JSON.parse(readFileSync(configArg.slice("--config=".length), "utf-8")) as {
+        ci: { collect: Record<string, unknown> };
+      };
+      calls.push({ cwd: opts.cwd, collect: config.ci.collect });
+      const resultsDir = join(opts.cwd!, ".lighthouseci");
+      await mkdir(resultsDir, { recursive: true });
+      await writeFile(
+        join(resultsDir, "lhr-1.json"),
+        JSON.stringify({
+          requestedUrl: (config.ci.collect.url as string[])[0],
+          categories: {
+            performance: { score: 0.85 },
+            accessibility: { score: 1 },
+            "best-practices": { score: 1 },
+            seo: { score: 1 },
+          },
+        }),
+      );
+      return { code: 0, stdout: "", stderr: "" };
+    };
+
+    const result = await launch(siteOf(), {
+      ...deps(seed),
+      audit: async (s: Site) => [await lighthouseAudit({ site: s, spawn })],
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.collect.url).toEqual(["https://acme.example.com"]);
+    expect(calls[0]!.collect).not.toHaveProperty("startServerCommand");
+    expect(calls[0]!.cwd).not.toBe(checkoutDir);
+    expect(result.complete).toBe(true);
+    expect(writer.inserts[0]!.fields["Lighthouse — Performance"]).toBe(85);
+  });
+
+  it("hands the audit the row's url over any url the resolved site already carried (#1056)", async () => {
+    const seed = websitesSeed();
+    seed.Websites[0]!.fields.url = "https://acme.example.com/en/";
+    const audited: Site[] = [];
+    await launch(
+      { ...siteOf(), deployedUrl: "https://stale.example.com" },
+      {
+        ...deps(seed),
+        audit: async (s: Site): Promise<AuditResult[]> => {
+          audited.push(s);
+          return [lighthouseResult()];
+        },
+        probe: async (url: string) =>
+          url.includes("/dev/match/")
+            ? { status: 404, body: "<h1>404</h1>" }
+            : { status: 200, body: "{}" },
+      },
+    );
+    expect(audited.map((s) => s.deployedUrl)).toEqual(["https://acme.example.com/en/"]);
+  });
+
+  for (const failure of ["throws", "returns no real scores"] as const) {
+    it(`never falls back to the checkout when the live audit ${failure} (#1056)`, async () => {
+      const seed = websitesSeed();
+      const audited: Site[] = [];
+      const result = await launch(siteOf(), {
+        ...deps(seed),
+        audit: async (s: Site): Promise<AuditResult[]> => {
+          audited.push(s);
+          if (!s.deployedUrl) return [lighthouseResult()];
+          if (failure === "throws") throw new Error("lhci exploded");
+          return [{ audit: "lighthouse", site: "Acme Co", status: "fail", summary: "no lhr" }];
+        },
+      });
+      expect(result.complete).toBe(false);
+      expect(audited).toHaveLength(1);
+      expect(audited[0]!.deployedUrl).toBe("https://acme.example.com");
+      expect(result.steps.at(-1)).toMatchObject({ name: "audit", result: { kind: "error" } });
+      expect(writer.inserts).toHaveLength(0);
+    });
+  }
+
+  it("does not audit at all when the live url does not answer (#1056)", async () => {
+    const seed = websitesSeed();
+    let audited = false;
+    const result = await launch(siteOf(), {
+      ...deps(seed),
+      audit: async (): Promise<AuditResult[]> => {
+        audited = true;
+        return [lighthouseResult()];
+      },
+      probe: async () => {
+        throw new TypeError("fetch failed");
+      },
+    });
+    expect(result.complete).toBe(false);
+    expect(audited).toBe(false);
+    expect(result.steps.map((s) => s.name)).toEqual([
+      "matching-disposition",
+      "self-updating",
+      "dev-guard",
+    ]);
+    expect(writer.inserts).toHaveLength(0);
+  });
+
+  it("does not audit when the live url's /health does not answer 200 (#1056)", async () => {
+    const seed = websitesSeed();
+    let audited = false;
+    const result = await launch(siteOf(), {
+      ...deps(seed),
+      audit: async (): Promise<AuditResult[]> => {
+        audited = true;
+        return [lighthouseResult()];
+      },
+      probe: async (url: string) =>
+        url.endsWith("/health") ? { status: 502, body: "" } : { status: 404, body: "<h1>404</h1>" },
+    });
+    expect(result.complete).toBe(false);
+    expect(audited).toBe(false);
+  });
+
+  for (const url of ["file:///etc/passwd", "acme.example.com", ""]) {
+    it(`refuses a row whose url is ${JSON.stringify(url)} before auditing anything (#1056)`, async () => {
+      const seed = websitesSeed();
+      seed.Websites[0]!.fields.url = url;
+      let audited = false;
+      const probed: string[] = [];
+      const result = await launch(siteOf(), {
+        ...deps(seed),
+        audit: async (): Promise<AuditResult[]> => {
+          audited = true;
+          return [lighthouseResult()];
+        },
+        probe: async (url: string) => {
+          probed.push(url);
+          return { status: 200, body: "" };
+        },
+      });
+      expect(result.complete).toBe(false);
+      expect(audited).toBe(false);
+      expect(probed).toEqual([]);
+      const guard = result.steps.find((s) => s.name === "dev-guard");
+      expect((guard?.result as { message: string }).message).toMatch(/not an http\(s\) url/);
+    });
+  }
+
   it("stops at dev-guard when the matching twin still answers 200 in production", async () => {
     const seed = websitesSeed();
     const result = await launch(siteOf(), {
@@ -537,7 +700,7 @@ describe("recipes/launch", () => {
     // The real defaultProbe, not an injected one. Undici's defaults are 300s
     // headers + 300s body, and the body timeout is an INACTIVITY timer — so a
     // trickling origin could hold the launch chain for ~10 minutes AFTER the
-    // GitHub writes and a full Lighthouse audit had already run. Every other
+    // GitHub writes had already run. Every other
     // outbound fetch in this repo is timeboxed (audits/function-health.ts,
     // audits/netlify-deploy.ts, ~15 call sites in prospect/).
     const seen: Array<{ url: string; init: RequestInit | undefined }> = [];
