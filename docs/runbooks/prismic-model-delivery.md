@@ -228,6 +228,8 @@ One consequence for ordinary work: the mutating-call-site pin is the strictest r
 
 ## 11. Slice Machine, and Type Builder
 
+> Status updated 2026-10-01: Slice Machine is now formally deprecated (npm, 2.21.6 on 2026-09-18), replaced by the Type Builder and the `prismic` CLI. Sources and options: [`docs/prismic-model-management-2026-10.md`](../prismic-model-management-2026-10.md).
+
 **Slice Machine stays installed** as the local visual authoring tool. It is simply no longer the delivery path. It was declared unmaintained on 2026-07-20 with no sunset date, and 2.21.5 shipped 17 days after that announcement — time pressure, no fire. Removing it, and any move from `slicemachine.config.json` to `prismic.config.json`, is a separate later decision. (Both filenames are already read, in that order, so a half-migrated repo does not go dark.)
 
 **Do not run `prismic init`.** It is a destructive config rewrite, not an idempotent setup step: it `rm -r`s any local slice directory absent from the remote — component code included — rewrites `package.json` and the lockfile, AST-edits `vite.config.ts`, and makes remote writes to the live Prismic repository even under `--no-setup`.
