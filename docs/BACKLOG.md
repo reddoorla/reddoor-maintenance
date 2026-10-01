@@ -1250,6 +1250,12 @@ analytics"]`). The operator creates properties for the other three. When the
     property has a web stream (`G-1ZYB95TKC1`, `https://1836dig.com/`); 29 Navy's
     and Data Dynamiq's have none yet, so they collect nothing until a stream and
     a tag exist (P1-26).
+    **Streams created by the operator 2026-10-01 [M, Admin API ~01:20Z]:**
+    1836dig `G-1ZYB95TKC1` (`https://1836dig.com/`), 29 Navy `G-MSYB9MQGRV`
+    (`https://29navy.com/`), Data Dynamiq `G-V11LZYNMY2`
+    (`https://www.datadynamiq.com/`). These are the measurement IDs that go in
+    each repo's `src/lib/site-config.json` (design D5) when the tags are
+    installed. That install is still P1-26's (privacy page first).
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
