@@ -1579,6 +1579,14 @@ verdict is its only input, because no client and no check sees the email.
   renders no Lighthouse; the scores land in `site_health` and on the Launch
   report row.
 
+- 2026-10-01 — `roster-urls` retries a transport error once before writing
+  a fail: #1103, #1106. MSOT's 10-01 `error: TimeoutError` was a blip (the
+  same run's other checks passed; 200 three of three an hour later). A row
+  with no HTTP answer is re-read after a 25 s pause and the second read is
+  the verdict; HTTP answers and both controls keep one read. `retried=N` on
+  `ROSTER_URL_SUMMARY`. 14 mutations all red; review round 1 four test gaps,
+  round 2 clean. The 10-minute step outgrows the retry at about 108 rows.
+
 - 2026-10-01 — P1-29, how Prismic wants models managed (#1090, research):
   `docs/prismic-model-management-2026-10.md`. Slice Machine is deprecated
   (four sources, negative control on `@prismicio/client`), replaced by the

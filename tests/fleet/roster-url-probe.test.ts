@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  NETLIFY_SITE_NOT_FOUND,
   PROBE_TIMEOUT_MS,
+  isTransportFailure,
   probeRosterUrl,
   type UrlFetch,
 } from "../../src/fleet/roster-url-probe.js";
@@ -184,5 +186,28 @@ describe("probeRosterUrl classification", () => {
       resolves: "fail",
       status: "error: TimeoutError",
     });
+  });
+});
+
+describe("isTransportFailure (#1103)", () => {
+  it("is true only for a fail with no HTTP answer behind it", () => {
+    expect(isTransportFailure({ resolves: "fail", status: "error: TimeoutError" })).toBe(true);
+    expect(isTransportFailure({ resolves: "fail", status: "error: ENOTFOUND" })).toBe(true);
+    for (const status of ["404", "503", NETLIFY_SITE_NOT_FOUND, "not an http(s) url"]) {
+      expect(isTransportFailure({ resolves: "fail", status })).toBe(false);
+    }
+    expect(isTransportFailure({ resolves: "fail", status: "error-page" })).toBe(false);
+    expect(isTransportFailure({ resolves: "fail", status: "502 error: upstream" })).toBe(false);
+    expect(isTransportFailure({ resolves: "pass", status: "error: odd" })).toBe(false);
+    expect(isTransportFailure({ resolves: "pass", status: "200" })).toBe(false);
+    expect(isTransportFailure({ resolves: null, status: "no url" })).toBe(false);
+  });
+
+  it("classifies what probeRosterUrl actually returns for a thrown timeout", async () => {
+    const p = await probeRosterUrl("https://slow.example.com/", async () => {
+      throw Object.assign(new Error("aborted"), { name: "TimeoutError" });
+    });
+    expect(p).toEqual({ resolves: "fail", status: "error: TimeoutError" });
+    expect(isTransportFailure(p)).toBe(true);
   });
 });
