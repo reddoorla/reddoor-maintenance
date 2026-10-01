@@ -1362,6 +1362,9 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     234/231/228, photo box 243/241/239, heading 51px under the tabs.
     _Ask:_ (a) land without a third round; (b) a third round. _Pick:_ (a).
     Then resolve pin `2b18dce4` with "fixed in <sha>".
+    **Answered 2026-10-01 ~04:10Z (operator, "land what you can"):** landed
+    `5e47eeb`; on the live site Improved reads identically to Land; pin
+    resolved.
 54. **roalson-interests#243 (MarkUp: "the map bounces when I click a point")
     reopens roalson-interests#136.** #136 was closed 09-28 with "keep the
     three flights … reopen only if someone reports the press as janky", and
@@ -1374,6 +1377,8 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
 
     _Ask:_ land it, or keep the three flights. _Pick:_ land. Then resolve
     pin `f4be21e8`.
+    **Answered 2026-10-01 (operator, "land what you can"):** landed `195a798`
+    (live build 04:58:32Z); pin resolved; noted on #136.
 
 55. **Roalson MarkUp pins left open (questions, not fixes).**
     - (i) **Homepage #4**, Nicole to Erik: keep the featured band's
@@ -1387,6 +1392,15 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     - (iii) **Properties #3**: is the property package an arrow or a
       download? _Pick:_ a download glyph with the `download` attribute, since
       it is a PDF. Whether it opens in a viewer stays the browser's choice.
+    - **Answered (operator, 2026-10-01):** (iii) download. It landed as
+      roalson-interests#245 (`72fa1c0`). A bare `download` attribute is
+      ignored on the cross-origin CDN link, so a press now fetches and saves
+      the PDF. Verified on the live site, and the pin is resolved.
+    - (ii) **Still open.** The operator reads it as "bring the colour back",
+      not a dropdown. Which colour, and over what (the map tint, the
+      featured card ground, or the dark strip under the bar), is the
+      operator's to name; then it is a one-line change at 20%.
+    - (i) **Still open:** Erik's call.
 
 ---
 
