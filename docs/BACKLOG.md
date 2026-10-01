@@ -1469,6 +1469,12 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     every Prismic site without it), then swap `slice-machine-ui` for
     `prismic gen` in the starters behind our own gate, never `prismic init`
     or `prismic push`.
+    **Superseded by the operator's ask (10-01 17:00Z): migrate the whole
+    fleet.** Plan and estimate: `docs/prismic-migration-plan-2026-10.md`
+    (21 repos, 18 Prismic repositories, about 3½ h of operator time over
+    two weeks). _Ask:_ D1–D3 there (Type Builder source of truth, delivery
+    tool, generated-file layout); recommended (a), keep `prismic-models`,
+    Prismic's layout.
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:
