@@ -1,0 +1,1047 @@
+{
+  "ref": "https://mantislandscaping.com",
+  "host": "blux",
+  "bluxSiteId": "6e0b52ee-9bb9-4c5a-b1ee-653009e3b572",
+  "capturedAt": "2026-10-01T17:31:44.129Z",
+  "pages": [
+    {
+      "path": "/",
+      "status": 200,
+      "bytes": 102935,
+      "sha256": "78dc518122e7bf716e9309035fc6a224746511991e72b0f35125514a2af10a39",
+      "title": "Mantis Landscaping - Mantis Landscaping",
+      "media": [
+        "159e861e-7395-4dea-8072-5ff6af26a117.png",
+        "ec8acb1b-5a28-4420-b095-aacd94bb5cc2.jpg",
+        "a6b32564-5dc8-4149-9d72-e540b966ea45.jpg",
+        "d91028b1-4807-4d29-a5e1-2fb137b1b503.png",
+        "8a32c3e9-44cd-4dbf-bcee-8c54ac02bf68.png",
+        "42be8b29-1724-44b6-87e2-f163dd4d668c.png",
+        "2bb6e4f1-9405-41ab-9976-9b34e598c78a.png",
+        "f8a75409-c8c5-454c-8e7c-787af1f7a7fd.jpg",
+        "484b70e4-fe18-4af2-92bc-8b2f1fb806a5.png",
+        "7279c951-52f9-418e-bfd3-b7b00d63eb7c.png",
+        "39097e48-12d5-43b8-a59b-512d498e7937.png",
+        "31478c85-ceb9-4d3a-a733-1b45cbfa5d04.jpg",
+        "c574afe5-489c-4826-8a07-ee39f85b1176.jpg",
+        "3ce289d6-b431-4c10-bcbd-5aff5ff4b974.png",
+        "2d026842-2086-4795-b010-6f5c85693f2c.png",
+        "33aa34a6-890c-4faf-b2e8-737a265b4b6f.jpg"
+      ]
+    },
+    {
+      "path": "/contact-us",
+      "status": 200,
+      "bytes": 58251,
+      "sha256": "c5ebafd07b98601ca1ec1c6f01052995f83f6eb51ff19af52fc77eb73d6a795f",
+      "title": "Contact Us - Mantis Landscaping",
+      "media": [
+        "159e861e-7395-4dea-8072-5ff6af26a117.png"
+      ]
+    },
+    {
+      "path": "/ediblegardens",
+      "status": 200,
+      "bytes": 138032,
+      "sha256": "c6bb646e63a402d06c9bff11e8b01a6466ee3067b65ee1317ddf4eefcb86ce4a",
+      "title": "Edible Gardens - Mantis Landscaping",
+      "media": [
+        "159e861e-7395-4dea-8072-5ff6af26a117.png",
+        "7ac1fb23-ca45-48b4-a701-e65291a4cd5b.jpg",
+        "d91028b1-4807-4d29-a5e1-2fb137b1b503.png",
+        "d14aba71-8eb8-4642-bbac-4cef3b0b148a.png",
+        "391fd90e-17c8-47cd-a310-2cd26ab81105.png",
+        "5ad5066d-7388-4c88-b8d9-0b8394840d2b.png",
+        "8a32c3e9-44cd-4dbf-bcee-8c54ac02bf68.png",
+        "a6000c0e-33d0-4e24-b9ac-9ead0a32357b.jpg",
+        "484b70e4-fe18-4af2-92bc-8b2f1fb806a5.png",
+        "ce3a7d48-e72d-49c6-b4ed-f4505a08606c.jpg",
+        "7279c951-52f9-418e-bfd3-b7b00d63eb7c.png",
+        "ac27fa65-b152-4e51-a541-bc823b3b0a5f.jpg",
+        "39097e48-12d5-43b8-a59b-512d498e7937.png",
+        "3ed4ae9a-c9ce-43bf-b7bf-646ac6ffc348.jpg",
+        "5f73c753-180d-4a96-9ee2-ea885823dc8b.jpg",
+        "95d926cc-12d6-42ca-b445-d9da395c7444.jpg",
+        "fc68e11f-57e8-4c5b-b664-ac87e296f24f.jpg",
+        "054058c4-e73e-4803-9618-a453f966f45d.jpg",
+        "91a170c6-4ce4-411d-a780-16dedf336c63.jpg",
+        "bb692cff-b8c5-4022-b978-6ab50d0e5937.jpg",
+        "edcc7378-0569-4341-9a52-59c4f69c6b04.jpg",
+        "a79129e4-6b11-4ba1-b913-9961208d6a72.jpg",
+        "37744df0-dc03-4682-856a-6e302a98def8.jpg",
+        "ce827c7b-87f4-4716-9af0-60299f1be022.gif",
+        "b0e506f5-7462-4be7-b0a1-c0a2c7ce12d0.jpg",
+        "713e0abe-d301-4fa4-90f5-050f7a79ac0c.jpg",
+        "e47d5861-8307-4459-86ff-0030f71de881.jpg",
+        "c8567103-67f0-4afe-993f-e3c12018c8c9.jpg",
+        "d088b50c-f15b-44db-ad08-2c19fb3bd735.jpg",
+        "2e0901bc-a4c2-4e7f-8015-17917da00a01.jpg",
+        "56cd8c6a-916b-45db-89b8-a55a34af9116.jpg",
+        "5f1d7d82-ff1b-4100-8811-b978ea03852c.jpg",
+        "c1a631f2-aecb-4e1a-b22b-ddf572e7dcae.jpg",
+        "cd953712-24b7-4f53-9ac4-8d0f65307ac2.jpg",
+        "7e4107f4-c055-41b4-8db6-366718b9c4e4.jpg",
+        "516ba2f4-6cdf-4c57-b543-bca990fcc5a4.jpg",
+        "89012397-6c92-44d7-b845-49f619de012f.jpg",
+        "8e597c3f-c8af-45cb-85fc-9bc62b44211a.jpg",
+        "2554f84c-a613-4364-9149-11072f63267f.jpg",
+        "f48d49c2-2e5e-45fc-b2b1-685e8bbd5893.jpg",
+        "f4cb7100-536c-4f8b-a315-14079d6b404d.jpg",
+        "33e8356e-82be-40f8-8346-0b3400424f92.jpg",
+        "8523f0af-a447-4c6e-be7a-78032ffdb727.jpg",
+        "e0b1296d-fb18-4cd2-bf6b-3344bf9190a5.jpg",
+        "a3011027-b63a-498a-becf-f95abe835021.jpg",
+        "f27a48b0-dae4-43df-b47b-64f1095088e1.jpg",
+        "c94417e4-e756-4aa8-87ce-1095bf7298fb.jpg",
+        "7f55caf6-b6c3-40d0-8399-5806b3e0fa38.jpg",
+        "a3a924f2-167f-4c3f-a61a-bb57d14551e6.jpg",
+        "28e49249-987c-41e7-b7d2-461fba6f37bc.jpg",
+        "9bfcd732-ca30-4d09-a540-89f851947cde.jpg"
+      ]
+    },
+    {
+      "path": "/projects",
+      "status": 200,
+      "bytes": 80258,
+      "sha256": "6606e69e4696e9142e48551e626a80c47cc39706016cb908cccb7f0720ec5e40",
+      "title": "Project Index - Mantis Landscaping",
+      "media": [
+        "159e861e-7395-4dea-8072-5ff6af26a117.png",
+        "0f2a5cf3-65cb-49c6-804b-e6a639738e84.jpg",
+        "7ac1fb23-ca45-48b4-a701-e65291a4cd5b.jpg"
+      ]
+    },
+    {
+      "path": "/projects/water-wise-gardens",
+      "status": 200,
+      "bytes": 119683,
+      "sha256": "651bd1549c7e7661096304c930ff879346bd8796ee4027b57bc87ba7af809dae",
+      "title": "Water Wise Gardens - Mantis Landscaping",
+      "media": [
+        "159e861e-7395-4dea-8072-5ff6af26a117.png",
+        "0f2a5cf3-65cb-49c6-804b-e6a639738e84.jpg",
+        "5ad5066d-7388-4c88-b8d9-0b8394840d2b.png",
+        "d14aba71-8eb8-4642-bbac-4cef3b0b148a.png",
+        "391fd90e-17c8-47cd-a310-2cd26ab81105.png",
+        "d91028b1-4807-4d29-a5e1-2fb137b1b503.png",
+        "a6000c0e-33d0-4e24-b9ac-9ead0a32357b.jpg",
+        "484b70e4-fe18-4af2-92bc-8b2f1fb806a5.png",
+        "ce3a7d48-e72d-49c6-b4ed-f4505a08606c.jpg",
+        "7279c951-52f9-418e-bfd3-b7b00d63eb7c.png",
+        "ac27fa65-b152-4e51-a541-bc823b3b0a5f.jpg",
+        "39097e48-12d5-43b8-a59b-512d498e7937.png",
+        "5acaeadb-a952-47ec-9d6f-21d1d3831905.jpg",
+        "8e85621c-29c1-4084-b16b-70aa0a584b9b.jpg",
+        "34d91322-5f9f-4099-b156-41fda1a02a3c.jpg",
+        "7a1b681f-efb3-42d1-bdac-39ce38f933ab.jpg",
+        "6058c356-2939-4c9e-a82b-b7b2ae42b460.jpg",
+        "1aa68442-3422-417b-b4a2-abdc6130f1b8.jpg",
+        "0e69c0a8-242e-49e1-af17-92d648ec7537.jpg",
+        "28bb9fce-2762-42f0-84f7-8045cf4565d3.jpg",
+        "813d9e94-38cf-4529-a003-74ea50125be3.jpg",
+        "5c7db569-0cda-4509-910d-f33970145195.jpg",
+        "edcc7378-0569-4341-9a52-59c4f69c6b04.jpg",
+        "9d31fc20-6f34-40c5-9cb0-3729db716757.jpg",
+        "5e6b04aa-41cd-4bdf-8a3d-cc9bcfc9dcdb.jpg",
+        "c7bbc3e9-1ef7-4d12-9247-b9e8166ae90f.jpg",
+        "2c52b1dd-80b1-46a1-ba4c-4ff83d075d18.jpg",
+        "a888f0cb-4ad0-4b59-bced-8ff1a6450937.jpg",
+        "7fb16d89-7e65-414b-8c09-d4d2c3453080.jpg",
+        "a97508e0-383a-4f1d-b5f9-b31de95d5b48.gif",
+        "5c145d6c-7c5a-4a24-9857-dad53c28ff1d.jpg",
+        "79898adf-3524-466b-9d98-7b5fbc16a871.jpg",
+        "60992cab-7cf1-444d-bac6-78d10f330275.jpg",
+        "fa534630-d67a-45ee-8e8c-e80abb23cba7.jpg",
+        "10b6ae09-5894-403e-83aa-f7818aaadd80.jpg",
+        "22635d1f-c4a8-4441-b466-7d31f937379d.jpg",
+        "2ee8d4fc-d8d6-4b84-ad6d-5a30644ded29.jpg",
+        "795f3fe9-ab7a-41b8-adf0-b8bcfe44edce.jpg",
+        "a0a785a5-2039-4abf-a518-4f081c121aa9.jpg",
+        "26b082b4-377c-4b83-8747-288afd38d385.jpg"
+      ]
+    },
+    {
+      "path": "/projects/ediblegardens",
+      "status": 200,
+      "bytes": 126071,
+      "sha256": "83d84944cf89e490e8190925443590e2bb5e75b530429e297aea31caaf096ed1",
+      "title": "Edible Gardens - Mantis Landscaping",
+      "media": [
+        "159e861e-7395-4dea-8072-5ff6af26a117.png",
+        "7ac1fb23-ca45-48b4-a701-e65291a4cd5b.jpg",
+        "d91028b1-4807-4d29-a5e1-2fb137b1b503.png",
+        "d14aba71-8eb8-4642-bbac-4cef3b0b148a.png",
+        "391fd90e-17c8-47cd-a310-2cd26ab81105.png",
+        "5ad5066d-7388-4c88-b8d9-0b8394840d2b.png",
+        "8a32c3e9-44cd-4dbf-bcee-8c54ac02bf68.png",
+        "a6000c0e-33d0-4e24-b9ac-9ead0a32357b.jpg",
+        "484b70e4-fe18-4af2-92bc-8b2f1fb806a5.png",
+        "ce3a7d48-e72d-49c6-b4ed-f4505a08606c.jpg",
+        "7279c951-52f9-418e-bfd3-b7b00d63eb7c.png",
+        "ac27fa65-b152-4e51-a541-bc823b3b0a5f.jpg",
+        "39097e48-12d5-43b8-a59b-512d498e7937.png",
+        "3ed4ae9a-c9ce-43bf-b7bf-646ac6ffc348.jpg",
+        "5f73c753-180d-4a96-9ee2-ea885823dc8b.jpg",
+        "95d926cc-12d6-42ca-b445-d9da395c7444.jpg",
+        "fc68e11f-57e8-4c5b-b664-ac87e296f24f.jpg",
+        "054058c4-e73e-4803-9618-a453f966f45d.jpg",
+        "91a170c6-4ce4-411d-a780-16dedf336c63.jpg",
+        "bb692cff-b8c5-4022-b978-6ab50d0e5937.jpg",
+        "edcc7378-0569-4341-9a52-59c4f69c6b04.jpg",
+        "a79129e4-6b11-4ba1-b913-9961208d6a72.jpg",
+        "37744df0-dc03-4682-856a-6e302a98def8.jpg",
+        "ce827c7b-87f4-4716-9af0-60299f1be022.gif",
+        "b0e506f5-7462-4be7-b0a1-c0a2c7ce12d0.jpg",
+        "713e0abe-d301-4fa4-90f5-050f7a79ac0c.jpg",
+        "e47d5861-8307-4459-86ff-0030f71de881.jpg",
+        "c8567103-67f0-4afe-993f-e3c12018c8c9.jpg",
+        "d088b50c-f15b-44db-ad08-2c19fb3bd735.jpg",
+        "2e0901bc-a4c2-4e7f-8015-17917da00a01.jpg",
+        "56cd8c6a-916b-45db-89b8-a55a34af9116.jpg",
+        "5f1d7d82-ff1b-4100-8811-b978ea03852c.jpg",
+        "c1a631f2-aecb-4e1a-b22b-ddf572e7dcae.jpg",
+        "cd953712-24b7-4f53-9ac4-8d0f65307ac2.jpg",
+        "7e4107f4-c055-41b4-8db6-366718b9c4e4.jpg",
+        "516ba2f4-6cdf-4c57-b543-bca990fcc5a4.jpg",
+        "a3011027-b63a-498a-becf-f95abe835021.jpg",
+        "f27a48b0-dae4-43df-b47b-64f1095088e1.jpg",
+        "c94417e4-e756-4aa8-87ce-1095bf7298fb.jpg",
+        "7f55caf6-b6c3-40d0-8399-5806b3e0fa38.jpg",
+        "a3a924f2-167f-4c3f-a61a-bb57d14551e6.jpg",
+        "28e49249-987c-41e7-b7d2-461fba6f37bc.jpg",
+        "9bfcd732-ca30-4d09-a540-89f851947cde.jpg"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/159e861e-7395-4dea-8072-5ff6af26a117.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/159e861e-7395-4dea-8072-5ff6af26a117.png",
+      "bytes": 16415,
+      "sha256": "2ee926761e225633f95ffb6812cf3168c53487fdeac566f6869693e36aef4535",
+      "type": "image/png",
+      "title": "Mantis Landscaping-one line.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/ec8acb1b-5a28-4420-b095-aacd94bb5cc2.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/ec8acb1b-5a28-4420-b095-aacd94bb5cc2.jpg",
+      "bytes": 1908866,
+      "sha256": "405da20b05fdfc2b7b56c7ee293dc806757415669773fe6ab87591c58ae5713d",
+      "type": "image/jpeg",
+      "title": "Mantis-Web-1-2.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a6b32564-5dc8-4149-9d72-e540b966ea45.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a6b32564-5dc8-4149-9d72-e540b966ea45.jpg",
+      "bytes": 1695482,
+      "sha256": "3d70a2352e878b4e8ac882bbf15701ee84a4f1085683bdf1041bf97c365e49f6",
+      "type": "image/jpeg",
+      "title": "Mantis-Web-3.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/d91028b1-4807-4d29-a5e1-2fb137b1b503.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/d91028b1-4807-4d29-a5e1-2fb137b1b503.png",
+      "bytes": 29393,
+      "sha256": "c28f5f4ac6f093ad41dcb93ebffcc4a02be486f13626eb9e821c0f5864821ccf",
+      "type": "image/png",
+      "title": "design.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/8a32c3e9-44cd-4dbf-bcee-8c54ac02bf68.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/8a32c3e9-44cd-4dbf-bcee-8c54ac02bf68.png",
+      "bytes": 40016,
+      "sha256": "d605baee7eddbf85b262b5bc76e7c1580c12e843edd250e1cff3457125249dc8",
+      "type": "image/png",
+      "title": "sustainable.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/42be8b29-1724-44b6-87e2-f163dd4d668c.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/42be8b29-1724-44b6-87e2-f163dd4d668c.png",
+      "bytes": 11234,
+      "sha256": "7948c3ee72b4542f693a7bfb6fccd73b5d2a7c96e0ce405b7b5d72d70ca196f9",
+      "type": "image/png",
+      "title": "noun-pests-3460790.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2bb6e4f1-9405-41ab-9976-9b34e598c78a.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2bb6e4f1-9405-41ab-9976-9b34e598c78a.png",
+      "bytes": 3754,
+      "sha256": "7c560d3e07a350352691316fa9449dcddf0e50d1dda7ab825bfde8dc7cd7b5ee",
+      "type": "image/png",
+      "title": "noun-consulting-2749924.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/f8a75409-c8c5-454c-8e7c-787af1f7a7fd.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/f8a75409-c8c5-454c-8e7c-787af1f7a7fd.jpg",
+      "bytes": 2015002,
+      "sha256": "ecaed93e1c588c41cae8954b4d2d48cfa653eb10da70ef3bdca3202d97b73ce5",
+      "type": "image/jpeg",
+      "title": "Mantis-Web-1.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/484b70e4-fe18-4af2-92bc-8b2f1fb806a5.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/484b70e4-fe18-4af2-92bc-8b2f1fb806a5.png",
+      "bytes": 1509,
+      "sha256": "b326fe33716164a1eab7e984ab5083f8488a3d3b8b5779f2be48ae2ab234a4e1",
+      "type": "image/png",
+      "title": "01-graphic.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7279c951-52f9-418e-bfd3-b7b00d63eb7c.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7279c951-52f9-418e-bfd3-b7b00d63eb7c.png",
+      "bytes": 1743,
+      "sha256": "b60c333956cce0579707a58c253b2d78ecb9f4f3e30a244bea734ce9deb4b792",
+      "type": "image/png",
+      "title": "02-graphic.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/39097e48-12d5-43b8-a59b-512d498e7937.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/39097e48-12d5-43b8-a59b-512d498e7937.png",
+      "bytes": 1800,
+      "sha256": "c159974e4a14cf532488855ae3464c22c50d81aac7cb915ca129606f7a341d64",
+      "type": "image/png",
+      "title": "03-graphic.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/31478c85-ceb9-4d3a-a733-1b45cbfa5d04.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/31478c85-ceb9-4d3a-a733-1b45cbfa5d04.jpg",
+      "bytes": 1244960,
+      "sha256": "80a832e94975be93c67599c6267c357e90c6842827d9b9103be65cfaff8e0cdd",
+      "type": "image/jpeg",
+      "title": "Urban Farming-2.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c574afe5-489c-4826-8a07-ee39f85b1176.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c574afe5-489c-4826-8a07-ee39f85b1176.jpg",
+      "bytes": 1068369,
+      "sha256": "208fbe3c3afc2c500ec9b9cefef7a5ca376296e204e310d419ef2e32a6e52179",
+      "type": "image/jpeg",
+      "title": "Mantis-Web-8 kings.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/3ce289d6-b431-4c10-bcbd-5aff5ff4b974.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/3ce289d6-b431-4c10-bcbd-5aff5ff4b974.png",
+      "bytes": 50526,
+      "sha256": "5c42e09ecaac0e30ac542e881b4c86c64330721ff1b1e81866175a030bbe32af",
+      "type": "image/png",
+      "title": "ca friendly.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2d026842-2086-4795-b010-6f5c85693f2c.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2d026842-2086-4795-b010-6f5c85693f2c.png",
+      "bytes": 46369,
+      "sha256": "3eab58e8ade4a02d36ccb77cd9cf4beef8cc1673f4ab9f602b147e75684eab22",
+      "type": "image/png",
+      "title": "community.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/33aa34a6-890c-4faf-b2e8-737a265b4b6f.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/33aa34a6-890c-4faf-b2e8-737a265b4b6f.jpg",
+      "bytes": 1915670,
+      "sha256": "8a344d269c47792cae8668d6fbfd7945c4fcd1a68aab6864c4cad99033ad9649",
+      "type": "image/jpeg",
+      "title": "Mantis-Web-2.jpg"
+    },
+    {
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:96/36ae6fbe-46ad-4ba5-a0f3-e62deae27475.png",
+      "path": "files/d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:96/36ae6fbe-46ad-4ba5-a0f3-e62deae27475.png",
+      "bytes": 2348,
+      "sha256": "e5478396fdea68e67b9888bdf4d1c688d2357b757713cde6c0242b6040e3d818",
+      "type": "image/png"
+    },
+    {
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:192/36ae6fbe-46ad-4ba5-a0f3-e62deae27475.png",
+      "path": "files/d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:192/36ae6fbe-46ad-4ba5-a0f3-e62deae27475.png",
+      "bytes": 4024,
+      "sha256": "5a18a964a793bda2e6dac49cd15fd5a731d4cbdab324fa5a60b4c67b37fb37b6",
+      "type": "image/png"
+    },
+    {
+      "url": "https://fonts.googleapis.com/css?family=Nunito:300,700&display=swap",
+      "path": "files/fonts.googleapis.com/css.q1a737e33",
+      "bytes": 3694,
+      "sha256": "0730c13ee6bcaff5d92a753e3d8d9e16070ce61ecfa314c6ab3aee2c91f11290",
+      "type": "text/css; charset=utf-8"
+    },
+    {
+      "url": "https://mantislandscaping.com/__analytics.js",
+      "path": "files/mantislandscaping.com/__analytics.js",
+      "bytes": 52310,
+      "sha256": "f1a61277e3f902f50ab42015d8b07218db9b7601bb0967e54a52bfdcb4fa7e81",
+      "type": "text/javascript"
+    },
+    {
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:1000/ec8acb1b-5a28-4420-b095-aacd94bb5cc2.jpg",
+      "path": "files/d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:1000/ec8acb1b-5a28-4420-b095-aacd94bb5cc2.jpg",
+      "bytes": 134367,
+      "sha256": "54fce20df88741dc17d7b1ca6f7af4bd95ebab32bb2a4c990ce16e96b81e8b70",
+      "type": "image/jpeg",
+      "title": "Mantis-Web-1-2.jpg"
+    },
+    {
+      "url": "https://cdn-images.mailchimp.com/embedcode/classic-10_7_dtp.css",
+      "path": "files/cdn-images.mailchimp.com/embedcode/classic-10_7_dtp.css",
+      "bytes": 4513,
+      "sha256": "633f4cf325805cc9f5b5276acec34fbd08f5fa97b35214ab44fa977ac047d6ac",
+      "type": "text/css"
+    },
+    {
+      "url": "https://eep.io/mc-cdn-images/template_images/branding_logo_text_dark_dtp.svg",
+      "path": "files/eep.io/mc-cdn-images/template_images/branding_logo_text_dark_dtp.svg",
+      "bytes": 15423,
+      "sha256": "766e1b8833a7353b15cb7456d46f6d19fd32fe0c6e2561b9d6282c717f3af763",
+      "type": "image/svg+xml"
+    },
+    {
+      "url": "https://s3.amazonaws.com/downloads.mailchimp.com/js/mc-validate.js",
+      "path": "files/s3.amazonaws.com/downloads.mailchimp.com/js/mc-validate.js",
+      "bytes": 143249,
+      "sha256": "b15aceb04dbf5604df5617cfe984f48479cb131c1df02825d1c24e9f35d01857",
+      "type": "application/javascript"
+    },
+    {
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:1000/c7bbc3e9-1ef7-4d12-9247-b9e8166ae90f.jpg",
+      "path": "files/d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:1000/c7bbc3e9-1ef7-4d12-9247-b9e8166ae90f.jpg",
+      "bytes": 234104,
+      "sha256": "52a55cc40add009fbd88d758f6b41405a360ea598a61712b72dbc2f56e14978b",
+      "type": "image/jpeg",
+      "title": "PXL_20220404_203802192.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7ac1fb23-ca45-48b4-a701-e65291a4cd5b.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7ac1fb23-ca45-48b4-a701-e65291a4cd5b.jpg",
+      "bytes": 7964916,
+      "sha256": "fac65f6862ea7e1edfff638d77a2acc407c2b87e7bdbc651c821f845b6213824",
+      "type": "image/jpeg",
+      "title": "PXL_20240502_011709479.MP.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/d14aba71-8eb8-4642-bbac-4cef3b0b148a.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/d14aba71-8eb8-4642-bbac-4cef3b0b148a.png",
+      "bytes": 19726,
+      "sha256": "51c7806da6a579fb62cf29e0172328e50772b7ae1eea0c8bcf78d69244056806",
+      "type": "image/png",
+      "title": "installation.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/391fd90e-17c8-47cd-a310-2cd26ab81105.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/391fd90e-17c8-47cd-a310-2cd26ab81105.png",
+      "bytes": 9791,
+      "sha256": "0ba852d892b378982a1dd165e9839da24b32703cb57cbad0867266e82eeff292",
+      "type": "image/png",
+      "title": "maintenance.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5ad5066d-7388-4c88-b8d9-0b8394840d2b.png",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5ad5066d-7388-4c88-b8d9-0b8394840d2b.png",
+      "bytes": 28994,
+      "sha256": "9f24e94bff8c4eeb14eefcc7457d953c370b6a3adda0d04414460242473bc156",
+      "type": "image/png",
+      "title": "native.png"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a6000c0e-33d0-4e24-b9ac-9ead0a32357b.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a6000c0e-33d0-4e24-b9ac-9ead0a32357b.jpg",
+      "bytes": 2336936,
+      "sha256": "b47dd7f99196e154136699df6293652f4f3d1340f46e29a953c95e098753b9b5",
+      "type": "image/jpeg",
+      "title": "gabriel-jimenez-jin4W1HqgL4-unsplash.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/ce3a7d48-e72d-49c6-b4ed-f4505a08606c.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/ce3a7d48-e72d-49c6-b4ed-f4505a08606c.jpg",
+      "bytes": 1664330,
+      "sha256": "c2fb913a981a90196f413f7ca382df5afda87d65991dd580780dbd68e69efcd7",
+      "type": "image/jpeg",
+      "title": "paul-hanaoka-40JmKOnu6Cc-unsplash.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/ac27fa65-b152-4e51-a541-bc823b3b0a5f.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/ac27fa65-b152-4e51-a541-bc823b3b0a5f.jpg",
+      "bytes": 2036813,
+      "sha256": "1a58c1add0c4d43eebb3a4372631e44da42fa953f1f282e3a605e33d8f255067",
+      "type": "image/jpeg",
+      "title": "markus-spiske-pASHRAKiDeU-unsplash.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/3ed4ae9a-c9ce-43bf-b7bf-646ac6ffc348.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/3ed4ae9a-c9ce-43bf-b7bf-646ac6ffc348.jpg",
+      "bytes": 4092075,
+      "sha256": "5af8c4f22ad54f65caec612fc39cd9ccb6ccda59d9d28ff116552c274c42ba96",
+      "type": "image/jpeg",
+      "title": "PXL_20230722_015253169.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5f73c753-180d-4a96-9ee2-ea885823dc8b.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5f73c753-180d-4a96-9ee2-ea885823dc8b.jpg",
+      "bytes": 4881853,
+      "sha256": "6da7d9b81dd85fef91e64d9ff221d6e2e767510af3569d604fea3f9da04f69ba",
+      "type": "image/jpeg",
+      "title": "PXL_20220720_235354984.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/95d926cc-12d6-42ca-b445-d9da395c7444.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/95d926cc-12d6-42ca-b445-d9da395c7444.jpg",
+      "bytes": 4494017,
+      "sha256": "3d758901c800b5f9c85483357fc13f575d3bf0ff0973a074ce7439efc7b5a347",
+      "type": "image/jpeg",
+      "title": "PXL_20220429_233330589.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/fc68e11f-57e8-4c5b-b664-ac87e296f24f.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/fc68e11f-57e8-4c5b-b664-ac87e296f24f.jpg",
+      "bytes": 6403103,
+      "sha256": "80333e4288e96762aef29546a89476c7e5972f67062fe4f9abea1138d3c3fbe2",
+      "type": "image/jpeg",
+      "title": "PXL_20221013_230200040.MP.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/054058c4-e73e-4803-9618-a453f966f45d.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/054058c4-e73e-4803-9618-a453f966f45d.jpg",
+      "bytes": 4107095,
+      "sha256": "2f55cb85470b5f4ab67f43fd62498e3ed07ed588e9633c55b47db1e7b286bd50",
+      "type": "image/jpeg",
+      "title": "PXL_20230521_010325108.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/91a170c6-4ce4-411d-a780-16dedf336c63.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/91a170c6-4ce4-411d-a780-16dedf336c63.jpg",
+      "bytes": 6369782,
+      "sha256": "ab00b9ab960da81d8f25e07afcf57cb57da03d5806849ee00f6073bd587459e1",
+      "type": "image/jpeg",
+      "title": "PXL_20220629_210311993 (1).jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/bb692cff-b8c5-4022-b978-6ab50d0e5937.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/bb692cff-b8c5-4022-b978-6ab50d0e5937.jpg",
+      "bytes": 4252474,
+      "sha256": "64427a6e1fafaf99e160fafb694018d77e07b82ae5dbaf2701006a004b093782",
+      "type": "image/jpeg",
+      "title": "PXL_20240430_013735050.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/edcc7378-0569-4341-9a52-59c4f69c6b04.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/edcc7378-0569-4341-9a52-59c4f69c6b04.jpg",
+      "bytes": 178813,
+      "sha256": "f93219dec06dddd2949d4d0e89dbb6d6db13582becf16bd9b8443e6b23320307",
+      "type": "image/jpeg",
+      "title": "52764760_331311127520555_1689015660060501366_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a79129e4-6b11-4ba1-b913-9961208d6a72.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a79129e4-6b11-4ba1-b913-9961208d6a72.jpg",
+      "bytes": 4377815,
+      "sha256": "ee5c43c2477be9c44f7f525efcea4d6522938f72268f259ac203b14429b639a4",
+      "type": "image/jpeg",
+      "title": "PXL_20240430_013746017.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/37744df0-dc03-4682-856a-6e302a98def8.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/37744df0-dc03-4682-856a-6e302a98def8.jpg",
+      "bytes": 5978138,
+      "sha256": "c9bd80e61f9f9554cf23d5e244673fb0d9a0cdabd37b2a6ce42c65103f8fe4bb",
+      "type": "image/jpeg",
+      "title": "PXL_20240430_013807675.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/ce827c7b-87f4-4716-9af0-60299f1be022.gif",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/ce827c7b-87f4-4716-9af0-60299f1be022.gif",
+      "bytes": 461478,
+      "sha256": "563213069b713b2d2748568b7c1400afa2b083e8f1ea2f3a6b201847bde70cf3",
+      "type": "image/gif",
+      "title": "20210818_131243.gif"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/b0e506f5-7462-4be7-b0a1-c0a2c7ce12d0.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/b0e506f5-7462-4be7-b0a1-c0a2c7ce12d0.jpg",
+      "bytes": 8728770,
+      "sha256": "f93f3fe395fad0f42d7106bc179e2933eb9082fad2495759c41593c1fda8f5a3",
+      "type": "image/jpeg",
+      "title": "20210818_130810.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/713e0abe-d301-4fa4-90f5-050f7a79ac0c.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/713e0abe-d301-4fa4-90f5-050f7a79ac0c.jpg",
+      "bytes": 3722796,
+      "sha256": "697ae4090dbaa19520164a0c0d319b692b4c8ff9b0ac0269e18030dec7881566",
+      "type": "image/jpeg",
+      "title": "20210818_130859.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/e47d5861-8307-4459-86ff-0030f71de881.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/e47d5861-8307-4459-86ff-0030f71de881.jpg",
+      "bytes": 3420353,
+      "sha256": "ac200483038b51b510f0af9ed202b61c8702998352ec86e652f7d5ec760c0843",
+      "type": "image/jpeg",
+      "title": "20210818_130941.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c8567103-67f0-4afe-993f-e3c12018c8c9.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c8567103-67f0-4afe-993f-e3c12018c8c9.jpg",
+      "bytes": 7824049,
+      "sha256": "2c028b7191daa61e771717838b1880c1893aeed4361d3b7fbe965ff943b7b8cb",
+      "type": "image/jpeg",
+      "title": "20210901_112919.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/d088b50c-f15b-44db-ad08-2c19fb3bd735.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/d088b50c-f15b-44db-ad08-2c19fb3bd735.jpg",
+      "bytes": 6572565,
+      "sha256": "3d7b28b4251159a03f5535748eb55ce37ff9e76f0c7d20f5d8fa23d0bb9e2efa",
+      "type": "image/jpeg",
+      "title": "PXL_20210922_203219038.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2e0901bc-a4c2-4e7f-8015-17917da00a01.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2e0901bc-a4c2-4e7f-8015-17917da00a01.jpg",
+      "bytes": 6398480,
+      "sha256": "f58b4345e1435ccb1b499fb2aad0ca6a4432ecfdeca5d67ef0d043af15642df4",
+      "type": "image/jpeg",
+      "title": "PXL_20240517_192306381.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/56cd8c6a-916b-45db-89b8-a55a34af9116.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/56cd8c6a-916b-45db-89b8-a55a34af9116.jpg",
+      "bytes": 7696911,
+      "sha256": "380663348e0e09e60869fa91c1f6669963f4384c5193287fe547144f82144731",
+      "type": "image/jpeg",
+      "title": "PXL_20240517_191835529.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5f1d7d82-ff1b-4100-8811-b978ea03852c.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5f1d7d82-ff1b-4100-8811-b978ea03852c.jpg",
+      "bytes": 5695801,
+      "sha256": "d8d4ad1e060d867fcfe318bab3283ca106dd3582324d245bc8dd8b70a3c89dc3",
+      "type": "image/jpeg",
+      "title": "PXL_20240517_184611134.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c1a631f2-aecb-4e1a-b22b-ddf572e7dcae.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c1a631f2-aecb-4e1a-b22b-ddf572e7dcae.jpg",
+      "bytes": 8866418,
+      "sha256": "27ac26ba74b8f1ff88da74cb62ba0e4aead917f3af0ea9c6deb967b53aa2d817",
+      "type": "image/jpeg",
+      "title": "PXL_20210505_012612689.MP.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/cd953712-24b7-4f53-9ac4-8d0f65307ac2.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/cd953712-24b7-4f53-9ac4-8d0f65307ac2.jpg",
+      "bytes": 6149968,
+      "sha256": "114e195fa069a1497923c6b1c148092c7a2be8849ae362368b8b9fb69a0d9d4d",
+      "type": "image/jpeg",
+      "title": "20210824_090954.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7e4107f4-c055-41b4-8db6-366718b9c4e4.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7e4107f4-c055-41b4-8db6-366718b9c4e4.jpg",
+      "bytes": 5906775,
+      "sha256": "9dd93332e423efc7f5e1610e9b4168dc2f86de3d0deaf41ae83242963806d4a4",
+      "type": "image/jpeg",
+      "title": "20210824_091043.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/516ba2f4-6cdf-4c57-b543-bca990fcc5a4.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/516ba2f4-6cdf-4c57-b543-bca990fcc5a4.jpg",
+      "bytes": 6058036,
+      "sha256": "68738629bc7bc2bc264498b990a1af2ced277192e8edb44479349902912a8a30",
+      "type": "image/jpeg",
+      "title": "20210824_091110.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/89012397-6c92-44d7-b845-49f619de012f.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/89012397-6c92-44d7-b845-49f619de012f.jpg",
+      "bytes": 9013813,
+      "sha256": "bb8a2c6ac4736758e1f57ebcdb254bd2f760154839ac6cafa2886af553e9c448",
+      "type": "image/jpeg",
+      "title": "PXL_20230325_201555220.MP.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/8e597c3f-c8af-45cb-85fc-9bc62b44211a.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/8e597c3f-c8af-45cb-85fc-9bc62b44211a.jpg",
+      "bytes": 538161,
+      "sha256": "d43cdb56268f8b62e713dd74a52d52658055dda4adf8dd9ab9fd1c5c0787359a",
+      "type": "image/jpeg",
+      "title": "PXL_20230524_175658281_exported_4152.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2554f84c-a613-4364-9149-11072f63267f.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2554f84c-a613-4364-9149-11072f63267f.jpg",
+      "bytes": 656404,
+      "sha256": "75f9480b58c62fc0894cf8d0ecc384406c5b3b5d6d319df66b805baecb1b1d82",
+      "type": "image/jpeg",
+      "title": "PXL_20240417_185916175_exported_4525.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/f48d49c2-2e5e-45fc-b2b1-685e8bbd5893.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/f48d49c2-2e5e-45fc-b2b1-685e8bbd5893.jpg",
+      "bytes": 722223,
+      "sha256": "e201a1631cd6ff4136175fc26b800244c9b62bb100f0f398d35ad750c373dece",
+      "type": "image/jpeg",
+      "title": "PXL_20240131_184628531_exported_0.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/f4cb7100-536c-4f8b-a315-14079d6b404d.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/f4cb7100-536c-4f8b-a315-14079d6b404d.jpg",
+      "bytes": 123846,
+      "sha256": "0e015806631b6567ec250409ca3f247e3481f31a69a079ce658ddcccaad106ec",
+      "type": "image/jpeg",
+      "title": "Capture.JPG"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/33e8356e-82be-40f8-8346-0b3400424f92.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/33e8356e-82be-40f8-8346-0b3400424f92.jpg",
+      "bytes": 4830114,
+      "sha256": "8d110376c6103ae31cc9dbbe927feaaba3ba1a1a0a4f93d3819613ec26ccde63",
+      "type": "image/jpeg",
+      "title": "PXL_20240128_204033355.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/8523f0af-a447-4c6e-be7a-78032ffdb727.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/8523f0af-a447-4c6e-be7a-78032ffdb727.jpg",
+      "bytes": 4970378,
+      "sha256": "b67053ad66f45b3e109e3864a37a38f3e62f3dbae5e35dc911c2a94903178bbb",
+      "type": "image/jpeg",
+      "title": "PXL_20240128_203209394.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/e0b1296d-fb18-4cd2-bf6b-3344bf9190a5.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/e0b1296d-fb18-4cd2-bf6b-3344bf9190a5.jpg",
+      "bytes": 4677590,
+      "sha256": "cffdaaa4cfd3eecf848978880d558b559f29d13137851a04c0d015c4d3d1243c",
+      "type": "image/jpeg",
+      "title": "PXL_20240417_230305746.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a3011027-b63a-498a-becf-f95abe835021.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a3011027-b63a-498a-becf-f95abe835021.jpg",
+      "bytes": 4568875,
+      "sha256": "a25bad39a41b2e6db0d3194b2e3f17818a0defedfaf5c46fe70e4bd2fbce1fcf",
+      "type": "image/jpeg",
+      "title": "IMG_20190908_135903.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/f27a48b0-dae4-43df-b47b-64f1095088e1.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/f27a48b0-dae4-43df-b47b-64f1095088e1.jpg",
+      "bytes": 1582689,
+      "sha256": "eb873b0f8dcd230292baa50d1717444d2bb8e11fb1177bb44fb02655cdf7c815",
+      "type": "image/jpeg",
+      "title": "Mantis-Web-1-3.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c94417e4-e756-4aa8-87ce-1095bf7298fb.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c94417e4-e756-4aa8-87ce-1095bf7298fb.jpg",
+      "bytes": 8747685,
+      "sha256": "5ad0ddc950ee952400053729cce87ab473718976d77390a502e27cd9eff4aae6",
+      "type": "image/jpeg",
+      "title": "IMG_20200810_103632.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7f55caf6-b6c3-40d0-8399-5806b3e0fa38.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7f55caf6-b6c3-40d0-8399-5806b3e0fa38.jpg",
+      "bytes": 10809380,
+      "sha256": "6f1ebe55f476d4f69cbd39f804f28659edc89cc327d102c58c081bdcea07b27d",
+      "type": "image/jpeg",
+      "title": "PXL_20210428_193457185 (1).jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a3a924f2-167f-4c3f-a61a-bb57d14551e6.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a3a924f2-167f-4c3f-a61a-bb57d14551e6.jpg",
+      "bytes": 10907252,
+      "sha256": "f6e080827f55c36a1eac179897349317d03f13afcb3152b93c65c580c562efd9",
+      "type": "image/jpeg",
+      "title": "PXL_20210127_154946071.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/28e49249-987c-41e7-b7d2-461fba6f37bc.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/28e49249-987c-41e7-b7d2-461fba6f37bc.jpg",
+      "bytes": 6313775,
+      "sha256": "63c67b30943fa54053c64eb1b1865b6ff9a767014b822b2480b4223f687566e9",
+      "type": "image/jpeg",
+      "title": "PXL_20210212_162009027.MP.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/9bfcd732-ca30-4d09-a540-89f851947cde.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/9bfcd732-ca30-4d09-a540-89f851947cde.jpg",
+      "bytes": 2706965,
+      "sha256": "d23966b439076aa91fb3e7cc77437e4fc54e02cf60028e4fa58f8f2e9141532d",
+      "type": "image/jpeg",
+      "title": "PXL_20210115_235545731.jpg"
+    },
+    {
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:1000/7ac1fb23-ca45-48b4-a701-e65291a4cd5b.jpg",
+      "path": "files/d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:1000/7ac1fb23-ca45-48b4-a701-e65291a4cd5b.jpg",
+      "bytes": 220134,
+      "sha256": "152771dddd83adf5c236a8411af994c3073eeccb59d2340b16bda828588d3619",
+      "type": "image/jpeg",
+      "title": "PXL_20240502_011709479.MP.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/0f2a5cf3-65cb-49c6-804b-e6a639738e84.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/0f2a5cf3-65cb-49c6-804b-e6a639738e84.jpg",
+      "bytes": 870350,
+      "sha256": "0b82e0dacc9c591e9cc5d6d03183d14fbe1218904e384d67ad4d15d337395ffe",
+      "type": "image/jpeg",
+      "title": "Mantis-Web-alma-3-4.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5acaeadb-a952-47ec-9d6f-21d1d3831905.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5acaeadb-a952-47ec-9d6f-21d1d3831905.jpg",
+      "bytes": 91385,
+      "sha256": "565515cef6b72c394f46151784c9c6ae5fbcfe749ad0ba9c7ab1a817c0dc29ba",
+      "type": "image/jpeg",
+      "title": "64522014_118891376032268_2791939835816404419_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/8e85621c-29c1-4084-b16b-70aa0a584b9b.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/8e85621c-29c1-4084-b16b-70aa0a584b9b.jpg",
+      "bytes": 67474,
+      "sha256": "93c279ebd897266ea996fa4fc7b338b0c927fea08ecfbe0a881788ed0d675602",
+      "type": "image/jpeg",
+      "title": "65275673_176550746692354_5501126011328263773_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/34d91322-5f9f-4099-b156-41fda1a02a3c.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/34d91322-5f9f-4099-b156-41fda1a02a3c.jpg",
+      "bytes": 75986,
+      "sha256": "b6f02935686a5eebb8acc6eef8d1b1874337a6320634b8a0b0a49b87f9a9513d",
+      "type": "image/jpeg",
+      "title": "65104427_477397903058792_1967177819694509717_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7a1b681f-efb3-42d1-bdac-39ce38f933ab.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7a1b681f-efb3-42d1-bdac-39ce38f933ab.jpg",
+      "bytes": 76687,
+      "sha256": "d570bdd4447fa488589fe3f2c001683e8367e92c18ae35fe0acc0abd57033d93",
+      "type": "image/jpeg",
+      "title": "64429482_110627143407092_5114645132699623239_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/6058c356-2939-4c9e-a82b-b7b2ae42b460.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/6058c356-2939-4c9e-a82b-b7b2ae42b460.jpg",
+      "bytes": 55227,
+      "sha256": "322d4610b23648d86757838bc84664d78c461b855a61a5c6fd0938c878122632",
+      "type": "image/jpeg",
+      "title": "64225201_153840765777471_7342138426914334392_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/1aa68442-3422-417b-b4a2-abdc6130f1b8.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/1aa68442-3422-417b-b4a2-abdc6130f1b8.jpg",
+      "bytes": 107081,
+      "sha256": "5c8b73c61411e8b64a53665dfff79ec400701f22987256666d2cd6b3bb8475c0",
+      "type": "image/jpeg",
+      "title": "65188860_2445559398827661_8649554348340010089_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/0e69c0a8-242e-49e1-af17-92d648ec7537.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/0e69c0a8-242e-49e1-af17-92d648ec7537.jpg",
+      "bytes": 5358034,
+      "sha256": "876343f0825ae4d6ca9debbeb76d839d73f3750b5f8b970cd3a1791dd96eda66",
+      "type": "image/jpeg",
+      "title": "_MG_5581.JPG"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/28bb9fce-2762-42f0-84f7-8045cf4565d3.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/28bb9fce-2762-42f0-84f7-8045cf4565d3.jpg",
+      "bytes": 5491866,
+      "sha256": "ffee8efe47774bddf24fe332bf0aa8aceb709768317fcef3ef59211eed2e04e8",
+      "type": "image/jpeg",
+      "title": "_MG_5608.JPG"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/813d9e94-38cf-4529-a003-74ea50125be3.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/813d9e94-38cf-4529-a003-74ea50125be3.jpg",
+      "bytes": 125182,
+      "sha256": "d58c63d14fd5bb7257f833c9eff8d6958138ca4ae0acdbfd5677f0d63e768fd0",
+      "type": "image/jpeg",
+      "title": "64367483_375397866514574_6776359575314221396_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5c7db569-0cda-4509-910d-f33970145195.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5c7db569-0cda-4509-910d-f33970145195.jpg",
+      "bytes": 111771,
+      "sha256": "4be04db0a120fbc2b77a54e9497cb3fbd4f61b7e38265d0c219d96fd58ccc0f5",
+      "type": "image/jpeg",
+      "title": "53548195_631719087263812_7230202690890938186_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/9d31fc20-6f34-40c5-9cb0-3729db716757.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/9d31fc20-6f34-40c5-9cb0-3729db716757.jpg",
+      "bytes": 146164,
+      "sha256": "4c8c10b15d02f07fc76395653597d3e399ec94cbbd6b482ea55f91a2c2afce0c",
+      "type": "image/jpeg",
+      "title": "54732166_795742027476824_4424957575324716976_n.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5e6b04aa-41cd-4bdf-8a3d-cc9bcfc9dcdb.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5e6b04aa-41cd-4bdf-8a3d-cc9bcfc9dcdb.jpg",
+      "bytes": 1058750,
+      "sha256": "d644f609ccc8cd53661433d3a0cec97b33b222064f13fd68d22015a1fda70d1e",
+      "type": "image/jpeg",
+      "title": "PXL_20220404_203619549.MP.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c7bbc3e9-1ef7-4d12-9247-b9e8166ae90f.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/c7bbc3e9-1ef7-4d12-9247-b9e8166ae90f.jpg",
+      "bytes": 1268187,
+      "sha256": "0fb4dd17f6467833fa7f0a35659e6b48aefed11ec75e429b5133f42d50a987b3",
+      "type": "image/jpeg",
+      "title": "PXL_20220404_203802192.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2c52b1dd-80b1-46a1-ba4c-4ff83d075d18.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2c52b1dd-80b1-46a1-ba4c-4ff83d075d18.jpg",
+      "bytes": 832355,
+      "sha256": "c4f9c857f8b8be59e905ae63547bb21072aeb467c3a51c9b0dc91373ca469f2c",
+      "type": "image/jpeg",
+      "title": "PXL_20220404_203135078.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a888f0cb-4ad0-4b59-bced-8ff1a6450937.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a888f0cb-4ad0-4b59-bced-8ff1a6450937.jpg",
+      "bytes": 902497,
+      "sha256": "e301217175a5f64d8b5d2140c971a1ef60402b15bfaa1b805bd831222c7617b7",
+      "type": "image/jpeg",
+      "title": "PXL_20220404_204016359.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7fb16d89-7e65-414b-8c09-d4d2c3453080.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/7fb16d89-7e65-414b-8c09-d4d2c3453080.jpg",
+      "bytes": 874443,
+      "sha256": "55c3032b070fbb751f563f3bae24bd825e9906b3a70dc54addac962efc38ad19",
+      "type": "image/jpeg",
+      "title": "PXL_20220404_204004038.MP.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a97508e0-383a-4f1d-b5f9-b31de95d5b48.gif",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a97508e0-383a-4f1d-b5f9-b31de95d5b48.gif",
+      "bytes": 2983434,
+      "sha256": "55fc7fce856759602ca02624f5b313eb0fc9af2c838ab2e2252b9bf90d1ef364",
+      "type": "image/gif",
+      "title": "PXL_20220404_204204961.gif"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5c145d6c-7c5a-4a24-9857-dad53c28ff1d.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/5c145d6c-7c5a-4a24-9857-dad53c28ff1d.jpg",
+      "bytes": 941904,
+      "sha256": "d4ed40a1833e48fd7755c69a9fd18690dc8a9e4168417392d8d864cdd61efac7",
+      "type": "image/jpeg",
+      "title": "PXL_20220404_203701437.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/79898adf-3524-466b-9d98-7b5fbc16a871.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/79898adf-3524-466b-9d98-7b5fbc16a871.jpg",
+      "bytes": 305372,
+      "sha256": "029d8bfcded2c83a8d1f42debf9ede64dbb8c0be8d5fb5ab7f34041f8b571b01",
+      "type": "image/jpeg",
+      "title": "20180605-105015_orig.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/60992cab-7cf1-444d-bac6-78d10f330275.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/60992cab-7cf1-444d-bac6-78d10f330275.jpg",
+      "bytes": 174492,
+      "sha256": "43f621021d99fe6489edc9f2554eb021f4c6b9ef18b636759993fcf77a510f4a",
+      "type": "image/jpeg",
+      "title": "20180605-105054_orig-Recovered.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/fa534630-d67a-45ee-8e8c-e80abb23cba7.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/fa534630-d67a-45ee-8e8c-e80abb23cba7.jpg",
+      "bytes": 402371,
+      "sha256": "9c89593ee948559b5380d5ca4da83482f9a2e1ff4e10f0cbde06ea3eca1303bf",
+      "type": "image/jpeg",
+      "title": "20161007_133649.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/10b6ae09-5894-403e-83aa-f7818aaadd80.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/10b6ae09-5894-403e-83aa-f7818aaadd80.jpg",
+      "bytes": 501477,
+      "sha256": "fedfd7c2c6735fc605f4cab8c3593c365fa9d5952544b49e35f0f298687ed853",
+      "type": "image/jpeg",
+      "title": "P_20160603_095946.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/22635d1f-c4a8-4441-b466-7d31f937379d.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/22635d1f-c4a8-4441-b466-7d31f937379d.jpg",
+      "bytes": 359363,
+      "sha256": "a10071b14e2f26f183dd55ed1255c6135f74877ea55412133e5cec114ed1c5b0",
+      "type": "image/jpeg",
+      "title": "P_20160603_100238.jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2ee8d4fc-d8d6-4b84-ad6d-5a30644ded29.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/2ee8d4fc-d8d6-4b84-ad6d-5a30644ded29.jpg",
+      "bytes": 223671,
+      "sha256": "1b7badb6a91039552fb9b1fc3e1ed2646f3317f9c53047147f4edfea4b5c4d65",
+      "type": "image/jpeg",
+      "title": "unnamed+(5).jpg"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/795f3fe9-ab7a-41b8-adf0-b8bcfe44edce.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/795f3fe9-ab7a-41b8-adf0-b8bcfe44edce.jpg",
+      "bytes": 320025,
+      "sha256": "c550526878aa1112a0fee645a401b0e836ba86e9499ef509b1294bdbaf17bdee",
+      "type": "image/jpeg",
+      "title": "DSC01269.JPG"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a0a785a5-2039-4abf-a518-4f081c121aa9.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/a0a785a5-2039-4abf-a518-4f081c121aa9.jpg",
+      "bytes": 359209,
+      "sha256": "123adee6aab388e50d490c6e814bc09556be2ac7c6779ce1979c7fbbf3a21f54",
+      "type": "image/jpeg",
+      "title": "DSC01263.JPG"
+    },
+    {
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/26b082b4-377c-4b83-8747-288afd38d385.jpg",
+      "path": "files/dv4tl7yyk1zlp.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/26b082b4-377c-4b83-8747-288afd38d385.jpg",
+      "bytes": 342320,
+      "sha256": "19f9a934a7c3575fbfe9ce81e0fe93cbc9ee0c9f77ebff9f232f21480aef60a2",
+      "type": "image/jpeg",
+      "title": "DSC01343.JPG"
+    },
+    {
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:1000/0f2a5cf3-65cb-49c6-804b-e6a639738e84.jpg",
+      "path": "files/d3syaxnfm3oj0e.cloudfront.net/6e0b52ee-9bb9-4c5a-b1ee-653009e3b572/w:1000/0f2a5cf3-65cb-49c6-804b-e6a639738e84.jpg",
+      "bytes": 114221,
+      "sha256": "1ad36b53c25fbaa7bc7c01af2bccb21e4ceb375cc07e20f7d2fa8650dcc492ea",
+      "type": "image/jpeg",
+      "title": "Mantis-Web-alma-3-4.jpg"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIOOaBTMnFcQIG.woff2",
+      "path": "files/fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIOOaBTMnFcQIG.woff2",
+      "bytes": 28908,
+      "sha256": "2d06f2c340ecb52c55153ec56093dc70b167699d7206246570f8ad4800190825",
+      "type": "font/woff2"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIMeaBTMnFcQIG.woff2",
+      "path": "files/fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIMeaBTMnFcQIG.woff2",
+      "bytes": 20780,
+      "sha256": "b63651df977d08650ff2e598a3979a490f114b59353605e091dd3fdb530f530e",
+      "type": "font/woff2"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIOuaBTMnFcQIG.woff2",
+      "path": "files/fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIOuaBTMnFcQIG.woff2",
+      "bytes": 13040,
+      "sha256": "d107f72673f443b440185eea74262d7aecbe8fb70150e397334e2ab202c5d301",
+      "type": "font/woff2"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIO-aBTMnFcQIG.woff2",
+      "path": "files/fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofIO-aBTMnFcQIG.woff2",
+      "bytes": 35464,
+      "sha256": "511ce967375fd2d924483d798f1086a533259fc675181f62944ec1176fe8786d",
+      "type": "font/woff2"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofINeaBTMnFcQ.woff2",
+      "path": "files/fonts.gstatic.com/s/nunito/v32/XRXV3I6Li01BKofINeaBTMnFcQ.woff2",
+      "bytes": 39152,
+      "sha256": "20fc9b6fc618e7c3c68d3ac750a2a5dfbceb8521675458d2cea580b5693e4798",
+      "type": "font/woff2"
+    }
+  ],
+  "failed": []
+}

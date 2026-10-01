@@ -7222,3 +7222,25 @@ A worker session from the morning report's brief. `launch` now audits the Websit
 - Round 2 was clean.
 
 Twelve mutations, all red. The real `lighthouseAudit` test was also shown to go red when `lighthouse.ts` is forced onto its checkout branch.
+
+## 2026-10-01 — Mantis Landscaping: a plan to move it off Blux (#1107, this PR)
+
+The operator's ask: "new project: mantislandscaping.com is nicole's partners website and I want to move it onto the reddoor stack, feel free to improve it as we move it over, it's currently on blux". The deliverable was a plan, not a build. It is `docs/mantis-landscaping-plan-2026-10.md`, with the build as BACKLOG P1-30 and four Operator decisions (59–62). Nothing was created anywhere: no repo, Prismic repository, Netlify site, Turso row or DNS change. Nobody outside Reddoor was contacted.
+
+**The Webflow capture tool cannot capture a Blux site, and it says so loudly.** Run against Mantis, `scripts/webflow-capture/capture.mjs` captured 5 pages and 11 files, and its check failed on `no siteId` and `5 pages, expected 6`. Blux builds every image URL in the browser from `data-base` + `w:<width>/` + `data-media`, so a reader of literal URLs finds none of the 89 photos. A sixth page, `/projects/ediblegardens`, is linked only from the projects feed's script. What worked was the sitemap, which names all 6 pages and the same 89 images (checked with `comm` against the pages' `data-media` ids), and the original uploads on the sitemap's host. Those come to 105 files and 244.0 MB, 242.3 MB of it phone photos up to 10.9 MB each. The originals are 4.9× the size of the default rendition (1,908,866 B against 391,500 B for the first hero image). Only the manifest (sha256 per file) landed. The bytes go to the site repo in P0, not onto a branch here, because a branch would add about 240 MB to every clone of this repo for as long as it exists.
+
+**Corrected mid-session by the operator: the repo already has a Blux tool.** I had written a one-off capture script and was about to run a standalone Lighthouse when the operator pointed at it. `reddoor-maint blux` (emit/convert/catalog/migrate/grid/validate) is real. `blux grid` parsed Mantis's live pages into 9/2/5/5/3 bands, the same counts a plain grep of `id="page-block-N"` gives, so that instrument works on this site. Everything past `grid` needs the Blux **dashboard export** (`site.json`), which the live site does not serve (404 at three paths), and Mantis was not in the July corpus of 12 exports. `emit`/`catalog` write `blux_*` slice ids that only `reddoor-starter-blux` renders. That makes the native-vs-Blux-track choice a real fork, so it is Operator decision 59 (pick: native, `blux convert` used only to extract content). The precedent sweep had found the tool. I should have read it before writing a capture of my own.
+
+**Performance is not a reason to move.** Lighthouse mobile on three pages scored 96–99 on performance, 76–79 on accessibility, 100 on best practices and 83–91 on SEO. LCP was 1.5–1.9 s and CLS 0. The gain is in accessibility and SEO:
+
+- no photo has alt text;
+- white on gold measures 1.91:1, and the contact form's Submit button is 1.76:1;
+- the form's honeypot is announced to screen readers as "Feelings";
+- no meta descriptions;
+- `robots.txt` is 404;
+- all four host variants answer 200, under an `http://www` canonical;
+- two service cards on the home page link to 404s.
+
+The fleet's own `audit --url … --only lighthouse` wrote no result in the cloud container: Chrome refuses to run as root without `--no-sandbox`, which `src/audits/lighthouse.ts` does not pass. The numbers come from `@lhci/cli collect` run directly with that flag.
+
+**Facts nobody had.** The registrar is Squarespace Domains II LLC (RDAP), the domain expires 2027-05-09, and DNS still sits on Google Domains' nameservers with Google Workspace mail. Where Blux delivers contact-form submissions today is unknown. Those questions are for Nicole's partner, collected as one message in Operator decision 61.
