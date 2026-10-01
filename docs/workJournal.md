@@ -7264,3 +7264,71 @@ The operator read the plan and answered "taking all your recommendations go for 
 **Review.** Round 1 found a major my own grep had missed because it never looked at `.mjs`: seven scripts under `scripts/` still read the deleted `slicemachine.config.json` and died at startup with `ERR_MODULE_NOT_FOUND`. No test imports them, so every gate was green. Fixed in `40d5d81`; round 2 was clean.
 
 **What the operator still owes before the pilot is signed off**, none of it doable from a cloud session: the `PRISMIC_WRITE_TOKEN` secret and `reddoor-maint prismic-ci reddoor-website` (the recipe fails closed without a readable secret, by design), then the Type Builder switch on `reddoor-la` and its simulator URL once the change reaches `main`. Until the workflow lands, nobody should change models on reddoor-website, because there is no longer a code-first push path there. Phases 3–4 (starters, central, the other 18 sites) wait for that sign-off, as the plan orders.
+
+## 2026-10-01 — Vimeo or our own player: the fleet's background video, measured (williamson-construction-co#13, decision 60)
+
+The operator asked whether Williamson Construction's videos could look
+better, then whether the fleet should keep Vimeo for background video or
+serve its own from Prismic. The answer, after three research threads and
+four measurements, is the second, with Vimeo kept for content videos and
+review links. Decision 60 holds the operator's answers and the rollout
+question; `docs/briefs/2026-10-01-williamson-video-hd.md` is the hand-off.
+
+**What the site served.** Six background clips, all Webflow transcodes at
+854×480, 720×480 or 640×360 and 0.7–1.5 Mbps, stretched across full-width
+bands. The masters were in Dropbox (`WC_website 2020/08_Art/`), five at
+1920×1080 and services at 1280×720, matched by duration and by the same
+frame side by side. The doctor clip's letterbox bars were baked into the
+transcode.
+
+**What a Vimeo embed costs.** Measured in headless Chromium: a background
+player is 20 requests, about 440 KB of player code and three Cloudflare
+cookies before a frame plays; a `<video>` is one request and no cookie.
+The home page, unscrolled, downloaded 5.5 MB (desktop) and 7.8 MB (phone)
+of video in eight seconds, 5.6 MB of it a band below the fold, because
+`BgVideo` started every video at mount. That was our defect, not Prismic's.
+
+**Beliefs corrected on contact.**
+
+- The 2026-06-29 spec said the Lighthouse cookie deduction needed "a Vimeo
+  plan tier the fleet doesn't have". Vimeo's own cookie page lists
+  `__cf_bm`, `_cfuvid` and `cf_clearance` as essential on every plan, `dnt=1`
+  or not. No tier removes them.
+- "Vimeo streams, a file has to download whole" is not the distinction.
+  Prismic's file CDN (S3 behind CloudFront) answers byte ranges and the
+  encodes carry their index at the front, so playback starts after a few
+  seconds. What Vimeo adds is adaptive bitrate, which for 10–45 s muted
+  loops is worth less than a phone rendition behind `<source media>`.
+- reddoor.la's GA shows `/dev/a11y-fixtures` as its top page at 5,967 views
+  in 90 days: CI's Lighthouse runs counted as visitors. A backlog line, not
+  today's problem.
+
+**Traffic.** GA for the 90 days to 09-30: Revogen's home page 1,895 views,
+ERP 2,314, Espada 1,105, Vineyard 829. At 20 MB a visit that is under
+15 GB a month on the worst case against Prismic Starter's 100 GB, so the
+bandwidth risk Prismic's docs warn about is an order of magnitude away.
+
+**Open source.** For a muted loop the player is the browser. For content
+videos, media-chrome is the live option; Vidstack, Plyr and media-chrome
+are merging into Video.js v10 this fall, so no pick until it ships.
+Transcoding is the part nobody gives away: Prismic does not transcode and
+has no media-upload webhook (publish only), so the fleet's own ffmpeg
+recipe is the honest answer.
+
+**What landed and what moved.** williamson-construction-co#13: `BgVideo`
+observes its element, plays within 200px of the viewport, pauses off
+screen, keeps a visitor's pause, and offers a 720p phone file first; a
+`video_mp4_mobile` field on PageHero and VideoBand, pushed to Prismic from
+CI on merge. The 21 HD files are staged on a Netlify draft deploy, and the
+three posters are in Prismic through the connector, which refuses video.
+#12, an Actions job that posts files to the Asset API with the repo's own
+token, had two dirty review rounds, the second finding a flaw in the
+first's own suggestion; the operator asked for a third. The encode recipe
+`reddoor-maint video` is built and tested on `claude/video-encode-command`,
+unreviewed. The content half and the follow-ups went to their own session
+at the operator's request.
+
+**A trap worth one line.** The permission system refused to put the encodes
+on a public temporary host, rightly: the way to get a client's files into
+Prismic from a cloud session is the site's own CI, which already holds the
+write token, with a draft deploy of the site itself as the public source.
