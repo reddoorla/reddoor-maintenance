@@ -7152,6 +7152,36 @@ After the morning report the operator answered in session.
 
 **Other answers.** The operator reacted to Tim's 09-17 slideshow ask in #worthe-web-maintenance, which closes it under the reaction rule. P1-29 and P1-23 went to worker sessions as task cards built from the morning briefs. Privacy 45/46 stay parked.
 
+## 2026-10-01 — P1-29: Slice Machine is deprecated, and what Prismic wants instead (#1090, this PR)
+
+Research only, from the morning report's brief; no Prismic call with a write credential and no site touched. The write-up is `docs/prismic-model-management-2026-10.md`.
+
+**The answer is yes, and it is recent.** npm marks `slice-machine-ui` 2.21.6 and the three `@slicemachine/*` packages deprecated, all published 2026-09-18 around 04:10Z: "replaced by the Prismic CLI and the Type Builder. Existing projects are still supported." The second source the brief asked for is Prismic's own Slice Machine page ("Slice Machine is deprecated … New projects must use the Type Builder", last updated September 2026); a third is the slice-machine repo's README at its 2026-09-18 release commit; a fourth is the new CLI's `init.ts`, which deletes `slicemachine.config.json` and uninstalls `slice-machine-ui` and the adapter on migration. The negative control held: the same `npm view … deprecated` prints nothing for `@prismicio/client`, `@prismicio/svelte`, `@prismicio/types-internal` or `prismic`. It also caught a trap: `@prismicio/cli` is itself deprecated in favour of the unscoped `prismic` package.
+
+**Belief corrected.** The runbook's §11 said Slice Machine was "declared unmaintained on 2026-07-20 with no sunset date". It is now deprecated with a named successor and a migration command; still no sunset date. §11 carries a one-line pointer rather than a rewrite.
+
+**What the CLI does, read from its source rather than its docs.** `prismic push` and `prismic pull` both delete to match. Push needs `--force` to delete a remote model; pull removes a local slice directory recursively, which takes `index.svelte` and the slice's tests with it, so the runbook's "do not run `prismic init`" still stands for the same reason. Push talks to the same `customtypes.prismic.io` API as `prismic-models`, authenticated by a browser login or `PRISMIC_TOKEN` (since 1.10.0). Whether a repository write token works there is unverified and was deliberately not tested. `gen types` writes `prismicio-types.d.ts` at the project root, where our sites keep it under `src/`.
+
+**What did not close williamson-homes's gap.** None of the tools: the site simply has no `prismic-models.yml` workflow (`ci.yml` and `renovate.yml` only, at `52812ea`), so route 2 never ran for it. The MCP connector has no model write tool at all.
+
+The pick, under Operator decisions 57: roll `prismic-ci` out first, then move the starters' codegen from Slice Machine to `prismic gen` behind our own gate. Prismic's full route (Type Builder on, `prismic push` from CI) conflicts with AUTONOMY's model-delete rule and the runbook's Type Builder rule, so it waits.
+
+## 2026-10-01 — A plan to move the fleet off Slice Machine, with the operator's lift (this PR)
+
+> Follows 2026-10-01 — P1-29: Slice Machine is deprecated (#1102).
+
+The operator read P1-29 and asked for the full migration ("we want everything up to date there") and an estimate of their own time. The plan is `docs/prismic-migration-plan-2026-10.md`. Nothing in it has been executed, and nothing was written to Prismic or to any site.
+
+**Measured, not assumed.** Turso's non-archived sites plus williamson-homes, williamson-construction-co and both starters, cloned read-only. 21 repos run Slice Machine across 18 distinct Prismic repositories (data-dynamiq points at the shared wireframer). Eight Prismic sites still have no `prismic-models.yml`, so #1090's williamson-homes drift is one of eight sites where a model change cannot reach Prismic through CI.
+
+**Codegen is a drop-in, checked rather than read.** On a copy of williamson-homes with a hand-written `prismic.config.json`, `prismic gen types` (CLI 1.21.0, offline) emitted the same 108 exported type names as Slice Machine's file, and `gen slice-index` the same component map. They differ only in formatting, the header line and location: the types land at the project root, and the index is `index.ts`. Whether SvelteKit's tsconfig picks up a root `.d.ts` is still open and is the pilot's first check. The CLI refuses to run without `--task-id` and `--user-intent` when it detects an agent; CI does not trip that detection.
+
+**A blocker nobody had named.** The Type Builder previews slices from a deployed `/slice-simulator` framed on prismic.io, where Slice Machine used localhost. Every site sends `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`, so the preview would be refused. The fix is a route-scoped exception, a security-header change that gets the full review.
+
+**The runtime dependency is narrower than feared.** Every simulator route imports `SliceSimulator` from `@slicemachine/adapter-sveltekit/simulator`, but `@prismicio/svelte` has exported the same component since 2.2.0, and every lockfile except erp-industrial's (1.5.0) already resolves 2.2.1 or later.
+
+Operator lift is about 3½ hours: tokens for the seven sites that lack the workflow, a Type Builder switch in 18 dashboards, a pilot sign-off and PR skims. Agent work is 5–7 days. Three decisions come first, recorded under Operator decisions 57.
+
 ## 2026-10-01 — `roster-urls` retries a transport error once before writing a fail (#1103, #1106)
 
 The 16:34Z digest carried a new attention item: MSOT's roster url "does not resolve (error: TimeoutError)". It came from fleet-lighthouse run 36882385796, at 15:41:20Z. The site was up. The same run's domain, netlify-deploy and browser checks passed for MSOT. The probe got a 200 three times out of three at 16:50Z, and the row had passed on 09-30. One GET with a 15 s budget and no retry had turned a few seconds of slowness between the runner and one site into an emailed alarm. That run's Lighthouse audit of MSOT also failed in the same few minutes, so the blip was real; it was just short.
