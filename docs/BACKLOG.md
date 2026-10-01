@@ -1360,6 +1360,14 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     are pushed, an agent sets `step_height: tall` on about-us's
     "Collaborative approach" ProcessSteps slice through the Prismic
     connector. The operator has asked for that edit.
+    **Done 2026-10-01 [M]:**
+    - The operator pushed both models from Slice Machine.
+    - The edit went through the Prismic release "About Us: tall
+      collaborative-approach steps", and the operator published it.
+    - The publish webhook rebuilt the site. At 02:28:21Z,
+      `curl …/about-us | grep -c 'md:min-h-\[40rem\]'` returned 1.
+    - Nothing in (iii) is open. The question of how models should reach
+      Prismic in the first place is #1090.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
