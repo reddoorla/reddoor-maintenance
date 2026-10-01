@@ -1556,6 +1556,14 @@ verdict is its only input, because no client and no check sees the email.
 
 ## Done (move items here when they land)
 
+- 2026-10-01 — `roster-urls` retries a transport error once before writing
+  a fail: #1103, #1106. MSOT's 10-01 `error: TimeoutError` was a blip (the
+  same run's other checks passed; 200 three of three an hour later). A row
+  with no HTTP answer is re-read after a 25 s pause and the second read is
+  the verdict; HTTP answers and both controls keep one read. `retried=N` on
+  `ROSTER_URL_SUMMARY`. 14 mutations all red; review round 1 four test gaps,
+  round 2 clean. The 10-minute step outgrows the retry at about 108 rows.
+
 - 2026-10-01 — Operator rule: a Testing report sent within a month of a
   Maintenance due date pushes Maintenance back one cycle: #1099, `4bfc2fc`.
   `pushPastTesting` in `src/reports/due.ts`; measured from the later of the
