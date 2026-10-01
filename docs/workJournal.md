@@ -7190,6 +7190,7 @@ A worker session from the morning report's brief. `launch` now audits the Websit
   - the url's path being dropped.
 
   It also found two false claims in comments and the changeset: the "mailed" claim and the wrong cause. All were folded in.
+
 - Round 2 was clean.
 
 Twelve mutations, all red. The real `lighthouseAudit` test was also shown to go red when `lighthouse.ts` is forced onto its checkout branch.
