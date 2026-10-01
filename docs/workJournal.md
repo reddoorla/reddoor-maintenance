@@ -7194,6 +7194,35 @@ The 16:34Z digest carried a new attention item: MSOT's roster url "does not reso
 
 **What the fix cannot show yet.** Every test injects the fetcher and the pause. The real 25 s timer and a real second read happen first in tonight's fleet-lighthouse run, and `retried=` on its summary line is the first number from production.
 
+## 2026-10-01 — P1-23: `launch` scores the live site, not the checkout (#1056, #1105)
+
+A worker session from the morning report's brief. `launch` now audits the Websites row's `url` with `deployedUrl` set, so `lighthouseAudit` takes `deployedLighthouse` and never boots the checkout's dev server. That dev server is where VLF's stored baseline of 52/100/100/61 came from, against 85/100/100/100 live (2026-09-29 entry).
+
+**The order is what makes it safe.** dev-guard already probed the row's url on `main` and required `/health` to answer 200, but it ran _after_ the audit, because the row lookup sat between them. Moving the lookup and dev-guard ahead of the audit makes the existing `/health` control the proof that the url answers. A dead host now stops the chain unaudited, with no second probe added. A url that is not http(s) is refused before any probe. The emitted step chain did not change.
+
+**Beliefs corrected on contact.** Both came from the brief and the issue, and both were wrong:
+
+- The score was never "mailed in the go-live email". `src/reports/launch-email/template.ts:15` renders no Lighthouse at all; the score lands in `site_health` and on the Launch report row.
+- The cause was not `select.ts`'s rule that only `maintained` rows get a url. `launch` never goes through `selectFleetSites`: `resolveSites({ site, cwd })` takes `localPath`, which builds `{ path, name }` only. A re-launch of a maintained site would have scored the dev server too.
+
+**DNS cutover was not a new fork.** The brief's stop condition was a launch whose url is not yet the production host. That launch already stopped at dev-guard before this change; it now stops one step earlier. `docs/SETUP.md` says so.
+
+**What changed beyond Lighthouse.** `runAudits` runs every audit, so browser, domain, function-health and analytics now run against the live url at launch instead of skipping on "no deployed URL", and the new site's first health row is filled the way the nightly fills a maintained one. form-e2e is still inert without `REDDOOR_FORM_E2E_LIVE=1`. Browser running beside Lighthouse may add performance-score noise; this was not measured.
+
+**Review.** Two rounds of three lenses.
+
+- Round 1 found five mutations that survived and that the tests could not see:
+  - a live audit that throws, or returns no real scores, quietly retried against the checkout. That is #1056 coming back by another route, and the most important gap.
+  - a stale `deployedUrl` on the site beating the row's url.
+  - a bare hostname getting past a `file:`-only url check.
+  - the url's path being dropped.
+
+  It also found two false claims in comments and the changeset: the "mailed" claim and the wrong cause. All were folded in.
+
+- Round 2 was clean.
+
+Twelve mutations, all red. The real `lighthouseAudit` test was also shown to go red when `lighthouse.ts` is forced onto its checkout branch.
+
 ## 2026-10-01 — Mantis Landscaping: a plan to move it off Blux (#1107, this PR)
 
 The operator's ask: "new project: mantislandscaping.com is nicole's partners website and I want to move it onto the reddoor stack, feel free to improve it as we move it over, it's currently on blux". The deliverable was a plan, not a build. It is `docs/mantis-landscaping-plan-2026-10.md`, with the build as BACKLOG P1-30 and four Operator decisions (59–62). Nothing was created anywhere: no repo, Prismic repository, Netlify site, Turso row or DNS change. Nobody outside Reddoor was contacted.

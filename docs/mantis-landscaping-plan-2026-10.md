@@ -305,10 +305,9 @@ body. The tiers are AUTONOMY.md's.
 | **P6 — launch** 🔴 DNS / 🟡 recipe                 | DNS holder (OD 61) changes records; agent runs recipes           | only the apex `A` and the `www` `CNAME` change; MX, SPF and other TXT records are untouched; every kept path answers 200 with `server: Netlify` and none carries `blux`; the other three host variants 301; `forms-notify-target` is moved to the client recipient; `launch mantis-landscaping` drafts the Launch report (never sends); the row is `maintained` with `git_repo`/`netlify_id` already filled; report cadence set (OD 61)           |
 | **P7 — Blux off** 🔴                               | operator                                                         | at least 14 days after cutover with no rollback, the Blux site is cancelled (OD 60)                                                                                                                                                                                                                                                                                                                                                               |
 
-**P1-23 (#1056)** was in flight on 2026-10-01: a worker branch
-(`claude/intelligent-euler-b08e4t`, 17:26Z) changes `launch` to score the live
-URL. If it has not landed by P6, the Launch report scores the checkout, so
-check before running `launch`.
+**P1-23 (#1056)** landed on 2026-10-01 as #1105 (`2a06307`): `launch` now
+audits the row's live `url`, not the checkout. P6 relies on it, so the row's
+`url` must be the cutover host before `launch` runs.
 
 **Privacy (P1-26, #1055, parked):** a launch dependency **only if** OD 62
 adds GA4. Otherwise Mantis launches without it, as today.
