@@ -7095,3 +7095,20 @@ If the setup hook grows a step, the first two are the candidates.
 Final gate r7 is on `7db29f3`: 8 of 14 pages pass, and every failing region
 is a LEDGER line. The full account is in the site repo's journal and #9's
 body.
+
+## 2026-10-01 — Roalson MarkUp round, second half: 10 of 12 pins resolved (roalson-interests #242, #243, #245)
+
+> Follows 2026-10-01 — Roalson MarkUp round: 7 of 12 pins fixed and resolved.
+
+The operator answered in session. "Land what you can" released the two held PRs. #242 landed as `5e47eeb` and #243 as `195a798`, each after a merge of `main` and a regenerated `docs/COMPONENTS.md`.
+
+The operator chose download for Properties #3. The belief corrected on contact: the `download` attribute alone could not do it. The packages sit on `roalson-interests.cdn.prismic.io`, served `Content-Disposition: inline`, and browsers ignore `download` on a cross-origin link. Two server-side routes were ruled out:
+
+- **A `netlify.toml` proxy.** adapter-netlify's render function owns `/*`, and Netlify runs function paths before redirect rules, so a proxy rule never fires.
+- **A streaming endpoint.** Functions cap streamed responses at 20 MB, and the largest live package is already 14.4 MB.
+
+The CDN answers `Access-Control-Allow-Origin: *`, so #245 (`72fa1c0`) fetches the PDF on press and saves it from a blob URL. The live site saved `5930-bandera-road-package.pdf` without leaving the page.
+
+One CI run on #242 took 41.7 minutes with three PRs' suites running at once. Its five motion-test failures sat on a superseded head and did not recur on the landed one.
+
+Still open are Home #3 (which colour to restore at 20%) and Home #4 (Erik).
