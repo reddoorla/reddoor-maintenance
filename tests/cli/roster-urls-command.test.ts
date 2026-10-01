@@ -342,6 +342,10 @@ const ONE_ROW = [row("msot", "https://medicalsolutionsoftx.com/", "maintained")]
 describe("runRosterUrlsCommand › a transport error is retried once (#1103)", () => {
   const ok = () => new Response("<html>ok</html>", { status: 200 });
 
+  it("pauses 25 s before the retry pass", () => {
+    expect(ROSTER_URL_RETRY_DELAY_MS).toBe(25_000);
+  });
+
   it("a target that times out once and then answers 200 is written as pass, after one pause", async () => {
     const writes: Write[] = [];
     const calls: string[] = [];

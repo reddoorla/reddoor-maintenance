@@ -180,9 +180,10 @@ jobs:
         if: ${{ !cancelled() }}
         # #912: does every non-archived roster url resolve? One GET per row plus
         # two controls, 15 s each, six at a time; a row that got no HTTP answer
-        # is read once more after a 25 s pause (#1103). A whole-fleet stall of
-        # 34 rows is 30 s + 90 s + 25 s + 90 s, about 4 minutes. It outgrows
-        # this budget past 108 rows (2 x ceil(n/6) x 15 s + 55 s > 600 s);
+        # is read once more after a 25 s pause (#1103). The worst case, every
+        # row stalling while both controls answer, is 30 s + 90 s + 25 s + 90 s
+        # at 34 rows, about 4 minutes. It outgrows this budget at about 108 rows
+        # (2 x ceil(n/6) x 15 s + 55 s, before startup and Turso time);
         # raise the timeout before the roster gets there, since a step killed
         # by it writes nothing and shows only as url-probe-stale three days
         # later. continue-on-error for the same reason
