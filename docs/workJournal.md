@@ -6781,3 +6781,7 @@ The CMS line came out of the notes for Erik on the operator's call: everyone at 
 ## 2026-10-01 — The pitch's close: the plan's title and a contact, not a call to action
 
 The last block of the pitch had been "Book a call with Erik" since the first draft, and three review rounds argued about what the ask should be. The operator's answer was that there is no ask: the client reads the pitch in the room with Erik, so the close is the full plan's title, one line on what it holds, and Erik's name, email and phone. The notes' edit about the close now says only that, and that neither deck has dates.
+
+## 2026-10-01 — The decisions page is gone; what the build needs sits on "What we need from you"
+
+The "eight decisions only you can make" page, carried over from the first pitch draft and moved twice tonight, came out of the plan on the operator's call: it listed workshop outputs as if they were prerequisites, and the one thing the build needs to begin (who holds the domains, DNS and email) was already on the what-we-need page. The merge map's Healthcare row got Erik's "confirm the 24-hour lines" back, since that was the one decision with nowhere else to live. The plan is 16 pages; the contents, footers, the pitch's closing line and the notes' table all follow.
