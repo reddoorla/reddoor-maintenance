@@ -6777,3 +6777,7 @@ The two-page cut had thrown out two things the operator had asked for by name: t
 ## 2026-10-01 — CMS off Erik's open items
 
 The CMS line came out of the notes for Erik on the operator's call: everyone at Reddoor who deals with GOLA knows what CMS is, so the item was only ever answering the developer's own confusion, and that is recorded two entries up. The open items that are actually Erik's are four: the sub-brand name, the referral system, who translates, and the maintenance tier.
+
+## 2026-10-01 — The pitch's close: the plan's title and a contact, not a call to action
+
+The last block of the pitch had been "Book a call with Erik" since the first draft, and three review rounds argued about what the ask should be. The operator's answer was that there is no ask: the client reads the pitch in the room with Erik, so the close is the full plan's title, one line on what it holds, and Erik's name, email and phone. The notes' edit about the close now says only that, and that neither deck has dates.
