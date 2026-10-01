@@ -122,7 +122,7 @@ The reusable workflow's **source of truth is [`workflows/reusable/prismic-models
 - a dead token goes red;
 - `land-prs` merges only `CLEAN`.
 
-A green install PR therefore proves a working token, which the name lookup never did. Minting and setting the token stays the operator's (🔴). (#1113)
+A green install PR therefore proves the token can read this repository's models, which the name lookup never did. Write access is first exercised by the apply job on the next model merge. Minting and setting the token stays the operator's (🔴). (#1113)
 
 The recipe also refuses when:
 
