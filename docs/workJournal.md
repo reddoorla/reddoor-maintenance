@@ -7126,3 +7126,12 @@ The Routine fired twice for 10-01: at 03:36Z, before any nightly, and at its rea
 **Instrument check.** The read-only Turso pass wraps the libSQL client so anything but SELECT/WITH throws, and an `UPDATE … WHERE 0` was refused before any result was trusted. `approveBlockers` returned `[]` for the two approved rows already known clear, and the due dates matched the 03:40Z read (five on 10-05). The npm deprecation check used for P1-29 printed a deprecation for `slice-machine-ui` and nothing for `@prismicio/client`, so it can answer no.
 
 **Housekeeping in BACKLOG.** Operator decision numbers collided a second time: Construction's #9 landed as another "55", and #1090's item was labelled "54" although P1-29 cited 57. They are now 57 and 58, and the next new item is 59. The first attempt at the relabel was silently undone by Prettier, which numbers an ordered list from its first item: that is how a second "55" came to exist at all. A blockquote note now breaks the list so the labels hold. A blank line had split the P1 table before P1-27; removed. Construction #9 (decision 58) is the operator's one new ask; its head is still `f25cfb9`. `list_sessions` is still not available to the Routine, so the GOLA session was read from its branch (unchanged since 02:25:59Z).
+
+## 2026-10-01 — Construction's gate PR landed by the operator (williamson-construction-co#9, `2ee22e8`)
+
+The operator merged #9 at `f25cfb9` at 15:27Z, taking Operator decision 58
+("55" when it landed) option (a): no third review round. The round-2 fix
+therefore reached `main` reviewed only by its own tests (`slider-content.spec`,
+M18/M19) and green CI.
+
+One safety-net check-in ran at 05:36Z before the merge and found nothing new.
