@@ -6891,3 +6891,11 @@ OD7-P2b from the plan's §7 brief, worked in a cloud session after the P2 worker
 **Cloud mechanics.** The pinned Playwright wants browser build 1243 and the image has 1234. `PLAYWRIGHT_BROWSERS_PATH` pointed at a scratch directory of symlinks ran both the axe audit and the suite without `playwright install`.
 
 **Where it stopped.** Round 2 found no major but two real minors: a page click closes the open menu (`<main tabindex="-1">` takes focus, against the code's own intent), and one assertion in the Tab test cannot fail because `elementFromPoint` skips `inert`. It also found two nits. Under "two dirty review rounds, then stop", #8 is held at `a7acae5` (CI green) and goes to the operator as BACKLOG 52, with my pick: fix the four and land without a third round. Nothing was merged.
+
+**Landed after the operator's answer** (later the same night). BACKLOG 52 was answered "(a) fix all four and land".
+
+- **(i)** The page-click close was kept as the pick said, and is now pinned by a browser test and a LEDGER deviation line.
+- **(ii)** The assertion that could never fail now compares the painted panel's rectangle with the focused control's. The first mutation meant to prove it failed earlier, at the `aria-expanded` check, so it never reached the new assertion. That would have been evidence for the old check, not the new one. A second mutation leaves the menu "closed" but the panel painted in place, and that one does reach it: "the painted panel still overlaps the focused control".
+- **(iv)** The easing fix found one more miss of the same kind. The plan's discs were on Tailwind's easing too, not the reference's default `ease`. The spec now reads the timing function as well as property and duration.
+
+`land-prs --repo reddoorla/williamson-construction-co 8` merged `205608d`, pinned to `903fe79`. 744 unit and 56 Playwright tests passed locally, and CI was green. The matching-gate question in 52 is still open.
