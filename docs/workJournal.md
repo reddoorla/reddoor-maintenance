@@ -6997,3 +6997,38 @@ The Routine fired at 20:36 PDT on 09-30 (`date -u` 03:36Z), not at its 04:48 PT 
 **Backlog.** P1-29 (#1090's research half: is Slice Machine deprecated, and what does Prismic recommend now) was added and briefed, with the decision after it as Operator decisions 57. Two decisions had landed as "53" (#1092's Roalson item and the Homes item from #1087/#1089/#1091). Neither was renumbered, because PR titles cite both, so the second carries a note instead. P0-4's table now shows the approvals, VLF's withdrawal to 12-30, and Sonder Maintenance held behind Testing.
 
 **Not available.** `list_sessions` and `get_session` are not tools in this Routine, so the GOLA desktop session was read from its branch: `claude/practical-ride-kbipzv`, 13 commits to 02:25:59Z, no PR, with a 13-line `CLAUDE.md` change that will not take effect until it lands.
+
+## 2026-10-01 — Williamson Homes' steps become a pinned stage that ends on a solid last step (williamson-homes#11, `cf5a8fc`)
+
+The operator dropped Webflow fidelity for one section: "on the homepage,
+finish your dream home should stick and solidify … don't worry about
+matching webflow any more, just make it good", and then "same issue on about
+us … it's the main thing of interest on the site". The `countersAnim.js` port
+from #10 (OD7-P1b) is gone. It pinned each step as its own sticky `li`, so
+on the last step the list ran out of track, and all four steps slid under the
+still-pinned heading and disappeared; nothing ever held on "Finish Your Dream
+Home".
+
+Its replacement is one sticky stage driven by a pure progress function. The
+last step parks, fills from grey to teal over half of a 0.8-viewport hold,
+fires one ring, and the stage releases as a unit. The full account (five
+defects, each visible only in a screenshot, and the mutation table) is in the
+site repo's journal and #11's body. Three are worth keeping here, because
+they generalise:
+
+- **A `mask-image` clips its element's overflow, not only its fade.** The
+  bottom fade cut the top off anything poking above the list, so the last
+  circle's scale pulse was sliced. The operator caught it on a video; no test
+  did until one measured the circle against the list's edge.
+- **Any partially transparent text fails axe's color-contrast.** A "ghost"
+  preview at 30% failed `test:a11y` on two routes. A preview can be a shape;
+  it cannot be faint words.
+- **A filtered Playwright run that prints nothing has proved nothing.** The
+  first mutation run for the new clip check used a `-g` that matched no
+  test. It is the "prove the instrument" rule again, and it went unnoticed
+  only because an empty output looks like a quiet pass. Rerun unfiltered,
+  it was 2 red.
+
+Landed with `land-prs.mjs`, pinned to `793d1e4`, after the operator's "land
+it". The matching gate was not re-run for this section, by the operator's
+call, and that is ledgered in the site repo.
