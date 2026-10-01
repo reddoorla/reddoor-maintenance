@@ -7245,6 +7245,64 @@ The fleet's own `audit --url … --only lighthouse` wrote no result in the cloud
 
 **Facts nobody had.** The registrar is Squarespace Domains II LLC (RDAP), the domain expires 2027-05-09, and DNS still sits on Google Domains' nameservers with Google Workspace mail. Where Blux delivers contact-form submissions today is unknown. Those questions are for Nicole's partner, collected as one message in Operator decision 61.
 
+## 2026-10-01 — Roalson MarkUp round closed: 12 of 12 pins (roalson-interests #246, #247, #248)
+
+The operator answered the last two pins in session. Home #3 is the progress bar's unfilled track at 20% while it times a slide; the position indicator keeps its 3:1 track (#246). Home #4 removes the PROPERTIES button and adds an ALL circle after the slideshow controls (#248). An unpinned ask also landed: the bar's hero controls at 75% garnet (#247). The full entry is in that repo's journal. Process note for this file: `pkill -f` and `ps | grep | kill` each matched the calling shell's own command line and killed it, so record a dev server's PID when you start it.
+
+## 2026-10-01 — The Slice Machine migration starts: decisions taken, pilot on reddoor-website (reddoor-website#235, this PR)
+
+> Follows 2026-10-01 — A plan to move the fleet off Slice Machine (#1104).
+
+The operator read the plan and answered "taking all your recommendations go for it": D1 (a), Type Builder on with the repo kept authoritative by a nightly pull-sync PR; D2, keep `prismic-models` + `prismic-ci` and never `prismic push`; D3, Prismic's generated-file layout. Item 57 records the answer.
+
+**The pilot is reddoor-website#235**, into `staging`. Slice Machine and its adapter are gone, as are `concurrently` (only the dev script used it) and `scripts/prismic/regen-types.mjs`. That script existed only because Slice Machine had no command to regenerate types after a hand edit; `prismic gen types` is that command. The regenerated types carry the same 117 exported names. Moving the file to the project root cost one `../` on 15 imports and nothing else: SvelteKit's generated tsconfig does not include a root `.d.ts`, but every consumer imports it by path, so svelte-check sees it (0 errors). That answers one of the plan's four open questions.
+
+**A new `prismic-codegen` workflow regenerates and fails on any diff.** It was proven before trusted: green on a clean copy, red on four mutations (a slice field, a hand-edited types file, a new slice, a custom-type field), then green in real CI on the PR. The CLI demands `--task-id`/`--user-intent` when it detects an agent; Actions is not detected, so the job needs neither, which the round-2 reviewer confirmed with `env -i CI=true`.
+
+**Belief corrected.** The plan said every site's CSP would block the Type Builder's framed simulator. reddoor-website already allows it: `CMS_FRAMED_ROUTES` in `src/lib/security/headers.ts`, added 2026-08-19 when its Page Builder previews broke, live on reddoorla.com at 17:34Z and on the deploy preview at 17:44Z. It is the only one of the 21 repos with it, and it becomes the pattern to port. The plan carries a correction note above the paragraph rather than a rewrite.
+
+**Review.** Round 1 found a major my own grep had missed because it never looked at `.mjs`: seven scripts under `scripts/` still read the deleted `slicemachine.config.json` and died at startup with `ERR_MODULE_NOT_FOUND`. No test imports them, so every gate was green. Fixed in `40d5d81`; round 2 was clean.
+
+**What the operator still owes before the pilot is signed off**, none of it doable from a cloud session: the `PRISMIC_WRITE_TOKEN` secret and `reddoor-maint prismic-ci reddoor-website` (the recipe fails closed without a readable secret, by design), then the Type Builder switch on `reddoor-la` and its simulator URL once the change reaches `main`. Until the workflow lands, nobody should change models on reddoor-website, because there is no longer a code-first push path there. Phases 3–4 (starters, central, the other 18 sites) wait for that sign-off, as the plan orders.
+
+## 2026-10-01 — Mantis Landscaping: the operator's answers, the Turso row, the export, and P0 (#1107, this PR)
+
+> Follows 2026-10-01 — Mantis Landscaping: a plan to move it off Blux (#1108).
+
+The operator took the plan's picks on Operator decisions 59–62 ("I'll take your picks"), so the build is native.
+
+**What happened in order.**
+
+- **The Turso row went in first**, because it needed nothing from anyone: `ensure-site mantis-landscaping`, status `building`, verified by `SELECT`. A grep first confirmed that sweeps skip pre-launch rows (`src/inventory/select.ts`), so a row whose repo did not exist yet could raise no alarm.
+- **Generating the repo from the template was refused as a public surface**, the same wall the Williamsons hit, so the operator made it.
+- **It landed as `tucksravin/mantis-landscaping`** on the operator's personal account. Fleet tooling, the central secrets and the row all assume `reddoorla`. That contradicted the row, so it was reported rather than worked around. The operator transferred it to the org.
+
+**The Blux export changed one belief from the plan.** The plan expected `blux convert` to be the seed source for content and assets. On the real export it does the pages well: 3 pages, 17 bands, every page "FAITHFUL". It also has two gaps:
+
+- It skips the `projects` collection.
+- It resolves only 2 of the 89 images the live pages use, with or without `--probe`, because the export's media library has no CDN URLs.
+
+So the planning session's capture, taken partly as insurance, turns out to be the only complete image source. The seed uploads from Blux's CDN and checks each file against the committed manifest's sha256. Blux stays paid until after launch for exactly this reason.
+
+**Privacy in a public repo.** The export's `site.json` carried 6 email addresses and the account's owner and collaborator records. The copy in the site repo's `matching/spec/` is redacted, and the original's sha256 is recorded. A structural check showed the redaction removed nothing else: the 370 KB → 170 KB drop is only the export's pretty-printing.
+
+**Two instrument notes from P0** (the detail is in mantis-landscaping#1 and that repo's journal):
+
+- The match harness's `--check-ref` passed with the Blux site id as `refMark`, and refused a deliberately wrong one.
+- The starter's axe step writes no results in a cloud container. An untouched checkout of the starter fails it identically, so the cause is the container, and CI's runner is the authority for that step.
+
+**Open:**
+
+- Nicole's answers: the form recipient, the domain login, the icon licence, and whether to publish the three draft projects.
+- The Netlify site's name.
+- P2.
+
+**Later the same day (~18:45Z).** The operator answered the rest, and the session acted on it:
+
+- **The Netlify site** was created on the operator's authority, mirroring the Williamson sites. The forms token was copied from Williamson's env and compared by sha256 prefix rather than printed. A "Prismic publish" build hook was added.
+- **The client's form recipient** went onto the row as `point_of_contact`. It is not written in this repo, which is public.
+- **The first production build failed.** CI had been green, but Netlify's enhanced secret scan matched a Google API key in Blux's own `__analytics.js`, which P0 had vendored into `matching/spec/`. CI does not run that scan, so only a production build could catch it. The REST API had no build log for the deploy; the Netlify connector's deploy record named the file and the line. The file was removed (mantis-landscaping#2) rather than exempting the directory from the scan.
+
 ## 2026-10-01 — `reddoor-maint video` encodes a background-video master into the fleet's renditions (branch `claude/video-encode-command`, unmerged)
 
 One master, four outputs: a capped-height H.264 mp4 and VP9 webm, a 720p phone mp4 when the source is at least 720 tall, and a poster jpg taken from frame 0 of the mp4 that plays rather than from the master, so the first painted frame and the first played frame are the same encode. Every rendition carries `-an`, because the fleet's hero loops are muted and an audio track in a background video is bytes the browser downloads to discard. `--upload <prismic-repo>` pushes the outputs to that repository's Asset API, deduped by filename, with the token read from `PRISMIC_TOKEN_<REPO>` alone (`allowGeneric: false`), so a generic `PRISMIC_WRITE_TOKEN` in the shell never lands a site's video in another site's library.
