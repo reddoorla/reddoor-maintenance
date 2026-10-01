@@ -1344,6 +1344,13 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     delete, so `claude/od7-p2b-fidelity` is still on GitHub. **The gate
     question above is still open.**
 
+    **Gate question answered 2026-10-01 (worker, cloud): it runs, and it is
+    proven.** Both blockers were setup. The skill is a `claude-skills`
+    clone with `MATCHING_SKILL_DIR` set, and Phase 1 is now done for all 14
+    pages (williamson-construction-co#9). On the reference itself (the apex
+    host) the gate printed 14/14 pages, 165 regions, 0 FAIL. The negative
+    control failed at 52–74%. The merge of #9 is decision 55.
+
 53. **roalson-interests#242 (MarkUp: "Improved Projects" tab matches Land):
     held after two dirty review rounds.** Under its own tab Improved now has
     Land's off-white ground, 40px strip, unpinned divider and sand cards, with
@@ -1420,6 +1427,35 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     starters and in `prismic-models`/`prismic-ci`, including type generation
     (`prismicio-types.d.ts`) and the generated slice index. Not an ask until
     P1-29 lands; listed so the PM pass carries it.
+55. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
+    14 pages): held after two dirty review rounds.**
+    - Round 1 found four majors, fixed in `7db29f3`:
+      - slides clipped content (and a focusable See More) at 390;
+      - the testimonials clipped;
+      - the dots were 2.62:1;
+      - the census declarations never read the candidate.
+    - Round 2 found one verified major: the slider controls row sat over the
+      tallest phase slide's See More at 390 and took its clicks. It also
+      found that the `max-[991px]` variants missed Webflow's inclusive 991,
+      767 and 479.
+    - Both are fixed in `106d06e`, and nobody has reviewed that head.
+    - Gate r7 (`7db29f3`, cold server): 8 of 14 pages PASS. Every failing
+      region is a LEDGER line: the font kit's wrap, the accessible form's
+      extra height, slides that grow rather than clip, the photo pipeline,
+      and an empty reference paragraph.
+
+    The head is `f25cfb9` (`106d06e` plus LEDGER and journal lines), and CI is green on `106d06e`.
+    _Ask:_ (a) land it as it is; or (b) a third review round first.
+    _Pick:_ (a). The round-2 fix is pinned by `slider-content.spec.ts`'s
+    "no slide link under a control" check at three widths, and M18 and M19
+    each turn it red.
+
+    Optional calls, not blocking:
+    - (c) Prismic slice variations instead of the structural `:has(+ …)`
+      picks. They are content edits in four documents.
+    - (d) Typographic quotes in the testimonial content.
+    - (e) The reference's empty 45px paragraph on Providence Hospital. Pick
+      for both: leave them.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
