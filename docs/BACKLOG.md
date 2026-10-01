@@ -1170,9 +1170,9 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     held for item 47. #9 builds a first scroll reveal for the steps; the
     reference's sticky numbering (`countersAnim.js`) replaces or extends it.
     Start Homes' P1b from whichever #9 head the operator merges.
-    **Construction's P2b is built and held for item 52** (session
-    `session_015T9mFHiAiALPXV1YnMoDCH`, williamson-construction-co#8, head
-    `a7acae5`, CI green).
+    **Construction's P2b landed 2026-09-30** as williamson-construction-co#8
+    (`205608d`), after item 52 was answered; see Done. Homes' P1b is what
+    remains of this item.
 45. **Privacy policy wording (P1-26): one legal review of the template.**
     The template's text speaks for each client's business, and it discloses
     what the fleet actually does with visitor data. _Ask:_ send the draft in
@@ -1301,6 +1301,14 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     for P2b. _Pick:_ drop it for P2b, and make Phase 1 its own item if you
     want the pixel gate on this site.
 
+    **Answered 2026-09-30 ~23:45Z (operator): (a) fix all four and land.**
+    Fixed in `903fe79`: (i) kept and pinned by a test and a LEDGER line;
+    (ii) replaced by a rect-overlap check, shown to fail on a panel left
+    painted; (iii) and (iv) each tested and mutated. Landed with `land-prs`
+    pinned to `903fe79`, CI green, as `205608d`. The proxy refused the branch
+    delete, so `claude/od7-p2b-fidelity` is still on GitHub. **The gate
+    question above is still open.**
+
 ---
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
@@ -1357,6 +1365,16 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-09-30 — OD7-P2b, Construction's fidelity pass (BACKLOG 44 and 52):
+  williamson-construction-co#8, `205608d`. It ships:
+  - the reference's favicon and apple-touch-icon;
+  - `freight-sans-pro` / `-lights` from kit `noj4tji`;
+  - every reference hover, measured on the capture;
+  - the IX2 mobile menu.
+
+  Two review rounds; the operator chose to land after fixing round 2's four
+  findings. The matching-gate done-when is still an open question in 52.
 
 - 2026-09-30 — P1-22 closed by measurement, not code: the first scheduled
   fleet-security run after #985 (run 36709631159, 11:37Z) printed
