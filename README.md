@@ -62,6 +62,8 @@ reddoor-maint convert-to-pnpm [site]
 reddoor-maint onboard [site]
 reddoor-maint svelte-codemods [site]
 reddoor-maint upgrade svelte-4-to-5 [site]
+
+reddoor-maint video <input>     # background-video master -> web renditions (+ optional Prismic upload)
 ```
 
 `[site]` defaults to `process.cwd()`. Add `--fleet path/to/inventory.json` (or `.mjs` / `.js`) to run across every site in an inventory instead. `--cwd <path>` overrides the working directory for any command.
@@ -88,7 +90,37 @@ Standalone, outside the `[site]` loop above (it audits an external URL, not a fl
 
 - `0` — success (including `noop`)
 - `1` — at least one audit failed, or a recipe returned `failed`
-- `2` — invalid argument (e.g. unknown `--only` name, unknown `--group`)
+- `2` — invalid argument (e.g. unknown `--only` name, unknown `--group`), or a
+  missing tool or credential the command cannot run without (`video` without
+  ffmpeg on PATH, or `--upload` with no token)
+
+### Video renditions
+
+`reddoor-maint video <input>` turns one background-video master into the
+renditions the fleet's hero loops play, and can push them straight into a
+site's Prismic media library. Background loops are muted, so every rendition
+drops the audio track (`-an`). It needs `ffmpeg` and `ffprobe` on `PATH`
+(`brew install ffmpeg` / `apt install ffmpeg`); without them it exits `2`.
+
+For a master of height `H` and `T = min(--max-height, H)`:
+
+| Output                 | When       | Encode                                                                                 |
+| ---------------------- | ---------- | -------------------------------------------------------------------------------------- |
+| `<name>-<T>.mp4`       | always     | H.264 high, `-preset slow -crf 23 -maxrate 5M -bufsize 10M`, `+faststart`, yuv420p     |
+| `<name>-<T>.webm`      | always     | VP9, `-crf 34 -b:v 3500k -row-mt 1 -deadline good -cpu-used 2`                         |
+| `<name>-phone-720.mp4` | `H >= 720` | H.264 main at 720p, `-preset slow -crf 24 -maxrate 2200k -bufsize 4400k`, `+faststart` |
+| `<name>-poster.jpg`    | always     | frame 0 of `<name>-<T>.mp4` (`-frames:v 1 -q:v 3`), so the poster matches what plays   |
+
+Flags: `--out <dir>` (default `./video-out`), `--name <slug>` (default: the
+input's basename, slugified), `--max-height <n>` (default `1080`). After
+encoding it probes each output and prints a table of file, WxH, size in MB
+and kbps.
+
+`--upload <prismic-repo>` then POSTs each output to that repository's Asset
+API. The token is read from `PRISMIC_TOKEN_<REPO>` only (never the generic
+`PRISMIC_WRITE_TOKEN`), and the command exits `2` naming that variable when
+it is unset. Uploads are deduped by filename against the existing library:
+each file prints `UPLOADED <file> <id> <url>` or `EXISTS <file> <id>`.
 
 ---
 
