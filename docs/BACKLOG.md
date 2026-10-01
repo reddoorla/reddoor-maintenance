@@ -136,6 +136,7 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164            | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
 
 | P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries | 🟢 | S | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed |
+| P1-28 | **#1078, held for operator decision 51 (operator asked 2026-09-30).** It also blocks the next period: `pendingEarlier` in `src/cli/commands/report.ts` skips a new draft while an earlier one is pending, so VLF's October report would never be drafted. A report draft the operator decided not to send has no state that takes it off the cockpit's pending list: `isPendingApproval` (`src/reports/report-row.ts:79`) is `draftReady && !approvedToSend && sentAt === null`, so VLF's skipped 2026-09 draft (item 41) shows as "Maintenance 2026-09 ready" forever. Add a withdrawn state for a draft, set from `/s/<slug>`. | 🟡 | S–M | `src/reports/report-row.ts:79`, `src/dashboard/fleet-cockpit.ts` | A withdrawn draft leaves the pending list and the Needs-you feed, and a test goes red if it comes back |
 
 ### Blocked behind another PR (do not start early)
 
@@ -680,6 +681,39 @@ search=measured`. Read back (SELECT only) at 19:20Z:
       - `approveBlockers` on the live row is `[]`.
 
       No override is needed. Nothing was sent.
+
+    - **Update 2026-09-30 ~21:03Z: the header no longer shows the cookie
+      banner.** #654 was closed by #814, but the draft's header still showed
+      Sonder's consent panel and its blur scrim over the hero. Sonder's banner
+      mounts after hydration, 3–5s after `load`, which is after #814's one
+      click. Its classes are utility-only, so the CSS fallback never matched.
+      #1070 (`d269b9cf`) now clicks only buttons inside a consent overlay,
+      looks again after the settle, and refuses to store a shot whose banner
+      will not leave. The plate was regenerated with `header-image sonder
+--write-back` and inspected: 21:02:23Z, 888,694 bytes, the "Theo
+      Hirschfield / Euphorbia" hero with no banner. The preview was refreshed
+      (run 36776796655), and `approveBlockers` is still `[]`. Test emails to
+      the operator inbox only: `01a0f3e7…` (old header),
+      `01a0f41d…` (**broken, disregard**: an unstyled capture, see below) and
+      `01a0f421…` (correct). Still ready for your approve and send.
+    - **Follow-up (not built): an unstyled capture passes every check.** One of
+      four cloud captures at 20:58Z rendered Sonder without its stylesheet:
+      plain-text banner copy and two giant SONDER logos. `assertNotBlank` passed
+      it, and so did the consent backstop, because an unstyled banner is not
+      `position: fixed`. It was stored, and it went out in a test email before I
+      looked at it. Three later captures were fine. The likely cause is this
+      container's egress proxy [I], but nothing would stop the same shot in
+      Actions. **Ask:** should the capture refuse a page whose stylesheets did
+      not all load (`document.styleSheets` vs `<link rel=stylesheet>`)? My pick:
+      yes, the same refusal shape as the consent backstop, as its own PR.
+    - **Answered 2026-09-30 (yes) and built on `claude/header-unstyled-refusal`.**
+      The DOM check the ask proposed would never fire: Chromium gives a `<link>`
+      a non-null `sheet` even when its request 404s, returns HTML or is reset
+      (measured). The capture now watches the network instead. It refuses a shot
+      when a stylesheet from the page's own host, one that styles the screen,
+      failed or answered 400 or above, and it re-shoots once first. Blocking
+      Sonder's own CSS reproduces the broken shot exactly. A sweep of all 19 live
+      fleet homepages found no false positive.
 31. **#779, the client half of form-e2e coverage** — the central widening
     (item 16) covers no new site on its own. Measured 2026-09-29 from the live
     roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
@@ -1097,6 +1131,16 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     today, so its drift is now read without a token. _Ask:_ mint the token and
     set the secret, per `prismic-models --fleet turso --tokens` (read-only
     checklist). No agent mints it.
+    **Done 2026-09-30 ~21:28Z (#1076).** The operator supplied the token and
+    approved setting this one secret. Before it was set, the same token
+    answered 200 for `vida-legacy` and 403 for `revogen` on the custom-types
+    API [M]; `gh secret list` then showed
+    `PRISMIC_TOKEN_VIDA_LEGACY 2026-09-30T21:27:56Z`. #1076 adds the
+    workflow's env line and the test. Proven on the PR branch (run
+    36780192887): no token warning, VLF read as `vida-legacy` with 18 models
+    matching, and `11 checked, 0 failed` against the morning's
+    `10 checked, 1 failed` [M]. Tomorrow's 05:00 UTC run on `main` is the
+    durable confirmation.
 43. **#1055, no site in the fleet has a privacy policy** (filed 2026-09-30).
     GA4's terms require one, and design D4 of the fleet-analytics spec makes
     Reddoor the owner. It is a product and copy call (who writes the policy,
@@ -1126,6 +1170,9 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     held for item 47. #9 builds a first scroll reveal for the steps; the
     reference's sticky numbering (`countersAnim.js`) replaces or extends it.
     Start Homes' P1b from whichever #9 head the operator merges.
+    **Construction's P2b is built and held for item 52** (session
+    `session_015T9mFHiAiALPXV1YnMoDCH`, williamson-construction-co#8, head
+    `a7acae5`, CI green).
 45. **Privacy policy wording (P1-26): one legal review of the template.**
     The template's text speaks for each client's business, and it discloses
     what the fleet actually does with visitor data. _Ask:_ send the draft in
@@ -1157,6 +1204,102 @@ write token for Prismic repository "vida-legacy"`. VLF went maintained
     turns 9/9 mutations red. **Ask:** merge `50d6154`, merge `07cc956`, or send
     it back for a third review. **Pick: `50d6154`**; it is small, and every line
     is under a mutation that goes red. The PR comment has the detail.
+    **Answered 2026-09-30 ~21:35Z: merge `50d6154`, no third round.** Merged
+    22:27Z as `b9cc06c`, pinned to `50d6154` with CI green. Item 44's Homes P1b
+    can start from it.
+48. **Cockpit warnings, 2026-09-30: Beachfront Dentistry's Netlify ID.** The
+    cockpit's watch "Netlify ID not recorded" [M, 21:30Z]. The Netlify API
+    lists site `b36d3ca8-bdc1-4675-b002-5a6469cf5b9b` (`beachfront-dentistry-rd`,
+    custom domain `beachfrontdentistry.com`, repo `reddoorla/beachfront-dentistry`)
+    [M]. _Ask:_ approve writing that value to the row's `netlify_id`. _Pick:_
+    yes; the 09-29 journal already showed the site is on Netlify and that
+    accepting the condition would be the wrong fix. PR: `claude/cockpit-warnings-2026-09-30`.
+    **Answered 2026-09-30 ~21:38Z: write it.** Written 21:40:52Z through
+    `setSiteDetail`, NULL → that ID, read back [M].
+49. **Cockpit warnings, 2026-09-30: four maintained sites without GA4.** 1836dig,
+    29 Navy, Data Dynamiq and LA Homelessness Youth are on watch for "GA4
+    property not recorded" [M]. None has a property that the reports account can
+    see (13 properties listed; 500039567 "LA Youth Homelessness" is LAHI's, and
+    its stream is on LAHI's domain; see the 09-29 journal). _Ask:_ for each site,
+    (a) keep it on watch until it gets a property and a tag, which waits on
+    P1-26 and items 45/46; or (b) accept `no analytics`. _Pick:_ (a) for all
+    four. `no analytics` means the client runs its own analytics (design D8),
+    and the analytics audit skips an opted-out site (`src/audits/analytics.ts:1395`).
+    So a mute added now would stay behind unseen after a property lands.
+    **Answered 2026-09-30 ~21:38Z:** Youth does not need GA, so `no analytics`
+    was written 21:40:52Z (`["no custom domain"]` → `["no custom domain","no
+analytics"]`). The operator creates properties for the other three. When the
+    numeric property IDs arrive (not the `G-` measurement IDs), a session records
+    each in `ga4_property_id` after confirming the reports account lists it. The
+    tag install is separate and waits on P1-26.
+50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
+    cockpit's only live-site attention item that has no ask yet [M]. The drift is
+    `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
+    (reddoor-website `f3dbd4a`, 09-17). Its commit says the Prismic side waits
+    on an interactive Slice Machine push. The ack expired 08-30. _Ask:_ push
+    `industry` from reddoor-website with Slice Machine (repo → Prismic). _Pick:_
+    push; it is not destructive, and re-acking would hide a label that tells the
+    client editor the field must not be blank.
+    **Answered 2026-09-30 ~21:38Z: pushed by the operator.** Prismic's
+    `inquiry_survey_id` now carries the repo's label [M, Prismic MCP]. The
+    stored verdict read `fail` at 21:34:12Z, before the push, from dispatch 36780192887. The next prismic-drift run re-reads it.
+51. **#1078 (P1-28, withdraw a report draft): land after two review rounds.**
+    Round 1 (on `826dc0e9`) found a blocker (a withdrawn draft froze the
+    schedule, since `nextDueDate` is based on the last send), a major
+    (`launch`/`announce` reused a withdrawn row), a race and UI minors. All
+    were fixed in `d4605b7b` (8411 tests; every named mutation red). Round 2
+    on `d4605b7b` found no blocker or major. It found real minors: withdrawing
+    an overdue draft advances only one cycle (about six clicks to catch up), a
+    no-anchor site's shown next date can be a month off, and UI refusal labels.
+    **Ask:** (a) one more commit that treats a withdrawal like a send for
+    scheduling, plus the UI fixes, then land; (b) land `d4605b7b` as it is and
+    file the minors; or (c) a third round after (a). **Pick: (a)**; VLF is due
+    2026-10-30 under either rule. Detail: the #1078 comment.
+
+52. **williamson-construction-co#8 (Construction fidelity, OD7-P2b): round 2
+    found minors, so the merge is yours.** The PR ships:
+    - the reference's favicon and apple-touch-icon;
+    - `freight-sans-pro` / `-lights` from kit `noj4tji`, loaded in CI and on
+      the deploy preview [M];
+    - every reference hover, measured in Chromium on the capture;
+    - the IX2 mobile menu, a white panel sliding from -15rem, replacing the
+      blue dialog.
+
+    `src/hover-rules.test.ts` pins all 18 `:hover` rules and the IX2 click
+    targets. 11 mutations each turned a test red. The head is `a7acae5`: CI
+    green, 743 unit tests, 55 Playwright tests, axe 0 violations across 8
+    routes.
+
+    Round 1 (three lenses) found three majors, all fixed in `44c96d1` and
+    `a7acae5`:
+    - the panel never slid (the `translate` vs `transform` property);
+    - Tab could land in the closing panel, or on a control under the open one;
+    - the menu icon returned 700ms early.
+
+    Round 2 found no major, but it did find two minors and two nits:
+    - (i) Any click or tap on the page closes the open menu, because `<main
+tabindex="-1">` takes focus. The code and its test meant to keep it
+      open, and the LEDGER does not record it.
+    - (ii) The "not under the panel" half of the Tab test can never fail,
+      because `elementFromPoint` skips `inert`.
+    - (iii) A phase with no anchor still fades on hover.
+    - (iv) The plan shapes use Tailwind's default easing where the reference
+      uses `ease`.
+
+    Each is a line or two. _Ask:_ (a) fix all four at the current head and
+    land without a third review; (b) land `a7acae5` as it is and file the
+    four; or (c) a third round. _Pick:_ (a). For (i), my pick is to keep
+    "a page click closes the menu", which is better on a phone, and ledger it
+    as a deviation rather than suppress it.
+
+    **Also yours, from the same brief.** "The matching gate passes" cannot be
+    shown from a cloud session. `gate.sh` needs the laptop-only
+    `matching-a-page` skill (`page-diff.mjs`). Construction also has no
+    `matching/SPEC.md`: Phase 1 was never done, so the gate refuses the page.
+    There is no mask, floor or declared deviation, so nothing is unledgered.
+    _Ask:_ run Phase 1 and the gate from the laptop, or drop that done-when
+    for P2b. _Pick:_ drop it for P2b, and make Phase 1 its own item if you
+    want the pixel gate on this site.
 
 ---
 

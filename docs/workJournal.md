@@ -6752,3 +6752,142 @@ The operator asked for four follow-ups after Williamson Homes went live on nativ
 **5, corrected.** I told the operator the pixel gate needed the laptop because the `matching-a-page` skill lives in `~/.claude/skills`. It also lives in `reddoorla/claude-skills`, which a cloud session can attach. The same was true of the `new-site` skill, which I had also called unavailable. Both claims came from checking one location and not asking a second authority.
 
 **A collision between my own reviewers.** Two review agents wrote `scratchpad/mut.sh` at the same path. For about eight minutes, #9's reviewer ran #164's mutations against reddoor-starter while reading the output as its own. #164's reviewer noticed and reported it. The results were discarded and re-run from separate paths, with a passing control first. Nothing was committed from the wrong tree. The rule for next time: give each agent its own scratch subdirectory in the brief. A shared scratchpad counts as a shared checkout.
+
+## 2026-09-30 — Sonder's header: #654 was never fixed in production; late consent banners are now caught (#1070, `d269b9cf`; BACKLOG 30)
+
+The operator looked at the header in a test email of Sonder's Testing report and remembered an unfinished issue. It was #654: the cookie-consent panel and its blur scrim photographed over the hero. #814 had closed it on 09-15. The header stored at 16:00Z today still showed the panel, and the hero was a brown blur.
+
+**Why #814 never worked on the site it was written for.** Main's own `captureHomepage`, run against live gallerysonder.com, reproduced the stored header exactly. At about 2.4s after navigation, when #814's single click runs, `getByRole('button', {name: CONSENT_BUTTON_NAME})` found **0** buttons. Sonder's banner mounts after hydration, between about 3s and 5.3s across three probes, so it arrives during the 2.5s settle. Its classes are Tailwind utilities only (`w-screen h-screen fixed top-0 left-0 z-50`, a `backdrop-blur-sm bg-black/40` scrim), so the `[class*=cookie|consent]` CSS fallback matched **0** elements. The "blurry hero" was that scrim. A click after the banner mounts leaves the hero sharp. #814's tests drove a fake page object, so the timing was never exercised. That is the "prove the instrument" rule once more: the fix had only ever passed against a fake.
+
+**The fix.**
+
+- Only a button inside a consent overlay is clicked: a visible accept/reject-named button whose nearest fixed or sticky ancestor has cookie/consent text of its own. A fixed ancestor whose content is over 1.5 viewports tall is a scroll wrapper and is skipped.
+- There is an early look before the settle, and a late look after it: 7 polls, 250ms apart. That is the 1.5s a banner-less site already paid in #814's click timeout.
+- If the banner will not leave, `ConsentStillVisibleError` refuses the shot, and draft and announce keep the stored header.
+- A real-Chromium test serves local pages: banners at 0s, 1.5s and 3.5s, a stuck banner, a content "OK" before a late banner, a content "OK" beside a cookie-policy link, and a scroll wrapper. The late-banner and stuck cases fail on main.
+- Seven mutations each turned a test red. One was first green on the real 3.5s case, because the shot fired before that banner mounted. That is why the 1.5s case exists.
+
+**Review, three rounds.**
+
+- Round 1: a major, which I fixed. The backstop matched cookie copy anywhere on the page, so an in-page "OK" next to a "Cookie Policy" link would have frozen that site's header for good.
+- Round 2: two minors. A full-page scroll wrapper was read as an overlay, and `first()` picked a content button over the banner's. Under the two-round rule these went to the operator, who chose "fix both, then land".
+- Fixing them showed that #814's early click was itself a hazard: it clicked the first "OK" or "Agree" anywhere. On the scroll-wrapper fixture it scrolled the shot, and on a real form it could submit. That click is gone.
+- A string passed to `locator.evaluate` runs as an expression and never receives the element. The stuck-banner test caught that before any push.
+
+**What went wrong after landing, stated plainly.** The first `header-image sonder --write-back` after the merge (20:58Z) stored an **unstyled** capture: plain-text banner copy, a raw "Skip to content" link, and two giant SONDER logos. I refreshed the preview and sent a test email with it (`01a0f41d…`) before looking at the image. Three later captures from the same CLI were correct. So this was a one-off: the stylesheet did not load on that run, most likely because of this container's egress proxy [I]. No check caught it. `assertNotBlank` looks only for near-white, and the consent backstop looks only at fixed overlays, which an unstyled page has none of. A later capture, stored at 21:00Z, was clean but had no hero title. Timing the page showed the title fades in 2–4s after load and the logo is a wordmark that cycles every ~4s, so that shot had landed mid-fade. The capture I kept, 21:02:23Z at 888,694 bytes, I inspected before anything read it. The preview was refreshed (run 36776796655), the gate is still `[]`, and the corrected test email is `01a0f421…`. The lesson is the one this file keeps recording: look at an image before storing it or sending it. "The command printed ✔" is not "the header is right". An unstyled-page refusal is proposed under BACKLOG 30 and not built.
+
+## 2026-09-30 — VLF's Prismic write token reaches the fleet drift sweep (#1076; BACKLOG 42)
+
+The night VLF flipped to `maintained`, fleet-prismic-drift (run 36704968338, `wrote=15 failed=0`) warned `[vida-legacy-foundation] no write token for Prismic repository "vida-legacy"`, so the one newly live site was the one whose drift nobody could read. The secret was only half of what was missing: the workflow passes every token into the sweep step's env by name, and the vida-legacy line was not there. #1044 did the same for the Williamsons a day earlier, and this is that change one site later, with the operator's approval to set this one secret from the laptop.
+
+The token was proven before it was set, without the value leaving a script. The same token against `GET customtypes.prismic.io/customtypes` answered 200 for repository `vida-legacy` (one custom type) and 403 for `revogen`: the instrument passing on the right input and failing on the wrong one. It is 299 characters (the Williamsons' were 312 and 331). It went from the environment file into `gh secret set` through a pipe and was read back as a name and a date only, `PRISMIC_TOKEN_VIDA_LEGACY 2026-09-30T21:27:56Z`.
+
+The env line, the comment's count (18 → 19, all 19 names re-derived through `prismicTokenEnvName` and distinct on both axes) and one test are #1076. The test pins the Prismic name and refuses `PRISMIC_TOKEN_VIDA_LEGACY_FOUNDATION`, the spelling the repo slug would produce, the same trap as the Williamsons' `-co`. It was red before the env line (1 of 36) and green after. Three mutations, each proven applied and reverted: dropping the line and respelling it from the slug each turned the new test red; cross-wiring the line to the VINEYARD secret turned the existing same-name guard red instead, which is that guard reaching the new line.
+
+Proof did not wait for the nightly. The workflow was dispatched on the PR branch (run 36780192887, 49 s, green): the env block shows `PRISMIC_TOKEN_VIDA_LEGACY: ***`, no token warning is printed, `[vida-legacy-foundation] @ b99cce97aab5 Prismic models — repository: vida-legacy` is followed by `18 model(s) match Prismic — nothing to push.`, and the tally is `11 checked, 0 failed, 4 skipped (no Prismic config), of 15 site(s)`, `wrote=15 failed=0`. The same grep over the morning's run does print the warning and `10 checked, 1 failed`, so the absence is measured, not assumed. Tomorrow's 05:00 UTC run on `main` is the durable confirmation. Every sweep since 09-28 has taken under a minute, which is worth knowing before waiting on one.
+
+Two laptop-side facts worth a line. `gh` fails x509 inside the sandbox here just as it does in loops, so every `gh` call ran unsandboxed. And `git branch -m` cannot finish inside the sandbox: it renames the ref and then fails writing `.git/config`, the same denial that breaks `git push -u`; `git push origin HEAD:refs/heads/<name>` needs neither.
+
+## 2026-09-30 — BACKLOG 47 answered: williamson-homes#9 merged at `50d6154` (`b9cc06c`)
+
+The operator picked `50d6154`, the head that fixes round 2's findings without a third review, and confirmed it in this session after the PM session relayed it on the PR at 21:31Z. It was landed with `land-prs --repo reddoorla/williamson-homes`, pinned to that SHA with CI green. The proxy refused the branch delete, so `claude/homes-polish` is still on GitHub. Main's BACKLOG had not recorded the relayed answer when this session re-checked at 22:20Z. The merge waited for the operator's own word, not the comment, because that comment came from another session.
+
+## 2026-09-30 — The audit PDF stops printing reddoorla.com's nav and footer (reddoor-website#234, `c26ab9c` on staging)
+
+The PDF that `prospect-audit --email` attaches is printed by `src/prospect/pdf.ts` from `reddoorla.com/audit/{token}/print`. Printed for `xZMVU1EaZLC1ZLAJ81Rzxg` (the audit of reddoorla.com), page 1 had the site wordmark and hamburger over the verdict and no title. The last page carried the whole site footer, with the copyright clipped after "All Rights". The fix is entirely in reddoor-website, and nothing in this repo changed. `renderReportPdf`'s options were right, and the sheet still declares `@page { size: A4 }`, which the comment in `pdf.ts` relies on.
+
+The print sheet had a rule meant to hide the site's chrome, `:global(header), :global(nav), :global(body > footer)`. It matched none of it: the navs are `<div>`s, and the footer sits inside `main`. What it did hide was the sheet's own `<header>`, so the title block was the only thing it removed. The print route now tells the root layout to leave its navs and footer out (`siteChrome: false` in the load). The footer mattered beyond the last page. It overflowed, and Chrome shrank the whole old PDF to 0.87 of its size to fit it: with only the footer restored every font size drops 0.87×, and with only the navs restored nothing moves. The sheet's plain paragraphs had also been taking the site's 18px `p` style, and its h3s a 90px line-height, so every kept-whole section overflowed the page it started on. Fixing those took the PDF from 11 pages to 6, and page 1 went from mostly blank to full.
+
+The evidence is two PDFs of the same token made with `renderReportPdf` itself. A launcher shim set the report edit cookie so the renders would not stamp `opened_at`. Before is live reddoorla.com. After is the branch under `vite dev` against the production report API. The unchanged branch was printed locally first and matched the live PDF: 11 pages, the same overlaps, the same footer. So the local setup was shown to reproduce the defect before it was trusted to show the fix. A PyMuPDF line-level check reads 2 overlapping line pairs, 1 line past the right content edge and 5 footer strings on the old PDF, and 0, 0 and 0 on the new one. Its first, block-level version reported overlaps inside the score boxes that the page images do not show, so it was rewritten to compare lines. The Playwright parse in the mutation runner also misreported at first: every mutation listed all four tests as red, because it was reading progress lines. It was switched to the JSON reporter before any result was taken from it.
+
+Three things to know from the session. First, my own first plain `curl`s of the token's report and print pages at 20:43Z stamped `opened_at` on reddoorla.com's self-audit. Only the edit cookie suppresses the stamp, and that is Reddoor's own report. Second, the very first request to the live print route answered 500 (a 75 KB body), and the next three answered 200. `renderReportPdf` throws on any non-OK status, so a cold first hit like that drops the PDF from the email and leaves a warning. I did not investigate it and it may be a one-off. Third, the fix reaches the live PDF only when reddoor-website's `staging` is promoted to `main` (BACKLOG 14).
+
+## 2026-09-30 — Header capture refuses an unstyled page (BACKLOG 30 follow-up)
+
+This entry comes from the operator's "yes" to the ask the previous entry filed. It had proposed comparing `document.styleSheets` with `<link rel=stylesheet>`. A probe against a local server showed that idea was dead on arrival. Chromium gives every `<link>` a non-null `sheet`, including one whose request 404'd, returned `text/html`, or had its connection reset. Built as proposed, the check could never have failed. That is this repo's first rule again, caught before any code was written.
+
+**What was built instead.** The shooter listens for stylesheet requests that fail (`requestfailed`) or answer 400 or above (`response`). A 404 served as `text/css` fires only the second, which is why both are needed. Just before the shutter, a failure is counted only if all three hold:
+
+- its URL (the head of any redirect chain, fragment removed) matches a `<link rel=stylesheet>` that applies to the screen: not alternate, not disabled, media matching;
+- its host is the page's own, either requested or redirected-to;
+- it has not already been counted.
+
+Any counted failure throws `UnstyledPageError`, and `captureHomepage` re-shoots once on that error and only on it. The Sonder shot was one bad capture in four, so a transient failure recovers, while a stylesheet that is gone for good still refuses and the stored header is kept.
+
+Third-party stylesheets are ignored. Sonder's layout CSS is `/_app/immutable/assets/*.css`, and only Typekit is off-host. A dead font kit changes fonts, not layout, and refusing on it would freeze a header until someone noticed. The cost is that a site whose CSS lives on a CDN host is never checked. The same trade leaves a failed `@import` undetected, because it has no `<link>` of its own.
+
+**Proof.**
+
+- Blocking Sonder's own CSS (`route.abort`) reproduces the broken header exactly: "Skip to content", the menu button and two giant wordmarks. It counts 5 own-host failures.
+- The normal site passes. All 19 live fleet homepages passed through the real capture. Three of them came back small (about 160 KB, against 1–8 MB for the rest). I looked at one, LAHI: its homepage is a flat illustration, so the small file is legitimate.
+- A real-Chromium suite covers: styled; own 404 as text/plain; own 404 as text/css; own connection reset; own 404 behind a 301; an href with `#v2`; the page redirected to another host; a third-party 404; print-only and preload failures (must still shoot); and counting a 404 once.
+- Fourteen mutations each turned a test red. The first try at S3 (ignore the status check) stayed green, because a text/plain 404 also fires `requestfailed`. That is why the text/css case exists. One mutation was not valid TypeScript and measured nothing until it was rewritten.
+
+**Review.**
+
+- Round 1 (medium): a failed `media=print` sheet or `preload as=style` refused a page whose screen was fully styled. Fixed with the screen-sheet filter. Also fixed: 404s counted twice, and the redirect host was untested. The one-retry design came from this round.
+- Round 2: minors only, all missed detections and none a wrongful refusal: a redirected sheet, a `#fragment`, and a silent `.catch` when the page could not be read. Fixed at the operator's call.
+
+## 2026-09-30 — Cockpit warnings triaged: 2 attention / 5 watch → 1 / 3, and a withdrawn-draft state held after two rounds (#1077, #1078)
+
+A worker session from the 09-30 PM pass, charged with clearing the cockpit's attention and watch items with the operator.
+
+**Measured first, read-only.** `buildCockpitModel` ran from a throwaway script in a detached worktree against live Turso. It used the same inputs `fleet-homepage.mts` reads. The libSQL client was wrapped so that anything other than `SELECT`/`WITH`, and every `batch`/`transaction`/`executeMultiple`, throws. The guard was proven before it was trusted: a `DELETE … WHERE 1=0` was refused. `openDb()` was not called, because it runs migrations, and a migration is a write. At 21:30:50Z the cockpit had 2 attention, 5 watch, 8 healthy, 2 pre-launch and 1 pending. The 09-29 snapshot had 13 watch; the Search Console watch it described had already cleared.
+
+**Each item and its outcome.**
+
+- Reddoor's attention was one label and placeholder in `industry` (reddoor-website `f3dbd4a`, 09-17). Its own commit said the Prismic side waited on an interactive Slice Machine push. The operator pushed it, and the Prismic MCP confirmed the new label. The stored verdict still read `fail`, because the only run since was a dispatch at 21:34:12Z, before the push. The next nightly re-reads it.
+- VLF's attention ("check could not run", with no write token) was already operator decision 42. It went `pass` in a dispatch at 21:33Z (36780192887), presumably the token session's proof.
+- Beachfront's missing Netlify ID was looked up in the Netlify API: `b36d3ca8-…` (`beachfront-dentistry-rd`). It was written through `setSiteDetail` on the operator's go at 21:40:52Z.
+- LA Homelessness Youth's `no analytics` was written on the operator's word that it does not need GA.
+- 1836dig, 29 Navy and Data Dynamiq stay on watch until the operator creates GA4 properties. The reports account lists 13 properties and none is theirs. The one named "LA Youth Homelessness" (500039567) is LAHI's, as the 09-29 entry already established.
+
+At 23:20:42Z the cockpit had 1 attention (Reddoor, until the nightly), 3 watch and 1 pending.
+
+**An instrument that was not trusted.** Grepping the live SvelteKit bundles for `G-` measurement IDs found none on any site, including LAHI and Beachfront, which do carry tags. The grep had never passed on a known-good input, so it was dropped as evidence rather than read as "no site has a tag".
+
+**The pending item was worse than a stuck row.** VLF's skipped 2026-09 draft (decision 41) had no state that could leave "pending approval". Reading `report --due` showed the pile-up guard (`pendingEarlier`) would also refuse to draft October, the report the operator chose as VLF's first. Flipping `draft_ready` off would not have worked either: the same-period branch reads a not-ready row as a crashed half-draft and completes it again. The operator asked for the fix, and #1078 adds a withdrawn state.
+
+- **Round 1** found a blocker that the author's own tests had hidden. `nextDueDate` is based on the last send, so a withdrawn draft pinned every later night to its own period. The test only passed because its site had no send history. The round also found a major (`launch`/`announce` re-running into a withdrawn row that can never send), an approve/withdraw race, and "Don't send" posting to the wrong URL with every test green (mutation N1). Round 2 probed the fix across month-ends, quarterly, yearly, consecutive withdrawals and a 100-month bound, and found no blocker or major. It did find that withdrawing an overdue draft advances only one cycle, plus UI refusal labels.
+- Under the two-dirty-rounds rule, #1078 went to the operator as decision 51 instead of a third round. The pick is one more commit that treats a withdrawal like a send for scheduling.
+- **A flake that was probably ours.** One cold failure of the handler test matched a round-1 reviewer's in-place mutation (the reader always returning `withdrawnAt: null`) running while another reviewer ran tests in the same worktree. Round 2's reviewers each mutated only a copy.
+
+**Not done.** Nobody has withdrawn VLF's September draft. That is the operator's click after #1078 lands, and it must land before October's due date, 10-30.
+
+## 2026-09-30 — Williamson Construction fidelity pass: favicon, freight-sans-pro, the reference's hovers and its IX2 menu (williamson-construction-co#8; BACKLOG 44, 52)
+
+OD7-P2b from the plan's §7 brief, worked in a cloud session after the P2 worker ended. Both Verify lines still held at 21:01Z: the favicon was the starter's (md5 `3a387408…`) and `TODO(D8)` sat at `src/app.css:5`. Every `claude/*` branch in the repo was merged or closed, and main was `e15517e`.
+
+**Measured before building.** Reading the CSS was not enough, because of the cascade. I built an offline instrument: Chromium loads the capture, `page.route` answers every URL from `manifest.json`, and the probe hovers every element on all 14 pages at 1440 and 390. It passed its control first: the base `.button-default` read `rgba(198,166,71,0.55)`, as the stylesheet says. Forced `:hover` through CDP then settled the cases a real pointer could not reach. It found what reading missed:
+
+- Three rules are undone by later rules at equal specificity, so those buttons have no hover at all in the reference: `.button-default.bg-color-white`, `.button-default.bg-color-transparent`, and `a:hover`'s fill against `.number-bubble`.
+- Webflow's own script writes `transition: fill 400ms` inline onto every plan polygon and rect. That makes their opacity snap to 0.6, and only the discs fade. Two reviewers said the polygons should fade. The capture says they don't, and the spec now asserts both transitions.
+
+**Two beliefs corrected on contact.**
+
+- _Typekit's domain allowlist._ The brief expected the kit to serve fonts only on its listed domains, so the font check would have to run on the Netlify host. The negative control disagreed: font files come back 200 with `Referer: example.com` too, from curl. CI's `document.fonts` check on localhost passed, and so did a browser on `deploy-preview-8--…netlify.app`, which is not on the kit's list. The first proof on the production preview host is still the browser after merge.
+- _Hover contrast._ The P2 LEDGER already held the line that hover states meet AA. The reference's link fade (`a:hover`, opacity 0.55) keeps black on white at 4.57:1 but drops primary on white to 2.82:1. Links now fade to exactly 0.55 wherever that passes AA, and to a measured floor where it does not. The spec refuses any value but 0.55 where 0.55 passes. Gold buttons take the reference's gold at 55% on white grounds (8.9:1). On blue, gold at 55% is 3.13:1, so the white substitute stays there.
+
+**Defects the tests caught, and defects only review caught.**
+
+- The new geometry test caught the menu button squeezed from 64px to 60px by the logo.
+- Review round 1 caught the rest, and every one had passed a green suite:
+  - The panel never slid. Tailwind v4's `translate-y-*` sets `translate`, and I had transitioned `transform`. The test had read the transition _string_, so it passed on the broken code. It now samples position mid-slide.
+  - Tab in the 0.5s after close landed in the off-screen panel. The panel is now `inert` when closed.
+  - Tab past the last link focused a video button under the open panel.
+  - The menu icon returned 700ms early. IX2 chains a-4's second group after the 700ms fade.
+  - Phase bubbles and the left slider arrow faded when the reference's don't.
+- The Tab test then flaked under parallel load. An event log showed the menu open and a Tab 25ms later skipping the panel. Measured under the fleet preset's reduced motion, the first link is invisible for one ~15ms frame after opening. The test now waits for it.
+
+**Mistakes of my own worth a line.**
+
+- A Python one-liner opened a file for writing before reading it and truncated `SiteHeader.test.ts`. The suite caught it ("No test suite found").
+- A mutation's `git checkout` reverted uncommitted round-1 work in `SiteHeader.svelte`, and I re-applied it from the edit scripts.
+- The rule I now follow: commit before mutating, and restore mutations from a saved copy, never from git.
+- A `pkill -f "vite preview"` matched its own shell twice (exit 144).
+
+**Not done: the matching gate.** `gate.sh` needs the `matching-a-page` skill's `page-diff.mjs`. It is laptop-only and not in the container. Construction also has no `matching/SPEC.md`, so the gate would refuse the page anyway. `harness.json` has no masks, and `floors.mjs` and `census-deviations.mjs` are empty, so there is no unledgered mask. The rest is an Operator decisions line in BACKLOG.
+
+**Cloud mechanics.** The pinned Playwright wants browser build 1243 and the image has 1234. `PLAYWRIGHT_BROWSERS_PATH` pointed at a scratch directory of symlinks ran both the axe audit and the suite without `playwright install`.
+
+**Where it stopped.** Round 2 found no major but two real minors: a page click closes the open menu (`<main tabindex="-1">` takes focus, against the code's own intent), and one assertion in the Tab test cannot fail because `elementFromPoint` skips `inert`. It also found two nits. Under "two dirty review rounds, then stop", #8 is held at `a7acae5` (CI green) and goes to the operator as BACKLOG 52, with my pick: fix the four and land without a third round. Nothing was merged.
