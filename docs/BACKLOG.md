@@ -1531,6 +1531,36 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     Custom Types write token (🔴), `gh secret set PRISMIC_WRITE_TOKEN --repo
 reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     refuses from a cloud session by design (secrets API).
+    **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
+    `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
+    the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
+    repos already held `PRISMIC_WRITE_TOKEN` (four since 2026-08-14,
+    williamson-homes since 09-30), so two tokens are owed, not seven.
+    - _Ask (a), 🔴:_ mint a Custom Types write token and set
+      `PRISMIC_WRITE_TOKEN` for **the-tower-burbank** (Prismic repository
+      `the-tower-burbank`) and **vida-legacy-foundation** (`vida-legacy`).
+      Then `reddoor-maint prismic-ci <a fresh clone>` for each. The central
+      `PRISMIC_TOKEN_THE_TOWER_BURBANK` is absent as well; its `env:` line
+      already exists.
+    - _Ask (b):_ reddoor-website was skipped, because reddoor-website#237
+      (staging → main, opened 18:19Z) touches `.github/workflows`. Its secret
+      has existed since 08-14. The recipe can only open its PR against `main`,
+      since the apply job guards `refs/heads/main`, so `--base staging` does
+      not apply. _Pick:_ run it against `main` once #237 has merged.
+    - _Ask (c):_ a PR that adds only the workflow never runs the `dry` job
+      (the path filter), so none of the four got a model-delta comment and
+      nothing has yet exercised a site's own secret. A local read with the
+      central tokens found alamo-anatomy (6), hedloc (8) and
+      the-pointe-burbank (35) in sync. williamson-homes has no token on the
+      laptop: the review read its ids through the Prismic connector and they
+      match (3 types, 20 slices), but its fields are unmeasured.
+      _Pick:_ one throwaway PR per site that reformats a model file and is
+      closed unmerged, as caltex-landing was proven on 08-16.
+    - Not an ask: the nightly sweeps only `reddoor` and
+      `vida-legacy-foundation` of the seven, and both read "match" on 10-01.
+      The other five are `launching` (alamo-anatomy, hedloc) or `building`
+      (the two Burbank sites, williamson-homes), which the sweep excludes by
+      design. The Williamson Homes row also has a null `git_repo`.
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:
