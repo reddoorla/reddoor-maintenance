@@ -9,6 +9,7 @@ import { runAudits } from "../audits/index.js";
 import { hasRealScores, lighthouseScoresFromResult } from "../audits/lighthouse-fields.js";
 import { writeBackOneSite } from "../audits/write-audits.js";
 import { siteSlug } from "../fleet/site-row.js";
+import { isHttpUrl } from "../util/url.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { createReportDraft, findReportForPeriod } from "../reports/create-report.js";
 import type { DraftInput } from "../reports/draft-fields.js";
@@ -534,7 +535,7 @@ async function twinUids(sitePath: string): Promise<string[]> {
 
 /** Undici's defaults are 300s headers + 300s body, and the body timeout is an
  *  INACTIVITY timer — so a trickling origin can hold this open for ~10 minutes,
- *  AFTER the GitHub writes and a full Lighthouse audit have already run.
+ *  AFTER the GitHub writes have already run.
  *
  *  15s is NOT the house number, and this comment used to imply it was by citing
  *  `audits/function-health.ts`, which is 10s. The 15s call sites are
@@ -566,21 +567,21 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
  * EXECUTION order, stopping on the first error or `failed` recipe:
  *   0. matchingDisposition — filesystem pre-flight, BEFORE any GitHub write.
  *   1. selfUpdating — Renovate + protection (platform auto-merge OFF; ci.yml is the starter's).
- *   2. audit — the Lighthouse scores that feed the draft are collected here.
- *   3. the Websites-row lookup, which supplies the url the next step probes.
- *  3b. dev-guard — the same twin, checked against the DEPLOYED url. It sits
- *      BETWEEN collecting the scores and writing them, so a site that fails it
- *      has been audited but leaves its Websites row untouched.
- *   4. writeBackOneSite — the `audit --write-back` writer.
- *   5. createReportDraft — reportType "Launch", today's period, the audited scores.
+ *   2. the Websites-row lookup, which supplies the live url; a url that is not
+ *      http(s) stops here.
+ *   3. dev-guard — the same twin, checked against the DEPLOYED url. Its /health
+ *      control is also the proof that the url answers, so it runs BEFORE the
+ *      audit: a host that does not answer stops the chain unaudited (#1056).
+ *   4. audit — run with `deployedUrl` set to the row's url, so Lighthouse scores
+ *      the live site and never the checkout's dev server (#1056).
+ *   5. writeBackOneSite — the `audit --write-back` writer.
+ *   6. createReportDraft — reportType "Launch", today's period, the audited scores.
  *
- * The REPORTED chain is deliberately not that order. The `audit` step is only
- * pushed once its write succeeds (:261), so the emitted steps read
+ * The emitted steps read
  * `matching-disposition -> self-updating -> dev-guard -> audit -> draft`, which
- * is what the CLI prints and what tests/recipes/launch.test.ts asserts. Do not
- * renumber either list to match the other: one says when work happens, the
- * other says what has been proved. Only step 0 precedes a GitHub write —
- * dev-guard cannot, because it needs the row from step 3 to know the url.
+ * is what the CLI prints and what tests/recipes/launch.test.ts asserts. The
+ * `audit` step is only pushed once its write succeeds. Only step 0 precedes a
+ * GitHub write — dev-guard does not, because it needs the row from step 2.
  */
 export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult> {
   const label = siteLabel(site);
@@ -612,34 +613,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   steps.push({ name: "self-updating", result: { kind: "recipe", result: recipe } });
   if (recipe.status === "failed") return stop();
 
-  // 2. Audit + write scores back to the site row.
-  let results: AuditResult[];
-  try {
-    results = await audit(site);
-  } catch (err) {
-    steps.push({ name: "audit", result: errorOf(err) });
-    return stop();
-  }
-  const lhResult = results.find((r) => r.audit === "lighthouse");
-  if (!lhResult || !hasRealScores(lhResult)) {
-    steps.push({
-      name: "audit",
-      result: { kind: "error", message: "lighthouse audit produced no real scores" },
-    });
-    return stop();
-  }
-  // The launch announcement renders a numeric score per category; a metric that
-  // errored this run (now null from lighthouseScoresFromResult) keeps the prior
-  // 0 behavior here rather than propagating null into the launch-email path. The
-  // write-back path (write-audits) keeps the null → shows "—".
-  const rawScores = lighthouseScoresFromResult(lhResult);
-  const scores: LighthouseScores = {
-    performance: rawScores.performance ?? 0,
-    accessibility: rawScores.accessibility ?? 0,
-    bestPractices: rawScores.bestPractices ?? 0,
-    seo: rawScores.seo ?? 0,
-  };
-
+  // 2. The Websites row, which supplies the live url every later step uses.
   const websites = await deps.roster();
   const target = websites.find((w) => siteSlug(w.name) === siteSlug(label));
   if (!target) {
@@ -649,8 +623,18 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     });
     return stop();
   }
+  if (!isHttpUrl(target.url)) {
+    steps.push({
+      name: "dev-guard",
+      result: {
+        kind: "error",
+        message: `the site row's url ${JSON.stringify(target.url)} is not an http(s) url — launch audits the live site and has nothing to audit`,
+      },
+    });
+    return stop();
+  }
 
-  // 2b. The dev guard, on the DEPLOYED build. Two halves, both required:
+  // 3. The dev guard, on the DEPLOYED build. Two halves, both required:
   //     /dev/match/home must 404 WITH this site's own error page, and /health
   //     must answer 200. Without the second, a dead host, a wrong url and a
   //     parked domain all "pass" the first — an absent error granting a green,
@@ -722,6 +706,39 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     },
   });
 
+  // 4. Audit the LIVE site (#1056). `launch` resolves its site from a local
+  //    path (`localPath`), which never carries `deployedUrl`, so
+  //    `lighthouseAudit` fell back to the checkout's dev server: VLF's stored
+  //    baseline was 52/100/100/61 against 85/100/100/100 live. The url is set here, on the launch path only,
+  //    and only after dev-guard's /health control proved it answers, so an
+  //    unreachable host stops the chain instead of scoring localhost.
+  let results: AuditResult[];
+  try {
+    results = await audit({ ...site, deployedUrl: target.url });
+  } catch (err) {
+    steps.push({ name: "audit", result: errorOf(err) });
+    return stop();
+  }
+  const lhResult = results.find((r) => r.audit === "lighthouse");
+  if (!lhResult || !hasRealScores(lhResult)) {
+    steps.push({
+      name: "audit",
+      result: { kind: "error", message: "lighthouse audit produced no real scores" },
+    });
+    return stop();
+  }
+  // The Launch report row stores a numeric score per category; a metric that
+  // errored this run (now null from lighthouseScoresFromResult) keeps the prior
+  // 0 behavior here rather than propagating null into the report row. The
+  // write-back path (write-audits) keeps the null → shows "—".
+  const rawScores = lighthouseScoresFromResult(lhResult);
+  const scores: LighthouseScores = {
+    performance: rawScores.performance ?? 0,
+    accessibility: rawScores.accessibility ?? 0,
+    bestPractices: rawScores.bestPractices ?? 0,
+    seo: rawScores.seo ?? 0,
+  };
+
   try {
     // #539 Phase 5: the first-audit write-back. Launch is the ONE path
     // that writes a brand-new site's health, so without this its row reads empty
@@ -738,7 +755,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   }
   steps.push({ name: "audit", result: { kind: "audit", results, scores } });
 
-  // 3. Draft the launch email (reuses draft.ts's reportId/period scheme). DRAFTS
+  // 6. Draft the launch email (reuses draft.ts's reportId/period scheme). DRAFTS
   //    ONLY — the M3 approve loop sends it and flips Status on send.
   const today = new Date();
   const period = today.toISOString().slice(0, 7);

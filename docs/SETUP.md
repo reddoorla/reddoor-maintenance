@@ -234,7 +234,7 @@ reddoor-maint launch <path-to-site>
 
 This runs the chain — **bootstrap (`self-updating`) → first audit → draft a purpose-built launch email** — and stops at a `draft_ready` Launch report in your approve queue (it never sends directly). Approve it on the site's dashboard page; the next run sends the go-live email and **flips the site's Status to `maintained`** with a `launched_at` stamp. The launch email reuses the per-site Copy — Contact / Copy — Footer overrides from the site details.
 
-> Requires the site's row in Turso with its deployed `url` (Phase 4): `launch` finds the site by name, checks its dev guard against that url, and stops with `no site row matched` when there is no row. The send also needs the site's header plate (`header-image <slug> --write-back`).
+> Requires the site's row in Turso with its deployed `url` (Phase 4): `launch` finds the site by name, checks its dev guard against that url, runs the first audit against that url (so it must already be the production host and answering), and stops with `no site row matched` when there is no row. The send also needs the site's header plate (`header-image <slug> --write-back`).
 
 ---
 

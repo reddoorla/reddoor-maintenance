@@ -7193,3 +7193,32 @@ The 16:34Z digest carried a new attention item: MSOT's roster url "does not reso
 **Review.** In round 1 the correctness and operations lenses found only a minor each. The operations minor was the missing row limit, which is now in the comment. The test-strength lens found four mutations the first tests let through: an un-awaited pause, a notice naming the wrong site (every notice test had a single row), the wrong pause length when several rows retried, and a retry pass that re-probed passing rows. The multi-retry test was rebuilt to catch all four. It records the order of fetches against the start and end of the pause, uses a roster whose first row passes, and counts the passing row's requests. Round 2 was clean apart from two nits, both folded in: the 25 s value is now pinned (a constant the tests only imported could have been 0), and the worst-case wording is more precise. One round-1 point was kept on purpose: a retried row's `url_checked_at` stays the run's start time, as an existing test pins for every outcome. The skew is at most about two minutes, against a staleness window of 3 days.
 
 **What the fix cannot show yet.** Every test injects the fetcher and the pause. The real 25 s timer and a real second read happen first in tonight's fleet-lighthouse run, and `retried=` on its summary line is the first number from production.
+
+## 2026-10-01 — P1-23: `launch` scores the live site, not the checkout (#1056, #1105)
+
+A worker session from the morning report's brief. `launch` now audits the Websites row's `url` with `deployedUrl` set, so `lighthouseAudit` takes `deployedLighthouse` and never boots the checkout's dev server. That dev server is where VLF's stored baseline of 52/100/100/61 came from, against 85/100/100/100 live (2026-09-29 entry).
+
+**The order is what makes it safe.** dev-guard already probed the row's url on `main` and required `/health` to answer 200, but it ran _after_ the audit, because the row lookup sat between them. Moving the lookup and dev-guard ahead of the audit makes the existing `/health` control the proof that the url answers. A dead host now stops the chain unaudited, with no second probe added. A url that is not http(s) is refused before any probe. The emitted step chain did not change.
+
+**Beliefs corrected on contact.** Both came from the brief and the issue, and both were wrong:
+
+- The score was never "mailed in the go-live email". `src/reports/launch-email/template.ts:15` renders no Lighthouse at all; the score lands in `site_health` and on the Launch report row.
+- The cause was not `select.ts`'s rule that only `maintained` rows get a url. `launch` never goes through `selectFleetSites`: `resolveSites({ site, cwd })` takes `localPath`, which builds `{ path, name }` only. A re-launch of a maintained site would have scored the dev server too.
+
+**DNS cutover was not a new fork.** The brief's stop condition was a launch whose url is not yet the production host. That launch already stopped at dev-guard before this change; it now stops one step earlier. `docs/SETUP.md` says so.
+
+**What changed beyond Lighthouse.** `runAudits` runs every audit, so browser, domain, function-health and analytics now run against the live url at launch instead of skipping on "no deployed URL", and the new site's first health row is filled the way the nightly fills a maintained one. form-e2e is still inert without `REDDOOR_FORM_E2E_LIVE=1`. Browser running beside Lighthouse may add performance-score noise; this was not measured.
+
+**Review.** Two rounds of three lenses.
+
+- Round 1 found five mutations that survived and that the tests could not see:
+  - a live audit that throws, or returns no real scores, quietly retried against the checkout. That is #1056 coming back by another route, and the most important gap.
+  - a stale `deployedUrl` on the site beating the row's url.
+  - a bare hostname getting past a `file:`-only url check.
+  - the url's path being dropped.
+
+  It also found two false claims in comments and the changeset: the "mailed" claim and the wrong cause. All were folded in.
+
+- Round 2 was clean.
+
+Twelve mutations, all red. The real `lighthouseAudit` test was also shown to go red when `lighthouse.ts` is forced onto its checkout branch.
