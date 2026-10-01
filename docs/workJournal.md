@@ -7136,6 +7136,22 @@ M18/M19) and green CI.
 
 One safety-net check-in ran at 05:36Z before the merge and found nothing new.
 
+## 2026-10-01 — Testing pushes Maintenance back one cycle (#1099, `4bfc2fc`); both approved reports sent; Construction #9 landed
+
+> Follows 2026-10-01 — The scheduled PM pass (#1097).
+
+After the morning report the operator answered in session.
+
+**"Land it": williamson-construction-co#9** landed as `2ee22e8` through `land-prs --repo` (head `f25cfb9`, CI green). The proxy refused the branch delete.
+
+**"Maintenance should be pushed back one cycle if testing is sent within a month of it."** That is a new scheduler rule, built test-first in `nextDueDate` (`pushPastTesting`). The first cut pushed once, measured from the unpushed due date. Round 1 of the review found two majors in that shape. A Testing report sent after the due date left Maintenance due the day after it. A site testing as often as it maintains still drafted Maintenance on Testing days. Round 1 also found that a stuck approved Testing report skipped a cycle for good, and that a month-end base was clamped twice. My own first fix had a hole the review had not named: the window around the pushed date can still contain the Testing report that caused the push, so it pushed twice. Each Testing day now pushes once (a `used` set). The push anchors on the later of the due date and the Testing day, and whole cycles are added to the base. Round 2 simulated 18 months in two production models and found nothing. Thirteen mutations each turned a test red; M7 (`approvedAt` without `approvedToSend`) survived at first, because the control cleared both fields at once, and needed its own control.
+
+**Why an approved, unsent Testing report counts.** `daily-reports` drafts before it sends. On the day an approved Testing report goes out, Maintenance is decided while that report is still unsent. Sonder's case today was exactly that: Testing approved 09-30, Maintenance due 10-01. It counts for three days after approval, so a report stuck behind a failing gate stops covering Maintenance.
+
+**The two sends.** #1099 merged at 16:11Z, and today's `daily-reports` fired at 16:33Z on `4bfc2fc`. That was the first scheduled run on the new rule. Sonder Testing (the fleet's first Testing report) and 29 Navy Maintenance both sent and were delivered, at 16:34:12Z and 16:34:13Z. The draft step listed only `skipped (already drafted 2026-09): Sonder Testing`, so Sonder Maintenance did not draft. `nextDueDate` now reads 2026-11-01. `site_schedule` still holds `next_testing_at = 2026-09-30`, written at 16:34:08Z before the send. The next nightly write-back moves it to 2027-01-01.
+
+**Other answers.** The operator reacted to Tim's 09-17 slideshow ask in #worthe-web-maintenance, which closes it under the reaction rule. P1-29 and P1-23 went to worker sessions as task cards built from the morning briefs. Privacy 45/46 stay parked.
+
 ## 2026-10-01 — P1-29: Slice Machine is deprecated, and what Prismic wants instead (#1090, this PR)
 
 Research only, from the morning report's brief; no Prismic call with a write credential and no site touched. The write-up is `docs/prismic-model-management-2026-10.md`.
