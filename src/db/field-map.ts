@@ -387,5 +387,7 @@ export function mapReportRecord(rec: RawRecord, renderedHtml: string | null): Re
         ? s(f["Checklist auto-evidence"])
         : json(f["Checklist auto-evidence"] ?? undefined),
     rendered_html: renderedHtml,
+    withdrawn_at: s(f["Withdrawn at"]),
+    withdrawn_by: s(f["Withdrawn by"]),
   };
 }

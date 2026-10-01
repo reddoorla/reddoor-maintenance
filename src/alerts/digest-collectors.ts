@@ -225,7 +225,7 @@ export function collectPreflightBlocked(
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const r of reports) {
-    if (!r.draftReady || r.sentAt !== null) continue;
+    if (!r.draftReady || r.sentAt !== null || r.withdrawnAt !== null) continue;
     // The approved state rides the KEY so a pending→approved escalation with
     // unchanged blockers re-news as a fresh critical instead of diffing
     // "standing" against its old warning self.

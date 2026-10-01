@@ -569,6 +569,8 @@ function reportRowFromDb(
     overrideReason: r.override_reason,
     overrideBy: r.override_by,
     overrideAt: r.override_at,
+    withdrawnAt: r.withdrawn_at,
+    withdrawnBy: r.withdrawn_by,
   };
 }
 
@@ -611,6 +613,8 @@ export const REPORT_LIST_COLUMNS = [
   "resend_message_id",
   "checklist",
   "checklist_auto_evidence",
+  "withdrawn_at",
+  "withdrawn_by",
 ] as const;
 
 /** The one thing a list read still needs from the body: whether there IS one.
@@ -647,7 +651,8 @@ export async function listReportsForSite(db: Db, siteId: string): Promise<Report
 /** The send queue — `Draft ready` ∧ `Approved to send` ∧ `Sent at` BLANK, as a
  *  WHERE, so the three-part rule is stated once, in SQL, and
  *  tests/reports/send/sendable-predicate.test.ts drives every combination of the
- *  three columns through it.
+ *  three columns through it. A withdrawn row (P1-28) is never sendable, even
+ *  if something approved it.
  *
  *  Body-free like the other list reads: the send renders from the row, and
  *  `rendered_html` is fetched separately by the paths that want the stored body.
@@ -661,6 +666,7 @@ export async function listSendableReports(db: Db): Promise<ReportRow[]> {
     .where("draft_ready", "=", 1)
     .where("approved_to_send", "=", 1)
     .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
     .orderBy("period_start", "desc")
     .orderBy("id")
     .execute();
@@ -712,6 +718,9 @@ export type ReportMirrorPatch = Partial<
     // disarm all three for every post-flip send.
     | "sent_at"
     | "resend_message_id"
+    // P1-28: the dashboard's "Don't send".
+    | "withdrawn_at"
+    | "withdrawn_by"
   >
 >;
 
@@ -739,6 +748,29 @@ export async function mirrorReportPatch(
     .where("id", "=", reportId)
     .executeTakeFirst();
   // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
+  return res.numUpdatedRows > 0n;
+}
+
+/** P1-28: the approve and withdraw writes, conditioned on the state their
+ *  handler decided on. Both require the row ready, unsent and unwithdrawn (ready
+ *  so a supersede between the read and the write wins); a withdraw also
+ *  requires it unapproved. Returns whether a row matched, so a
+ *  write that lost a race to the other one is a refusal, not a silent overwrite. */
+export async function patchReportIfOpen(
+  db: Db,
+  reportId: string,
+  patch: ReportMirrorPatch,
+  guard: "approvable" | "withdrawable",
+): Promise<boolean> {
+  let q = db
+    .updateTable("reports")
+    .set(patch)
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .where("draft_ready", "=", 1);
+  if (guard === "withdrawable") q = q.where("approved_to_send", "=", 0);
+  const res = await q.executeTakeFirst();
   return res.numUpdatedRows > 0n;
 }
 

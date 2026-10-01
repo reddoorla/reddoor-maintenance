@@ -53,9 +53,12 @@ export async function queueDraft(
   report: { id: string; siteId: string; reportType: ReportType },
   mirror: ReportMirror,
 ): Promise<QueueOutcome> {
-  const others = (await mirror.forSite(report.siteId))
-    .filter(isPendingApproval)
-    .filter((r) => r.id !== report.id);
+  const siteRows = await mirror.forSite(report.siteId);
+  // P1-28 backstop: a withdrawn row never re-enters the queue.
+  if (siteRows.some((r) => r.id === report.id && r.withdrawnAt !== null)) {
+    return { queued: false, supersededIds: [] };
+  }
+  const others = siteRows.filter(isPendingApproval).filter((r) => r.id !== report.id);
   const plan = planQueue(report, others);
   for (const [id, ready] of plan.flags) await mirror.patch(id, { draft_ready: ready ? 1 : 0 });
   return plan.outcome;

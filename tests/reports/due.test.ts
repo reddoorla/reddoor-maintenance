@@ -54,6 +54,8 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     overrideReason: null,
     overrideBy: null,
     overrideAt: null,
+    withdrawnAt: null,
+    withdrawnBy: null,
     ...over,
   };
 }
@@ -370,5 +372,100 @@ describe("nextDueDate", () => {
     });
     expect(nextDueDate(s, [], "Maintenance", TODAY)).toBeNull();
     warn.mockRestore();
+  });
+});
+
+describe("a withdrawn draft consumes its cycle, measured from when it was drafted (P1-28)", () => {
+  /** A withdrawn draft: `made` is its draft day (Completed on), `at` the click. */
+  const withdrawn = (
+    period: string,
+    made: string | null,
+    at: string,
+    over: Partial<ReportRow> = {},
+  ) =>
+    report({
+      id: `rec_w_${period}`,
+      period,
+      completedOn: made,
+      sentAt: null,
+      approvedToSend: false,
+      deliveryStatus: "pending",
+      withdrawnAt: `${at}T15:00:00.000Z`,
+      withdrawnBy: "dashboard",
+      ...over,
+    });
+  const sent = (at: string, over: Partial<ReportRow> = {}) =>
+    report({ id: `rec_s_${at}`, sentAt: `${at}T12:00:00.000Z`, ...over });
+  const ymd = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
+  const on = (d: string) => new Date(`${d}T12:00:00Z`);
+  const duePeriods = (s: WebsiteRow, reports: ReportRow[], today: string) =>
+    findDueReports([s], reports, on(today)).map((d) => reportPeriodKey(d.dueDate));
+
+  it.each([
+    ["anchor 2026-08-30", { maintenanceDay: "2026-08-30" }],
+    ["no anchor", {}],
+  ] as const)(
+    "VLF (%s): the 2026-09 draft made 09-30, withdrawn 10-05 → due 2026-10-30, period 2026-10",
+    (_label, over) => {
+      const s = site({ maintenanceFreq: "Monthly", ...over });
+      const reports = [withdrawn("2026-09", "2026-09-30", "2026-10-05")];
+      const next = nextDueDate(s, reports, "Maintenance", on("2026-10-05"));
+      expect(ymd(next)).toBe("2026-10-30");
+      expect(reportPeriodKey(next!)).toBe("2026-10");
+      expect(duePeriods(s, reports, "2026-10-05")).toEqual([]);
+      expect(duePeriods(s, reports, "2026-10-30")).toEqual(["2026-10"]);
+    },
+  );
+
+  it("overdue catch-up in one click: sent 02-15, the 2026-03 draft made 09-01, withdrawn 09-30 → due 10-01", () => {
+    const reports = [sent("2026-02-15"), withdrawn("2026-03", "2026-09-01", "2026-09-30")];
+    expect(ymd(nextDueDate(site(), reports, "Maintenance", on("2026-09-30")))).toBe("2026-10-01");
+    expect(duePeriods(site(), reports, "2026-09-30")).toEqual([]);
+    expect(duePeriods(site(), reports, "2026-10-01")).toEqual(["2026-10"]);
+  });
+
+  it("no anchor, no history: made 09-30, withdrawn 10-01 → due 10-30, and nothing drafts on 10-01", () => {
+    const reports = [withdrawn("2026-09", "2026-09-30", "2026-10-01")];
+    expect(ymd(nextDueDate(site(), reports, "Maintenance", on("2026-10-01")))).toBe("2026-10-30");
+    expect(duePeriods(site(), reports, "2026-10-01")).toEqual([]);
+  });
+
+  it("a send after the withdrawn draft wins as the base", () => {
+    const reports = [withdrawn("2026-08", "2026-08-01", "2026-08-03"), sent("2026-08-20")];
+    expect(ymd(nextDueDate(site(), reports, "Maintenance", on("2026-08-21")))).toBe("2026-09-20");
+  });
+
+  it("a withdrawn draft older than the last send changes nothing", () => {
+    const base = [sent("2026-08-20")];
+    const expected = ymd(nextDueDate(site(), base, "Maintenance", on("2026-08-21")));
+    expect(expected).toBe("2026-09-20");
+    const reports = [...base, withdrawn("2026-07", "2026-07-15", "2026-09-01")];
+    expect(ymd(nextDueDate(site(), reports, "Maintenance", on("2026-09-02")))).toBe(expected);
+  });
+
+  it("uses the draft day, never the click: a late click does not push the schedule", () => {
+    const early = [withdrawn("2026-09", "2026-09-30", "2026-10-01")];
+    const late = [withdrawn("2026-09", "2026-09-30", "2026-10-25")];
+    expect(ymd(nextDueDate(site(), late, "Maintenance", on("2026-10-25")))).toBe(
+      ymd(nextDueDate(site(), early, "Maintenance", on("2026-10-01"))),
+    );
+  });
+
+  it("falls back to the withdrawal stamp only for a row with no draft day", () => {
+    const reports = [withdrawn("2026-09", null, "2026-10-05")];
+    expect(ymd(nextDueDate(site(), reports, "Maintenance", on("2026-10-05")))).toBe("2026-11-05");
+  });
+
+  it("negative controls: no withdrawn row, or one of another type, site, or with no stamp, change nothing", () => {
+    const base = [sent("2026-03-15")];
+    const expected = ymd(nextDueDate(site(), base, "Maintenance", TODAY));
+    expect(expected).toBe("2026-04-15");
+    for (const other of [
+      withdrawn("2026-04", "2026-04-15", "2026-04-20", { reportType: "Testing" }),
+      withdrawn("2026-04", "2026-04-15", "2026-04-20", { siteId: "rec_other" }),
+      withdrawn("2026-04", "2026-04-15", "2026-04-20", { withdrawnAt: null }),
+    ]) {
+      expect(ymd(nextDueDate(site(), [...base, other], "Maintenance", TODAY))).toBe(expected);
+    }
   });
 });

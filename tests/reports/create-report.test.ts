@@ -104,4 +104,26 @@ describe("findReportForPeriod", () => {
   it("never matches another site's report", async () => {
     expect(await findReportForPeriod(store, "recB", "Launch", "2026-09")).toBeNull();
   });
+
+  it("never reuses a withdrawn row (P1-28) — a re-run creates a fresh one", async () => {
+    const withWithdrawn = [
+      mapRow({
+        id: "rec_w",
+        fields: {
+          Site: ["recC"],
+          "Report type": "Launch",
+          Period: "2026-09",
+          "Withdrawn at": "2026-09-02T00:00:00.000Z",
+        },
+      }),
+    ];
+    const s2 = { forSite: async () => withWithdrawn };
+    expect(await findReportForPeriod(s2, "recC", "Launch", "2026-09")).toBeNull();
+    const live = mapRow({
+      id: "rec_live",
+      fields: { Site: ["recC"], "Report type": "Launch", Period: "2026-09" },
+    });
+    const s3 = { forSite: async () => [...withWithdrawn, live] };
+    expect((await findReportForPeriod(s3, "recC", "Launch", "2026-09"))?.id).toBe("rec_live");
+  });
 });

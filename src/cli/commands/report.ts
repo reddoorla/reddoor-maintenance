@@ -1,7 +1,7 @@
 import type { Db } from "../../db/client.js";
 import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../fleet/site-fields.js";
 import type { ReportRow } from "../../reports/report-fields.js";
-import { findDueReports, nextDueDate, reportPeriodKey } from "../../reports/due.js";
+import { findDueReports, nextDueDates, reportPeriodKey } from "../../reports/due.js";
 import { analyticsEnrolled, draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
 import { readGaConfig } from "../../reports/ga/config.js";
@@ -278,6 +278,21 @@ async function alertOnFleetAnalyticsFailure(health: AnalyticsRunHealth): Promise
   }
 }
 
+/** The row already drafted for a (site, type, period), preferring one that is
+ *  not withdrawn (P1-28): a live row beside a withdrawn one is the one to
+ *  complete or skip on. */
+export function findExistingForPeriod(
+  reports: ReportRow[],
+  siteId: string,
+  reportType: ReportType,
+  period: string,
+): ReportRow | undefined {
+  const matches = reports.filter(
+    (r) => r.siteId === siteId && r.reportType === reportType && r.period === period,
+  );
+  return matches.find((r) => r.withdrawnAt === null) ?? matches[0];
+}
+
 /**
  * Write each site's code-computed next-maintenance / next-testing date into
  * site_schedule (date-only, or null when there's no schedule), so the "next" dates
@@ -300,7 +315,6 @@ export async function writeNextDueDates(
   today: Date,
   scheduleMirror: ScheduleMirror | null = null,
 ): Promise<void> {
-  const ymd = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
   let wrote = 0;
   let skipped = 0;
   let failed = 0;
@@ -311,13 +325,14 @@ export async function writeNextDueDates(
     // The whole per-site body sits in ONE try — compute included — so a bad
     // row can only cost its own write, exactly the pre-diff-guard blast radius.
     try {
-      const maintenanceAt = ymd(nextDueDate(site, reports, "Maintenance", today));
-      const testingAt = ymd(nextDueDate(site, reports, "Testing", today));
-      if (maintenanceAt === site.nextMaintenanceAt && testingAt === site.nextTestingAt) {
+      const dates = nextDueDates(site, reports, today);
+      if (
+        dates.maintenanceAt === site.nextMaintenanceAt &&
+        dates.testingAt === site.nextTestingAt
+      ) {
         skipped++;
         continue;
       }
-      const dates = { maintenanceAt, testingAt };
       if (scheduleMirror) {
         try {
           const fields = nextDueDatesFields(dates);
@@ -417,9 +432,7 @@ export async function draftDueReports(
     // recurrence. The dueDate's YYYY-MM is the stable per-cycle key. Match against the
     // reports we already fetched — no extra query on the hot path.
     const period = reportPeriodKey(item.dueDate);
-    const existing = reports.find(
-      (r) => r.siteId === item.site.id && r.reportType === item.reportType && r.period === period,
-    );
+    const existing = findExistingForPeriod(reports, item.site.id, item.reportType, period);
 
     // A row already exists for THIS period. Two cases:
     //   - Draft ready → truly done, skip (the idempotent re-run path).
@@ -428,6 +441,13 @@ export async function draftDueReports(
     //     needs Draft ready). COMPLETE it in place instead of skipping forever —
     //     re-render → re-store the HTML → flip Draft ready on the EXISTING row.
     if (existing) {
+      // A withdrawn row (P1-28) is the operator's "not this period": never
+      // re-complete it, whatever its Draft ready says.
+      if (existing.withdrawnAt !== null) {
+        skipped++;
+        lines.push(`• skipped (withdrawn ${period}): ${item.site.name} ${item.reportType}`);
+        continue;
+      }
       if (existing.draftReady) {
         skipped++;
         lines.push(`• skipped (already drafted ${period}): ${item.site.name} ${item.reportType}`);
@@ -444,6 +464,7 @@ export async function draftDueReports(
           r.siteId === item.site.id &&
           r.id !== existing.id &&
           r.sentAt === null &&
+          r.withdrawnAt === null &&
           r.draftReady &&
           reportTier(r.reportType) >= reportTier(item.reportType),
       );
@@ -489,13 +510,15 @@ export async function draftDueReports(
     // `r.draftReady` is load-bearing: a draft a higher tier SUPERSEDED has
     // draftReady=false and never gets a Sent at, so without this clause it would
     // match (sentAt null + earlier period) and block EVERY future draft for the
-    // site forever. Pending-approval means draftReady=true AND sentAt=null.
+    // site forever. Pending-approval means draftReady=true AND sentAt=null. A
+    // withdrawn draft (P1-28) is the operator's "skip that one" and never blocks.
     const pendingEarlier = reports.find(
       (r) =>
         r.siteId === item.site.id &&
         r.reportType === item.reportType &&
         r.draftReady &&
         r.sentAt === null &&
+        r.withdrawnAt === null &&
         r.period !== null &&
         r.period < period,
     );

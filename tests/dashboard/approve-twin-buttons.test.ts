@@ -51,6 +51,8 @@ function pendingReport(over: Partial<ReportRow> = {}): ReportRow {
     overrideReason: null,
     overrideBy: null,
     overrideAt: null,
+    withdrawnAt: null,
+    withdrawnBy: null,
     ...over,
   } as ReportRow;
 }
@@ -93,7 +95,10 @@ describe("approve state changes reach every twin", () => {
 
   it("selects approve buttons by id in the PLURAL", () => {
     expect(s).toContain("function approveButtonsFor(id)");
-    expect(s).toMatch(/approveButtonsFor[\s\S]*querySelectorAll\('button\.approve\[data-report-id/);
+    expect(s).toMatch(/function controlsFor\(sel, id\)[\s\S]*?querySelectorAll\(sel \+/);
+    expect(s).toMatch(
+      /function approveButtonsFor\(id\) \{\s*return controlsFor\("button\.approve", id\);/,
+    );
   });
 
   it("no handler looks up an approve button with a singular querySelector", () => {

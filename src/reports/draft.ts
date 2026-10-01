@@ -583,7 +583,8 @@ export async function fetchSearch(
 }
 
 /** The half-open period's start: the day after this site's last report of the same
- *  type ended, or 30 days ago when it has none.
+ *  type ended, or 30 days ago when it has none. A withdrawn report (P1-28) was never
+ *  sent, so its period is not counted as covered.
  *
  *  #646 step 4: read from TURSO (`store.forSite`). */
 async function derivePeriodStart(
@@ -594,7 +595,7 @@ async function derivePeriodStart(
 ): Promise<Date> {
   const prior = await store.forSite(siteRow.id);
   const sameType = prior
-    .filter((r) => r.reportType === reportType && r.periodEnd)
+    .filter((r) => r.reportType === reportType && r.periodEnd && r.withdrawnAt === null)
     .map((r) => r.periodEnd!)
     .sort();
   const latest = sameType[sameType.length - 1];

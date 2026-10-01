@@ -171,4 +171,15 @@ describe("queueDraft → the Turso mirror", () => {
     expect(out).toEqual({ queued: true, supersededIds: [] });
     expect(writer.patches).toEqual([{ id, patch: { draft_ready: 1 } }]);
   });
+
+  it("never flags a WITHDRAWN report ready — queued:false, no writes at all (P1-28)", async () => {
+    const { writer } = stores([
+      rep("w", "siteA", "Launch", { "Withdrawn at": "2026-09-02T00:00:00.000Z" }),
+      rep("maint", "siteA", "Maintenance"),
+    ]);
+    const out = await queueDraft({ id: "w", siteId: "siteA", reportType: "Launch" }, writer);
+    expect(out.queued).toBe(false);
+    expect(out.supersededIds).toEqual([]);
+    expect(writer.patches).toEqual([]);
+  });
 });

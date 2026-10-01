@@ -26,7 +26,7 @@ vi.mock("../../src/reports/report-mirror.js", () => ({
 }));
 vi.mock("../../src/reports/draft.js", () => ({ draftReportForSite: vi.fn() }));
 import { draftReportForSite } from "../../src/reports/draft.js";
-import { draftDueReports } from "../../src/cli/commands/report.js";
+import { draftDueReports, findExistingForPeriod } from "../../src/cli/commands/report.js";
 import { makeFakeReportWriter } from "../reports/_helpers/fake-report-writer.js";
 import { reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
@@ -540,5 +540,129 @@ describe("draftDueReports next-due write-back", () => {
       expect.stringMatching(/\[schedule-mirror\] Acme Co: turso down/),
     );
     warn.mockRestore();
+  });
+});
+
+describe("draftDueReports — a withdrawn draft (P1-28)", () => {
+  beforeEach(() => {
+    vi.mocked(draftReportForSite).mockReset();
+    rosterRows = [siteRow()];
+    vi.mocked(draftReportForSite).mockResolvedValue({
+      reportRow: { reportId: "Acme Co — Maintenance — 2026-05-26" },
+      htmlPath: null,
+      html: "",
+      softFailures: [],
+      queued: true,
+      supersededIds: [],
+    } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
+  });
+
+  const WITHDRAWN = { "Withdrawn at": "2026-05-02T10:00:00.000Z", "Withdrawn by": "dashboard" };
+
+  it("an earlier-period withdrawn draft does NOT block the new period", async () => {
+    const reports: RawRow[] = [
+      {
+        id: "rec_skipped_april",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-04",
+          "Completed on": "2026-04-20",
+          "Draft ready": true,
+          ...WITHDRAWN,
+        },
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
+    expect(draftReportForSite).toHaveBeenCalledTimes(1);
+    expect(draftReportForSite).toHaveBeenCalledWith(
+      expect.anything(),
+      "Maintenance",
+      expect.objectContaining({ period: "2026-05" }),
+    );
+    expect(res.output).not.toMatch(/pending approval/);
+  });
+
+  it.each([true, false])(
+    "a same-period withdrawn row (Draft ready %s) consumes the cycle: never re-completed, next period drafts",
+    async (ready) => {
+      const reports: RawRow[] = [
+        {
+          id: "rec_withdrawn_may",
+          fields: {
+            Site: ["rec_site_acme"],
+            "Report type": "Maintenance",
+            Period: "2026-05",
+            "Completed on": "2026-05-02",
+            ...(ready ? { "Draft ready": true } : {}),
+            ...WITHDRAWN,
+          },
+        },
+      ];
+      const res = await draftDueReports(TODAY, dueDeps(reports));
+      expect(draftReportForSite).not.toHaveBeenCalled();
+      expect(res.output).toBe("No reports due.");
+      await draftDueReports(new Date("2026-06-26T12:00:00Z"), dueDeps(reports));
+      expect(draftReportForSite).toHaveBeenCalledTimes(1);
+      expect(draftReportForSite).toHaveBeenCalledWith(
+        expect.anything(),
+        "Maintenance",
+        expect.not.objectContaining({ completeRowId: expect.anything() }),
+      );
+      expect(draftReportForSite).toHaveBeenCalledWith(
+        expect.anything(),
+        "Maintenance",
+        expect.objectContaining({ period: "2026-06" }),
+      );
+    },
+  );
+
+  it("a withdrawn higher-tier draft does not hold a crashed half-draft un-completed", async () => {
+    const reports: RawRow[] = [
+      {
+        id: "rec_halfmade",
+        fields: { Site: ["rec_site_acme"], "Report type": "Maintenance", Period: "2026-05" },
+      },
+      {
+        id: "rec_withdrawn_test",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Testing",
+          Period: "2026-05",
+          "Draft ready": true,
+          ...WITHDRAWN,
+        },
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports));
+    expect(draftReportForSite).toHaveBeenCalledWith(
+      expect.anything(),
+      "Maintenance",
+      expect.objectContaining({ completeRowId: "rec_halfmade" }),
+    );
+    expect(res.output).not.toMatch(/superseded — a higher-or-equal-tier/);
+  });
+});
+
+describe("findExistingForPeriod (P1-28)", () => {
+  const rows = (records: RawRow[]) => reportRowsFrom(records);
+  const row = (id: string, over: Record<string, unknown> = {}): RawRow => ({
+    id,
+    fields: { Site: ["s"], "Report type": "Maintenance", Period: "2026-05", ...over },
+  });
+
+  it("prefers the live row over a withdrawn one for the same period, in either order", () => {
+    const w = row("w", { "Withdrawn at": "2026-05-02T00:00:00.000Z" });
+    const live = row("live");
+    expect(findExistingForPeriod(rows([w, live]), "s", "Maintenance", "2026-05")?.id).toBe("live");
+    expect(findExistingForPeriod(rows([live, w]), "s", "Maintenance", "2026-05")?.id).toBe("live");
+  });
+
+  it("falls back to the withdrawn row when it is the only one, and matches on site, type and period", () => {
+    const w = row("w", { "Withdrawn at": "2026-05-02T00:00:00.000Z" });
+    expect(findExistingForPeriod(rows([w]), "s", "Maintenance", "2026-05")?.id).toBe("w");
+    expect(findExistingForPeriod(rows([w]), "x", "Maintenance", "2026-05")).toBeUndefined();
+    expect(findExistingForPeriod(rows([w]), "s", "Testing", "2026-05")).toBeUndefined();
+    expect(findExistingForPeriod(rows([w]), "s", "Maintenance", "2026-06")).toBeUndefined();
   });
 });

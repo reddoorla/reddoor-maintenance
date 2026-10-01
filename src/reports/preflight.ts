@@ -246,7 +246,9 @@ export function preflightSite(
   // supersedes or blocks). For Maintenance/Testing, the CURRENT cycle's own draft
   // sitting ready on send day IS the payload — that's the steady state, not a
   // problem — so only genuinely stale/foreign drafts get the warn.
-  const pending = reports.filter((r) => r.draftReady && r.sentAt === null);
+  const pending = reports.filter(
+    (r) => r.draftReady && r.sentAt === null && r.withdrawnAt === null,
+  );
   if (pending.length > 0) {
     const currentPeriod = reportPeriodKey(now);
     const isExpectedPayload = (r: ReportRow): boolean =>

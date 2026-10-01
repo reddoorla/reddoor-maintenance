@@ -79,4 +79,15 @@ describe("listSendableReports", () => {
       .execute();
     expect(await listSendableReports(db)).toEqual([]);
   });
+
+  it("never returns a withdrawn row, even one that is ready and approved (P1-28)", async () => {
+    const queued = COMBOS.filter(formulaSaysSendable).map(idOf);
+    expect((await listSendableReports(db)).map((r) => r.id)).toEqual(queued);
+    await db
+      .updateTable("reports")
+      .set({ withdrawn_at: "2026-09-17T00:00:00.000Z", withdrawn_by: "dashboard" })
+      .where("id", "=", queued[0]!)
+      .execute();
+    expect(await listSendableReports(db)).toEqual([]);
+  });
 });

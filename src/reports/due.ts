@@ -63,6 +63,22 @@ function lastSentForType(reports: ReportRow[], siteId: string, type: ReportType)
   return candidates[candidates.length - 1] ?? null;
 }
 
+/** When the latest withdrawn draft of this (site, type) was made. `Completed on`
+ *  is stamped with the draft day when the row is created (and re-stamped when a
+ *  launch/announce re-run redrafts it); a row without one falls back to its
+ *  withdrawal stamp. */
+function lastWithdrawnDraftForType(
+  reports: ReportRow[],
+  siteId: string,
+  type: ReportType,
+): string | null {
+  const candidates = reports
+    .filter((r) => r.siteId === siteId && r.reportType === type && r.withdrawnAt !== null)
+    .map((r) => r.completedOn ?? r.withdrawnAt!)
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  return candidates[candidates.length - 1] ?? null;
+}
+
 /**
  * The next-due date for one (site, type): the date the next report of that type is
  * scheduled to draft, whether or not it's due yet. `null` when there's no schedule —
@@ -73,6 +89,11 @@ function lastSentForType(reports: ReportRow[], siteId: string, type: ReportType)
  * baseDate = the last `Sent at` for this (site, type), else the site's
  * `maintenance day`/`testing day` anchor. With no baseDate at all the next report is
  * due now (returns `today` at UTC midnight). Otherwise baseDate + frequency.
+ *
+ * P1-28: a withdrawn draft consumes its cycle as if it had been sent on the day it
+ * was drafted, so the base is the later of the last send and that draft day. Not
+ * the withdrawal click: withdrawing a September draft in October must not push the
+ * next report to November. An overdue site catches up in one step.
  *
  * Shared with {@link findDueReports} so the scheduler and any schedule display can't
  * drift on what "next" means.
@@ -87,10 +108,32 @@ export function nextDueDate(
   const freq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
   if (freq === "None") return null;
   const lastSent = lastSentForType(reports, site.id, type);
+  const withdrawnDraft = lastWithdrawnDraftForType(reports, site.id, type);
+  const latest =
+    lastSent !== null && withdrawnDraft !== null
+      ? Date.parse(lastSent) >= Date.parse(withdrawnDraft)
+        ? lastSent
+        : withdrawnDraft
+      : (lastSent ?? withdrawnDraft);
   const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;
-  const baseIso = lastSent ?? fallback;
+  const baseIso = latest ?? fallback;
   if (!baseIso) return startOfDay(today);
   return addMonths(new Date(baseIso), MONTHS[freq]);
+}
+
+/** Both stored next-due dates for a site, date-only (`YYYY-MM-DD`) or null when
+ *  that type has no schedule — what site_schedule holds. The nightly write-back
+ *  and the withdraw endpoint both write through this. */
+export function nextDueDates(
+  site: WebsiteRow,
+  reports: ReportRow[],
+  today: Date,
+): { maintenanceAt: string | null; testingAt: string | null } {
+  const ymd = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
+  return {
+    maintenanceAt: ymd(nextDueDate(site, reports, "Maintenance", today)),
+    testingAt: ymd(nextDueDate(site, reports, "Testing", today)),
+  };
 }
 
 /**

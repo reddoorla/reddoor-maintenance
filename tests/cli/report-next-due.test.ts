@@ -11,6 +11,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { writeNextDueDates } from "../../src/cli/commands/report.js";
 import type { ScheduleMirror } from "../../src/audits/health-mirror.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { reportRowsFrom } from "../_helpers/raw-rows.js";
 
 const TODAY = new Date("2026-08-24T09:23:00.000Z");
 const TODAY_YMD = "2026-08-24";
@@ -251,5 +252,37 @@ describe("the site_schedule mirror", () => {
     expect(line).toContain("NEXT_DUE_WRITE wrote=0 skipped=0 failed=0 mirror=absent");
     expect(line).not.toContain("mirrored=");
     expect(line).not.toContain("mirror_missed=");
+  });
+});
+
+describe("writeNextDueDates — a withdrawn draft moves the stored next date (P1-28)", () => {
+  it("writes the date a cycle past the withdrawn period, from the same nextDueDate", async () => {
+    quietLog();
+    const sites = [
+      makeWebsiteRow({
+        id: "recVLF",
+        name: "Vida",
+        maintenanceFreq: "Monthly",
+        maintenanceDay: "2026-07-24",
+        nextMaintenanceAt: TODAY_YMD,
+      }),
+    ];
+    const reports = reportRowsFrom([
+      {
+        id: "recW",
+        fields: {
+          Site: ["recVLF"],
+          "Report type": "Maintenance",
+          Period: "2026-08",
+          "Completed on": "2026-08-24",
+          "Draft ready": true,
+          "Withdrawn at": "2026-08-24T10:00:00.000Z",
+        },
+      },
+    ]);
+    const { calls, mirror } = recorder();
+    await writeNextDueDates(sites, reports, TODAY, mirror);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields["Next maintenance at"]).toBe("2026-09-24");
   });
 });

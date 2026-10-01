@@ -695,6 +695,21 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       run: (db) => fleetState.mirrorReportPatch(db, "recA", { approved_to_send: 1 }),
     },
     {
+      // P1-28: the conditioned approve / withdraw writes. The state predicates
+      // ride on the PK lookup, so the plan must still land on it.
+      name: "patchReportIfOpen (conditioned approve / withdraw)",
+      covers: ["patchReportIfOpen"],
+      run: async (db) => {
+        await fleetState.patchReportIfOpen(db, "recA", { approved_to_send: 1 }, "approvable");
+        await fleetState.patchReportIfOpen(
+          db,
+          "recA",
+          { withdrawn_at: "2026-09-30T00:00:00.000Z" },
+          "withdrawable",
+        );
+      },
+    },
+    {
       // The create-side mirror (#539 Phase 5). Its upsert resolves the conflict
       // on `reports.id`, so the plan must land on the PK — an unindexed
       // conflict target would scan the whole HTML-bearing table on every draft.

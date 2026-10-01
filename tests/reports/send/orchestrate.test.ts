@@ -180,6 +180,19 @@ function harness(seed: Seed, plates: string[] = seed.Websites.map((w) => w.id)) 
 }
 
 describe("sendApprovedReports", () => {
+  it("never sends a withdrawn row, even one that is somehow approved (P1-28)", async () => {
+    const h = harness({
+      Reports: [reportRow({ "Withdrawn at": "2026-05-27T00:00:00.000Z" })],
+      Websites: [siteRow()],
+    });
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ ...h.io, resend: client });
+    expect(captured).toHaveLength(0);
+    expect(h.stamps).toEqual([]);
+    expect(res.output).toContain("skipped (withdrawn)");
+    expect(res.code).toBe(0);
+  });
+
   it("returns 0 and 'No reports ready' when nothing is sendable", async () => {
     const h = harness({ Reports: [], Websites: [siteRow()] });
     const { client } = captureClient();

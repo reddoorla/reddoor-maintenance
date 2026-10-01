@@ -588,6 +588,7 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     draftReady: true,
     approvedToSend: false,
     sentAt: null,
+    withdrawnAt: null,
     deliveryStatus: "pending",
     ...over,
   } as ReportRow;

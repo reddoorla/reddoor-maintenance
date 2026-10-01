@@ -9,7 +9,7 @@ export type ApproveResult =
   | {
       status: "noop";
       reportId: string;
-      reason: "already-approved" | "already-sent" | "not-draft-ready";
+      reason: "already-approved" | "already-sent" | "not-draft-ready" | "withdrawn";
     }
   | {
       status: "blocked";
@@ -27,9 +27,11 @@ export type ApproveResult =
  */
 export type ApproveDeps = {
   getReportById: (id: string) => Promise<ReportRow | null>;
-  approveReportRow: (id: string, approvedAt: Date, approvedBy: string) => Promise<void>;
+  /** Resolves `false` when the conditioned write matched no row: the row was
+   *  withdrawn or sent after it was read (P1-28). */
+  approveReportRow: (id: string, approvedAt: Date, approvedBy: string) => Promise<boolean | void>;
   /** Raw writer for the logged override: stamps Send override + reason/by/at + Approved to send. */
-  overrideReport: (id: string, at: Date, by: string, reason: string) => Promise<void>;
+  overrideReport: (id: string, at: Date, by: string, reason: string) => Promise<boolean | void>;
   now: () => Date;
   /** Send-blocking problems for this report (empty = clear to approve). The .mts
    *  adapter binds approveBlockers() over the live Websites row; tests bind fakes.
@@ -51,6 +53,9 @@ export async function approveReport(
   const report = await deps.getReportById(reportId);
   if (!report) return { status: "not-found", reportId };
   if (report.sentAt !== null) return { status: "noop", reportId, reason: "already-sent" };
+  // P1-28: a withdrawn draft is out of the queue for good. Checked before the
+  // override branch, so a send-anyway cannot bring it back either.
+  if (report.withdrawnAt !== null) return { status: "noop", reportId, reason: "withdrawn" };
   if (report.approvedToSend) return { status: "noop", reportId, reason: "already-approved" };
   // The spec gate is draftReady ∧ ¬approved ∧ ¬sent: a not-yet-draft-ready row
   // must never be approvable, even via a hand-crafted authed POST. Without this
@@ -68,7 +73,8 @@ export async function approveReport(
     const blockers = await deps.sendBlockers(overridden);
     if (blockers.length > 0)
       return { status: "blocked", reportId, reason: "send-blocked", blockers };
-    await deps.overrideReport(reportId, deps.now(), APPROVED_BY, reason);
+    if ((await deps.overrideReport(reportId, deps.now(), APPROVED_BY, reason)) === false)
+      return lostRace(deps, reportId);
     return { status: "overridden", reportId, reason };
   }
 
@@ -77,6 +83,18 @@ export async function approveReport(
   // scores) only schedules a red cron run — block with the reasons instead.
   const blockers = await deps.sendBlockers(report);
   if (blockers.length > 0) return { status: "blocked", reportId, reason: "send-blocked", blockers };
-  await deps.approveReportRow(reportId, deps.now(), APPROVED_BY);
+  if ((await deps.approveReportRow(reportId, deps.now(), APPROVED_BY)) === false)
+    return lostRace(deps, reportId);
   return { status: "approved", reportId };
+}
+
+/** The write matched nothing, so the row changed after it was read. Name what
+ *  changed from a fresh read. */
+async function lostRace(deps: ApproveDeps, reportId: string): Promise<ApproveResult> {
+  const now = await deps.getReportById(reportId);
+  if (!now) return { status: "not-found", reportId };
+  if (now.sentAt !== null) return { status: "noop", reportId, reason: "already-sent" };
+  if (now.withdrawnAt !== null) return { status: "noop", reportId, reason: "withdrawn" };
+  if (!now.draftReady) return { status: "noop", reportId, reason: "not-draft-ready" };
+  throw new Error(`approve ${reportId}: the write matched no row, and a re-read cannot say why`);
 }

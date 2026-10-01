@@ -40,6 +40,8 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     overrideReason: null,
     overrideBy: null,
     overrideAt: null,
+    withdrawnAt: null,
+    withdrawnBy: null,
     ...over,
   };
 }
@@ -245,5 +247,61 @@ describe("approveReport — logged override", () => {
     const res = await approveReport(d, "recREP1", { reason: "ship it" });
     expect(res).toMatchObject({ status: "blocked", reason: "send-blocked" });
     expect(d.overrideReport).not.toHaveBeenCalled();
+  });
+});
+
+describe("approveReport — a withdrawn draft is never approvable (P1-28)", () => {
+  const withdrawn = reportRow({
+    withdrawnAt: "2026-09-30T12:00:00.000Z",
+    withdrawnBy: "dashboard",
+  });
+
+  it("the plain approve is a no-op with reason withdrawn, and writes nothing", async () => {
+    const d = deps({ getReportById: vi.fn().mockResolvedValue(withdrawn) });
+    const res = await approveReport(d, "recREP1");
+    expect(res).toEqual({ status: "noop", reportId: "recREP1", reason: "withdrawn" });
+    expect(d.approveReportRow).not.toHaveBeenCalled();
+  });
+
+  it("the logged override is refused the same way", async () => {
+    const d = deps({ getReportById: vi.fn().mockResolvedValue(withdrawn) });
+    const res = await approveReport(d, "recREP1", { reason: "client asked" });
+    expect(res).toEqual({ status: "noop", reportId: "recREP1", reason: "withdrawn" });
+    expect(d.overrideReport).not.toHaveBeenCalled();
+    expect(d.approveReportRow).not.toHaveBeenCalled();
+  });
+});
+
+describe("approveReport — a write that loses the race to a withdraw (P1-28)", () => {
+  const withdrawn = reportRow({ withdrawnAt: "2026-09-30T12:00:00.000Z" });
+
+  it.each([false, true])(
+    "the guarded write matched nothing → re-read names it withdrawn (override=%s)",
+    async (withOverride) => {
+      const d = deps({
+        getReportById: vi.fn().mockResolvedValueOnce(reportRow()).mockResolvedValueOnce(withdrawn),
+        approveReportRow: vi.fn().mockResolvedValue(false),
+        overrideReport: vi.fn().mockResolvedValue(false),
+      });
+      const res = withOverride
+        ? await approveReport(d, "recREP1", { reason: "client asked" })
+        : await approveReport(d, "recREP1");
+      expect(res).toEqual({ status: "noop", reportId: "recREP1", reason: "withdrawn" });
+    },
+  );
+
+  it("a lost write to a row that was sent meanwhile reads already-sent", async () => {
+    const d = deps({
+      getReportById: vi
+        .fn()
+        .mockResolvedValueOnce(reportRow())
+        .mockResolvedValueOnce(reportRow({ sentAt: "2026-09-30T09:23:00Z" })),
+      approveReportRow: vi.fn().mockResolvedValue(false),
+    });
+    expect(await approveReport(d, "recREP1")).toEqual({
+      status: "noop",
+      reportId: "recREP1",
+      reason: "already-sent",
+    });
   });
 });
