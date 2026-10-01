@@ -469,3 +469,83 @@ describe("a withdrawn draft consumes its cycle, measured from when it was drafte
     }
   });
 });
+
+describe("a Testing report sent within a month of Maintenance pushes Maintenance back one cycle", () => {
+  const ymd = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
+  const on = (d: string) => new Date(`${d}T12:00:00Z`);
+  const maint = (at: string) =>
+    report({ id: `rec_m_${at}`, reportType: "Maintenance", sentAt: `${at}T12:00:00.000Z` });
+  const testing = (at: string, over: Partial<ReportRow> = {}) =>
+    report({ id: `rec_t_${at}`, reportType: "Testing", sentAt: `${at}T12:00:00.000Z`, ...over });
+  /** Approved, not yet sent: it goes out in the same run's send step. */
+  const approvedTesting = (approvedAt: string, over: Partial<ReportRow> = {}) =>
+    testing(approvedAt, {
+      sentAt: null,
+      deliveryStatus: "pending",
+      approvedToSend: true,
+      approvedAt: `${approvedAt}T21:00:00.000Z`,
+      ...over,
+    });
+  const monthly = site({ maintenanceFreq: "Monthly", testingFreq: "Quarterly" });
+
+  it("Sonder: Maintenance due 10-01, Testing sent 10-01 → Maintenance due 11-01", () => {
+    const reports = [maint("2026-09-01"), testing("2026-10-01")];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-10-02")))).toBe("2026-11-01");
+    expect(findDueReports([monthly], reports, on("2026-10-02"))).toEqual([]);
+  });
+
+  it("an approved, unsent Testing report counts: it sends in the same run that would draft Maintenance", () => {
+    const reports = [maint("2026-09-01"), approvedTesting("2026-09-30")];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-10-01")))).toBe("2026-11-01");
+    expect(
+      findDueReports([monthly], reports, on("2026-10-01")).map((d) => d.reportType),
+    ).not.toContain("Maintenance");
+  });
+
+  it("Testing sent up to a month before the due date pushes; earlier than that does not", () => {
+    const due = (t: string) =>
+      ymd(nextDueDate(monthly, [maint("2026-09-01"), testing(t)], "Maintenance", on("2026-09-02")));
+    expect(due("2026-09-01")).toBe("2026-11-01");
+    expect(due("2026-08-31")).toBe("2026-10-01");
+  });
+
+  it("Testing sent up to a month after the due date pushes; later than that does not", () => {
+    const due = (t: string) =>
+      ymd(nextDueDate(monthly, [maint("2026-09-01"), testing(t)], "Maintenance", on("2026-09-02")));
+    expect(due("2026-11-01")).toBe("2026-11-01");
+    expect(due("2026-11-02")).toBe("2026-10-01");
+  });
+
+  it("pushes by one Maintenance cycle, not by a month (Quarterly Maintenance)", () => {
+    const s = site({ maintenanceFreq: "Quarterly", testingFreq: "Yearly" });
+    const reports = [maint("2026-07-01"), testing("2026-10-03")];
+    expect(ymd(nextDueDate(s, reports, "Maintenance", on("2026-10-04")))).toBe("2027-01-01");
+  });
+
+  it("pushes once only: the next cycle after the pushed Maintenance send is normal", () => {
+    const reports = [maint("2026-09-01"), testing("2026-10-01"), maint("2026-11-01")];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-11-02")))).toBe("2026-12-01");
+  });
+
+  it("negative controls: Testing pending approval, withdrawn, of another site, or never sent push nothing", () => {
+    const base = [maint("2026-09-01")];
+    expect(ymd(nextDueDate(monthly, base, "Maintenance", on("2026-09-02")))).toBe("2026-10-01");
+    for (const other of [
+      approvedTesting("2026-09-30", { approvedToSend: false, approvedAt: null }),
+      // un-approved after approval: the stamp stays, the flag does not
+      approvedTesting("2026-09-30", { approvedToSend: false }),
+      approvedTesting("2026-09-30", { withdrawnAt: "2026-09-30T22:00:00.000Z" }),
+      testing("2026-10-01", { siteId: "rec_other" }),
+    ]) {
+      expect(ymd(nextDueDate(monthly, [...base, other], "Maintenance", on("2026-09-02")))).toBe(
+        "2026-10-01",
+      );
+    }
+  });
+
+  it("Testing's own schedule is untouched by a Maintenance send", () => {
+    const s = site({ testingFreq: "Quarterly", testingDay: "2026-07-01" });
+    const reports = [maint("2026-09-30")];
+    expect(ymd(nextDueDate(s, reports, "Testing", on("2026-09-02")))).toBe("2026-10-01");
+  });
+});

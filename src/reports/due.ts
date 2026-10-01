@@ -95,6 +95,9 @@ function lastWithdrawnDraftForType(
  * the withdrawal click: withdrawing a September draft in October must not push the
  * next report to November. An overdue site catches up in one step.
  *
+ * A Maintenance due date with a Testing report sent within a month of it moves
+ * one Maintenance cycle later ({@link testingCoversMaintenance}).
+ *
  * Shared with {@link findDueReports} so the scheduler and any schedule display can't
  * drift on what "next" means.
  */
@@ -118,7 +121,35 @@ export function nextDueDate(
   const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;
   const baseIso = latest ?? fallback;
   if (!baseIso) return startOfDay(today);
-  return addMonths(new Date(baseIso), MONTHS[freq]);
+  const due = addMonths(new Date(baseIso), MONTHS[freq]);
+  if (type === "Maintenance" && testingCoversMaintenance(reports, site.id, due)) {
+    return addMonths(due, MONTHS[freq]);
+  }
+  return due;
+}
+
+/**
+ * The operator's rule (2026-10-01): a Testing report sent within a month either
+ * side of a Maintenance due date pushes that Maintenance report back one
+ * Maintenance cycle. Testing is the higher tier (`queue.ts`), so it already
+ * carries what the Maintenance report would have said.
+ *
+ * "Sent" includes a Testing report approved and not yet sent or withdrawn,
+ * dated by its approval: `daily-reports` drafts before it sends, so on the day
+ * the approved Testing report goes out, Maintenance is decided while it is
+ * still unsent (Sonder, 2026-10-01). Pushes once: the window is measured
+ * against the unpushed due date only.
+ */
+function testingCoversMaintenance(reports: ReportRow[], siteId: string, due: Date): boolean {
+  const from = addMonths(due, -1).getTime();
+  const to = addMonths(due, 1).getTime();
+  return reports.some((r) => {
+    if (r.siteId !== siteId || r.reportType !== "Testing" || r.withdrawnAt !== null) return false;
+    const at = r.sentAt ?? (r.approvedToSend ? r.approvedAt : null);
+    if (at === null) return false;
+    const t = startOfDay(new Date(at)).getTime();
+    return t >= startOfDay(new Date(from)).getTime() && t <= startOfDay(new Date(to)).getTime();
+  });
 }
 
 /** Both stored next-due dates for a site, date-only (`YYYY-MM-DD`) or null when
