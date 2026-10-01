@@ -6926,3 +6926,37 @@ This closes the 09-30 cockpit-warnings session. The operator answered the last t
 - **GA4 IDs.** The operator created three properties. Before writing, the Admin API was checked under the reports account's subject: each ID is listed, and each display name matches its site. LAHI's 500039567 was the known-good control. Only 1836dig's property has a web stream. 29 Navy's and Data Dynamiq's have none, so a recorded ID clears the watch item but measures nothing until a stream and a tag exist. That tag work still waits on P1-26.
 
 Measured read-only on `main` at 01:03:58Z: 1 attention, 0 watch, 14 healthy, 2 pre-launch, 0 pending. The one attention item is Reddoor's stored Prismic verdict, which predates the operator's push. The next prismic-drift nightly re-reads it.
+
+## 2026-10-01 — OD7-P1b, Homes fidelity: williamson-homes#10 is up, held after review round 2 (BACKLOG 53)
+
+The Homes worker built the brief in williamson-homes#10. Its full entry is in
+that repo's journal; this records what the central repo should know.
+
+**The brief misdescribed one part, and the done-when still held.** The 20 IX2
+"scroll-in" events are all header interactions: hide on hero exit, show on
+re-entry, and the phone bar's colour. None of them reveals content.
+
+**The matching gate runs in a cloud session.** Clone `reddoorla/claude-skills`,
+run `npm install` in `skills/matching-a-page` (its Playwright drives the
+preinstalled Chromium), and set `MATCHING_SKILL_DIR`. The site's pinned
+Playwright 1.63 wants Chromium build 1243, which the image does not have. A
+local alias to build 1234 ran the site's own browser suites. CI installs its
+own, so the alias never reaches CI. Item 52 said the gate could not be shown
+from the cloud; that is now answered.
+
+**Proving the instrument found the trap the reference itself sets.** A local
+proxy served the live site at the candidate's paths, and the whole gate
+scored 0.0% in all 33 regions. Only after that were its FAILs trusted.
+Probing the reference also showed its counters script traps the wheel at
+y=3578. A literal port would have shipped that bug.
+
+**The belief corrected on contact.** "The captured asset is the asset." The
+capture's Montserrat has the same md5 as ours, yet the live page renders
+narrower. Google served the capture tool the unhinted build and Chromium the
+hinted one, about 6% narrower in capitals. The fix was to ship the file the
+browser is served.
+
+**Review.** Round 1 found a blocker and eleven majors across the three lenses, all fixed. Round 2 found
+one major that round 1 had introduced (`inert` vs the focus handback) and
+that jsdom could not see. It is fixed, pinned by a browser test that went red
+first, and the PR is held under "two dirty rounds, then stop".
