@@ -161,6 +161,25 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   - **Still open:** the Netlify site's name (CI assumes
     `mantis-landscaping`), and Nicole's answers (61: 1, 2 and 7, plus the
     drafts).
+    **10-01 ~18:45Z: the operator answered the rest.**
+  - **61.1, the form recipient:** the client's address. It is on the row
+    as `point_of_contact` (verified by `SELECT`) and is not written here,
+    because this repo is public. Pre-launch rows still notify only the
+    operator (`src/forms/notify.ts`).
+  - **61.2, DNS:** asked for after the client reviews the build.
+  - **61.7, icons:** use Lucide, not the Noun Project PNGs.
+  - **The three draft projects:** ignored.
+  - **P3, Netlify:** created on the operator's authority as
+    `mantis-landscaping` (`f0ce133b`), on `main`, `pnpm run build` →
+    `build/`.
+    - `FORMS_INGEST_URL` and `FORMS_INGEST_TOKEN` are set; the token
+      matches Williamson's by sha256 prefix.
+    - A "Prismic publish" build hook is on `main`. Its Prismic webhook is
+      the operator's to add.
+    - `netlify_id` is on the row (verified by `SELECT`).
+  - **The first production build failed on Netlify's secret scan:** Blux's
+    `__analytics.js`, vendored in P0's `matching/spec/`, carries Blux's
+    browser API key. It was removed in mantis-landscaping#2.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`

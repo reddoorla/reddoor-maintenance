@@ -7280,3 +7280,9 @@ So the planning session's capture, taken partly as insurance, turns out to be th
 - Nicole's answers: the form recipient, the domain login, the icon licence, and whether to publish the three draft projects.
 - The Netlify site's name.
 - P2.
+
+**Later the same day (~18:45Z).** The operator answered the rest, and the session acted on it:
+
+- **The Netlify site** was created on the operator's authority, mirroring the Williamson sites. The forms token was copied from Williamson's env and compared by sha256 prefix rather than printed. A "Prismic publish" build hook was added.
+- **The client's form recipient** went onto the row as `point_of_contact`. It is not written in this repo, which is public.
+- **The first production build failed.** CI had been green, but Netlify's enhanced secret scan matched a Google API key in Blux's own `__analytics.js`, which P0 had vendored into `matching/spec/`. CI does not run that scan, so only a production build could catch it. The REST API had no build log for the deploy; the Netlify connector's deploy record named the file and the line. The file was removed (mantis-landscaping#2) rather than exempting the directory from the scan.
