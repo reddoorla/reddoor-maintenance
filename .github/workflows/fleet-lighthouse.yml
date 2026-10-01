@@ -179,8 +179,14 @@ jobs:
       - name: Probe roster urls to Turso
         if: ${{ !cancelled() }}
         # #912: does every non-archived roster url resolve? One GET per row plus
-        # two controls, 15 s each, six at a time, so a whole-fleet stall is
-        # bounded well under this budget. continue-on-error for the same reason
+        # two controls, 15 s each, six at a time; a row that got no HTTP answer
+        # is read once more after a 25 s pause (#1103). The worst case, every
+        # row stalling while both controls answer, is 30 s + 90 s + 25 s + 90 s
+        # at 34 rows, about 4 minutes. It outgrows this budget at about 108 rows
+        # (2 x ceil(n/6) x 15 s + 55 s, before startup and Turso time);
+        # raise the timeout before the roster gets there, since a step killed
+        # by it writes nothing and shows only as url-probe-stale three days
+        # later. continue-on-error for the same reason
         # as the signals sweep: the job keeps the verdict the AUDIT gave it. A
         # row that does not resolve is a finding stored in site_health and a
         # ::warning:: here, never a red step; a control that misreads writes

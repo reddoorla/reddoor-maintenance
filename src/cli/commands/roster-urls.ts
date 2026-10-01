@@ -4,13 +4,15 @@ import type { FleetRoster } from "../../fleet/roster.js";
 import type { HealthMirror } from "../../audits/health-mirror.js";
 import {
   NETLIFY_SITE_NOT_FOUND,
+  isTransportFailure,
   probeRosterUrl,
   type UrlFetch,
   type UrlProbe,
 } from "../../fleet/roster-url-probe.js";
 
 /** Injectable wiring for {@link runRosterUrlsCommand}. Every default is the real
- *  fleet path; tests replace all four, so no test reaches Turso or the network. */
+ *  fleet path; tests replace all five, so no test reaches Turso or the network
+ *  or waits on a real clock. */
 export type RosterUrlsDeps = {
   /** Every roster row (default: Turso via `readFleetRoster`). */
   roster: FleetRoster;
@@ -19,6 +21,8 @@ export type RosterUrlsDeps = {
   makeMirror: () => Promise<HealthMirror | null>;
   fetch: UrlFetch;
   now: () => Date;
+  /** The pause before the retry pass (default: a real timer). */
+  sleep: (ms: number) => Promise<void>;
 };
 
 type Control = { name: string; url: string; accepts: (p: UrlProbe) => boolean; expected: string };
@@ -44,11 +48,20 @@ export const KNOWN_GOOD_CONTROL: Control = {
 
 const CONCURRENCY = 6;
 
+/** How long the retry pass waits after the first pass (#1103). A blip between
+ *  the runner and one site (MSOT, 2026-10-01: a TimeoutError while the same
+ *  run's other checks passed, 200 three times out of three an hour later)
+ *  needs some seconds to clear; a stall that outlasts this is a real finding. */
+export const ROSTER_URL_RETRY_DELAY_MS = 25_000;
+
 /** `roster-urls --fleet --write-back` (#912): GET every non-archived roster
  *  `url` — every status, not only `maintained`, since a `building` row pointing
  *  at nothing is exactly the case nobody else checks — and store the verdict in
  *  site_health. Two run-level controls go first; if either misreads, the
- *  instrument is broken and nothing is written. A failing row is a finding
+ *  instrument is broken and nothing is written. A row whose first read is a
+ *  transport error (no HTTP answer) is read once more after the first pass and
+ *  a pause, and the second read is its verdict; an HTTP answer is never
+ *  retried, and neither are the controls (#1103). A failing row is a finding
  *  (exit 0); the run fails only when the controls do, there is no store, or
  *  mirror failures outnumber writes. */
 export async function runRosterUrlsCommand(
@@ -60,6 +73,7 @@ export async function runRosterUrlsCommand(
   }
   const fetcher = deps.fetch ?? fetch;
   const now = deps.now ?? (() => new Date());
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
   const controlErrors: string[] = [];
   for (const c of [BOGUS_HOST_CONTROL, KNOWN_GOOD_CONTROL]) {
@@ -82,6 +96,22 @@ export async function runRosterUrlsCommand(
   const targets = websites.filter((w) => !isArchivedStatus(w.status));
   const checkedAt = now().toISOString();
   const probes = await probeAll(targets, fetcher);
+  const retryAt = targets.flatMap((_, i) => (isTransportFailure(probes[i]!) ? [i] : []));
+  const lines: string[] = [];
+  if (retryAt.length > 0) {
+    await sleep(ROSTER_URL_RETRY_DELAY_MS);
+    const second = await probeAll(
+      retryAt.map((i) => targets[i]!),
+      fetcher,
+    );
+    for (const [k, i] of retryAt.entries()) {
+      const w = targets[i]!;
+      lines.push(
+        `::notice::roster-urls: ${siteSlug(w.name)} ${w.url.trim()} retried after ${probes[i]!.status}, second read ${second[k]!.status}`,
+      );
+      probes[i] = second[k]!;
+    }
+  }
 
   const makeMirror =
     deps.makeMirror ??
@@ -91,7 +121,6 @@ export async function runRosterUrlsCommand(
     });
   const mirror = await makeMirror();
 
-  const lines: string[] = [];
   let pass = 0;
   let fail = 0;
   let noUrl = 0;
@@ -118,7 +147,7 @@ export async function runRosterUrlsCommand(
   }
   if (!mirror) lines.push("::error::roster-urls: no store configured — nothing written");
   lines.push(
-    `ROSTER_URL_SUMMARY checked=${targets.length} pass=${pass} fail=${fail} no_url=${noUrl} mirrored=${mirrored} mirror_failed=${mirrorFailed}`,
+    `ROSTER_URL_SUMMARY checked=${targets.length} pass=${pass} fail=${fail} no_url=${noUrl} mirrored=${mirrored} mirror_failed=${mirrorFailed} retried=${retryAt.length}`,
   );
   return { output: lines.join("\n"), code: !mirror || mirrorFailed > mirrored ? 1 : 0 };
 }
