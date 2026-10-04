@@ -7910,3 +7910,12 @@ commit `e47d2260`), and reddoor-website had no open PR into `main` to land, so t
 merge-commit path is proven by the tests and the live rules read, not yet by
 a real merge. The next PR into reddoor-website `main` is that proof; read its
 `LAND … merged … method=merge` line and the commit's two parents.
+
+One adversarial review round on #1141 found no blockers and two minors, both
+folded in. First: any failure of the rules read used to stop the run, and a
+private repo on a plan without rulesets may answer that endpoint with 403
+(not verified; every repo reachable here is public). A 403 or 404 on the first
+rules page now means "no rulesets", logged as a note, with the repo flags
+deciding. Second: the page loop is capped at ten pages. Three more mutations
+turned a test red each (no 403/404 tolerance, tolerating a 500 too, a cap of
+twenty), and the suite is 84 tests.

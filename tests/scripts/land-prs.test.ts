@@ -1463,14 +1463,75 @@ describe("land-prs: merge method", () => {
       [5],
       [
         [VIEW(5), [view()]],
-        [RULES(), [httpError(404, "Not Found")]],
+        [RULES(), [httpError(500, "Server Error")]],
       ],
     );
     expect(r.code).toBe(1);
     expect(r.lines.at(-1)).toBe(
-      "LAND #5 stopped reason=gh api rules/branches/main?per_page=100&page=1 failed: gh: Not Found (HTTP 404)",
+      "LAND #5 stopped reason=gh api rules/branches/main?per_page=100&page=1 failed: gh: Server Error (HTTP 500)",
     );
     expect(pastTheRefusal(r.calls)).toEqual([]);
+  });
+
+  it("a 403 or 404 on the rules is read as no rulesets: a note, and the repo flags decide", async () => {
+    for (const refused of [
+      httpError(
+        403,
+        "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+      ),
+      httpError(404, "Not Found"),
+    ]) {
+      const r = await land(
+        [5],
+        [
+          [VIEW(5), [view()]],
+          [REPO_META, [repoMeta({ allow_squash_merge: false })]],
+          [RULES(), [refused]],
+        ],
+        { dryRun: true },
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain(
+        `LAND #5 note: no rules read for main, choosing from the repo flags alone: ${firstLineOf(refused)}`,
+      );
+      expect(r.lines.some((l) => l.includes(`merge --merge pinned to sha=${A}`))).toBe(true);
+    }
+  });
+
+  it("a rules read that fails in transport is retried, then decides", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [
+          RULES(),
+          [{ code: 1, stdout: "", stderr: "gh: HTTP 502\n" }, rules(pullRequestRule(["merge"]))],
+        ],
+      ],
+      { dryRun: true },
+    );
+    expect(r.code).toBe(0);
+    expect(r.calls.filter((c) => RULES().test(c))).toHaveLength(2);
+    expect(r.lines.some((l) => l.includes(`merge --merge pinned to sha=${A}`))).toBe(true);
+  });
+
+  it("a rules endpoint that never stops paging stops the run after ten pages", async () => {
+    const full = rules(
+      ...Array.from({ length: 100 }, (_, i) => ({ type: "deletion", ruleset_id: i })),
+    );
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [full]],
+      ],
+      { dryRun: true },
+    );
+    expect(r.code).toBe(1);
+    expect(r.calls.filter((c) => RULES().test(c))).toHaveLength(10);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=gh api rules/branches/main still had rules after 10 pages",
+    );
   });
 
   it("reads every page of the rules: a merge-only rule on page 2 still decides", async () => {
@@ -1578,7 +1639,11 @@ describe("land-prs: --dry-run", () => {
       { dryRun: true },
     );
     expect(r.code).toBe(0);
-    expect(r.calls.every((c) => /^gh api \S+$/.test(c))).toBe(true);
+    expect(
+      r.calls.every(
+        (c) => VIEW(852).test(c) || VIEW(5).test(c) || REPO_META.test(c) || RULES().test(c),
+      ),
+    ).toBe(true);
     expect(r.lines).toContain("LAND #852 skipped reason=already merged");
     expect(r.lines.some((l) => l.startsWith("LAND #5 dry-run would: update-branch"))).toBe(true);
     expect(r.sleeps).toEqual([]);

@@ -383,7 +383,10 @@ function parseJson(text) {
 }
 
 async function apiJson(ctx, path) {
-  const r = await api(ctx, path);
+  return jsonOf(ctx, path, await api(ctx, path));
+}
+
+function jsonOf(ctx, path, r) {
   const named = path || `repos/${ctx.repo}`;
   if (r.code !== 0) {
     throw new Stop(`gh api ${named} failed${afterAttempts(r)}: ${ghFailureDetail(r)}`);
@@ -469,18 +472,32 @@ async function readChecks(ctx, sha) {
   return checksFromRest(runs, statuses);
 }
 
-async function rulesFor(ctx, branch) {
+const MAX_RULES_PAGES = 10;
+
+/** Every rule in force on `branch`. A 403 or 404 on the first page is read as "no
+ *  rulesets here" (a plan without rulesets on a private repo may refuse the endpoint
+ *  outright), noted, and left to the merge call's own 405 to contradict. */
+async function rulesFor(ctx, n, branch) {
   const rules = [];
-  for (let page = 1; ; page++) {
-    const body = await apiJson(ctx, `rules/branches/${refPath(branch)}?per_page=100&page=${page}`);
+  for (let page = 1; page <= MAX_RULES_PAGES; page++) {
+    const path = `rules/branches/${refPath(branch)}?per_page=100&page=${page}`;
+    const r = await api(ctx, path);
+    if (page === 1 && r.code !== 0 && [403, 404].includes(httpStatus(r))) {
+      ctx.log(
+        `LAND #${n} note: no rules read for ${branch}, choosing from the repo flags alone: ${ghFailureDetail(r)}`,
+      );
+      return [];
+    }
+    const body = jsonOf(ctx, path, r);
     const got = Array.isArray(body) ? body : [];
     rules.push(...got);
     if (got.length < 100) return rules;
   }
+  throw new Stop(`gh api rules/branches/${branch} still had rules after ${MAX_RULES_PAGES} pages`);
 }
 
-async function mergeMethodFor(ctx, branch) {
-  const picked = chooseMergeMethod(await apiJson(ctx, ""), await rulesFor(ctx, branch));
+async function mergeMethodFor(ctx, n, branch) {
+  const picked = chooseMergeMethod(await apiJson(ctx, ""), await rulesFor(ctx, n, branch));
   if (picked.error) throw new Stop(`${picked.error} (base ${branch})`);
   return picked.method;
 }
@@ -803,7 +820,7 @@ async function landOne(ctx, n) {
   }
   const refused = refusal(pr, ctx.base);
   if (refused) throw new Stop(refused);
-  const method = await mergeMethodFor(ctx, pr.baseRefName);
+  const method = await mergeMethodFor(ctx, n, pr.baseRefName);
   ctx.log(
     `LAND #${n} open head=${short(pr.headRefOid)} merge=${pr.mergeStateStatus} method=${method} "${pr.title}"`,
   );
