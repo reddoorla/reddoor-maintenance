@@ -108,7 +108,7 @@ For a master of height `H` and `T = min(--max-height, H)`:
 | ---------------------- | ------------------------- | ---------------------------------------------------------------------------------------------- |
 | `<name>-<T>.mp4`       | always                    | H.264 high, `-preset slow -crf 23 -maxrate 5M -bufsize 10M`, `+faststart`, yuv420p             |
 | `<name>-<T>.webm`      | always                    | VP9, `-crf 34 -b:v 3500k -row-mt 1 -deadline good -cpu-used 2`                                 |
-| `<name>-phone-720.mp4` | `H >= 720` and `T >= 720` | H.264 main at 720p, `-preset slow -crf 24 -maxrate 2200k -bufsize 4400k`, `+faststart`         |
+| `<name>-phone-720.mp4` | `H >= 720` and `T >= 720` | H.264 main at 720p, `-preset slow -crf 24 -maxrate 1200k -bufsize 2400k`, `+faststart`         |
 | `<name>-poster.jpg`    | always                    | frame 0 of `<name>-<T>.mp4` (`-frames:v 1 -update 1 -q:v 3`), so the poster matches what plays |
 
 `H` is the height as played: a phone-shot master whose stream carries a
