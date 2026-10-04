@@ -7386,3 +7386,72 @@ Phase 1 of the migration plan closes the gap that let williamson-homes drift: se
 **Why fresh clones.** Four of the operator's checkouts were behind `origin/main` (alamo-anatomy, the-pointe-burbank, the-tower-burbank, vida-legacy-foundation), and the recipe branches from whatever HEAD the path holds. I cloned each repo into the session scratchpad and passed the path positionally, `--dry` then the real run, one site at a time. The cost is the recipe's "could not prettier-format" note, since a fresh clone has no `node_modules`; each site's CI prettier step passed on the file as written. The recipe refused both secretless repos with its own message and left their clones untouched, which is the gate proving it can say no.
 
 **Not done.** the-tower-burbank and vida-legacy-foundation wait on a token each (🔴). reddoor-website was skipped under the brief's own rule: reddoor-website#237, staging → main, was opened at 18:19Z and touches `.github/workflows`. Its secret exists. The brief's `--base staging` cannot apply to it, because the recipe opens its PR against the default branch and the apply job guards `refs/heads/main`; item 57 proposes running it against `main` after #237 merges. Both `main` and `staging` there pin CLI 0.95.1, which has read `prismic.config.json` since 0.83.0, so the promotion will not turn the site into "not a Prismic site". Noted and left alone as out of charter: the central secret `PRISMIC_TOKEN_ROALSON_INTERESTS` (set 09-17) has no `env:` line in `fleet-prismic-drift.yml`, and `PRISMIC_TOKEN_THE_TOWER_BURBANK` has a line and no secret.
+
+## 2026-10-04 — Williamson plays HD from Prismic: the content half, measured (decision 63; williamson-construction-co#16, #1116)
+
+The hand-off brief (`docs/briefs/2026-10-01-williamson-video-hd.md`) asked
+for six things; five are done and the sixth, the recipe PR, is #1116 in
+review. The site's own journal entry carries the per-page detail; this
+one keeps what the fleet needs.
+
+**The upload path works as designed.** `prismic-media-upload.yml` took 17
+files from the Netlify draft deploy and posted them to the Asset API in
+58 s, one `UPLOADED` line each with id, url and size. The Asset API does
+not dedupe by name, which is why the eighteenth file was checked before
+dispatch: `wc-scan-1080.webm` was already in the library from the previous
+session, with no workflow run behind it, and its md5 matched the staged
+file, so it was left alone. The brief's "each exactly once" held by
+counting, not by assumption: `search_assets` reports 18 `wc-` videos.
+
+**The build hook is the publish path.** Williamson's site prerenders, so a
+Prismic publish reaches visitors only through the Prismic → Netlify hook
+(BACKLOG 40). It fired: published 19:05Z, new urls on production 19:06Z,
+no deploy triggered by hand. The connector's `diff_release` is the review
+surface when no preview is reachable: the public Content API lists no
+release ref without an access token, so the cookie preview on a dev server
+is not available from a cloud session; the 21 deltas were read instead.
+
+**The numbers for the rollout.** Home at 390px: 1.30, 1.52, 1.49 MB of
+video in 8 s, hero playing untouched, counted on the wire. Home at 1440:
+1.67 MB. About-us at 390: 5.9 MB. Services at 390: 6.4 MB. Best Practices
+100. Zero hydration mismatches, zero console errors, no Vimeo frame. The
+first readings meet decision 63's line; the last two do not, and they are
+the recipe's phone cap, not the player: a 20 s clip at `-maxrate 2200k` is
+6 MB, and Chromium fetches a playing hero whole. The rollout question in
+BACKLOG 63 now carries that number.
+
+**The instrument was wrong first, and the control caught it.** The first
+byte counter summed response bodies and used `content-length` for a body
+it could not read. Chromium cancels its first `bytes=0-` request on a
+`preload=metadata` video after a few hundred KB and re-requests the tail,
+so every cancelled request counted as the whole file: 16.8 MB on the old
+transcodes, which would have sent this session chasing a `preload="none"`
+change in `BgVideo` that nothing needed. A control page with one
+`preload=auto` autoplay of a 1,220,168-byte file was the test: the CDP
+`Network.dataReceived` sum reported 1,220,168 and the first counter did
+not. Only then were the production numbers read. A second instrument error
+had the same shape: a plain test page without `<meta name="viewport">`
+made Chromium lay out 390px as 980px and pick the 1080 webm, which read as
+"Chromium ignores `media` on `<source>`". It does not; production, which
+has the meta, picked the phone mp4. Both corrections are in the site's
+journal so the fleet rollout does not inherit either belief.
+
+**The gate on a published route.** `/dev/match/<uid>` renders the Webflow
+seed, not Prismic, so a content publish is invisible to the gate as
+installed. `page-diff` was run with the gate's own arguments against the
+published routes on production; the video regions moved 1–3 points
+(sharper first frame) and PASS at every width. One capture in three caught
+the doctor band at 834 as solid blue, 39%, before its 1920×1080 poster
+painted; two re-runs read 0.6%. The site's LEDGER has the line and the fix
+if it recurs (a narrower poster url).
+
+**Review round 1 on the recipe (#1116)** found no blockers; the fixes and
+the ten named mutations are in that PR's body and in the recipe's own
+journal entry. The tests lens was cut off by the account's weekly limit on
+2026-10-01 and ran in round 2 on 2026-10-04.
+
+**Not done, deliberately.** The Webflow seed `src/lib/site-pages.js` still
+names the 480p transcodes, so a re-seed would put them back; fixing it is
+separate work, as the brief said. The `--upload` path of the recipe has
+never run live: no `PRISMIC_TOKEN_*` reaches a cloud session, and the
+README says so.
