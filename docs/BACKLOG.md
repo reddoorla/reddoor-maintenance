@@ -200,6 +200,17 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
     (model, slices, routes, 301s) had two dirty review rounds. The seed
     content is drafted on `claude/p2b-seed-draft`. Nothing has been pushed
     to Prismic.
+    **10-04: 64 answered (a); P2a landed** as mantis-landscaping#3
+    (`e9d5f95`) after a third round. **Next:** P2b (rebase the seed draft,
+    the seed script, the placeholder swap, the model push).
+    **10-04 ~18:30Z: P2b seeded, stopped at Operator decisions 66
+    (publish).**
+    - mantis-landscaping#7 (`2470e01`) holds the seed content, a
+      `page_title` slice and the seed script; #8 (`95ddb1a`) holds the
+      metadata strip and the release repair.
+    - Models were pushed from a scratch checkout with the site's own token.
+    - The seed ran, and its release was read back and repaired.
+    - Out-of-scope follow-up: mantis-landscaping#6 (a `sizes` attribute).
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -213,6 +224,20 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
+
+- **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
+  - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
+    Nothing for an agent until the client answers.
+  - **The Tower Burbank and The Pointe Burbank (`building`):** proofs of
+    concept for the Blux conversion, not client work. Do not rank them as
+    builds or chase their stale branches.
+  - **Domaru:** set to `archived` (it lapses with Webflow on 10-19, with no
+    bridge).
+  - **Row fixes [M, written through `setSiteDetail`, read back]:** `git_repo`
+    on both Williamson rows, and `netlify_id` on Williamson Homes (`9072ea82…`),
+    Williamson Construction (`7e2831e2…`) and Roalson (`316ff26b…`). The ids
+    came from Netlify's API by site name, and each one's `repo_url` matches its
+    repo.
 
 - **P1-26, the fleet `/privacy` page (#1055, option A): parked by the
   operator 2026-09-30 ~21:25Z** until a lighter week with no new client
@@ -1578,6 +1603,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     The install PR's own dry job proves the token reads the models, and PR
     listing and creation are REST-only. Phase 1's seven runs can come from
     the cloud. The operator still mints and sets each token.
+    **10-04 17:19Z: pilot closed, both directions proven** (reddoor-website
+    #238 Prismic→repo; #240 workflow, #241 dry run, #242 apply →
+    "1/1 model(s) pushed. 24 already matched", read back through the
+    connector). Next: phase 3 per the plan's §7. Two follow-ups found:
+    `land-prs` cannot land on a merge-commit-only `main` (reddoor-website's
+    ruleset), and the cloud session's phase 1 brief wrongly waited for a dry run that a
+    workflow-only PR never gets.
     **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
     `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
     the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
@@ -1805,6 +1837,63 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     lower the cap in the recipe first and re-encode Williamson's two long
     clips with it, one `reddoor-maint video` run each and a six-field
     rewire.
+    **Rollout started 2026-10-04:** a worker session runs
+    `docs/briefs/2026-10-04-fleet-video-rollout.md` (step 0 lowers the phone
+    cap and re-measures Williamson; then one site at a time). Its table lands
+    here, one row per site.
+
+    **Step 0 done 2026-10-04 (#1128 recipe; williamson-construction-co#18
+    journal) [M].** The phone cap is `-maxrate 1200k -bufsize 2400k`. The
+    two long clips were re-encoded from their Dropbox masters (named in
+    the site journal), uploaded as `-phone-720-v2` through
+    `prismic-media-upload.yml` run 37222251406, and rewired in release
+    `asKS8RIAAAqrTzbS` (two deltas), published. First-day phone:
+    5,987,262 → 3,272,310 bytes (2279 → 1246 kbps); services phone:
+    10,841,182 → 6,591,803 bytes (2013 → 1224 kbps). Picture at 390×844:
+    not tellable apart from 2200k at 3, 9 and 15 s; SSIM vs the master
+    0.9636 → 0.9390. Before the publish the netlify host read about-us
+    4.00 MB and services 6.48 MB at 390px in 8 s, hero playing. **The
+    after readings were not taken:** once the release had been published,
+    the cloud session's permission classifier refused the read-only CDP
+    measurement of the netlify host and a Netlify deploy read as a
+    "production deploy" (see Operator decisions 67). The bound without
+    them: about-us ≤ 3.27 MB, services ≤ 6.59 MB, because a playing hero
+    is fetched whole; the services clip is 43 s, so no per-second cap
+    puts it under 3 MB.
+
+    **The Vimeo sites, enumerated 2026-10-04 [M]** (Turso roster → 23
+    pushable repos cloned and grepped; every production sitemap page
+    curled for `player.vimeo.com`; Prismic read for ids held in fields;
+    the SSR probe misses iframes inserted on idle, which is why Revogen,
+    Sonder, VLF and Roalson show no SSR hits). Background embeds only;
+    content players (ERP's "Who We Are" overlay 939250244, reddoorla.com's
+    portfolio players, `loopvideo=false` on reddoor-la) stay on Vimeo.
+
+    | site                         | clips (background)                                                                                                                                                                  | masters (Dropbox)                                                                                                                                               | token                              | MCP     | PR              | published | 390px MB                                                                       | hero | console | BP  | note                                              |
+    | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------- | --------------- | --------- | ------------------------------------------------------------------------------ | ---- | ------- | --- | ------------------------------------------------- |
+    | williamson-construction-co   | 6 (done 10-01/10-04)                                                                                                                                                                | `WC_website 2020/08_Art/`                                                                                                                                       | yes                                | yes     | #13 #12 #16 #18 | yes       | home 1.30–1.52; about-us ≤3.27, services ≤6.59 after step 0 (bound; see above) | yes  | 0       | 100 | step 0 done; after-publish reading owed           |
+    | erp-industrial               | 1: Hero `video_embed` 939245404 (42 s) on home + investors                                                                                                                          | candidate `Energy Related Properties/Website/02_Images/0_Final Website Images/Homepage/Intro-compressed.mp4` (98 MB), unverified by frame                       | unknown (listing refused by proxy) | **no**  | —               | —         | —                                                                              | —    | —       | —   | MCP off; 939250244 is content                     |
+    | espada                       | 1: hardcoded `vimeoId="1031277602"` (30 s) in `routes/[[preview]]/+page.svelte` via `ScreenWidthImage`                                                                              | `Espada/Website/02_images/Masthead Video/Final Masthead Video/Espada Mastehead.mp4` (39 MB)                                                                     | unknown                            | unknown | —               | —         | —                                                                              | —    | —       | —   | needs a home-type field, nothing in Prismic today |
+    | vineyard-custom-homes        | 4 hardcoded (home 1092191048 + 1092190178, about 1082670713, contact 1082715167) + 4 in `project` slices (1091059805, 1091893644, 1091063240, 1091063267; two are portrait 240×426) | `Vineyard Custom Homes/02_VCH_images/VCH_video/` (VCH_Homepage_LOOP_060925.mp4 210 MB, reel, Houser Shop, Pacific Ridge, Bosie river) + stock; unmatched per id | unknown                            | **no**  | —               | —         | —                                                                              | —    | —       | —   | heaviest; MCP off                                 |
+    | medical-solutions-of-texas   | 4 hardcoded: home 1019997263 + 1019997302, process 1025187591, about 1022236757 (10–14 s each)                                                                                      | none found under `ZZ_Archived Clients/MSOT`                                                                                                                     | unknown                            | unknown | —               | —         | —                                                                              | —    | —       | —   |                                                   |
+    | alamo-anatomy (launching)    | 3: `s2_vimeo_id` on home 1176738170, about 1191294127, facility 1191301158                                                                                                          | `Alamo Anatomy Training Institute/Video/` (4 .mov, 230–364 MB), unmatched                                                                                       | yes (08-14)                        | **no**  | —               | —         | —                                                                              | —    | —       | —   | MCP off                                           |
+    | revogen                      | 13 distinct across 10 pages: HomeHero 1111691463; ScreenWidthMedia ×12; TwoCol (ocular) 1112062744                                                                                  | `RevoGen/02_Images/…` (Rev_web_ocular-01_DrChandler.mp4, Blue Gradient.mp4, stock); unmatched per id                                                            | unknown                            | yes     | —               | —         | —                                                                              | —    | —       | —   | busiest video site; idle-loaded iframes           |
+    | vida-legacy-foundation       | 1: HeartHero `vimeo_id` 1226003530 (en + es)                                                                                                                                        | none found under `Vida Legacy Foundation/`                                                                                                                      | **none** (2026-10-01 entry)        | yes     | —               | —         | —                                                                              | —    | —       | —   | no `prismic-models.yml`; RED stop                 |
+    | roalson-interests (building) | 1: HomeHero `vimeo_id` 1229048743                                                                                                                                                   | none found                                                                                                                                                      | unknown                            | yes     | —               | —         | —                                                                              | —    | —       | —   | site in build                                     |
+    | gallerysonder                | 12 distinct in `video_block` cards across 18 docs                                                                                                                                   | not searched                                                                                                                                                    | unknown                            | yes     | —               | —         | —                                                                              | —    | —       | —   | card previews, click-to-open                      |
+    | reddoor-website              | 26 `loopvideo=true` fills across 13 docs + 3 hardcoded (home 1082293395, portfolio 1205996665, twenty-for-twenty 1125997849)                                                        | Marketing/, not searched                                                                                                                                        | unknown                            | yes     | —               | —         | —                                                                              | —    | —       | —   | Reddoor's own site                                |
+
+    Not Vimeo sites: caltex-landing and hedloc (model fields, no reader),
+    data-dynamiq (prop, no caller), 29-navy, mantis-landscaping,
+    williamson-homes, beachfront-dentistry, the-tower-burbank and
+    the-pointe-burbank (starter leftovers in `dev/a11y-fixtures` only),
+    1836dig and both la-homelessness sites (none). Three repos are not
+    MCP-activated for Prismic (`erp-industrial`, `alamo-anatomy`,
+    `vineyard-custom-homes`); the connector says so on the first read, and
+    the public Content API answered the enumeration instead. The
+    per-repo `PRISMIC_WRITE_TOKEN` cannot be listed from a cloud session
+    (`actions/secrets` is refused by the proxy); the 2026-10-01 entry is
+    the source for the two named here.
 
 64. **Mantis P2a (reddoorla/mantis-landscaping#3): two dirty review rounds
     (new 2026-10-04).** #3 is the content model, seven new slices,
@@ -1813,6 +1902,17 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     fixes. Under CLAUDE.md's two-round rule it stops here, and so does
     everything after it in P1-30, because P2b, P4 and P5 build on this
     model.
+    - **Answered 2026-10-04 ~16:06Z: (a). Landed:** #3 merged as
+      `e9d5f95` (head `c1a5248`, CI green) through `land-prs.mjs`. Round 3
+      fixed the round-2 list in `427ee49`, with 20 named mutations, all red.
+      One review of the fixes found a major inside the scope: forced colors
+      drop `box-shadow`, so `outline: none` left a focused photo strip with
+      no ring. It was fixed in `378e90a`, with the two in-scope nits, and
+      the last two round-2 nits went into `c1a5248`. 25 mutations, all red.
+      There was no blocker. The one out-of-scope finding (the single
+      photo's `sizes`) is mantis-landscaping#6. `TextBlock` no longer offers
+      h1, so the seed draft's `projects` and `contact-us` title bands move
+      in P2b.
     - **Round 1** (3 lenses, on `00339cd`) found one blocker and six
       majors. All are fixed in `6d2bb66`:
       - photos with a blank alt rendered no `alt` attribute;
@@ -1898,6 +1998,75 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `land-prs` at `e78c4af4` after four merge-of-main cycles against the
     day's journal traffic. The changeset rides the next release PR. Not an
     ask any more.
+
+66. **Mantis P2b: publish the seeded content? (#1107, new 2026-10-04).**
+    Everything up to the publish is done.
+    - The 20 models are in Prismic (a re-read says "20 model(s) match").
+    - The five documents (`home`, `projects`, `contact-us`,
+      `water-wise-gardens`, `edible-gardens`) are in the migration release
+      `asKQBhIAAC0ATypp`.
+    - The media library holds 74 photos, every one sized, and each original
+      matched the capture manifest's sha256.
+    - Read back through the Prismic connector after a repair: no document
+      references a removed asset (positive controls found the new copies),
+      and the home pillars carry no icons.
+
+    The repair (mantis-landscaping#8) fixed two defects the first read
+    found: 18 photos Prismic could not size (over 64 KB of Pixel
+    depth-map XMP before the image data), and a Select default that turned
+    null icons into "design".
+
+    Nothing is published. The Prismic connector reserves `publish_release`
+    for an explicit human ask, and `seed.mjs --publish` would be the same
+    act by another route, so the session stopped here. Everything after
+    waits on it:
+    - the placeholder swap: one line in `slicemachine.config.json`, plus the
+      kept paths in `reddoor.a11yRoutes`. Its build is red until `home` is
+      published, by the starter's design;
+    - the `prismic-ci` install PR;
+    - P4 and P5.
+
+    _Ask:_ (a) say "publish the Mantis release", and the next worker runs
+    `node scripts/seed/seed.mjs --publish` from the mantis-landscaping
+    checkout (with `PRISMIC_TOKEN_MANTIS_LANDSCAPING` set) and continues
+    with the swap; or (b) publish `asKQBhIAAC0ATypp` from the Prismic
+    dashboard after looking at it, then say so.
+    _Pick:_ (b) if you want to see the pages first, otherwise (a).
+    - The site is not live; Blux still serves mantislandscaping.com.
+    - Publishing changes nothing a visitor sees.
+    - The copy is Blux's, verbatim. The alt text and meta descriptions are
+      new and still await the client's sign-off through Nicole (OD 61/62),
+      and they can be edited after publishing.
+
+67. **Fleet video rollout: three asks before site 1 (new 2026-10-04,
+    worker session for decision 63).**
+    - **(a) The after-publish readings.** The session's permission
+      classifier refused the read-only CDP measurement of
+      `williamson-construction-co.netlify.app/about-us` and `/services`
+      (and a Netlify deploy read) as a "production deploy" once release
+      `asKS8RIAAAqrTzbS` had been published, so step 0's "under 3 MB with
+      the hero playing" is a bound, not a reading. _Ask:_ either run the
+      instrument from the laptop (the script is the 10-04 journal's
+      `measure.mjs` recipe: Playwright 390×844 `isMobile`, CDP
+      `Network.dataReceived` sum for `.mp4`/`.webm`, `video.currentSrc`
+      after 8 s), or allow that read in the cloud session's permissions.
+      _Pick:_ the laptop read; it is two commands.
+    - **(b) Prismic MCP for three repos.** `erp-industrial`,
+      `alamo-anatomy` and `vineyard-custom-homes` are not MCP-activated,
+      so a cloud session can read them through the public API but cannot
+      stage a release there. Activating is an admin click at
+      `https://<repo>.prismic.io/builder/settings/mcp/`. _Ask:_ activate
+      the three, or say the content rewire on those sites is the
+      operator's. _Pick:_ activate; ERP is the natural first site (one
+      42 s clip, a Prismic-driven slice, `prismic-models.yml` in place).
+    - **(c) Site order and the long clips.** _Ask:_ confirm ERP → Espada
+      → Alamo → MSOT → Revogen → Vineyard, with VLF (no token, no model
+      workflow), Roalson (in build), Sonder and reddoorla.com (card
+      previews and portfolio bands, 12 and 26 clips) parked; and whether
+      a 42–57 s background loop (ERP, Vineyard home, Services here) is
+      to be cut to ~20 s before encoding, since no per-second cap gets a
+      43 s clip under the 3 MB line. _Pick:_ that order; encode the long
+      clips whole and record the number, the cut is the operator's call.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 

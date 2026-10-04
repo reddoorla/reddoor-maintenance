@@ -7667,6 +7667,14 @@ for any session staging Prismic content while another session might
 publish: re-run `diff_release` immediately before asking for the publish,
 and expect only your own deltas.
 
+## 2026-10-04 — Roster rows for the sites in build: Domaru archived, repos and Netlify ids filled (this PR)
+
+The operator asked what stage each in-progress site is at. The roster held nine sites as `building` or `launching`. Two rows could not have answered for themselves: Domaru was still `building` five days after the operator decided it lapses with Webflow on 10-19, and both Williamson rows had a null `git_repo` although the repos have existed since 09-30. Roalson's row had no `netlify_id` although it serves from Netlify. On the operator's instruction, six fields were written through `setSiteDetail`, the dashboard editor's own path. Each was planned dry, then written, then read back from Turso: Domaru `status` building → archived; `git_repo` on both Williamsons; and `netlify_id` on Williamson Homes, Williamson Construction and Roalson. The Netlify ids were not copied from the eight-character prefixes in BACKLOG item 33. They came from Netlify's own site list by name, and each site's `repo_url` matched the repo it was written beside.
+
+The operator also answered what the backlog could not. Alamo Anatomy and Hedloc are `launching` and waiting on their clients. The Tower and The Pointe Burbank were proofs of concept for the Blux conversion, not client work, which is why both had only fleet-wide maintenance commits since mid-September.
+
+**A tooling note.** The site repos are not attached to a PM session, so both `gh api` and the GitHub connector refused them. An anonymous `git clone --bare --filter=blob:none` of each public repo answered the stage question from commit history alone.
+
 ## 2026-10-01 — `reddoor-maint video` encodes a background-video master into the fleet's renditions (#1116)
 
 > Superseded in part by 2026-10-04 — `reddoor-maint video` lands on the operator's word: the branch did not stop at Operator decision 65.
@@ -7696,6 +7704,164 @@ merge window is the length of its CI run, and the journal is the only file
 that ever conflicts. `reddoor-maint video` is on `main` with its changeset;
 the `--upload` path is still unproven live, and the first live run is the
 next instrument (README, BACKLOG 63).
+
+## 2026-10-04 — The Prismic CLI pilot closes: a model change made each way, end to end (reddoor-website #238–#242, this PR)
+
+> Follows 2026-10-01 — The Slice Machine migration starts (#1109).
+
+Both directions are now proven on reddoor-website against `reddoor-la`. The operator switched the repository to the Type Builder on 10-01, confirmed slice previews render against the deployed `/slice-simulator`, and changed `industry` → `inquiry_title`'s placeholder there. Read back through the Prismic connector and diffed against the repo, it was the only difference in the type; #238 landed it with regenerated types. The repo-to-Prismic leg ran today. #241 changed the same placeholder in the repo. Its dry run said "1 model(s) would be pushed; 24 already match", the first full field-level comparison this site has ever had, and the connector read Prismic unchanged before and after it. Merging into `staging` ran no apply, as the branch filter intends. The operator's promotion #242 ran the apply job at 17:19Z, "1/1 model(s) pushed. 24 already matched", and the connector then read the new value.
+
+**Defect in my own brief, and its cost.** The phase 1 brief I handed the operator's local session told it to wait for the workflow's "in sync" dry-run comment before merging the install PR. The workflow is path-filtered to model files, so a workflow-only PR can never get one. reddoor-website#240 sat open from 10-01 19:09Z to 10-04. I read the workflow file before blaming the session. The fix is in the plan's §7: prove delivery with a real model change.
+
+**`land-prs` cannot land on reddoor-website `main`.** It squash-merges. reddoor-website's `main: reviewed changes only` ruleset allows merge commits only, while `staging`'s does not restrict, which is why squashes into `staging` worked all along. The repo-level `allow_squash_merge` is `true`, so only the ruleset tells you. My manual merge-commit merge of #240 was refused by the session's permission classifier as a CI bypass. The operator merged #240 and #242 by hand. A follow-up is queued for `land-prs` to read the target branch's allowed merge methods.
+
+**Answered for the plan.** The Type Builder switch has no toggle back, but the operator reports Slice Machine is the "old builder" and both stay offered. So Slice Machine can still push to a switched repository, and the drift nightly remains the guard until each site's rollout PR removes the packages. #1113 (another session, 10-04) made `prismic-ci` runnable from the cloud, which takes the laptop out of phase 1 except for minting tokens. The operator also ruled that the Tower and Pointe Burbank sites are Blux proofs of concept, so they go last in phase 4.
+
+## 2026-10-04 — Mantis P2a landed after a third round; P2b seeded, repaired, and stopped at the publish (mantis-landscaping#3 `e9d5f95`, #7 `2470e01`, #8 `95ddb1a`; Operator decisions 64, 66)
+
+**P2a, round 3.** Operator decision 64 was answered (a): one more round on mantis-landscaping#3, limited to the round-2 list, then land.
+
+I named the mutations in #3's body before writing any code. All six findings and the five missing tests went into one commit (`427ee49`), and all 20 named mutations went red.
+
+A throwaway route checked the case-study strip in local Chromium, with one white photo and then two, at 390, 768, 900, 1022 and 1280 px. The one-photo strip had `scrollWidth == clientWidth` at every width (502 = 502 at 900 px) and no tab stop. The two-photo strip scrolled (1152 > 502) with `tabindex="0"`.
+
+The single review of the fixes found one major inside the scope. Forced colours drop `box-shadow`, and the strip's `outline: none` then left a focused strip with no ring at all in Windows High Contrast. `outline-color: transparent` keeps an outline that forced colours repaint. It went into `378e90a` with two in-scope nits. The last two round-2 nits (`summarise` with no space, a quoted `force`) are in `c1a5248`. The one out-of-scope finding, a single photo's `sizes`, is mantis-landscaping#6.
+
+The session that built #3 had run its own round 3 in parallel and stood down when `427ee49` reached the branch first. Its version, pushed to `claude/p2a-r3-alt` for comparison, is what showed me the two nits I had left out. That branch is still on GitHub: the proxy refuses branch deletes (403). #3 landed through `land-prs` at `e9d5f95`. Decision 64's line landed in #1122 (`c34ca2c`) on the third attempt, because `main` moved twice during the first two.
+
+**P2b, and a loop in the order of operations.** The starter's build is deliberately red when a real repository has no `home`. Models reach Prismic only when a merge to `main` runs the workflow, and `prismic-models` treats the placeholder name as "not a Prismic site". So the swap cannot go first, and neither can content. I broke the loop the way Williamson Homes did on 09-30:
+
+1. `prismic-models --apply` from a scratch checkout of `main`, with the repository name changed in an uncommitted file. It pushed 20 models. A re-read said "20 model(s) match", and the same command with a bogus token got a 403.
+2. Then the seed.
+
+The token trap the earlier session warned about is real. The environment's generic `PRISMIC_WRITE_TOKEN` belongs to the-pointe, and a single-site run falls back to it unless `PRISMIC_TOKEN_MANTIS_LANDSCAPING` is set. Every run here set that variable from `MANTIS_LANDSCAPING_PRISMIC` and blanked the generic one.
+
+**#7, two review rounds.** Round 1 found a major nobody would have seen until a hero looked soft. The capture manifest lists five basenames twice: the original on `dv4tl7yyk1zlp…` and a 1000px copy on `d3syaxnfm3oj0e…/w:1000/`. The planner kept whichever came last.
+
+| Hero           | Seeded size | Original size |
+| -------------- | ----------- | ------------- |
+| home           | 134 KB      | 1.9 MB        |
+| water-wise     | 114 KB      | 870 KB        |
+| edible gardens | 220 KB      | 8.0 MB        |
+
+The sha256 check passed, because the hash it compared against was the resized entry's. The planner now takes the one non-resized entry and refuses an ambiguous name, and the plan grew from 229.5 to 239.8 MB.
+
+Round 1 also found two more majors:
+
+- **No pre-flight and no recovery.** The seed now checks `/customtypes` and `/slices` before uploading, pages the Asset API by cursor, and reuses a photo already in the library.
+- **A content test that checked only rich-text block types.** It now holds every value to its field: Select options, numbers, links, group subfields and slice-zone choices.
+
+Round 2 found no blocker or major. I treated it as clean, folded in its one surviving test gap, and recorded the rest in #7.
+
+TextBlock lost h1 in #3, so the two title bands that needed one (projects, contact-us) moved to a new `page_title` slice whose heading is h1 only. A test now holds every page to exactly one h1 and every project to none.
+
+**Read before publishing, and what it found.** The seed ran clean: 74 originals, each matching its sha256, and five documents in migration release `asKQBhIAAC0ATypp`. Reading the release back through the Prismic connector found two defects that no test could have seen.
+
+- **18 of the 74 photos had no dimensions in Prismic.** Their documents carried a URL with `rect=0,0,NaN,0&w=0&h=0`. The split by header size (the metadata before the image data) is clean in both directions:
+  - all 18 carry 71,782 to 1,919,072 bytes of header, 17 of them Google Pixel portrait depth maps in extended XMP;
+  - all 56 sized photos carry 57,187 bytes or fewer.
+
+  A stripped probe of the same photo came back 1920×1440. Stripping XMP is lossless here: identical decoded pixels, with EXIF orientation and the ICC profile kept. The largest header left is 58,268 bytes, and probes of the two files above 57,187 (58,268 and 58,054) both came back sized. So the seed's limit is 58,268, the largest header Prismic has been seen to size, not an inferred "64 KB". Every probe asset was deleted.
+
+- **The home pillars showed three "design" icons.** The seed sends `icon: null`, and FeatureTrio's Select had a default, which Prismic filled in.
+
+#8 strips the metadata, removes the default, adds a content check for a null Select whose model has a default, and adds `--update`. That mode uploads what the library lacks and PUTs each document in the release by id. Round 1 found four minors, all fixed. Round 2 was clean, and its test gaps are pinned.
+
+The repair ran from `main` at `95ddb1a`:
+
+1. pushed the FeatureTrio model;
+2. uploaded the 18 stripped photos, every one sized;
+3. updated the five documents;
+4. queried the release for the 18 old asset ids across every image path. None was found, and positive controls with the new ids found their documents;
+5. deleted the 18 old assets.
+
+The library holds 74 photos, 74 unique names, 0 unsized.
+
+**Stopped at the publish (decision 66).** The connector's `publish_release` is reserved for an explicit human ask. `seed.mjs --publish` is the same act by another route, so I did not use it. The swap, the `prismic-ci` install, P4 and P5 wait on the answer.
+
+**My own instrument errors, three of them.**
+
+1. A `sed` mutation of PageTitle's eyebrow tone matched nothing, because prettier had split the line, and it was reported as "survived". The re-run, with the edit confirmed by `git diff --shortstat`, went red.
+2. A `git checkout -- <file>` meant to restore one mutation wiped uncommitted new tests, so a link-target mutation "survived" against a test that no longer existed. Committing before mutating fixed it.
+3. A Python replacement of `unsized()` silently missed after prettier reformatted the function. The failing test caught that one.
+
+The common rule: confirm that a mutation, or a fix, actually changed the file before reading its result.
+
+**Beliefs corrected.**
+
+- That a passing sha256 check means the original was uploaded.
+- That Prismic reads dimensions from any valid JPEG.
+- That a Select left null stays null.
+
+## 2026-10-04 — Fleet video rollout, step 0 and the enumeration: the Vimeo sites are eleven, three cannot be written from here, and a publish turned the measurement off (#1128, williamson-construction-co#18, decision 63/67)
+
+The worker brief `docs/briefs/2026-10-04-fleet-video-rollout.md` asked for
+two things before any site: the list of Vimeo sites with evidence, and the
+phone cap lowered and proven on Williamson. Both are in BACKLOG 63; this
+entry keeps what the next session needs and what this one got wrong.
+
+**The instrument first, again.** The CDP byte counter from the 10-04
+Williamson entry was rebuilt as `measure.mjs` and proved on two controls
+before any site was read: a 39,976-byte and a 7,557,295-byte
+`preload=auto autoplay muted` file reported 39,976 and 7,557,295. Then the
+first "production" reading of the day was wrong anyway, for a reason the
+control cannot catch: `www.williamson-construction.com` is Cloudflare in
+front of the old Webflow site (`age: 1736509`, twenty days), and it
+answered 5.26 MB of `cdn.prod.website-files.com` transcodes while the
+Prismic document plainly held the HD files. The site is `building`; its
+production is the netlify host. A reading needs the host checked against
+the content store before the number means anything.
+
+**The enumeration.** 47 roster rows, 23 with a pushable repo; all cloned,
+grepped, and every sitemap page of every production URL curled for
+`player.vimeo.com`. The curl is SSR-only and that matters: Revogen's
+`ScreenWidthMedia` inserts its iframe on idle, VLF's `HeartHero` only at
+≥768px after an interaction, Sonder's cards on click, so four sites with
+Vimeo in Prismic showed nothing in HTML. The ids that live in fields came
+from Prismic: the connector for five repos, and the public Content API for
+the three the connector refuses (`erp-industrial`, `alamo-anatomy`,
+`vineyard-custom-homes` are not MCP-activated), with the public API run
+over all eight as the control that both answers agree. Eleven sites have a
+background Vimeo embed (table in BACKLOG 63); ERP's second clip and
+reddoorla.com's portfolio players are content and stay. Vimeo's public
+oEmbed gives each clip's title, duration and thumbnail without a login,
+which is how the masters will be matched: Williamson's Dropbox folder
+`Final Videos/Implemented/` turned out to be Vimeo downloads named by id,
+but no other client folder is, and no Dropbox file anywhere is named by
+the other sites' ids. Candidates exist for ERP, Espada, Vineyard, Alamo
+and Revogen; none for MSOT, VLF or Roalson.
+
+**Step 0.** `planRenditions` phone cap 2200k → 1200k (#1128), one test
+pinning the argv, mutation red. The two Williamson masters were named by
+matching: first-day's 1080 re-encode came out 408 bytes from the file in
+the library; services is the 720p `.mov` one folder over from the five
+1080p ones. Phone files 5.99 → 3.27 MB and 10.84 → 6.59 MB; SSIM against
+the master 0.9636 → 0.9390 at 720p, and nothing to see at 390×844. The
+staging path works from a cloud session after all: `NETLIFY_PAT`, which
+the audits already use, lets `netlify deploy --no-build` without `--prod`
+make a draft deploy of a bare `video/` directory, the upload workflow took
+both files in 3 s, and the release carried two deltas. The brief said the
+first live `--upload` run of the recipe was to be read; it was not run,
+because no `PRISMIC_TOKEN_*` reaches the cloud and the site's own workflow
+was the path the brief named.
+
+**What stopped the session.** After the release was published, the
+session's permission classifier refused the same read-only measurement it
+had allowed four times that hour, and a Netlify deploy read, as a
+"production deploy". The brief says the readings are the deliverable, so
+step 0 ends on a bound (about-us ≤ 3.27 MB, services ≤ 6.59 MB; a playing
+hero is fetched whole) and Operator decisions 67 asks for the read from
+the laptop. The same refusal will meet every site's step 5, so no site PR
+was opened: the first site needs the operator's answers on the read, on
+MCP for ERP/Alamo/Vineyard, and on whether a 43 s background loop gets cut
+before it is encoded, since the cap is per second and the clip length is
+the number.
+
+**Not done.** Site 1. The per-repo `PRISMIC_WRITE_TOKEN` column is
+"unknown" for most rows because `actions/secrets` is refused by the proxy;
+the 2026-10-01 entry is the only source. `measure.mjs` lives in the
+session scratchpad and dies with it; its recipe is in the brief and the
+10-04 Williamson entry, and it is sixty lines to rebuild.
 
 ## 2026-10-04 — `land-prs` merges with the method the base branch allows
 
