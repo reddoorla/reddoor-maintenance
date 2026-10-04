@@ -7863,6 +7863,171 @@ the 2026-10-01 entry is the only source. `measure.mjs` lives in the
 session scratchpad and dies with it; its recipe is in the brief and the
 10-04 Williamson entry, and it is sixty lines to rebuild.
 
+## 2026-10-04 — P1-26 privacy page: starter held at decision 68 after two dirty rounds; central preflight ready (reddoor-starter#165, #1129)
+
+The operator un-parked P1-26 at about 17:00Z. Verify-first at 17:27Z matched the PM pass: `/privacy` answered 404 on roalson-interests.netlify.app and sonderliving.com, and `roalsoninterests.com` did not resolve at all. The claim is on #1055. No fresh `claude/*` or `fix/*` branch touched these files in any of the three repos.
+
+**What the brief's "derive, never hand-write" turned into.**
+
+- A Vite plugin (`scripts/privacy-services.ts`) exposes `virtual:privacy-services`, built from the site's own code at build time.
+- The first version read `svelte.config.js` as text. Round 1 showed why that is wrong: a `createSvelteConfig` baseline never appears in the text, a wildcard source does not contain the host string, and a YouTube embed pasted into Prismic is not in `src/` at all.
+- The plugin now imports the config and reads `kit.csp.directives` as SvelteKit sees them.
+  - A video host is listed when the directive that governs it (`frame-src`, falling back to `child-src` then `default-src`) admits it. CMS content can embed anything the CSP allows.
+  - A font host must be both loaded by `src/` and admitted by `style-src`.
+  - Turnstile is read per request from the same env var the widget uses, so the page is `prerender = false`.
+- Measured on the starter's own production build: forms, Vimeo and Netlify, nothing else. Google Fonts is correctly absent: its CSP admits it, but the starter never loads it.
+- Vimeo is listed on every fresh clone because the starter's CSP admits it. That is the rule working; NEW-SITE.md says to trim the CSP.
+
+**Beliefs corrected by the accuracy lens, which read the central forms pipeline line by line.**
+
+1. "We use what you send only to reply to you" was false. Submissions are stored indefinitely, spam-scored, and answered with an autoresponder.
+2. The IP is not used for rate limiting; nothing rate-limits. It goes to Turnstile's server check when a token exists, and is otherwise dropped, except in the dead-letter copy.
+3. The fleet's Mailchimp path is server-side, keyed on the central row, so no site's code can show it.
+4. Central ingest compares every sender's email and message with all other fleet sites' submissions for 30 days. So "no other party tracks you across sites" is false on any site with a fleet form. That was round 2's blocker, and the most consequential fact in this entry: it belongs in the lawyer's review (item 45) whatever the wording becomes.
+
+**Stopped at decision 68.** The starter PR was dirty in round 1 and again in round 2, so it went to the operator rather than a third round. `5c87109` folds round 2 in and is unreviewed.
+
+**Central side.** #1129's preflight (`hasPrivacyPage`) was clean in round 2.
+
+- Round 1 had found SvelteKit routing edges: symlinks followed, rest segments transparent, a redirect-only `+page.ts` not counting, and a custom `kit.files.routes` getting its own refusal.
+- #1129 is green and held only by the landing order. It carries this entry, decision 68, P1-26's move into P1, and item 45's three new questions for the lawyer.
+
+**My own instrument errors.**
+
+- `pkill -f "vite preview"` inside the same command killed the shell running it (exit 144) three times before I separated the kill from the work.
+- A heredoc-quoted Python mutation table double-escaped its regexes, and three central mutations reported "PATTERN" assertion errors instead of results. They were rerun from a script file, and all three went red.
+- A round-2 reviewer saw `+layout.svelte` modified during its build: that was my mutation run in the shared checkout, restored afterwards.
+
+**Not done.**
+
+- roalson-interests has no page yet. Its launch adds GA4, so it is the hard date.
+- Its legal name, privacy contact email and effective date are not in its repo, and will render as placeholders until someone supplies them.
+- Playwright smoke did not run locally: the container lacks the pinned `chromium_headless_shell-1243`. CI ran it.
+
+**Later the same evening.** The operator answered "merge on green CI" at about 20:00Z, and reddoor-starter#165 landed as `f538398`, pinned to `5c87109`. Landing #1129 then stopped on a conflict: another session's #1131 had landed its own Operator decision 67 while this branch carried an unlanded 67. The two numbers were taken from the same `main` tail within an hour of each other. This one became 68. A decision number is only claimed when it lands, and two sessions writing operator decisions on the same afternoon will keep colliding until the number is assigned at landing time.
+
+## 2026-10-04 — Step 0's readings, taken after all (decision 63/67)
+
+> Follows "Fleet video rollout, step 0 and the enumeration" above, which ended on a bound.
+
+The operator answered decision 67 and asked for the measurement directly;
+the same command the classifier had refused ran this time. At 20:06Z, on
+the netlify host, 390×844, two runs each: about-us 1.62 and 2.89 MB with
+the v2 phone file playing, services 4.30 and 3.78 MB, playing; no console
+errors, no hydration mismatch, no Vimeo frame. Against the pre-publish
+4.00 and 6.48 MB, the cap took about a third off. About-us now meets the
+3 MB line; services does not, and will not by encoding, because the clip
+is 43 s and the operator keeps long loops whole. The spread between the
+two about-us runs (1.62 vs 2.89) is when the hero started: 1.95 s in on
+the first run against 6.28 s on the second, so the first run fetched less
+because it played less. Answers recorded in 67: MCP is being activated
+for ERP, Alamo and Vineyard; the order is ERP first.
+
+## 2026-10-04 — Mantis content published; the site builds from Prismic; `prismic-ci` waits on a secret (mantis-landscaping#10 `8a005df`, #13; Operator decisions 66, 69)
+
+The operator answered decision 66 with "publish the Mantis release".
+
+- **Before publishing,** the connector listed the release again: exactly the five documents, unchanged since the repair.
+- **The publish:** `seed.mjs --publish` answered 202 with `{"totalItems":5}` at 20:07:11Z.
+- **The read-back:** the first Content API read, 15 s later, still showed the old master ref and 0 documents. The next, at 20:07:37Z, showed master ref `asKx_xIAACkAT7mT` with all five documents and the home pillars' icons `[null, null, null]`. A 202 here means accepted, not done, and the read-back is what says it finished.
+
+**The swap (#10).** It changed one config line, the a11y routes and the smoke manifest.
+
+- **Build:** prerendered exactly the five kept paths, one `<h1>` on each, no `w=0` image URL, and no `cloudfront.net/6e0b52ee` or `blux` anywhere in the output (a positive control on `images.prismic.io/mantis-landscaping` hits).
+- **`pnpm verify` in the cloud container:** axe found 0 violations across 7 routes (2 fixtures plus the 5 kept paths); 673 unit tests and 20 smoke tests passed.
+- **A wrong mutation:** my first W2, a kept path that does not exist, used `/contact` and survived, because the starter's own `/contact` form route is still there. `/contact-uss` went red.
+- **The review** found no blocker. It found that both `/contact` and `/contact-us` are indexable while the page the site links to has no form (issue #11, P4's job), and that bare `/preview` serves home without `noindex`, a starter defect now reachable (issue #12).
+- **Correction to a belief in the PR body:** the smoke suite runs against `vite dev` here, not `vite preview`, because `reddoor.gateServer` is unset. The reviewer checked the 404s on preview separately.
+
+**`prismic-ci` (#13).** The recipe needs `GITHUB_TOKEN`. In the cloud, `GITHUB_TOKEN="$GH_TOKEN"` satisfies it and the proxy supplies the real credential. It opened #13, and the install PR's own dry job then failed with "no write token", exactly as runbook §5 says it will when `PRISMIC_WRITE_TOKEN` is unset on the site repo. That secret is the operator's (Operator decisions 69). Nothing depends on it until the next model change, because Prismic's 20 models already match `main`.
+
+**A numbering collision.** I first wrote the new ask as item 67, and #13's PR comment still says 67. Two other sessions had landed 67 and 68 after my 66, so it is 69. My first edit also appended 66's answer to the end of item 68's block. The diff showed both before the commit.
+
+**Hook noise worth knowing.** This session's site clones were made `--depth 1` with a fetch refspec of `main` only. So the stop hook kept reporting already-pushed branches as unpushed: their upstream had no remote-tracking ref. Adding `+refs/heads/claude/*` and `+refs/heads/maint/*` to `remote.origin.fetch` fixed it. No branch was ever actually unpushed.
+
+## 2026-10-04 — Both starters off Slice Machine; the baseline follows (reddoor-starter#166, reddoor-starter-blux#38, #1134)
+
+> Follows 2026-10-04 — The Prismic CLI pilot closes (#1126).
+
+Phase 3 of `docs/prismic-migration-plan-2026-10.md`, after the operator's "go ahead with phase 3". The pilot's diff became the template, with two things the pilot did not need.
+
+**The starter could not have shown a Type Builder preview.** reddoor-website already carried its framing exception; the starter did not. Its `hooks.server.ts` set `X-Frame-Options: SAMEORIGIN` on every response and its `kit.csp` said `frame-ancestors 'self'`, so every site cloned from it would have shown a blank preview pane. The exception moved into `src/lib/security/cms-framing.ts`: `/slice-simulator` only, no `X-Frame-Options`, `frame-ancestors 'self' http://localhost:* https://*.prismic.io https://prismic.io`, every other route unchanged. Served from `vite preview`, the simulator route read exactly that and the control routes kept `SAMEORIGIN`. The review checked the same code live on reddoorla.com, including a trailing slash (308 to the canonical path), a capitalised path (404, stays SAMEORIGIN) and `/slice%2Dsimulator` (served, but SAMEORIGIN, so encoding only tightens it). It also confirmed that netlify.toml's `/*` X-Frame-Options never reaches a server-rendered response, which is why the exception works on Netlify at all.
+
+**Both starters' committed types were stale.** `customtypes/form_replies` landed in reddoor-starter#112, and nobody ever regenerated `prismicio-types.d.ts` after it. `src/lib/server/reply-copy.ts` carries a comment waiting for exactly that regeneration. `prismic gen types` added the three `FormReplies*` types in both repos. This is the case the `prismic-codegen` gate exists for: a model and its types drifting apart silently. The adapter in `reply-copy.ts` was left alone, since narrowing it is a separate change.
+
+**Proven before trusted.** The framing test and the codegen gate each passed on a clean copy, then went red on nine mutations between them. One mutation, "`SAMEORIGIN` on every route", first survived. It was written as a `set` above the branch that `delete`s the header, so it never reached the response. Rewritten as the in-place swap on the framed branch, it went red. A survivor is a question about the mutation before it is a verdict on the test.
+
+**blux, cherry-picked and never merged**, as that repo's CLAUDE.md requires. Thirteen files conflicted because blux had diverged. Its own CLAUDE.md, README, package.json, svelte.config.js and prismicio.ts were kept and the edits re-applied by hand. The native starter's docs and page helpers that blux does not carry stayed absent, and the generated files were regenerated from blux's own 28 slices rather than taken from the starter. blux also tracked `scratchpad/regen-types.mjs`, which reached into `@slicemachine/manager` to fire typegen. It was the same workaround reddoor-website had, and it is deleted the same way. Review of the resolution found three small gaps (the agent codegen note, an eslint ignore still naming `index.js`, a `^1.21.0` pin where the starter's resolved to `^1.22.0`), fixed in `32320f8`. The lockfile lost about 2,400 lines with Slice Machine.
+
+**One recommendation not taken.** Both reviewers found that the CLI refuses `pnpm prismic:gen` inside an agent session, and one proposed documenting `AI_AGENT=` to get past it. That works by telling the CLI no agent is running. The docs instead give the two explicit commands with `--task-id` and `--user-intent`.
+
+Central: #1134 drops `slice-machine-ui` and the adapter from `baseline-versions` and adds `prismic` ^1.21.0. The deps audit only compares what a site has installed, so an unmigrated site is unaffected. The runbook's §11 is rewritten for D1–D3. Not yet built: the D1 nightly pull-sync PR. `/new-site` is a laptop skill this session cannot read; if it edits `slicemachine.config.json` by name, it needs the new filename.
+
+## 2026-10-04 — P1-26 closes: roalson-interests carries the DRAFT privacy page (roalson-interests#257, `187510a`)
+
+Follow-on to the earlier entry today, "P1-26 privacy page: starter held at decision 68 after two dirty rounds". The roalson port took two review rounds; the second was clean. It landed at `187510a`, pinned to `9ff9ffb`.
+
+**Round 1's port findings.** Each was a rule the site already had, which the starter could not have known:
+
+1. **The contact notice.** Placed before the submit button, it put 80px between the message box and the button. `contact.spec.ts` pins that gap at 30, and it is untagged, so CI never runs it. A negative control reproduced the 80, and the notice now follows the button.
+2. **The footer link.** The review said a third legal item would break `footer.spec.ts`'s rights-line pins. A negative control did not reproduce it: with the item restored, the 1440 and 390 specs passed. So that spec cannot see an extra legal item. The link sits on the rights line anyway, which adds no height at any width from 320 to 1440 (round 2 measured a single 20px line throughout).
+3. **OpenFreeMap.** The property map loads tiles, glyphs and sprites from `tiles.openfreemap.org`. The starter's derivation had no rule for a map host. It is now a code-driven service on roalson.
+
+**Instrument note.** Playwright ran in this container for the roalson specs: `/opt/pw-browsers` carries `chromium-1234`, which roalson's `@playwright/test` resolves. The starter's run earlier today wanted `chromium_headless_shell-1243` and could not start. So "Playwright cannot run in the cloud container" is false as a general statement; it depends on the repo's pinned version.
+
+**Left open.** Most of this is listed under BACKLOG Done (P1-26). roalson-interests#258 holds the three per-site values and two wording details. The proxy refused deleting roalson's `claude/privacy-page` branch after the merge, so it is still on GitHub.
+
+## 2026-10-04 — Lighthouse runs in a cloud container; the axe half is a missing browser revision (#1136, #1132, decision 70)
+
+The brief said Lighthouse probably failed in the cloud because Chrome refuses
+root without `--no-sandbox`. That was half of it. Run by hand with no
+`CHROME_PATH`, lhci found no Chrome at all: `autorun` prints `❌ Chrome
+installation not found` to stdout, and `collect` says `The CHROME_PATH
+environment variable must be set`. The image has no system Chrome, only
+`/opt/pw-browsers`. The 10-01 hand run that worked had set `CHROME_PATH`
+itself, which is why it looked like a single cause. With `CHROME_PATH` set,
+the second cause showed: `Running as root without --no-sandbox is not
+supported`. `--no-sandbox` alone was enough, since lhci adds `--headless=new`
+itself. The fix splits along that line. The audit adds `--no-sandbox` only
+when `process.getuid()` is 0, which is the exact condition under which Chrome
+refuses. The cloud setup hook exports Playwright's Chromium as `CHROME_PATH`
+when none is on `PATH`, so CI, which has a system Chrome and is not root,
+resolves the same config byte for byte. The audit's summary had shown the
+first 200 characters of stderr, which were `npm warn deprecated glob@7.2.3`.
+It now carries lhci's own line.
+
+The PASS, from the container at 20:14Z against mantislandscaping.com: perf
+0.977, a11y 0.83, best-practices 1, seo 0.91. Status `fail` is the site's
+own a11y below 0.95. Perf sits inside the plan's 96–99; a11y is above the
+10-01 hand numbers (76–79), because the site has changed since. The negative
+control with `CHROME_PATH` unset now reads `— Chrome installation not
+found`. My own first negative control returned an empty detail, because my
+fixtures were copied from `collect` and the audit runs `autorun`, which
+reports on stdout. The instrument rule caught a defect in its own fix.
+
+Axe was not a sandbox problem: Playwright handles root itself. The site
+resolves `@playwright/test` 1.63.0, which wants `chromium_headless_shell-1243`,
+and the image has 1194 and 1234. `main`'s audit already names this. The
+site's pinned 0.97.0 predates #1003 and showed the npm warning instead.
+Aliasing 1243 to 1234 in a scratch `PLAYWRIGHT_BROWSERS_PATH` gave 0
+violations across 2 routes plus the hydration smoke, so nothing else is in
+the way. No site repo has a cloud setup hook to install its pin. That is the
+starter's to change, so it went to Operator decision 70 rather than into a
+fleet push. It was written as 68 on this branch, then 69. #1133 landed a 68
+first, and CI's prettier caught the duplicated ordered-list number. Then
+#1135 landed a 69 while this PR waited to merge, and that one showed up as a
+merge conflict. Same-day decision numbers keep colliding until they are
+assigned at landing.
+
+Review: three lenses, one round. No blocker or major. Folded in: an untested
+ANSI strip was dropped, a fixture now joins two ❌ lines, and decision 69 had
+called this repo's Playwright "the 1.59 pin" when the lockfile resolves
+1.62.1 (revision 1234). Of the tests reviewer's 20 mutants, four survived.
+The ANSI strip is now gone, and the joined ❌ lines are now pinned. The other
+two are left: putting the healthcheck ahead of the root refusal, which lhci
+cannot produce because a failed healthcheck exits before collect, and the
+`^` anchor on the runtime-error regex.
+
 ## 2026-10-04 — `land-prs` merges with the method the base branch allows
 
 `scripts/land-prs.mjs` always sent `merge_method=squash`, and on 2026-10-04 it

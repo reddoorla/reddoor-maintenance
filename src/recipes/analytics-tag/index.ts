@@ -1,4 +1,4 @@
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
@@ -8,7 +8,7 @@ import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
 import { siteHostnames } from "../../client/site-host.js";
 import { HOOKS_CLIENT_RELATIVE, MEASUREMENT_ID_RE, hooksClientTemplate } from "./template.js";
-import { HAND_ADD_HOSTS, planCspEdit, type CspEditPlan } from "./csp-edit.js";
+import { HAND_ADD_HOSTS, maskNonCode, planCspEdit, type CspEditPlan } from "./csp-edit.js";
 import { SCAN_FILE_CAP, scanCheckout } from "../../audits/analytics.js";
 
 const SVELTE_CONFIG_RELATIVE = "svelte.config.js";
@@ -142,6 +142,51 @@ async function packageRefusal(sitePath: string): Promise<string | null> {
   return null;
 }
 
+const PAGE_FILE = /^\+page(@[^.]*)?\.(svelte|md|svx)$/;
+const PRIVACY_SCAN_DIRS = 2000;
+
+export async function hasPrivacyPage(sitePath: string): Promise<boolean> {
+  const queue: Array<{ dir: string; path: string[] }> = [
+    { dir: join(sitePath, "src", "routes"), path: [] },
+  ];
+  for (let seen = 0; queue.length > 0 && seen < PRIVACY_SCAN_DIRS; seen++) {
+    const { dir, path } = queue.shift()!;
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (name === "node_modules") continue;
+      let isDir: boolean;
+      try {
+        const st = await stat(join(dir, name));
+        isDir = st.isDirectory();
+        if (!isDir && !st.isFile()) continue;
+      } catch {
+        continue;
+      }
+      if (!isDir) {
+        if (path.length === 1 && path[0] === "privacy" && PAGE_FILE.test(name)) return true;
+        continue;
+      }
+      const silent =
+        /^\(.*\)$/.test(name) || /^\[\[.*\]\]$/.test(name) || /^\[\.\.\..*\]$/.test(name);
+      const next = silent ? path : [...path, name];
+      if (next.length <= 1) queue.push({ dir: join(dir, name), path: next });
+    }
+  }
+  return false;
+}
+
+export const CUSTOM_ROUTES_RE = /\bfiles\s*:\s*\{[^}]*\broutes\s*:/;
+
+export const NO_PRIVACY_PAGE_NOTE =
+  "the site has no /privacy page. GA4's terms require a posted privacy policy that discloses " +
+  "its use, so the tag waits for one. Add the page from reddoor-starter (src/routes/privacy, " +
+  "reddoorla/reddoor-maintenance#1055), then re-run.";
+
 type Planned = {
   productionHost: string;
   hooks: string;
@@ -209,6 +254,22 @@ export async function analyticsTag(
       const scan = await scanCheckout(site.path, deps.scanCap ?? SCAN_FILE_CAP);
       if (scan === null) {
         return { kind: "failed", notes: "the site has no src/ directory to install into" };
+      }
+
+      const configText = await readFile(join(site.path, SVELTE_CONFIG_RELATIVE), "utf8").catch(
+        () => "",
+      );
+      if (CUSTOM_ROUTES_RE.test(maskNonCode(configText))) {
+        return {
+          kind: "failed",
+          notes:
+            "svelte.config.js sets kit.files.routes, so this recipe cannot tell whether the site " +
+            "has a /privacy page. Confirm it serves one, then add GA4 by hand: " +
+            handSnippet(id, productionHost),
+        };
+      }
+      if (!(await hasPrivacyPage(site.path))) {
+        return { kind: "failed", notes: NO_PRIVACY_PAGE_NOTE };
       }
 
       // Already running the package? Only the SAME ID on the SAME host is a

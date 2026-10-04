@@ -192,7 +192,9 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   clones `--depth 50` with no tags, which `check-match-harness-snapshots.mjs`
   refuses), puts `.nvmrc`'s Node on `PATH` (the image ships 22), runs
   `pnpm install`, writes the GA key from `GA_SA_KEY_B64`, installs the pinned
-  Playwright browsers and `gh`, and adds the egress proxy's CA to Chromium's
+  Playwright browsers and `gh`, exports Playwright's Chromium as `CHROME_PATH`
+  when no Chrome is on `PATH` (lhci cannot find one otherwise; the lighthouse
+  audit adds `--no-sandbox` itself when it runs as root), and adds the egress proxy's CA to Chromium's
   NSS store. It is silent when all of that worked; anything it could not do
   arrives as a `cloud-session-setup:` message (unless the 900 s hook timeout
   killed it first). It installs into the main

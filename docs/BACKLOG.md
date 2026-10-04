@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-10-04 ~16:10Z** (Sunday PM pass, `claude/youthful-turing-o7qpdl`; a diff, not a full re-rank).
+**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-10-04 ~17:40Z** (P1-26 un-parked by the operator and moved into P1, `claude/awesome-bardeen-llz7v7`; earlier the same day the Sunday PM pass, `claude/youthful-turing-o7qpdl`; a diff, not a full re-rank).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -211,6 +211,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
     - Models were pushed from a scratch checkout with the site's own token.
     - The seed ran, and its release was read back and repaired.
     - Out-of-scope follow-up: mantis-landscaping#6 (a `sizes` attribute).
+    - **10-04 ~20:25Z: 66 answered; the content is published and the site
+      builds from it** (#10, `8a005df`). The `prismic-ci` install (#13) waits
+      on the site secret, Operator decisions 69. **Next:** P4, the form on
+      `/contact-us`. It also retires the starter's `/contact` (issue #11).
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -239,12 +243,6 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
     came from Netlify's API by site name, and each one's `repo_url` matches its
     repo.
 
-- **P1-26, the fleet `/privacy` page (#1055, option A): parked by the
-  operator 2026-09-30 ~21:25Z** until a lighter week with no new client
-  work, to save tokens. The brief is ready in `docs/privacy-2026-09.md`, and
-  #1055 tracks it. Do not recommend it before the operator un-parks it. Its
-  one hard date: roalson-interests must carry the page before its launch adds
-  GA4.
 - **GOLA (operator's desktop session `session_01Sjj8cMbeBoVNQ5bsErLsK9`,
   started 2026-09-30 20:25Z)**: rates research from GOLA's Discord history and
   a PDF sweep; at 21:17Z "sweep 50% done; PDFs ~23:00–23:15 UTC". No branch
@@ -1311,6 +1309,17 @@ failed=0 total=15`.
     marked DRAFT and goes to no client's live site. Also yours: whether clients
     hear about the page before it goes live (_pick:_ a line in their next
     Maintenance email, with the link).
+    **2026-10-04, three questions for that review** (raised by P1-26's
+    accuracy review of the draft, reddoor-starter#165):
+    (1) "We do not sell your personal information" sits beside GA4, whose
+    cookies may count as a "sale" or "share" under the CCPA, depending on
+    each property's Google signals and data-sharing settings (not set in code;
+    `initAnalytics` sends a bare `config`). (2) The page invites visitors to
+    ask for correction or deletion, but nothing deletes a submission in Turso
+    today, and Resend, Google and the newsletter provider keep their own copies.
+    The process behind that sentence is the lawyer's and the operator's to define.
+    (3) The newsletter line cannot name the provider: Mailchimp or a webhook is
+    chosen on the site's central row, which the site's code cannot see.
 46. **Analytics consent in California (revisits analytics design D3).** A
     privacy page cures CalOPPA and the GA terms, but not the CIPA exposure:
     the California wiretap and "trap and trace" demand letters aimed at
@@ -1610,6 +1619,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `land-prs` cannot land on a merge-commit-only `main` (reddoor-website's
     ruleset), and the cloud session's phase 1 brief wrongly waited for a dry run that a
     workflow-only PR never gets.
+    **10-04 20:42Z: phase 3's starters and baseline landed.**
+    reddoor-starter#166 (`631f9a5`) and its cherry-pick
+    reddoor-starter-blux#38 (`9ef1d35`) are off Slice Machine, with the
+    `/slice-simulator` framing exception (`src/lib/security/cms-framing.ts`)
+    and the `prismic-codegen` gate; #1134 swaps `baseline-versions` to the
+    `prismic` CLI and rewrites the runbook's §11 (changeset; the next release
+    PR is the operator's). Phase 1 now stands at 5 of 7: reddoor-website's
+    workflow landed as reddoor-website#240 on 10-04, so only Ask (a) below
+    remains. Still to build in phase 3: the D1 nightly pull-sync PR.
     **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
     `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
     the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
@@ -1861,6 +1879,14 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     is fetched whole; the services clip is 43 s, so no per-second cap
     puts it under 3 MB.
 
+    **After-publish readings, 2026-10-04 20:06Z [M]** (netlify host, 390×844
+    `isMobile`, CDP sum, 8 s, two runs each, at the operator's request):
+    about-us 1.62 and 2.89 MB with `-phone-720-v2` playing (1.95 s and
+    6.28 s in), down from 4.00; services 4.30 and 3.78 MB, playing (6.35 s,
+    6.52 s), down from 6.48. Zero console errors, zero `hydration_mismatch`,
+    no Vimeo frame on all four. About-us is under the 3 MB line; services
+    is not, and stays so by the operator's answer to 67(c).
+
     **The Vimeo sites, enumerated 2026-10-04 [M]** (Turso roster → 23
     pushable repos cloned and grepped; every production sitemap page
     curled for `player.vimeo.com`; Prismic read for ids held in fields;
@@ -1869,19 +1895,19 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     content players (ERP's "Who We Are" overlay 939250244, reddoorla.com's
     portfolio players, `loopvideo=false` on reddoor-la) stay on Vimeo.
 
-    | site                         | clips (background)                                                                                                                                                                  | masters (Dropbox)                                                                                                                                               | token                              | MCP     | PR              | published | 390px MB                                                                       | hero | console | BP  | note                                              |
-    | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------- | --------------- | --------- | ------------------------------------------------------------------------------ | ---- | ------- | --- | ------------------------------------------------- |
-    | williamson-construction-co   | 6 (done 10-01/10-04)                                                                                                                                                                | `WC_website 2020/08_Art/`                                                                                                                                       | yes                                | yes     | #13 #12 #16 #18 | yes       | home 1.30–1.52; about-us ≤3.27, services ≤6.59 after step 0 (bound; see above) | yes  | 0       | 100 | step 0 done; after-publish reading owed           |
-    | erp-industrial               | 1: Hero `video_embed` 939245404 (42 s) on home + investors                                                                                                                          | candidate `Energy Related Properties/Website/02_Images/0_Final Website Images/Homepage/Intro-compressed.mp4` (98 MB), unverified by frame                       | unknown (listing refused by proxy) | **no**  | —               | —         | —                                                                              | —    | —       | —   | MCP off; 939250244 is content                     |
-    | espada                       | 1: hardcoded `vimeoId="1031277602"` (30 s) in `routes/[[preview]]/+page.svelte` via `ScreenWidthImage`                                                                              | `Espada/Website/02_images/Masthead Video/Final Masthead Video/Espada Mastehead.mp4` (39 MB)                                                                     | unknown                            | unknown | —               | —         | —                                                                              | —    | —       | —   | needs a home-type field, nothing in Prismic today |
-    | vineyard-custom-homes        | 4 hardcoded (home 1092191048 + 1092190178, about 1082670713, contact 1082715167) + 4 in `project` slices (1091059805, 1091893644, 1091063240, 1091063267; two are portrait 240×426) | `Vineyard Custom Homes/02_VCH_images/VCH_video/` (VCH_Homepage_LOOP_060925.mp4 210 MB, reel, Houser Shop, Pacific Ridge, Bosie river) + stock; unmatched per id | unknown                            | **no**  | —               | —         | —                                                                              | —    | —       | —   | heaviest; MCP off                                 |
-    | medical-solutions-of-texas   | 4 hardcoded: home 1019997263 + 1019997302, process 1025187591, about 1022236757 (10–14 s each)                                                                                      | none found under `ZZ_Archived Clients/MSOT`                                                                                                                     | unknown                            | unknown | —               | —         | —                                                                              | —    | —       | —   |                                                   |
-    | alamo-anatomy (launching)    | 3: `s2_vimeo_id` on home 1176738170, about 1191294127, facility 1191301158                                                                                                          | `Alamo Anatomy Training Institute/Video/` (4 .mov, 230–364 MB), unmatched                                                                                       | yes (08-14)                        | **no**  | —               | —         | —                                                                              | —    | —       | —   | MCP off                                           |
-    | revogen                      | 13 distinct across 10 pages: HomeHero 1111691463; ScreenWidthMedia ×12; TwoCol (ocular) 1112062744                                                                                  | `RevoGen/02_Images/…` (Rev_web_ocular-01_DrChandler.mp4, Blue Gradient.mp4, stock); unmatched per id                                                            | unknown                            | yes     | —               | —         | —                                                                              | —    | —       | —   | busiest video site; idle-loaded iframes           |
-    | vida-legacy-foundation       | 1: HeartHero `vimeo_id` 1226003530 (en + es)                                                                                                                                        | none found under `Vida Legacy Foundation/`                                                                                                                      | **none** (2026-10-01 entry)        | yes     | —               | —         | —                                                                              | —    | —       | —   | no `prismic-models.yml`; RED stop                 |
-    | roalson-interests (building) | 1: HomeHero `vimeo_id` 1229048743                                                                                                                                                   | none found                                                                                                                                                      | unknown                            | yes     | —               | —         | —                                                                              | —    | —       | —   | site in build                                     |
-    | gallerysonder                | 12 distinct in `video_block` cards across 18 docs                                                                                                                                   | not searched                                                                                                                                                    | unknown                            | yes     | —               | —         | —                                                                              | —    | —       | —   | card previews, click-to-open                      |
-    | reddoor-website              | 26 `loopvideo=true` fills across 13 docs + 3 hardcoded (home 1082293395, portfolio 1205996665, twenty-for-twenty 1125997849)                                                        | Marketing/, not searched                                                                                                                                        | unknown                            | yes     | —               | —         | —                                                                              | —    | —       | —   | Reddoor's own site                                |
+    | site                         | clips (background)                                                                                                                                                                  | masters (Dropbox)                                                                                                                                               | token                              | MCP     | PR              | published | 390px MB                                                                          | hero | console | BP  | note                                                              |
+    | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------- | --------------- | --------- | --------------------------------------------------------------------------------- | ---- | ------- | --- | ----------------------------------------------------------------- |
+    | williamson-construction-co   | 6 (done 10-01/10-04)                                                                                                                                                                | `WC_website 2020/08_Art/`                                                                                                                                       | yes                                | yes     | #13 #12 #16 #18 | yes       | home 1.30–1.52; about-us 1.62 / 2.89; services 4.30 / 3.78 (after step 0, 20:06Z) | yes  | 0       | 100 | step 0 done; services over the line by clip length, kept by 67(c) |
+    | erp-industrial               | 1: Hero `video_embed` 939245404 (42 s) on home + investors                                                                                                                          | candidate `Energy Related Properties/Website/02_Images/0_Final Website Images/Homepage/Intro-compressed.mp4` (98 MB), unverified by frame                       | unknown (listing refused by proxy) | **no**  | —               | —         | —                                                                                 | —    | —       | —   | MCP off; 939250244 is content                                     |
+    | espada                       | 1: hardcoded `vimeoId="1031277602"` (30 s) in `routes/[[preview]]/+page.svelte` via `ScreenWidthImage`                                                                              | `Espada/Website/02_images/Masthead Video/Final Masthead Video/Espada Mastehead.mp4` (39 MB)                                                                     | unknown                            | unknown | —               | —         | —                                                                                 | —    | —       | —   | needs a home-type field, nothing in Prismic today                 |
+    | vineyard-custom-homes        | 4 hardcoded (home 1092191048 + 1092190178, about 1082670713, contact 1082715167) + 4 in `project` slices (1091059805, 1091893644, 1091063240, 1091063267; two are portrait 240×426) | `Vineyard Custom Homes/02_VCH_images/VCH_video/` (VCH_Homepage_LOOP_060925.mp4 210 MB, reel, Houser Shop, Pacific Ridge, Bosie river) + stock; unmatched per id | unknown                            | **no**  | —               | —         | —                                                                                 | —    | —       | —   | heaviest; MCP off                                                 |
+    | medical-solutions-of-texas   | 4 hardcoded: home 1019997263 + 1019997302, process 1025187591, about 1022236757 (10–14 s each)                                                                                      | none found under `ZZ_Archived Clients/MSOT`                                                                                                                     | unknown                            | unknown | —               | —         | —                                                                                 | —    | —       | —   |                                                                   |
+    | alamo-anatomy (launching)    | 3: `s2_vimeo_id` on home 1176738170, about 1191294127, facility 1191301158                                                                                                          | `Alamo Anatomy Training Institute/Video/` (4 .mov, 230–364 MB), unmatched                                                                                       | yes (08-14)                        | **no**  | —               | —         | —                                                                                 | —    | —       | —   | MCP off                                                           |
+    | revogen                      | 13 distinct across 10 pages: HomeHero 1111691463; ScreenWidthMedia ×12; TwoCol (ocular) 1112062744                                                                                  | `RevoGen/02_Images/…` (Rev_web_ocular-01_DrChandler.mp4, Blue Gradient.mp4, stock); unmatched per id                                                            | unknown                            | yes     | —               | —         | —                                                                                 | —    | —       | —   | busiest video site; idle-loaded iframes                           |
+    | vida-legacy-foundation       | 1: HeartHero `vimeo_id` 1226003530 (en + es)                                                                                                                                        | none found under `Vida Legacy Foundation/`                                                                                                                      | **none** (2026-10-01 entry)        | yes     | —               | —         | —                                                                                 | —    | —       | —   | no `prismic-models.yml`; RED stop                                 |
+    | roalson-interests (building) | 1: HomeHero `vimeo_id` 1229048743                                                                                                                                                   | none found                                                                                                                                                      | unknown                            | yes     | —               | —         | —                                                                                 | —    | —       | —   | site in build                                                     |
+    | gallerysonder                | 12 distinct in `video_block` cards across 18 docs                                                                                                                                   | not searched                                                                                                                                                    | unknown                            | yes     | —               | —         | —                                                                                 | —    | —       | —   | card previews, click-to-open                                      |
+    | reddoor-website              | 26 `loopvideo=true` fills across 13 docs + 3 hardcoded (home 1082293395, portfolio 1205996665, twenty-for-twenty 1125997849)                                                        | Marketing/, not searched                                                                                                                                        | unknown                            | yes     | —               | —         | —                                                                                 | —    | —       | —   | Reddoor's own site                                                |
 
     Not Vimeo sites: caltex-landing and hedloc (model fields, no reader),
     data-dynamiq (prop, no caller), 29-navy, mantis-landscaping,
@@ -2037,9 +2063,21 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - The copy is Blux's, verbatim. The alt text and meta descriptions are
       new and still await the client's sign-off through Nicole (OD 61/62),
       and they can be edited after publishing.
+      **Answered 2026-10-04 ~20:05Z: "publish the Mantis release."**
+    - `seed.mjs --publish` answered `{"totalItems":5}` at 20:07Z. The
+      Content API's master ref moved to `asKx_xIAACkAT7mT` with all five
+      documents. Not an ask any more.
+    - The placeholder swap landed as mantis-landscaping#10 (`8a005df`):
+      `pnpm verify` green, axe 0 violations on the five kept paths.
+    - The next ask is item 69.
 
 67. **Fleet video rollout: three asks before site 1 (new 2026-10-04,
     worker session for decision 63).**
+    - **Answered 2026-10-04 ~20:05Z:** (a) take the reading in the cloud
+      session (done, in 63); (b) the operator is activating MCP on the
+      three repos; (c) order confirmed: ERP, Espada, Alamo, MSOT, Revogen,
+      Vineyard, with VLF, Roalson, Sonder and reddoorla.com parked; long
+      loops are kept whole, not cut.
     - **(a) The after-publish readings.** The session's permission
       classifier refused the read-only CDP measurement of
       `williamson-construction-co.netlify.app/about-us` and `/services`
@@ -2067,6 +2105,82 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       to be cut to ~20 s before encoding, since no per-second cap gets a
       43 s clip under the 3 MB line. _Pick:_ that order; encode the long
       clips whole and record the number, the cut is the operator's call.
+
+68. **P1-26, the starter's `/privacy` page (reddoor-starter#165): two dirty
+    review rounds, held (new 2026-10-04).** Round 1 on `7374553` was dirty in all
+    three lenses. Its fixes are in `f05a94c`.
+    - The switches read `svelte.config.js` as text, not as the CSP it resolves to.
+    - The policy said "only to reply" and claimed IP rate limiting that does not
+      exist.
+    - Server-side Mailchimp and endpoint forms were missed.
+
+    Round 2 on `f05a94c` was dirty too. The fixes are in `5c87109`, which is
+    **unreviewed**.
+    - Blocker: a forms-only site said "no other party" tracks visitors across
+      sites. Central ingest compares a sender's email and message with every
+      fleet site's submissions for 30 days.
+    - Major: the newsletter webhook recipient was undisclosed.
+    - Major: newsletters posted through multi-type endpoints were missed.
+    - Several minors, all fixed.
+
+    Every review mutation now turns a test red: 69 files, 557 tests. CI was
+    green on `f05a94c`. The full record is on the PR. _Ask:_ merge `5c87109`, or
+    send it back for a third review. _Pick:_ merge `5c87109`. Round 2's blocker and
+    majors are text and detection fixes, each pinned by a mutation that goes red.
+    The page stays DRAFT, `noindex` and out of the sitemap until item 45, so a
+    residual wording miss reaches no live site.
+    - **Waiting on this:** the central preflight, #1129 (two review rounds, the
+      second clean, CI green). It lands after the starter, per the operator's
+      order, and carries this line.
+    - **Also waiting:** roalson-interests, which must carry the page before its
+      launch adds GA4. Nothing is built there yet. Its legal name, privacy
+      contact email and effective date are not in its repo, so those render as
+      placeholders until someone supplies them.
+      **Answered 2026-10-04 ~20:00Z: "merge on green CI."** reddoor-starter#165
+      merged as `f538398`, pinned to `5c87109` with its checks passing. This item
+      was written as 67 on its branch; #1131 landed a different 67 first, so it
+      is 68 here. The PR comments on reddoor-starter#165 and #1055 still say 67.
+
+69. **Mantis: set `PRISMIC_WRITE_TOKEN` on reddoorla/mantis-landscaping
+    (🔴 secret, new 2026-10-04).** The `prismic-ci` install PR,
+    mantis-landscaping#13, is red on its own `prismic-models / dry` check
+    with "no write token for Prismic repository `mantis-landscaping`".
+    From a cloud session that check is the intended gate (runbook §5).
+    - The token is the repository's Write API token, the one this
+      environment holds as `MANTIS_LANDSCAPING_PRISMIC`. It pushed the
+      models and published the content on 10-04.
+    - Nothing waits on it today: Prismic's models match `main`. It matters
+      at the next model change.
+
+    _Ask:_ set the secret, then re-run #13's check; any worker lands it
+    with `land-prs`. _Pick:_ the same token as `MANTIS_LANDSCAPING_PRISMIC`.
+    BACKLOG 33's central `PRISMIC_TOKEN_MANTIS_LANDSCAPING` (P1) is a
+    separate secret and still unverified from the cloud. (#13's comment
+    calls this item 67; 67 and 68 had already landed, so it is 69.)
+    **Answered 2026-10-04 ~21:30Z: the operator set the secret.** #13's
+    re-run `prismic-models / dry` went green, which proves the secret reads
+    the models. `land-prs` merged it as `be8addf`. The workflow's `push`
+    trigger is path-filtered to models, so the merge ran no apply job; the
+    first apply comes with the next model change. Not an ask any more.
+
+70. **Site checkouts in a cloud session cannot run the axe audit (#1132,
+    new 2026-10-04).** Cause, measured: mantis-landscaping (native starter)
+    resolves `@playwright/test` 1.63.0, which launches
+    `chromium_headless_shell-1243`; the cloud image's `/opt/pw-browsers` has
+    only 1194 and 1234, and no site repo has a cloud setup hook to install
+    the right one (this repo's `.claude/hooks/cloud-session-setup.sh` does it
+    for its lockfile's 1.62.1, revision 1234). Pointing
+    `PLAYWRIGHT_BROWSERS_PATH` at a scratch
+    dir that aliases 1243 to 1234 passed with 0 violations across 2 routes and
+    the hydration smoke, so nothing else is wrong; `main`'s audit already
+    names the missing executable (0.97.0, the site's pin, buried it behind
+    an npm warning; Renovate brings the fix). _Ask:_ may
+    `reddoorla/reddoor-starter` gain a `CLAUDE_CODE_REMOTE`-gated
+    SessionStart hook that runs `pnpm install` and
+    `playwright install chromium chromium-headless-shell` when the pinned
+    revision is missing (no effect on CI, new sites only; existing sites
+    would need a per-repo PR each)? _Pick:_ yes, as a starter PR modelled
+    on this repo's hook; the fleet backfill is a separate decision.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -2122,6 +2236,28 @@ verdict is its only input, because no client and no check sees the email.
   roster lists it as external with no repo.
 
 ## Done (move items here when they land)
+
+- 2026-10-04 — P1-26, the fleet `/privacy` page (#1055, option A): landed in
+  three PRs.
+  - reddoor-starter#165 (`f538398`): the template.
+    - It is rendered from per-site values, with service switches derived
+      from the site's resolved CSP and code.
+    - It adds a footer link, a contact-form notice and Do Not Track.
+    - It is DRAFT, `noindex` and out of the sitemap.
+    - It went to Operator decision 68 after two dirty review rounds and was
+      merged on the operator's "merge on green CI".
+  - #1129 (`83855ad`): `analytics-tag` refuses a site with no `/privacy`
+    page (two rounds, the second clean).
+  - roalson-interests#257 (`187510a`): the page before launch adds GA4 (two
+    rounds, the second clean). It also discloses OpenFreeMap, the property
+    map's tile host, which is a service the starter's rules did not know.
+  - **Still open:**
+    - roalson's legal name, privacy email and effective date
+      (roalson-interests#258, which also holds two wording details).
+    - Item 45, the lawyer's review, which clears the DRAFT.
+    - Item 46, consent.
+    - Rolling the page out to maintained sites: per-repo PRs, after item 45.
+    - The starter has no rule yet for a map tile host.
 
 - 2026-10-01 — P1-23, `launch` scores the live site, not the checkout:
   #1056. `launch` resolves its site from a local path, which never carries
