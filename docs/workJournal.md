@@ -7793,7 +7793,77 @@ The common rule: confirm that a mutation, or a fix, actually changed the file be
 - That Prismic reads dimensions from any valid JPEG.
 - That a Select left null stays null.
 
-## 2026-10-04 — P1-26 privacy page: starter held at decision 67 after two dirty rounds; central preflight ready (reddoor-starter#165, #1129)
+## 2026-10-04 — Fleet video rollout, step 0 and the enumeration: the Vimeo sites are eleven, three cannot be written from here, and a publish turned the measurement off (#1128, williamson-construction-co#18, decision 63/67)
+
+The worker brief `docs/briefs/2026-10-04-fleet-video-rollout.md` asked for
+two things before any site: the list of Vimeo sites with evidence, and the
+phone cap lowered and proven on Williamson. Both are in BACKLOG 63; this
+entry keeps what the next session needs and what this one got wrong.
+
+**The instrument first, again.** The CDP byte counter from the 10-04
+Williamson entry was rebuilt as `measure.mjs` and proved on two controls
+before any site was read: a 39,976-byte and a 7,557,295-byte
+`preload=auto autoplay muted` file reported 39,976 and 7,557,295. Then the
+first "production" reading of the day was wrong anyway, for a reason the
+control cannot catch: `www.williamson-construction.com` is Cloudflare in
+front of the old Webflow site (`age: 1736509`, twenty days), and it
+answered 5.26 MB of `cdn.prod.website-files.com` transcodes while the
+Prismic document plainly held the HD files. The site is `building`; its
+production is the netlify host. A reading needs the host checked against
+the content store before the number means anything.
+
+**The enumeration.** 47 roster rows, 23 with a pushable repo; all cloned,
+grepped, and every sitemap page of every production URL curled for
+`player.vimeo.com`. The curl is SSR-only and that matters: Revogen's
+`ScreenWidthMedia` inserts its iframe on idle, VLF's `HeartHero` only at
+≥768px after an interaction, Sonder's cards on click, so four sites with
+Vimeo in Prismic showed nothing in HTML. The ids that live in fields came
+from Prismic: the connector for five repos, and the public Content API for
+the three the connector refuses (`erp-industrial`, `alamo-anatomy`,
+`vineyard-custom-homes` are not MCP-activated), with the public API run
+over all eight as the control that both answers agree. Eleven sites have a
+background Vimeo embed (table in BACKLOG 63); ERP's second clip and
+reddoorla.com's portfolio players are content and stay. Vimeo's public
+oEmbed gives each clip's title, duration and thumbnail without a login,
+which is how the masters will be matched: Williamson's Dropbox folder
+`Final Videos/Implemented/` turned out to be Vimeo downloads named by id,
+but no other client folder is, and no Dropbox file anywhere is named by
+the other sites' ids. Candidates exist for ERP, Espada, Vineyard, Alamo
+and Revogen; none for MSOT, VLF or Roalson.
+
+**Step 0.** `planRenditions` phone cap 2200k → 1200k (#1128), one test
+pinning the argv, mutation red. The two Williamson masters were named by
+matching: first-day's 1080 re-encode came out 408 bytes from the file in
+the library; services is the 720p `.mov` one folder over from the five
+1080p ones. Phone files 5.99 → 3.27 MB and 10.84 → 6.59 MB; SSIM against
+the master 0.9636 → 0.9390 at 720p, and nothing to see at 390×844. The
+staging path works from a cloud session after all: `NETLIFY_PAT`, which
+the audits already use, lets `netlify deploy --no-build` without `--prod`
+make a draft deploy of a bare `video/` directory, the upload workflow took
+both files in 3 s, and the release carried two deltas. The brief said the
+first live `--upload` run of the recipe was to be read; it was not run,
+because no `PRISMIC_TOKEN_*` reaches the cloud and the site's own workflow
+was the path the brief named.
+
+**What stopped the session.** After the release was published, the
+session's permission classifier refused the same read-only measurement it
+had allowed four times that hour, and a Netlify deploy read, as a
+"production deploy". The brief says the readings are the deliverable, so
+step 0 ends on a bound (about-us ≤ 3.27 MB, services ≤ 6.59 MB; a playing
+hero is fetched whole) and Operator decisions 67 asks for the read from
+the laptop. The same refusal will meet every site's step 5, so no site PR
+was opened: the first site needs the operator's answers on the read, on
+MCP for ERP/Alamo/Vineyard, and on whether a 43 s background loop gets cut
+before it is encoded, since the cap is per second and the clip length is
+the number.
+
+**Not done.** Site 1. The per-repo `PRISMIC_WRITE_TOKEN` column is
+"unknown" for most rows because `actions/secrets` is refused by the proxy;
+the 2026-10-01 entry is the only source. `measure.mjs` lives in the
+session scratchpad and dies with it; its recipe is in the brief and the
+10-04 Williamson entry, and it is sixty lines to rebuild.
+
+## 2026-10-04 — P1-26 privacy page: starter held at decision 68 after two dirty rounds; central preflight ready (reddoor-starter#165, #1129)
 
 The operator un-parked P1-26 at about 17:00Z. Verify-first at 17:27Z matched the PM pass: `/privacy` answered 404 on roalson-interests.netlify.app and sonderliving.com, and `roalsoninterests.com` did not resolve at all. The claim is on #1055. No fresh `claude/*` or `fix/*` branch touched these files in any of the three repos.
 
@@ -7815,12 +7885,12 @@ The operator un-parked P1-26 at about 17:00Z. Verify-first at 17:27Z matched the
 3. The fleet's Mailchimp path is server-side, keyed on the central row, so no site's code can show it.
 4. Central ingest compares every sender's email and message with all other fleet sites' submissions for 30 days. So "no other party tracks you across sites" is false on any site with a fleet form. That was round 2's blocker, and the most consequential fact in this entry: it belongs in the lawyer's review (item 45) whatever the wording becomes.
 
-**Stopped at decision 67.** The starter PR was dirty in round 1 and again in round 2, so it went to the operator rather than a third round. `5c87109` folds round 2 in and is unreviewed.
+**Stopped at decision 68.** The starter PR was dirty in round 1 and again in round 2, so it went to the operator rather than a third round. `5c87109` folds round 2 in and is unreviewed.
 
 **Central side.** #1129's preflight (`hasPrivacyPage`) was clean in round 2.
 
 - Round 1 had found SvelteKit routing edges: symlinks followed, rest segments transparent, a redirect-only `+page.ts` not counting, and a custom `kit.files.routes` getting its own refusal.
-- #1129 is green and held only by the landing order. It carries this entry, decision 67, P1-26's move into P1, and item 45's three new questions for the lawyer.
+- #1129 is green and held only by the landing order. It carries this entry, decision 68, P1-26's move into P1, and item 45's three new questions for the lawyer.
 
 **My own instrument errors.**
 
@@ -7833,3 +7903,5 @@ The operator un-parked P1-26 at about 17:00Z. Verify-first at 17:27Z matched the
 - roalson-interests has no page yet. Its launch adds GA4, so it is the hard date.
 - Its legal name, privacy contact email and effective date are not in its repo, and will render as placeholders until someone supplies them.
 - Playwright smoke did not run locally: the container lacks the pinned `chromium_headless_shell-1243`. CI ran it.
+
+**Later the same evening.** The operator answered "merge on green CI" at about 20:00Z, and reddoor-starter#165 landed as `f538398`, pinned to `5c87109`. Landing #1129 then stopped on a conflict: another session's #1131 had landed its own Operator decision 67 while this branch carried an unlanded 67. The two numbers were taken from the same `main` tail within an hour of each other. This one became 68. A decision number is only claimed when it lands, and two sessions writing operator decisions on the same afternoon will keep colliding until the number is assigned at landing time.
