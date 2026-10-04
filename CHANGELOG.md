@@ -1,5 +1,28 @@
 # @reddoorla/maintenance
 
+## 0.104.0
+
+### Minor Changes
+
+- 83855ad: `analytics-tag` refuses a site with no `/privacy` page, before anything is written. GA4's terms require a posted privacy policy that discloses its use, so the tag now waits for one. The check reads `src/routes` for a page component (`+page.svelte`, `.md` or `.svx`) at `/privacy`:
+
+  - route groups, optional segments and rest segments add nothing to the path;
+  - symlinks are followed;
+  - a Prismic catch-all, an endpoint, a `+page.ts` with no component or a deeper `privacy` folder does not count.
+
+  A site whose `svelte.config.js` moves the routes (`kit.files.routes`) is refused with its own note. The refusal names the fix, the starter's privacy page (reddoorla/reddoor-maintenance#1055). It also applies to a re-run on a site that already carries the tag.
+
+- 4bfc2fc: The report scheduler pushes a Maintenance report back one Maintenance cycle when a Testing report for the same site is sent within a month of its due date, measured from the later of the due date and that Testing report. An approved Testing report not yet sent counts for three days after its approval, since `daily-reports` drafts before it sends.
+- e78c4af: `reddoor-maint video <input>` encodes a background-video master into the fleet's web renditions (a capped-height H.264 mp4 and VP9 webm, a 720p phone mp4 when the source is at least 720 tall, and a poster frame taken from the mp4 that plays), dropping audio from every output and printing a size and bitrate table from ffprobe. `--upload <prismic-repo>` then pushes each output to that repository's Prismic media library, deduped by filename, using only `PRISMIC_TOKEN_<REPO>`.
+
+### Patch Changes
+
+- 2a06307: `launch` audits the site row's live `url` instead of the local checkout's dev server, so the Lighthouse scores it stores in `site_health` and on the Launch report row are the production site's. The dev guard, whose `/health` control proves the url answers, now runs before the audit: a url that does not answer, or is not http(s), stops the launch without auditing anything, and a live audit that fails never falls back to the checkout.
+- 2c5d9f1: `prismic-ci` installs from a cloud session. Its caller workflow now also triggers on its own path for `pull_request` (never `push`), so the PR that installs or changes it runs the dry job, which reads the site's models from Prismic with its token: no token exits 1 and a dead token goes red. When the secrets list is refused by the cloud proxy, and only then, the recipe opens the PR anyway, over REST only (the proxy also refuses GraphQL, so PR creation moved from `gh pr create` to `POST repos/{repo}/pulls`, which `self-updating` shares, and the open-PR check uses a new REST `openPullRequestRefs`), notes in it that the token was not checked, and makes that PR's `prismic-models` check the gate. A confirmed-absent secret, or any other lookup failure, still refuses. Sites already carrying the workflow pick up the new trigger the next time `prismic-ci` runs on them.
+- 6f28f08: Baseline versions follow the starter off Slice Machine: `slice-machine-ui` and `@slicemachine/adapter-sveltekit` are no longer tracked, and the `prismic` CLI (^1.21.0) is. The deps audit compares only packages a site has installed, so an unmigrated site is unaffected and a migrated one gets its CLI version checked.
+- c0fea1b: `roster-urls` reads a roster url a second time, after a 25 s pause, when its first read got no HTTP answer at all (a timeout, a DNS failure, a reset connection or a TLS error). The second read is the verdict that gets stored. A url that answered with an HTTP 4xx or 5xx, with Netlify's site-not-found page, or that is not an http(s) url, is not read again, and neither are the two controls. Each retried url gets a `::notice::` line, and `ROSTER_URL_SUMMARY` gains `retried=N`.
+- 4e291a6: `video`: the phone rendition is capped at `-maxrate 1200k -bufsize 2400k` (was 2200k/4400k), so a 20 s clip lands near 3 MB on a phone instead of 6.
+
 ## 0.103.0
 
 ### Minor Changes
