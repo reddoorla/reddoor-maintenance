@@ -2,7 +2,7 @@
 
 ## One-line verdict
 
-**A quiet weekend: every scheduled nightly from 10-01 to 10-04 is green with `failed=0`, nothing landed on `main` after 10-01 19:20Z, and tomorrow's five Maintenance drafts preflight clean. Your one new ask is Mantis P2a, decision 64. It is on a branch, not yet on `main`.**
+**A quiet weekend: every scheduled nightly from 10-01 to 10-04 is green with `failed=0`, nothing landed on `main` after 10-01 19:20Z, and tomorrow's five Maintenance drafts preflight clean. Your one new ask is Mantis P2a, decision 64, which landed on `main` during this pass (#1118).**
 
 This pass started at **15:59Z (08:59 PDT, Sunday)** [M, `date -u`]. The Routine is meant to run Monday to Thursday at 04:48 PT, so this firing is off-schedule; whether it was a manual trigger was not read [I]. It covers 10-01 12:00Z → 10-04 16:05Z, the weekend included.
 
@@ -16,14 +16,14 @@ Clean [TEST] sends in a row: **1** (29 Navy, 2026-09-28, clean). There is no `aw
    - Fleet-lighthouse re-stamped the evidence today at 13:48Z (`wrote=21 failed=0`) [M].
    - **Corrected:** Data Dynamiq now has a GA4 property (`556916505`) [M]. BACKLOG said it had none, so all five now carry an analytics section.
    - LAHI is the first send since #957: CMS Checked should read `n/a` and drop out of the email.
-2. **Mon 10-05: Webflow, via Tim (hard date 10-19).** D0 (Webflow billing: what stops on 10-19), D6 (Construction's form recipient) and D7 (the GoDaddy holder) were due 10-05 and are still open. Cutover is planned for 10-14. Nothing about them changed since 10-01 [M, BACKLOG item 7].
+2. **Mon 10-05: Webflow, via Tim (hard date 10-19).** D0 (Webflow billing: what stops on 10-19), D6 (Construction's form recipient) and D7 (the GoDaddy holder) were due 10-05 and are still open. Cutover is planned for 10-14. Nothing about them has changed since 10-01 [M, BACKLOG item 7].
 3. **New: Mantis P2a, decision 64.** mantis-landscaping#3 (model, seven slices, `/projects/[uid]`, 301s) is held after two dirty review rounds. Your options: (a) a third round limited to the round-2 list, then land; (b) take it over by hand; (c) re-scope, for example a static grid in place of the scrolling photo strip. _Worker's pick:_ (a). Every round-2 finding is local to one file, and nothing is pushed to Prismic yet.
-   - The item is written on `claude/mantis-p2a-operator-decision` (`9fad8813`, 15:51Z), which has no PR yet [M].
+   - The item is BACKLOG Operator decisions 64, landed in #1118 (`9664ef0a`, 16:17Z) [M].
    - P2b, P4 and P5 wait behind it.
 4. **New, 🔴: secret scanning, push protection and a ruleset on `mantis-landscaping`.** The 10-04 protection sweep (#754) lists it with no ruleset and both scanning settings off [M]. Its first Netlify build already failed on a vendored Blux key (mantis-landscaping#2), which push protection would have stopped at the push. The two Williamson repos are still in the same state; that is the open half of BACKLOG 33 (d).
 5. **Undated, still open:**
    - **Release PR #1100, `0.104.0`**, open since 10-01 and CI green. It carries #1099 (Testing pushes Maintenance), #1105 (`launch` audits the live url) and #1106 (`roster-urls` retry). The nightlies already run this code from `main`; only the fleet's npm consumers wait on it.
-   - **#1090 phase 1:** mint and set `PRISMIC_WRITE_TOKEN` for the-tower-burbank and vida-legacy-foundation (item 57 (a)). #1117 (open) would let the `prismic-ci` run that follows come from a cloud session.
+   - **#1090 phase 1:** mint and set `PRISMIC_WRITE_TOKEN` for the-tower-burbank and vida-legacy-foundation (item 57 (a)). Since #1117 landed (16:04Z), the `prismic-ci` run that follows can come from a cloud session.
    - **Roalson 55 (ii):** name the colour to bring back at 20%, and what it goes over.
    - **Privacy 45 and 46:** parked with P1-26.
 
@@ -52,15 +52,15 @@ None. **Closed since 10-01:** Tim's 09-17 #worthe-web-maintenance ask (a slow ea
 | #1112 | Video hosting answered; hand-off brief |
 | #1114, #1115 | #1090 phase 1 on four sites; Mantis build hook |
 
-Last commit on `main`: `a1424bdf`, 10-01 19:20:52Z [M]. Nothing has merged since.
+Nothing merged between `a1424bdf` (10-01 19:20:52Z) and this pass. During it, two did: #1117 (`2c5d9f1c`, 16:04Z, `prismic-ci` from a cloud session) and #1118 (`9664ef0a`, 16:17Z, decision 64) [M].
 
-**Open PRs (3)** [M, 16:00Z]:
+**Open PRs** [M, 16:00Z; #1117 has merged since]:
 
 - **#1100**, the release PR: clean and green. It is yours.
 - **#1116** (`video`, 10-01): review round 1 was folded in at 15:59Z, and CI was running at 16:00Z.
-- **#1117** (`prismic-ci` from the cloud, opened 15:56Z): CI was running at 16:00Z.
+- **#1117** (`prismic-ci` from the cloud): merged at 16:04Z.
 
-Both #1116 and #1117 belong to live sessions.
+#1116 belongs to a live session.
 
 ## Nightlies (scheduled, 10-01 12:00Z → 10-04 16:05Z) [M, job logs]
 
@@ -99,13 +99,13 @@ No "Nightly … failing" issue opened or closed. Bot-filed issues still open: #7
 
 - **The Routine fired on a Sunday, at 08:59 PDT.** Its stated schedule is Monday to Thursday at 04:48. Monday's pass should still run as the heavier one; this file does not stand in for it.
 - **A BACKLOG fact went stale without anyone noticing.** "Data Dynamiq has no GA4" (P0-4) was false on today's row. Whoever set the property did not record it, so the backlog had no way to know. Corrected in P0-4.
-- **Decision numbers again.** Decision 64 exists only on an unmerged branch. This pass reserves it in BACKLOG ("next new item is 65") so the next session does not reuse it.
+- **Decision numbers again.** Decision 64 was on an unmerged branch when this pass began, and landed (#1118) while it ran, which conflicted this PR's journal. BACKLOG now says the next new item is 65.
 - **`list_sessions` / `get_session` are still not available to this Routine** [M, ToolSearch: no match]. The worker state below comes from branches and PRs.
 
 ## Live worker sessions (reported, not touched)
 
-- **Mantis P2a** (`claude/mantis-p2a-operator-decision`, 15:51Z): ended at decision 64, docs only, no PR yet [M].
-- **prismic-ci cloud** (#1117, `claude/prismic-ci-cloud`, 15:56Z): live, with CI running.
+- **Mantis P2a:** ended at decision 64, landed in #1118 [M].
+- **prismic-ci cloud:** landed in #1117 at 16:04Z.
 - **video encode** (#1116, `claude/video-encode-command`, 15:59Z): live; review round 1 is done.
 - **GOLA** (`claude/practical-ride-kbipzv`): idle since 10-01 02:25:59Z, 13 commits, no PR [M]. Its `CLAUDE.md` change still takes effect only through a PR.
 - **No other fresh branch.** `claude/youthful-turing-o7qpdl` is this pass's.

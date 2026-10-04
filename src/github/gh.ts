@@ -65,6 +65,15 @@ function mapRollupState(state: string | null | undefined): CiState {
 /** Coerce GitHub's `mergeable` enum to our PrMergeable. Anything unexpected
  *  (including the literal `UNKNOWN` GitHub returns while still computing) maps to
  *  `UNKNOWN` — i.e. "not known to conflict". Only an explicit `CONFLICTING` is. */
+/** The same "owner/repo" shape check the GraphQL methods make inline, for the
+ *  REST methods that interpolate `repo` into a path. */
+function assertOwnerRepo(repo: string, method: string): void {
+  const [owner, name, ...rest] = repo.split("/");
+  if (!owner || !name || rest.length > 0) {
+    throw new Error(`${method}: expected "owner/repo", got "${repo}"`);
+  }
+}
+
 function mapMergeable(state: string | null | undefined): PrMergeable {
   return state === "MERGEABLE" || state === "CONFLICTING" ? state : "UNKNOWN";
 }
@@ -98,6 +107,9 @@ export type GitHub = {
   findOpenSelfUpdatingPR: (repo: string) => Promise<string | null>;
   /** All open PRs on a repo with each head commit's normalized CI rollup state. */
   openPullRequests: (repo: string) => Promise<PullRequestSummary[]>;
+  /** Open PRs' head refs and URLs, over REST only, so it works through the cloud
+   *  session's proxy, which refuses GraphQL. */
+  openPullRequestRefs: (repo: string) => Promise<Array<{ headRef: string; url: string }>>;
   /** The default branch's latest-commit date + normalized CI rollup, one query. */
   defaultBranchStatus: (repo: string) => Promise<{ ciState: CiState; lastCommitAt: string | null }>;
   /** Renovate PRs (head `renovate/*`) merged at/after `sinceIso`. Used to record
@@ -350,21 +362,38 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
 
   return {
     async openPullRequest(repo, pr) {
+      // REST, not `gh pr create`: that command goes through GraphQL, which the
+      // cloud session's proxy refuses outright (CLAUDE.md, cloud sessions).
+      assertOwnerRepo(repo, "openPullRequest");
+      const out = await ghJson("POST", `repos/${repo}/pulls`, {
+        head: pr.head,
+        base: pr.base,
+        title: pr.title,
+        body: pr.body,
+      });
+      const url = (JSON.parse(out) as { html_url?: unknown }).html_url;
+      if (typeof url !== "string" || url.length === 0) {
+        throw new Error(`openPullRequest(${repo}): the response carried no html_url`);
+      }
+      return { url };
+    },
+    async openPullRequestRefs(repo) {
+      // REST on purpose, for the same reason as openPullRequest. Head refs and
+      // URLs only: the GraphQL `openPullRequests` also carries mergeability and
+      // the CI rollup, which REST cannot give in one call.
+      assertOwnerRepo(repo, "openPullRequestRefs");
       const out = await gh([
-        "pr",
-        "create",
-        "--repo",
-        repo,
-        "--head",
-        pr.head,
-        "--base",
-        pr.base,
-        "--title",
-        pr.title,
-        "--body",
-        pr.body,
+        "api",
+        `repos/${repo}/pulls?state=open&per_page=100`,
+        "--jq",
+        "[.[] | {headRef: .head.ref, url: .html_url}]",
       ]);
-      return { url: out.trim() };
+      const parsed = JSON.parse(out) as Array<{ headRef?: unknown; url?: unknown }>;
+      return parsed.flatMap((p) =>
+        typeof p.headRef === "string" && typeof p.url === "string"
+          ? [{ headRef: p.headRef, url: p.url }]
+          : [],
+      );
     },
     async enableRepoAutoMerge(repo) {
       await gh(["api", "-X", "PATCH", `repos/${repo}`, "-F", "allow_auto_merge=true"]);

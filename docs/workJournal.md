@@ -7387,7 +7387,139 @@ Phase 1 of the migration plan closes the gap that let williamson-homes drift: se
 
 **Not done.** the-tower-burbank and vida-legacy-foundation wait on a token each (🔴). reddoor-website was skipped under the brief's own rule: reddoor-website#237, staging → main, was opened at 18:19Z and touches `.github/workflows`. Its secret exists. The brief's `--base staging` cannot apply to it, because the recipe opens its PR against the default branch and the apply job guards `refs/heads/main`; item 57 proposes running it against `main` after #237 merges. Both `main` and `staging` there pin CLI 0.95.1, which has read `prismic.config.json` since 0.83.0, so the promotion will not turn the site into "not a Prismic site". Noted and left alone as out of charter: the central secret `PRISMIC_TOKEN_ROALSON_INTERESTS` (set 09-17) has no `env:` line in `fleet-prismic-drift.yml`, and `PRISMIC_TOKEN_THE_TOWER_BURBANK` has a line and no secret.
 
-## 2026-10-04 — Sunday PM pass: a green, quiet weekend; decision 64 reserved (this PR)
+## 2026-10-04 — `prismic-ci` runs from a cloud session; the install PR proves the token (#1113, this PR)
+
+The operator asked why `prismic-ci` keeps needing the laptop "on various sites", and whether moving the fleet to the Type Builder would fix it. It would not. The migration keeps `prismic-models` and `prismic-ci` (BACKLOG 57, D2), and every route, Prismic's own included, still needs a token secret in CI. The recipe gated on reading that secret's name through `GET repos/{repo}/actions/secrets`, and the cloud proxy refuses every Actions path ("Access to this GitHub Actions path is not permitted through this proxy.", measured).
+
+**The new gate proves more than the old one.** The caller workflow now triggers on its own path for `pull_request` only, so the PR that installs it runs the dry job. The dry job reads the repository's models from Prismic with the token:
+
+- no token exits 1 ("no write token");
+- a dead token goes red;
+- `land-prs` merges only `CLEAN`.
+
+The old check proved a secret with that name existed. The new one proves the token reads this repository's models. Writes are still first exercised by the apply job on the next model merge, and round 1 made the wording say so. Only the exact Actions-path refusal moves the gate. The proxy's other refusal ("Write access to this GitHub API path…"), a bare 403, and a confirmed-absent secret all still refuse, each pinned by a test. Merging an install PR writes nothing, because push paths are unchanged.
+
+**Round 1 found the change could never have worked.** Two reviewers independently traced it:
+
+- Past the secret check, step 7 listed open PRs over GraphQL.
+- Opening the PR used `gh pr create`, which is also GraphQL.
+- The proxy refuses GraphQL outright.
+
+Every recipe test mocked the GitHub client, so all 41 passed on a path that died at its first real call. This is the "prove the instrument" failure exactly: the feature had never passed once, and the tests said it had. Both calls are REST now:
+
+- a new `openPullRequestRefs` (head refs and URLs only, because the GraphQL `openPullRequests` also carries mergeability and CI rollup for its other two callers);
+- `openPullRequest` POSTs to `repos/{repo}/pulls`, which also makes `self-updating` cloud-safe.
+
+The test that was missing now exists. It runs the recipe against the real `makeGitHub` over a fake `gh` that refuses GraphQL, `gh pr create` and the secrets API as the proxy does. Putting either GraphQL call back turns it red (M7, M8).
+
+**Round 1's test-strength lens found 2 survivors and 5 more by reading:**
+
+- `/proxy/i` and `/not permitted/` regexes both passed;
+- a `.github/workflows/**` glob under `push` passed;
+- a `paths-ignore` sibling passed;
+- weakened PR-body wording passed.
+
+The trigger test now parses the YAML and asserts the exact path lists. All 14 mutations turn a test red.
+
+**A process defect, named.** The test-strength reviewer ran its mutations in the author's worktree and restored files with `git checkout` while the author was editing. One of the author's edits to `index.ts` was silently reverted, and it looked like a failed `replace`. The second review round got its own detached worktree. Any reviewer that mutates files needs one.
+
+**A second slip, corrected before push.** A commit went in while prettier was failing, because `pnpm lint | tail` turned the failure into a success. Exit codes are now checked directly.
+
+**Round 2 (own worktree) found no blocker or major.** It ran the REST listing through the real proxy, and it showed that putting a GraphQL call into `defaultBranch` turns the end-to-end test red. It found one minor that was folded in: a failed open-PR lookup threw out of the recipe instead of returning `failed`, and on the cloud path that is now the reachable failure. These were left as they are:
+
+- the one-page (100 PR) listing, which equals the old GraphQL `first:100`;
+- a 422's reason reaching only stdout, so `gh()` reports just its summary;
+- a fork PR named `maint/prismic-ci-*` suppressing an install, which can never cause a write.
+
+## 2026-10-04 — Mantis P2a: model, slices and routes built; stopped after two dirty review rounds (mantis-landscaping#3, Operator decisions 64)
+
+The worker brief for P1-30 asked for P2 through P5. The session built P2a,
+the content model and the slices. That PR went through two adversarial
+review rounds and stops at the operator under the two-round rule.
+Everything after it waits, because P2b, P4 and P5 build on this model.
+
+**Verify-first was half right.**
+
+- The brief named the Prismic token `MANTIS_PRISMIC`. That name is absent.
+  The token is `MANTIS_LANDSCAPING_PRISMIC`. Proved against the Custom
+  Types API: 200 with `[]`, and a bogus token gets 403.
+- Read literally, the brief's stop condition ("absent → stop") would have
+  ended the session on a naming slip. The `grep` asked whether that one
+  name was set, not whether a Mantis token existed at all.
+- A worse trap sits beside it. The container also carries a generic
+  `PRISMIC_WRITE_TOKEN`, belonging to `the-pointe-burbank`.
+  `prismic-models` falls back to the generic name when the canonical
+  `PRISMIC_TOKEN_<REPO>` is unset. A Mantis `--apply` without the
+  canonical variable would have authenticated against the wrong
+  repository.
+
+**Types without Slice Machine's UI.** `scripts/generate-prismic-types.mjs`
+runs `prismic-ts-codegen`, the generator Slice Machine uses. Before relying
+on it, I ran it on main's untouched models as a control:
+
+- `slices/index.js` came out byte-identical;
+- the types differed only by the `form_replies` document type, which the
+  committed file was missing (that model was added without a regen), plus
+  two comment positions.
+
+**The palette.** Following OD 62a, the gold is split by job:
+
+- white on Blux's `#dfb726` measured 1.91:1;
+- white on `#836a10` (`gold-deep`) measures 5.21:1, and `gold-deep` on
+  `#f5f5f5` measures 4.77:1;
+- `#dfb726` stays as text on the dark band, at 7.48:1.
+
+Round 1's design lens corrected one belief. The project page's "How it
+Works" band on Blux is dark type on bright gold, which already passes. It
+needed no recolour, so Steps gained a bright-gold option.
+
+**An instrument that never measured.** The new class-pair contrast scan
+first let its own mutation survive: `text-gold` on `bg-light`, the Blux
+Submit pair, at 1.76:1. Its quote regex paired the `"` of
+`class="… {x ? '…' : '…'}"` with the first `'`, so the Steps ternary was
+never read. After the fix, the same mutation goes red and reports 1.76:1,
+the figure the plan measured on the live site.
+
+**Review.**
+
+- **Round 1** (`00339cd`) found one blocker and six majors; all are fixed
+  in `6d2bb66`. The ones worth remembering:
+  - **Alt text:** `PrismicImage` drops the `alt` attribute entirely when
+    the field's alt is blank and no `fallbackAlt` is passed.
+  - **Prerender:** SvelteKit throws on `url.search` while prerendering, so
+    a migrated link to `/ediblegardens` would have failed the build. A
+    crawled redirect is also written as a meta-refresh file, which
+    adapter-netlify never turns into a 301. The fix is `force = true` in
+    `netlify.toml`.
+  - **Links:** the starter's routes-free client makes every Document link
+    render `href=""`.
+- **Round 2** (`6d2bb66`):
+  - a single-photo case-study strip still overflows at 768–1022px with no
+    tab stop, which axe reports as serious;
+  - a 13px kicker sits at about 3.3:1 on its gradient;
+  - smaller items are listed in Operator decisions 64.
+
+**Not done.**
+
+- The seed script, the model push, the swap of the placeholder repository
+  name, P4 and P5.
+- The seed content is ready on `claude/p2b-seed-draft`:
+  - all five documents;
+  - the folded edible-gardens page, taking the 8-study `/ediblegardens`
+    superset;
+  - alt text for 74 photos, each written by looking at the photo on
+    numbered contact sheets;
+  - drafted meta descriptions.
+- All 76 photo originals the pages use were downloaded, and each matched
+  its manifest sha256. They are not committed (232 MB).
+- One fact for the seed: `writeClient.migrate()` in `@prismicio/client`
+  7.22.1 never checks the media library for existing assets. A naive
+  re-run uploads every photo again, so the seed has to look up assets it
+  already created.
+
+Nothing was pushed to Prismic, and nothing was merged.
+
+## 2026-10-04 — Sunday PM pass: a green, quiet weekend (this PR)
 
 The Routine fired at 15:59Z on a Sunday, outside its Monday-to-Thursday 04:48 PT schedule, so this pass covers 10-01 12:00Z to 10-04 16:05Z in one sweep. Nothing merged on `main` after `a1424bdf` (10-01 19:20Z). All 48 scheduled runs in the window concluded `success`, and the job logs agree with the conclusions: every fleet sweep printed `FLEET_WRITE_SUMMARY … failed=0`, the backup verified with `mismatches=0` each night, and `ROSTER_URL_SUMMARY` has read `fail=0` since 10-02. #1106's new retry fired once, on 10-03, and the url passed on the second read. The weekly config-drift sweep ran for the second time (15 of 15 drifted, #1007 rewritten).
 
@@ -7397,6 +7529,6 @@ The Routine fired at 15:59Z on a Sunday, outside its Monday-to-Thursday 04:48 PT
 
 **Discord.** Tim's 09-17 ease-in ask, the one open ask in the last two reports, now carries the operator's 👍. The reaction API names `tucksravin`, so the ask is closed by the 09-29 rule. The ask also left the scan's 14-day window today, which would have hidden it whatever its state; it was confirmed closed by a direct read of the channel, not by its absence from the scan.
 
-**Concurrent sessions.** Three branches were pushed in the ten minutes before this pass started: Mantis P2a stopping at Operator decision 64 (docs, no PR), #1117 (`prismic-ci` from the cloud) and #1116 (`video`). This pass edits no line they touch, and records 64 as reserved, so the next new item is 65. The #754 sweep now lists `mantis-landscaping` with no ruleset and secret scanning and push protection off. The repo's first Netlify build had already tripped on a vendored Blux key, so that ask goes to the top of the operator's stack as a 🔴 item rather than being folded into the Williamson one.
+**Concurrent sessions.** Three branches were pushed in the ten minutes before this pass started: Mantis P2a stopping at Operator decision 64 (docs, no PR), #1117 (`prismic-ci` from the cloud) and #1116 (`video`). Two of them landed while this pass ran (#1117 at 16:04Z, #1118 at 16:17Z), and #1118 conflicted this PR's journal; both entries are kept. The next new Operator decision is 65. The #754 sweep now lists `mantis-landscaping` with no ruleset and secret scanning and push protection off. The repo's first Netlify build had already tripped on a vendored Blux key, so that ask goes to the top of the operator's stack as a 🔴 item rather than being folded into the Williamson one.
 
 **Not traced.** The backup's row count fell from 1113 to 1099 over three nights with `mismatches=0`. `pruneFleetEvents` is the likely cause; this pass did not count rows per table.
