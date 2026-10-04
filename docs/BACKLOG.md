@@ -1538,6 +1538,10 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     Custom Types write token (🔴), `gh secret set PRISMIC_WRITE_TOKEN --repo
 reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     refuses from a cloud session by design (secrets API).
+    **10-04: #1113 lifts that.** `prismic-ci` now runs from a cloud session.
+    The install PR's own dry job proves the token reads the models, and PR
+    listing and creation are REST-only. Phase 1's seven runs can come from
+    the cloud. The operator still mints and sets each token.
     **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
     `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
     the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
@@ -1797,6 +1801,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         groups.
 
       The full round-2 list is in a comment on #3.
+
     - **Ask:** (a) let a worker take a third round on #3, limited to the
       round-2 list above, then land it; (b) take the PR over by hand; or
       (c) re-scope (for example, drop the scrolling photo strip for a
