@@ -8084,3 +8084,25 @@ rules page now means "no rulesets", logged as a note, with the repo flags
 deciding. Second: the page loop is capped at ten pages. Three more mutations
 turned a test red each (no 403/404 tolerance, tolerating a 500 too, a cap of
 twenty), and the suite is 84 tests.
+
+## 2026-10-04 — Decision 70 landed: the starter's cloud-session hook (reddoor-starter#167, `9fb434b`)
+
+> Follows "Lighthouse runs in a cloud container; the axe half is a missing browser revision" above.
+
+The operator answered decision 70 yes. The starter's hook is this repo's,
+minus the GA key, `gh` and unshallow steps. In a container on the branch it
+installed chromium and headless-shell 1243 in 33 s. A second run took 3 s
+and downloaded nothing. With only what the hook set up, `pnpm verify`
+passed in full: the axe gate found 0 violations across 2 routes, and 562
+unit and 13 smoke tests passed.
+
+One assumption gave way on contact: the starter had ignored all of `.claude/`
+since #32, which untracked a `settings.json` that held the operator's
+personal allowlist. A hook can only be registered through a tracked
+`settings.json`, so the ignore was narrowed to everything except
+`settings.json` and `hooks/`. The starter's own CLAUDE.md still said that
+file was per-checkout "until someone decides otherwise"; the same PR
+corrected it. The operator's laptop checkout may still hold #32's untracked
+file, and a pull will refuse to overwrite it until it moves to
+`settings.local.json`. Existing sites and the Blux track do not have the
+hook yet. Each is its own PR, and the backfill is not decided.

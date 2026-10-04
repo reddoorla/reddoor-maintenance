@@ -2181,6 +2181,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     revision is missing (no effect on CI, new sites only; existing sites
     would need a per-repo PR each)? _Pick:_ yes, as a starter PR modelled
     on this repo's hook; the fleet backfill is a separate decision.
+    - **10-04 ~21:58Z: answered yes; landed** as reddoor-starter#167
+      (`9fb434b`). In a container on that branch, the hook installed
+      revision 1243 in 33 s, and then `pnpm verify` passed in full: axe
+      found 0 violations across 2 routes, and 562 unit and 13 smoke tests
+      passed. The starter's `.gitignore` now tracks `.claude/settings.json`
+      and `.claude/hooks/` only (narrowing #32), so a laptop checkout with
+      #32's untracked `settings.json` must move it to `settings.local.json`
+      before pulling. Still open: backfilling existing sites (one PR each)
+      and cherry-picking the hook into `reddoor-starter-blux`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
