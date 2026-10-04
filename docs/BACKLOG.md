@@ -1787,7 +1787,16 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         bright photo;
       - TextBlock headings still allow h1.
 
-      Tests and models: see the PR's comment on #3.
+      Tests and models found no blocker, and the models are safe to push.
+      Five behaviours have no test that goes red:
+      - the orderings;
+      - the project meta fallbacks;
+      - `SiteLink`'s `target`/`rel`;
+      - the `building` guard;
+      - `site-pages.test.ts`, which cannot see fields inside primary
+        groups.
+
+      The full round-2 list is in a comment on #3.
     - **Ask:** (a) let a worker take a third round on #3, limited to the
       round-2 list above, then land it; (b) take the PR over by hand; or
       (c) re-scope (for example, drop the scrolling photo strip for a
