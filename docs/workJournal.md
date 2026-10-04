@@ -8197,3 +8197,66 @@ to manufacture one.
 Next in order: Espada (one hardcoded clip, 1031277602, 30 s; master
 candidate `Espada Mastehead.mp4`, 39 MB). It needs a Prismic home field,
 because nothing about the clip lives in Prismic today.
+
+## 2026-10-04 — The simulator leaves every public bundle, and an encoded path is framed: starter, blux and 12 sites (reddoor-starter#168 `da084ba`, reddoor-starter-blux#39 `907a3bf`, #1090)
+
+> Follows 2026-10-04 — Both starters off Slice Machine; the baseline follows.
+
+These are the two findings from the adversarial review of caltex-landing#69. Both came from the phase 3 template (reddoor-starter#166), so every site migrated from it carried them.
+
+**The bundle.** #166 imported `SliceSimulator` from the `@prismicio/svelte` barrel. Rolldown assigns modules to chunks along the static import graph. The barrel re-exports the simulator, so once `/slice-simulator` used it, `@prismicio/simulator/kit` landed in the barrel's own chunk. Every page that renders a `SliceZone` loads that chunk. On the starter, home's static-import closure went from 37,093 to 40,331 B gzipped. Before #166 the code had lived only in the simulator's node. That was an accident: the Slice Machine adapter brought its own copy of the simulator, a different module from the barrel's, so the barrel's import never reached it.
+
+Four fixes were measured and failed:
+
+- A dynamic `import("@prismicio/svelte")` in the route: 41,428. It is still the same barrel module.
+- A deep import of `dist/SliceSimulator.svelte`: a byte-identical chunk. The barrel's import is what places the module, whatever path the route uses, and the package's `exports` block a deep import anyway.
+- A local copy of the component that imports the kit: 39,881. The component moved, but the kit stayed in the shared chunk.
+- A Rolldown `codeSplitting` group: one 75 KB chunk that took `SliceZone` with it. The setting that would stop that is refused under SvelteKit's `preserveEntrySignatures: "strict"`.
+
+What works is `scripts/prismic-barrel.ts`, a Vite plugin that declares only the barrel `index.js` side-effect-free. It is nothing but named re-exports, so the declaration is true. If an upgrade ever puts anything else in it, including `export {} from` or `export * from`, the plugin fails the build instead of making the claim. Results:
+
+- **Starter:** home dropped to 36,145.
+- **Blux:** home went from 57,927 to 53,705.
+- **caltex-landing:** the shared chunk hung off the root layout, so every page preloaded it. The root went from 52,489 to 45,229 and home from 33,304 to 26,048.
+
+The sites ranged from one leaking node (data-dynamiq and medical-solutions-of-texas, `[uid]` only) to nine (beachfront-dentistry). alamo-anatomy has no slices, but six of its routes import the barrel directly, so it leaked too. espada did not leak at all: its build already kept the simulator in its own node, so it got no PR.
+
+**The framing.** `isCmsFramedRoute(event.url.pathname)` matched the raw path, while SvelteKit routes on the decoded one. Measured from `vite preview` before the fix:
+
+| Sites | Hook shape | `/slice%2Dsimulator` |
+|---|---|---|
+| starter, blux, 29-navy, vida-legacy-foundation, beachfront-dentistry, williamson-homes | the starter's full hook | served the simulator SAMEORIGIN (fails closed) |
+| caltex-landing, medical-solutions-of-texas, data-dynamiq | touches only the simulator | sent no framing header at all |
+
+The no-header case was inert, because `@prismicio/simulator` checks message origins, but it was wrong. The hook now asks `event.route.id`. A test requires each framed id to name a real `+page` directory, because a route id is tied to the folder: moving the page into a route group would otherwise unframe it silently. The reviewer re-checked live on caltex, msot and gallerysonder. Their Netlify deploy previews frame `/slice%2Dsimulator`, and production on `main` still sends it with no header.
+
+**The rollout.**
+
+- **Starter (#168):** two adversarial review rounds. Round 1 found five minors, all folded in; round 2 found nits only.
+- **Blux:** a by-patch cherry-pick, never a merge.
+- **Sites:** I and three dispatched workers took the 12 the phase 4 session had already landed, one PR per repo, after agreeing a split with that session. Each PR shows its new tests red on `main`, green on the branch, and red again with the plugin removed. Two review batches of six found no blockers or majors, and every PR landed through `land-prs`:
+  - caltex-landing#70 `2595caa`
+  - medical-solutions-of-texas#72 `3f33cff`
+  - gallerysonder#108 `dd2b1f9`
+  - 29-navy#61 `3230f30`
+  - vida-legacy-foundation#90 `fa46e29`
+  - revogen#91 `7a89b58`
+  - data-dynamiq#58 `4f9d769`
+  - beachfront-dentistry#72 `a2dff7a`
+  - williamson-homes#21 `b9873ad`
+  - vineyard-custom-homes#72 `b1321e3`
+  - alamo-anatomy#64 `800a263`
+  - erp-industrial#69 `239161d`
+- **Plan §9:** steps 3 and 6 now carry both fixes for the sites still to migrate. BACKLOG Operator decisions 57 names those four.
+
+**Instruments that were wrong first.**
+
+- **Preload regex:** caltex's first spec read modulepreload links over HTTP, and it passed on `main`. Its regex expected `rel` before `href`, and that site writes them the other way round. In any case, CI's smoke suite serves `vite dev`, where there are no chunks to read. The specs now read the build manifest from disk, and they fail rather than skip under `CI` when there is no build.
+- **Starter control:** the starter's control route failed on both branches because it searched the whole CSP for `*.prismic.io`, which `connect-src` and `img-src` name legitimately. It now looks only at `frame-ancestors`.
+- **Container restart:** a restart killed the first three workers mid-run. The half-finished data-dynamiq change it left imported the plugin but never registered it, so it would have shipped green and done nothing. The resumed worker re-measured instead of trusting that diff, and caught it.
+
+**Left as is.**
+
+- Five sites import the plugin without an extension because their `checkJs` or tsconfig refuses a `.ts` one. Vite logs a warning for each, and they will need the extension if Vite makes `configLoader: 'native'` the default.
+- The site specs' `/` control can only fail under `vite dev`, because `/` is prerendered.
+- The 29-navy and williamson-homes branches remain on GitHub, because the proxy refuses branch deletes.

@@ -1695,6 +1695,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       built it; if the container is gone, re-run the migration from the recipe
       (`docs/prismic-migration-plan-2026-10.md` §9 and this session's
       journal). _Pick:_ allow that push; the branch is ready for its PR.
+    - **10-04 23:42Z: follow-up landed** from caltex-landing#69's review
+      (reddoor-starter#168 `da084ba`, reddoor-starter-blux#39 `907a3bf`). The
+      barrel plugin keeps `@prismicio/simulator` out of every public page's
+      bundle, and the framing hook matches `event.route.id`, so
+      `/slice%2Dsimulator` is framed. It landed in 12 of the 13 sites above.
+      espada needed nothing: its build already kept the simulator in its own
+      node. hedloc, both Burbank proofs and williamson-construction-co
+      migrated without it. Each needs the plan §9 step 3 and step 6 additions
+      on top of its migration, in the same PR or straight after.
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:
