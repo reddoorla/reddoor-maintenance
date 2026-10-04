@@ -47,7 +47,11 @@ const PRETTIER_TIMEOUT_MS = 60_000;
  *  rather than thirty. `makeGitHub()` satisfies it structurally. */
 export type PrismicCiGitHub = Pick<
   GitHub,
-  "defaultBranch" | "secretExists" | "fileContentsOnBranch" | "openPullRequest" | "openPullRequestRefs"
+  | "defaultBranch"
+  | "secretExists"
+  | "fileContentsOnBranch"
+  | "openPullRequest"
+  | "openPullRequestRefs"
 >;
 
 export type PrismicCiDeps = {
@@ -313,7 +317,9 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
 
   // 7. Already proposed? Without this, every run before the PR merges opens
   //    another one.
-  const open = (await gh.openPullRequestRefs(repo)).find((pr) => pr.headRef.startsWith(BRANCH_PREFIX));
+  const open = (await gh.openPullRequestRefs(repo)).find((pr) =>
+    pr.headRef.startsWith(BRANCH_PREFIX),
+  );
   if (open) {
     return resultOf(site, "noop", `delivery workflow PR already open: ${open.url}`);
   }
