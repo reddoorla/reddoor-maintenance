@@ -7518,3 +7518,17 @@ the figure the plan measured on the live site.
   already created.
 
 Nothing was pushed to Prismic, and nothing was merged.
+
+## 2026-10-04 — Sunday PM pass: a green, quiet weekend (this PR)
+
+The Routine fired at 15:59Z on a Sunday, outside its Monday-to-Thursday 04:48 PT schedule, so this pass covers 10-01 12:00Z to 10-04 16:05Z in one sweep. Nothing merged on `main` after `a1424bdf` (10-01 19:20Z). All 48 scheduled runs in the window concluded `success`, and the job logs agree with the conclusions: every fleet sweep printed `FLEET_WRITE_SUMMARY … failed=0`, the backup verified with `mismatches=0` each night, and `ROSTER_URL_SUMMARY` has read `fail=0` since 10-02. #1106's new retry fired once, on 10-03, and the url passed on the second read. The weekly config-drift sweep ran for the second time (15 of 15 drifted, #1007 rewritten).
+
+**The reports gate, proven before it was trusted.** The five Maintenance reports due 10-05 were read with a libSQL client wrapped so that anything but SELECT/WITH throws; an `UPDATE … WHERE 0` was refused first. `nextDueDate` gave 2026-10-05 for all five, and `preflightSite` returned no finding for any of them. A clean result from a check is only evidence once it has failed on something, so Espada was re-run with its recipients and point of contact blanked. The first attempt blanked only the recipients and still came back clean, because the send path falls back to the point of contact. That made the check look broken when the control was what was wrong; blanking both returned `recipients-missing`.
+
+**A belief corrected on contact.** BACKLOG P0-4 said Data Dynamiq has no GA4. Its row now holds `ga4_property_id` 556916505. Nobody recorded the change, so the backlog could not have known. All five 10-05 reports are GA4-enrolled.
+
+**Discord.** Tim's 09-17 ease-in ask, the one open ask in the last two reports, now carries the operator's 👍. The reaction API names `tucksravin`, so the ask is closed by the 09-29 rule. The ask also left the scan's 14-day window today, which would have hidden it whatever its state; it was confirmed closed by a direct read of the channel, not by its absence from the scan.
+
+**Concurrent sessions.** Three branches were pushed in the ten minutes before this pass started: Mantis P2a stopping at Operator decision 64 (docs, no PR), #1117 (`prismic-ci` from the cloud) and #1116 (`video`). Two of them landed while this pass ran (#1117 at 16:04Z, #1118 at 16:17Z), and #1118 conflicted this PR's journal; both entries are kept. The next new Operator decision is 65. The #754 sweep now lists `mantis-landscaping` with no ruleset and secret scanning and push protection off. The repo's first Netlify build had already tripped on a vendored Blux key, so that ask goes to the top of the operator's stack as a 🔴 item rather than being folded into the Williamson one.
+
+**Not traced.** The backup's row count fell from 1113 to 1099 over three nights with `mismatches=0`. `pruneFleetEvents` is the likely cause; this pass did not count rows per table.

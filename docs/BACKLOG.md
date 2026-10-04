@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-10-01 ~16:45Z** (PM pass follow-up with the operator, `claude/focused-cori-9omnk9`; a diff, not a full re-rank).
+**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-10-04 ~16:10Z** (Sunday PM pass, `claude/youthful-turing-o7qpdl`; a diff, not a full re-rank).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -112,13 +112,13 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                               |
-| ----- | --------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Sent 2026-10-01 16:34:12Z, delivered** [M, daily-reports run 36892838203 `✓ sent`, live row]. Approved by the operator 09-30 21:18:16Z.                                                                                                                                                                                           |
-| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                         |
-| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                            |
-| 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window. |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; preflight clean on all five; FH stamped 09-30 14:50–15:04Z [M]. Revogen **is** GA4-enrolled (`ga4_property_id` 545817747). Data Dynamiq has no GA4 and no search enrolment, so it draws no analytics section.                                                                                                          |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Sent 2026-10-01 16:34:12Z, delivered** [M, daily-reports run 36892838203 `✓ sent`, live row]. Approved by the operator 09-30 21:18:16Z.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window.                                                                                                                                                                                                        |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; they draft in the 10-05 `daily-reports` run (~15:00Z) and each needs the operator's approve. **10-04 16:03Z [M]:** `nextDueDate` = 2026-10-05 for all five, `preflightSite` returns no finding for any of them (its negative control, Espada with recipients and contact blanked, returns `recipients-missing`), and fleet-lighthouse re-stamped evidence 10-04 13:48Z (`wrote=21 failed=0`). **Corrected:** Data Dynamiq now has `ga4_property_id` 556916505, so it is no longer the one without GA4; all five are enrolled. |
 
 **Settled — do not flag again (operator, 2026-09-29, after being asked
 several times):** the report recipients are correct as they are. MSOT and
@@ -215,6 +215,26 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   Routine, so its session state was not read.
   **10-01 12:00Z [M]:** unchanged — same head, last commit 02:25:59Z, still
   no PR.
+  **10-04 16:00Z [M]:** still unchanged — same head, last commit
+  2026-10-01 02:25:59Z, no PR. Three and a half days idle.
+
+- **Live worker sessions, 10-04 ~16:00Z [M, branches and PRs; `get_session`
+  is not available to the PM Routine].** All three pushed within ten minutes of
+  the pass starting: rank, do not take.
+  - Mantis P2a: landed its stop as Operator decision **64** in #1118
+    (`9664ef0a`, 16:17Z) while this pass ran. The next new item here is **65**.
+  - #1117, `prismic-ci` from a cloud session (#1113): landed as `2c5d9f1c`
+    at 16:04Z, also during this pass.
+  - PR #1116, `claude/video-encode-command` (`5715a32c`, 15:59Z): the `video`
+    encode command (item 63), review round 1 folded in. Still open.
+- **#754, new repos below the posture floor (10-04 nightly [M]).**
+  `mantis-landscaping`, `williamson-homes` and `williamson-construction-co`
+  have no repo ruleset, and secret scanning and push protection are off. For
+  the Williamsons this is item 33 (d), still open; Mantis is new, and its first
+  Netlify build already failed on a vendored Blux key (mantis-landscaping#2),
+  which push protection would have stopped at the push. 🔴, the operator's.
+  The renovate-staleness gaps on data-dynamiq, MSOT and vineyard cleared
+  between 10-01 and 10-04.
 
 - **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
   the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
