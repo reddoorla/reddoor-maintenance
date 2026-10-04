@@ -456,6 +456,24 @@ describe("prismic-sync --fleet", () => {
     expect(await branchHead()).toBeNull();
   });
 
+  it("runs nothing a clone ships during the model writes, even a committed prettier", async () => {
+    const marker = join(tmp, "ran");
+    await makeOrigin({
+      ...STANDARD,
+      "node_modules/.bin/prettier": `#!/bin/sh\ntouch "${marker}"\n`,
+    });
+    await git(["add", "-f", "node_modules"], seedDir);
+    await git(["update-index", "--chmod=+x", "node_modules/.bin/prettier"], seedDir);
+    await commitAll(seedDir, "ship a prettier");
+    await git(["push", "--quiet", "origin", "main"], seedDir);
+    const h = harness();
+    h.deps.models.spawn = (await import("../../src/audits/util/spawn.js")).makeSpawn();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^opened\s+Fixture/m);
+    await expect(readFile(marker, "utf-8")).rejects.toThrow(/ENOENT/);
+  });
+
   it("refuses a site whose own tools changed .git/config", async () => {
     await makeOrigin(STANDARD);
     const h = harness();

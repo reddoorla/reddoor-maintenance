@@ -331,7 +331,16 @@ async function syncOneSite(
     }
   }
 
-  const r = await syncSiteModels(root, deps.models, { allowGenericToken: false });
+  // No process may run during the model writes here. They format with the
+  // clone's own `node_modules/.bin/prettier` when one exists, and a repo can
+  // commit one: it would run with this job's full environment, before the
+  // checks below. Formatting happens later, through `deps.format`, with
+  // every credential removed.
+  const r = await syncSiteModels(
+    root,
+    { ...deps.models, spawn: refuseSpawn },
+    { allowGenericToken: false },
+  );
   if (!r.ok) {
     return {
       label,
@@ -483,6 +492,11 @@ async function syncOneSite(
   const created = await opts.github.createPr(repo, { head: SYNC_BRANCH, base, title, body });
   return { label, outcome: "opened", detail: `opened ${created.url} — ${summary}` };
 }
+
+/** The spawner the fleet's model writes get: none. */
+const refuseSpawn: SpawnFn = async (cmd) => {
+  throw new Error(`no process may run during a fleet sync's model writes (asked for ${cmd})`);
+};
 
 /** The contents of the files in a clone that decide what git itself runs. */
 async function gitControlFingerprint(root: string): Promise<string> {
