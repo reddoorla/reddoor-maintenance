@@ -1764,12 +1764,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       The encode recipe `reddoor-maint video` sits unreviewed on
       `claude/video-encode-command`.
 
-    _Goes well when_ (fill in with measured numbers before any rollout):
-    Best Practices ≥ 90 on the fixtures route; hero playing on first paint
-    with no interaction; under 3 MB of video per unscrolled home visit at
-    390px; zero Vimeo console errors in smoke. _Ask, once those are in:_ roll
-    `BgVideo` to the eight Vimeo sites as each is touched, or leave them.
-    _Pick:_ roll, site by site, never as a sweep.
+    - **Content landed (2026-10-01, content session):** 18 HD files in the
+      library via `prismic-media-upload.yml` (run 36909548005, 17 uploads;
+      the scan webm was already there, md5-matched), release
+      `ar6sFBIAABZvSIhQ` with 21 deltas published at 19:05Z, the build hook
+      rebuilt production by 19:06Z. The recipe is #1116; the site's record
+      is williamson-construction-co#16.
+
+    _Goes well when_, read on production 2026-10-01/04 [M]: Best Practices
+    100 on the dev fixtures route (lhci, desktop preset) and 100 on
+    production home; the hero playing with no interaction in every run
+    (phone mp4 at 390px, 1080 webm at 1440px, 5.6–6.8 s in at the 8 s
+    mark); home at 390px 1.30 / 1.52 / 1.49 MB of video in 8 s unscrolled,
+    counted on the wire from CDP, against the 3 MB line; zero console
+    errors and no Vimeo frame on four loads. Two readings outside the line
+    that the home figure hides: about-us at 390px downloads 5.9 MB (the
+    20 s first-day phone mp4 is 6.0 MB and Chromium takes it whole) and
+    services 6.4 MB of its 10.8 MB phone file. That is the recipe's phone
+    cap (`-maxrate 2200k`), not the player, and it is the number to set
+    before the eight Vimeo sites get long clips. _Ask:_ roll `BgVideo` to
+    the eight Vimeo sites as each is touched, or leave them; and whether
+    the phone cap should come down (1200k would put a 20 s clip near 3 MB)
+    before the first rollout. _Pick:_ roll, site by site, never as a sweep;
+    lower the cap in the recipe first and re-encode Williamson's two long
+    clips with it, one `reddoor-maint video` run each and a six-field
+    rewire.
 
 64. **Mantis P2a (reddoorla/mantis-landscaping#3): two dirty review rounds
     (new 2026-10-04).** #3 is the content model, seven new slices,
@@ -1845,6 +1864,21 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       `PRISMIC_WRITE_TOKEN` for `the-pointe-burbank`. A
       `prismic-models --apply` run without
       `PRISMIC_TOKEN_MANTIS_LANDSCAPING` set falls back to it.
+65. **`reddoor-maint video` (#1116): two review rounds, and round 2 found a
+    real defect. Land as is, or a third round?** The HD encode recipe for
+    background video (decision 63). Round 1 (two lenses): no blockers, three
+    ops majors on the `--upload` path and seven minors, all fixed, ten named
+    mutations red. Round 2 (three lenses on the fixed head): no blockers; the
+    tests lens rated one finding major, a STALE verdict taken mid-loop so a
+    new cut's phone file and poster could land beside the old main mp4.
+    Fixed as a pre-pass that uploads nothing when any file is stale, with
+    six more minors; seven named mutations red, 33/33, lint and typecheck
+    clean, CI green on the head. Under `CLAUDE.md`'s two-dirty-rounds rule
+    the PR stops here. _Ask:_ land #1116 at its current head, or send it to
+    a third round. _Pick:_ land it: every finding of both rounds is fixed
+    and tested, the `--upload` path the findings concern has never run live
+    and the README says so, and that first live run is the next instrument.
+    Branch `claude/video-encode-command`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
