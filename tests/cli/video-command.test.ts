@@ -13,7 +13,9 @@ import {
 
 type Call = { cmd: string; args: string[]; opts: SpawnOptions | undefined };
 
-function fakeSpawn(calls: Call[], source = { width: 1920, height: 1080 }): SpawnFn {
+type FakeSource = { width: number; height: number; side_data_list?: { rotation?: number }[] };
+
+function fakeSpawn(calls: Call[], source: FakeSource = { width: 1920, height: 1080 }): SpawnFn {
   return async (cmd, args, opts) => {
     calls.push({ cmd, args: [...args], opts });
     if (cmd === "ffprobe") {
@@ -146,7 +148,7 @@ describe("video: runVideoCommand", () => {
     const res = await runVideoCommand(
       "Hero Loop.mov",
       { cwd, out: "out" },
-      { spawn: fakeSpawn(calls), env: {} },
+      { spawn: fakeSpawn(calls), env: {}, stderr: { write: () => true } },
     );
     expect(res.code).toBe(0);
 
@@ -222,7 +224,7 @@ describe("video: runVideoCommand", () => {
     const res = await runVideoCommand(
       "master.mp4",
       { cwd, name: "Front Door", maxHeight: "720" },
-      { spawn: fakeSpawn(calls), env: {} },
+      { spawn: fakeSpawn(calls), env: {}, stderr: { write: () => true } },
     );
     expect(res.code).toBe(0);
     const outputs = calls.filter((c) => c.cmd === "ffmpeg").map((c) => c.args[c.args.length - 1]);
@@ -234,7 +236,7 @@ describe("video: runVideoCommand", () => {
     const res = await runVideoCommand(
       "master.mp4",
       { maxHeight: "tall" },
-      { spawn: fakeSpawn(calls), env: {} },
+      { spawn: fakeSpawn(calls), env: {}, stderr: { write: () => true } },
     );
     expect(res.code).toBe(2);
     expect(calls).toHaveLength(0);
@@ -310,7 +312,11 @@ describe("video: runVideoCommand", () => {
         syscall: `spawn ${cmd}`,
       });
     };
-    const res = await runVideoCommand("master.mp4", {}, { spawn, env: {} });
+    const res = await runVideoCommand(
+      "master.mp4",
+      {},
+      { spawn, env: {}, stderr: { write: () => true } },
+    );
     expect(res.code).toBe(2);
     expect(res.output).toMatch(/install ffmpeg/);
   });
@@ -323,7 +329,11 @@ describe("video: runVideoCommand", () => {
       if (cmd === "ffmpeg") return { code: 187, stdout: "", stderr: "" };
       return base(cmd, args, opts);
     };
-    const res = await runVideoCommand("master.mp4", { cwd }, { spawn, env: {} });
+    const res = await runVideoCommand(
+      "master.mp4",
+      { cwd },
+      { spawn, env: {}, stderr: { write: () => true } },
+    );
     expect(res.code).toBe(1);
     expect(res.output).toContain("ffmpeg exited 187 while encoding master-1080.mp4");
   });
@@ -347,11 +357,7 @@ describe("video: review round 1", () => {
       "master.mp4",
       { cwd },
       {
-        spawn: fakeSpawn(calls, {
-          width: 1280,
-          height: 720,
-          side_data_list: [{ rotation: 90 }],
-        } as { width: number; height: number }),
+        spawn: fakeSpawn(calls, { width: 1280, height: 720, side_data_list: [{ rotation: 90 }] }),
         env: {},
         stderr: { write: () => true },
       },
@@ -470,10 +476,10 @@ describe("video: review round 1", () => {
     expect(res.output).toContain(
       "STALE master-360.webm asset-old https://cdn/x.webm (library 999 bytes, local 2621440 bytes)",
     );
-    expect(res.output).toContain(
-      "UPLOADED master-poster.jpg asset-2 https://cdn/master-poster.jpg",
+    expect(res.output).not.toContain("UPLOADED");
+    expect(res.output).toMatch(
+      /1 library file\(s\) differ from the local encode; nothing uploaded/,
     );
-    expect(res.output).toMatch(/1 library file\(s\) differ/);
   });
 
   it("a library file of the same name and size is EXISTS and the run exits 0", async () => {
@@ -485,6 +491,7 @@ describe("video: review round 1", () => {
     const res = await run();
     expect(res.code).toBe(0);
     expect(res.output).toContain("EXISTS master-360.webm asset-same https://cdn/x.webm");
+    expect(res.output).not.toContain("size unverified");
   });
 
   it("each multipart part carries the MIME type of its extension", async () => {
@@ -520,6 +527,108 @@ describe("video: review round 1", () => {
         syscall: "open",
       });
     };
-    await expect(runVideoCommand("master.mp4", {}, { spawn, env: {} })).rejects.toThrow(/ENOENT/);
+    await expect(
+      runVideoCommand("master.mp4", {}, { spawn, env: {}, stderr: { write: () => true } }),
+    ).rejects.toThrow(/ENOENT/);
+  });
+});
+
+describe("video: review round 2", () => {
+  it("a 401 on the asset list exits 1 keeping the source line and the table", async () => {
+    const calls: Call[] = [];
+    const cwd = await mkdtemp(join(tmpdir(), "video-cmd-"));
+    const fetchImpl: typeof fetch = async () => new Response("bad token", { status: 401 });
+    const res = await runVideoCommand(
+      "master.mp4",
+      { cwd, upload: "beach-front" },
+      {
+        spawn: fakeSpawn(calls, { width: 640, height: 360 }),
+        env: { PRISMIC_TOKEN_BEACH_FRONT: "tok" },
+        fetch: fetchImpl,
+        sleep: async () => {},
+        stderr: { write: () => true },
+      },
+    );
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("source master.mp4: 640x360 12.5s");
+    expect(res.output).toMatch(/master-360\.mp4\s+1280x720\s+2\.5\s+1800/);
+    expect(res.output).toMatch(/FAILED asset list: asset list: 401 bad token/);
+  });
+
+  it("an EXISTS for a library item without size says so", async () => {
+    const parts: string[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      if ((init?.method ?? "GET") === "GET") {
+        return new Response(
+          JSON.stringify({
+            items: [{ id: "asset-nosize", filename: "master-360.webm", url: "https://cdn/x.webm" }],
+          }),
+          { status: 200 },
+        );
+      }
+      const file = (init?.body as FormData).get("file") as File;
+      parts.push(file.name);
+      return new Response(JSON.stringify({ id: "a", url: `https://cdn/${file.name}` }), {
+        status: 200,
+      });
+    };
+    const calls: Call[] = [];
+    const cwd = await mkdtemp(join(tmpdir(), "video-cmd-"));
+    const res = await runVideoCommand(
+      "master.mp4",
+      { cwd, upload: "beach-front" },
+      {
+        spawn: fakeSpawn(calls, { width: 640, height: 360 }),
+        env: { PRISMIC_TOKEN_BEACH_FRONT: "tok" },
+        fetch: fetchImpl,
+        readFile: async () => new Uint8Array([1]),
+        sleep: async () => {},
+        stderr: { write: () => true },
+      },
+    );
+    expect(res.code).toBe(0);
+    expect(res.output).toContain(
+      "EXISTS master-360.webm asset-nosize https://cdn/x.webm (size unverified)",
+    );
+    expect(parts).toEqual(["master-360.mp4", "master-poster.jpg"]);
+  });
+
+  it("--name given as a number names the outputs", async () => {
+    const calls: Call[] = [];
+    const cwd = await mkdtemp(join(tmpdir(), "video-cmd-"));
+    const res = await runVideoCommand(
+      "master.mp4",
+      { cwd, name: 101, out: 2024 },
+      { spawn: fakeSpawn(calls), env: {}, stderr: { write: () => true } },
+    );
+    expect(res.code).toBe(0);
+    expect(calls.filter((c) => c.cmd === "ffmpeg")[0]!.args.at(-1)).toBe(
+      join(cwd, "2024", "101-1080.mp4"),
+    );
+  });
+
+  it("a rotation of 89 is planned as a quarter turn, 180 is not", () => {
+    const opts = { name: "hero", maxHeight: 1080 };
+    expect(files(planRenditions({ width: 1280, height: 720, rotation: 89 }, opts))[0]).toBe(
+      "hero-1080.mp4",
+    );
+    expect(files(planRenditions({ width: 1280, height: 720, rotation: -180 }, opts))[0]).toBe(
+      "hero-720.mp4",
+    );
+  });
+
+  it("a missing input exits 2 naming the file, before any ffmpeg", async () => {
+    const calls: Call[] = [];
+    const spawn: SpawnFn = async (cmd, args, opts) => {
+      calls.push({ cmd, args: [...args], opts });
+      return { code: 1, stdout: "", stderr: `${args.at(-1)}: No such file or directory` };
+    };
+    await expect(
+      runVideoCommand("gone.mp4", {}, { spawn, env: {}, stderr: { write: () => true } }),
+    ).rejects.toMatchObject({
+      exitCode: 2,
+      message: expect.stringMatching(/gone\.mp4: no such file/),
+    });
+    expect(calls.filter((c) => c.cmd === "ffmpeg")).toHaveLength(0);
   });
 });

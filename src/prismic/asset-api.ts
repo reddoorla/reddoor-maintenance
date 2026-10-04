@@ -24,7 +24,7 @@ export const apiHeaders = (repo: string, token: string) => ({
 
 export async function expectOk(res: Response, what: string): Promise<Response> {
   if (res.ok) return res;
-  throw new Error(`${what}: ${res.status} ${await res.text()}`);
+  throw new Error(`${what}: ${res.status} ${(await res.text()).slice(0, 300)}`);
 }
 
 export async function listAssetsByFilename(

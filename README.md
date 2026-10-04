@@ -129,14 +129,17 @@ it is unset. Uploads are deduped by filename against the existing library:
 each file prints `UPLOADED <file> <id> <url>`, `EXISTS <file> <id> <url>` when
 the library already holds a file of that name and size, or `STALE <file> <id>
 <url> (library N bytes, local M bytes)` when the names match but the bytes do
-not, in which case the command exits `1` after the loop and nothing is
-replaced: re-run with a new `--name` or delete the old asset in Prismic. A
-failed POST prints `FAILED <file>: <reason>` and exits `1` keeping every line
-earned before it, so the ids of files that did land are not lost. Each
-multipart part carries its MIME type from the extension. The upload path is
-tested against a fake fetch only; as of 2026-10-04 no video has gone through
-it live (Williamson's went through that site's `prismic-media-upload`
-workflow), so the first live run should be read, not assumed.
+not. The verdicts are decided before any POST: one `STALE` file means nothing
+is uploaded and the command exits `1`, so a new cut never lands half beside
+an old one; re-run with a new `--name` or delete the old assets in Prismic.
+A library item that reports no size prints `EXISTS … (size unverified)`. A
+failed list or POST prints `FAILED <what>: <reason>` and exits `1` keeping
+every line earned before it, so the ids of files that did land are not lost.
+Each multipart part carries its MIME type from the extension. A missing
+input exits `2`. The upload path is tested against a fake fetch only and has
+not run live (Williamson's files went through that site's
+`prismic-media-upload` workflow; see the 2026-10-01 journal entry), so the
+first live run is to be read, not assumed.
 
 ---
 

@@ -406,7 +406,7 @@ cli
 cli
   .command(
     "video <input>",
-    "Encode a background-video master into the fleet's web renditions (mp4, webm, phone mp4, poster); optionally upload them to a site's Prismic media library.",
+    "Encode a background-video master into the fleet's web renditions, optionally uploading them to a site's Prismic media library.",
   )
   .option("--out <dir>", "Output directory (default: ./video-out)")
   .option("--name <slug>", "Basename for the outputs (default: the input's basename, slugified)")
