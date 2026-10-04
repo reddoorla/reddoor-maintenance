@@ -345,14 +345,19 @@ for the hand-resolution pattern.
    `@slicemachine`, `start-slicemachine`, `src/prismicio-types`,
    `slices/index.js` and `concurrently`.
 2. Write `prismic.config.json` by hand. Never `prismic init`.
-3. Swap the simulator import to `@prismicio/svelte`.
+3. Swap the simulator import to `@prismicio/svelte`, and add
+   `scripts/prismic-barrel.ts` from reddoor-starter#168 to `vite.config.*`'s
+   plugins. Without it, the barrel puts `@prismicio/simulator` in the shared
+   chunk that every SliceZone page preloads (+3.3 KB gz on caltex). Added
+   2026-10-04 after caltex-landing#69's review.
 4. Remove the packages and add `prismic`.
 5. Run `prismic gen` and diff the exported type names against the old file.
    Expect stale-model findings (both starters had one) and name them in the PR.
 6. Port `src/lib/security/cms-framing.ts` and its test into the site's server
    hook. About 11 sites set no X-Frame-Options in `hooks.server.ts` but still
    send `frame-ancestors 'self'` through the central CSP. Their hook needs only
-   the CSP widening.
+   the CSP widening. The hook asks `isCmsFramedRoute(event.route.id)`, never
+   the pathname, which misses `/slice%2Dsimulator` (reddoor-starter#168).
 7. Add the `prismic-codegen` workflow.
 8. Prove `/slice-simulator`'s headers from `vite preview` against a control
    route.
