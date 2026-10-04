@@ -7600,3 +7600,50 @@ names the 480p transcodes, so a re-seed would put them back; fixing it is
 separate work, as the brief said. The `--upload` path of the recipe has
 never run live: no `PRISMIC_TOKEN_*` reaches a cloud session, and the
 README says so.
+
+## 2026-10-04 — Mantis P2a round 3 was done twice: one operator answer reached two sessions (mantis-landscaping#3)
+
+This entry follows "Mantis P2a: model, slices and routes built; stopped
+after two dirty review rounds". It records what happened after that entry
+landed in #1118.
+
+The operator answered Operator decisions 64 with (a), a third round, in
+the session that had filed it. At 16:06Z the PM session had already
+spawned a separate worker, `session_01QXAqc3dGdPvzhmyu1rm1yt`, titled
+"Mantis P2a round 3 (scoped), then seed and model push", which acted on
+the same answer. Both sessions did the round in parallel:
+
+- the worker pushed `427ee49` to `claude/p2-model-slices` at 16:25:22Z;
+- the filing session finished its own round (`1f33c34`) about ten minutes
+  later, and its push was rejected as non-fast-forward.
+
+The rejection was the only signal. The filing session had checked fresh
+branches and the PR head just before it started (16:24Z). At that moment
+the worker existed but had not pushed. The CLAUDE.md check — fresh
+branches and open PRs — cannot see a session that has claimed work but not
+yet written anything, and an operator answer given in one session says
+nothing to a sibling working the same item.
+
+**What was done.**
+
+- The filing session did not force-push and stood down.
+- It handed the worker the seed draft (`claude/p2b-seed-draft`, with alt
+  text for 74 photos), the `PRISMIC_WRITE_TOKEN` fallback hazard, the lack
+  of asset dedupe in `migrate()`, and a conflict with the seed: the
+  worker's own "TextBlock offers no h1" change breaks two title bands it
+  uses.
+- With the operator's OK, it pushed its round as `claude/p2a-r3-alt`
+  (no PR), so the worker could diff the two rounds. That round had two
+  extras: a no-space fallback for the meta-description cut, and a
+  per-slice link test for Hero, CtaBanner and SectionGrid.
+- The proxy refuses branch deletes, so that branch needs a human, or
+  GitHub's "Automatically delete head branches" setting, to go away.
+
+**The cost:** one duplicated round, about 20 minutes of agent time.
+Nothing was merged twice. Each round's 20-plus mutations went red, so
+neither was wasted as evidence.
+
+**What would have prevented it:** a claim comment on #1107 or on the PR,
+by whichever session is about to act on an answered Operator decision,
+read by the other before it starts. The PM pass that spawns a worker for
+an answered item could post that claim itself.
