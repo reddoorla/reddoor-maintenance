@@ -2158,6 +2158,25 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     separate secret and still unverified from the cloud. (#13's comment
     calls this item 67; 67 and 68 had already landed, so it is 69.)
 
+70. **Site checkouts in a cloud session cannot run the axe audit (#1132,
+    new 2026-10-04).** Cause, measured: mantis-landscaping (native starter)
+    resolves `@playwright/test` 1.63.0, which launches
+    `chromium_headless_shell-1243`; the cloud image's `/opt/pw-browsers` has
+    only 1194 and 1234, and no site repo has a cloud setup hook to install
+    the right one (this repo's `.claude/hooks/cloud-session-setup.sh` does it
+    for its lockfile's 1.62.1, revision 1234). Pointing
+    `PLAYWRIGHT_BROWSERS_PATH` at a scratch
+    dir that aliases 1243 to 1234 passed with 0 violations across 2 routes and
+    the hydration smoke, so nothing else is wrong; `main`'s audit already
+    names the missing executable (0.97.0, the site's pin, buried it behind
+    an npm warning; Renovate brings the fix). _Ask:_ may
+    `reddoorla/reddoor-starter` gain a `CLAUDE_CODE_REMOTE`-gated
+    SessionStart hook that runs `pnpm install` and
+    `playwright install chromium chromium-headless-shell` when the pinned
+    revision is missing (no effect on CI, new sites only; existing sites
+    would need a per-repo PR each)? _Pick:_ yes, as a starter PR modelled
+    on this repo's hook; the fleet backfill is a separate decision.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have

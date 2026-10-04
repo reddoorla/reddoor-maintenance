@@ -69,6 +69,18 @@ if [ "${#missing[@]}" -gt 0 ]; then
   fi
 fi
 
+if [ -z "${CHROME_PATH:-}" ] && ! command -v google-chrome google-chrome-stable chromium chromium-browser >/dev/null 2>&1; then
+  pw_chrome=$(node -e 'process.stdout.write(require("@playwright/test").chromium.executablePath())' 2>/dev/null)
+  if [ -n "$pw_chrome" ] && [ -x "$pw_chrome" ]; then
+    export CHROME_PATH="$pw_chrome"
+    if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+      printf 'export CHROME_PATH="%s"\n' "$pw_chrome" >> "$CLAUDE_ENV_FILE"
+    fi
+  else
+    notes+=("No Chrome is on PATH and Playwright's Chromium (${pw_chrome:-unresolved}) is not installed, so CHROME_PATH is unset and the lighthouse audit cannot launch Chrome.")
+  fi
+fi
+
 apt_install() {
   apt-get install -y -q "$@" >&2 || { apt-get update -q >&2 && apt-get install -y -q "$@" >&2; }
 }

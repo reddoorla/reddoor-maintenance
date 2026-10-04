@@ -7976,3 +7976,54 @@ Follow-on to the earlier entry today, "P1-26 privacy page: starter held at decis
 **Instrument note.** Playwright ran in this container for the roalson specs: `/opt/pw-browsers` carries `chromium-1234`, which roalson's `@playwright/test` resolves. The starter's run earlier today wanted `chromium_headless_shell-1243` and could not start. So "Playwright cannot run in the cloud container" is false as a general statement; it depends on the repo's pinned version.
 
 **Left open.** Most of this is listed under BACKLOG Done (P1-26). roalson-interests#258 holds the three per-site values and two wording details. The proxy refused deleting roalson's `claude/privacy-page` branch after the merge, so it is still on GitHub.
+
+## 2026-10-04 — Lighthouse runs in a cloud container; the axe half is a missing browser revision (#1136, #1132, decision 70)
+
+The brief said Lighthouse probably failed in the cloud because Chrome refuses
+root without `--no-sandbox`. That was half of it. Run by hand with no
+`CHROME_PATH`, lhci found no Chrome at all: `autorun` prints `❌ Chrome
+installation not found` to stdout, and `collect` says `The CHROME_PATH
+environment variable must be set`. The image has no system Chrome, only
+`/opt/pw-browsers`. The 10-01 hand run that worked had set `CHROME_PATH`
+itself, which is why it looked like a single cause. With `CHROME_PATH` set,
+the second cause showed: `Running as root without --no-sandbox is not
+supported`. `--no-sandbox` alone was enough, since lhci adds `--headless=new`
+itself. The fix splits along that line. The audit adds `--no-sandbox` only
+when `process.getuid()` is 0, which is the exact condition under which Chrome
+refuses. The cloud setup hook exports Playwright's Chromium as `CHROME_PATH`
+when none is on `PATH`, so CI, which has a system Chrome and is not root,
+resolves the same config byte for byte. The audit's summary had shown the
+first 200 characters of stderr, which were `npm warn deprecated glob@7.2.3`.
+It now carries lhci's own line.
+
+The PASS, from the container at 20:14Z against mantislandscaping.com: perf
+0.977, a11y 0.83, best-practices 1, seo 0.91. Status `fail` is the site's
+own a11y below 0.95. Perf sits inside the plan's 96–99; a11y is above the
+10-01 hand numbers (76–79), because the site has changed since. The negative
+control with `CHROME_PATH` unset now reads `— Chrome installation not
+found`. My own first negative control returned an empty detail, because my
+fixtures were copied from `collect` and the audit runs `autorun`, which
+reports on stdout. The instrument rule caught a defect in its own fix.
+
+Axe was not a sandbox problem: Playwright handles root itself. The site
+resolves `@playwright/test` 1.63.0, which wants `chromium_headless_shell-1243`,
+and the image has 1194 and 1234. `main`'s audit already names this. The
+site's pinned 0.97.0 predates #1003 and showed the npm warning instead.
+Aliasing 1243 to 1234 in a scratch `PLAYWRIGHT_BROWSERS_PATH` gave 0
+violations across 2 routes plus the hydration smoke, so nothing else is in
+the way. No site repo has a cloud setup hook to install its pin. That is the
+starter's to change, so it went to Operator decision 70 rather than into a
+fleet push. It was written as 68 on this branch, then 69. #1133 landed a 68
+first, and CI's prettier caught the duplicated ordered-list number. Then
+#1135 landed a 69 while this PR waited to merge, and that one showed up as a
+merge conflict. Same-day decision numbers keep colliding until they are
+assigned at landing.
+
+Review: three lenses, one round. No blocker or major. Folded in: an untested
+ANSI strip was dropped, a fixture now joins two ❌ lines, and decision 69 had
+called this repo's Playwright "the 1.59 pin" when the lockfile resolves
+1.62.1 (revision 1234). Of the tests reviewer's 20 mutants, four survived.
+The ANSI strip is now gone, and the joined ❌ lines are now pinned. The other
+two are left: putting the healthcheck ahead of the root refusal, which lhci
+cannot produce because a failed healthcheck exits before collect, and the
+`^` anchor on the runtime-error regex.

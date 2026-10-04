@@ -106,6 +106,33 @@ function messageForAssertion(a: AssertionResult): string {
   return `${a.name} ${a.operator} ${a.expected} (actual: ${actual})`;
 }
 
+function describeLhciFailure(raw: SpawnResult): string {
+  const output = `${raw.stdout}\n${raw.stderr}`;
+  const rootRefusal = /(Running as root without --no-sandbox is not supported\.?)/.exec(
+    output,
+  )?.[1];
+  if (rootRefusal) return rootRefusal;
+  const runtime = /^Runtime error encountered: (.+)$/m.exec(output)?.[1]?.trim();
+  if (runtime) return runtime.slice(0, 200);
+  const healthcheck = [...output.matchAll(/^❌\s+(.+)$/gm)].map((m) => m[1]!.trim());
+  if (healthcheck.length > 0) return healthcheck.join(" / ").slice(0, 200);
+  return raw.stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !/\bnpm warn\b/i.test(line))
+    .join(" / ")
+    .slice(0, 200);
+}
+
+function chromeFlags(): string | undefined {
+  return process.getuid?.() === 0 ? "--no-sandbox" : undefined;
+}
+
+function withChromeFlags<T extends object>(settings: T): T & { chromeFlags?: string } {
+  const flags = chromeFlags();
+  return flags ? { ...settings, chromeFlags: flags } : settings;
+}
+
 /** Shared tail: scan `.lighthouseci/` for lhr-*.json + assertion-results.json and
  *  build the AuditResult. Identical for the checkout and deployed paths. */
 async function parseLhciResults(
@@ -116,13 +143,12 @@ async function parseLhciResults(
   const manifest = await readLhrEntries(resultsDir);
 
   if (manifest.length === 0) {
+    const detail = describeLhciFailure(raw);
     return {
       audit: "lighthouse",
       site: label,
       status: "fail",
-      summary: `lighthouse: no lhr-*.json written (exit ${raw.code})${
-        raw.stderr ? ` — ${raw.stderr.slice(0, 200)}` : ""
-      }`,
+      summary: `lighthouse: no lhr-*.json written (exit ${raw.code})${detail ? ` — ${detail}` : ""}`,
     };
   }
 
@@ -170,6 +196,7 @@ async function checkoutLighthouse(spawn: SpawnFn, site: Site, label: string): Pr
       collect: {
         ...lighthouseConfig.ci.collect,
         url: [withFreePort(baseUrl, port)],
+        settings: withChromeFlags(lighthouseConfig.ci.collect.settings),
         startServerCommand: `npm run vite:dev -- --port ${port} --strictPort`,
       },
     },
@@ -233,7 +260,11 @@ async function deployedLighthouse(
         // devtools reads the real LCP paint event from the throttled trace
         // instead. Trade-off: slightly noisier run-to-run, damped by the
         // numberOfRuns:3 average above.
-        settings: { preset: "desktop", throttlingMethod: "devtools", skipAudits: ["uses-http2"] },
+        settings: withChromeFlags({
+          preset: "desktop",
+          throttlingMethod: "devtools",
+          skipAudits: ["uses-http2"],
+        }),
       },
       assert: lighthouseConfig.ci.assert,
       upload: { target: "filesystem", outputDir: join(workDir, "lhci-report") },

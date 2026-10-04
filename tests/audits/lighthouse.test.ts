@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { readFile, mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -578,6 +578,153 @@ describe("audits/lighthouse", () => {
       expect(result.status).toBe("pass");
       const details = result.details as { summary: Record<string, number> };
       expect(details.summary.accessibility).toBe(1);
+    });
+  });
+
+  describe("Chrome's sandbox under root (#1132)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function chromeFlagsSpawn(): { spawn: SpawnFn; flags: () => unknown } {
+      let chromeFlags: unknown = "never-called";
+      const spawn: SpawnFn = async (_cmd, args, opts): Promise<SpawnResult> => {
+        const cfgArg = args.find((a) => a.startsWith("--config="));
+        if (cfgArg) {
+          const raw = await readFile(cfgArg.slice("--config=".length), "utf-8");
+          const ci = (
+            JSON.parse(raw) as { ci: { collect: { settings?: { chromeFlags?: unknown } } } }
+          ).ci;
+          chromeFlags = ci.collect.settings?.chromeFlags;
+        }
+        const dir = join(opts?.cwd ?? process.cwd(), ".lighthouseci");
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, "lhr-0.json"),
+          JSON.stringify({ requestedUrl: "https://x.example/", categories: { seo: { score: 1 } } }),
+          "utf-8",
+        );
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      return { spawn, flags: () => chromeFlags };
+    }
+
+    const modes = [
+      ["deployed", { deployedUrl: "https://x.example/" }],
+      ["checkout", {}],
+    ] as const;
+
+    for (const [mode, extra] of modes) {
+      it(`${mode}: passes --no-sandbox to Chrome when running as root`, async () => {
+        vi.spyOn(process, "getuid").mockReturnValue(0);
+        const { spawn, flags } = chromeFlagsSpawn();
+        const result = await lighthouseAudit({ site: { path: await tmpSite(), ...extra }, spawn });
+        expect(result.status).toBe("pass");
+        expect(flags()).toBe("--no-sandbox");
+      });
+
+      it(`${mode}: keeps Chrome's sandbox when not running as root`, async () => {
+        vi.spyOn(process, "getuid").mockReturnValue(1001);
+        const { spawn, flags } = chromeFlagsSpawn();
+        const result = await lighthouseAudit({ site: { path: await tmpSite(), ...extra }, spawn });
+        expect(result.status).toBe("pass");
+        expect(flags()).toBeUndefined();
+      });
+    }
+
+    it("keeps the checkout config's own settings when adding the flag", async () => {
+      vi.spyOn(process, "getuid").mockReturnValue(0);
+      let settings: Record<string, unknown> | undefined;
+      const spawn: SpawnFn = async (_cmd, args) => {
+        const cfgArg = args.find((a) => a.startsWith("--config="))!;
+        const raw = await readFile(cfgArg.slice("--config=".length), "utf-8");
+        settings = (JSON.parse(raw) as { ci: { collect: { settings: Record<string, unknown> } } })
+          .ci.collect.settings;
+        return { code: 1, stdout: "", stderr: "" };
+      };
+      await lighthouseAudit({ site: { path: await tmpSite() }, spawn });
+      expect(settings).toMatchObject({ preset: "desktop", skipAudits: ["uses-http2"] });
+    });
+  });
+
+  describe("the failure summary names lhci's own error (#1132)", () => {
+    const npmNoise = [
+      "npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be removed.",
+      "npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory.",
+    ].join("\n");
+
+    async function summaryFor(stderr: string): Promise<string> {
+      const result = await lighthouseAudit({
+        site: { path: await tmpSite(), deployedUrl: "https://x.example/" },
+        spawn: async () => ({
+          code: 1,
+          stdout: "Running Lighthouse 3 time(s) on https://x.example/\nRun #1...failed!\n",
+          stderr,
+        }),
+      });
+      expect(result.status).toBe("fail");
+      return result.summary;
+    }
+
+    it("names the missing Chrome, not npm's deprecation warnings", async () => {
+      const summary = await summaryFor(
+        [
+          npmNoise,
+          "Error: Lighthouse failed with exit code 1",
+          "    at ChildProcess.<anonymous> (/root/.npm/_npx/x/node_modules/@lhci/cli/src/collect/node-runner.js:120:21)",
+          "Runtime error encountered: The CHROME_PATH environment variable must be set to a Chrome/Chromium executable no older than Chrome stable.",
+          "Error",
+          "    at new LauncherError (file:///root/.npm/_npx/x/chrome-launcher/dist/utils.js:28:22)",
+        ].join("\n"),
+      );
+      expect(summary).toContain(
+        "The CHROME_PATH environment variable must be set to a Chrome/Chromium executable",
+      );
+      expect(summary).not.toMatch(/npm warn/i);
+    });
+
+    it("names Chrome's refusal to run as root over lhci's generic launch error", async () => {
+      const summary = await summaryFor(
+        [
+          npmNoise,
+          "2026-10-04T20:12:08.765Z LH:ChromeLauncher Waiting for browser.....",
+          "2026-10-04T20:12:08.765Z LH:ChromeLauncher:error waiting for dynamic debugging port in chrome-err.log",
+          "2026-10-04T20:12:08.765Z LH:ChromeLauncher:error [3303:3303:1004/201143.740504:ERROR:content/browser/zygote_host/zygote_host_impl_linux.cc:101] Running as root without --no-sandbox is not supported. See https://crbug.com/638180.",
+          "",
+          "Runtime error encountered: waiting for dynamic debugging port in chrome-err.log",
+          "Error: waiting for dynamic debugging port in chrome-err.log",
+        ].join("\n"),
+      );
+      expect(summary).toContain("Running as root without --no-sandbox is not supported");
+      expect(summary).not.toMatch(/npm warn/i);
+    });
+
+    it("names autorun's failed healthcheck, which lhci prints on stdout", async () => {
+      const result = await lighthouseAudit({
+        site: { path: await tmpSite(), deployedUrl: "https://x.example/" },
+        spawn: async () => ({
+          code: 1,
+          stdout: [
+            "✅  .lighthouseci/ directory writable",
+            "✅  Configuration file found",
+            "❌  Chrome installation not found",
+            "❌  Ancestor hash not determinable",
+            "Healthcheck failed!",
+            "",
+          ].join("\n"),
+          stderr: npmNoise,
+        }),
+      });
+      expect(result.summary).toContain(
+        "Chrome installation not found / Ancestor hash not determinable",
+      );
+      expect(result.summary).not.toMatch(/npm warn/i);
+    });
+
+    it("falls back to stderr without npm's warnings when lhci names no error", async () => {
+      const summary = await summaryFor(`${npmNoise}\nsomething else broke`);
+      expect(summary).toContain("something else broke");
+      expect(summary).not.toMatch(/npm warn/i);
     });
   });
 });
