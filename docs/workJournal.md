@@ -7962,3 +7962,17 @@ Phase 3 of `docs/prismic-migration-plan-2026-10.md`, after the operator's "go ah
 **One recommendation not taken.** Both reviewers found that the CLI refuses `pnpm prismic:gen` inside an agent session, and one proposed documenting `AI_AGENT=` to get past it. That works by telling the CLI no agent is running. The docs instead give the two explicit commands with `--task-id` and `--user-intent`.
 
 Central: #1134 drops `slice-machine-ui` and the adapter from `baseline-versions` and adds `prismic` ^1.21.0. The deps audit only compares what a site has installed, so an unmigrated site is unaffected. The runbook's §11 is rewritten for D1–D3. Not yet built: the D1 nightly pull-sync PR. `/new-site` is a laptop skill this session cannot read; if it edits `slicemachine.config.json` by name, it needs the new filename.
+
+## 2026-10-04 — P1-26 closes: roalson-interests carries the DRAFT privacy page (roalson-interests#257, `187510a`)
+
+Follow-on to the earlier entry today, "P1-26 privacy page: starter held at decision 68 after two dirty rounds". The roalson port took two review rounds; the second was clean. It landed at `187510a`, pinned to `9ff9ffb`.
+
+**Round 1's port findings.** Each was a rule the site already had, which the starter could not have known:
+
+1. **The contact notice.** Placed before the submit button, it put 80px between the message box and the button. `contact.spec.ts` pins that gap at 30, and it is untagged, so CI never runs it. A negative control reproduced the 80, and the notice now follows the button.
+2. **The footer link.** The review said a third legal item would break `footer.spec.ts`'s rights-line pins. A negative control did not reproduce it: with the item restored, the 1440 and 390 specs passed. So that spec cannot see an extra legal item. The link sits on the rights line anyway, which adds no height at any width from 320 to 1440 (round 2 measured a single 20px line throughout).
+3. **OpenFreeMap.** The property map loads tiles, glyphs and sprites from `tiles.openfreemap.org`. The starter's derivation had no rule for a map host. It is now a code-driven service on roalson.
+
+**Instrument note.** Playwright ran in this container for the roalson specs: `/opt/pw-browsers` carries `chromium-1234`, which roalson's `@playwright/test` resolves. The starter's run earlier today wanted `chromium_headless_shell-1243` and could not start. So "Playwright cannot run in the cloud container" is false as a general statement; it depends on the repo's pinned version.
+
+**Left open.** Most of this is listed under BACKLOG Done (P1-26). roalson-interests#258 holds the three per-site values and two wording details. The proxy refused deleting roalson's `claude/privacy-page` branch after the merge, so it is still on GitHub.
