@@ -7667,6 +7667,14 @@ for any session staging Prismic content while another session might
 publish: re-run `diff_release` immediately before asking for the publish,
 and expect only your own deltas.
 
+## 2026-10-04 — Roster rows for the sites in build: Domaru archived, repos and Netlify ids filled (this PR)
+
+The operator asked what stage each in-progress site is at. The roster held nine sites as `building` or `launching`. Two rows could not have answered for themselves: Domaru was still `building` five days after the operator decided it lapses with Webflow on 10-19, and both Williamson rows had a null `git_repo` although the repos have existed since 09-30. Roalson's row had no `netlify_id` although it serves from Netlify. On the operator's instruction, six fields were written through `setSiteDetail`, the dashboard editor's own path. Each was planned dry, then written, then read back from Turso: Domaru `status` building → archived; `git_repo` on both Williamsons; and `netlify_id` on Williamson Homes, Williamson Construction and Roalson. The Netlify ids were not copied from the eight-character prefixes in BACKLOG item 33. They came from Netlify's own site list by name, and each site's `repo_url` matched the repo it was written beside.
+
+The operator also answered what the backlog could not. Alamo Anatomy and Hedloc are `launching` and waiting on their clients. The Tower and The Pointe Burbank were proofs of concept for the Blux conversion, not client work, which is why both had only fleet-wide maintenance commits since mid-September.
+
+**A tooling note.** The site repos are not attached to a PM session, so both `gh api` and the GitHub connector refused them. An anonymous `git clone --bare --filter=blob:none` of each public repo answered the stage question from commit history alone.
+
 ## 2026-10-01 — `reddoor-maint video` encodes a background-video master into the fleet's renditions (#1116)
 
 > Superseded in part by 2026-10-04 — `reddoor-maint video` lands on the operator's word: the branch did not stop at Operator decision 65.
