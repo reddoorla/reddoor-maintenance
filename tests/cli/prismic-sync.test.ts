@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -462,10 +462,13 @@ describe("prismic-sync --fleet", () => {
       ...STANDARD,
       "node_modules/.bin/prettier": `#!/bin/sh\ntouch "${marker}"\n`,
     });
+    await chmod(join(seedDir, "node_modules/.bin/prettier"), 0o755);
     await git(["add", "-f", "node_modules"], seedDir);
-    await git(["update-index", "--chmod=+x", "node_modules/.bin/prettier"], seedDir);
     await commitAll(seedDir, "ship a prettier");
     await git(["push", "--quiet", "origin", "main"], seedDir);
+    expect(await git(["ls-tree", "main", "node_modules/.bin/prettier"], seedDir)).toMatch(
+      /^100755/,
+    );
     const h = harness();
     h.deps.models.spawn = (await import("../../src/audits/util/spawn.js")).makeSpawn();
     h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
@@ -606,6 +609,33 @@ describe("credentials stay out of the site's reach", () => {
     const header = gitAuthArgs("tok123")[1]!;
     expect(header).not.toContain("tok123");
     expect(deps.redact(`x tok123 y ${header} z`)).toBe("x *** y *** z");
+  });
+
+  it("redacts the base64 credential in git's own quoted echo of it", () => {
+    const deps = defaultSyncDeps({ GH_TOKEN: "tok123" });
+    const blob = Buffer.from("x-access-token:tok123").toString("base64");
+    const echo = `'http.https://github.com/.extraheader'='AUTHORIZATION: basic ${blob}'`;
+    expect(deps.redact(echo)).not.toContain(blob);
+  });
+
+  it("gives git no global or system config, so a planted ~/.gitconfig is never read", async () => {
+    const home = join(tmp, "home");
+    await mkdir(home, { recursive: true });
+    await writeFile(join(home, ".gitconfig"), "[user]\n\tname = planted\n", "utf-8");
+    const saved = { HOME: process.env.HOME, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL };
+    process.env.HOME = home;
+    delete process.env.GIT_CONFIG_GLOBAL;
+    try {
+      const control = await run("git", ["config", "--get", "user.name"], { cwd: tmp });
+      expect(control.stdout.trim()).toBe("planted");
+      const deps = defaultSyncDeps({ GH_TOKEN: "tok123" });
+      const r = await deps.git(["config", "--get", "user.name"], tmp);
+      expect(r.stdout.trim()).toBe("");
+    } finally {
+      process.env.HOME = saved.HOME;
+      if (saved.GIT_CONFIG_GLOBAL !== undefined)
+        process.env.GIT_CONFIG_GLOBAL = saved.GIT_CONFIG_GLOBAL;
+    }
   });
 
   it("passes the token to git per command, never through config on disk", async () => {

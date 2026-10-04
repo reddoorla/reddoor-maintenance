@@ -23,6 +23,8 @@
 // and its body names every changed model with the drift report's own lines.
 import { mkdir, mkdtemp, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { join, posix, resolve } from "node:path";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { makeSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
@@ -737,7 +739,22 @@ export function defaultSyncDeps(
   const token = env.GH_TOKEN ?? "";
   const auth = gitAuthArgs(token);
   const header = auth[1] ?? "";
+  const blob = token === "" ? "" : Buffer.from(`x-access-token:${token}`).toString("base64");
   const siteEnv = siteProcessEnv(process.env);
+  // git reads only the clone's own .git/config, which the fingerprint covers.
+  // A site's code can write $HOME/.gitconfig or a system config outside the
+  // clone; through one, a token-bearing push could run a helper of its
+  // choosing, and git hands that helper every `-c` value, the token's header
+  // included. So no global or system config, and a HOME nothing else uses.
+  const gitHome = mkdtempSync(join(tmpdir(), "prismic-sync-git-home-"));
+  const gitEnv: NodeJS.ProcessEnv = {
+    ...siteEnv,
+    HOME: gitHome,
+    XDG_CONFIG_HOME: gitHome,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+  };
   const siteSpawn: SpawnFn = (cmd, args, opts) => spawn(cmd, args, { ...opts, env: siteEnv });
   return {
     models: defaultModelDeps(),
@@ -746,7 +763,7 @@ export function defaultSyncDeps(
       spawn("git", [...SAFE_GIT, ...(NETWORK_GIT.has(args[0] ?? "") ? auth : []), ...args], {
         cwd,
         timeoutMs: 120_000,
-        env: { ...siteEnv, GIT_TERMINAL_PROMPT: "0", ...extra },
+        env: { ...gitEnv, ...extra },
       }),
     github: () => {
       if (token === "") throw new Error("GH_TOKEN is not set");
@@ -755,7 +772,9 @@ export function defaultSyncDeps(
     cloneUrl: (repo) => `https://github.com/${repo}.git`,
     redact: (text) => {
       let out = text;
-      for (const secret of [token, header]) if (secret !== "") out = out.split(secret).join("***");
+      for (const secret of [token, header, blob]) {
+        if (secret !== "") out = out.split(secret).join("***");
+      }
       return out;
     },
     install: async (root) => {
