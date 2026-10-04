@@ -7430,3 +7430,91 @@ The trigger test now parses the YAML and asserts the exact path lists. All 14 mu
 - the one-page (100 PR) listing, which equals the old GraphQL `first:100`;
 - a 422's reason reaching only stdout, so `gh()` reports just its summary;
 - a fork PR named `maint/prismic-ci-*` suppressing an install, which can never cause a write.
+
+## 2026-10-04 — Mantis P2a: model, slices and routes built; stopped after two dirty review rounds (mantis-landscaping#3, Operator decisions 64)
+
+The worker brief for P1-30 asked for P2 through P5. The session built P2a,
+the content model and the slices. That PR went through two adversarial
+review rounds and stops at the operator under the two-round rule.
+Everything after it waits, because P2b, P4 and P5 build on this model.
+
+**Verify-first was half right.**
+
+- The brief named the Prismic token `MANTIS_PRISMIC`. That name is absent.
+  The token is `MANTIS_LANDSCAPING_PRISMIC`. Proved against the Custom
+  Types API: 200 with `[]`, and a bogus token gets 403.
+- Read literally, the brief's stop condition ("absent → stop") would have
+  ended the session on a naming slip. The `grep` asked whether that one
+  name was set, not whether a Mantis token existed at all.
+- A worse trap sits beside it. The container also carries a generic
+  `PRISMIC_WRITE_TOKEN`, belonging to `the-pointe-burbank`.
+  `prismic-models` falls back to the generic name when the canonical
+  `PRISMIC_TOKEN_<REPO>` is unset. A Mantis `--apply` without the
+  canonical variable would have authenticated against the wrong
+  repository.
+
+**Types without Slice Machine's UI.** `scripts/generate-prismic-types.mjs`
+runs `prismic-ts-codegen`, the generator Slice Machine uses. Before relying
+on it, I ran it on main's untouched models as a control:
+
+- `slices/index.js` came out byte-identical;
+- the types differed only by the `form_replies` document type, which the
+  committed file was missing (that model was added without a regen), plus
+  two comment positions.
+
+**The palette.** Following OD 62a, the gold is split by job:
+
+- white on Blux's `#dfb726` measured 1.91:1;
+- white on `#836a10` (`gold-deep`) measures 5.21:1, and `gold-deep` on
+  `#f5f5f5` measures 4.77:1;
+- `#dfb726` stays as text on the dark band, at 7.48:1.
+
+Round 1's design lens corrected one belief. The project page's "How it
+Works" band on Blux is dark type on bright gold, which already passes. It
+needed no recolour, so Steps gained a bright-gold option.
+
+**An instrument that never measured.** The new class-pair contrast scan
+first let its own mutation survive: `text-gold` on `bg-light`, the Blux
+Submit pair, at 1.76:1. Its quote regex paired the `"` of
+`class="… {x ? '…' : '…'}"` with the first `'`, so the Steps ternary was
+never read. After the fix, the same mutation goes red and reports 1.76:1,
+the figure the plan measured on the live site.
+
+**Review.**
+
+- **Round 1** (`00339cd`) found one blocker and six majors; all are fixed
+  in `6d2bb66`. The ones worth remembering:
+  - **Alt text:** `PrismicImage` drops the `alt` attribute entirely when
+    the field's alt is blank and no `fallbackAlt` is passed.
+  - **Prerender:** SvelteKit throws on `url.search` while prerendering, so
+    a migrated link to `/ediblegardens` would have failed the build. A
+    crawled redirect is also written as a meta-refresh file, which
+    adapter-netlify never turns into a 301. The fix is `force = true` in
+    `netlify.toml`.
+  - **Links:** the starter's routes-free client makes every Document link
+    render `href=""`.
+- **Round 2** (`6d2bb66`):
+  - a single-photo case-study strip still overflows at 768–1022px with no
+    tab stop, which axe reports as serious;
+  - a 13px kicker sits at about 3.3:1 on its gradient;
+  - smaller items are listed in Operator decisions 64.
+
+**Not done.**
+
+- The seed script, the model push, the swap of the placeholder repository
+  name, P4 and P5.
+- The seed content is ready on `claude/p2b-seed-draft`:
+  - all five documents;
+  - the folded edible-gardens page, taking the 8-study `/ediblegardens`
+    superset;
+  - alt text for 74 photos, each written by looking at the photo on
+    numbered contact sheets;
+  - drafted meta descriptions.
+- All 76 photo originals the pages use were downloaded, and each matched
+  its manifest sha256. They are not committed (232 MB).
+- One fact for the seed: `writeClient.migrate()` in `@prismicio/client`
+  7.22.1 never checks the media library for existing assets. A naive
+  re-run uploads every photo again, so the seed has to look up assets it
+  already created.
+
+Nothing was pushed to Prismic, and nothing was merged.
