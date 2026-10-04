@@ -1619,6 +1619,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `land-prs` cannot land on a merge-commit-only `main` (reddoor-website's
     ruleset), and the cloud session's phase 1 brief wrongly waited for a dry run that a
     workflow-only PR never gets.
+    **10-04 20:42Z: phase 3's starters and baseline landed.**
+    reddoor-starter#166 (`631f9a5`) and its cherry-pick
+    reddoor-starter-blux#38 (`9ef1d35`) are off Slice Machine, with the
+    `/slice-simulator` framing exception (`src/lib/security/cms-framing.ts`)
+    and the `prismic-codegen` gate; #1134 swaps `baseline-versions` to the
+    `prismic` CLI and rewrites the runbook's §11 (changeset; the next release
+    PR is the operator's). Phase 1 now stands at 5 of 7: reddoor-website's
+    workflow landed as reddoor-website#240 on 10-04, so only Ask (a) below
+    remains. Still to build in phase 3: the D1 nightly pull-sync PR.
     **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
     `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
     the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
