@@ -184,6 +184,9 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
     (model, slices, routes, 301s) had two dirty review rounds. The seed
     content is drafted on `claude/p2b-seed-draft`. Nothing has been pushed
     to Prismic.
+    **10-04: 64 answered (a); P2a landed** as mantis-landscaping#3
+    (`e9d5f95`) after a third round. **Next:** P2b (rebase the seed draft,
+    the seed script, the placeholder swap, the model push).
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -1797,6 +1800,17 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     fixes. Under CLAUDE.md's two-round rule it stops here, and so does
     everything after it in P1-30, because P2b, P4 and P5 build on this
     model.
+    - **Answered 2026-10-04 ~16:06Z: (a). Landed:** #3 merged as
+      `e9d5f95` (head `c1a5248`, CI green) through `land-prs.mjs`. Round 3
+      fixed the round-2 list in `427ee49`, with 20 named mutations, all red.
+      One review of the fixes found a major inside the scope: forced colors
+      drop `box-shadow`, so `outline: none` left a focused photo strip with
+      no ring. It was fixed in `378e90a`, with the two in-scope nits, and
+      the last two round-2 nits went into `c1a5248`. 25 mutations, all red.
+      There was no blocker. The one out-of-scope finding (the single
+      photo's `sizes`) is mantis-landscaping#6. `TextBlock` no longer offers
+      h1, so the seed draft's `projects` and `contact-us` title bands move
+      in P2b.
     - **Round 1** (3 lenses, on `00339cd`) found one blocker and six
       majors. All are fixed in `6d2bb66`:
       - photos with a blank alt rendered no `alt` attribute;
