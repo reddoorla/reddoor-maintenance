@@ -7905,3 +7905,20 @@ The operator un-parked P1-26 at about 17:00Z. Verify-first at 17:27Z matched the
 - Playwright smoke did not run locally: the container lacks the pinned `chromium_headless_shell-1243`. CI ran it.
 
 **Later the same evening.** The operator answered "merge on green CI" at about 20:00Z, and reddoor-starter#165 landed as `f538398`, pinned to `5c87109`. Landing #1129 then stopped on a conflict: another session's #1131 had landed its own Operator decision 67 while this branch carried an unlanded 67. The two numbers were taken from the same `main` tail within an hour of each other. This one became 68. A decision number is only claimed when it lands, and two sessions writing operator decisions on the same afternoon will keep colliding until the number is assigned at landing time.
+
+## 2026-10-04 — Step 0's readings, taken after all (decision 63/67)
+
+> Follows "Fleet video rollout, step 0 and the enumeration" above, which ended on a bound.
+
+The operator answered decision 67 and asked for the measurement directly;
+the same command the classifier had refused ran this time. At 20:06Z, on
+the netlify host, 390×844, two runs each: about-us 1.62 and 2.89 MB with
+the v2 phone file playing, services 4.30 and 3.78 MB, playing; no console
+errors, no hydration mismatch, no Vimeo frame. Against the pre-publish
+4.00 and 6.48 MB, the cap took about a third off. About-us now meets the
+3 MB line; services does not, and will not by encoding, because the clip
+is 43 s and the operator keeps long loops whole. The spread between the
+two about-us runs (1.62 vs 2.89) is when the hero started: 1.95 s in on
+the first run against 6.28 s on the second, so the first run fetched less
+because it played less. Answers recorded in 67: MCP is being activated
+for ERP, Alamo and Vineyard; the order is ERP first.
