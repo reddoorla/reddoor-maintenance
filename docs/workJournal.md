@@ -7302,3 +7302,87 @@ So the planning session's capture, taken partly as insurance, turns out to be th
 - **The Netlify site** was created on the operator's authority, mirroring the Williamson sites. The forms token was copied from Williamson's env and compared by sha256 prefix rather than printed. A "Prismic publish" build hook was added.
 - **The client's form recipient** went onto the row as `point_of_contact`. It is not written in this repo, which is public.
 - **The first production build failed.** CI had been green, but Netlify's enhanced secret scan matched a Google API key in Blux's own `__analytics.js`, which P0 had vendored into `matching/spec/`. CI does not run that scan, so only a production build could catch it. The REST API had no build log for the deploy; the Netlify connector's deploy record named the file and the line. The file was removed (mantis-landscaping#2) rather than exempting the directory from the scan.
+
+## 2026-10-01 — Vimeo or our own player: the fleet's background video, measured (williamson-construction-co#13, decision 63)
+
+The operator asked whether Williamson Construction's videos could look
+better, then whether the fleet should keep Vimeo for background video or
+serve its own from Prismic. The answer, after three research threads and
+four measurements, is the second, with Vimeo kept for content videos and
+review links. Decision 63 holds the operator's answers and the rollout
+question; `docs/briefs/2026-10-01-williamson-video-hd.md` is the hand-off.
+
+**What the site served.** Six background clips, all Webflow transcodes at
+854×480, 720×480 or 640×360 and 0.7–1.5 Mbps, stretched across full-width
+bands. The masters were in Dropbox (`WC_website 2020/08_Art/`), five at
+1920×1080 and services at 1280×720, matched by duration and by the same
+frame side by side. The doctor clip's letterbox bars were baked into the
+transcode.
+
+**What a Vimeo embed costs.** Measured in headless Chromium: a background
+player is 20 requests, about 440 KB of player code and three Cloudflare
+cookies before a frame plays; a `<video>` is one request and no cookie.
+The home page, unscrolled, downloaded 5.5 MB (desktop) and 7.8 MB (phone)
+of video in eight seconds, 5.6 MB of it a band below the fold, because
+`BgVideo` started every video at mount. That was our defect, not Prismic's.
+
+**Beliefs corrected on contact.**
+
+- The 2026-06-29 spec said the Lighthouse cookie deduction needed "a Vimeo
+  plan tier the fleet doesn't have". Vimeo's own cookie page lists
+  `__cf_bm`, `_cfuvid` and `cf_clearance` as essential on every plan, `dnt=1`
+  or not. No tier removes them.
+- "Vimeo streams, a file has to download whole" is not the distinction.
+  Prismic's file CDN (S3 behind CloudFront) answers byte ranges and the
+  encodes carry their index at the front, so playback starts after a few
+  seconds. What Vimeo adds is adaptive bitrate, which for 10–45 s muted
+  loops is worth less than a phone rendition behind `<source media>`.
+- reddoor.la's GA shows `/dev/a11y-fixtures` as its top page at 5,967 views
+  in 90 days: CI's Lighthouse runs counted as visitors. A backlog line, not
+  today's problem.
+
+**Traffic.** GA for the 90 days to 09-30: Revogen's home page 1,895 views,
+ERP 2,314, Espada 1,105, Vineyard 829. At 20 MB a visit that is under
+15 GB a month on the worst case against Prismic Starter's 100 GB, so the
+bandwidth risk Prismic's docs warn about is an order of magnitude away.
+
+**Open source.** For a muted loop the player is the browser. For content
+videos, media-chrome is the live option; Vidstack, Plyr and media-chrome
+are merging into Video.js v10 this fall, so no pick until it ships.
+Transcoding is the part nobody gives away: Prismic does not transcode and
+has no media-upload webhook (publish only), so the fleet's own ffmpeg
+recipe is the honest answer.
+
+**What landed and what moved.** williamson-construction-co#13: `BgVideo`
+observes its element, plays within 200px of the viewport, pauses off
+screen, keeps a visitor's pause, and offers a 720p phone file first; a
+`video_mp4_mobile` field on PageHero and VideoBand, pushed to Prismic from
+CI on merge. The 21 HD files are staged on a Netlify draft deploy, and the
+three posters are in Prismic through the connector, which refuses video.
+#12, an Actions job that posts files to the Asset API with the repo's own
+token, had two dirty review rounds, the second finding a flaw in the
+first's own suggestion; the operator asked for a third. The encode recipe
+`reddoor-maint video` is built and tested on `claude/video-encode-command`,
+unreviewed. The content half and the follow-ups went to their own session
+at the operator's request.
+
+**A trap worth one line.** The permission system refused to put the encodes
+on a public temporary host, rightly: the way to get a client's files into
+Prismic from a cloud session is the site's own CI, which already holds the
+write token, with a draft deploy of the site itself as the public source.
+
+## 2026-10-01 — #1090 phase 1: the delivery workflow reaches four more sites; two wait on a token (alamo-anatomy#62, hedloc#52, the-pointe-burbank#41, williamson-homes#14, this PR)
+
+> Follows 2026-10-01 — The Slice Machine migration starts: decisions taken, pilot on reddoor-website (reddoor-website#235).
+
+Phase 1 of the migration plan closes the gap that let williamson-homes drift: seven Prismic sites had no `prismic-models.yml`, so a merged model change never reached Prismic. This session ran from the laptop, because the recipe needs the secrets API. Four of the seven are done. `prismic-models.yml` is on `main` in alamo-anatomy (`a5b5e96`), hedloc (`ab4db53`), the-pointe-burbank (`dc97447`) and williamson-homes (`eb36f40`), each landed with `land-prs.mjs` on a green head between 18:49Z and 18:50Z.
+
+**Belief corrected: seven tokens were not owed, two were.** The plan, item 57 and the brief all assumed each site still needed a `PRISMIC_WRITE_TOKEN`. `gh secret list` at 18:20Z showed five already hold it: alamo-anatomy, hedloc, reddoor-website and the-pointe-burbank since 2026-08-14 (the same minute as caltex-landing's, which served as the control that the listing can say yes), and williamson-homes since 09-30. Only the-tower-burbank and vida-legacy-foundation have none. The plan's 35 minutes of operator minting is about 10. Nothing looked, because the token doctor answers a different question: it reads the laptop's environment for the central `PRISMIC_TOKEN_<NAME>` names, and it lists only the 15 sites in the Turso sweep. Five of these seven are `launching` or `building` and have no row in its output at all.
+
+**The brief's step 3 cannot happen, and caltex-landing shows it.** The caller workflow is path-filtered to `customtypes/**` and `src/lib/slices/**/model.json`. A PR that adds only the workflow file does not trigger it, so there is no `dry` job and no model-delta comment to read. caltex-landing#53, the 08-16 rollout PR, has one changed file, no such comment, and check runs from `ci` and Netlify only; that repo's first `prismic-models` run is the delivery-proof PR 40 minutes later. The same history shows a workflow-only merge is inert: none of today's four merges started a run (0 runs in each repo at 18:50Z). In place of the comment I ran the read-only `prismic-models <path>` against fresh clones with the central tokens on the laptop: reddoor-la 25 match, alamo-anatomy 6, hedloc 8, the-pointe-burbank 35. williamson-homes, the-tower-burbank and vida-legacy have no token on the laptop. The 11:18Z nightly read vida-legacy as 18 match at `b99cce9`, which is its current `main`. williamson-homes's fields are measured by nothing; the review read its ids through the Prismic connector (3 types, 20 slices, all present). No site's own secret has been exercised by anything yet. Item 57 carries the proposal: one throwaway PR per site that reformats a model file and is closed unmerged.
+
+**The review's one finding was a public endpoint answering a different question.** A fresh reviewer reported that the-pointe-burbank's repo holds nine custom types while Prismic has two, so the first merged model PR would create seven types in a live repository. Its source was the content API root (`https://the-pointe-burbank.cdn.prismic.io/api/v2`), whose `types` map does list only `catalog_page` and `frozen_page`. The authenticated Custom Types read says all 35 models match. To tell which instrument was wrong I copied the clone, added a tenth type `zz_probe_never_pushed`, and ran the same dry comparison: it printed `NEW customtype zz_probe_never_pushed` and "35 already match". So the comparison can say "missing" for this repository, and it says so for nothing real. The content API root is not a list of the models that exist; do not use it for that. The reviewer's control (a zero-document type that is listed on williamson-homes) did not transfer. The other three PRs came back clean, and each file is byte-identical (1818 bytes) to the template and to caltex-landing's deployed copy.
+
+**Why fresh clones.** Four of the operator's checkouts were behind `origin/main` (alamo-anatomy, the-pointe-burbank, the-tower-burbank, vida-legacy-foundation), and the recipe branches from whatever HEAD the path holds. I cloned each repo into the session scratchpad and passed the path positionally, `--dry` then the real run, one site at a time. The cost is the recipe's "could not prettier-format" note, since a fresh clone has no `node_modules`; each site's CI prettier step passed on the file as written. The recipe refused both secretless repos with its own message and left their clones untouched, which is the gate proving it can say no.
+
+**Not done.** the-tower-burbank and vida-legacy-foundation wait on a token each (🔴). reddoor-website was skipped under the brief's own rule: reddoor-website#237, staging → main, was opened at 18:19Z and touches `.github/workflows`. Its secret exists. The brief's `--base staging` cannot apply to it, because the recipe opens its PR against the default branch and the apply job guards `refs/heads/main`; item 57 proposes running it against `main` after #237 merges. Both `main` and `staging` there pin CLI 0.95.1, which has read `prismic.config.json` since 0.83.0, so the promotion will not turn the site into "not a Prismic site". Noted and left alone as out of charter: the central secret `PRISMIC_TOKEN_ROALSON_INTERESTS` (set 09-17) has no `env:` line in `fleet-prismic-drift.yml`, and `PRISMIC_TOKEN_THE_TOWER_BURBANK` has a line and no secret.
