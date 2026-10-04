@@ -45,4 +45,9 @@ describe("cli: list commands", () => {
     const out = runCli(["--help"]);
     expect(out).toMatch(/reddoor-maint/);
   });
+
+  it("--help lists the video command", () => {
+    const out = runCli(["--help"]);
+    expect(out).toMatch(/^\s*video <input>/m);
+  });
 });

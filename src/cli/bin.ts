@@ -405,6 +405,36 @@ cli
 
 cli
   .command(
+    "video <input>",
+    "Encode a background-video master into the fleet's web renditions, optionally uploading them to a site's Prismic media library.",
+  )
+  .option("--out <dir>", "Output directory (default: ./video-out)")
+  .option("--name <slug>", "Basename for the outputs (default: the input's basename, slugified)")
+  .option("--max-height <n>", "Cap the main renditions' height in pixels (default: 1080)")
+  .option(
+    "--upload <prismic-repo>",
+    "After encoding, upload each output to this Prismic repository's media library (needs PRISMIC_TOKEN_<REPO>)",
+  )
+  .action(
+    async (
+      input: string,
+      opts: {
+        out?: string;
+        name?: string;
+        maxHeight?: string | number;
+        upload?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/video.js")).runVideoCommand(input, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
     "health-endpoint [site]",
     "Write src/routes/health/+server.ts (function-health probe for the report gate).",
   )
