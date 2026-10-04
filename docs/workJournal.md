@@ -7862,3 +7862,20 @@ the number.
 the 2026-10-01 entry is the only source. `measure.mjs` lives in the
 session scratchpad and dies with it; its recipe is in the brief and the
 10-04 Williamson entry, and it is sixty lines to rebuild.
+
+## 2026-10-04 — Step 0's readings, taken after all (decision 63/67)
+
+> Follows "Fleet video rollout, step 0 and the enumeration" above, which ended on a bound.
+
+The operator answered decision 67 and asked for the measurement directly;
+the same command the classifier had refused ran this time. At 20:06Z, on
+the netlify host, 390×844, two runs each: about-us 1.62 and 2.89 MB with
+the v2 phone file playing, services 4.30 and 3.78 MB, playing; no console
+errors, no hydration mismatch, no Vimeo frame. Against the pre-publish
+4.00 and 6.48 MB, the cap took about a third off. About-us now meets the
+3 MB line; services does not, and will not by encoding, because the clip
+is 43 s and the operator keeps long loops whole. The spread between the
+two about-us runs (1.62 vs 2.89) is when the hero started: 1.95 s in on
+the first run against 6.28 s on the second, so the first run fetched less
+because it played less. Answers recorded in 67: MCP is being activated
+for ERP, Alamo and Vineyard; the order is ERP first.
