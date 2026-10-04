@@ -180,6 +180,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   - **The first production build failed on Netlify's secret scan:** Blux's
     `__analytics.js`, vendored in P0's `matching/spec/`, carries Blux's
     browser API key. It was removed in mantis-landscaping#2.
+    **10-04: P2a stopped at Operator decisions 64.** mantis-landscaping#3
+    (model, slices, routes, 301s) had two dirty review rounds. The seed
+    content is drafted on `claude/p2b-seed-draft`. Nothing has been pushed
+    to Prismic.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -1742,6 +1746,70 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     390px; zero Vimeo console errors in smoke. _Ask, once those are in:_ roll
     `BgVideo` to the eight Vimeo sites as each is touched, or leave them.
     _Pick:_ roll, site by site, never as a sweep.
+
+64. **Mantis P2a (reddoorla/mantis-landscaping#3): two dirty review rounds
+    (new 2026-10-04).** #3 is the content model, seven new slices,
+    `/projects/[uid]` and the edible-gardens 301s. CI is green on its first
+    head, `00339cd`, and the second head, `6d2bb66`, carries round 1's
+    fixes. Under CLAUDE.md's two-round rule it stops here, and so does
+    everything after it in P1-30, because P2b, P4 and P5 build on this
+    model.
+    - **Round 1** (3 lenses, on `00339cd`) found one blocker and six
+      majors. All are fixed in `6d2bb66`:
+      - photos with a blank alt rendered no `alt` attribute;
+      - the redirect hook read `url.search` while prerendering, and there
+        was no `netlify.toml` 301;
+      - Document links rendered `href=""`, because the client is
+        routes-free;
+      - four slices used the legacy `items` zone;
+      - focus outlines were invisible on the dark bands;
+      - the scrims over photos were too light;
+      - the project "How it Works" band was recoloured when it did not
+        need to be;
+      - heading levels were left to the editor;
+      - two mutations survived (a dropped `context`, and a wrong project
+        `linkResolver`). Both are red now.
+    - **Round 2** (on `6d2bb66`). Correctness found no blocker. It found:
+      - `href=""` still renders in the starter's Hero, CtaBanner and
+        SectionGrid;
+      - ServiceCards, FeatureTrio and Steps render empty bands when their
+        group is empty;
+      - the orderings are untested.
+
+      Accessibility found:
+      - **a single-photo case-study strip still overflows sideways from
+        768 to about 1022px with no tab stop**, so axe reports
+        `scrollable-region-focusable` (serious) at tablet widths. This is
+        the real defect that triggers the rule;
+      - the ProjectList kicker (13px) sits at about 3.2–3.4:1 on the
+        gradient over a white photo;
+      - the white inset focus ring on the photo strip can vanish on a
+        bright photo;
+      - TextBlock headings still allow h1.
+
+      Tests and models: see the PR's comment on #3.
+    - **Ask:** (a) let a worker take a third round on #3, limited to the
+      round-2 list above, then land it; (b) take the PR over by hand; or
+      (c) re-scope (for example, drop the scrolling photo strip for a
+      static grid). _Pick:_ (a). Every round-2 finding is local to one
+      file, none questions the model or the design, and the model is still
+      unpushed, so nothing in Prismic depends on it yet.
+    - **Waiting behind it** (all on branches, no PRs):
+      - the P2b seed content for all five documents, with alt text on all
+        74 photos, on `claude/p2b-seed-draft` (`050eb7f`), stacked on #3;
+      - the seed script, the model push, the placeholder swap, P4 and P5.
+    - **The one laptop step** (already true, restated so it is not lost):
+      `reddoor-maint prismic-ci mantis-landscaping`, then confirm
+      `PRISMIC_WRITE_TOKEN` on the site repo. The cloud cannot read or
+      set secrets.
+    - **Name mismatch:** the session's Prismic write token is in the
+      environment as `MANTIS_LANDSCAPING_PRISMIC`, not the brief's
+      `MANTIS_PRISMIC`. It answers 200 on the Custom Types API (`[]`, no
+      types yet), and a bogus token gets 403.
+    - **Hazard:** the environment also holds a generic
+      `PRISMIC_WRITE_TOKEN` for `the-pointe-burbank`. A
+      `prismic-models --apply` run without
+      `PRISMIC_TOKEN_MANTIS_LANDSCAPING` set falls back to it.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
