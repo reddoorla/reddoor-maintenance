@@ -1,6 +1,6 @@
 export type FetchFn = typeof fetch;
 
-export type LibraryAsset = { id: string; url: string };
+export type LibraryAsset = { id: string; url: string; size?: number };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -45,10 +45,16 @@ export async function listAssetsByFilename(
       "asset list",
     );
     const page = (await res.json()) as {
-      items: { id: string; filename: string; url: string }[];
+      items: { id: string; filename: string; url: string; size?: number }[];
       cursor?: string;
     };
-    for (const a of page.items) map.set(a.filename, { id: a.id, url: a.url });
+    for (const a of page.items) {
+      map.set(a.filename, {
+        id: a.id,
+        url: a.url,
+        ...(typeof a.size === "number" ? { size: a.size } : {}),
+      });
+    }
     if (!page.cursor || !page.items.length) return map;
     cursor = `&cursor=${encodeURIComponent(page.cursor)}`;
   }

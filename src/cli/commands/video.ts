@@ -20,6 +20,7 @@ export type VideoCommandDeps = {
   env?: Record<string, string | undefined>;
   readFile?: (path: string) => Promise<Uint8Array>;
   sleep?: (ms: number) => Promise<void>;
+  stderr?: { write: (chunk: string) => unknown };
 };
 
 export type Rendition = { file: string; from: string | null; args: string[] };
@@ -48,10 +49,13 @@ export function slugify(input: string): string {
 const scaleFilter = (height: number): string => `scale=-2:${height}:flags=lanczos,format=yuv420p`;
 
 export function planRenditions(
-  source: { width: number; height: number },
+  source: { width: number; height: number; rotation?: number },
   opts: { name: string; maxHeight: number },
 ): Rendition[] {
-  let target = Math.min(opts.maxHeight, source.height);
+  const upright = isQuarterTurn(source.rotation)
+    ? { width: source.height, height: source.width }
+    : { width: source.width, height: source.height };
+  let target = Math.min(opts.maxHeight, upright.height);
   if (target % 2 !== 0) target -= 1;
   const main = `${opts.name}-${target}.mp4`;
   const renditions: Rendition[] = [
@@ -100,7 +104,7 @@ export function planRenditions(
       ],
     },
   ];
-  if (source.height >= 720) {
+  if (upright.height >= 720 && target >= 720) {
     renditions.push({
       file: `${opts.name}-phone-720.mp4`,
       from: null,
@@ -128,10 +132,20 @@ export function planRenditions(
   renditions.push({
     file: `${opts.name}-poster.jpg`,
     from: main,
-    args: ["-an", "-frames:v", "1", "-q:v", "3"],
+    args: ["-an", "-frames:v", "1", "-update", "1", "-q:v", "3"],
   });
   return renditions;
 }
+
+export function isQuarterTurn(rotation: number | undefined): boolean {
+  return rotation !== undefined && Math.abs(rotation) % 180 === 90;
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".jpg": "image/jpeg",
+};
 
 export function ffmpegArgv(input: string, rendition: Rendition, outDir: string): string[] {
   const from = rendition.from === null ? input : join(outDir, rendition.from);
@@ -170,12 +184,18 @@ function parseMaxHeight(value: string | number | undefined): number | null {
 }
 
 function isEnoent(err: unknown): boolean {
-  return (err as { code?: string } | null)?.code === "ENOENT";
+  const e = err as { code?: string; syscall?: string } | null;
+  return e?.code === "ENOENT" && typeof e.syscall === "string" && e.syscall.startsWith("spawn");
 }
 
 type ProbeJson = {
-  streams?: { width?: number; height?: number; duration?: string }[];
-  format?: { size?: string; bit_rate?: string };
+  streams?: {
+    width?: number;
+    height?: number;
+    duration?: string;
+    side_data_list?: { rotation?: number }[];
+  }[];
+  format?: { size?: string; bit_rate?: string; duration?: string };
 };
 
 const numberOrNull = (v: string | number | undefined): number | null => {
@@ -213,6 +233,7 @@ export async function runVideoCommand(
   const env = deps.env ?? process.env;
   const readFile = deps.readFile ?? ((p: string) => fsReadFile(p));
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const stderr = deps.stderr ?? process.stderr;
 
   const maxHeight = parseMaxHeight(opts.maxHeight);
   if (maxHeight === null) {
@@ -240,27 +261,40 @@ export async function runVideoCommand(
   const outDir = resolve(cwd, opts.out ?? DEFAULT_OUT_DIR);
   const name = slugify(opts.name ?? basename(input, extname(input)));
   if (name === "") {
-    return { output: `--name slugifies to nothing; got ${JSON.stringify(opts.name)}`, code: 2 };
+    return {
+      output: `--name slugifies to nothing; got ${JSON.stringify(opts.name ?? basename(input))}`,
+      code: 2,
+    };
   }
 
   const lines: string[] = [];
   try {
-    const src = await probe(spawn, "stream=width,height,duration", inputPath);
+    const src = await probe(
+      spawn,
+      "stream=width,height,duration:stream_side_data=rotation:format=duration",
+      inputPath,
+    );
     const stream = src.streams?.[0];
     const width = numberOrNull(stream?.width);
     const height = numberOrNull(stream?.height);
     if (width === null || height === null) {
       return { output: `${input}: ffprobe found no video stream`, code: 2 };
     }
-    const duration = numberOrNull(stream?.duration);
+    const duration = numberOrNull(stream?.duration ?? src.format?.duration);
+    const rotation = stream?.side_data_list?.find((s) => typeof s.rotation === "number")?.rotation;
+    const turned = isQuarterTurn(rotation);
     lines.push(
-      `source ${input}: ${width}x${height}${duration !== null ? ` ${duration.toFixed(1)}s` : ""}`,
+      `source ${input}: ${width}x${height}${turned ? ` rotated ${rotation}° (plays ${height}x${width})` : ""}${duration !== null ? ` ${duration.toFixed(1)}s` : ""}`,
     );
 
-    const plan = planRenditions({ width, height }, { name, maxHeight });
+    const plan = planRenditions(
+      { width, height, ...(rotation !== undefined ? { rotation } : {}) },
+      { name, maxHeight },
+    );
     await mkdir(outDir, { recursive: true });
     for (const r of plan) {
       lines.push(`encoding ${r.file}`);
+      stderr.write(`encoding ${r.file}\n`);
       const res = await spawn("ffmpeg", ffmpegArgv(inputPath, r, outDir), { streaming: true });
       if (res.code !== 0) {
         return {
@@ -272,9 +306,10 @@ export async function runVideoCommand(
 
     const probed: ProbedOutput[] = [];
     for (const r of plan) {
+      const isPoster = r.file.endsWith(".jpg");
       const info = await probe(
         spawn,
-        "stream=width,height:format=size,bit_rate",
+        isPoster ? "stream=width,height:format=size" : "stream=width,height:format=size,bit_rate",
         join(outDir, r.file),
       );
       probed.push({
@@ -282,28 +317,51 @@ export async function runVideoCommand(
         width: numberOrNull(info.streams?.[0]?.width),
         height: numberOrNull(info.streams?.[0]?.height),
         sizeBytes: numberOrNull(info.format?.size),
-        bitRate: numberOrNull(info.format?.bit_rate),
+        bitRate: isPoster ? null : numberOrNull(info.format?.bit_rate),
       });
     }
     lines.push("", formatTable(probed), "");
 
     if (repo && token !== null) {
       const existing = await listAssetsByFilename(repo, token, deps.fetch ?? fetch);
-      let uploaded = 0;
+      let stale = 0;
       for (const r of plan) {
         const known = existing.get(r.file);
+        const localSize = probed.find((p) => p.file === r.file)?.sizeBytes ?? null;
         if (known) {
-          lines.push(`EXISTS ${r.file} ${known.id}`);
+          if (known.size !== undefined && localSize !== null && known.size !== localSize) {
+            stale++;
+            lines.push(
+              `STALE ${r.file} ${known.id} ${known.url} (library ${known.size} bytes, local ${localSize} bytes)`,
+            );
+          } else {
+            lines.push(`EXISTS ${r.file} ${known.id} ${known.url}`);
+          }
           continue;
         }
-        if (uploaded > 0) await sleep(UPLOAD_THROTTLE_MS);
-        const bytes = await readFile(join(outDir, r.file));
-        const blob = new Blob([new Uint8Array(bytes).buffer as ArrayBuffer]);
-        const created = await uploadAsset(repo, token, r.file, blob, {
-          ...(deps.fetch ? { fetchImpl: deps.fetch } : {}),
-        });
-        uploaded++;
-        lines.push(`UPLOADED ${r.file} ${created.id} ${created.url}`);
+        await sleep(UPLOAD_THROTTLE_MS);
+        try {
+          const bytes = await readFile(join(outDir, r.file));
+          const type = MIME_BY_EXT[extname(r.file)];
+          const blob = new Blob(
+            [new Uint8Array(bytes).buffer as ArrayBuffer],
+            type ? { type } : {},
+          );
+          const created = await uploadAsset(repo, token, r.file, blob, {
+            ...(deps.fetch ? { fetchImpl: deps.fetch } : {}),
+          });
+          lines.push(`UPLOADED ${r.file} ${created.id} ${created.url}`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          lines.push(`FAILED ${r.file}: ${message}`);
+          return { output: lines.join("\n"), code: 1 };
+        }
+      }
+      if (stale > 0) {
+        lines.push(
+          `${stale} library file(s) differ from the local encode; re-run with a new --name or delete them in Prismic first`,
+        );
+        return { output: lines.join("\n"), code: 1 };
       }
     }
   } catch (err) {

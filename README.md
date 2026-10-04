@@ -104,12 +104,18 @@ drops the audio track (`-an`). It needs `ffmpeg` and `ffprobe` on `PATH`
 
 For a master of height `H` and `T = min(--max-height, H)`:
 
-| Output                 | When       | Encode                                                                                 |
-| ---------------------- | ---------- | -------------------------------------------------------------------------------------- |
-| `<name>-<T>.mp4`       | always     | H.264 high, `-preset slow -crf 23 -maxrate 5M -bufsize 10M`, `+faststart`, yuv420p     |
-| `<name>-<T>.webm`      | always     | VP9, `-crf 34 -b:v 3500k -row-mt 1 -deadline good -cpu-used 2`                         |
-| `<name>-phone-720.mp4` | `H >= 720` | H.264 main at 720p, `-preset slow -crf 24 -maxrate 2200k -bufsize 4400k`, `+faststart` |
-| `<name>-poster.jpg`    | always     | frame 0 of `<name>-<T>.mp4` (`-frames:v 1 -q:v 3`), so the poster matches what plays   |
+| Output                 | When                      | Encode                                                                                         |
+| ---------------------- | ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `<name>-<T>.mp4`       | always                    | H.264 high, `-preset slow -crf 23 -maxrate 5M -bufsize 10M`, `+faststart`, yuv420p             |
+| `<name>-<T>.webm`      | always                    | VP9, `-crf 34 -b:v 3500k -row-mt 1 -deadline good -cpu-used 2`                                 |
+| `<name>-phone-720.mp4` | `H >= 720` and `T >= 720` | H.264 main at 720p, `-preset slow -crf 24 -maxrate 2200k -bufsize 4400k`, `+faststart`         |
+| `<name>-poster.jpg`    | always                    | frame 0 of `<name>-<T>.mp4` (`-frames:v 1 -update 1 -q:v 3`), so the poster matches what plays |
+
+`H` is the height as played: a phone-shot master whose stream carries a
+±90° rotation is planned from its swapped dimensions, as ffmpeg autorotates
+before scaling. Outputs in `--out` are overwritten (`-y`). The "encoding"
+label for each rendition goes to stderr before its ffmpeg call, so a long
+encode shows which file the `-stats` line belongs to.
 
 Flags: `--out <dir>` (default `./video-out`), `--name <slug>` (default: the
 input's basename, slugified), `--max-height <n>` (default `1080`). After
@@ -120,7 +126,17 @@ and kbps.
 API. The token is read from `PRISMIC_TOKEN_<REPO>` only (never the generic
 `PRISMIC_WRITE_TOKEN`), and the command exits `2` naming that variable when
 it is unset. Uploads are deduped by filename against the existing library:
-each file prints `UPLOADED <file> <id> <url>` or `EXISTS <file> <id>`.
+each file prints `UPLOADED <file> <id> <url>`, `EXISTS <file> <id> <url>` when
+the library already holds a file of that name and size, or `STALE <file> <id>
+<url> (library N bytes, local M bytes)` when the names match but the bytes do
+not, in which case the command exits `1` after the loop and nothing is
+replaced: re-run with a new `--name` or delete the old asset in Prismic. A
+failed POST prints `FAILED <file>: <reason>` and exits `1` keeping every line
+earned before it, so the ids of files that did land are not lost. Each
+multipart part carries its MIME type from the extension. The upload path is
+tested against a fake fetch only; as of 2026-10-04 no video has gone through
+it live (Williamson's went through that site's `prismic-media-upload`
+workflow), so the first live run should be read, not assumed.
 
 ---
 
