@@ -47,7 +47,11 @@ const PRETTIER_TIMEOUT_MS = 60_000;
  *  rather than thirty. `makeGitHub()` satisfies it structurally. */
 export type PrismicCiGitHub = Pick<
   GitHub,
-  "defaultBranch" | "secretExists" | "fileContentsOnBranch" | "openPullRequest" | "openPullRequests"
+  | "defaultBranch"
+  | "secretExists"
+  | "fileContentsOnBranch"
+  | "openPullRequest"
+  | "openPullRequestRefs"
 >;
 
 export type PrismicCiDeps = {
@@ -76,6 +80,24 @@ const resultOf = (
 });
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** The cloud session's GitHub proxy refuses every Actions path, the secrets
+ *  list included, with this exact message. Matched narrowly on purpose: any
+ *  OTHER failure to read the secrets (a 403 from GitHub itself, a timeout)
+ *  still refuses, because only here does the install PR's own check stand in. */
+const PROXY_REFUSAL = /Access to this GitHub Actions path is not permitted through this proxy/;
+const isProxyRefusal = (err: unknown): boolean => PROXY_REFUSAL.test(messageOf(err));
+
+const UNCHECKED_SECRET_NOTE =
+  `${SECRET} not checked: this environment cannot read Actions secrets, so the PR's ` +
+  "`prismic-models` check is the gate — it goes red unless the token can read the models";
+
+const UNCHECKED_SECRET_PR_NOTE =
+  `\n\n**${SECRET} was not checked** when this PR was opened: the environment that ` +
+  "opened it cannot read Actions secrets. This PR's `prismic-models` check is the proof " +
+  "instead. It calls Prismic with the token and fails without a working one. **Do not " +
+  `merge this PR while that check is red.** Mint the token in Prismic, set it with ` +
+  `\`gh secret set ${SECRET} --repo <this repo>\`, then re-run the check.`;
 
 /** Same normalization as `self-updating`'s config comparison: CRLF and a stray
  *  trailing newline are not drift, and treating them as drift opens a needless
@@ -221,17 +243,28 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
   const spawn = deps.spawn ?? defaultSpawn;
 
   // 4. The secret. Absent and unreadable are separate answers with separate
-  //    wording; neither proceeds.
+  //    wording, and neither proceeds, with ONE exception: the cloud session's
+  //    proxy, which refuses every Actions-secrets path. There the secret is
+  //    unknowable from here, so the install PR's own dry job becomes the gate
+  //    (the workflow triggers on its own path): it calls Prismic with the
+  //    token and goes red on a missing or dead one. That proves the token can
+  //    read this repository's models, which the name lookup never did; write
+  //    access is first exercised by the apply job on the next model merge. land-prs merges only CLEAN, so red holds the PR.
   let hasSecret: boolean;
+  let secretUnchecked = false;
   try {
     hasSecret = await gh.secretExists(repo, SECRET);
   } catch (err) {
-    return resultOf(
-      site,
-      "failed",
-      `could not determine whether ${repo} has the ${SECRET} secret (${messageOf(err)}) — ` +
-        `refusing to install a workflow that may have no token`,
-    );
+    if (!isProxyRefusal(err)) {
+      return resultOf(
+        site,
+        "failed",
+        `could not determine whether ${repo} has the ${SECRET} secret (${messageOf(err)}) — ` +
+          `refusing to install a workflow that may have no token`,
+      );
+    }
+    hasSecret = true;
+    secretUnchecked = true;
   }
   if (!hasSecret) {
     return resultOf(
@@ -284,7 +317,13 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
 
   // 7. Already proposed? Without this, every run before the PR merges opens
   //    another one.
-  const open = (await gh.openPullRequests(repo)).find((pr) => pr.headRef.startsWith(BRANCH_PREFIX));
+  let refs: Array<{ headRef: string; url: string }>;
+  try {
+    refs = await gh.openPullRequestRefs(repo);
+  } catch (err) {
+    return resultOf(site, "failed", `could not list open PRs on ${repo}: ${messageOf(err)}`);
+  }
+  const open = refs.find((pr) => pr.headRef.startsWith(BRANCH_PREFIX));
   if (open) {
     return resultOf(site, "noop", `delivery workflow PR already open: ${open.url}`);
   }
@@ -376,12 +415,15 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
       base,
       title: "Deliver Prismic model changes from merged PRs",
       body:
-        "Adds the `prismic-models` workflow. On a PR touching `customtypes/**` or " +
-        "`src/lib/slices/**/model.json` it comments the model delta and writes nothing; " +
+        "Adds the `prismic-models` workflow. On a PR touching `customtypes/**`, " +
+        "`src/lib/slices/**/model.json` or the workflow file itself it comments the model " +
+        "delta and writes nothing; " +
         "on merge to main it pushes those models to Prismic. It can create and update " +
-        "models but never delete — a model present only in Prismic is reported, not touched.",
+        "models but never delete — a model present only in Prismic is reported, not touched." +
+        (secretUnchecked ? UNCHECKED_SECRET_PR_NOTE : ""),
     });
     notes.unshift(`opened PR ${pr.url}`);
+    if (secretUnchecked) notes.push(UNCHECKED_SECRET_NOTE);
     return resultOf(site, "applied", notes.join("; "), commits);
   } catch (err) {
     return resultOf(site, "failed", messageOf(err), commits);

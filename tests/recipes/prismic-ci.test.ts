@@ -19,6 +19,7 @@ import {
 } from "../../src/recipes/prismic-ci/template.js";
 import { withoutComments, workflowUses } from "../build/_helpers/workflow-source.js";
 import { makeGitHub, type PullRequestSummary } from "../../src/github/gh.js";
+import yaml from "js-yaml";
 
 /** A pin that LOOKS exactly like a real one, so template assertions exercise the
  *  shipped renderer rather than a special case. Deliberately not the shipped pin:
@@ -129,7 +130,7 @@ function deps(over: Partial<PrismicCiDeps> = {}): {
       defaultBranch: vi.fn(async () => "main"),
       secretExists: vi.fn(async () => true),
       fileContentsOnBranch: vi.fn(async () => null),
-      openPullRequests: vi.fn(async () => [...prs]),
+      openPullRequestRefs: vi.fn(async () => [...prs]),
       openPullRequest: vi.fn(async (_repo: string, pr: { head: string }) => {
         const url = `https://github.com/reddoorla/espada/pull/${prs.length + 9}`;
         prs.push({
@@ -196,6 +197,26 @@ describe("prismicCiWorkflow", () => {
     expect(live).toContain("push:");
     expect((live.match(/- "customtypes\/\*\*"/g) ?? []).length).toBe(2);
     expect((live.match(/- "src\/lib\/slices\/\*\*\/model\.json"/g) ?? []).length).toBe(2);
+  });
+
+  it("runs the dry job on the PR that installs or changes the workflow itself, and never applies on it", () => {
+    // The install PR is the proof that the site's token reads its models: the
+    // dry job calls Prismic with PRISMIC_WRITE_TOKEN and goes red on a missing
+    // or dead one. The push trigger must NOT carry the self path in any form,
+    // or merging the install PR would push models nobody reviewed as a model
+    // change. Parsed, not string-matched: a glob or a sibling key would slip
+    // past a substring check.
+    const doc = yaml.load(RENDERED) as {
+      on: Record<string, Record<string, unknown>>;
+    };
+    expect(Object.keys(doc.on).sort()).toEqual(["pull_request", "push"]);
+    expect(doc.on.pull_request).toEqual({
+      paths: ["customtypes/**", "src/lib/slices/**/model.json", WORKFLOW_PATH],
+    });
+    expect(doc.on.push).toEqual({
+      branches: ["main"],
+      paths: ["customtypes/**", "src/lib/slices/**/model.json"],
+    });
   });
 
   it("filters the push trigger to main — the caller's half of the apply gate", () => {
@@ -504,6 +525,128 @@ describe("prismicCi", () => {
     expect(d.github!.openPullRequest).not.toHaveBeenCalled();
   });
 
+  it("installs from behind the cloud proxy, and makes the PR's own check the gate", async () => {
+    // A cloud session's proxy refuses every Actions-secrets path. The secret is
+    // then unknowable from here, but the install PR's dry job proves a READABLE
+    // token, which is more than the name lookup ever did. land-prs merges only
+    // CLEAN, so a red check holds the PR.
+    await prismicSite();
+    const { d, pushed } = deps();
+    d.github!.secretExists = vi.fn(async () => {
+      throw new Error(
+        'gh api failed (code 1): {"message":"Access to this GitHub Actions path is not permitted ' +
+          'through this proxy."}gh: Access to this GitHub Actions path is not permitted through ' +
+          "this proxy. (HTTP 403)",
+      );
+    });
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("applied");
+    expect(pushed.length).toBe(1);
+    expect(r.notes).toMatch(/not checked/i);
+    expect(r.notes).toContain(SECRET);
+    const pr = vi.mocked(d.github!.openPullRequest).mock.calls[0]![1] as { body: string };
+    expect(pr.body).toContain(`**${SECRET} was not checked**`);
+    expect(pr.body).toContain("**Do not merge this PR while that check is red.**");
+    expect(pr.body).toContain(`\`gh secret set ${SECRET} --repo <this repo>\``);
+  });
+
+  it("completes end to end against the REAL gh client behind a proxy that refuses GraphQL and secrets", async () => {
+    // The instrument for "works from a cloud session". Every other test here
+    // mocks the GitHub client, which is how a GraphQL call survived review once:
+    // the recipe passed the secret check and then died listing open PRs. This
+    // fake `gh` behaves like the cloud proxy, measured 2026-10-01: GraphQL and
+    // `gh pr create` refused, the secrets API refused with the exact message.
+    await prismicSite();
+    const seen: string[][] = [];
+    const proxy = async (_cmd: string, args: readonly string[]) => {
+      seen.push([...args]);
+      const joined = args.join(" ");
+      if (args[0] === "pr" || args.includes("graphql")) {
+        return {
+          code: 1,
+          stdout: "",
+          stderr: "gh: GitHub GraphQL is not available from Claude Code sessions. (HTTP 403)",
+        };
+      }
+      if (joined.includes("/actions/secrets")) {
+        return {
+          code: 1,
+          stdout:
+            '{"message":"Access to this GitHub Actions path is not permitted through this proxy."}',
+          stderr:
+            "gh: Access to this GitHub Actions path is not permitted through this proxy. (HTTP 403)",
+        };
+      }
+      if (args[1] === "repos/reddoorla/espada") return { code: 0, stdout: "main\n", stderr: "" };
+      if (joined.includes("/contents/"))
+        return { code: 1, stdout: "", stderr: "gh: Not Found (HTTP 404)" };
+      if (args[1]?.startsWith("repos/reddoorla/espada/pulls?state=open")) {
+        return { code: 0, stdout: "[]", stderr: "" };
+      }
+      if (args.slice(0, 4).join(" ") === "api -X POST repos/reddoorla/espada/pulls") {
+        return {
+          code: 0,
+          stdout: '{"html_url":"https://github.com/reddoorla/espada/pull/41"}',
+          stderr: "",
+        };
+      }
+      return { code: 1, stdout: "", stderr: `unexpected gh call: ${joined}` };
+    };
+    const { d, pushed } = deps({ github: makeGitHub({ token: "T", spawn: proxy }) });
+    const r = await prismicCi(site(), d);
+    expect(r.notes).toContain("https://github.com/reddoorla/espada/pull/41");
+    expect(r.status).toBe("applied");
+    expect(pushed.length).toBe(1);
+    expect(r.notes).toMatch(/not checked/i);
+    expect(seen.some((a) => a.includes("graphql") || a[0] === "pr")).toBe(false);
+  });
+
+  it.each([
+    [
+      "the proxy's OTHER refusal",
+      "gh: Write access to this GitHub API path is not permitted through this proxy. (HTTP 403)",
+    ],
+    ["a bare 403", "gh: HTTP 403"],
+    ["a proxy timeout", "proxy error: upstream timed out"],
+  ])(
+    "still refuses on %s: only the Actions-path refusal moves the gate",
+    async (_label, message) => {
+      await prismicSite();
+      const { d, pushed } = deps();
+      d.github!.secretExists = vi.fn(async () => {
+        throw new Error(`gh api failed (code 1): ${message}`);
+      });
+      const r = await prismicCi(site(), d);
+      expect(r.status).toBe("failed");
+      expect(r.notes).toMatch(/could not determine/i);
+      expect(pushed).toEqual([]);
+      expect(d.github!.openPullRequest).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reports a failed open-PR lookup as failed, not as a thrown error, and pushes nothing", async () => {
+    await prismicSite();
+    const { d, pushed } = deps();
+    d.github!.openPullRequestRefs = vi.fn(async () => {
+      throw new Error("gh api failed (code 1): connect ETIMEDOUT");
+    });
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/could not list open PRs/);
+    expect(r.notes).toContain("ETIMEDOUT");
+    expect(pushed).toEqual([]);
+  });
+
+  it("says nothing about an unchecked secret when the secret was checked", async () => {
+    await prismicSite();
+    const { d } = deps();
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("applied");
+    expect(r.notes).not.toMatch(/not checked/i);
+    const pr = vi.mocked(d.github!.openPullRequest).mock.calls[0]![1] as { body: string };
+    expect(pr.body).not.toMatch(/do not merge/i);
+  });
+
   it("does not guess 'main' when the default branch cannot be read", async () => {
     await prismicSite();
     const { d, pushed } = deps();
@@ -562,7 +705,7 @@ describe("prismicCi", () => {
   it("noops when a rollout PR is already open, naming it", async () => {
     await prismicSite();
     const { d, pushed } = deps();
-    d.github!.openPullRequests = vi.fn(async () => [
+    d.github!.openPullRequestRefs = vi.fn(async () => [
       {
         number: 4,
         title: "Deliver Prismic model changes from merged PRs",

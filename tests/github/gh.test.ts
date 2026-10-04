@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { makeGitHub } from "../../src/github/gh.js";
 import type { SpawnFn, SpawnResult, SpawnOptions } from "../../src/audits/util/spawn.js";
@@ -16,32 +17,62 @@ function fakeSpawn(result: Partial<SpawnResult>): {
 }
 
 describe("makeGitHub", () => {
-  it("openPullRequest calls gh pr create with the token in env and returns the URL", async () => {
-    const { spawn, calls } = fakeSpawn({ stdout: "https://github.com/o/r/pull/7\n" });
-    const gh = makeGitHub({ token: "T", spawn });
-    const out = await gh.openPullRequest("o/r", {
+  it("openPullRequest POSTs to the REST pulls endpoint (never GraphQL) with the token in env", async () => {
+    // `gh pr create` goes through GraphQL, which the cloud proxy refuses.
+    const calls: Array<{ args: string[]; body: unknown; env: NodeJS.ProcessEnv | undefined }> = [];
+    const spawn: SpawnFn = async (_cmd, args, opts) => {
+      const i = args.indexOf("--input");
+      const body = i >= 0 ? JSON.parse(readFileSync(args[i + 1]!, "utf-8")) : null;
+      calls.push({ args: [...args], body, env: opts?.env });
+      return { code: 0, stdout: '{"html_url":"https://github.com/o/r/pull/7"}', stderr: "" };
+    };
+    const out = await makeGitHub({ token: "T", spawn }).openPullRequest("o/r", {
       head: "maint/x",
       base: "main",
       title: "t",
       body: "b",
     });
     expect(out).toEqual({ url: "https://github.com/o/r/pull/7" });
-    expect(calls[0]!.cmd).toBe("gh");
-    expect(calls[0]!.args).toEqual([
-      "pr",
-      "create",
-      "--repo",
-      "o/r",
-      "--head",
-      "maint/x",
-      "--base",
-      "main",
-      "--title",
-      "t",
-      "--body",
-      "b",
-    ]);
-    expect(calls[0]!.opts.env?.GH_TOKEN).toBe("T");
+    expect(calls[0]!.args.slice(0, 4)).toEqual(["api", "-X", "POST", "repos/o/r/pulls"]);
+    expect(calls[0]!.args).not.toContain("graphql");
+    expect(calls[0]!.body).toEqual({ head: "maint/x", base: "main", title: "t", body: "b" });
+    expect(calls[0]!.env?.GH_TOKEN).toBe("T");
+  });
+
+  it("openPullRequest fails loudly when the response has no html_url", async () => {
+    const { spawn } = fakeSpawn({ stdout: "{}" });
+    await expect(
+      makeGitHub({ token: "T", spawn }).openPullRequest("o/r", {
+        head: "h",
+        base: "main",
+        title: "t",
+        body: "b",
+      }),
+    ).rejects.toThrow(/no html_url/);
+  });
+
+  it("openPullRequestRefs lists open PRs over REST and keeps head ref + url", async () => {
+    const { spawn, calls } = fakeSpawn({
+      stdout: JSON.stringify([
+        { headRef: "maint/prismic-ci-1", url: "https://github.com/o/r/pull/3" },
+        { headRef: null, url: "https://github.com/o/r/pull/4" },
+      ]),
+    });
+    const refs = await makeGitHub({ token: "T", spawn }).openPullRequestRefs("o/r");
+    expect(refs).toEqual([{ headRef: "maint/prismic-ci-1", url: "https://github.com/o/r/pull/3" }]);
+    expect(calls[0]!.args[0]).toBe("api");
+    expect(calls[0]!.args[1]).toBe("repos/o/r/pulls?state=open&per_page=100");
+    expect(calls[0]!.args).not.toContain("graphql");
+  });
+
+  it("the REST PR methods reject a malformed repo before calling gh", async () => {
+    const { spawn, calls } = fakeSpawn({});
+    const gh = makeGitHub({ token: "T", spawn });
+    await expect(gh.openPullRequestRefs("not-a-repo")).rejects.toThrow(/owner\/repo/);
+    await expect(
+      gh.openPullRequest("a/b/c", { head: "h", base: "main", title: "t", body: "b" }),
+    ).rejects.toThrow(/owner\/repo/);
+    expect(calls).toEqual([]);
   });
 
   it("openPullRequests queries the GraphQL rollup and normalizes CI state per PR", async () => {
