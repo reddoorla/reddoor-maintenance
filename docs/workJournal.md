@@ -8028,6 +8028,63 @@ two are left: putting the healthcheck ahead of the root refusal, which lhci
 cannot produce because a failed healthcheck exits before collect, and the
 `^` anchor on the runtime-error regex.
 
+## 2026-10-04 — `land-prs` merges with the method the base branch allows
+
+`scripts/land-prs.mjs` always sent `merge_method=squash`, and on 2026-10-04 it
+could not land reddoor-website#240 on that repo's `main`: the merge answered
+405 "Squash merges are not allowed on this repository" while the repo's
+`allow_squash_merge` read `true`. The belief corrected here is that the repo
+flags are the whole answer. They are not: ruleset 20165612 (`main: reviewed
+changes only`) carries a `pull_request` rule with `allowed_merge_methods:
+["merge"]`, and a ruleset narrows the methods per branch where the flags cannot
+show it. reddoor-website's `staging` has no `pull_request` rule at all (only a
+`deletion` rule, ruleset 22843978), which is why squashes into `staging` went
+through.
+
+The script now reads `GET repos/{o}/{r}` and every page of `GET
+repos/{o}/{r}/rules/branches/{base}` right after the first view's refusals,
+intersects the flags with each `pull_request` rule's `allowed_merge_methods`,
+drops `merge` under a `required_linear_history` rule, and keeps squash, then
+merge, then rebase. When nothing survives it stops before watching a single
+check, naming what each source allowed. A flag absent from the repo answer is
+read as allowed, not refused (GitHub's default is true; the merge's own 405
+remains the backstop). Classic branch protection is not read, because its
+endpoint needs admin. Every gate is unchanged: the pinned `sha`, CLEAN, checks
+on the gated head, the #623 promotion refusal, the release refusal.
+
+Read live from this container before the tests were trusted, the picker
+answered `merge` for reddoor-website `main`, `squash` for its `staging`, and
+`squash` for this repo's `main`, which carries `required_linear_history` and a
+`pull_request` rule allowing all three. A `--dry-run` of #1127 here printed
+`method=squash` and `merge --squash pinned to sha=…`. The post-merge branch
+delete never depended on the method; the `--cleanup` comment that said a squash
+leaves the branch's commits unreachable now says why the ancestor test is right
+for all three (a merge commit makes them reachable only from a `main` the
+checkout has not fetched).
+
+Nine mutations were run against the tests, and each turned at least one red:
+hardcoding squash in the PUT (1), ignoring the rules (7), ignoring the repo
+flags (3), preferring merge over squash (5), dropping the linear-history rule
+(1), reading only the first rules page (1), reading the rules for `main`
+instead of the PR's base (1), removing the refusal when nothing is allowed (1),
+and reading an absent flag as false (1). The suite is 81 tests, 11 of them new.
+
+Not done: the "done when" asked for a live landing on a merge-commit-only
+branch. #240 had already been merged before this work started (merge
+commit `e47d2260`), and reddoor-website had no open PR into `main` to land, so the
+merge-commit path is proven by the tests and the live rules read, not yet by
+a real merge. The next PR into reddoor-website `main` is that proof; read its
+`LAND … merged … method=merge` line and the commit's two parents.
+
+One adversarial review round on #1141 found no blockers and two minors, both
+folded in. First: any failure of the rules read used to stop the run, and a
+private repo on a plan without rulesets may answer that endpoint with 403
+(not verified; every repo reachable here is public). A 403 or 404 on the first
+rules page now means "no rulesets", logged as a note, with the repo flags
+deciding. Second: the page loop is capped at ten pages. Three more mutations
+turned a test red each (no 403/404 tolerance, tolerating a 500 too, a cap of
+twenty), and the suite is 84 tests.
+
 ## 2026-10-04 — Decision 70 landed: the starter's cloud-session hook (reddoor-starter#167, `9fb434b`)
 
 > Follows "Lighthouse runs in a cloud container; the axe half is a missing browser revision" above.

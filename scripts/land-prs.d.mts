@@ -56,7 +56,23 @@ export interface LandResult {
   reason?: string;
   mergeCommit?: string;
   head?: string;
+  method?: MergeMethod;
 }
+
+export type MergeMethod = "squash" | "merge" | "rebase";
+
+export const MERGE_METHODS: MergeMethod[];
+
+/** The method to merge with, from `GET repos/{o}/{r}` and the rules in force on the base
+ *  (`GET repos/{o}/{r}/rules/branches/{base}`): squash, then merge, then rebase. */
+export function chooseMergeMethod(
+  repo: Record<string, unknown> | null | undefined,
+  rules: Array<{
+    type: string;
+    ruleset_id?: number;
+    parameters?: { allowed_merge_methods?: string[] } & Record<string, unknown>;
+  }>,
+): { method: MergeMethod; error?: undefined } | { method?: undefined; error: string };
 
 export const DEFAULT_TIMING: Timing;
 
