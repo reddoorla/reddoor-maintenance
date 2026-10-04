@@ -8106,3 +8106,61 @@ corrected it. The operator's laptop checkout may still hold #32's untracked
 file, and a pull will refuse to overwrite it until it moves to
 `settings.local.json`. Existing sites and the Blux track do not have the
 hook yet. Each is its own PR, and the backfill is not decided.
+
+## 2026-10-04 — Phase 4: thirteen site repos off Slice Machine, and the lint audit honours `.prettierignore` (#1090, #1144 `a2e0516`)
+
+> Follows "Both starters off Slice Machine; the baseline follows" above.
+
+A cloud worker session took plan §9 one site at a time, each through its own reviewed PR. The operator said "merge on green" at about 21:50Z, after the first two had landed. Thirteen repos landed: espada, caltex-landing, 29-navy, revogen, medical-solutions-of-texas, gallerysonder, vineyard-custom-homes, vida-legacy-foundation, beachfront-dentistry, alamo-anatomy, erp-industrial (two PRs), data-dynamiq (code only) and williamson-homes. BACKLOG Operator decisions 57 lists each site's merge SHA, its Prismic repository and its simulator URL for the Type Builder switch. hedloc is held at #53, and both Burbank proofs of concept are pushed without a PR; all three wait on Prismic MCP activation. williamson-construction-co waits on a refused push. williamson-homes started last, after another session's PR there merged at 22:06Z, and landed as #20 (`ab39401`).
+
+**The framing step was four different jobs, and `vite preview` could only see one of them.** The brief assumed a site restricts framing through the central CSP. In fact the fleet split four ways:
+
+- **No restriction anywhere.** espada, revogen, vineyard, alamo and erp pass no `csp` to `createSvelteConfig`, which is opt-in. They have no hook and no netlify.toml headers. The simulator was already frameable, so these got no hook at all.
+- **netlify.toml's static `/*` block only.** caltex-landing, medical-solutions-of-texas and data-dynamiq. `vite preview` showed neither header on any route, before or after, because it does not apply netlify.toml. Production sent `X-Frame-Options: SAMEORIGIN` on `/slice-simulator`, because the root layout's `prerender = "auto"` made the route a static file. Server-rendered `/health` sent none, so the static block does not reach function responses.
+  - The fix is `prerender = false` on the simulator plus a hook that touches only that route.
+  - Only the live curl and the deploy preview could prove it. On caltex's deploy preview, `/slice-simulator` carried the Prismic frame-ancestors while `/` and `/leasing` kept SAMEORIGIN.
+- **A netlify.toml CSP.** gallerysonder sent `frame-ancestors 'self' https://*.prismic.io` on `/*`, which leaves out `https://prismic.io` and localhost. Its simulator now gets the fleet's policy.
+- **All three layers.** 29-navy, vida-legacy-foundation, beachfront-dentistry and both Burbank sites have `kit.csp` with `frame-ancestors 'self'`, a hook that sets SAMEORIGIN everywhere, and the netlify.toml block. These got the starter's full port with vitest tests.
+  - On vida the starter's own tests could not fail when the hook's X-Frame-Options delete was removed: nothing upstream set the header, so the delete was untested. A test with an upstream `X-Frame-Options: DENY` went red, and the Burbank and williamson ports carry it.
+
+**Moving the types file to the root broke svelte-check wherever nothing imported it by path.** SvelteKit's generated tsconfig includes `src/**`, and the CLI writes `prismicio-types.d.ts` at the project root.
+
+- On espada, caltex, msot, alamo, hedloc and data-dynamiq, `Content.*` disappeared and `[uid]`'s `entries()` uid became `string | null`: between 1 and 5 errors per site.
+- `import type {} from "../prismicio-types"` in `src/app.d.ts` brings it back. A triple-slash reference fails the fleet's eslint rule.
+- Sites that already imported the file by relative path only needed the path moved: 29-navy, revogen, gallerysonder, vineyard, vida, beachfront, erp and the Burbank pair. erp alone had 12 such imports, and 15 errors before they moved.
+
+**Regenerating found a stale model on most sites.**
+
+- `customtypes/form_replies` came in with the starter's form work, and almost no site regenerated its types afterwards. The new types add `FormRepliesDocument` on espada, revogen, msot, vineyard, gallerysonder, beachfront, 29-navy, data-dynamiq and erp.
+- gallerysonder's `RsvpDocumentData` lacked five fields its model has.
+- On 29-navy, all five `navy_*` slices were missing from the type union: 34 exported names became 55.
+- On the Burbank sites, `frozen_page`, the type the homepage renders from, was never generated.
+- This is the case the `prismic-codegen` gate exists for. It went red on every site when a model was edited without regenerating.
+
+**Sync with Prismic was the brief's stop condition, and the nightly sweep could only prove it for ten sites.**
+
+- The 10:50Z drift run read espada, caltex, msot, revogen, 29-navy, gallerysonder, vineyard, vida, beachfront and erp as matching, each at the exact SHA the PR was based on.
+- For the rest, the session compared fields through the Prismic connector, with a planted-difference control first. alamo (82 fields), williamson-construction (3 types, 29 slices) and erp (after another session's model push) all came back with no differences.
+- The connector refuses `hedloc`, `the-tower-burbank`, `the-pointe-burbank` and `reddoor-wireframer` with "Prismic MCP is not activated". The first three are held. data-dynamiq landed anyway: its PR touches no model, and its repository is shared, so it gets no Type Builder switch.
+- The sweep's "not a Prismic site (no repositoryName)" for data-dynamiq is misleading. The name is present, but it is on `PLACEHOLDER_REPOSITORY_NAMES`.
+
+**The rollout turned the lint audit red fleet-wide, and #1144 fixes it.** The CLI's generated files are listed in `.prettierignore`, because the codegen gate compares them byte-for-byte with the generator's output. But the audit prettier-checked every `.ts`/`.js` file regardless. espada went from `warn` with 0 unformatted files on the commit before its migration to `fail` with 2 after it, and to `pass` with the fix. The test lives in its own file: typescript-eslint caches one tsconfig root per process, and linting a second fixture in the same worker failed with 5 "multiple candidate TSConfigRootDirs" parse errors that had nothing to do with the change.
+
+**erp-industrial was two PRs.** #66 moved `@prismicio/svelte` from 1.5 to 2.2 and dropped `@prismicio/helpers`. All 8 prerendered pages built identically apart from modulepreload order. The review found one change no gate can see: 2.x's `SliceZone` keys slices by id, so a client navigation now remounts a slice instead of reusing it. That probably fixes a stale Vimeo id in the Hero, which captured `slice` at init. #67 is the migration. It was built on #66's branch and merged with `main` rather than force-pushed. The shallow clone made git treat both sides as added files, and keeping B's side gave a tree byte-identical to the reviewed head.
+
+**alamo has no slices, and the CLI writes an index anyway.** `libraries` pointing at a missing directory, `libraries: []`, and an omitted key all produce the same empty `components` map, because the CLI falls back to `src/lib/slices/`. So alamo commits the empty index, its simulator imports it, and a first slice needs no route change.
+
+**Left for others.** Reviews found three fleet-wide minors in the template, none of which this rollout introduced:
+
+- the simulator code ships in a chunk every page preloads, +3.2 KB gz on the starter's home;
+- `isCmsFramedRoute` matches the raw path, so `/slice%2Dsimulator` misses the exception;
+- on sites that rely on netlify.toml for headers, the server-rendered simulator loses Referrer-Policy, Permissions-Policy and COOP.
+
+The operator started a session for these. It is reddoor-starter#168, and that session follows up the landed sites one PR each.
+
+**Process notes.**
+
+- The container restarted twice. Each restart killed the background workers and reviews running at the time, and they were re-run from what was on disk. The session notes in `.session-logs/` survived both restarts.
+- The permission system refused one worker's `git push` as "Out-of-Place Publication". The push was put to the operator rather than retried another way.
+- One worker's sed mutations matched nothing and "passed". It caught this by checking `git diff` before each run, and that check went into the recipe.
+- williamson-homes's connector comparison first reported two differences: Hero `cta_link` and SectionGrid `item_link` omit `select` locally, and Prismic returns `select: null`. That is Prismic's own decoding (`@prismicio/types-internal`'s Link config, `withFallback(…, null)`), read in the installed source before the difference was normalised away. A planted `select: "document"` still showed, so the normalisation hides nothing real.
