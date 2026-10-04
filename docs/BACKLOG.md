@@ -1894,7 +1894,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     a third round. _Pick:_ land it: every finding of both rounds is fixed
     and tested, the `--upload` path the findings concern has never run live
     and the README says so, and that first live run is the next instrument.
-    Branch `claude/video-encode-command`.
+    **Answered 2026-10-04 (operator: "land #1116 as is"):** landed by
+    `land-prs` at `e78c4af4` after four merge-of-main cycles against the
+    day's journal traffic. The changeset rides the next release PR. Not an
+    ask any more.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
