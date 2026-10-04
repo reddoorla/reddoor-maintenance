@@ -217,6 +217,20 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ### Watching (owned elsewhere, or parked)
 
+- **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
+  - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
+    Nothing for an agent until the client answers.
+  - **The Tower Burbank and The Pointe Burbank (`building`):** proofs of
+    concept for the Blux conversion, not client work. Do not rank them as
+    builds or chase their stale branches.
+  - **Domaru:** set to `archived` (it lapses with Webflow on 10-19, with no
+    bridge).
+  - **Row fixes [M, written through `setSiteDetail`, read back]:** `git_repo`
+    on both Williamson rows, and `netlify_id` on Williamson Homes (`9072ea82…`),
+    Williamson Construction (`7e2831e2…`) and Roalson (`316ff26b…`). The ids
+    came from Netlify's API by site name, and each one's `repo_url` matches its
+    repo.
+
 - **P1-26, the fleet `/privacy` page (#1055, option A): parked by the
   operator 2026-09-30 ~21:25Z** until a lighter week with no new client
   work, to save tokens. The brief is ready in `docs/privacy-2026-09.md`, and
