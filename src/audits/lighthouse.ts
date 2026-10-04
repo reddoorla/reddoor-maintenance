@@ -106,10 +106,8 @@ function messageForAssertion(a: AssertionResult): string {
   return `${a.name} ${a.operator} ${a.expected} (actual: ${actual})`;
 }
 
-const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
-
 function describeLhciFailure(raw: SpawnResult): string {
-  const output = `${raw.stdout}\n${raw.stderr}`.replace(ANSI_SGR, "");
+  const output = `${raw.stdout}\n${raw.stderr}`;
   const rootRefusal = /(Running as root without --no-sandbox is not supported\.?)/.exec(
     output,
   )?.[1];
@@ -119,7 +117,6 @@ function describeLhciFailure(raw: SpawnResult): string {
   const healthcheck = [...output.matchAll(/^❌\s+(.+)$/gm)].map((m) => m[1]!.trim());
   if (healthcheck.length > 0) return healthcheck.join(" / ").slice(0, 200);
   return raw.stderr
-    .replace(ANSI_SGR, "")
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "" && !/\bnpm warn\b/i.test(line))
