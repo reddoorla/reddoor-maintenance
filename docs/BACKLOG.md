@@ -1658,6 +1658,41 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       The other five are `launching` (alamo-anatomy, hedloc) or `building`
       (the two Burbank sites, williamson-homes), which the sweep excludes by
       design. The Williamson Homes row also has a null `git_repo`.
+    - **10-04 23:00Z: phase 4, 12 site repos landed** (cloud worker
+      session, plan §9; one reviewed PR each, merged on green per the
+      operator's "merge on green" at ~21:50Z). Each still needs phase 5's
+      dashboard step. _Ask:_ per row, "Switch to type builder" in that
+      Prismic repository and set its simulator URL (a `curl -sSI` of the URL
+      should show no `x-frame-options`; every PR's deploy preview did):
+      - espada#79 (`69eebc1`): `espada`, `https://espadarealestate.com/slice-simulator`
+      - caltex-landing#69 (`83b2076`): `caltex-landing`, `https://www.caltexmedical.com/slice-simulator`
+      - 29-navy#60 (`6f0a505`): `29-navy`, `https://29navy.com/slice-simulator`
+      - revogen#90 (`34f1da0`): `revogen`, `https://revogen.com/slice-simulator`
+      - medical-solutions-of-texas#71 (`70e905a`): `msot`, `https://medicalsolutionsoftx.com/slice-simulator`
+      - gallerysonder#107 (`6508598`): `gallerysonder`, `https://gallerysonder.com/slice-simulator`
+      - vineyard-custom-homes#71 (`c038d41`): `vineyard-custom-homes`, `https://www.vineyardconstruction.com/slice-simulator`
+      - vida-legacy-foundation#89 (`244e97d`): `vida-legacy`, `https://vidalegacy.org/slice-simulator`
+      - beachfront-dentistry#71 (`459c64c`): `48bb12d1`, `https://beachfrontdentistry.com/slice-simulator`
+      - alamo-anatomy#63 (`9260a09`): `alamo-anatomy`, `https://alamo-anatomy.netlify.app/slice-simulator` (change at launch)
+      - erp-industrial#66 (`41cf5ad`, `@prismicio/svelte` 2.2) and #67 (`930fab5`): `erp-industrial`, `https://www.erpfunds.com/slice-simulator`
+      - data-dynamiq#57 (`76cfcae`): code only, no switch; `reddoor-wireframer` is shared.
+    - _Ask (d), phase 4:_ activate Prismic MCP for `hedloc`,
+      `the-tower-burbank` and `the-pointe-burbank`
+      (`https://<repo>.prismic.io/builder/settings/mcp/`). None is in the
+      nightly drift sweep and the connector refuses all three ("Prismic MCP
+      is not activated for repository …"), so the brief's stop condition,
+      models proven in sync before the change, cannot be met. hedloc#53 is
+      open and held; both Burbank migrations are pushed as
+      `claude/prismic-cli` (the-tower-burbank `a3f9aeb`, the-pointe-burbank
+      `dcc9701`) with no PR. _Pick:_ activate; a later session runs the
+      connector comparison, opens their PRs and lands all three.
+    - _Ask (e), phase 4:_ williamson-construction-co is migrated and proven
+      in sync (connector, 0 differences over 3 types and 29 slices), but the
+      permission system refused the worker's `git push` of `claude/prismic-cli`
+      (head `9e18320`). That branch exists only in the cloud container that
+      built it, so if the container is gone the migration is re-run from the
+      recipe (`docs/prismic-migration-plan-2026-10.md` §9 and this entry's
+      journal). _Pick:_ allow that push; the branch is ready for its PR.
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:
