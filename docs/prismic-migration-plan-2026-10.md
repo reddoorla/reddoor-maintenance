@@ -279,3 +279,102 @@ the D1 pull-sync PR, the runbook's §11), one release PR for the operator; then
 the 18 site PRs, client sites before the Tower and Pointe Burbank proofs of
 concept (not client work, operator 2026-10-04), with erp-industrial and
 alamo-anatomy as the two outliers named in §4.
+
+## 8. Brief — D1 pull-sync PR (written 2026-10-04)
+
+**Item.** #1090 · Operator decision D1 (a), identity answered 2026-10-04: the
+`reddoor-renovate` App · 🟡 YELLOW (a write path into client repos, and a guard
+loosened) · effort M–L.
+
+A Type Builder edit lands in Prismic first. Today it reaches the repo only by
+hand (reddoor-website#238), and the nightly drift sweep just records it.
+
+**The design constraint, read before anything else.** `--pull`
+(`pullRemoteOnly`, `src/cli/commands/prismic-models.ts`) brings in only models
+that exist **only** in Prismic. `writeModelFile`
+(`src/prismic/models/write.ts`) refuses to write over an existing model file
+("that file already holds …"). Its header calls it "the only module here that
+writes into a LIVE CLIENT REPO". The pilot's edit, a changed placeholder on an
+existing type, is exactly the case both skip. D1 needs a narrowly scoped
+**changed-model** pull: overwrite a local model file with Prismic's body only
+when the file's id matches and the content differs. It must keep every other
+guard (the capability guard over `src/prismic/models/`, no delete path, the
+occupied-path proof), and it must be a separate, named capability, never a flag
+that widens the existing one.
+
+**Direction is ambiguous, so the PR must say so.** A difference means either
+"Prismic was edited" (sync wanted) or "the repo's apply failed" (sync would
+revert the repo). The PR body must name each changed model and its
+`describeDiff` lines. The PR is for review, never auto-merged.
+
+**Done when.**
+
+- A nightly workflow (after `fleet-prismic-drift`) mints `reddoor-renovate`
+  tokens and, for each site whose models differ, clones the site and runs the
+  changed-model pull and the remote-only pull.
+- On a migrated site (`prismic.config.json`), it runs `prismic gen types` and
+  `gen slice-index` from a pinned CLI, then commits to one fixed branch,
+  `prismic-sync`, and opens or updates one PR against the default branch.
+- A site with no difference gets no branch and no PR. An existing open sync
+  PR is updated, never duplicated.
+- A positive control (a fixture site with a known Prismic-side change) produces
+  exactly one PR. A negative control (in sync) produces none.
+
+**Mutations I will run:**
+
+1. The changed-model pull overwrites a file whose id differs.
+2. It writes when the content is identical (an empty diff PR).
+3. A second nightly run opens a second PR instead of updating the first.
+4. The job deletes a local model that is absent in Prismic.
+5. Generated files are not regenerated after the pull (the site's `prismic-codegen` gate must catch it).
+
+**Stop conditions.** Any delete path. Any change to `--apply`. Two dirty review
+rounds → Operator decisions.
+
+## 9. Brief — phase 4 site rollout (written 2026-10-04)
+
+**Item.** #1090 phase 4 · 🟢 per site (a reviewed per-repo PR, never a mass
+push) · effort S per site.
+
+The template is reddoor-starter#166 (`631f9a5`) plus reddoor-starter-blux#38
+for the hand-resolution pattern.
+
+**Per site:**
+
+1. Grep **every file type** for `slicemachine`, `slice-machine`,
+   `@slicemachine`, `start-slicemachine`, `src/prismicio-types`,
+   `slices/index.js` and `concurrently`.
+2. Write `prismic.config.json` by hand. Never `prismic init`.
+3. Swap the simulator import to `@prismicio/svelte`.
+4. Remove the packages and add `prismic`.
+5. Run `prismic gen` and diff the exported type names against the old file.
+   Expect stale-model findings (both starters had one) and name them in the PR.
+6. Port `src/lib/security/cms-framing.ts` and its test into the site's server
+   hook. About 11 sites set no X-Frame-Options in `hooks.server.ts` but still
+   send `frame-ancestors 'self'` through the central CSP. Their hook needs only
+   the CSP widening.
+7. Add the `prismic-codegen` workflow.
+8. Prove `/slice-simulator`'s headers from `vite preview` against a control
+   route.
+
+**Order.** Client sites first; the Tower and Pointe Burbank proofs of concept
+last. The outliers:
+
+- **erp-industrial** needs `@prismicio/svelte` 1.5 → 2.x and its own review.
+- **alamo-anatomy**'s slice library path points at a directory that doesn't exist.
+- **data-dynamiq** gets code only, no Prismic switch.
+
+**Landing.**
+
+- `land-prs` squash-merges, so it refuses any `main` whose ruleset allows merge
+  commits only, as reddoor-website's does. Those merges are the operator's until
+  `land-prs` reads the allowed methods.
+- Repos that take PRs into `staging` (reddoor-website) follow their own flow.
+- After each site's PR merges, the operator switches that Prismic repository to
+  the Type Builder and sets its simulator URL.
+
+**Stop conditions.**
+
+- A site whose models differ from Prismic before the change: the dry run must
+  show in sync, or the difference is named and resolved first.
+- Two dirty review rounds.
