@@ -624,6 +624,19 @@ describe("prismicCi", () => {
     },
   );
 
+  it("reports a failed open-PR lookup as failed, not as a thrown error, and pushes nothing", async () => {
+    await prismicSite();
+    const { d, pushed } = deps();
+    d.github!.openPullRequestRefs = vi.fn(async () => {
+      throw new Error("gh api failed (code 1): connect ETIMEDOUT");
+    });
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/could not list open PRs/);
+    expect(r.notes).toContain("ETIMEDOUT");
+    expect(pushed).toEqual([]);
+  });
+
   it("says nothing about an unchecked secret when the secret was checked", async () => {
     await prismicSite();
     const { d } = deps();

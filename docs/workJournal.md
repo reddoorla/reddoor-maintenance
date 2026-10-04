@@ -7386,3 +7386,47 @@ Phase 1 of the migration plan closes the gap that let williamson-homes drift: se
 **Why fresh clones.** Four of the operator's checkouts were behind `origin/main` (alamo-anatomy, the-pointe-burbank, the-tower-burbank, vida-legacy-foundation), and the recipe branches from whatever HEAD the path holds. I cloned each repo into the session scratchpad and passed the path positionally, `--dry` then the real run, one site at a time. The cost is the recipe's "could not prettier-format" note, since a fresh clone has no `node_modules`; each site's CI prettier step passed on the file as written. The recipe refused both secretless repos with its own message and left their clones untouched, which is the gate proving it can say no.
 
 **Not done.** the-tower-burbank and vida-legacy-foundation wait on a token each (🔴). reddoor-website was skipped under the brief's own rule: reddoor-website#237, staging → main, was opened at 18:19Z and touches `.github/workflows`. Its secret exists. The brief's `--base staging` cannot apply to it, because the recipe opens its PR against the default branch and the apply job guards `refs/heads/main`; item 57 proposes running it against `main` after #237 merges. Both `main` and `staging` there pin CLI 0.95.1, which has read `prismic.config.json` since 0.83.0, so the promotion will not turn the site into "not a Prismic site". Noted and left alone as out of charter: the central secret `PRISMIC_TOKEN_ROALSON_INTERESTS` (set 09-17) has no `env:` line in `fleet-prismic-drift.yml`, and `PRISMIC_TOKEN_THE_TOWER_BURBANK` has a line and no secret.
+
+## 2026-10-04 — `prismic-ci` runs from a cloud session; the install PR proves the token (#1113, this PR)
+
+The operator asked why `prismic-ci` keeps needing the laptop "on various sites", and whether moving the fleet to the Type Builder would fix it. It would not. The migration keeps `prismic-models` and `prismic-ci` (BACKLOG 57, D2), and every route, Prismic's own included, still needs a token secret in CI. The recipe gated on reading that secret's name through `GET repos/{repo}/actions/secrets`, and the cloud proxy refuses every Actions path ("Access to this GitHub Actions path is not permitted through this proxy.", measured).
+
+**The new gate proves more than the old one.** The caller workflow now triggers on its own path for `pull_request` only, so the PR that installs it runs the dry job. The dry job reads the repository's models from Prismic with the token:
+
+- no token exits 1 ("no write token");
+- a dead token goes red;
+- `land-prs` merges only `CLEAN`.
+
+The old check proved a secret with that name existed. The new one proves the token reads this repository's models. Writes are still first exercised by the apply job on the next model merge, and round 1 made the wording say so. Only the exact Actions-path refusal moves the gate. The proxy's other refusal ("Write access to this GitHub API path…"), a bare 403, and a confirmed-absent secret all still refuse, each pinned by a test. Merging an install PR writes nothing, because push paths are unchanged.
+
+**Round 1 found the change could never have worked.** Two reviewers independently traced it:
+
+- Past the secret check, step 7 listed open PRs over GraphQL.
+- Opening the PR used `gh pr create`, which is also GraphQL.
+- The proxy refuses GraphQL outright.
+
+Every recipe test mocked the GitHub client, so all 41 passed on a path that died at its first real call. This is the "prove the instrument" failure exactly: the feature had never passed once, and the tests said it had. Both calls are REST now:
+
+- a new `openPullRequestRefs` (head refs and URLs only, because the GraphQL `openPullRequests` also carries mergeability and CI rollup for its other two callers);
+- `openPullRequest` POSTs to `repos/{repo}/pulls`, which also makes `self-updating` cloud-safe.
+
+The test that was missing now exists. It runs the recipe against the real `makeGitHub` over a fake `gh` that refuses GraphQL, `gh pr create` and the secrets API as the proxy does. Putting either GraphQL call back turns it red (M7, M8).
+
+**Round 1's test-strength lens found 2 survivors and 5 more by reading:**
+
+- `/proxy/i` and `/not permitted/` regexes both passed;
+- a `.github/workflows/**` glob under `push` passed;
+- a `paths-ignore` sibling passed;
+- weakened PR-body wording passed.
+
+The trigger test now parses the YAML and asserts the exact path lists. All 14 mutations turn a test red.
+
+**A process defect, named.** The test-strength reviewer ran its mutations in the author's worktree and restored files with `git checkout` while the author was editing. One of the author's edits to `index.ts` was silently reverted, and it looked like a failed `replace`. The second review round got its own detached worktree. Any reviewer that mutates files needs one.
+
+**A second slip, corrected before push.** A commit went in while prettier was failing, because `pnpm lint | tail` turned the failure into a success. Exit codes are now checked directly.
+
+**Round 2 (own worktree) found no blocker or major.** It ran the REST listing through the real proxy, and it showed that putting a GraphQL call into `defaultBranch` turns the end-to-end test red. It found one minor that was folded in: a failed open-PR lookup threw out of the recipe instead of returning `failed`, and on the cloud path that is now the reachable failure. These were left as they are:
+
+- the one-page (100 PR) listing, which equals the old GraphQL `first:100`;
+- a 422's reason reaching only stdout, so `gh()` reports just its summary;
+- a fork PR named `maint/prismic-ci-*` suppressing an install, which can never cause a write.

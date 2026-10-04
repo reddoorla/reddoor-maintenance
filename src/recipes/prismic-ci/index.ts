@@ -317,9 +317,13 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
 
   // 7. Already proposed? Without this, every run before the PR merges opens
   //    another one.
-  const open = (await gh.openPullRequestRefs(repo)).find((pr) =>
-    pr.headRef.startsWith(BRANCH_PREFIX),
-  );
+  let refs: Array<{ headRef: string; url: string }>;
+  try {
+    refs = await gh.openPullRequestRefs(repo);
+  } catch (err) {
+    return resultOf(site, "failed", `could not list open PRs on ${repo}: ${messageOf(err)}`);
+  }
+  const open = refs.find((pr) => pr.headRef.startsWith(BRANCH_PREFIX));
   if (open) {
     return resultOf(site, "noop", `delivery workflow PR already open: ${open.url}`);
   }
