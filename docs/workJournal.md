@@ -8197,3 +8197,25 @@ to manufacture one.
 Next in order: Espada (one hardcoded clip, 1031277602, 30 s; master
 candidate `Espada Mastehead.mp4`, 39 MB). It needs a Prismic home field,
 because nothing about the clip lives in Prismic today.
+
+## 2026-10-04 — Mantis P4a: the contact form is live on /contact-us (mantis-landscaping#15, `ab2fd86`)
+
+The Prismic `contact-us` page and the starter's `/contact` form were two routes for one job (mantis-landscaping#11). They are now one route: `/contact-us` renders the page's slices, then the form. `/contact` 301s there from both the hook and `netlify.toml`, so form-e2e's `goto('/contact')` still arrives at the form.
+
+**The belief corrected on contact.** I made the per-request load throw on any Prismic error other than a 404, reasoning that a fallback would hide an outage. The reviewer turned Prismic off and found the cost I had not counted. Every other Mantis page is prerendered, so this one route became the site's only request-time dependency on Prismic. During an outage `/` answered 200 and `/contact-us` answered 500. Worse, a no-JS POST reached ingest and then the post-action reload threw, so a visitor whose message was received saw an error page and would send it again. Round 1 changed the load to serve the form on any error and log anything that is not a 404. Round 2 reproduced the outage, with a negative control (the old line back gives a 500), and found the fix clean. Its instrument note is worth keeping: on Node 24, `HTTPS_PROXY=http://127.0.0.1:9` alone does NOT make Prismic unreachable, because built-in fetch ignores it. `/health` stays `prismic:"ok"` until `NODE_USE_ENV_PROXY=1` is added. An outage test without that variable passes whatever the code does.
+
+**Mutations the old tests let through.** These had no test until round 1:
+
+- `_reply` taken from the visitor, which would make the autoresponder a phishing relay. This gap was already on `main`.
+- `testMode` from `form.has`.
+- The 404 check loosened.
+
+Each now has a test, and each mutation was applied and went red (N1 to N6 in the PR body).
+
+**Live.** The production deploy of `ab2fd86` serves `/contact-us` at 200, and `/contact?x=1` 301s to `/contact-us?x=1`. Its `/health` reports `prismic:"ok"`, with ingest, token, Turnstile and testMode all declared. form-e2e, armed with `REDDOOR_FORM_E2E_LIVE=1` against a one-site inventory and no write-back, passed. It also reported `fields were wiped by a client re-render and re-filled once`. I filed that as a visitor-facing hydration defect (mantis-landscaping#17), then measured it and was wrong.
+
+I reproduced it against production by filling at `domcontentloaded`, with a MutationObserver counting `<form>` removals. Appending a hidden `<input name="testMode">` before hydration, as the probe's `injectExpr` does, re-mounted the whole tree 5 times out of 5, each with `hydration_mismatch`. Plain fills re-mounted 0 times out of 19. Svelte 5 treats a node it did not render as a mismatch. Typing changes values, not nodes, so visitors are unaffected. The probe wipes its own fills and then repairs them, and the comment beside the `refilled` field calls that "production proof the wipe happens". #17 is closed with the table, and the instrument fix is reddoor-maintenance#1148.
+
+This is the CLAUDE.md rule in small: the first and only FAIL-shaped signal from a probe was taken as a finding before anyone asked what the probe itself does to the page. What settled it was a control the probe could not influence, the same fills without the injection. I also filed mantis-landscaping#16: a Prismic preview of `contact-us` shows no form.
+
+**Not done, and why.** A `testMode` probe persists nothing and notifies no one by design (`src/forms/ingest.ts`), and automation cannot mint a Turnstile token (600010). So the real submission traced into Turso needs one human submit. That is now in Operator decisions 71, together with P4b's blocker: the Mantis site row has neither `mailchimp_api_key` nor `mailchimp_audience_id`. The read-only SELECT that showed this finds a key on 1 of 47 sites, so the absence is a measured result.

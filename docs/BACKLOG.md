@@ -215,6 +215,17 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       builds from it** (#10, `8a005df`). The `prismic-ci` install (#13) waits
       on the site secret, Operator decisions 69. **Next:** P4, the form on
       `/contact-us`. It also retires the starter's `/contact` (issue #11).
+    - **10-04 ~23:45Z: P4a landed** as mantis-landscaping#15 (`ab2fd86`),
+      after two review rounds; the second was clean. The form lives on
+      `/contact-us`, and `/contact` 301s there. Round 1 caught a 500 during a
+      Prismic outage, which also turned a received POST into an error page.
+      Live form-e2e passes against production. Its `re-filled once` note
+      turned out to be the probe's own pre-hydration injection, not a site
+      defect (#17 closed with the measurement; reddoor-maintenance#1148).
+      Also filed: #16 (the preview route shows no form). **Next:** P4b (newsletter) waits on
+      Operator decisions 71. The real-submission trace into Turso needs a
+      human-minted Turnstile token, because a `testMode` probe persists
+      nothing. Then P5.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -2227,6 +2238,26 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       #32's untracked `settings.json` must move it to `settings.local.json`
       before pulling. Still open: backfilling existing sites (one PR each)
       and cherry-picking the hook into `reddoor-starter-blux`.
+
+71. **Mantis P4b: the client's Mailchimp API key (#1107, new 2026-10-04).**
+    The newsletter signup (62(d)) posts `formType: "newsletter"` to central
+    ingest, and `form-ingest.mts` forwards it to Mailchimp using the site
+    row's `mailchimp_api_key` and `mailchimp_audience_id`. A read-only
+    SELECT on `site_01M3WA8PZXD4Q8N7P234MNYJNB` found both NULL. The same
+    predicate finds a key on 1 of 47 sites, so the query can return
+    positive. The key is the client's credential. _Ask:_ supply the key,
+    or have it set on the row. _Pick:_ set the key together with audience
+    `1c9fde2079`, taken from the Blux embed (`u=5db33f711cc60af4607539cf5`).
+    Then one test signup with an address of ours, unsubscribed afterwards.
+    A worker can build the form before the key arrives, but cannot prove it
+    end to end. Also, form-e2e fills the first `[name="email"]` on the page
+    and marks the first `<form>`, so the signup must not sit above the
+    contact form on `/contact-us`.
+    The same session left the real-submission trace for P4a. A real POST
+    needs a Turnstile token that automation cannot mint (600010).
+    _Ask:_ submit the live `/contact-us` once from an ordinary browser, as
+    the operator. The worker then traces the row in Turso and the
+    notification.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
