@@ -225,6 +225,25 @@ review rounds and serial CI:**
 > file by relative path, so svelte-check sees it (0 errors on
 > reddoor-website#235). The rest stay open.
 
+> **Pilot closed 2026-10-04 17:19Z, both directions proven on reddoor-website /
+> `reddoor-la`.** Prismic to repo: an operator Type Builder edit was read back
+> through the connector, diffed (the only difference in the type) and landed as
+> reddoor-website#238. Repo to Prismic: #241's dry run reported "1 model(s)
+> would be pushed; 24 already match" and changed nothing in Prismic (read back
+> before and after); the merge to `staging` ran no apply; the promotion #242's
+> apply job pushed "1/1 model(s) pushed. 24 already matched", and the connector
+> then read the new value. The Type Builder preview renders against the
+> deployed `/slice-simulator`. Answers to this section's questions:
+>
+> - **Reversible?** There is no toggle back, but the operator reports the old
+>   builder is Slice Machine itself and both remain offered after the switch.
+>   So Slice Machine can still push to a switched repository: the nightly drift
+>   check is the guard until a site's Slice Machine packages are removed, which
+>   its rollout PR does.
+> - **Root types file:** answered above.
+> - **Write token as `PRISMIC_TOKEN`:** not needed; D2 kept `prismic-models`.
+> - **Renovate preset:** still open, checked in phase 3.
+
 - Is "Switch to type builder" reversible? Can Slice Machine still push to a
   repository after the switch? This sets whether phase 5 may run before a
   site's code PR has landed. The plan assumes no on both, and so orders the
@@ -235,3 +254,28 @@ review rounds and serial CI:**
 - Does the Renovate preset in `reddoorla/.github` group or pin the
   `@slicemachine/*` packages? A stale rule would keep raising them after
   removal.
+
+## 7. Phase 3 brief (written 2026-10-04, after the pilot)
+
+The pilot's diff is the template; reddoor-website#235 and its review fix
+`40d5d81` are the reference. Three things the pilot taught that each later PR
+must carry:
+
+- **Grep every file type**, `.mjs` and `.cjs` included. #235's first sweep
+  missed seven scripts that read `slicemachine.config.json`, and no test
+  imports them.
+- **A workflow-only PR never gets a `prismic-models` dry run**: the workflow is
+  path-filtered to `customtypes/**` and slice `model.json`. Prove a site's
+  delivery with a real model change, as #241 did, not by waiting for a comment.
+- **`land-prs` squashes**, and a repo whose `main` ruleset allows only merge
+  commits (reddoor-website does) refuses it. Those merges are the operator's
+  until `land-prs` reads the branch's allowed merge methods.
+
+Order: reddoor-starter, then a cherry-pick to reddoor-starter-blux (never a
+merge); then central (`baseline-versions.ts`, the new-site path, the
+`BASELINE_CSP` framing exception for `/slice-simulator` ported from
+reddoor-website's `src/lib/security/headers.ts`, the drift nightly turned into
+the D1 pull-sync PR, the runbook's §11), one release PR for the operator; then
+the 18 site PRs, client sites before the Tower and Pointe Burbank proofs of
+concept (not client work, operator 2026-10-04), with erp-industrial and
+alamo-anatomy as the two outliers named in §4.

@@ -7704,3 +7704,15 @@ merge window is the length of its CI run, and the journal is the only file
 that ever conflicts. `reddoor-maint video` is on `main` with its changeset;
 the `--upload` path is still unproven live, and the first live run is the
 next instrument (README, BACKLOG 63).
+
+## 2026-10-04 — The Prismic CLI pilot closes: a model change made each way, end to end (reddoor-website #238–#242, this PR)
+
+> Follows 2026-10-01 — The Slice Machine migration starts (#1109).
+
+Both directions are now proven on reddoor-website against `reddoor-la`. The operator switched the repository to the Type Builder on 10-01, confirmed slice previews render against the deployed `/slice-simulator`, and changed `industry` → `inquiry_title`'s placeholder there. Read back through the Prismic connector and diffed against the repo, it was the only difference in the type; #238 landed it with regenerated types. The repo-to-Prismic leg ran today. #241 changed the same placeholder in the repo. Its dry run said "1 model(s) would be pushed; 24 already match", the first full field-level comparison this site has ever had, and the connector read Prismic unchanged before and after it. Merging into `staging` ran no apply, as the branch filter intends. The operator's promotion #242 ran the apply job at 17:19Z, "1/1 model(s) pushed. 24 already matched", and the connector then read the new value.
+
+**Defect in my own brief, and its cost.** The phase 1 brief I handed the operator's local session told it to wait for the workflow's "in sync" dry-run comment before merging the install PR. The workflow is path-filtered to model files, so a workflow-only PR can never get one. reddoor-website#240 sat open from 10-01 19:09Z to 10-04. I read the workflow file before blaming the session. The fix is in the plan's §7: prove delivery with a real model change.
+
+**`land-prs` cannot land on reddoor-website `main`.** It squash-merges. reddoor-website's `main: reviewed changes only` ruleset allows merge commits only, while `staging`'s does not restrict, which is why squashes into `staging` worked all along. The repo-level `allow_squash_merge` is `true`, so only the ruleset tells you. My manual merge-commit merge of #240 was refused by the session's permission classifier as a CI bypass. The operator merged #240 and #242 by hand. A follow-up is queued for `land-prs` to read the target branch's allowed merge methods.
+
+**Answered for the plan.** The Type Builder switch has no toggle back, but the operator reports Slice Machine is the "old builder" and both stay offered. So Slice Machine can still push to a switched repository, and the drift nightly remains the guard until each site's rollout PR removes the packages. #1113 (another session, 10-04) made `prismic-ci` runnable from the cloud, which takes the laptop out of phase 1 except for minting tokens. The operator also ruled that the Tower and Pointe Burbank sites are Blux proofs of concept, so they go last in phase 4.
