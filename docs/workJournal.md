@@ -7862,3 +7862,46 @@ the number.
 the 2026-10-01 entry is the only source. `measure.mjs` lives in the
 session scratchpad and dies with it; its recipe is in the brief and the
 10-04 Williamson entry, and it is sixty lines to rebuild.
+
+## 2026-10-04 — P1-26 privacy page: starter held at decision 68 after two dirty rounds; central preflight ready (reddoor-starter#165, #1129)
+
+The operator un-parked P1-26 at about 17:00Z. Verify-first at 17:27Z matched the PM pass: `/privacy` answered 404 on roalson-interests.netlify.app and sonderliving.com, and `roalsoninterests.com` did not resolve at all. The claim is on #1055. No fresh `claude/*` or `fix/*` branch touched these files in any of the three repos.
+
+**What the brief's "derive, never hand-write" turned into.**
+
+- A Vite plugin (`scripts/privacy-services.ts`) exposes `virtual:privacy-services`, built from the site's own code at build time.
+- The first version read `svelte.config.js` as text. Round 1 showed why that is wrong: a `createSvelteConfig` baseline never appears in the text, a wildcard source does not contain the host string, and a YouTube embed pasted into Prismic is not in `src/` at all.
+- The plugin now imports the config and reads `kit.csp.directives` as SvelteKit sees them.
+  - A video host is listed when the directive that governs it (`frame-src`, falling back to `child-src` then `default-src`) admits it. CMS content can embed anything the CSP allows.
+  - A font host must be both loaded by `src/` and admitted by `style-src`.
+  - Turnstile is read per request from the same env var the widget uses, so the page is `prerender = false`.
+- Measured on the starter's own production build: forms, Vimeo and Netlify, nothing else. Google Fonts is correctly absent: its CSP admits it, but the starter never loads it.
+- Vimeo is listed on every fresh clone because the starter's CSP admits it. That is the rule working; NEW-SITE.md says to trim the CSP.
+
+**Beliefs corrected by the accuracy lens, which read the central forms pipeline line by line.**
+
+1. "We use what you send only to reply to you" was false. Submissions are stored indefinitely, spam-scored, and answered with an autoresponder.
+2. The IP is not used for rate limiting; nothing rate-limits. It goes to Turnstile's server check when a token exists, and is otherwise dropped, except in the dead-letter copy.
+3. The fleet's Mailchimp path is server-side, keyed on the central row, so no site's code can show it.
+4. Central ingest compares every sender's email and message with all other fleet sites' submissions for 30 days. So "no other party tracks you across sites" is false on any site with a fleet form. That was round 2's blocker, and the most consequential fact in this entry: it belongs in the lawyer's review (item 45) whatever the wording becomes.
+
+**Stopped at decision 68.** The starter PR was dirty in round 1 and again in round 2, so it went to the operator rather than a third round. `5c87109` folds round 2 in and is unreviewed.
+
+**Central side.** #1129's preflight (`hasPrivacyPage`) was clean in round 2.
+
+- Round 1 had found SvelteKit routing edges: symlinks followed, rest segments transparent, a redirect-only `+page.ts` not counting, and a custom `kit.files.routes` getting its own refusal.
+- #1129 is green and held only by the landing order. It carries this entry, decision 68, P1-26's move into P1, and item 45's three new questions for the lawyer.
+
+**My own instrument errors.**
+
+- `pkill -f "vite preview"` inside the same command killed the shell running it (exit 144) three times before I separated the kill from the work.
+- A heredoc-quoted Python mutation table double-escaped its regexes, and three central mutations reported "PATTERN" assertion errors instead of results. They were rerun from a script file, and all three went red.
+- A round-2 reviewer saw `+layout.svelte` modified during its build: that was my mutation run in the shared checkout, restored afterwards.
+
+**Not done.**
+
+- roalson-interests has no page yet. Its launch adds GA4, so it is the hard date.
+- Its legal name, privacy contact email and effective date are not in its repo, and will render as placeholders until someone supplies them.
+- Playwright smoke did not run locally: the container lacks the pinned `chromium_headless_shell-1243`. CI ran it.
+
+**Later the same evening.** The operator answered "merge on green CI" at about 20:00Z, and reddoor-starter#165 landed as `f538398`, pinned to `5c87109`. Landing #1129 then stopped on a conflict: another session's #1131 had landed its own Operator decision 67 while this branch carried an unlanded 67. The two numbers were taken from the same `main` tail within an hour of each other. This one became 68. A decision number is only claimed when it lands, and two sessions writing operator decisions on the same afternoon will keep colliding until the number is assigned at landing time.
