@@ -219,9 +219,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       after two review rounds; the second was clean. The form lives on
       `/contact-us`, and `/contact` 301s there. Round 1 caught a 500 during a
       Prismic outage, which also turned a received POST into an error page.
-      Live form-e2e passes against production, but its result says
-      `re-filled once`, which is a hydration wipe: #17. Also filed: #16 (the
-      preview route shows no form). **Next:** P4b (newsletter) waits on
+      Live form-e2e passes against production. Its `re-filled once` note
+      turned out to be the probe's own pre-hydration injection, not a site
+      defect (#17 closed with the measurement; reddoor-maintenance#1148).
+      Also filed: #16 (the preview route shows no form). **Next:** P4b (newsletter) waits on
       Operator decisions 71. The real-submission trace into Turso needs a
       human-minted Turnstile token, because a `testMode` probe persists
       nothing. Then P5.
