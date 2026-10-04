@@ -1628,11 +1628,32 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     PR is the operator's). Phase 1 now stands at 5 of 7: reddoor-website's
     workflow landed as reddoor-website#240 on 10-04, so only Ask (a) below
     remains. Still to build in phase 3: the D1 nightly pull-sync PR.
-    **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
-    `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
-    the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
-    repos already held `PRISMIC_WRITE_TOKEN` (four since 2026-08-14,
-    williamson-homes since 09-30), so two tokens are owed, not seven.
+    **10-04 22:20Z: the D1 pull-sync is built and HELD after two dirty
+    review rounds** (#1143, draft, branch `claude/wizardly-brown-2ylvcv`).
+    It adds a separate `refreshChangedModel` capability, `prismic-sync`
+    (one working tree, or `--fleet --open-prs`: one `prismic-sync` branch
+    and PR per site, fast-forward only), and `fleet-prismic-sync.yml` after
+    the drift sweep as the `reddoor-renovate` App. 27 mutations, 26 red; the
+    survivor is a redundant second layer. Round 1 found 4 majors (all
+    fixed). Round 2 found 2 safety blockers (both fixed on the branch,
+    unreviewed) and 2 correctness majors (not fixed): `declined` is keyed
+    on the commit sha, so any commit to `main` reopens a declined PR; and
+    GitHub's "Update branch" makes a site `held` forever with the run green.
+    - _Ask:_ (a) split the workflow: a job with NO App token clones,
+      syncs, installs and runs codegen and uploads a patch per site; a
+      second job with the token runs no site code, applies the patch,
+      pushes and opens the PR; then fix the two majors and review once
+      more. (b) Keep one job: fix the two majors and run a third review
+      round on #1143 as it is. _Pick:_ (a). Both blockers came from running
+      a client's own toolchain (`pnpm install`, prettier, the `prismic` CLI)
+      beside an org-wide write token, and round 2 broke round 1's isolation
+      by a route nobody listed; a split removes the class instead of a
+      third instance. Details: the round-2 comment on #1143.
+      **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
+      `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
+      the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
+      repos already held `PRISMIC_WRITE_TOKEN` (four since 2026-08-14,
+      williamson-homes since 09-30), so two tokens are owed, not seven.
     - _Ask (a), 🔴:_ mint a Custom Types write token and set
       `PRISMIC_WRITE_TOKEN` for **the-tower-burbank** (Prismic repository
       `the-tower-burbank`) and **vida-legacy-foundation** (`vida-legacy`).
