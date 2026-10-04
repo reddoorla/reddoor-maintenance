@@ -8,7 +8,7 @@ import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
 import { siteHostnames } from "../../client/site-host.js";
 import { HOOKS_CLIENT_RELATIVE, MEASUREMENT_ID_RE, hooksClientTemplate } from "./template.js";
-import { HAND_ADD_HOSTS, planCspEdit, type CspEditPlan } from "./csp-edit.js";
+import { HAND_ADD_HOSTS, maskNonCode, planCspEdit, type CspEditPlan } from "./csp-edit.js";
 import { SCAN_FILE_CAP, scanCheckout } from "../../audits/analytics.js";
 
 const SVELTE_CONFIG_RELATIVE = "svelte.config.js";
@@ -142,36 +142,45 @@ async function packageRefusal(sitePath: string): Promise<string | null> {
   return null;
 }
 
-const PAGE_FILE = /^\+page(@[^.]*)?(\.server)?\.[a-z]+$/;
+const PAGE_FILE = /^\+page(@[^.]*)?\.(svelte|md|svx)$/;
 const PRIVACY_SCAN_DIRS = 2000;
 
-/** Does `src/routes` define a page at `/privacy`? Route groups `(x)` and
- *  optional `[[x]]` segments add nothing to the path; a dynamic `[uid]` that
- *  might resolve to it from a CMS is not proof that it exists. */
 export async function hasPrivacyPage(sitePath: string): Promise<boolean> {
   const queue: Array<{ dir: string; path: string[] }> = [
     { dir: join(sitePath, "src", "routes"), path: [] },
   ];
   for (let seen = 0; queue.length > 0 && seen < PRIVACY_SCAN_DIRS; seen++) {
     const { dir, path } = queue.shift()!;
-    let entries;
+    let names: string[];
     try {
-      entries = await readdir(dir, { withFileTypes: true });
+      names = await readdir(dir);
     } catch {
       continue;
     }
-    if (path.length === 1 && path[0] === "privacy") {
-      if (entries.some((e) => e.isFile() && PAGE_FILE.test(e.name))) return true;
-    }
-    for (const e of entries) {
-      if (!e.isDirectory() || e.name === "node_modules") continue;
-      const silent = /^\(.*\)$/.test(e.name) || /^\[\[.*\]\]$/.test(e.name);
-      const next = silent ? path : [...path, e.name];
-      if (next.length <= 1) queue.push({ dir: join(dir, e.name), path: next });
+    for (const name of names) {
+      if (name === "node_modules") continue;
+      let isDir: boolean;
+      try {
+        const st = await stat(join(dir, name));
+        isDir = st.isDirectory();
+        if (!isDir && !st.isFile()) continue;
+      } catch {
+        continue;
+      }
+      if (!isDir) {
+        if (path.length === 1 && path[0] === "privacy" && PAGE_FILE.test(name)) return true;
+        continue;
+      }
+      const silent =
+        /^\(.*\)$/.test(name) || /^\[\[.*\]\]$/.test(name) || /^\[\.\.\..*\]$/.test(name);
+      const next = silent ? path : [...path, name];
+      if (next.length <= 1) queue.push({ dir: join(dir, name), path: next });
     }
   }
   return false;
 }
+
+export const CUSTOM_ROUTES_RE = /\bfiles\s*:\s*\{[^}]*\broutes\s*:/;
 
 export const NO_PRIVACY_PAGE_NOTE =
   "the site has no /privacy page. GA4's terms require a posted privacy policy that discloses " +
@@ -247,6 +256,18 @@ export async function analyticsTag(
         return { kind: "failed", notes: "the site has no src/ directory to install into" };
       }
 
+      const configText = await readFile(join(site.path, SVELTE_CONFIG_RELATIVE), "utf8").catch(
+        () => "",
+      );
+      if (CUSTOM_ROUTES_RE.test(maskNonCode(configText))) {
+        return {
+          kind: "failed",
+          notes:
+            "svelte.config.js sets kit.files.routes, so this recipe cannot tell whether the site " +
+            "has a /privacy page. Confirm it serves one, then add GA4 by hand: " +
+            handSnippet(id, productionHost),
+        };
+      }
       if (!(await hasPrivacyPage(site.path))) {
         return { kind: "failed", notes: NO_PRIVACY_PAGE_NOTE };
       }

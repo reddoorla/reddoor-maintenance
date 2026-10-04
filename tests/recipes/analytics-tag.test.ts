@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -105,13 +105,20 @@ describe("recipes/analytics-tag, the /privacy preflight", () => {
     expect((await run(cwd)).status).toBe("applied");
     git(cwd, "rm", "-q", PRIVACY_PAGE);
     git(cwd, "commit", "-q", "-m", "drop privacy");
+    const head = git(cwd, "rev-parse", "HEAD");
     const again = await run(cwd);
     expect(again.status).toBe("failed");
     expect(again.notes).toContain("no /privacy page");
+    expect(git(cwd, "rev-parse", "HEAD")).toBe(head);
+    expect(git(cwd, "status", "--porcelain")).toBe("");
   });
 
-  it("does not count a Prismic catch-all, an endpoint or a privacy page nested deeper", async () => {
+  it("does not count a catch-all, an endpoint, a redirect, a non-page or a deeper folder", async () => {
     for (const rel of [
+      "src/routes/[lang]/privacy/+page.svelte",
+      "src/routes/privacy/+page.server.ts",
+      "src/routes/privacy/+page.ts",
+      "src/routes/privacy/+page.css",
       "src/routes/[[preview=preview]]/[uid]/+page.svelte",
       "src/routes/privacy/+server.ts",
       "src/routes/legal/privacy/+page.svelte",
@@ -127,12 +134,33 @@ describe("recipes/analytics-tag, the /privacy preflight", () => {
     for (const rel of [
       "src/routes/(legal)/privacy/+page.svelte",
       "src/routes/[[preview=preview]]/privacy/+page.svelte",
-      "src/routes/privacy/+page.server.ts",
       "src/routes/privacy/+page@.svelte",
+      "src/routes/privacy/+page.md",
+      "src/routes/[...rest]/privacy/+page.svelte",
+      "src/routes/privacy/[...rest]/+page.svelte",
     ]) {
       const res = await run(await siteWithoutPrivacy({ [rel]: "export {};\n" }));
       expect(res.status, rel).toBe("applied");
     }
+  });
+});
+
+describe("recipes/analytics-tag, the /privacy preflight on unusual layouts", () => {
+  it("follows a symlinked route folder, as SvelteKit does", async () => {
+    const cwd = await siteWithoutPrivacy({ "src/pages/privacy/+page.svelte": "<h1>P</h1>\n" });
+    await mkdir(join(cwd, "src/routes"), { recursive: true });
+    await symlink(join(cwd, "src/pages/privacy"), join(cwd, "src/routes/privacy"));
+    git(cwd, "add", "-A");
+    git(cwd, "commit", "-q", "-m", "symlink");
+    expect((await run(cwd)).status).toBe("applied");
+  });
+
+  it("refuses with its own note when svelte.config.js moves the routes", async () => {
+    const config = `export default { kit: { files: { routes: "src/pages" } } };\n`;
+    const res = await run(await site({ "svelte.config.js": config }));
+    expect(res.status).toBe("failed");
+    expect(res.notes).toContain("kit.files.routes");
+    expect(res.notes).not.toContain("no /privacy page");
   });
 });
 
