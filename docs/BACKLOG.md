@@ -1154,6 +1154,9 @@ reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
       Netlify rebuild of `main` (ready 20:08Z) serves it on `/about-us`.
       There is still no Prismic → Netlify publish webhook, so a publish
       needs a manual rebuild until one is set.
+      **Corrected 2026-10-01 18:58Z:** a Netlify build hook "Prismic publish"
+      has existed since 2026-09-30 05:32Z and Prismic's webhook fires it; the
+      operator triggered it and three deploys followed. Publishes rebuild.
     - (b) "Remove it and let central decide." Landed as
       williamson-construction-co#7 (`e15517e`). Putting the refusal back
       turns the new route test red.
@@ -1531,6 +1534,36 @@ tabindex="-1">` takes focus. The code and its test meant to keep it
     Custom Types write token (🔴), `gh secret set PRISMIC_WRITE_TOKEN --repo
 reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     refuses from a cloud session by design (secrets API).
+    **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
+    `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
+    the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
+    repos already held `PRISMIC_WRITE_TOKEN` (four since 2026-08-14,
+    williamson-homes since 09-30), so two tokens are owed, not seven.
+    - _Ask (a), 🔴:_ mint a Custom Types write token and set
+      `PRISMIC_WRITE_TOKEN` for **the-tower-burbank** (Prismic repository
+      `the-tower-burbank`) and **vida-legacy-foundation** (`vida-legacy`).
+      Then `reddoor-maint prismic-ci <a fresh clone>` for each. The central
+      `PRISMIC_TOKEN_THE_TOWER_BURBANK` is absent as well; its `env:` line
+      already exists.
+    - _Ask (b):_ reddoor-website was skipped, because reddoor-website#237
+      (staging → main, opened 18:19Z) touches `.github/workflows`. Its secret
+      has existed since 08-14. The recipe can only open its PR against `main`,
+      since the apply job guards `refs/heads/main`, so `--base staging` does
+      not apply. _Pick:_ run it against `main` once #237 has merged.
+    - _Ask (c):_ a PR that adds only the workflow never runs the `dry` job
+      (the path filter), so none of the four got a model-delta comment and
+      nothing has yet exercised a site's own secret. A local read with the
+      central tokens found alamo-anatomy (6), hedloc (8) and
+      the-pointe-burbank (35) in sync. williamson-homes has no token on the
+      laptop: the review read its ids through the Prismic connector and they
+      match (3 types, 20 slices), but its fields are unmeasured.
+      _Pick:_ one throwaway PR per site that reformats a model file and is
+      closed unmerged, as caltex-landing was proven on 08-16.
+    - Not an ask: the nightly sweeps only `reddoor` and
+      `vida-legacy-foundation` of the seven, and both read "match" on 10-01.
+      The other five are `launching` (alamo-anatomy, hedloc) or `building`
+      (the two Burbank sites, williamson-homes), which the sweep excludes by
+      design. The Williamson Homes row also has a null `git_repo`.
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:
@@ -1669,6 +1702,46 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     site launches without GA4, as it runs today.
 
     **Answered 2026-10-01 (operator): (a)–(d) yes, (e) held.**
+
+63. **Background video: self-host from Prismic, Vimeo stays for content
+    videos (answered 2026-10-01; rollout is the open half).** The operator
+    asked "can we do better on video quality" on Williamson Construction and
+    then "Vimeo or roll our own?" The research is the 2026-10-01 journal
+    entry "Vimeo or our own player"; the short form:
+    - Measured: a Vimeo background embed is 20 requests, ~440 KB of player
+      and three Cloudflare cookies before a frame; a `<video>` is one request
+      and none. Vimeo's docs list `__cf_bm`, `_cfuvid` and `cf_clearance` as
+      essential on every plan, so the 06-29 belief that a higher tier removes
+      the Best Practices deduction was wrong. Our Vimeo path is 930 lines of
+      workaround (interaction gating, iOS heartbeat, bot-detection carve-out)
+      against 188 for `BgVideo`, and has no pause control.
+    - Traffic (GA, 90 days to 09-30): the busiest video site's home page has
+      ~630 views a month (Revogen), so Prismic Starter's 100 GB/month is an
+      order of magnitude away even unoptimised. Prismic's file CDN supports
+      byte ranges, so playback starts before the file finishes.
+    - **Operator's answers:** most sites are on Prismic Starter; traffic is
+      small; the Vimeo subscription stays for other uses; the operator owns
+      the videos but clients may swap one in Prismic; a dumb file CDN is
+      acceptable if ever needed; Williamson Construction first, then the
+      eight Vimeo sites if it goes well.
+    - **Landed:** williamson-construction-co#13 (`BgVideo` plays only near
+      the viewport, pauses off screen, phone rendition via
+      `<source media>`; `video_mp4_mobile` field pushed to Prismic). HD
+      encodes from the Dropbox masters are staged on a Netlify draft deploy;
+      three posters are in Prismic. #12 (an Actions job that uploads to the
+      Asset API, because the connector refuses video) went through two dirty
+      review rounds; the operator chose a third.
+    - **Hand-off:** the content half and the fleet follow-ups moved to their
+      own session on 2026-10-01 with `docs/briefs/2026-10-01-williamson-video-hd.md`.
+      The encode recipe `reddoor-maint video` sits unreviewed on
+      `claude/video-encode-command`.
+
+    _Goes well when_ (fill in with measured numbers before any rollout):
+    Best Practices ≥ 90 on the fixtures route; hero playing on first paint
+    with no interaction; under 3 MB of video per unscrolled home visit at
+    390px; zero Vimeo console errors in smoke. _Ask, once those are in:_ roll
+    `BgVideo` to the eight Vimeo sites as each is touched, or leave them.
+    _Pick:_ roll, site by site, never as a sweep.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
