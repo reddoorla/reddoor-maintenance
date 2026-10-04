@@ -45,7 +45,7 @@ Object keys only. Array order is preserved (`canon` maps arrays, it does not sor
 This is not new behaviour to work around — Slice Machine had the same blindness: a pure key reorder staged nothing there either, which is why the old workaround was to pair it with a semantic tweak. Two ways to land a reorder:
 
 - **Pair it with a semantic change** (a placeholder or label edit is enough). The diff is blind to order, but the _push_ is not: `sendModel` sends the model file's JSON verbatim, so once anything makes the model differ, the whole body — in its new order — goes to Prismic.
-- **Reorder in the Prismic dashboard, then pull it back**: `reddoor-maint prismic-models <site> --pull`, review the diff in the working tree, and land it as an ordinary PR. Slower, but it is the option that leaves the repo and Prismic provably identical.
+- **Reorder in the Prismic dashboard together with a semantic change, then sync it back**: `reddoor-maint prismic-sync <site>` (§12) writes Prismic's whole body, in Prismic's order, over the local file; review the diff and land it as an ordinary PR. A reorder alone is invisible to the sync too, for the same reason as above. (Until 2026-10-04 this line named `--pull`, which adopts only models that exist only in Prismic and so never carried a reorder of an existing model.)
 
 ---
 
@@ -193,7 +193,7 @@ Then:
 
 1. **See the delta.** `reddoor-maint prismic-models <site>` — read-only, and it performs a real read, so it also proves whether the token works.
 2. **Local ahead** (models in the repo that Prismic lacks, or differ) → merge a PR touching the model paths; the site's own CI pushes on merge. Never push the fleet.
-3. **Remote ahead / remote-only** → `reddoor-maint prismic-models <site> --pull`, review the working-tree diff, open a PR. This is the _safe_ answer to a remote-only model; deletion is not an option the code has.
+3. **Remote ahead / remote-only** → the nightly pull-sync (§12) opens a `prismic-sync` PR for it. By hand: `reddoor-maint prismic-sync <site>` writes both changed and remote-only models into the working tree; `prismic-models <site> --pull` writes remote-only models only. Review the diff and open a PR. Deletion is not an option the code has.
 4. **Never delete from CI**, and never reach for a fleet-wide push: `--fleet --apply` is refused with exit 2, and the refusal says why.
 
 One sweep caveat that changes how you read a row: the fleet sweep **never fetches, pulls or resets a checkout**, so a verdict describes the commit printed beside the site (`@<sha>`), not that repo's default branch. In CI every site is cloned fresh into `RUNNER_TEMP`, so this bites locally, not nightly.
@@ -247,6 +247,30 @@ Slice Machine is deprecated (npm, 2.21.6 on 2026-09-18), replaced by the Type Bu
 
 **Do not run `prismic init`.** It is a destructive config rewrite, not an idempotent setup step: it `rm -r`s any local slice directory absent from the remote, rewrites `package.json` and the lockfile, AST-edits `vite.config.ts`, and makes remote writes to the live Prismic repository even under `--no-setup`. A site migrates by hand-writing `prismic.config.json`, as the reference PRs do.
 
-**The Type Builder is on, and the repo stays authoritative** (operator decision D1, 2026-10-01). An edit made in the Type Builder lands in Prismic first; it reaches the repo as a PR (the pilot did this by hand as reddoor-website#238; the nightly drift check reports it until a pull-sync job automates it). Switching a repository to the Type Builder has no toggle back, and Slice Machine stays offered afterwards, so a site whose Slice Machine packages are not yet removed can still be pushed to from it; the drift check is the guard.
+**The Type Builder is on, and the repo stays authoritative** (operator decision D1, 2026-10-01). An edit made in the Type Builder lands in Prismic first; it reaches the repo as a PR (the pilot did this by hand as reddoor-website#238; since 2026-10-04 the nightly pull-sync in §12 opens that PR). Switching a repository to the Type Builder has no toggle back, and Slice Machine stays offered afterwards, so a site whose Slice Machine packages are not yet removed can still be pushed to from it; the drift check is the guard.
 
 **Generated files, run by an agent.** The CLI refuses without `--task-id` and `--user-intent` when it detects an agent (analytics only), and `pnpm prismic:gen` cannot pass them to both commands, so an agent runs `pnpm exec prismic task-id` once and then each `gen` command with both flags. Actions is not detected as an agent.
+
+---
+
+## 12. The nightly pull-sync (D1)
+
+[`.github/workflows/fleet-prismic-sync.yml`](../../.github/workflows/fleet-prismic-sync.yml) runs after every completed `fleet-prismic-drift` run on `main`, and on demand. It is how a Type Builder edit reaches the repo (operator decision D1 (a), 2026-10-01). For each site the drift sweep covers (`--fleet turso`), it:
+
+1. clones the site fresh with a `reddoor-renovate` App token (the identity chosen 2026-10-04);
+2. compares the default branch with Prismic and writes Prismic's copy of each **changed** model over the file the repo already holds (`refreshChangedModel`) and each **remote-only** model to a new file (`writeModelFile`, as `--pull` does);
+3. if anything was written: installs the site's dependencies with `--ignore-scripts`, formats the written files with the site's own prettier, and on a migrated site (`prismic.config.json`) runs the site's own `prismic gen types` and `prismic gen slice-index`;
+4. refuses to commit if anything other than those model files and the two generated files changed;
+5. commits the result to the fixed branch `prismic-sync` and opens one PR against the default branch, or updates the one already open.
+
+**Never** a write to Prismic, a delete, a force-push or a merge. A model only the repo holds is named in the PR body and left alone. A refused model (another model's file at the derived path, a file edited since it was read, an id mismatch) means nothing is committed for that site and the run goes red with a `failed` line naming it.
+
+**Read the direction before merging.** A difference means either "Prismic was edited" (merge) or "the repo is ahead, because its last apply failed or has not run" (close: merging reverts the repo's change). The body lists each changed model with the drift report's `describeDiff` lines, which are written from the repo's side: `+` is in the repo only, `-` in Prismic only. The PR is never auto-merged.
+
+**One branch, one PR, no force-push.** Each night the branch is rebuilt from the default branch as it is then plus Prismic as it is then, and pushed as a new commit whose parents are the old branch head and (when it moved) the default branch head. Its tree is exactly tonight's result, so a model that went back in sync drops out of the diff without rewriting history. When nothing differs, an open sync PR is closed with a comment; the branch stays (the proxy and the contract both keep deletes manual).
+
+**Two limits worth knowing.** A pure field reorder is invisible to it (§2). A site that still runs Slice Machine gets a PR whose body says its generated types were **not** regenerated, because the sync will not run Slice Machine; regenerate them on the branch before merging.
+
+**By hand**: `reddoor-maint prismic-sync <site>` does step 2 in one working tree and nothing else. `reddoor-maint prismic-sync --fleet turso --workdir <dir>` without `--open-prs` runs steps 1–4 for every site and reports what each PR would hold, pushing nothing.
+
+A red run files **"Nightly Prismic pull-sync failing"** and closes it on the next green run.

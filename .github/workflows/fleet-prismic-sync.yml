@@ -1,0 +1,145 @@
+name: fleet-prismic-sync
+
+# Nightly, after the drift sweep: the D1 pull-sync (operator decision,
+# 2026-10-01). An edit made in Prismic's Type Builder lands in Prismic first;
+# this brings it back to each site's repo as ONE pull request on the fixed
+# branch `prismic-sync`, opened by the reddoor-renovate App (identity chosen
+# 2026-10-04). The PR is for review and is never merged automatically: a
+# difference can also mean the repo is AHEAD (its last apply failed), and only a
+# human can tell which. See docs/runbooks/prismic-model-delivery.md §12.
+#
+# What it can write: one branch per site repo (pushed fast-forward only, never
+# forced) and that branch's one PR (opened, updated, or closed when the site is
+# back in sync). What it cannot: write to Prismic, delete a model, or merge.
+on:
+  workflow_run:
+    workflows: [fleet-prismic-drift]
+    types: [completed]
+  workflow_dispatch: {}
+
+concurrency:
+  group: fleet-prismic-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # open/close the nightly-failure tracking issue
+
+jobs:
+  sync:
+    # The drift sweep's own branch runs never speak for main.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # Org-wide, because every site repo is a different repository. Installation
+      # tokens die at 60 minutes, hence the step's 45-minute timeout below.
+      # Digest-pinned: this mints a fleet-write token (same rule as renovate.yml).
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: reddoorla
+
+      # The PRISMIC_TOKEN_* list is fleet-prismic-drift.yml's, kept identical by
+      # tests/build/fleet-prismic-sync-workflow.test.ts. Fleet mode refuses the
+      # generic PRISMIC_WRITE_TOKEN, as the drift sweep does.
+      - name: Sync each site's models from Prismic
+        timeout-minutes: 45
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          PRISMIC_TOKEN_29_NAVY: ${{ secrets.PRISMIC_TOKEN_29_NAVY }}
+          PRISMIC_TOKEN_48BB12D1: ${{ secrets.PRISMIC_TOKEN_48BB12D1 }}
+          PRISMIC_TOKEN_ALAMO_ANATOMY: ${{ secrets.PRISMIC_TOKEN_ALAMO_ANATOMY }}
+          PRISMIC_TOKEN_CALTEX_LANDING: ${{ secrets.PRISMIC_TOKEN_CALTEX_LANDING }}
+          PRISMIC_TOKEN_ERP_INDUSTRIAL: ${{ secrets.PRISMIC_TOKEN_ERP_INDUSTRIAL }}
+          PRISMIC_TOKEN_ESPADA: ${{ secrets.PRISMIC_TOKEN_ESPADA }}
+          PRISMIC_TOKEN_GALLERYSONDER: ${{ secrets.PRISMIC_TOKEN_GALLERYSONDER }}
+          PRISMIC_TOKEN_HEDLOC: ${{ secrets.PRISMIC_TOKEN_HEDLOC }}
+          PRISMIC_TOKEN_MSOT: ${{ secrets.PRISMIC_TOKEN_MSOT }}
+          PRISMIC_TOKEN_REDDOOR_LA: ${{ secrets.PRISMIC_TOKEN_REDDOOR_LA }}
+          PRISMIC_TOKEN_REDDOOR_WIREFRAMER: ${{ secrets.PRISMIC_TOKEN_REDDOOR_WIREFRAMER }}
+          PRISMIC_TOKEN_REVOGEN: ${{ secrets.PRISMIC_TOKEN_REVOGEN }}
+          PRISMIC_TOKEN_THE_POINTE: ${{ secrets.PRISMIC_TOKEN_THE_POINTE }}
+          PRISMIC_TOKEN_THE_POINTE_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_POINTE_BURBANK }}
+          PRISMIC_TOKEN_THE_TOWER_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_TOWER_BURBANK }}
+          PRISMIC_TOKEN_VIDA_LEGACY: ${{ secrets.PRISMIC_TOKEN_VIDA_LEGACY }}
+          PRISMIC_TOKEN_VINEYARD_CUSTOM_HOMES: ${{ secrets.PRISMIC_TOKEN_VINEYARD_CUSTOM_HOMES }}
+          PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION: ${{ secrets.PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION }}
+          PRISMIC_TOKEN_WILLIAMSON_HOMES: ${{ secrets.PRISMIC_TOKEN_WILLIAMSON_HOMES }}
+        run: |
+          set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}/prismic-sync.out"
+
+          rc=0
+          node dist/cli/bin.js prismic-sync \
+            --fleet turso \
+            --open-prs \
+            --workdir "${RUNNER_TEMP:-/tmp}/fleet-prismic-sync" | tee "$out" || rc=$?
+
+          # No summary line means the run reached no verdict at all, so its exit
+          # code is a claim about nothing.
+          summary=$(grep -oE "PRISMIC_SYNC_SUMMARY .*" "$out" | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            refusal=$(grep -m1 "⛔" "$out" || true)
+            echo "::error::the Prismic pull-sync printed no PRISMIC_SYNC_SUMMARY line, so it established nothing: ${refusal:-see the run output above}"
+            exit 1
+          fi
+          echo "$summary"
+
+          if [ "$rc" -ne 0 ]; then
+            failed=$(grep -E "^failed " "$out" | head -n5 || true)
+            echo "::error::the Prismic pull-sync exited $rc: at least one site could not be synced. ${failed}"
+            exit 1
+          fi
+
+      - name: Open/update the nightly-failure tracking issue
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly Prismic pull-sync failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly **fleet-prismic-sync** run failed, so at least one site did not get tonight'"'"'s sync PR.\n\nA `failed` line in the run names each site and why: a refused model (the PR would have been wrong, so nothing was committed), a missing token, an unreadable site, or a push or PR call GitHub refused.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the nightly-failure issue on recovery
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly Prismic pull-sync failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the nightly Prismic pull-sync is green again." && echo "closed #$n"
+          done

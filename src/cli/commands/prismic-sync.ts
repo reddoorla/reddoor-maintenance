@@ -1,0 +1,612 @@
+// The D1 pull-sync (operator decision, 2026-10-01; identity 2026-10-04): an edit
+// made in Prismic's Type Builder lands in Prismic first, and this brings it back
+// to the repo as ONE reviewed pull request per site, so the repo stays the
+// source of truth.
+//
+// Two modes:
+//
+//   - `prismic-sync [site]` writes Prismic's copy of every changed and every
+//     remote-only model into ONE working tree, for a human to review and commit.
+//   - `prismic-sync --fleet <inventory>` clones each site fresh, syncs it, and
+//     with `--open-prs` commits the result to the fixed branch `prismic-sync`
+//     and opens or updates one PR against the default branch. Without
+//     `--open-prs` it pushes nothing and reports what each PR would hold.
+//
+// What it never does: write to Prismic, delete a file, force-push, or merge.
+// The model writes are `refreshChangedModel` and `writeModelFile`, the two
+// capabilities in src/prismic/models/write.ts, each with its own guards. A model
+// that exists only in the repo is listed in the PR body and left alone.
+//
+// DIRECTION IS AMBIGUOUS, AND THE PR SAYS SO. A difference means either "Prismic
+// was edited" (merge the PR) or "the repo's last apply failed" (close it: merging
+// would revert the repo). Only a human can tell, so the PR is never auto-merged
+// and its body names every changed model with the drift report's own lines.
+import { mkdir, mkdtemp, realpath, stat } from "node:fs/promises";
+import { join, posix, resolve } from "node:path";
+import { makeSpawn, type SpawnFn } from "../../audits/util/spawn.js";
+import { resolveSites } from "../fleet/resolve-sites.js";
+import { fleetWorkdir } from "../../util/fleet-workdir.js";
+import { isOwnerRepo } from "../../util/git.js";
+import { siteLabel } from "../../util/site.js";
+import type { Site } from "../../types.js";
+import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../../recipes/_prettier.js";
+import {
+  defaultDeps as defaultModelDeps,
+  syncSiteModels,
+  type PrismicModelsDeps,
+  type SiteSync,
+  type SyncedModel,
+} from "./prismic-models.js";
+
+/** The one branch the sync ever pushes. Fixed, so a second night updates the
+ *  first night's PR instead of opening another. */
+export const SYNC_BRANCH = "prismic-sync";
+
+/** Marks a PR body as this command's, so a reader knows where it came from. */
+export const SYNC_MARKER = "<!-- reddoor-maint:prismic-sync -->";
+
+/** The `reddoor-renovate` App's bot user, the identity the operator chose on
+ *  2026-10-04. 312185038 is its user id, as in renovate.yml. */
+export const SYNC_AUTHOR = {
+  name: "reddoor-renovate[bot]",
+  email: "312185038+reddoor-renovate[bot]@users.noreply.github.com",
+};
+
+export type PrismicSyncOptions = {
+  fleet?: string;
+  workdir?: string;
+  openPrs?: boolean;
+  cwd?: string;
+};
+
+export type OpenPr = { number: number; url: string };
+
+/** The four pull-request calls the sync makes, and nothing else. */
+export type SyncGitHub = {
+  findOpenPr: (repo: string, head: string, base: string) => Promise<OpenPr | null>;
+  createPr: (
+    repo: string,
+    pr: { head: string; base: string; title: string; body: string },
+  ) => Promise<OpenPr>;
+  updatePr: (repo: string, number: number, pr: { title: string; body: string }) => Promise<void>;
+  closePr: (repo: string, number: number, comment: string) => Promise<void>;
+};
+
+export type GitResult = { code: number; stdout: string; stderr: string };
+
+export type PrismicSyncDeps = {
+  models: PrismicModelsDeps;
+  resolveSites: (fleet: string, workdir: string, cwd: string) => Promise<Site[]>;
+  git: (args: readonly string[], cwd: string, env?: Record<string, string>) => Promise<GitResult>;
+  /** Built late, and only by the fleet mode, so a missing token fails there. */
+  github: () => SyncGitHub;
+  cloneUrl: (repo: string) => string;
+  /** Removes anything secret from text that may reach a log. */
+  redact: (text: string) => string;
+  install: (root: string) => Promise<void>;
+  codegen: (root: string) => Promise<void>;
+  format: (root: string, paths: readonly string[]) => Promise<boolean>;
+};
+
+const describe = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+type Synced = Extract<SiteSync, { ok: true }>;
+
+const written = (r: Synced): SyncedModel[] => [...r.changed, ...r.adopted];
+
+export const syncPrTitle = (repositoryName: string): string =>
+  `chore(prismic): sync models from Prismic (${repositoryName})`;
+
+/** The PR body. Every changed model is named with `describeDiff`'s lines. */
+export function renderSyncPrBody(
+  r: Synced,
+  notes: { regenerated: boolean | "not-migrated"; unformatted: boolean },
+): string {
+  const out: string[] = [
+    SYNC_MARKER,
+    `Prismic repository **${r.repositoryName}** holds models this repo does not match. This PR`,
+    `brings Prismic's copy into the repo. It is opened by the nightly pull-sync and is never`,
+    `merged automatically.`,
+    "",
+    "> **Check the direction before merging.** A difference means one of two things:",
+    "> - **Prismic was edited** (the Type Builder, a dashboard edit): merge this PR.",
+    "> - **The repo is ahead** (its last `prismic-models` apply failed or has not run):",
+    ">   close this PR. Merging it would revert the repo's change.",
+    "",
+  ];
+  if (r.changed.length > 0) {
+    out.push(`### Changed models (${r.changed.length})`, "");
+    out.push(
+      "The lines are the drift report's, written from the repo's side: `+` is in the repo",
+      "and not in Prismic (this PR removes it from the repo), `-` is in Prismic and not in",
+      "the repo (this PR adds it), `~` differs (this PR takes Prismic's value).",
+      "",
+    );
+    for (const m of r.changed) {
+      out.push(`- \`${m.kind} ${m.id}\` → \`${m.path}\``);
+      if (m.lines.length === 0) out.push("  - (no field-level line; the bodies differ)");
+      for (const l of m.lines) out.push(`  - \`${l}\``);
+    }
+    out.push("");
+  }
+  if (r.adopted.length > 0) {
+    out.push(`### Models only in Prismic, adopted (${r.adopted.length})`, "");
+    for (const m of r.adopted) out.push(`- \`${m.kind} ${m.id}\` → \`${m.path}\` (new file)`);
+    out.push("");
+  }
+  if (r.localOnly.length > 0) {
+    out.push(`### Models only in the repo, left alone (${r.localOnly.length})`, "");
+    for (const m of r.localOnly) out.push(`- \`${m.kind} ${m.id}\` (\`${m.path}\`)`);
+    out.push(
+      "",
+      "The sync has no delete path. These reach Prismic the usual way, on merge to `main`.",
+      "",
+    );
+  }
+  out.push("### Generated files", "");
+  if (notes.regenerated === "not-migrated") {
+    out.push(
+      "This site still runs Slice Machine (no `prismic.config.json`), so the generated types",
+      "were **not** regenerated. Regenerate them before merging.",
+    );
+  } else {
+    out.push("Regenerated with the site's own `prismic gen types` and `prismic gen slice-index`.");
+  }
+  if (notes.unformatted) out.push("", `⚠ ${PRETTIER_FLAG_NOTE}`);
+  out.push(
+    "",
+    "Each night this branch is rebuilt from the default branch and Prismic as they are then,",
+    "as a new commit on top (never a force-push). When the two agree again, the PR is closed.",
+  );
+  return out.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Single site, one working tree
+// ---------------------------------------------------------------------------
+
+function renderLocal(r: SiteSync): { output: string; code: number } {
+  if (!r.ok) return { output: r.failure.output, code: r.failure.code };
+  const lines = [`Prismic sync — repository: ${r.repositoryName}`, ""];
+  for (const m of r.changed) {
+    lines.push(`refreshed ${m.kind} ${m.id}  -> ${m.path}${m.formatted ? "" : "  (unformatted)"}`);
+    for (const l of m.lines) lines.push(`    ${l}`);
+  }
+  for (const m of r.adopted) {
+    lines.push(`adopted   ${m.kind} ${m.id}  -> ${m.path}${m.formatted ? "" : "  (unformatted)"}`);
+  }
+  for (const m of r.localOnly) lines.push(`left      ${m.kind} ${m.id}  (only in the repo)`);
+  for (const x of r.refused) lines.push(`REFUSED   ${x.kind} ${x.id}  — ${x.reason}`);
+  if (written(r).some((m) => !m.formatted)) lines.push(`⚠ ${PRETTIER_FLAG_NOTE}`);
+  lines.push("");
+  const n = written(r).length;
+  lines.push(
+    n === 0 && r.refused.length === 0
+      ? "in sync — nothing written."
+      : `${n} model(s) written${r.refused.length > 0 ? `, ${r.refused.length} refused` : ""}.` +
+          (n > 0 ? " Review, commit, and open a PR." : ""),
+  );
+  return { output: lines.join("\n"), code: r.refused.length > 0 ? 1 : 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Fleet: clone, sync, commit, PR
+// ---------------------------------------------------------------------------
+
+export type SiteOutcome =
+  "in-sync" | "closed" | "opened" | "updated" | "unchanged" | "would-open" | "skipped" | "failed";
+
+type SiteReport = { label: string; outcome: SiteOutcome; detail: string };
+
+/** Files the sync may leave changed: the models it wrote, and on a migrated
+ *  site the two generated files. Anything else in `git status` is refused. */
+function expectedPath(path: string, models: ReadonlySet<string>, libraries: string[]): boolean {
+  if (models.has(path)) return true;
+  if (path === "prismicio-types.d.ts") return true;
+  return libraries.some((lib) => {
+    const dir = posix.normalize(lib.replace(/^\.\//, ""));
+    return path === `${dir}/index.ts` || path === `${dir}/index.js`;
+  });
+}
+
+async function exists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Paths `git status` reports as changed or new, untracked files listed singly. */
+async function changedPaths(deps: PrismicSyncDeps, root: string): Promise<string[]> {
+  const r = await mustGit(deps, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], root);
+  return r
+    .split("\0")
+    .filter((e) => e.length > 3)
+    .map((e) => e.slice(3));
+}
+
+async function mustGit(
+  deps: PrismicSyncDeps,
+  args: readonly string[],
+  cwd: string,
+  env?: Record<string, string>,
+): Promise<string> {
+  const r = await deps.git(args, cwd, env);
+  if (r.code !== 0) {
+    throw new Error(deps.redact(`git ${args[0]} failed (${r.code}): ${r.stderr.trim()}`));
+  }
+  return r.stdout;
+}
+
+async function syncOneSite(
+  site: Site,
+  deps: PrismicSyncDeps,
+  opts: { workdir: string; openPrs: boolean; github: SyncGitHub | null },
+): Promise<SiteReport> {
+  const label = siteLabel(site);
+  const repo = site.gitRepo?.trim() ?? "";
+  if (!isOwnerRepo(repo)) {
+    return { label, outcome: "skipped", detail: "no owner/repo on this site's row" };
+  }
+
+  const root = await mkdtemp(join(opts.workdir, `${repo.replace("/", "--")}-`));
+  await mustGit(deps, ["clone", "--no-tags", "--quiet", deps.cloneUrl(repo), root], opts.workdir);
+  const base = (await mustGit(deps, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root))
+    .trim()
+    .replace(/^origin\//, "");
+  const baseHead = (await mustGit(deps, ["rev-parse", `origin/${base}`], root)).trim();
+  const branchRef = `refs/remotes/origin/${SYNC_BRANCH}`;
+  const branchExists =
+    (await mustGit(deps, ["ls-remote", "--heads", "origin", SYNC_BRANCH], root)).trim() !== "";
+  if (branchExists) {
+    await mustGit(
+      deps,
+      ["fetch", "--quiet", "origin", `+refs/heads/${SYNC_BRANCH}:${branchRef}`],
+      root,
+    );
+  }
+
+  const r = await syncSiteModels(root, deps.models, { allowGenericToken: false });
+  if (!r.ok) {
+    return {
+      label,
+      outcome: r.failure.status === "skipped" ? "skipped" : "failed",
+      detail: deps.redact(r.failure.output),
+    };
+  }
+  if (r.refused.length > 0) {
+    return {
+      label,
+      outcome: "failed",
+      detail:
+        `${r.refused.length} model(s) refused, so nothing was committed: ` +
+        r.refused.map((x) => `${x.kind} ${x.id} — ${x.reason}`).join("; "),
+    };
+  }
+
+  const open = opts.github ? await opts.github.findOpenPr(repo, SYNC_BRANCH, base) : null;
+
+  const models = written(r);
+  if (models.length === 0) {
+    if (open && opts.github) {
+      await opts.github.closePr(
+        repo,
+        open.number,
+        `${SYNC_MARKER}\nThe repo's \`${base}\` and Prismic repository **${r.repositoryName}** agree ` +
+          `tonight, so this sync PR has nothing left to bring in. Closed by the nightly pull-sync.`,
+      );
+      return { label, outcome: "closed", detail: `in sync; closed ${open.url}` };
+    }
+    return { label, outcome: "in-sync", detail: "in sync" };
+  }
+
+  await deps.install(root);
+  const paths = models.map((m) => m.path);
+  const formatted = await deps.format(root, paths);
+  const migrated = await exists(join(root, "prismic.config.json"));
+  if (migrated) await deps.codegen(root);
+
+  const libraries = await readLibraries(root);
+  const modelSet = new Set(paths);
+  const stray = (await changedPaths(deps, root)).filter(
+    (p) => !expectedPath(p, modelSet, libraries),
+  );
+  if (stray.length > 0) {
+    return {
+      label,
+      outcome: "failed",
+      detail: `the sync left files it does not own changed, so nothing was committed: ${stray.join(", ")}`,
+    };
+  }
+
+  await mustGit(deps, ["add", "-A", "--", "."], root);
+  const tree = (await mustGit(deps, ["write-tree"], root)).trim();
+  const baseTree = (await mustGit(deps, ["rev-parse", `${baseHead}^{tree}`], root)).trim();
+  if (tree === baseTree) {
+    return { label, outcome: "in-sync", detail: "the models differ only in ways git does not see" };
+  }
+
+  const title = syncPrTitle(r.repositoryName);
+  const body = renderSyncPrBody(r, {
+    regenerated: migrated ? true : "not-migrated",
+    unformatted: !formatted,
+  });
+  const summary =
+    `${r.changed.length} changed, ${r.adopted.length} adopted: ` +
+    models.map((m) => `${m.kind} ${m.id}`).join(", ");
+
+  if (!opts.openPrs || !opts.github) {
+    return { label, outcome: "would-open", detail: `would push ${SYNC_BRANCH} with ${summary}` };
+  }
+
+  let pushed = false;
+  const branchTree = branchExists
+    ? (await mustGit(deps, ["rev-parse", `${branchRef}^{tree}`], root)).trim()
+    : null;
+  if (branchTree !== tree) {
+    const parents: string[] = [];
+    if (branchExists) {
+      parents.push((await mustGit(deps, ["rev-parse", branchRef], root)).trim());
+      const contained = await deps.git(["merge-base", "--is-ancestor", baseHead, branchRef], root);
+      if (contained.code !== 0) parents.push(baseHead);
+    } else {
+      parents.push(baseHead);
+    }
+    const env = {
+      GIT_AUTHOR_NAME: SYNC_AUTHOR.name,
+      GIT_AUTHOR_EMAIL: SYNC_AUTHOR.email,
+      GIT_COMMITTER_NAME: SYNC_AUTHOR.name,
+      GIT_COMMITTER_EMAIL: SYNC_AUTHOR.email,
+    };
+    const commit = (
+      await mustGit(
+        deps,
+        ["commit-tree", tree, ...parents.flatMap((p) => ["-p", p]), "-m", `${title}\n\n${summary}`],
+        root,
+        env,
+      )
+    ).trim();
+    await mustGit(deps, ["push", "--quiet", "origin", `${commit}:refs/heads/${SYNC_BRANCH}`], root);
+    pushed = true;
+  }
+
+  if (open) {
+    await opts.github.updatePr(repo, open.number, { title, body });
+    return {
+      label,
+      outcome: pushed ? "updated" : "unchanged",
+      detail: `${pushed ? "pushed and updated" : "already current"} ${open.url} — ${summary}`,
+    };
+  }
+  const created = await opts.github.createPr(repo, { head: SYNC_BRANCH, base, title, body });
+  return { label, outcome: "opened", detail: `opened ${created.url} — ${summary}` };
+}
+
+/** The configured slice libraries, read the way the sync's own reads did. */
+async function readLibraries(root: string): Promise<string[]> {
+  const { readPrismicConfig } = await import("../../prismic/models/index.js");
+  return (await readPrismicConfig(root))?.libraries ?? [];
+}
+
+async function runFleet(
+  opts: PrismicSyncOptions,
+  deps: PrismicSyncDeps,
+  cwd: string,
+): Promise<{ output: string; code: number }> {
+  const openPrs = opts.openPrs === true;
+  const workdir = resolve(cwd, opts.workdir ?? fleetWorkdir());
+  // Each site is cloned into a fresh temp directory under this one, never into
+  // an existing checkout: a reused tree would sync a days-old default branch.
+  await mkdir(workdir, { recursive: true });
+
+  let sites: Site[];
+  try {
+    sites = await deps.resolveSites(opts.fleet ?? "", workdir, cwd);
+  } catch (e) {
+    return { output: `⛔ could not resolve the fleet: ${describe(e)}`, code: 1 };
+  }
+  if (sites.length === 0) {
+    return {
+      output: "⛔ the inventory resolved no sites, so this run established nothing.",
+      code: 1,
+    };
+  }
+
+  let github: SyncGitHub | null = null;
+  if (openPrs) {
+    try {
+      github = deps.github();
+    } catch (e) {
+      return { output: `⛔ cannot open pull requests: ${describe(e)}`, code: 1 };
+    }
+  }
+
+  const reports: SiteReport[] = [];
+  for (const site of sites) {
+    try {
+      reports.push(await syncOneSite(site, deps, { workdir, openPrs, github }));
+    } catch (e) {
+      reports.push({ label: siteLabel(site), outcome: "failed", detail: deps.redact(describe(e)) });
+    }
+  }
+
+  const lines = [
+    `Prismic pull-sync — ${sites.length} site(s)${openPrs ? "" : " (dry: nothing pushed, no PR opened)"}`,
+    "",
+  ];
+  for (const r of reports) {
+    lines.push(`${r.outcome.padEnd(10)} ${r.label} — ${r.detail.split("\n").join(" ")}`);
+  }
+  const count = (o: SiteOutcome): number => reports.filter((r) => r.outcome === o).length;
+  lines.push(
+    "",
+    `PRISMIC_SYNC_SUMMARY sites=${sites.length} opened=${count("opened")} updated=${count(
+      "updated",
+    )} unchanged=${count("unchanged")} closed=${count("closed")} in_sync=${count(
+      "in-sync",
+    )} would_open=${count("would-open")} skipped=${count("skipped")} failed=${count("failed")}`,
+  );
+  return { output: lines.join("\n"), code: count("failed") > 0 ? 1 : 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Entry
+// ---------------------------------------------------------------------------
+
+export async function prismicSync(
+  site: string | undefined,
+  opts: PrismicSyncOptions,
+  deps: PrismicSyncDeps,
+): Promise<{ output: string; code: number }> {
+  const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
+  if (opts.fleet !== undefined) {
+    if (site !== undefined) {
+      return { output: "cannot combine a positional [site] with --fleet.", code: 2 };
+    }
+    return runFleet(opts, deps, cwd);
+  }
+  if (opts.openPrs === true || opts.workdir !== undefined) {
+    return {
+      output:
+        "--open-prs and --workdir need --fleet: a single-site sync writes into this working" +
+        " tree and opens nothing. Nothing was synced or written.",
+      code: 2,
+    };
+  }
+  const root = site ? resolve(cwd, site) : cwd;
+  return renderLocal(await syncSiteModels(root, deps.models, { allowGenericToken: true }));
+}
+
+const API = "https://api.github.com";
+
+/** REST through `fetch` with the App token: four calls, no GraphQL. */
+export function makeSyncGitHub(token: string, fetchImpl: typeof fetch = fetch): SyncGitHub {
+  const call = async (method: string, path: string, body?: unknown): Promise<unknown> => {
+    const res = await fetchImpl(`${API}/${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/vnd.github+json",
+        "x-github-api-version": "2022-11-28",
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `GitHub ${method} ${path} answered ${res.status}: ${(await res.text()).slice(0, 300)}`,
+      );
+    }
+    return res.status === 204 ? null : await res.json();
+  };
+  const asPr = (x: unknown): OpenPr => {
+    const p = x as { number?: unknown; html_url?: unknown };
+    if (typeof p.number !== "number" || typeof p.html_url !== "string") {
+      throw new Error("GitHub answered with something that is not a pull request");
+    }
+    return { number: p.number, url: p.html_url };
+  };
+  return {
+    async findOpenPr(repo, head, base) {
+      const owner = repo.split("/")[0];
+      const list = await call(
+        "GET",
+        `repos/${repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}&per_page=10`,
+      );
+      if (!Array.isArray(list)) throw new Error(`GitHub's PR list for ${repo} was not a list`);
+      if (list.length > 1) {
+        throw new Error(`${repo} has ${list.length} open PRs from ${head}; expected at most one`);
+      }
+      return list.length === 1 ? asPr(list[0]) : null;
+    },
+    async createPr(repo, pr) {
+      return asPr(await call("POST", `repos/${repo}/pulls`, pr));
+    },
+    async updatePr(repo, number, pr) {
+      await call("PATCH", `repos/${repo}/pulls/${number}`, pr);
+    },
+    async closePr(repo, number, comment) {
+      await call("POST", `repos/${repo}/issues/${number}/comments`, { body: comment });
+      await call("PATCH", `repos/${repo}/pulls/${number}`, { state: "closed" });
+    },
+  };
+}
+
+export function defaultSyncDeps(
+  env: Record<string, string | undefined> = process.env,
+): PrismicSyncDeps {
+  const spawn: SpawnFn = makeSpawn();
+  const token = env.GH_TOKEN ?? "";
+  return {
+    models: defaultModelDeps(),
+    resolveSites: (fleet, workdir, cwd) => resolveSites({ fleet, workdir, cwd }),
+    git: (args, cwd, extra) =>
+      spawn("git", args, {
+        cwd,
+        timeoutMs: 120_000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...extra },
+      }),
+    github: () => {
+      if (token === "") throw new Error("GH_TOKEN is not set");
+      return makeSyncGitHub(token);
+    },
+    cloneUrl: (repo) =>
+      token === ""
+        ? `https://github.com/${repo}.git`
+        : `https://x-access-token:${token}@github.com/${repo}.git`,
+    redact: (text) => (token === "" ? text : text.split(token).join("***")),
+    install: async (root) => {
+      if (!(await exists(join(root, "package.json")))) return;
+      const r = await spawn("pnpm", ["install", "--frozen-lockfile", "--ignore-scripts"], {
+        cwd: root,
+        timeoutMs: 300_000,
+      });
+      if (r.code !== 0)
+        throw new Error(`pnpm install failed (${r.code}): ${r.stderr.trim().slice(-500)}`);
+    },
+    codegen: async (root) => {
+      let bin: string;
+      try {
+        bin = await realpath(join(root, "node_modules", ".bin", "prismic"));
+      } catch {
+        throw new Error(
+          "this site has prismic.config.json but no prismic CLI in node_modules, so its generated files cannot be regenerated",
+        );
+      }
+      for (const args of [
+        ["gen", "types"],
+        ["gen", "slice-index"],
+      ]) {
+        const r = await spawn(bin, args, { cwd: root, timeoutMs: 120_000 });
+        if (r.code !== 0) {
+          throw new Error(
+            `prismic ${args.join(" ")} failed (${r.code}): ${r.stderr.trim().slice(-500)}`,
+          );
+        }
+      }
+    },
+    format: async (root, paths) => {
+      let bin: string;
+      try {
+        bin = await realpath(join(root, "node_modules", ".bin", "prettier"));
+      } catch {
+        return false;
+      }
+      return formatWithPrettier(spawn, root, paths, { bin, timeoutMs: 60_000 });
+    },
+  };
+}
+
+export async function runPrismicSyncCommand(
+  site: string | undefined,
+  opts: PrismicSyncOptions,
+): Promise<{ output: string; code: number }> {
+  return prismicSync(site, opts, defaultSyncDeps());
+}

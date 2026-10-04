@@ -247,14 +247,15 @@ function parseStep(job: string, lines: string[], jobTimeoutMinutes?: number): Wo
   };
 }
 
-/** True when the workflow's `on:` block has a `schedule:` trigger. */
+/** True when the workflow's `on:` block has a `schedule:` trigger, or a
+ *  `workflow_run:` one: a run chained to a scheduled run is just as unattended. */
 export function isScheduled(workflow: string): boolean {
   const lines = withoutComments(workflow).split("\n");
   const onAt = lines.findIndex((l) => /^(on|"on"):\s*$/.test(l));
   if (onAt === -1) return false;
   for (const l of lines.slice(onAt + 1)) {
     if (l.trim() !== "" && !/^\s/.test(l)) return false;
-    if (/^ {2}schedule:/.test(l)) return true;
+    if (/^ {2}(schedule|workflow_run):/.test(l)) return true;
   }
   return false;
 }
