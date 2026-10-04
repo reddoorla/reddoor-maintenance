@@ -203,6 +203,14 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
     **10-04: 64 answered (a); P2a landed** as mantis-landscaping#3
     (`e9d5f95`) after a third round. **Next:** P2b (rebase the seed draft,
     the seed script, the placeholder swap, the model push).
+    **10-04 ~18:30Z: P2b seeded, stopped at Operator decisions 66
+    (publish).**
+    - mantis-landscaping#7 (`2470e01`) holds the seed content, a
+      `page_title` slice and the seed script; #8 (`95ddb1a`) holds the
+      metadata strip and the release repair.
+    - Models were pushed from a scratch checkout with the site's own token.
+    - The seed ran, and its release was read back and repaired.
+    - Out-of-scope follow-up: mantis-landscaping#6 (a `sizes` attribute).
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -216,6 +224,20 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
+
+- **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
+  - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
+    Nothing for an agent until the client answers.
+  - **The Tower Burbank and The Pointe Burbank (`building`):** proofs of
+    concept for the Blux conversion, not client work. Do not rank them as
+    builds or chase their stale branches.
+  - **Domaru:** set to `archived` (it lapses with Webflow on 10-19, with no
+    bridge).
+  - **Row fixes [M, written through `setSiteDetail`, read back]:** `git_repo`
+    on both Williamson rows, and `netlify_id` on Williamson Homes (`9072ea82…`),
+    Williamson Construction (`7e2831e2…`) and Roalson (`316ff26b…`). The ids
+    came from Netlify's API by site name, and each one's `repo_url` matches its
+    repo.
 
 - **P1-26, the fleet `/privacy` page (#1055, option A): parked by the
   operator 2026-09-30 ~21:25Z** until a lighter week with no new client
@@ -1581,6 +1603,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     The install PR's own dry job proves the token reads the models, and PR
     listing and creation are REST-only. Phase 1's seven runs can come from
     the cloud. The operator still mints and sets each token.
+    **10-04 17:19Z: pilot closed, both directions proven** (reddoor-website
+    #238 Prismic→repo; #240 workflow, #241 dry run, #242 apply →
+    "1/1 model(s) pushed. 24 already matched", read back through the
+    connector). Next: phase 3 per the plan's §7. Two follow-ups found:
+    `land-prs` cannot land on a merge-commit-only `main` (reddoor-website's
+    ruleset), and the cloud session's phase 1 brief wrongly waited for a dry run that a
+    workflow-only PR never gets.
     **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
     `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
     the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
@@ -1808,6 +1837,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     lower the cap in the recipe first and re-encode Williamson's two long
     clips with it, one `reddoor-maint video` run each and a six-field
     rewire.
+    **Rollout started 2026-10-04:** a worker session runs
+    `docs/briefs/2026-10-04-fleet-video-rollout.md` (step 0 lowers the phone
+    cap and re-measures Williamson; then one site at a time). Its table lands
+    here, one row per site.
 
 64. **Mantis P2a (reddoorla/mantis-landscaping#3): two dirty review rounds
     (new 2026-10-04).** #3 is the content model, seven new slices,
@@ -1912,6 +1945,45 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `land-prs` at `e78c4af4` after four merge-of-main cycles against the
     day's journal traffic. The changeset rides the next release PR. Not an
     ask any more.
+
+66. **Mantis P2b: publish the seeded content? (#1107, new 2026-10-04).**
+    Everything up to the publish is done.
+    - The 20 models are in Prismic (a re-read says "20 model(s) match").
+    - The five documents (`home`, `projects`, `contact-us`,
+      `water-wise-gardens`, `edible-gardens`) are in the migration release
+      `asKQBhIAAC0ATypp`.
+    - The media library holds 74 photos, every one sized, and each original
+      matched the capture manifest's sha256.
+    - Read back through the Prismic connector after a repair: no document
+      references a removed asset (positive controls found the new copies),
+      and the home pillars carry no icons.
+
+    The repair (mantis-landscaping#8) fixed two defects the first read
+    found: 18 photos Prismic could not size (over 64 KB of Pixel
+    depth-map XMP before the image data), and a Select default that turned
+    null icons into "design".
+
+    Nothing is published. The Prismic connector reserves `publish_release`
+    for an explicit human ask, and `seed.mjs --publish` would be the same
+    act by another route, so the session stopped here. Everything after
+    waits on it:
+    - the placeholder swap: one line in `slicemachine.config.json`, plus the
+      kept paths in `reddoor.a11yRoutes`. Its build is red until `home` is
+      published, by the starter's design;
+    - the `prismic-ci` install PR;
+    - P4 and P5.
+
+    _Ask:_ (a) say "publish the Mantis release", and the next worker runs
+    `node scripts/seed/seed.mjs --publish` from the mantis-landscaping
+    checkout (with `PRISMIC_TOKEN_MANTIS_LANDSCAPING` set) and continues
+    with the swap; or (b) publish `asKQBhIAAC0ATypp` from the Prismic
+    dashboard after looking at it, then say so.
+    _Pick:_ (b) if you want to see the pages first, otherwise (a).
+    - The site is not live; Blux still serves mantislandscaping.com.
+    - Publishing changes nothing a visitor sees.
+    - The copy is Blux's, verbatim. The alt text and meta descriptions are
+      new and still await the client's sign-off through Nicole (OD 61/62),
+      and they can be edited after publishing.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
