@@ -7923,7 +7923,47 @@ the first run against 6.28 s on the second, so the first run fetched less
 because it played less. Answers recorded in 67: MCP is being activated
 for ERP, Alamo and Vineyard; the order is ERP first.
 
-## 2026-10-04 — Lighthouse runs in a cloud container; the axe half is a missing browser revision (#1136, #1132, decision 69)
+## 2026-10-04 — Mantis content published; the site builds from Prismic; `prismic-ci` waits on a secret (mantis-landscaping#10 `8a005df`, #13; Operator decisions 66, 69)
+
+The operator answered decision 66 with "publish the Mantis release".
+
+- **Before publishing,** the connector listed the release again: exactly the five documents, unchanged since the repair.
+- **The publish:** `seed.mjs --publish` answered 202 with `{"totalItems":5}` at 20:07:11Z.
+- **The read-back:** the first Content API read, 15 s later, still showed the old master ref and 0 documents. The next, at 20:07:37Z, showed master ref `asKx_xIAACkAT7mT` with all five documents and the home pillars' icons `[null, null, null]`. A 202 here means accepted, not done, and the read-back is what says it finished.
+
+**The swap (#10).** It changed one config line, the a11y routes and the smoke manifest.
+
+- **Build:** prerendered exactly the five kept paths, one `<h1>` on each, no `w=0` image URL, and no `cloudfront.net/6e0b52ee` or `blux` anywhere in the output (a positive control on `images.prismic.io/mantis-landscaping` hits).
+- **`pnpm verify` in the cloud container:** axe found 0 violations across 7 routes (2 fixtures plus the 5 kept paths); 673 unit tests and 20 smoke tests passed.
+- **A wrong mutation:** my first W2, a kept path that does not exist, used `/contact` and survived, because the starter's own `/contact` form route is still there. `/contact-uss` went red.
+- **The review** found no blocker. It found that both `/contact` and `/contact-us` are indexable while the page the site links to has no form (issue #11, P4's job), and that bare `/preview` serves home without `noindex`, a starter defect now reachable (issue #12).
+- **Correction to a belief in the PR body:** the smoke suite runs against `vite dev` here, not `vite preview`, because `reddoor.gateServer` is unset. The reviewer checked the 404s on preview separately.
+
+**`prismic-ci` (#13).** The recipe needs `GITHUB_TOKEN`. In the cloud, `GITHUB_TOKEN="$GH_TOKEN"` satisfies it and the proxy supplies the real credential. It opened #13, and the install PR's own dry job then failed with "no write token", exactly as runbook §5 says it will when `PRISMIC_WRITE_TOKEN` is unset on the site repo. That secret is the operator's (Operator decisions 69). Nothing depends on it until the next model change, because Prismic's 20 models already match `main`.
+
+**A numbering collision.** I first wrote the new ask as item 67, and #13's PR comment still says 67. Two other sessions had landed 67 and 68 after my 66, so it is 69. My first edit also appended 66's answer to the end of item 68's block. The diff showed both before the commit.
+
+**Hook noise worth knowing.** This session's site clones were made `--depth 1` with a fetch refspec of `main` only. So the stop hook kept reporting already-pushed branches as unpushed: their upstream had no remote-tracking ref. Adding `+refs/heads/claude/*` and `+refs/heads/maint/*` to `remote.origin.fetch` fixed it. No branch was ever actually unpushed.
+
+## 2026-10-04 — Both starters off Slice Machine; the baseline follows (reddoor-starter#166, reddoor-starter-blux#38, #1134)
+
+> Follows 2026-10-04 — The Prismic CLI pilot closes (#1126).
+
+Phase 3 of `docs/prismic-migration-plan-2026-10.md`, after the operator's "go ahead with phase 3". The pilot's diff became the template, with two things the pilot did not need.
+
+**The starter could not have shown a Type Builder preview.** reddoor-website already carried its framing exception; the starter did not. Its `hooks.server.ts` set `X-Frame-Options: SAMEORIGIN` on every response and its `kit.csp` said `frame-ancestors 'self'`, so every site cloned from it would have shown a blank preview pane. The exception moved into `src/lib/security/cms-framing.ts`: `/slice-simulator` only, no `X-Frame-Options`, `frame-ancestors 'self' http://localhost:* https://*.prismic.io https://prismic.io`, every other route unchanged. Served from `vite preview`, the simulator route read exactly that and the control routes kept `SAMEORIGIN`. The review checked the same code live on reddoorla.com, including a trailing slash (308 to the canonical path), a capitalised path (404, stays SAMEORIGIN) and `/slice%2Dsimulator` (served, but SAMEORIGIN, so encoding only tightens it). It also confirmed that netlify.toml's `/*` X-Frame-Options never reaches a server-rendered response, which is why the exception works on Netlify at all.
+
+**Both starters' committed types were stale.** `customtypes/form_replies` landed in reddoor-starter#112, and nobody ever regenerated `prismicio-types.d.ts` after it. `src/lib/server/reply-copy.ts` carries a comment waiting for exactly that regeneration. `prismic gen types` added the three `FormReplies*` types in both repos. This is the case the `prismic-codegen` gate exists for: a model and its types drifting apart silently. The adapter in `reply-copy.ts` was left alone, since narrowing it is a separate change.
+
+**Proven before trusted.** The framing test and the codegen gate each passed on a clean copy, then went red on nine mutations between them. One mutation, "`SAMEORIGIN` on every route", first survived. It was written as a `set` above the branch that `delete`s the header, so it never reached the response. Rewritten as the in-place swap on the framed branch, it went red. A survivor is a question about the mutation before it is a verdict on the test.
+
+**blux, cherry-picked and never merged**, as that repo's CLAUDE.md requires. Thirteen files conflicted because blux had diverged. Its own CLAUDE.md, README, package.json, svelte.config.js and prismicio.ts were kept and the edits re-applied by hand. The native starter's docs and page helpers that blux does not carry stayed absent, and the generated files were regenerated from blux's own 28 slices rather than taken from the starter. blux also tracked `scratchpad/regen-types.mjs`, which reached into `@slicemachine/manager` to fire typegen. It was the same workaround reddoor-website had, and it is deleted the same way. Review of the resolution found three small gaps (the agent codegen note, an eslint ignore still naming `index.js`, a `^1.21.0` pin where the starter's resolved to `^1.22.0`), fixed in `32320f8`. The lockfile lost about 2,400 lines with Slice Machine.
+
+**One recommendation not taken.** Both reviewers found that the CLI refuses `pnpm prismic:gen` inside an agent session, and one proposed documenting `AI_AGENT=` to get past it. That works by telling the CLI no agent is running. The docs instead give the two explicit commands with `--task-id` and `--user-intent`.
+
+Central: #1134 drops `slice-machine-ui` and the adapter from `baseline-versions` and adds `prismic` ^1.21.0. The deps audit only compares what a site has installed, so an unmigrated site is unaffected. The runbook's §11 is rewritten for D1–D3. Not yet built: the D1 nightly pull-sync PR. `/new-site` is a laptop skill this session cannot read; if it edits `slicemachine.config.json` by name, it needs the new filename.
+
+## 2026-10-04 — Lighthouse runs in a cloud container; the axe half is a missing browser revision (#1136, #1132, decision 70)
 
 The brief said Lighthouse probably failed in the cloud because Chrome refuses
 root without `--no-sandbox`. That was half of it. Run by hand with no
@@ -7958,10 +7998,12 @@ site's pinned 0.97.0 predates #1003 and showed the npm warning instead.
 Aliasing 1243 to 1234 in a scratch `PLAYWRIGHT_BROWSERS_PATH` gave 0
 violations across 2 routes plus the hydration smoke, so nothing else is in
 the way. No site repo has a cloud setup hook to install its pin. That is the
-starter's to change, so it went to Operator decision 69 rather than into a
-fleet push. It was written as 68 on this branch; #1133 landed a 68 first,
-which is how CI's prettier found it (a duplicated ordered-list number). This
-is the second such collision today.
+starter's to change, so it went to Operator decision 70 rather than into a
+fleet push. It was written as 68 on this branch, then 69. #1133 landed a 68
+first, and CI's prettier caught the duplicated ordered-list number. Then
+#1135 landed a 69 while this PR waited to merge, and that one showed up as a
+merge conflict. Same-day decision numbers keep colliding until they are
+assigned at landing.
 
 Review: three lenses, one round. No blocker or major. Folded in: an untested
 ANSI strip was dropped, a fixture now joins two ❌ lines, and decision 69 had

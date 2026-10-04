@@ -212,6 +212,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
     - Models were pushed from a scratch checkout with the site's own token.
     - The seed ran, and its release was read back and repaired.
     - Out-of-scope follow-up: mantis-landscaping#6 (a `sizes` attribute).
+    - **10-04 ~20:25Z: 66 answered; the content is published and the site
+      builds from it** (#10, `8a005df`). The `prismic-ci` install (#13) waits
+      on the site secret, Operator decisions 69. **Next:** P4, the form on
+      `/contact-us`. It also retires the starter's `/contact` (issue #11).
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -1616,6 +1620,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `land-prs` cannot land on a merge-commit-only `main` (reddoor-website's
     ruleset), and the cloud session's phase 1 brief wrongly waited for a dry run that a
     workflow-only PR never gets.
+    **10-04 20:42Z: phase 3's starters and baseline landed.**
+    reddoor-starter#166 (`631f9a5`) and its cherry-pick
+    reddoor-starter-blux#38 (`9ef1d35`) are off Slice Machine, with the
+    `/slice-simulator` framing exception (`src/lib/security/cms-framing.ts`)
+    and the `prismic-codegen` gate; #1134 swaps `baseline-versions` to the
+    `prismic` CLI and rewrites the runbook's §11 (changeset; the next release
+    PR is the operator's). Phase 1 now stands at 5 of 7: reddoor-website's
+    workflow landed as reddoor-website#240 on 10-04, so only Ask (a) below
+    remains. Still to build in phase 3: the D1 nightly pull-sync PR.
     **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
     `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
     the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
@@ -2051,6 +2064,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - The copy is Blux's, verbatim. The alt text and meta descriptions are
       new and still await the client's sign-off through Nicole (OD 61/62),
       and they can be edited after publishing.
+      **Answered 2026-10-04 ~20:05Z: "publish the Mantis release."**
+    - `seed.mjs --publish` answered `{"totalItems":5}` at 20:07Z. The
+      Content API's master ref moved to `asKx_xIAACkAT7mT` with all five
+      documents. Not an ask any more.
+    - The placeholder swap landed as mantis-landscaping#10 (`8a005df`):
+      `pnpm verify` green, axe 0 violations on the five kept paths.
+    - The next ask is item 69.
 
 67. **Fleet video rollout: three asks before site 1 (new 2026-10-04,
     worker session for decision 63).**
@@ -2122,7 +2142,24 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       was written as 67 on its branch; #1131 landed a different 67 first, so it
       is 68 here. The PR comments on reddoor-starter#165 and #1055 still say 67.
 
-69. **Site checkouts in a cloud session cannot run the axe audit (#1132,
+69. **Mantis: set `PRISMIC_WRITE_TOKEN` on reddoorla/mantis-landscaping
+    (🔴 secret, new 2026-10-04).** The `prismic-ci` install PR,
+    mantis-landscaping#13, is red on its own `prismic-models / dry` check
+    with "no write token for Prismic repository `mantis-landscaping`".
+    From a cloud session that check is the intended gate (runbook §5).
+    - The token is the repository's Write API token, the one this
+      environment holds as `MANTIS_LANDSCAPING_PRISMIC`. It pushed the
+      models and published the content on 10-04.
+    - Nothing waits on it today: Prismic's models match `main`. It matters
+      at the next model change.
+
+    _Ask:_ set the secret, then re-run #13's check; any worker lands it
+    with `land-prs`. _Pick:_ the same token as `MANTIS_LANDSCAPING_PRISMIC`.
+    BACKLOG 33's central `PRISMIC_TOKEN_MANTIS_LANDSCAPING` (P1) is a
+    separate secret and still unverified from the cloud. (#13's comment
+    calls this item 67; 67 and 68 had already landed, so it is 69.)
+
+70. **Site checkouts in a cloud session cannot run the axe audit (#1132,
     new 2026-10-04).** Cause, measured: mantis-landscaping (native starter)
     resolves `@playwright/test` 1.63.0, which launches
     `chromium_headless_shell-1243`; the cloud image's `/opt/pw-browsers` has
