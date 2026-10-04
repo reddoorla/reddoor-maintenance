@@ -5,8 +5,8 @@
 //                             [--cleanup] [--checks-timeout-min N]
 //
 // `main` is strict and platform auto-merge is off, so landing a PR is a manual loop: if
-// it is BEHIND, update the branch, wait for the checks on the NEW head, then squash-merge
-// pinned to that head so nothing that arrived after the checks can ride in. In the
+// it is BEHIND, update the branch, wait for the checks on the NEW head, then merge pinned
+// to that head so nothing that arrived after the checks can ride in. In the
 // week of 2026-09-14 that loop was run by hand about eight times. This script is that
 // loop, run strictly serially — landing one PR makes the next one BEHIND, so running
 // them in parallel only multiplies the update-branch rounds.
@@ -22,7 +22,8 @@
 //      is UNKNOWN while GitHub recomputes, and acting on it skipped the BEHIND step in the
 //      first live run. CLOSED, draft, base ≠ main (or --base), or a release PR (title
 //      `chore(release)…` or head `changeset-release/*`, which AUTONOMY.md §"Merge
-//      authority" keeps human) → stop. DIRTY → stop (a conflict gets no CI).
+//      authority" keeps human) → stop. DIRTY → stop (a conflict gets no CI). Then pick
+//      the merge method (see `chooseMergeMethod`); none allowed → stop.
 //   2. BEHIND → `PUT pulls/N/update-branch` with expected_head_sha set to the head just
 //      viewed, sleep 25 s, poll until head.sha moves (≤ 3 min).
 //   3. poll the head's check runs and commit statuses every 10 s (≤ --checks-timeout-min),
@@ -38,7 +39,8 @@
 //      the checks ran is refused, not merged. Otherwise the merge state
 //      must be CLEAN (UNKNOWN/BLOCKED get a short settle first, because GitHub recomputes
 //      it lazily after the last check completes); any other state stops.
-//   5. `PUT pulls/N/merge` with merge_method=squash and sha=<the gated head>, then verify
+//   5. `PUT pulls/N/merge` with merge_method=<the picked method> and sha=<the gated head>,
+//      then verify
 //      MERGED from a fresh view: the view is the verdict, not the exit code. Then delete
 //      the head branch (`DELETE git/refs/heads/…`) unless it lives on a fork. The cloud
 //      proxy refuses that DELETE, and a repo with "automatically delete head branches"
@@ -47,6 +49,18 @@
 //   6. --cleanup: a local worktree on the PR's head branch with a clean `git status` is
 //      removed (never forced), and its branch deleted if its tip is an ancestor of the
 //      merged head (fetched first: update-branch puts a merge commit on top on GitHub).
+//
+// The merge method is squash wherever the base branch allows it, which is everywhere this
+// script ran before 2026-10-04. That day reddoor-website#240 could not land on that repo's
+// `main`: the merge answered 405 "Squash merges are not allowed on this repository" while
+// the repo's `allow_squash_merge` was true, because the `main: reviewed changes only`
+// ruleset's pull_request rule sets `allowed_merge_methods: ["merge"]`. A ruleset narrows
+// the methods per branch, and the repo flags cannot show it, so step 1 reads both
+// `GET repos/…` (the `allow_*_merge` flags) and `GET repos/…/rules/branches/<base>` (every
+// rule in force on the base, from every ruleset) and keeps squash, then merge, then rebase,
+// whichever is allowed by all of them. A `required_linear_history` rule rules out a merge
+// commit. Classic branch protection is not read (its endpoint needs admin); there the
+// 405 still stops the run, with GitHub's reason.
 //
 // The first stop ends the run (`LAND #N stopped reason=…`, exit 1); later PRs are not
 // touched. --dry-run only views, and prints what it would do.
@@ -185,6 +199,37 @@ export const realSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── helpers ──────────────────────────────────────────────────────────────────────────
 
+export const MERGE_METHODS = ["squash", "merge", "rebase"];
+const REPO_FLAG = {
+  squash: "allow_squash_merge",
+  merge: "allow_merge_commit",
+  rebase: "allow_rebase_merge",
+};
+
+/** The method to merge with, given `GET repos/{o}/{r}` and the rules in force on the base
+ *  (`GET repos/{o}/{r}/rules/branches/{base}`). `{ method }`, or `{ error }` naming what
+ *  each source allowed. A repo flag that is absent from the answer is not read as false:
+ *  GitHub's default is true, and a wrong guess only gets the merge call's own 405. */
+export function chooseMergeMethod(repo, rules) {
+  const repoAllows = MERGE_METHODS.filter((m) => repo?.[REPO_FLAG[m]] !== false);
+  let allowed = repoAllows;
+  const said = [`repo allows ${repoAllows.join("/") || "nothing"}`];
+  for (const rule of Array.isArray(rules) ? rules : []) {
+    const from = rule.ruleset_id === undefined ? "a ruleset" : `ruleset ${rule.ruleset_id}`;
+    if (rule.type === "pull_request" && Array.isArray(rule.parameters?.allowed_merge_methods)) {
+      const methods = rule.parameters.allowed_merge_methods;
+      allowed = allowed.filter((m) => methods.includes(m));
+      said.push(`${from} allows ${methods.join("/") || "nothing"}`);
+    } else if (rule.type === "required_linear_history") {
+      allowed = allowed.filter((m) => m !== "merge");
+      said.push(`${from} requires linear history`);
+    }
+  }
+  return allowed.length > 0
+    ? { method: allowed[0] }
+    : { error: `no merge method is allowed: ${said.join("; ")}` };
+}
+
 const short = (sha) => (typeof sha === "string" ? sha.slice(0, 7) : String(sha));
 const firstLine = (s) =>
   String(s ?? "")
@@ -300,7 +345,7 @@ const afterAttempts = (r) => (r.attempts > 1 ? ` after ${r.attempts} attempts` :
 
 function api(ctx, path, args = [], timeoutMs = GH_TIMEOUT_MS) {
   const call = () =>
-    ctx.run("gh", ["api", `repos/${ctx.repo}/${path}`, ...args], {
+    ctx.run("gh", ["api", path ? `repos/${ctx.repo}/${path}` : `repos/${ctx.repo}`, ...args], {
       cwd: ctx.cwd,
       timeoutMs,
     });
@@ -309,7 +354,7 @@ function api(ctx, path, args = [], timeoutMs = GH_TIMEOUT_MS) {
   if (!isReadOnlyApiCall(args)) return call();
   return withReadRetries(call, ctx.sleep, ctx.t, (r, attempt, wait) =>
     ctx.log(
-      `LAND note: gh api ${path} failed in transport (attempt ${attempt} of ${ctx.t.readAttempts}), retrying in ${wait / 1000} s: ${ghFailureDetail(r)}`,
+      `LAND note: gh api ${path || `repos/${ctx.repo}`} failed in transport (attempt ${attempt} of ${ctx.t.readAttempts}), retrying in ${wait / 1000} s: ${ghFailureDetail(r)}`,
     ),
   );
 }
@@ -338,13 +383,17 @@ function parseJson(text) {
 }
 
 async function apiJson(ctx, path) {
-  const r = await api(ctx, path);
+  return jsonOf(ctx, path, await api(ctx, path));
+}
+
+function jsonOf(ctx, path, r) {
+  const named = path || `repos/${ctx.repo}`;
   if (r.code !== 0) {
-    throw new Stop(`gh api ${path} failed${afterAttempts(r)}: ${ghFailureDetail(r)}`);
+    throw new Stop(`gh api ${named} failed${afterAttempts(r)}: ${ghFailureDetail(r)}`);
   }
   const body = parseJson(r.stdout);
   if (body === null || typeof body !== "object") {
-    throw new Stop(`gh api ${path} returned no JSON: ${firstLine(r.stdout) || "an empty body"}`);
+    throw new Stop(`gh api ${named} returned no JSON: ${firstLine(r.stdout) || "an empty body"}`);
   }
   return body;
 }
@@ -421,6 +470,36 @@ async function readChecks(ctx, sha) {
   const runs = await allPages(ctx, `commits/${sha}/check-runs?filter=latest`, "check_runs");
   const statuses = await allPages(ctx, `commits/${sha}/status`, "statuses");
   return checksFromRest(runs, statuses);
+}
+
+const MAX_RULES_PAGES = 10;
+
+/** Every rule in force on `branch`. A 403 or 404 on the first page is read as "no
+ *  rulesets here" (a plan without rulesets on a private repo may refuse the endpoint
+ *  outright), noted, and left to the merge call's own 405 to contradict. */
+async function rulesFor(ctx, n, branch) {
+  const rules = [];
+  for (let page = 1; page <= MAX_RULES_PAGES; page++) {
+    const path = `rules/branches/${refPath(branch)}?per_page=100&page=${page}`;
+    const r = await api(ctx, path);
+    if (page === 1 && r.code !== 0 && [403, 404].includes(httpStatus(r))) {
+      ctx.log(
+        `LAND #${n} note: no rules read for ${branch}, choosing from the repo flags alone: ${ghFailureDetail(r)}`,
+      );
+      return [];
+    }
+    const body = jsonOf(ctx, path, r);
+    const got = Array.isArray(body) ? body : [];
+    rules.push(...got);
+    if (got.length < 100) return rules;
+  }
+  throw new Stop(`gh api rules/branches/${branch} still had rules after ${MAX_RULES_PAGES} pages`);
+}
+
+async function mergeMethodFor(ctx, n, branch) {
+  const picked = chooseMergeMethod(await apiJson(ctx, ""), await rulesFor(ctx, n, branch));
+  if (picked.error) throw new Stop(`${picked.error} (base ${branch})`);
+  return picked.method;
 }
 
 async function viewPr(ctx, n) {
@@ -579,12 +658,12 @@ async function gateView(ctx, n, began) {
   return pr;
 }
 
-async function merge(ctx, n, pr) {
+async function merge(ctx, n, pr, method) {
   const sha = pr.headRefOid;
   const r = await api(
     ctx,
     `pulls/${n}/merge`,
-    ["--method", "PUT", "-f", "merge_method=squash", "-f", `sha=${sha}`],
+    ["--method", "PUT", "-f", `merge_method=${method}`, "-f", `sha=${sha}`],
     120_000,
   );
   const tries = r.code === 0 ? ctx.t.mergeVerifyRetries : 1;
@@ -686,9 +765,11 @@ async function cleanupWorktree(ctx, n, branch, mergedSha) {
       continue;
     }
     ctx.log(`LAND #${n} cleanup removed ${w.path}`);
-    // A squash merge leaves the branch's commits unreachable from main, so `branch -d`
-    // always refuses. Force-delete only when the local tip is an ANCESTOR of the head
-    // GitHub merged — then every local commit is in what landed — and keep it otherwise.
+    // A squash or rebase merge leaves the branch's commits unreachable from main, so
+    // `branch -d` refuses; a merge commit keeps them reachable, but only from a main this
+    // checkout has not fetched yet, so `-d` cannot be trusted there either. The test is the
+    // same for every method: force-delete only when the local tip is an ANCESTOR of the
+    // head GitHub merged — then every local commit is in what landed — and keep it otherwise.
     // Equality is not enough: `update-branch` adds a merge commit on GitHub that the local
     // branch never sees, so the first live run kept a fully-landed branch. That merged
     // head is usually not in the local object store, so fetch it (the PR ref survives
@@ -739,8 +820,9 @@ async function landOne(ctx, n) {
   }
   const refused = refusal(pr, ctx.base);
   if (refused) throw new Stop(refused);
+  const method = await mergeMethodFor(ctx, n, pr.baseRefName);
   ctx.log(
-    `LAND #${n} open head=${short(pr.headRefOid)} merge=${pr.mergeStateStatus} "${pr.title}"`,
+    `LAND #${n} open head=${short(pr.headRefOid)} merge=${pr.mergeStateStatus} method=${method} "${pr.title}"`,
   );
 
   if (ctx.dryRun) {
@@ -748,7 +830,7 @@ async function landOne(ctx, n) {
     if (pr.mergeStateStatus === "BEHIND") steps.push("update-branch and wait for the new head");
     steps.push(`wait for checks (≤ ${ctx.checksTimeoutMin} min)`, "require CLEAN");
     steps.push(
-      `merge --squash pinned to sha=${pr.mergeStateStatus === "BEHIND" ? "<the new head>" : pr.headRefOid}`,
+      `merge --${method} pinned to sha=${pr.mergeStateStatus === "BEHIND" ? "<the new head>" : pr.headRefOid}`,
     );
     if (pr.sameRepo) steps.push(`delete branch ${pr.headRefName}`);
     ctx.log(`LAND #${n} dry-run would: ${steps.join("; ")}`);
@@ -800,10 +882,10 @@ async function landOne(ctx, n) {
   }
 
   const sha = pr.headRefOid;
-  const mergeCommit = await merge(ctx, n, pr);
-  ctx.log(`LAND #${n} merged ${mergeCommit} head=${sha}`);
+  const mergeCommit = await merge(ctx, n, pr, method);
+  ctx.log(`LAND #${n} merged ${mergeCommit} head=${sha} method=${method}`);
   if (ctx.cleanup) await cleanupWorktree(ctx, n, pr.headRefName, sha);
-  return { status: "merged", mergeCommit, head: sha };
+  return { status: "merged", mergeCommit, head: sha, method };
 }
 
 // ── the run ──────────────────────────────────────────────────────────────────────────
