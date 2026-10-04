@@ -87,6 +87,15 @@ describe("video: planRenditions", () => {
     expect(plan[0]!.file).toBe("x-718.mp4");
   });
 
+  it("the phone rendition is capped at 1200k with a 2400k buffer at crf 24", () => {
+    const plan = planRenditions({ width: 1920, height: 1080 }, { name: "hero", maxHeight: 1080 });
+    const phone = plan[2]!.args;
+    expect(phone[phone.indexOf("-crf") + 1]).toBe("24");
+    expect(phone[phone.indexOf("-maxrate") + 1]).toBe("1200k");
+    expect(phone[phone.indexOf("-bufsize") + 1]).toBe("2400k");
+    expect(phone[phone.indexOf("-profile:v") + 1]).toBe("main");
+  });
+
   it("the mp4 renditions carry faststart", () => {
     const plan = planRenditions({ width: 1920, height: 1080 }, { name: "hero", maxHeight: 1080 });
     const main = plan[0]!.args;
