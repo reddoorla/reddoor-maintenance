@@ -2128,7 +2128,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `chromium_headless_shell-1243`; the cloud image's `/opt/pw-browsers` has
     only 1194 and 1234, and no site repo has a cloud setup hook to install
     the right one (this repo's `.claude/hooks/cloud-session-setup.sh` does it
-    for its own 1.59 pin). Pointing `PLAYWRIGHT_BROWSERS_PATH` at a scratch
+    for its lockfile's 1.62.1, revision 1234). Pointing
+    `PLAYWRIGHT_BROWSERS_PATH` at a scratch
     dir that aliases 1243 to 1234 passed with 0 violations across 2 routes and
     the hydration smoke, so nothing else is wrong; `main`'s audit already
     names the missing executable (0.97.0, the site's pin, buried it behind

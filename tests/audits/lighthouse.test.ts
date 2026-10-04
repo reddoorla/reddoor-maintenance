@@ -708,13 +708,16 @@ describe("audits/lighthouse", () => {
             "✅  .lighthouseci/ directory writable",
             "✅  Configuration file found",
             "❌  Chrome installation not found",
+            "❌  Ancestor hash not determinable",
             "Healthcheck failed!",
             "",
           ].join("\n"),
           stderr: npmNoise,
         }),
       });
-      expect(result.summary).toContain("Chrome installation not found");
+      expect(result.summary).toContain(
+        "Chrome installation not found / Ancestor hash not determinable",
+      );
       expect(result.summary).not.toMatch(/npm warn/i);
     });
 
