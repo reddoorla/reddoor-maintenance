@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-10-01 ~16:45Z** (PM pass follow-up with the operator, `claude/focused-cori-9omnk9`; a diff, not a full re-rank).
+**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-10-04 ~16:10Z** (Sunday PM pass, `claude/youthful-turing-o7qpdl`; a diff, not a full re-rank).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -112,13 +112,13 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                               |
-| ----- | --------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Sent 2026-10-01 16:34:12Z, delivered** [M, daily-reports run 36892838203 `✓ sent`, live row]. Approved by the operator 09-30 21:18:16Z.                                                                                                                                                                                           |
-| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                         |
-| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                            |
-| 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window. |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; preflight clean on all five; FH stamped 09-30 14:50–15:04Z [M]. Revogen **is** GA4-enrolled (`ga4_property_id` 545817747). Data Dynamiq has no GA4 and no search enrolment, so it draws no analytics section.                                                                                                          |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Sent 2026-10-01 16:34:12Z, delivered** [M, daily-reports run 36892838203 `✓ sent`, live row]. Approved by the operator 09-30 21:18:16Z.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window.                                                                                                                                                                                                        |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; they draft in the 10-05 `daily-reports` run (~15:00Z) and each needs the operator's approve. **10-04 16:03Z [M]:** `nextDueDate` = 2026-10-05 for all five, `preflightSite` returns no finding for any of them (its negative control, Espada with recipients and contact blanked, returns `recipients-missing`), and fleet-lighthouse re-stamped evidence 10-04 13:48Z (`wrote=21 failed=0`). **Corrected:** Data Dynamiq now has `ga4_property_id` 556916505, so it is no longer the one without GA4; all five are enrolled. |
 
 **Settled — do not flag again (operator, 2026-09-29, after being asked
 several times):** the report recipients are correct as they are. MSOT and
@@ -180,6 +180,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   - **The first production build failed on Netlify's secret scan:** Blux's
     `__analytics.js`, vendored in P0's `matching/spec/`, carries Blux's
     browser API key. It was removed in mantis-landscaping#2.
+    **10-04: P2a stopped at Operator decisions 64.** mantis-landscaping#3
+    (model, slices, routes, 301s) had two dirty review rounds. The seed
+    content is drafted on `claude/p2b-seed-draft`. Nothing has been pushed
+    to Prismic.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -211,6 +215,26 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   Routine, so its session state was not read.
   **10-01 12:00Z [M]:** unchanged — same head, last commit 02:25:59Z, still
   no PR.
+  **10-04 16:00Z [M]:** still unchanged — same head, last commit
+  2026-10-01 02:25:59Z, no PR. Three and a half days idle.
+
+- **Live worker sessions, 10-04 ~16:00Z [M, branches and PRs; `get_session`
+  is not available to the PM Routine].** All three pushed within ten minutes of
+  the pass starting: rank, do not take.
+  - Mantis P2a: landed its stop as Operator decision **64** in #1118
+    (`9664ef0a`, 16:17Z) while this pass ran. The next new item here is **65**.
+  - #1117, `prismic-ci` from a cloud session (#1113): landed as `2c5d9f1c`
+    at 16:04Z, also during this pass.
+  - PR #1116, `claude/video-encode-command` (`5715a32c`, 15:59Z): the `video`
+    encode command (item 63), review round 1 folded in. Still open.
+- **#754, new repos below the posture floor (10-04 nightly [M]).**
+  `mantis-landscaping`, `williamson-homes` and `williamson-construction-co`
+  have no repo ruleset, and secret scanning and push protection are off. For
+  the Williamsons this is item 33 (d), still open; Mantis is new, and its first
+  Netlify build already failed on a vendored Blux key (mantis-landscaping#2),
+  which push protection would have stopped at the push. 🔴, the operator's.
+  The renovate-staleness gaps on data-dynamiq, MSOT and vineyard cleared
+  between 10-01 and 10-04.
 
 - **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
   the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
@@ -1765,6 +1789,81 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     lower the cap in the recipe first and re-encode Williamson's two long
     clips with it, one `reddoor-maint video` run each and a six-field
     rewire.
+
+64. **Mantis P2a (reddoorla/mantis-landscaping#3): two dirty review rounds
+    (new 2026-10-04).** #3 is the content model, seven new slices,
+    `/projects/[uid]` and the edible-gardens 301s. CI is green on its first
+    head, `00339cd`, and the second head, `6d2bb66`, carries round 1's
+    fixes. Under CLAUDE.md's two-round rule it stops here, and so does
+    everything after it in P1-30, because P2b, P4 and P5 build on this
+    model.
+    - **Round 1** (3 lenses, on `00339cd`) found one blocker and six
+      majors. All are fixed in `6d2bb66`:
+      - photos with a blank alt rendered no `alt` attribute;
+      - the redirect hook read `url.search` while prerendering, and there
+        was no `netlify.toml` 301;
+      - Document links rendered `href=""`, because the client is
+        routes-free;
+      - four slices used the legacy `items` zone;
+      - focus outlines were invisible on the dark bands;
+      - the scrims over photos were too light;
+      - the project "How it Works" band was recoloured when it did not
+        need to be;
+      - heading levels were left to the editor;
+      - two mutations survived (a dropped `context`, and a wrong project
+        `linkResolver`). Both are red now.
+    - **Round 2** (on `6d2bb66`). Correctness found no blocker. It found:
+      - `href=""` still renders in the starter's Hero, CtaBanner and
+        SectionGrid;
+      - ServiceCards, FeatureTrio and Steps render empty bands when their
+        group is empty;
+      - the orderings are untested.
+
+      Accessibility found:
+      - **a single-photo case-study strip still overflows sideways from
+        768 to about 1022px with no tab stop**, so axe reports
+        `scrollable-region-focusable` (serious) at tablet widths. This is
+        the real defect that triggers the rule;
+      - the ProjectList kicker (13px) sits at about 3.2–3.4:1 on the
+        gradient over a white photo;
+      - the white inset focus ring on the photo strip can vanish on a
+        bright photo;
+      - TextBlock headings still allow h1.
+
+      Tests and models found no blocker, and the models are safe to push.
+      Five behaviours have no test that goes red:
+      - the orderings;
+      - the project meta fallbacks;
+      - `SiteLink`'s `target`/`rel`;
+      - the `building` guard;
+      - `site-pages.test.ts`, which cannot see fields inside primary
+        groups.
+
+      The full round-2 list is in a comment on #3.
+
+    - **Ask:** (a) let a worker take a third round on #3, limited to the
+      round-2 list above, then land it; (b) take the PR over by hand; or
+      (c) re-scope (for example, drop the scrolling photo strip for a
+      static grid). _Pick:_ (a). Every round-2 finding is local to one
+      file, none questions the model or the design, and the model is still
+      unpushed, so nothing in Prismic depends on it yet.
+    - **Waiting behind it** (all on branches, no PRs):
+      - the P2b seed content for all five documents, with alt text on all
+        74 photos, on `claude/p2b-seed-draft` (`050eb7f`), stacked on #3;
+      - the seed script, the model push, the placeholder swap, P4 and P5.
+    - **No laptop step any more:** #1117 (`2c5d9f1`) runs `prismic-ci`
+      from a cloud session. Once #3 lands and the placeholder is replaced,
+      the next worker runs it. If the install PR's `prismic-models` check
+      goes red on a missing `PRISMIC_WRITE_TOKEN`, setting that secret on
+      the site repo is the operator's.
+    - **Name mismatch:** the session's Prismic write token is in the
+      environment as `MANTIS_LANDSCAPING_PRISMIC`, not the brief's
+      `MANTIS_PRISMIC`. It answers 200 on the Custom Types API (`[]`, no
+      types yet), and a bogus token gets 403.
+    - **Hazard:** the environment also holds a generic
+      `PRISMIC_WRITE_TOKEN` for `the-pointe-burbank`. A
+      `prismic-models --apply` run without
+      `PRISMIC_TOKEN_MANTIS_LANDSCAPING` set falls back to it.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
