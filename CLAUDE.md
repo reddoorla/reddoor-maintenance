@@ -222,7 +222,12 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   there. A branch name is percent-encoded only where it must be (`#`, `%`), so
   only such a branch's delete and check hit the proxy's 400. Attach a fleet
   repo with `add_repo` before landing in it, or its first `gh api` call stops
-  on the 403.
+  on the 403. Since 2026-10-04 it picks the merge method per base branch: squash
+  where the repo flags and every ruleset on the base allow it, else merge, else
+  rebase (`required_linear_history` rules out merge), and stops before watching
+  any check when none is allowed. A ruleset can forbid squash on a repo whose
+  `allow_squash_merge` is true: reddoor-website's `main` allows only `merge`.
+  `--dry-run` prints the method.
 - **`scripts/fleet-repos.sh` has nothing to enumerate**: the other checkouts
   are not here. For a sweep, list the org through the API and clone each repo
   after attaching it.
