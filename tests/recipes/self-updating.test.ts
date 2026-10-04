@@ -66,6 +66,7 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
     autoMergeEnabled: async () => true,
     findOpenSelfUpdatingPR: async () => null,
     openPullRequests: async () => [],
+    openPullRequestRefs: async () => [],
     defaultBranchStatus: async () => ({ ciState: "none", lastCommitAt: null }),
     mergedRenovatePullRequests: async () => [],
     dispatchWorkflow: async (repo, workflow, ref) => {

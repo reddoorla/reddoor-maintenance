@@ -105,14 +105,15 @@ export function isPinResolved(pin: ReusableWorkflowPin): boolean {
 /**
  * Render the caller workflow for a pin.
  *
- * Path-filtered on both triggers: this must not run on every commit, only when
- * a model changes.
+ * Path-filtered on both triggers: this must not run on every commit. It runs
+ * when a model changes, and on a PR that changes this file itself (so the
+ * install PR checks the token).
  */
 export function prismicCiWorkflow(pin: ReusableWorkflowPin): string {
   return `# Delivers this site's Prismic model changes. Managed by @reddoorla/maintenance
 # (\`reddoor-maint prismic-ci\`) — change it there and re-run, not here.
 #
-# On a PR touching a model: comment the delta, write nothing.
+# On a PR touching a model, or this file: comment the delta, write nothing.
 # On merge to ${APPLY_BRANCH}: push those models to Prismic. Never delete.
 #
 # THE BRANCH FILTER ON \`push:\` IS LOAD-BEARING, not tidiness. The reusable
@@ -131,6 +132,12 @@ on:
     paths:
       - "customtypes/**"
       - "src/lib/slices/**/model.json"
+      # This file itself, on pull_request ONLY. The PR that installs or changes
+      # this workflow then runs the dry job, which reads this repository's
+      # models from Prismic with ${SECRET} and goes red on a missing or dead
+      # one. Never add it under push, or merging such a PR
+      # would push models that were not reviewed as a model change.
+      - "${WORKFLOW_PATH}"
   push:
     branches: [${APPLY_BRANCH}]
     paths:
