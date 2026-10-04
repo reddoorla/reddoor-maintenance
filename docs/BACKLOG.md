@@ -1829,6 +1829,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     lower the cap in the recipe first and re-encode Williamson's two long
     clips with it, one `reddoor-maint video` run each and a six-field
     rewire.
+    **Rollout started 2026-10-04:** a worker session runs
+    `docs/briefs/2026-10-04-fleet-video-rollout.md` (step 0 lowers the phone
+    cap and re-measures Williamson; then one site at a time). Its table lands
+    here, one row per site.
 
 64. **Mantis P2a (reddoorla/mantis-landscaping#3): two dirty review rounds
     (new 2026-10-04).** #3 is the content model, seven new slices,
