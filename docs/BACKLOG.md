@@ -2157,6 +2157,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     BACKLOG 33's central `PRISMIC_TOKEN_MANTIS_LANDSCAPING` (P1) is a
     separate secret and still unverified from the cloud. (#13's comment
     calls this item 67; 67 and 68 had already landed, so it is 69.)
+    **Answered 2026-10-04 ~21:30Z: the operator set the secret.** #13's
+    re-run `prismic-models / dry` went green, which proves the secret reads
+    the models. `land-prs` merged it as `be8addf`. The workflow's `push`
+    trigger is path-filtered to models, so the merge ran no apply job; the
+    first apply comes with the next model change. Not an ask any more.
 
 70. **Site checkouts in a cloud session cannot run the axe audit (#1132,
     new 2026-10-04).** Cause, measured: mantis-landscaping (native starter)
