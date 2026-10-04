@@ -1,5 +1,12 @@
 import type { MigrationPlan, PlanCustomType } from "./plan.js";
 import { resolveDocData } from "./resolve-doc.js";
+import {
+  apiHeaders,
+  expectOk,
+  fetchWithRetry,
+  listAssetsByFilename,
+  uploadAsset,
+} from "../../prismic/asset-api.js";
 
 /** LIVE runner on the raw Prismic APIs. Learned from the Pointe run
  *  (2026-07-06): the js client's migrate() creates docs hollow, PATCHes data
@@ -15,31 +22,11 @@ import { resolveDocData } from "./resolve-doc.js";
 const THROTTLE_MS = 1200; // migration API limit ~1 req/s
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** fetch with backoff on 429 — the Asset/Migration APIs rate-limit hard and a
- *  single 429 must not abort a minutes-long migration. */
-async function fetchWithRetry(url: string, init?: RequestInit, tries = 4): Promise<Response> {
-  for (let i = 0; ; i++) {
-    const res = await fetch(url, init);
-    if (res.status !== 429 || i >= tries - 1) return res;
-    await sleep(1500 * (i + 1));
-  }
-}
-
 function readCreds(): { repo: string; token: string } {
   const repo = process.env.PRISMIC_REPOSITORY_NAME;
   const token = process.env.PRISMIC_WRITE_TOKEN;
   if (!repo || !token) throw new Error("Set PRISMIC_REPOSITORY_NAME and PRISMIC_WRITE_TOKEN");
   return { repo, token };
-}
-
-const apiHeaders = (repo: string, token: string) => ({
-  repository: repo,
-  Authorization: `Bearer ${token}`,
-});
-
-async function expectOk(res: Response, what: string): Promise<Response> {
-  if (res.ok) return res;
-  throw new Error(`${what}: ${res.status} ${await res.text()}`);
 }
 
 /** Push the plan's repeatable custom types via the Custom Types API
@@ -71,32 +58,6 @@ export async function pushCustomTypes(types: PlanCustomType[]): Promise<string[]
     pushed.push(t.id);
   }
   return pushed;
-}
-
-/** filename → { id, url } for every asset already in the media library. `url`
- *  is the servable CDN url (the Asset API asset object's `url` field, e.g.
- *  https://images.prismic.io/...) that the render side loads. */
-async function listAssetsByFilename(
-  repo: string,
-  token: string,
-): Promise<Map<string, { id: string; url: string }>> {
-  const map = new Map<string, { id: string; url: string }>();
-  let cursor = "";
-  for (;;) {
-    const res = await expectOk(
-      await fetchWithRetry(`https://asset-api.prismic.io/assets?limit=500${cursor}`, {
-        headers: apiHeaders(repo, token),
-      }),
-      "asset list",
-    );
-    const page = (await res.json()) as {
-      items: { id: string; filename: string; url: string }[];
-      cursor?: string;
-    };
-    for (const a of page.items) map.set(a.filename, { id: a.id, url: a.url });
-    if (!page.cursor || !page.items.length) return map;
-    cursor = `&cursor=${encodeURIComponent(page.cursor)}`;
-  }
 }
 
 /** Composite key for the update-lookup map. Prismic scopes uid-uniqueness PER
@@ -177,18 +138,7 @@ export async function runMigration(
       continue;
     }
     const blob = await (await expectOk(await fetch(a.url), `fetch asset ${filename}`)).blob();
-    const form = new FormData();
-    form.append("file", blob, filename);
-    if (a.alt) form.append("alt", a.alt);
-    const res = await expectOk(
-      await fetchWithRetry("https://asset-api.prismic.io/assets", {
-        method: "POST",
-        headers: apiHeaders(repo, token),
-        body: form,
-      }),
-      `upload asset ${filename}`,
-    );
-    const created = (await res.json()) as { id: string; url: string };
+    const created = await uploadAsset(repo, token, filename, blob, a.alt ? { alt: a.alt } : {});
     assetIdByUuid.set(a.id, created.id);
     assetUrlByCdn.set(a.url, created.url);
     assetsUploaded++;
