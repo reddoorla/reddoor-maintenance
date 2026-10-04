@@ -7648,6 +7648,25 @@ by whichever session is about to act on an answered Operator decision,
 read by the other before it starts. The PM pass that spawns a worker for
 an answered item could post that claim itself.
 
+## 2026-10-04 — A release branched from a stale version silently reverted another session's publish
+
+The SEO release for Williamson Construction (`ar6tURIAANxvSIoF`) was staged
+on 10-01 from each document's then-published version. The HD video release
+(decision 63) published after that, on the same three pages. When the
+operator published the SEO release on 10-04, Prismic replaced home,
+about-us and services with the 10-01 branches: the descriptions arrived
+and the 1080p videos, phone renditions and posters went back to the 480p
+transcodes. Nothing warned; `diff_release` compares a release against what
+is published now only when it is read, and it was read before the video
+publish.
+
+Found by checking the live `<source>` tags against the LEDGER's claim, not
+by any alarm. The fix is release `asKDcBIAAMSpTvwK`, branched from today's
+versions, carrying exactly the 21 deltas the video release had. The rule
+for any session staging Prismic content while another session might
+publish: re-run `diff_release` immediately before asking for the publish,
+and expect only your own deltas.
+
 ## 2026-10-01 — `reddoor-maint video` encodes a background-video master into the fleet's renditions (#1116)
 
 One master, four outputs: a capped-height H.264 mp4 and VP9 webm, a 720p phone mp4 when the source is at least 720 tall, and a poster jpg taken from frame 0 of the mp4 that plays rather than from the master, so the first painted frame and the first played frame are the same encode. Every rendition carries `-an`, because the fleet's hero loops are muted and an audio track in a background video is bytes the browser downloads to discard. `--upload <prismic-repo>` pushes the outputs to that repository's Asset API, deduped by filename, with the token read from `PRISMIC_TOKEN_<REPO>` alone (`allowGeneric: false`), so a generic `PRISMIC_WRITE_TOKEN` in the shell never lands a site's video in another site's library.
