@@ -1,4 +1,4 @@
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
@@ -142,6 +142,42 @@ async function packageRefusal(sitePath: string): Promise<string | null> {
   return null;
 }
 
+const PAGE_FILE = /^\+page(@[^.]*)?(\.server)?\.[a-z]+$/;
+const PRIVACY_SCAN_DIRS = 2000;
+
+/** Does `src/routes` define a page at `/privacy`? Route groups `(x)` and
+ *  optional `[[x]]` segments add nothing to the path; a dynamic `[uid]` that
+ *  might resolve to it from a CMS is not proof that it exists. */
+export async function hasPrivacyPage(sitePath: string): Promise<boolean> {
+  const queue: Array<{ dir: string; path: string[] }> = [
+    { dir: join(sitePath, "src", "routes"), path: [] },
+  ];
+  for (let seen = 0; queue.length > 0 && seen < PRIVACY_SCAN_DIRS; seen++) {
+    const { dir, path } = queue.shift()!;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    if (path.length === 1 && path[0] === "privacy") {
+      if (entries.some((e) => e.isFile() && PAGE_FILE.test(e.name))) return true;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name === "node_modules") continue;
+      const silent = /^\(.*\)$/.test(e.name) || /^\[\[.*\]\]$/.test(e.name);
+      const next = silent ? path : [...path, e.name];
+      if (next.length <= 1) queue.push({ dir: join(dir, e.name), path: next });
+    }
+  }
+  return false;
+}
+
+export const NO_PRIVACY_PAGE_NOTE =
+  "the site has no /privacy page. GA4's terms require a posted privacy policy that discloses " +
+  "its use, so the tag waits for one. Add the page from reddoor-starter (src/routes/privacy, " +
+  "reddoorla/reddoor-maintenance#1055), then re-run.";
+
 type Planned = {
   productionHost: string;
   hooks: string;
@@ -209,6 +245,10 @@ export async function analyticsTag(
       const scan = await scanCheckout(site.path, deps.scanCap ?? SCAN_FILE_CAP);
       if (scan === null) {
         return { kind: "failed", notes: "the site has no src/ directory to install into" };
+      }
+
+      if (!(await hasPrivacyPage(site.path))) {
+        return { kind: "failed", notes: NO_PRIVACY_PAGE_NOTE };
       }
 
       // Already running the package? Only the SAME ID on the SAME host is a

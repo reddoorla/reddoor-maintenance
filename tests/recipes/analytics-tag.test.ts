@@ -49,8 +49,10 @@ const git = (cwd: string, ...args: string[]) =>
 const headFiles = (cwd: string) =>
   git(cwd, "show", "--name-only", "--format=", "HEAD").split("\n").filter(Boolean).sort();
 
+const PRIVACY_PAGE = "src/routes/privacy/+page.svelte";
+
 /** The pristine starter, depending on a @reddoorla/maintenance that exports
- *  initAnalytics, plus `files`. */
+ *  initAnalytics, with a /privacy page, plus `files`. */
 async function site(
   files: Record<string, string> = {},
   deps: Record<string, string> = { "@reddoorla/maintenance": "^0.102.0" },
@@ -63,7 +65,7 @@ async function site(
     };
     Object.assign(pkg.devDependencies, deps);
     await writeFile(pkgPath, JSON.stringify(pkg, null, 2));
-    for (const [rel, body] of Object.entries(files)) {
+    for (const [rel, body] of Object.entries({ [PRIVACY_PAGE]: "<h1>Privacy</h1>\n", ...files })) {
       await mkdir(dirname(join(dir, rel)), { recursive: true });
       await writeFile(join(dir, rel), body);
     }
@@ -77,6 +79,62 @@ const run = (cwd: string, id = ID, host = HOST, spawn = recordingSpawn().spawn) 
     { measurementId: id, productionHost: host },
     { spawn, resolvePrettier: noPrettier },
   );
+
+async function siteWithoutPrivacy(files: Record<string, string> = {}): Promise<string> {
+  const cwd = await site(files);
+  git(cwd, "rm", "-q", PRIVACY_PAGE);
+  git(cwd, "commit", "-q", "-m", "no privacy page");
+  return cwd;
+}
+
+describe("recipes/analytics-tag, the /privacy preflight", () => {
+  it("refuses a site with no /privacy page, names the fix, and writes nothing", async () => {
+    const cwd = await siteWithoutPrivacy();
+    const head = git(cwd, "rev-parse", "HEAD");
+    const res = await run(cwd);
+    expect(res.status).toBe("failed");
+    expect(res.notes).toContain("no /privacy page");
+    expect(res.notes).toContain("reddoor-starter");
+    expect(res.notes).toContain("src/routes/privacy");
+    expect(await exists(join(cwd, HOOKS_CLIENT_RELATIVE))).toBe(false);
+    expect(git(cwd, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  it("refuses even when the same ID is already installed", async () => {
+    const cwd = await site();
+    expect((await run(cwd)).status).toBe("applied");
+    git(cwd, "rm", "-q", PRIVACY_PAGE);
+    git(cwd, "commit", "-q", "-m", "drop privacy");
+    const again = await run(cwd);
+    expect(again.status).toBe("failed");
+    expect(again.notes).toContain("no /privacy page");
+  });
+
+  it("does not count a Prismic catch-all, an endpoint or a privacy page nested deeper", async () => {
+    for (const rel of [
+      "src/routes/[[preview=preview]]/[uid]/+page.svelte",
+      "src/routes/privacy/+server.ts",
+      "src/routes/legal/privacy/+page.svelte",
+      "src/routes/privacy-policy/+page.svelte",
+    ]) {
+      const res = await run(await siteWithoutPrivacy({ [rel]: "x\n" }));
+      expect(res.status, rel).toBe("failed");
+      expect(res.notes, rel).toContain("no /privacy page");
+    }
+  });
+
+  it("finds the page through route groups, optional segments and any +page file", async () => {
+    for (const rel of [
+      "src/routes/(legal)/privacy/+page.svelte",
+      "src/routes/[[preview=preview]]/privacy/+page.svelte",
+      "src/routes/privacy/+page.server.ts",
+      "src/routes/privacy/+page@.svelte",
+    ]) {
+      const res = await run(await siteWithoutPrivacy({ [rel]: "export {};\n" }));
+      expect(res.status, rel).toBe("applied");
+    }
+  });
+});
 
 describe("recipes/analytics-tag, run for real", () => {
   it("writes the hook, commits only it, and the audit reads back what it wrote", async () => {
