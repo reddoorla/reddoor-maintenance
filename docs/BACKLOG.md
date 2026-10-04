@@ -1658,7 +1658,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       The other five are `launching` (alamo-anatomy, hedloc) or `building`
       (the two Burbank sites, williamson-homes), which the sweep excludes by
       design. The Williamson Homes row also has a null `git_repo`.
-    - **10-04 23:00Z: phase 4, 12 site repos landed** (cloud worker
+    - **10-04 23:10Z: phase 4, 13 site repos landed** (cloud worker
       session, plan §9; one reviewed PR each, merged on green per the
       operator's "merge on green" at ~21:50Z). Each still needs phase 5's
       dashboard step. _Ask:_ per row, "Switch to type builder" in that
@@ -1676,6 +1676,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       - alamo-anatomy#63 (`9260a09`): `alamo-anatomy`, `https://alamo-anatomy.netlify.app/slice-simulator` (change at launch)
       - erp-industrial#66 (`41cf5ad`, `@prismicio/svelte` 2.2) and #67 (`930fab5`): `erp-industrial`, `https://www.erpfunds.com/slice-simulator`
       - data-dynamiq#57 (`76cfcae`): code only, no switch; `reddoor-wireframer` is shared.
+      - williamson-homes#20 (`ab39401`): `williamson-homes`, `https://williamson-homes.netlify.app/slice-simulator` (move to `www.williamson-homes.com` at cutover)
     - _Ask (d), phase 4:_ activate Prismic MCP for `hedloc`,
       `the-tower-burbank` and `the-pointe-burbank`
       (`https://<repo>.prismic.io/builder/settings/mcp/`). None is in the
@@ -1689,9 +1690,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - _Ask (e), phase 4:_ williamson-construction-co is migrated and proven
       in sync (connector, 0 differences over 3 types and 29 slices), but the
       permission system refused the worker's `git push` of `claude/prismic-cli`
-      (head `9e18320`). That branch exists only in the cloud container that
-      built it, so if the container is gone the migration is re-run from the
-      recipe (`docs/prismic-migration-plan-2026-10.md` §9 and this entry's
+      (head `9e18320`), and then the session's own push of `6d86b0c`, which
+      adds two hook tests. The branch exists only in the cloud container that
+      built it; if the container is gone, re-run the migration from the recipe
+      (`docs/prismic-migration-plan-2026-10.md` §9 and this session's
       journal). _Pick:_ allow that push; the branch is ready for its PR.
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**

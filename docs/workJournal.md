@@ -8107,11 +8107,11 @@ file, and a pull will refuse to overwrite it until it moves to
 `settings.local.json`. Existing sites and the Blux track do not have the
 hook yet. Each is its own PR, and the backfill is not decided.
 
-## 2026-10-04 — Phase 4: twelve site repos off Slice Machine, and the lint audit honours `.prettierignore` (#1090, #1144 `a2e0516`)
+## 2026-10-04 — Phase 4: thirteen site repos off Slice Machine, and the lint audit honours `.prettierignore` (#1090, #1144 `a2e0516`)
 
 > Follows "Both starters off Slice Machine; the baseline follows" above.
 
-A cloud worker session took plan §9 one site at a time, each through its own reviewed PR. The operator said "merge on green" at about 21:50Z, after the first two had landed. Twelve repos landed: espada, caltex-landing, 29-navy, revogen, medical-solutions-of-texas, gallerysonder, vineyard-custom-homes, vida-legacy-foundation, beachfront-dentistry, alamo-anatomy, erp-industrial (two PRs) and data-dynamiq (code only). BACKLOG Operator decisions 57 lists each site's merge SHA, its Prismic repository and its simulator URL for the Type Builder switch. hedloc is held at #53, and both Burbank proofs of concept are pushed without a PR; all three wait on Prismic MCP activation. williamson-construction-co waits on a refused push. williamson-homes started last, after another session's PR there merged at 22:06Z.
+A cloud worker session took plan §9 one site at a time, each through its own reviewed PR. The operator said "merge on green" at about 21:50Z, after the first two had landed. Thirteen repos landed: espada, caltex-landing, 29-navy, revogen, medical-solutions-of-texas, gallerysonder, vineyard-custom-homes, vida-legacy-foundation, beachfront-dentistry, alamo-anatomy, erp-industrial (two PRs), data-dynamiq (code only) and williamson-homes. BACKLOG Operator decisions 57 lists each site's merge SHA, its Prismic repository and its simulator URL for the Type Builder switch. hedloc is held at #53, and both Burbank proofs of concept are pushed without a PR; all three wait on Prismic MCP activation. williamson-construction-co waits on a refused push. williamson-homes started last, after another session's PR there merged at 22:06Z, and landed as #20 (`ab39401`).
 
 **The framing step was four different jobs, and `vite preview` could only see one of them.** The brief assumed a site restricts framing through the central CSP. In fact the fleet split four ways:
 
@@ -8163,3 +8163,4 @@ The operator started a session for these. It is reddoor-starter#168, and that se
 - The container restarted twice. Each restart killed the background workers and reviews running at the time, and they were re-run from what was on disk. The session notes in `.session-logs/` survived both restarts.
 - The permission system refused one worker's `git push` as "Out-of-Place Publication". The push was put to the operator rather than retried another way.
 - One worker's sed mutations matched nothing and "passed". It caught this by checking `git diff` before each run, and that check went into the recipe.
+- williamson-homes's connector comparison first reported two differences: Hero `cta_link` and SectionGrid `item_link` omit `select` locally, and Prismic returns `select: null`. That is Prismic's own decoding (`@prismicio/types-internal`'s Link config, `withFallback(…, null)`), read in the installed source before the difference was normalised away. A planted `select: "document"` still showed, so the normalisation hides nothing real.
