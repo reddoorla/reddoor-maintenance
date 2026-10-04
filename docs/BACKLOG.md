@@ -1807,10 +1807,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       - the P2b seed content for all five documents, with alt text on all
         74 photos, on `claude/p2b-seed-draft` (`050eb7f`), stacked on #3;
       - the seed script, the model push, the placeholder swap, P4 and P5.
-    - **The one laptop step** (already true, restated so it is not lost):
-      `reddoor-maint prismic-ci mantis-landscaping`, then confirm
-      `PRISMIC_WRITE_TOKEN` on the site repo. The cloud cannot read or
-      set secrets.
+    - **No laptop step any more:** #1117 (`2c5d9f1`) runs `prismic-ci`
+      from a cloud session. Once #3 lands and the placeholder is replaced,
+      the next worker runs it. If the install PR's `prismic-models` check
+      goes red on a missing `PRISMIC_WRITE_TOKEN`, setting that secret on
+      the site repo is the operator's.
     - **Name mismatch:** the session's Prismic write token is in the
       environment as `MANTIS_LANDSCAPING_PRISMIC`, not the brief's
       `MANTIS_PRISMIC`. It answers 200 on the Custom Types API (`[]`, no
