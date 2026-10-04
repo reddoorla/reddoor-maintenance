@@ -125,6 +125,22 @@ several times):** the report recipients are correct as they are. MSOT and
 Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 29 Navy's send going to MatthewB@worthe.com is intended.
 
+### P0-5 · Show Williamson Construction to Tim (2026-10-05) 🔴
+
+- **First, publish the HD video restore.** Prismic release
+  `asKDcBIAAMSpTvwK` ("Restore HD background videos") puts the 1080p
+  videos, phone renditions and posters back on home, about-us and services:
+  21 deltas, the same fields decision 63's release set. The SEO release
+  (`ar6tURIAANxvSIoF`, published 10-04 15:46Z) was branched from 10-01
+  versions and reverted them; the descriptions and share images stay.
+  <https://williamson-construction.prismic.io/builder/upcoming/asKDcBIAAMSpTvwK>
+- **Then show Tim** <https://williamson-construction-co.netlify.app>: all 14
+  pages, fidelity gate passing or ledgered (`matching/LEDGER.md`), favicon,
+  descriptions and share cards live. Webflow still serves `www` until 10-19.
+- **Ask him for the launch facts** still open in the plan: D6 (who receives
+  `/join-the-team`), D7 (who holds GoDaddy for the domain), D0 (Webflow
+  billing). Cutover is planned for Wed 10-14.
+
 ---
 
 ## P1 — next, agent-ready, no operator decision needed

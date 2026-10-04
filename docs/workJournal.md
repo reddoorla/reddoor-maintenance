@@ -7648,6 +7648,25 @@ by whichever session is about to act on an answered Operator decision,
 read by the other before it starts. The PM pass that spawns a worker for
 an answered item could post that claim itself.
 
+## 2026-10-04 — A release branched from a stale version silently reverted another session's publish
+
+The SEO release for Williamson Construction (`ar6tURIAANxvSIoF`) was staged
+on 10-01 from each document's then-published version. The HD video release
+(decision 63) published after that, on the same three pages. When the
+operator published the SEO release on 10-04, Prismic replaced home,
+about-us and services with the 10-01 branches: the descriptions arrived
+and the 1080p videos, phone renditions and posters went back to the 480p
+transcodes. Nothing warned; `diff_release` compares a release against what
+is published now only when it is read, and it was read before the video
+publish.
+
+Found by checking the live `<source>` tags against the LEDGER's claim, not
+by any alarm. The fix is release `asKDcBIAAMSpTvwK`, branched from today's
+versions, carrying exactly the 21 deltas the video release had. The rule
+for any session staging Prismic content while another session might
+publish: re-run `diff_release` immediately before asking for the publish,
+and expect only your own deltas.
+
 ## 2026-10-04 — Roster rows for the sites in build: Domaru archived, repos and Netlify ids filled (this PR)
 
 The operator asked what stage each in-progress site is at. The roster held nine sites as `building` or `launching`. Two rows could not have answered for themselves: Domaru was still `building` five days after the operator decided it lapses with Webflow on 10-19, and both Williamson rows had a null `git_repo` although the repos have existed since 09-30. Roalson's row had no `netlify_id` although it serves from Netlify. On the operator's instruction, six fields were written through `setSiteDetail`, the dashboard editor's own path. Each was planned dry, then written, then read back from Turso: Domaru `status` building → archived; `git_repo` on both Williamsons; and `netlify_id` on Williamson Homes, Williamson Construction and Roalson. The Netlify ids were not copied from the eight-character prefixes in BACKLOG item 33. They came from Netlify's own site list by name, and each site's `repo_url` matched the repo it was written beside.
