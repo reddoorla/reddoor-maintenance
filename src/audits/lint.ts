@@ -2,7 +2,11 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ESLint } from "eslint";
-import { check as prettierCheck, resolveConfig as prettierResolveConfig } from "prettier";
+import {
+  check as prettierCheck,
+  getFileInfo as prettierFileInfo,
+  resolveConfig as prettierResolveConfig,
+} from "prettier";
 import { glob } from "tinyglobby";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
@@ -42,9 +46,18 @@ export async function lintAudit(ctx: AuditContext): Promise<AuditResult> {
   const eslintErrors = eslintResults.reduce((n, r) => n + r.errorCount, 0);
   const eslintWarnings = eslintResults.reduce((n, r) => n + r.warningCount, 0);
 
+  // The site's own `prettier --check .` honours .gitignore and .prettierignore,
+  // and so must this. Since #1090 the Prismic CLI writes prismicio-types.d.ts
+  // and src/lib/slices/index.ts in its own style, every migrated site lists
+  // both in .prettierignore, and its prismic-codegen job compares them
+  // byte-for-byte with the generator, so formatting them is not an option.
+  // Measured on espada after its migration: fail with 2 unformatted, against
+  // warn with 0 on the commit before.
+  const ignorePath = [join(site.path, ".gitignore"), join(site.path, ".prettierignore")];
   const prettierUnformatted: string[] = [];
   for (const rel of relFiles) {
     const absForResolve = join(site.path, rel);
+    if ((await prettierFileInfo(absForResolve, { ignorePath })).ignored) continue;
     const source = await readFile(absForResolve, "utf-8");
     const options = (await prettierResolveConfig(absForResolve)) ?? {};
     const ok = await prettierCheck(source, { ...options, filepath: absForResolve });
