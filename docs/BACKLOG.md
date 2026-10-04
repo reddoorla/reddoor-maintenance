@@ -149,7 +149,7 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                                  | Starter PR and central recipe PR landed; the recipe's test pins the marker                                                                   |
 | P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164                 | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test                           |
-| P1-26 | The fleet `/privacy` page (#1055, option A). **Un-parked by the operator 2026-10-04**; claimed by session `claude/awesome-bardeen-llz7v7`. Verify-first re-run 2026-10-04 17:27Z [M]: `/privacy` 404 on roalson-interests.netlify.app and sonderliving.com; the starter has no page; `src/recipes/analytics-tag/index.ts` had no preflight. Brief: `docs/privacy-2026-09.md`. Lands as reddoor-starter#165 (template, footer link, form notice, Do Not Track, DRAFT until item 45), then the analytics-tag preflight here, then roalson-interests before its launch adds GA4. No consent banner (item 46); no rollout to maintained sites (later, per-repo PRs)                                                                                                                                                                                                                                       | 🟡   | M      | `docs/privacy-2026-09.md`, reddoor-starter#165, `src/recipes/analytics-tag/index.ts`             | The starter renders `/privacy` from per-site values and derived switches; the recipe refuses a site without it; roalson-interests carries it |
+| P1-26 | The fleet `/privacy` page (#1055, option A). **Un-parked by the operator 2026-10-04**; claimed by session `claude/awesome-bardeen-llz7v7`. Verify-first re-run 2026-10-04 17:27Z [M]: `/privacy` 404 on roalson-interests.netlify.app and sonderliving.com; the starter has no page; `src/recipes/analytics-tag/index.ts` had no preflight. Brief: `docs/privacy-2026-09.md`. Lands as reddoor-starter#165 (template, footer link, form notice, Do Not Track, DRAFT until item 45), then the analytics-tag preflight here (#1129), then roalson-interests before its launch adds GA4. **10-04 ~18:45Z: held at Operator decision 67** (the starter PR had two dirty review rounds). No consent banner (item 46); no rollout to maintained sites (later, per-repo PRs)                                                                                                                                 | 🟡   | M      | `docs/privacy-2026-09.md`, reddoor-starter#165, `src/recipes/analytics-tag/index.ts`             | The starter renders `/privacy` from per-site values and derived switches; the recipe refuses a site without it; roalson-interests carries it |
 | P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries                                                                                                                                                                                                                                                                                                                 | 🟢   | S      | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed                                            |
 
 ### Blocked behind another PR (do not start early)
@@ -1990,6 +1990,37 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - The copy is Blux's, verbatim. The alt text and meta descriptions are
       new and still await the client's sign-off through Nicole (OD 61/62),
       and they can be edited after publishing.
+
+67. **P1-26, the starter's `/privacy` page (reddoor-starter#165): two dirty
+    review rounds, held (new 2026-10-04).** Round 1 on `7374553` was dirty in all
+    three lenses. Its fixes are in `f05a94c`.
+    - The switches read `svelte.config.js` as text, not as the CSP it resolves to.
+    - The policy said "only to reply" and claimed IP rate limiting that does not
+      exist.
+    - Server-side Mailchimp and endpoint forms were missed.
+
+    Round 2 on `f05a94c` was dirty too. The fixes are in `5c87109`, which is
+    **unreviewed**.
+    - Blocker: a forms-only site said "no other party" tracks visitors across
+      sites. Central ingest compares a sender's email and message with every
+      fleet site's submissions for 30 days.
+    - Major: the newsletter webhook recipient was undisclosed.
+    - Major: newsletters posted through multi-type endpoints were missed.
+    - Several minors, all fixed.
+
+    Every review mutation now turns a test red: 69 files, 557 tests. CI was
+    green on `f05a94c`. The full record is on the PR. _Ask:_ merge `5c87109`, or
+    send it back for a third review. _Pick:_ merge `5c87109`. Round 2's blocker and
+    majors are text and detection fixes, each pinned by a mutation that goes red.
+    The page stays DRAFT, `noindex` and out of the sitemap until item 45, so a
+    residual wording miss reaches no live site.
+    - **Waiting on this:** the central preflight, #1129 (two review rounds, the
+      second clean, CI green). It lands after the starter, per the operator's
+      order, and carries this line.
+    - **Also waiting:** roalson-interests, which must carry the page before its
+      launch adds GA4. Nothing is built there yet. Its legal name, privacy
+      contact email and effective date are not in its repo, so those render as
+      placeholders until someone supplies them.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
