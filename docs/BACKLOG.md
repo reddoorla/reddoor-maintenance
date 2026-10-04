@@ -203,6 +203,14 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
     **10-04: 64 answered (a); P2a landed** as mantis-landscaping#3
     (`e9d5f95`) after a third round. **Next:** P2b (rebase the seed draft,
     the seed script, the placeholder swap, the model push).
+    **10-04 ~18:30Z: P2b seeded, stopped at Operator decisions 66
+    (publish).**
+    - mantis-landscaping#7 (`2470e01`) holds the seed content, a
+      `page_title` slice and the seed script; #8 (`95ddb1a`) holds the
+      metadata strip and the release repair.
+    - Models were pushed from a scratch checkout with the site's own token.
+    - The seed ran, and its release was read back and repaired.
+    - Out-of-scope follow-up: mantis-landscaping#6 (a `sizes` attribute).
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -1937,6 +1945,45 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `land-prs` at `e78c4af4` after four merge-of-main cycles against the
     day's journal traffic. The changeset rides the next release PR. Not an
     ask any more.
+
+66. **Mantis P2b: publish the seeded content? (#1107, new 2026-10-04).**
+    Everything up to the publish is done.
+    - The 20 models are in Prismic (a re-read says "20 model(s) match").
+    - The five documents (`home`, `projects`, `contact-us`,
+      `water-wise-gardens`, `edible-gardens`) are in the migration release
+      `asKQBhIAAC0ATypp`.
+    - The media library holds 74 photos, every one sized, and each original
+      matched the capture manifest's sha256.
+    - Read back through the Prismic connector after a repair: no document
+      references a removed asset (positive controls found the new copies),
+      and the home pillars carry no icons.
+
+    The repair (mantis-landscaping#8) fixed two defects the first read
+    found: 18 photos Prismic could not size (over 64 KB of Pixel
+    depth-map XMP before the image data), and a Select default that turned
+    null icons into "design".
+
+    Nothing is published. The Prismic connector reserves `publish_release`
+    for an explicit human ask, and `seed.mjs --publish` would be the same
+    act by another route, so the session stopped here. Everything after
+    waits on it:
+    - the placeholder swap: one line in `slicemachine.config.json`, plus the
+      kept paths in `reddoor.a11yRoutes`. Its build is red until `home` is
+      published, by the starter's design;
+    - the `prismic-ci` install PR;
+    - P4 and P5.
+
+    _Ask:_ (a) say "publish the Mantis release", and the next worker runs
+    `node scripts/seed/seed.mjs --publish` from the mantis-landscaping
+    checkout (with `PRISMIC_TOKEN_MANTIS_LANDSCAPING` set) and continues
+    with the swap; or (b) publish `asKQBhIAAC0ATypp` from the Prismic
+    dashboard after looking at it, then say so.
+    _Pick:_ (b) if you want to see the pages first, otherwise (a).
+    - The site is not live; Blux still serves mantislandscaping.com.
+    - Publishing changes nothing a visitor sees.
+    - The copy is Blux's, verbatim. The alt text and meta descriptions are
+      new and still await the client's sign-off through Nicole (OD 61/62),
+      and they can be edited after publishing.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
