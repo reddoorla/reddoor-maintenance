@@ -27,6 +27,7 @@ beforeAll(async () => {
 async function runGate(opts: {
   stdout: string;
   exit: number;
+  ref?: string;
 }): Promise<{ code: number; out: string }> {
   const dir = await mkdtemp(join(tmpdir(), "prismic-sync-gate-"));
   const bin = join(dir, "bin");
@@ -41,7 +42,12 @@ async function runGate(opts: {
   try {
     const { stdout, stderr } = await execFileAsync("bash", ["-e", "-c", gate], {
       cwd: dir,
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        RUNNER_TEMP: dir,
+        GITHUB_REF: opts.ref ?? "refs/heads/main",
+      },
     });
     return { code: 0, out: stdout + stderr + (await readFile(join(dir, "argv.txt"), "utf-8")) };
   } catch (e) {
@@ -62,6 +68,17 @@ describe("fleet-prismic-sync — the gate", () => {
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("::error::");
     expect(r.out).toContain("prismic-sync --fleet turso --open-prs --workdir");
+  });
+
+  it("never asks for PRs from a run on any ref but main", async () => {
+    const r = await runGate({
+      stdout: `would-open Fixture — would push\n${summary(0)}\n`,
+      exit: 0,
+      ref: "refs/heads/claude/wip",
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("prismic-sync --fleet turso --workdir");
+    expect(r.out).not.toContain("--open-prs");
   });
 
   it("fails when a site failed, naming it", async () => {
@@ -106,6 +123,13 @@ describe("fleet-prismic-sync — wiring", () => {
     expect(src).toContain("app-id: ${{ vars.RENOVATE_APP_ID }}");
     expect(src).toContain("private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}");
     expect(src).toMatch(/owner: reddoorla/);
+  });
+
+  it("names the drift workflow by its real name, or it never fires", async () => {
+    const drift = await readFile(workflowPath("fleet-prismic-drift.yml"), "utf-8");
+    const name = /^name:\s*(\S+)\s*$/m.exec(drift)?.[1];
+    expect(name).toBe("fleet-prismic-drift");
+    expect(withoutComments(wf)).toContain(`workflows: [${name}]`);
   });
 
   it("runs after the drift sweep, only for main's runs", () => {

@@ -32,6 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
@@ -52,6 +54,10 @@ jobs:
           app-id: ${{ vars.RENOVATE_APP_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
           owner: reddoorla
+          # Push a branch and open a PR: nothing more. Without these the token
+          # carries every permission the App holds.
+          permission-contents: write
+          permission-pull-requests: write
 
       # The PRISMIC_TOKEN_* list is fleet-prismic-drift.yml's, kept identical by
       # tests/build/fleet-prismic-sync-workflow.test.ts. Fleet mode refuses the
@@ -85,10 +91,19 @@ jobs:
           set -o pipefail
           out="${RUNNER_TEMP:-/tmp}/prismic-sync.out"
 
+          # Only main's own code may push into client repos. A dispatch from any
+          # other branch is a dry run: it reports what each PR would hold.
+          open_prs=""
+          if [ "${GITHUB_REF:-}" = "refs/heads/main" ]; then
+            open_prs="--open-prs"
+          else
+            echo "::notice::dispatched from ${GITHUB_REF:-an unknown ref}, not main: a dry run, no branch pushed and no PR opened"
+          fi
+
           rc=0
           node dist/cli/bin.js prismic-sync \
             --fleet turso \
-            --open-prs \
+            $open_prs \
             --workdir "${RUNNER_TEMP:-/tmp}/fleet-prismic-sync" | tee "$out" || rc=$?
 
           # No summary line means the run reached no verdict at all, so its exit
@@ -116,7 +131,7 @@ jobs:
         run: |
           title="Nightly Prismic pull-sync failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The nightly **fleet-prismic-sync** run failed, so at least one site did not get tonight'"'"'s sync PR.\n\nA `failed` line in the run names each site and why: a refused model (the PR would have been wrong, so nothing was committed), a missing token, an unreadable site, or a push or PR call GitHub refused.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The nightly **fleet-prismic-sync** run failed, so at least one site did not get tonight'"'"'s sync PR.\n\nA `failed` line in the run names each site and why: a refused model (the PR would have been wrong, so nothing was committed), a missing token, an unreadable site, or a push or PR call GitHub refused. If the run printed no PRISMIC_SYNC_SUMMARY line it stopped early (a timeout, or a fleet it could not resolve): sites before that point may already have had their branch pushed and PR updated.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
             body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it.\n\n%s' "$body")
           fi
