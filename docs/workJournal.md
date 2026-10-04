@@ -8106,3 +8106,36 @@ corrected it. The operator's laptop checkout may still hold #32's untracked
 file, and a pull will refuse to overwrite it until it moves to
 `settings.local.json`. Existing sites and the Blux track do not have the
 hook yet. Each is its own PR, and the backfill is not decided.
+
+## 2026-10-04 — ERP plays its hero from Prismic: rollout site 1 (erp-industrial#65, #68; decision 63)
+
+The first site of the fleet rollout after Williamson, run from a cloud
+session with the operator's answers to decision 67 in hand. The master was
+in Dropbox under ERP's archived client folder, 2560×1440, matched to Vimeo
+939245404 by duration and by an SSIM peak against Vimeo's public
+thumbnail, which is the method the other sites can reuse: no Dropbox file
+is named by Vimeo id outside Williamson's.
+
+The port surfaced the rollout's first real lesson: `BgVideo`'s "pause off
+screen" assumes the video scrolls. ERP's hero is a fixed layer under a
+click-relaying overlay, so the observer never fired and a click on the
+control's icon threw. Review round 1 found both; neither was visible to a
+jsdom test until a test was written for it. `BgVideo` now takes an
+optional `observe` target. Any later site with a fixed or sticky hero
+needs to pass one; the site table should say so.
+
+ERP also had no unit-test runner; the PR added vitest. Expect the same on
+the other pre-starter sites (Espada, MSOT, Vineyard), which makes each
+port larger than Williamson's.
+
+Production readings at 390px: home 2.72 / 4.33 MB, investors 3.60 /
+3.57 MB, hero playing, no console errors, no Vimeo frame. Lighthouse Best
+Practices 74, from Typekit CORS and the Prismic toolbar's cookies on
+production, both pre-existing; the video's own contribution is zero. A
+Vimeo before-number in bytes was not measurable with the CDP instrument
+(the player is a cross-origin iframe), and no other counter was mixed in
+to manufacture one.
+
+Next in order: Espada (one hardcoded clip, 1031277602, 30 s; master
+candidate `Espada Mastehead.mp4`, 39 MB). It needs a Prismic home field,
+because nothing about the clip lives in Prismic today.
