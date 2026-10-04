@@ -1578,6 +1578,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     The install PR's own dry job proves the token reads the models, and PR
     listing and creation are REST-only. Phase 1's seven runs can come from
     the cloud. The operator still mints and sets each token.
+    **10-04 17:19Z: pilot closed, both directions proven** (reddoor-website
+    #238 Prismic→repo; #240 workflow, #241 dry run, #242 apply →
+    "1/1 model(s) pushed. 24 already matched", read back through the
+    connector). Next: phase 3 per the plan's §7. Two follow-ups found:
+    `land-prs` cannot land on a merge-commit-only `main` (reddoor-website's
+    ruleset), and the cloud session's phase 1 brief wrongly waited for a dry run that a
+    workflow-only PR never gets.
     **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
     `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
     the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
