@@ -7922,3 +7922,25 @@ two about-us runs (1.62 vs 2.89) is when the hero started: 1.95 s in on
 the first run against 6.28 s on the second, so the first run fetched less
 because it played less. Answers recorded in 67: MCP is being activated
 for ERP, Alamo and Vineyard; the order is ERP first.
+
+## 2026-10-04 — Mantis content published; the site builds from Prismic; `prismic-ci` waits on a secret (mantis-landscaping#10 `8a005df`, #13; Operator decisions 66, 69)
+
+The operator answered decision 66 with "publish the Mantis release".
+
+- **Before publishing,** the connector listed the release again: exactly the five documents, unchanged since the repair.
+- **The publish:** `seed.mjs --publish` answered 202 with `{"totalItems":5}` at 20:07:11Z.
+- **The read-back:** the first Content API read, 15 s later, still showed the old master ref and 0 documents. The next, at 20:07:37Z, showed master ref `asKx_xIAACkAT7mT` with all five documents and the home pillars' icons `[null, null, null]`. A 202 here means accepted, not done, and the read-back is what says it finished.
+
+**The swap (#10).** It changed one config line, the a11y routes and the smoke manifest.
+
+- **Build:** prerendered exactly the five kept paths, one `<h1>` on each, no `w=0` image URL, and no `cloudfront.net/6e0b52ee` or `blux` anywhere in the output (a positive control on `images.prismic.io/mantis-landscaping` hits).
+- **`pnpm verify` in the cloud container:** axe found 0 violations across 7 routes (2 fixtures plus the 5 kept paths); 673 unit tests and 20 smoke tests passed.
+- **A wrong mutation:** my first W2, a kept path that does not exist, used `/contact` and survived, because the starter's own `/contact` form route is still there. `/contact-uss` went red.
+- **The review** found no blocker. It found that both `/contact` and `/contact-us` are indexable while the page the site links to has no form (issue #11, P4's job), and that bare `/preview` serves home without `noindex`, a starter defect now reachable (issue #12).
+- **Correction to a belief in the PR body:** the smoke suite runs against `vite dev` here, not `vite preview`, because `reddoor.gateServer` is unset. The reviewer checked the 404s on preview separately.
+
+**`prismic-ci` (#13).** The recipe needs `GITHUB_TOKEN`. In the cloud, `GITHUB_TOKEN="$GH_TOKEN"` satisfies it and the proxy supplies the real credential. It opened #13, and the install PR's own dry job then failed with "no write token", exactly as runbook §5 says it will when `PRISMIC_WRITE_TOKEN` is unset on the site repo. That secret is the operator's (Operator decisions 69). Nothing depends on it until the next model change, because Prismic's 20 models already match `main`.
+
+**A numbering collision.** I first wrote the new ask as item 67, and #13's PR comment still says 67. Two other sessions had landed 67 and 68 after my 66, so it is 69. My first edit also appended 66's answer to the end of item 68's block. The diff showed both before the commit.
+
+**Hook noise worth knowing.** This session's site clones were made `--depth 1` with a fetch refspec of `main` only. So the stop hook kept reporting already-pushed branches as unpushed: their upstream had no remote-tracking ref. Adding `+refs/heads/claude/*` and `+refs/heads/maint/*` to `remote.origin.fetch` fixed it. No branch was ever actually unpushed.
