@@ -1864,6 +1864,21 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       `PRISMIC_WRITE_TOKEN` for `the-pointe-burbank`. A
       `prismic-models --apply` run without
       `PRISMIC_TOKEN_MANTIS_LANDSCAPING` set falls back to it.
+65. **`reddoor-maint video` (#1116): two review rounds, and round 2 found a
+    real defect. Land as is, or a third round?** The HD encode recipe for
+    background video (decision 63). Round 1 (two lenses): no blockers, three
+    ops majors on the `--upload` path and seven minors, all fixed, ten named
+    mutations red. Round 2 (three lenses on the fixed head): no blockers; the
+    tests lens rated one finding major, a STALE verdict taken mid-loop so a
+    new cut's phone file and poster could land beside the old main mp4.
+    Fixed as a pre-pass that uploads nothing when any file is stale, with
+    six more minors; seven named mutations red, 33/33, lint and typecheck
+    clean, CI green on the head. Under `CLAUDE.md`'s two-dirty-rounds rule
+    the PR stops here. _Ask:_ land #1116 at its current head, or send it to
+    a third round. _Pick:_ land it: every finding of both rounds is fixed
+    and tested, the `--upload` path the findings concern has never run live
+    and the README says so, and that first live run is the next instrument.
+    Branch `claude/video-encode-command`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
