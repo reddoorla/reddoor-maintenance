@@ -7413,8 +7413,7 @@ is not available from a cloud session; the 21 deltas were read instead.
 
 **The numbers for the rollout.** Home at 390px: 1.30, 1.52, 1.49 MB of
 video in 8 s, hero playing untouched, counted on the wire. Home at 1440:
-1.67 MB. About-us at 390: 5.9 MB. Services at 390: 6.4 MB. Best Practices
-100. Zero hydration mismatches, zero console errors, no Vimeo frame. The
+1.67 MB. About-us at 390: 5.9 MB. Services at 390: 6.4 MB. Best Practices 100. Zero hydration mismatches, zero console errors, no Vimeo frame. The
 first readings meet decision 63's line; the last two do not, and they are
 the recipe's phone cap, not the player: a 20 s clip at `-maxrate 2200k` is
 6 MB, and Chromium fetches a playing hero whole. The rollout question in
