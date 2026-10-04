@@ -23,8 +23,9 @@ export const baselineVersions: Record<string, string> = {
   // Prismic
   "@prismicio/client": "^7.21.8",
   "@prismicio/svelte": "^2.2.1",
-  "@slicemachine/adapter-sveltekit": "^0.3.96",
-  "slice-machine-ui": "^2.21.3",
+  // The Prismic CLI replaced Slice Machine (deprecated by Prismic 2026-09-18);
+  // reddoor-starter#166 moved the template onto it.
+  prismic: "^1.21.0",
 
   // Test tooling
   "@playwright/test": "^1.60.0",

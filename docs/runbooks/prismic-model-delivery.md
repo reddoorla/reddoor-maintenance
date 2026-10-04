@@ -237,12 +237,16 @@ One consequence for ordinary work: the mutating-call-site pin is the strictest r
 
 ---
 
-## 11. Slice Machine, and Type Builder
+## 11. Slice Machine, the Type Builder, and the `prismic` CLI
 
-> Status updated 2026-10-01: Slice Machine is now formally deprecated (npm, 2.21.6 on 2026-09-18), replaced by the Type Builder and the `prismic` CLI. Sources and options: [`docs/prismic-model-management-2026-10.md`](../prismic-model-management-2026-10.md).
+Slice Machine is deprecated (npm, 2.21.6 on 2026-09-18), replaced by the Type Builder and the `prismic` CLI. The fleet is moving off it per [`docs/prismic-migration-plan-2026-10.md`](../prismic-migration-plan-2026-10.md); the operator's decisions are Operator decisions 57 in `docs/BACKLOG.md`. Until a site's own rollout PR lands it may still carry Slice Machine; both config filenames are read, in that order, so a half-migrated repo does not go dark.
 
-**Slice Machine stays installed** as the local visual authoring tool. It is simply no longer the delivery path. It was declared unmaintained on 2026-07-20 with no sunset date, and 2.21.5 shipped 17 days after that announcement — time pressure, no fire. Removing it, and any move from `slicemachine.config.json` to `prismic.config.json`, is a separate later decision. (Both filenames are already read, in that order, so a half-migrated repo does not go dark.)
+**A migrated site** carries `prismic.config.json`, the `prismic` CLI as a dev dependency, `pnpm prismic:gen` (types at the project root, the slice index at `src/lib/slices/index.ts`), a `prismic-codegen` CI job that fails on stale generated files, and `src/lib/security/cms-framing.ts` so the Type Builder may frame `/slice-simulator`. reddoor-website (#235) and the two starters (reddoor-starter#166, reddoor-starter-blux#38) are the references.
 
-**Do not run `prismic init`.** It is a destructive config rewrite, not an idempotent setup step: it `rm -r`s any local slice directory absent from the remote — component code included — rewrites `package.json` and the lockfile, AST-edits `vite.config.ts`, and makes remote writes to the live Prismic repository even under `--no-setup`.
+**Models are still delivered by this pipeline (§1), never by `prismic push`.** `prismic push` and `prismic pull` both delete to match: push refuses a remote delete only without `--force`, and pull `rm -r`s a local slice directory, component code included.
 
-**Type Builder must stay OFF.** It is an Admin-only web UI that saves straight to the cloud with no branch, no PR and no CI — enabling it removes Git as the gate and makes the repo stop being the source of truth. The nightly drift check is the backstop that would catch it being used, as a `fail` verdict on a site nobody sent a PR for.
+**Do not run `prismic init`.** It is a destructive config rewrite, not an idempotent setup step: it `rm -r`s any local slice directory absent from the remote, rewrites `package.json` and the lockfile, AST-edits `vite.config.ts`, and makes remote writes to the live Prismic repository even under `--no-setup`. A site migrates by hand-writing `prismic.config.json`, as the reference PRs do.
+
+**The Type Builder is on, and the repo stays authoritative** (operator decision D1, 2026-10-01). An edit made in the Type Builder lands in Prismic first; it reaches the repo as a PR (the pilot did this by hand as reddoor-website#238; the nightly drift check reports it until a pull-sync job automates it). Switching a repository to the Type Builder has no toggle back, and Slice Machine stays offered afterwards, so a site whose Slice Machine packages are not yet removed can still be pushed to from it; the drift check is the guard.
+
+**Generated files, run by an agent.** The CLI refuses without `--task-id` and `--user-intent` when it detects an agent (analytics only), and `pnpm prismic:gen` cannot pass them to both commands, so an agent runs `pnpm exec prismic task-id` once and then each `gen` command with both flags. Actions is not detected as an agent.
