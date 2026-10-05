@@ -1,5 +1,14 @@
 # @reddoorla/maintenance
 
+## 0.104.1
+
+### Patch Changes
+
+- 6057332: `analytics-tag` refuses a numeric `--measurement-id` (or `--production-host`) with its exit-2 explanation instead of crashing with `opts.measurementId?.trim is not a function`. cac hands a numeric option value over as a number, and the numeric property ID is exactly what this flag gets confused with.
+- 9d9a11d: The a11y, lighthouse and smoke audits now start their server again on a fresh port when the one they picked was taken before the server could bind it. The port is picked by binding and releasing it, so another process can claim it in between; the server, still under `--strictPort`, then failed with `EADDRINUSE` and the audit reported that as the site's failure. Up to three tries are made, each on a newly picked port, and only when the server's output names one of the audit's own ports as in use (Node's `EADDRINUSE`, vite's `Port N is already in use`, or Playwright's "is already used"). Any other failure is reported at once, as before.
+- a716837: The lighthouse audit now works when run as root. When the process is root, as in a Claude cloud container, it passes `--no-sandbox` to Chrome, which otherwise refuses to start ("Running as root without --no-sandbox is not supported"); any other user keeps the sandbox. When lhci writes no results, the summary now names lhci's own error (Chrome's refusal, a `Runtime error encountered:` line, or a failed autorun healthcheck such as "Chrome installation not found") instead of the first 200 characters of stderr, which were npm deprecation warnings.
+- a2e0516: The `lint` audit now skips files the site's own `.gitignore` or `.prettierignore` excludes, as the site's `prettier --check .` does. Sites moved to the Prismic CLI (reddoorla/reddoor-maintenance#1090) list the generated `prismicio-types.d.ts` and `src/lib/slices/index.ts` in `.prettierignore`, because their `prismic-codegen` job compares both files byte-for-byte with the generator's output. Before this change the audit counted them as unformatted: espada went from `warn` (0 unformatted) to `fail` (2 unformatted) on its migration commit.
+
 ## 0.104.0
 
 ### Minor Changes
