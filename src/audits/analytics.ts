@@ -952,6 +952,8 @@ export type CheckoutScan = {
   complete: boolean;
 };
 
+const NOT_SHIPPED = /\.(test|spec)\.[cm]?[jt]sx?$|\.d\.[cm]?ts$/;
+
 /**
  * Walk `src/` once: every `initAnalytics` reference, wherever it is (the
  * recipe's `hooks.client.ts`, a `hooks.client.js`, the root layout the
@@ -991,6 +993,11 @@ export async function scanCheckout(
         continue;
       }
       if (!SCAN_EXTS.some((x) => e.name.endsWith(x))) continue;
+      // Tests, specs and type declarations never reach the browser, so they
+      // are not a tag the site runs. The starter's own
+      // src/lib/privacy/services.test.ts calls initAnalytics in its fixtures,
+      // and counting it refused 29 Navy's install as "already tagged".
+      if (NOT_SHIPPED.test(e.name)) continue;
       if (budget <= 0) {
         complete = false;
         return;
