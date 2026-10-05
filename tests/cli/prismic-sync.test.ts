@@ -9,7 +9,9 @@ import {
   forPull,
   gitAuthArgs,
   makeSyncGitHub,
+  modelsKeyOf,
   siteProcessEnv,
+  withoutModelsKey,
   prismicSync,
   SYNC_AUTHOR,
   SYNC_BRANCH,
@@ -92,15 +94,23 @@ type FakePr = OpenPr & {
   title: string;
   body: string;
   open: boolean;
-  closedAt?: string;
 };
 
-function fakeGitHub(): SyncGitHub & { prs: FakePr[]; comments: string[] } {
+function fakeGitHub(): SyncGitHub & {
+  prs: FakePr[];
+  comments: string[];
+  humanClose: (number: number) => void;
+} {
   const prs: FakePr[] = [];
   const comments: string[] = [];
   return {
     prs,
     comments,
+    humanClose: (number) => {
+      const p = prs.find((x) => x.number === number);
+      if (!p) throw new Error("no such PR");
+      p.open = false;
+    },
     findOpenPr: async (_repo, head, base) => {
       const open = prs.filter((p) => p.open && p.head === head && p.base === base);
       return open[0] ? { number: open[0].number, url: open[0].url } : null;
@@ -121,14 +131,14 @@ function fakeGitHub(): SyncGitHub & { prs: FakePr[]; comments: string[] } {
       const p = prs.find((x) => x.number === number);
       if (!p) throw new Error("no such PR");
       comments.push(comment);
+      p.body = withoutModelsKey(p.body);
       p.open = false;
-      p.closedAt = (await branchHead()) ?? "";
     },
     isArchived: async () => false,
     closedUnmergedPrs: async (_repo, head, base) =>
       prs
         .filter((p) => !p.open && p.head === head && p.base === base)
-        .map((p) => ({ number: p.number, url: p.url, headSha: p.closedAt ?? "" })),
+        .map((p) => ({ number: p.number, url: p.url, body: p.body })),
   };
 }
 
@@ -395,19 +405,156 @@ describe("prismic-sync --fleet", () => {
     expect(h.github.prs[0]!.body).not.toContain("`slice hero`");
   });
 
-  it("does not reopen a sync PR a human closed at the same commit", async () => {
+  it("does not reopen a sync PR a human closed, across unrelated commits, until the models change", async () => {
     await makeOrigin(STANDARD);
     const h = harness();
     h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
     await fleet(h);
-    await h.github.closePr("reddoorla/fixture", 1, "repo is ahead");
+    expect(modelsKeyOf(h.github.prs[0]!.body)).toMatch(/^sha256:[0-9a-f]{64}$/);
+    h.github.humanClose(1);
     const res = await fleet(h);
     expect(res.output).toMatch(/^declined\s+Fixture/m);
     expect(h.github.prs).toHaveLength(1);
-    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, { ...HERO, name: "Big hero" }));
+
+    await writeFile(join(seedDir, "README.md"), "a renovate bump\n", "utf-8");
+    await commitAll(seedDir, "unrelated");
+    await git(["push", "--quiet", "origin", "main"], seedDir);
+    await git(["push", "--quiet", "origin", `:refs/heads/${SYNC_BRANCH}`], seedDir);
+    const afterUnrelated = await fleet(h);
+    expect(afterUnrelated.output).toMatch(/^declined\s+Fixture/m);
+    expect(h.github.prs).toHaveLength(1);
+
+    h.setRemote(asRemote({ ...PAGE, label: "Home page" }, HERO));
     const third = await fleet(h);
     expect(third.output).toMatch(/^opened\s+Fixture/m);
     expect(h.github.prs).toHaveLength(2);
+  });
+
+  it("does not read its own close as a decline when the same models drift again", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    const landing = { ...PAGE, label: "Landing page" };
+    h.setRemote(asRemote(landing, HERO));
+    await fleet(h);
+    await writeFile(
+      join(seedDir, "customtypes/page/index.json"),
+      JSON.stringify(landing, null, 2) + "\n",
+      "utf-8",
+    );
+    await commitAll(seedDir, "repo catches up");
+    await git(["push", "--quiet", "origin", "main"], seedDir);
+    expect((await fleet(h)).output).toMatch(/^closed\s+Fixture/m);
+    await git(
+      ["-c", "user.name=t", "-c", "user.email=t@example.com", "revert", "--no-edit", "HEAD"],
+      seedDir,
+    );
+    await git(["push", "--quiet", "origin", "main"], seedDir);
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^opened\s+Fixture/m);
+    expect(h.github.prs).toHaveLength(2);
+  });
+
+  const updateBranch = async (extra?: (work: string) => Promise<void>): Promise<string> => {
+    await writeFile(join(seedDir, "README.md"), "main moved\n", "utf-8");
+    await commitAll(seedDir, "move main");
+    await git(["push", "--quiet", "origin", "main"], seedDir);
+    const work = join(tmp, "update-branch");
+    await git(["clone", "--quiet", "--branch", SYNC_BRANCH, origin, work], tmp);
+    await git(
+      [
+        "-c",
+        "user.name=h",
+        "-c",
+        "user.email=h@example.com",
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--no-edit",
+        "origin/main",
+      ],
+      work,
+    );
+    if (extra) {
+      await extra(work);
+      await git(["add", "-A"], work);
+      await git(
+        [
+          "-c",
+          "user.name=h",
+          "-c",
+          "user.email=h@example.com",
+          "commit",
+          "--quiet",
+          "--amend",
+          "--no-edit",
+        ],
+        work,
+      );
+    }
+    await git(["push", "--quiet", "origin", SYNC_BRANCH], work);
+    return (await branchHead())!;
+  };
+
+  it("treats GitHub's Update branch (a clean merge of main) as its own branch", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    await fleet(h);
+    const merged = await updateBranch();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, { ...HERO, name: "Big hero" }));
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^updated\s+Fixture/m);
+    const head = (await branchHead())!;
+    await git(["merge-base", "--is-ancestor", merged, head], origin);
+    expect(JSON.parse(await showOnBranch("src/lib/slices/Hero/model.json")).name).toBe("Big hero");
+    expect(h.github.prs[0]!.body).toContain("`slice hero`");
+  });
+
+  it("still holds a merge of main that carries an edit of its own", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    await fleet(h);
+    const merged = await updateBranch(async (work) =>
+      writeFile(join(work, "prismicio-types.d.ts"), "// folded into the merge\n", "utf-8"),
+    );
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, { ...HERO, name: "Big hero" }));
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^held\s+Fixture — prismic-sync carries commits .*h@example\.com/m);
+    expect(await branchHead()).toBe(merged);
+  });
+
+  it("still holds a merge whose second parent is not on the default branch", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    await fleet(h);
+    await git(["checkout", "--quiet", "-b", "side"], seedDir);
+    await writeFile(join(seedDir, "SIDE.md"), "side\n", "utf-8");
+    await commitAll(seedDir, "side");
+    await git(["push", "--quiet", "origin", "side"], seedDir);
+    const work = join(tmp, "side-merge");
+    await git(["clone", "--quiet", "--branch", SYNC_BRANCH, origin, work], tmp);
+    await git(
+      [
+        "-c",
+        "user.name=h",
+        "-c",
+        "user.email=h@example.com",
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "--no-edit",
+        "origin/side",
+      ],
+      work,
+    );
+    await git(["push", "--quiet", "origin", SYNC_BRANCH], work);
+    const merged = (await branchHead())!;
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, { ...HERO, name: "Big hero" }));
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^held\s+Fixture/m);
+    expect(await branchHead()).toBe(merged);
   });
 
   it("does not rewrite the PR's title or body when the branch did not move", async () => {
@@ -580,6 +727,37 @@ describe("makeSyncGitHub", () => {
       ]),
     );
     await expect(gh.findOpenPr("reddoorla/site", SYNC_BRANCH, "main")).rejects.toThrow(/2 open/);
+  });
+
+  it("returns each closed, unmerged PR with its body, and skips merged ones", async () => {
+    const gh = makeSyncGitHub("tok", async () =>
+      ok([
+        { number: 1, html_url: "a", merged_at: null, body: "declined body" },
+        { number: 2, html_url: "b", merged_at: "2026-10-05T00:00:00Z", body: "merged" },
+        { number: 3, html_url: "c", merged_at: null, body: null },
+      ]),
+    );
+    expect(await gh.closedUnmergedPrs("reddoorla/site", SYNC_BRANCH, "main")).toEqual([
+      { number: 1, url: "a", body: "declined body" },
+      { number: 3, url: "c", body: "" },
+    ]);
+  });
+
+  it("removes the models key from a PR's body when the sync closes it", async () => {
+    const key = `sha256:${"a".repeat(64)}`;
+    const original = `<!-- reddoor-maint:prismic-sync -->\n<!-- reddoor-maint:prismic-sync-models ${key} -->\nrest`;
+    expect(modelsKeyOf(original)).toBe(key);
+    const calls: Array<{ method: string; url: string; body?: string }> = [];
+    const gh = makeSyncGitHub("tok", async (url, init) => {
+      calls.push({ method: init?.method ?? "GET", url: String(url), body: init?.body as string });
+      return init?.method === "GET" ? ok({ number: 4, body: original }) : ok({});
+    });
+    await gh.closePr("reddoorla/site", 4, "nothing left");
+    const patch = calls.find((c) => c.method === "PATCH")!;
+    const sent = JSON.parse(patch.body!) as { state: string; body: string };
+    expect(sent.state).toBe("closed");
+    expect(modelsKeyOf(sent.body)).toBeNull();
+    expect(sent.body).toBe("<!-- reddoor-maint:prismic-sync -->\nrest");
   });
 
   it("throws on a non-2xx answer", async () => {

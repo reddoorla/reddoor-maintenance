@@ -21,6 +21,7 @@
 // was edited" (merge the PR) or "the repo's last apply failed" (close it: merging
 // would revert the repo). Only a human can tell, so the PR is never auto-merged
 // and its body names every changed model with the drift report's own lines.
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { join, posix, resolve } from "node:path";
 import { mkdtempSync } from "node:fs";
@@ -46,6 +47,20 @@ export const SYNC_BRANCH = "prismic-sync";
 
 /** Marks a PR body as this command's, so a reader knows where it came from. */
 export const SYNC_MARKER = "<!-- reddoor-maint:prismic-sync -->";
+
+/** Names the model content a sync PR carries, in its body, so a decline is
+ *  kept for as long as Prismic offers that same content, whatever else the
+ *  default branch gains meanwhile. */
+const MODELS_KEY = /<!-- reddoor-maint:prismic-sync-models (sha256:[0-9a-f]{64}) -->/;
+const modelsKeyLine = (key: string): string => `<!-- reddoor-maint:prismic-sync-models ${key} -->`;
+
+export const modelsKeyOf = (body: string | null | undefined): string | null =>
+  MODELS_KEY.exec(body ?? "")?.[1] ?? null;
+
+/** A body the sync itself closed no longer names its content, so the close
+ *  is never read later as a human's decline of it. */
+export const withoutModelsKey = (body: string): string =>
+  body.replace(new RegExp(`${MODELS_KEY.source}\n?`, "g"), "");
 
 /** The `reddoor-renovate` App's bot user, the identity the operator chose on
  *  2026-10-04. 312185038 is its user id, as in renovate.yml. */
@@ -75,12 +90,12 @@ export type SyncGitHub = {
   /** An archived repo clones and fetches like any other and refuses only the
    *  push, after all the work (CLAUDE.md, fleet sweeps). Asked first. */
   isArchived: (repo: string) => Promise<boolean>;
-  /** Closed and NOT merged sync PRs, with the head commit each was closed at. */
+  /** Closed and NOT merged sync PRs, with the body each was closed with. */
   closedUnmergedPrs: (
     repo: string,
     head: string,
     base: string,
-  ) => Promise<Array<OpenPr & { headSha: string }>>;
+  ) => Promise<Array<OpenPr & { body: string }>>;
 };
 
 export type GitResult = { code: number; stdout: string; stderr: string };
@@ -129,10 +144,11 @@ export function forPull(line: string): string {
 /** The PR body. Every changed model is named with `describeDiff`'s lines. */
 export function renderSyncPrBody(
   r: Synced,
-  notes: { regenerated: boolean | "not-migrated"; unformatted: boolean },
+  notes: { regenerated: boolean | "not-migrated"; unformatted: boolean; modelsKey: string },
 ): string {
   const out: string[] = [
     SYNC_MARKER,
+    modelsKeyLine(notes.modelsKey),
     `Prismic repository **${r.repositoryName}** holds models this repo does not match. This PR`,
     `brings Prismic's copy into the repo. It is opened by the nightly pull-sync and is never`,
     `merged automatically.`,
@@ -317,11 +333,22 @@ async function syncOneSite(
     // regenerated types file, a reviewer's fixup). Rebuilding the branch from
     // tonight's result would drop it in a fast-forward nobody would notice, so
     // the branch is left alone until that PR is merged or the branch removed.
-    const authors = (
-      await mustGit(deps, ["log", "--format=%ae%n%ce", `${baseHead}..${branchRef}`], root)
-    )
-      .split("\n")
-      .filter((a) => a !== "" && a !== SYNC_AUTHOR.email);
+    // GitHub's "Update branch" is the one exception: a merge of the default
+    // branch whose tree is exactly git's own merge of its parents adds nothing
+    // of anyone's, and tonight's rebuild carries the default branch anyway.
+    const authors: string[] = [];
+    const log = await mustGit(
+      deps,
+      ["log", "--format=%H %P%x00%ae%x00%ce", `${baseHead}..${branchRef}`],
+      root,
+    );
+    for (const line of log.split("\n").filter((l) => l !== "")) {
+      const [ids = "", ae = "", ce = ""] = line.split("\0");
+      const others = [ae, ce].filter((a) => a !== SYNC_AUTHOR.email);
+      if (others.length === 0) continue;
+      if (await isDefaultBranchMerge(deps, root, ids.split(" "), baseHead)) continue;
+      authors.push(...others);
+    }
     if (authors.length > 0) {
       return {
         label,
@@ -383,6 +410,9 @@ async function syncOneSite(
 
   const models = written(r);
   if (models.length === 0) return nothingToBring("in sync");
+  // Read before the site's own prettier runs, so the key is Prismic's content
+  // as written and does not move when a site's formatter is bumped.
+  const modelsKey = await modelsContentKey(root, models);
 
   // The site's own code runs from here (its install, prettier and prismic CLI).
   // Whatever it might plant where the git commands below would execute it, a
@@ -425,6 +455,7 @@ async function syncOneSite(
   const body = renderSyncPrBody(r, {
     regenerated: migrated ? true : "not-migrated",
     unformatted: !formatted,
+    modelsKey,
   });
   const summary =
     `${r.changed.length} changed, ${r.adopted.length} adopted: ` +
@@ -435,7 +466,6 @@ async function syncOneSite(
   }
 
   let pushed = false;
-  let headSha = branchExists ? (await mustGit(deps, ["rev-parse", branchRef], root)).trim() : "";
   const branchTree = branchExists
     ? (await mustGit(deps, ["rev-parse", `${branchRef}^{tree}`], root)).trim()
     : null;
@@ -464,7 +494,6 @@ async function syncOneSite(
     ).trim();
     await mustGit(deps, ["push", "--quiet", "origin", `${commit}:refs/heads/${SYNC_BRANCH}`], root);
     pushed = true;
-    headSha = commit;
   }
 
   if (open) {
@@ -477,22 +506,54 @@ async function syncOneSite(
       detail: `${pushed ? "pushed and updated" : "already current"} ${open.url} — ${summary}`,
     };
   }
-  // A human closed a sync PR at exactly this commit: they judged the
-  // direction (most likely "the repo is ahead"). Reopening the same change
-  // every night would only offer the wrong merge again. A new Prismic edit
-  // makes a new commit, which gets a new PR.
+  // A human closed a sync PR carrying exactly this model content: they judged
+  // the direction (most likely "the repo is ahead"). Reopening the same change
+  // every night, or after every unrelated commit to the default branch, would
+  // only offer the wrong merge again. A different Prismic edit is different
+  // content, which gets a new PR.
   const declined = (await opts.github.closedUnmergedPrs(repo, SYNC_BRANCH, base)).find(
-    (p) => p.headSha === headSha,
+    (p) => modelsKeyOf(p.body) === modelsKey,
   );
   if (declined) {
     return {
       label,
       outcome: "declined",
-      detail: `${declined.url} was closed unmerged at this same commit; not reopened — ${summary}`,
+      detail: `${declined.url} was closed unmerged with these same models; not reopened — ${summary}`,
     };
   }
   const created = await opts.github.createPr(repo, { head: SYNC_BRANCH, base, title, body });
   return { label, outcome: "opened", detail: `opened ${created.url} — ${summary}` };
+}
+
+/** Is `parents` a merge of the default branch into the sync branch that git
+ *  itself would have produced (GitHub's "Update branch")? Its second parent is
+ *  on the default branch, and its tree is the clean merge of the two, so a
+ *  conflict resolved by hand or an edit folded into the merge does not pass. */
+async function isDefaultBranchMerge(
+  deps: PrismicSyncDeps,
+  root: string,
+  ids: string[],
+  baseHead: string,
+): Promise<boolean> {
+  const [commit, first, second, ...rest] = ids;
+  if (!commit || !first || !second || rest.length > 0) return false;
+  const onBase = await deps.git(["merge-base", "--is-ancestor", second, baseHead], root);
+  if (onBase.code !== 0) return false;
+  const merged = await deps.git(["merge-tree", "--write-tree", first, second], root);
+  if (merged.code !== 0) return false;
+  const tree = (await mustGit(deps, ["rev-parse", `${commit}^{tree}`], root)).trim();
+  return merged.stdout.split("\n")[0]?.trim() === tree;
+}
+
+/** sha256 over the written model files, each named by its path. */
+async function modelsContentKey(root: string, models: SyncedModel[]): Promise<string> {
+  const hash = createHash("sha256");
+  for (const path of models.map((m) => m.path).sort()) {
+    hash.update(`${path}\0`);
+    hash.update(await readFile(join(root, path)));
+    hash.update("\0");
+  }
+  return `sha256:${hash.digest("hex")}`;
 }
 
 /** The spawner the fleet's model writes get: none. */
@@ -685,14 +746,16 @@ export function makeSyncGitHub(token: string, fetchImpl: typeof fetch = fetch): 
       );
       if (!Array.isArray(list)) throw new Error(`GitHub's PR list for ${repo} was not a list`);
       return list.flatMap((x) => {
-        const p = x as { merged_at?: unknown; head?: { sha?: unknown } };
-        if (p.merged_at !== null || typeof p.head?.sha !== "string") return [];
-        return [{ ...asPr(x), headSha: p.head.sha }];
+        const p = x as { merged_at?: unknown; body?: unknown };
+        if (p.merged_at !== null) return [];
+        return [{ ...asPr(x), body: typeof p.body === "string" ? p.body : "" }];
       });
     },
     async closePr(repo, number, comment) {
+      const pr = (await call("GET", `repos/${repo}/pulls/${number}`)) as { body?: unknown };
+      const body = withoutModelsKey(typeof pr.body === "string" ? pr.body : "");
       await call("POST", `repos/${repo}/issues/${number}/comments`, { body: comment });
-      await call("PATCH", `repos/${repo}/pulls/${number}`, { state: "closed" });
+      await call("PATCH", `repos/${repo}/pulls/${number}`, { state: "closed", body });
     },
   };
 }
