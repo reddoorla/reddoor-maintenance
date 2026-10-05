@@ -8503,3 +8503,38 @@ under a private `PLAYWRIGHT_BROWSERS_PATH` ran it.
 ## 2026-10-05 — The queued decision-75 worker found its work already done (no code change)
 
 This worker was queued at ~18:45Z to build decision 75's answer (a) on #1157 and run one more review. At 19:29Z, by `date -u`, `origin/main` was already at `02fa4b94` (#1169). The session that was still open when the answer came had pushed `51e56b1a` to `claude/great-turing-v374rg`, which holds the fallback seed, the one-DNS-label regex and the BigInt-safe message. It had also run the third review, found it dirty (falsy `frame-src`/`child-src` read as hand-written values, and the string-`child-src` stop unpinned), and written the new ask under item 75. My brief says that a dirty third round means no fourth round, the findings go into item 75, and the session ends. All three steps had already happened, so this session changed no code, ran no review, and left #1157 unmerged. P1-25 stays in the table until the operator answers the round-3 ask. Before acting on a queued brief, re-read `main`: a decision answered in a live session can be carried out by that session before the queued worker starts.
+
+## 2026-10-05 — CalTex release staged; the evidence fonts were wrong (Operator decision 79, release `asQFsBIAABYMgAt2`)
+
+The operator activated Prismic MCP for `caltex-landing`, and the release
+went in: four deltas on `home`. The first upload of the family photo became
+a "document" with no dimensions. Dropbox's `dl=1` redirect target serves the
+JPEG as `application/json`, and `upload_asset` trusts the response's
+content type, not the bytes. The bytes were right: the stored file was
+byte-identical to the Dropbox one. imgix serves the same object as
+`image/jpeg`, so re-uploading from
+`images.prismic.io/caltex-landing/<id>_…jpg` produced a proper image
+(2073×1930, same 2,662,063 bytes). The stray document asset is left for the
+operator to delete. The publication card (`present_release`) was refused by
+the session's permission classifier as an unrequested commit. That is fine:
+staging was the ask.
+
+The operator pointed out that the evidence page had the wrong fonts. It
+did. The site loads no webfont for headings or body. It names Impact and
+"Helvetica Neue LT Std", then helvetica, and leans on the visitor's system
+fonts, which every Mac has and this container did not. So every "before"
+and "after" shot from the first session set headings in a default serif,
+and nothing in the shots said so; my note blamed only the logo. The fix was
+to install the shots' missing fonts, not to change the site: Impact from
+Microsoft's original `impact32.exe` (corefonts; the Debian installer failed
+inside the container), plus `fonts-urw-base35`, whose Nimbus Sans is the
+metric-compatible alias fontconfig serves for helvetica. `document.fonts.check("16px Impact")` now
+returns true on every page shot. The broken desktop logo was a second,
+container-only failure: Chromium reports `ERR_BLOCKED_BY_ORB` on the
+`%2B`-named SVG, while a browser-headered curl to the same URL gets a 200
+`image/svg+xml`. The re-shoot serves the CDN's own bytes to the page and
+says so. The "after" shots now come from the deploy preview (Netlify's
+drawer removed), with the release's copy and the real Prismic asset
+injected. The lesson for any evidence screenshot taken in a cloud
+container: check the computed font against the font actually used before
+calling the picture a likeness.
