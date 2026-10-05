@@ -8521,3 +8521,5 @@ The PDF is four pages, not the brief's two at most: at that config's 14px body a
 - it shows the three feed crops inline;
 - its image table drops the file-name column;
 - it adds `break-inside: avoid` on the caption, because the first render left the "Caption" label stranded at the foot of page 1.
+
+The first version also proposed a weekly kit on a schedule, emailed every Monday. That followed the brief, not the operator, who had said on 10-02 that "the impetus should come from a person." The operator caught it in the PDF. Now a person starts each kit with a project and a one-line seed (why this one, why now), and nothing runs on a timer. The only schedule left is the separate reminder digest, which Tim asked for himself.
