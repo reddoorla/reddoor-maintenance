@@ -94,8 +94,11 @@ type FallbackMarker = "footer" | "main" | "body";
  *  starter's `document.documentElement.dataset.hydrated = …`, or a
  *  `setAttribute` of it. Anchored on `documentElement`, because the same write
  *  on any other element (a carousel's own `data-hydrated`) leaves `<html>`
- *  bare. A writer this misses (a `.ts` file, `dataset["hydrated"]`) falls back
- *  to a server-rendered marker, which proves less but never false-fails. */
+ *  bare. A writer this misses falls back to a server-rendered marker, which
+ *  proves less but never false-fails: a `.ts` file, `dataset["hydrated"]`, a
+ *  `//` inside a string on the write's line, or a `/*` inside a string (an
+ *  `import.meta.glob("/src/posts/*.md")`) that the comment pass blanks up to a
+ *  later `*\/`. Any `.svelte` file counts, not only the root layout. */
 const WRITES_HYDRATED_MARKER =
   /documentElement\s*\.\s*(?:dataset\.hydrated\s*=[^=]|setAttribute\(\s*["'`]data-hydrated["'`])/;
 
