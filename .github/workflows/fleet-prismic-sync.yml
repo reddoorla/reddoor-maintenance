@@ -116,7 +116,7 @@ jobs:
     needs: fetch
     if: needs.fetch.outputs.ids != '[]' && needs.fetch.outputs.ids != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     # No token at all: this is where each site's own code runs.
     permissions: {}
     strategy:
@@ -134,7 +134,7 @@ jobs:
       # sees only its own tree, the runner script (read-only) and the output
       # directory. Anything it leaves running dies with the container.
       - name: Build the site in a container
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           SITE_ID: ${{ matrix.id }}
         run: |
@@ -142,6 +142,8 @@ jobs:
           plan="${RUNNER_TEMP}/plan"
           out="${RUNNER_TEMP}/built/${SITE_ID}"
           mkdir -p "$out"
+          # This leg needs only its own site's tree on the host.
+          find "$plan/sites" -mindepth 1 -maxdepth 1 ! -name "$SITE_ID" -exec rm -rf {} +
           docker run --rm \
             -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
             -v "$plan/prismic-sync-build.mjs:/runner/build.mjs:ro" \
@@ -150,10 +152,33 @@ jobs:
             node:24-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4 \
             node /runner/build.mjs --in /in --out /out --work /w
 
+      # The container wrote the output as root, and the site's code can leave
+      # anything there. upload-artifact follows a link and uploads its target,
+      # so a link to any host file would carry that file out. Only plain files
+      # and directories survive. (A hard link cannot cross the bind mount, so
+      # it can only name a file the container itself wrote there.)
+      - name: Keep only plain files from the container
+        env:
+          SITE_ID: ${{ matrix.id }}
+        run: |
+          out="${RUNNER_TEMP}/built"
+          odd=$(find "$out" -mindepth 1 ! -type f ! -type d -print)
+          if [ -n "$odd" ]; then
+            echo "::warning::${SITE_ID}: removed what the build left that is not a plain file: $(echo "$odd" | tr '\n' ' ')"
+            find "$out" -mindepth 1 ! -type f ! -type d -delete
+          fi
+          left=$(find "$out" -mindepth 1 ! -type f ! -type d -print)
+          if [ -n "$left" ]; then
+            echo "::error::${SITE_ID}: could not remove $left"
+            exit 1
+          fi
+
+      # The artifact's root holds <id>/, so publish's merged download puts each
+      # site at built/<id> however many legs there were.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: prismic-sync-built-${{ matrix.id }}
-          path: ${{ runner.temp }}/built/${{ matrix.id }}
+          path: ${{ runner.temp }}/built
           if-no-files-found: error
           retention-days: 3
 
@@ -203,20 +228,14 @@ jobs:
           name: prismic-sync-plan
           path: ${{ runner.temp }}/plan
 
+      # Merged: with one matching artifact, download-artifact extracts it
+      # straight into `path` rather than a directory named after it, so only a
+      # merge gives the same built/<id> layout for one leg as for many.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: prismic-sync-built-*
-          path: ${{ runner.temp }}/built-artifacts
-
-      # Each leg's artifact lands as built-artifacts/prismic-sync-built-<id>;
-      # publish reads built/<id>.
-      - name: Arrange the build outputs by site
-        run: |
-          mkdir -p "${RUNNER_TEMP}/built"
-          for d in "${RUNNER_TEMP}/built-artifacts"/prismic-sync-built-*; do
-            [ -d "$d" ] || continue
-            mv "$d" "${RUNNER_TEMP}/built/${d##*/prismic-sync-built-}"
-          done
+          merge-multiple: true
+          path: ${{ runner.temp }}/built
 
       # Org-wide, because every site repo is a different repository. Installation
       # tokens die at 60 minutes, hence the step's 45-minute timeout below.

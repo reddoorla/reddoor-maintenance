@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { load } from "js-yaml";
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -263,5 +263,70 @@ describe("fleet-prismic-sync — the publish job's first step", () => {
       expect({ f, b, code: r.code }).toEqual({ f, b, code: 1 });
       expect(r.out).toContain("::error::");
     }
+  });
+});
+
+describe("fleet-prismic-sync — what leaves a build leg", () => {
+  const STEP_KEEP = "Keep only plain files from the container";
+
+  it("removes links and special files, and keeps plain ones", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "prismic-sync-keep-"));
+    const out = join(dir, "built", "s0");
+    await mkdir(join(out, "files", "customtypes", "page"), { recursive: true });
+    await writeFile(join(out, "result.json"), '{"ok":true}\n', "utf-8");
+    await writeFile(join(out, "files", "customtypes", "page", "index.json"), "{}\n", "utf-8");
+    await writeFile(join(dir, "host-secret"), "secret\n", "utf-8");
+    await symlink(join(dir, "host-secret"), join(out, "files", "prismicio-types.d.ts"));
+    await symlink("/etc", join(out, "files", "linkdir"));
+    await execFileAsync("mkfifo", [join(out, "files", "fifo")]);
+    const { stdout } = await execFileAsync("bash", ["-e", "-c", stepRunScript(wf, STEP_KEEP)], {
+      env: { ...process.env, RUNNER_TEMP: dir, SITE_ID: "s0" },
+    });
+    expect(stdout).toContain("::warning::s0: removed");
+    const left = (await execFileAsync("find", [out, "-mindepth", "1"])).stdout
+      .trim()
+      .split("\n")
+      .map((p) => p.slice(out.length + 1))
+      .sort();
+    expect(left).toEqual([
+      "files",
+      "files/customtypes",
+      "files/customtypes/page",
+      "files/customtypes/page/index.json",
+      "result.json",
+    ]);
+    expect(await readFile(join(dir, "host-secret"), "utf-8")).toBe("secret\n");
+  });
+
+  it("is silent and keeps everything when the output is plain", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "prismic-sync-keep-"));
+    const out = join(dir, "built", "s1");
+    await mkdir(join(out, "files"), { recursive: true });
+    await writeFile(join(out, "result.json"), '{"ok":true}\n', "utf-8");
+    const { stdout } = await execFileAsync("bash", ["-e", "-c", stepRunScript(wf, STEP_KEEP)], {
+      env: { ...process.env, RUNNER_TEMP: dir, SITE_ID: "s1" },
+    });
+    expect(stdout).not.toContain("::warning::");
+    expect(await readFile(join(out, "result.json"), "utf-8")).toBe('{"ok":true}\n');
+  });
+
+  it("checks the output before uploading it, and uploads built/ so the root holds <id>/", () => {
+    const steps = jobs().build!.steps;
+    const keep = steps.findIndex((s) => s.name === STEP_KEEP);
+    const upload = steps.findIndex((s) => s.uses?.startsWith("actions/upload-artifact@"));
+    expect(keep).toBeGreaterThan(-1);
+    expect(keep).toBeLessThan(upload);
+    expect(steps[upload]!.with!.path).toBe("${{ runner.temp }}/built");
+  });
+
+  it("merges the legs' artifacts, so one leg lands at built/<id> as many do", () => {
+    const dl = jobs().publish!.steps.find(
+      (s) => s.uses?.startsWith("actions/download-artifact@") && s.with?.pattern,
+    )!;
+    expect(dl.with).toEqual({
+      pattern: "prismic-sync-built-*",
+      "merge-multiple": true,
+      path: "${{ runner.temp }}/built",
+    });
   });
 });
