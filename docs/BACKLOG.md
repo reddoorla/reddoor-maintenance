@@ -1688,6 +1688,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       - erp-industrial#66 (`41cf5ad`, `@prismicio/svelte` 2.2) and #67 (`930fab5`): `erp-industrial`, `https://www.erpfunds.com/slice-simulator`
       - data-dynamiq#57 (`76cfcae`): code only, no switch; `reddoor-wireframer` is shared.
       - williamson-homes#20 (`ab39401`): `williamson-homes`, `https://williamson-homes.netlify.app/slice-simulator` (move to `www.williamson-homes.com` at cutover)
+      - williamson-construction-co#19 (`f1c3a6c`): `williamson-construction`, `https://williamson-construction-co.netlify.app/slice-simulator` (the www domain is still the old Webflow site)
     - _Ask (d), phase 4:_ activate Prismic MCP for `hedloc`,
       `the-tower-burbank` and `the-pointe-burbank`
       (`https://<repo>.prismic.io/builder/settings/mcp/`). None is in the
@@ -1698,14 +1699,12 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       `claude/prismic-cli` (the-tower-burbank `a3f9aeb`, the-pointe-burbank
       `dcc9701`) with no PR. _Pick:_ activate; a later session runs the
       connector comparison, opens their PRs and lands all three.
-    - _Ask (e), phase 4:_ williamson-construction-co is migrated and proven
-      in sync (connector, 0 differences over 3 types and 29 slices), but the
-      permission system refused the worker's `git push` of `claude/prismic-cli`
-      (head `9e18320`), and then the session's own push of `6d86b0c`, which
-      adds two hook tests. The branch exists only in the cloud container that
-      built it; if the container is gone, re-run the migration from the recipe
-      (`docs/prismic-migration-plan-2026-10.md` §9 and this session's
-      journal). _Pick:_ allow that push; the branch is ready for its PR.
+      **Answered 10-05 ~01:05Z: "dont worry about non maintenance sites".**
+      hedloc and both Burbank sites are left as they are (hedloc#53 open,
+      the Burbank branches unmerged), not pursued.
+    - _Ask (e), phase 4:_ the refused push of williamson-construction-co's
+      migration. **Answered 10-05 ~01:05Z: "push approved"**; it landed as
+      williamson-construction-co#19 (`f1c3a6c`, pinned `6d86b0c`), row above.
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:

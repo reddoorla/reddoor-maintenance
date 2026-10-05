@@ -8219,3 +8219,11 @@ I reproduced it against production by filling at `domcontentloaded`, with a Muta
 This is the CLAUDE.md rule in small: the first and only FAIL-shaped signal from a probe was taken as a finding before anyone asked what the probe itself does to the page. What settled it was a control the probe could not influence, the same fills without the injection. I also filed mantis-landscaping#16: a Prismic preview of `contact-us` shows no form.
 
 **Not done, and why.** A `testMode` probe persists nothing and notifies no one by design (`src/forms/ingest.ts`), and automation cannot mint a Turnstile token (600010). So the real submission traced into Turso needs one human submit. That is now in Operator decisions 71, together with P4b's blocker: the Mantis site row has neither `mailchimp_api_key` nor `mailchimp_audience_id`. The read-only SELECT that showed this finds a key on 1 of 47 sites, so the absence is a measured result.
+
+## 2026-10-05 — williamson-construction-co lands; the non-maintenance sites stop here (williamson-construction-co#19, `f1c3a6c`)
+
+> Follows "Phase 4: thirteen site repos off Slice Machine" above.
+
+The operator approved the push the permission system had refused twice ("push approved do it"). The branch had been sitting only in the cloud container, which restarted twice during the rollout and kept it on disk both times. It was pushed at `6d86b0c` and landed green as #19. Its two extra hook tests came from williamson-homes's port, whose worker found that deleting the hook's X-Frame-Options removal, or narrowing the framer list, passed every test the starter ships. Each of the two mutations turned one test red on construction before the push.
+
+The same message settled ask (d): "dont worry about non maintenance sites". hedloc (#53, held) and both Burbank proofs of concept (`claude/prismic-cli`, pushed, no PR) stay unmerged. Their sync with Prismic is unproven, because MCP isn't activated for those repositories. Phase 4 therefore ends at 14 landed site repos, and the session following up on reddoor-starter#168 has each one.
