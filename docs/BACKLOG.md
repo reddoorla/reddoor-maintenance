@@ -2383,7 +2383,7 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
-- 2026-10-05 — P1-27, the audits' port race (#1156): PR_REF. The a11y,
+- 2026-10-05 — P1-27, the audits' port race (#1156): #1164. The a11y,
   lighthouse and smoke audits start their server again on a fresh port when
   the server's own output names one of the audit's ports as taken (Node's
   `EADDRINUSE`, vite's `Port N is already in use`, Playwright's "is already
