@@ -2716,9 +2716,14 @@ verdict is its only input, because no client and no check sees the email.
   stopping at the first row that is not `clean`. An `awaiting` row stops it
   too, and becomes an ask in the morning report.
 
-| Sent (UTC)       | Site    | Report                 | Verdict |
-| ---------------- | ------- | ---------------------- | ------- |
-| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | clean   |
+| Sent (UTC)       | Site                       | Report                 | Verdict  |
+| ---------------- | -------------------------- | ---------------------- | -------- |
+| 2026-09-28 22:54 | 29 Navy                    | Maintenance, Sept 2026 | clean    |
+| 2026-10-05 22:47 | Data Dynamiq               | Maintenance, Oct 2026  | awaiting |
+| 2026-10-05 22:47 | Espada                     | Maintenance, Oct 2026  | awaiting |
+| 2026-10-05 22:47 | LA Homelessness Initiative | Maintenance, Oct 2026  | awaiting |
+| 2026-10-05 22:47 | Revogen                    | Maintenance, Oct 2026  | awaiting |
+| 2026-10-05 22:47 | Vineyard Custom Homes      | Maintenance, Oct 2026  | awaiting |
 
 ## Fleet snapshot (2026-10-05 ~11:55Z, live Turso, SELECT-only) [M]
 

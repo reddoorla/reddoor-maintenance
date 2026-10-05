@@ -8684,6 +8684,12 @@ The rerun used committed work and reverted with `checkout HEAD`. Mutation 4 (unl
 
 **Landing the journal.** After the merge, `claude/focused-davinci-yhbv0g` was restarted from `main`. Pushing this entry there needed a force-push over the merged PR's commits, and the session's permission classifier refused it. At the operator's word, the entry went to a fresh branch, `claude/p1-27-journal`, as its own docs-only PR.
 
+## 2026-10-05 — [TEST] sends of the five ready October Maintenance reports
+
+The operator asked to see test emails for the reports ready to approve. There were five unsent, unwithdrawn, `draft_ready` drafts: Data Dynamiq, Espada, LA Homelessness Initiative, Revogen and Vineyard Custom Homes (Maintenance, 2026-10). `selftest email` was the wrong instrument, because it rebuilds from the roster with today's data. A one-off script in the session scratchpad, not committed, instead ran each draft through `renderReportFromRow`, the same assembly the real send uses: the stored row, the Turso header plate, the inline attachment and the subject. It sent the result to `operatorEmail()` alone (the fallback `tucker@reddoorla.com`; `OPERATOR_EMAIL` is unset in the cloud environment), with `[TEST] ` prefixed to the subject and no CC. All five passed the health gate. Resend returned five message IDs, and Gmail shows all five in the operator's inbox at 22:47Z. Database access was SELECT only, and nothing was stamped. Data Dynamiq's and LAHI's GA user counts are 0. Data Dynamiq's draft predates today's tag, which went live at 21:03Z, and GA does not backfill. The rows are in the clean-send table as `awaiting`.
+
+Process slip, recorded so it is not repeated: this session ran `git checkout origin/main -- .` in the main checkout rather than its worktree, which staged origin/main's files over the main checkout's older HEAD. The main checkout had been clean, so it was restored exactly: the 7 added files were removed and the 17 modified files were restored to HEAD, giving a clean `git status`. Nothing was committed from it.
+
 ## 2026-10-05 — P1-25 lands: only a missing key is unset (#1157, Operator decision 75 done)
 
 The operator answered round 4 with (a). The fold in `withPrismicFrame` now
