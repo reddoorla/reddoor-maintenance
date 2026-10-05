@@ -2792,6 +2792,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     worker's own. _Ask:_ (a) land without a third round; (b) a third round;
     (c) the menu should point somewhere else. _Pick:_ (a), with
     `land-prs 263 --repo reddoorla/roalson-interests`.
+    **Answered 2026-10-05 ~23:10Z (operator): (a), "your about us thought
+    is right".** #263 lands without a third round, and ABOUT US stays on
+    `/#about`.
 
 85. **CalTex on Prismic slices: merge `staging` into `main` (new 2026-10-05,
     operator's ask the same evening).** The site now renders every page from
