@@ -2548,6 +2548,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     handling, fix the docstring and tests, and land. Or (c) a fifth round
     after (a). _Worker's pick:_ (a), so a bad config fails the same way
     whether or not the site names a repository.
+    **Answered 2026-10-05 ~22:50Z: (a). Done in #1157.** Only a missing key
+    counts as unset, and a non-array directive is left for SvelteKit to
+    refuse. `[]` and aliasing are pinned. 73 tests pass, and 19 mutations
+    all go red. Landed without a fifth round, as answered.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
