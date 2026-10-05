@@ -2453,6 +2453,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     is a test plus a one-line condition. Or (c) merge `51e56b1a` as it is
     and file both as a follow-up. _Worker's pick:_ (a). The round-3 defects
     are in the same small function, and a fourth review is cheap.
+    **Answered 2026-10-05 ~21:00Z: (a). Round 4 is not clean, so this is held
+    again (new ask below).** `d5d1b1d7` takes the first truthy entry of
+    `frame-src`, `child-src` and `default-src`. An array is extended, minus
+    `'none'` and a hand-quoted `"'none'"`. A string is left as it is. 69
+    tests pass, and 18 mutations all go red. Round 4 ran the config through
+    SvelteKit 2.70.2's `validate_config` as well as its `Csp` class. The
+    emitted policy was right for every input it tried. But round 3's premise
+    was wrong. SvelteKit's validator (`string_array`,
+    `@sveltejs/kit/src/core/config/options.js:445`) rejects `null`, `false`,
+    `""` or a string in any CSP directive, so the header builder's
+    `if (!value) continue` that round 3 read is never reached. That leaves
+    the falsy-as-unset handling, its docstring and two tests resting on
+    inputs a real build refuses. It also hides a site's error when a
+    repository is named: `frame-src: null` builds, because the fold
+    replaces it with a valid list, but the same config without a repository
+    fails the build. Separately, nothing pins that `frame-src: []` blocks
+    every frame: a mutant that treats `[]` as unset survives and would seed
+    from `default-src`. _Ask:_ (a) go back to treating only a missing key as
+    unset (SvelteKit then refuses `null`/`false`/strings loudly, with or
+    without a repository), fix the docstring, add the `[]` and aliasing
+    tests, and land without a fifth round. The code returns to round 3's
+    reviewed shape, with only tests added. Or (b) keep `d5d1b1d7`'s
+    handling, fix the docstring and tests, and land. Or (c) a fifth round
+    after (a). _Worker's pick:_ (a), so a bad config fails the same way
+    whether or not the site names a repository.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
