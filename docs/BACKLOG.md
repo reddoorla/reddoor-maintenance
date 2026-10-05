@@ -2354,6 +2354,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     third instance. The held-for-the-operator comment on #1143 (10-04
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
+    **Answered 2026-10-05 ~18:45Z: (b)** — keep one job, fix the two correctness majors, and run a third review round on #1143 as it is. A worker session is queued for it.
 
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
@@ -2376,6 +2377,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     editor traffic (Prismic previews, `/slice-simulator`) on the production
     host is counted, because `initAnalytics` gates on the hostname alone, and
     that affects every tagged site.
+    **Answered 2026-10-05 ~18:45Z: yes, merge before item 45.** The PM session's `land-prs` on data-dynamiq#59 was refused by the cloud session's permission policy as a production deploy, so the merge itself is the operator's click (or a laptop `land-prs`).
+
 74. **Williamson Construction hero: upload three poster frames and publish
     a release (williamson-construction-co#21, new 2026-10-05).** The code
     half landed: the hero poster is now an `<img>` with a capped imgix
@@ -2399,6 +2402,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     desktop LCP should move from the video's first frame to the poster.
     _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
     permission change that outlives this one task.
+    **Answered 2026-10-05 ~18:45Z: (a)** — the operator makes the three frames, uploads them and publishes the release by hand.
+
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
     branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
@@ -2424,6 +2429,29 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     gated on `prismicRepository`, as `analytics` gates GA. Without a framed
     repository the toolbar never loads them. The brief puts them in the
     baseline, so they stay there unless you say otherwise.
+    **Answered 2026-10-05 ~18:45Z: (a)** — seed from `child-src`, else `default-src`, else `['self']`, carry round 2's two nits, and land on a clean third review. A worker session is queued for it.
+    **Round 3 (this session, which was still open when the answer came; the
+    queued worker is not needed for the build): dirty too, so held again
+    (new ask below).** `51e56b1a` on the same branch seeds an
+    unset `frame-src` from `child-src`, then `default-src` (dropping
+    `'none'`). It also limits names to one DNS label and makes the error
+    message survive a BigInt. 61 tests pass, and 14 mutations all go red,
+    the brief's four included. Round 3 (`createSvelteConfig` output fed to
+    SvelteKit 2.70.2's own `Csp` class) found two minors. First, a site that
+    writes `frame-src: null` or `false`, or `child-src: false`, is treated as
+    a hand-written value, but SvelteKit drops falsy values, so the browser
+    sees no `frame-src` and the toolbar's host is blocked with no warning.
+    Second, no test pins that a string `child-src` (which blocks every
+    frame) stops the chain: a mutant that skips it and seeds from
+    `default-src` passes all 61 tests and would widen the policy. One nit:
+    an explicit `frame-src: ["none"]` emits `'none'` beside the host, which
+    browsers ignore but warn about. _Ask:_ (a) fix both (treat
+    `null`/`false` as unset at both steps, add the string-`child-src` test,
+    drop `'none'` on the explicit path too) and land on a clean fourth
+    round. Or (b) fix both and land without another round, since each fix
+    is a test plus a one-line condition. Or (c) merge `51e56b1a` as it is
+    and file both as a follow-up. _Worker's pick:_ (a). The round-3 defects
+    are in the same small function, and a fourth review is cheap.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
@@ -2449,6 +2477,14 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       direction of over-reporting or a wrong date, and the date is fixed and
       reviewed. The one unreviewed fix is a small change with its own test
       and mutation, and the pass never acts on what it flags.
+    - **Answered 2026-10-05 ~18:23Z: (a), merge #1162 as it is.** The operator
+      merged it at 18:38Z (`2849ba4d`), while `land-prs.mjs` was still gating
+      it. What remains is yours: paste the stored prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt" into a new
+      Routine (cron `CRON_TZ=America/Los_Angeles 18 17 * * 1-4`, push on, a
+      fresh session per fire). Until then no evening pass runs, though the
+      morning pass already runs the branch check (step 5).
+
 77. **The two Routines' schedules (new 2026-10-05, from the evening-pass
     worker; nothing waits on it).** The morning Routine ("Reddoor Project
     Manager") runs `48 11 * * 1-4`, a bare UTC cron, so it fires at 03:48 PT
@@ -2462,6 +2498,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - _Pick:_ (a). Otherwise workers started on a Friday morning end with
       nobody reading them until Monday's pass. Either way, these are edits
       in the Routines' settings, not a repo change.
+      **Answered 2026-10-05 ~18:45Z: (b), Monday to Thursday** — that is the operator's work week. Still open inside it, not re-asked: the morning cron is bare UTC, so it fires an hour earlier in PT after 11-02 [I], and its prompt names `list_sessions`, which a Routine lacks.
 
 78. **Mantis P5: run the matching gate from the laptop (#1107, new
     2026-10-05).** P5's last "done when" is the matching gate at
@@ -2475,6 +2512,52 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     for launch. _Pick:_ run it, starting with `/`; the Blux capture under
     `matching/spec/` is already in the repo, so a laptop session can begin
     at Phase 1 with no new capture.
+    **Answered 2026-10-05 ~18:45Z: run it** — Phase 1 and the gate in a laptop session, starting with `/`. A worker card is queued (laptop only).
+
+79. **CalTex: put Erik's Our Story copy and family photo in Prismic, publish,
+    then merge caltex-landing#71 (new 2026-10-05, Erik in #caltex 18:29Z).**
+    The code half is ready and unmerged:
+    [caltex-landing#71](https://github.com/reddoorla/caltex-landing/pull/71).
+    It renames `/leasing` to `/aed-programs` and `/purchases` to `/our-story`,
+    with 301s (all four old paths, `/preview/…` included, proven on the
+    deploy preview). It also changes the nav labels, titles and sitemap, sets
+    the story copy at 24px (18px under 1024), and frames the photo
+    `object-cover object-right`. The content half could not be staged: the
+    Prismic connector answers "Prismic MCP is not activated for repository
+    caltex-landing" to every call, `list_releases` and `upload_asset`
+    included. So no release exists. Before and after at 1440 and 390, with
+    the copy injected in the browser:
+    https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix (private to you).
+    _Ask:_ in Prismic, open the `home` document (`Z38tQRIAACcALhJe`) and
+    make these edits:
+    - `s3 title`: replace the text with paragraph 1.
+    - `s3 closing text`: replace the text with paragraph 2. It was not
+      rendered before #71, which renders it as the second paragraph.
+    - `s3 image`: upload `Kohnen-Family_crop.jpg` from
+      `https://www.dropbox.com/scl/fi/sswmsdq01iaycppg02x8k/Kohnen-Family_crop.jpg?rlkey=0s1a4uc3ohgw9q0xk99uob4sp&dl=1`.
+      Set its alt to "Ryan and Lacey Kohnen, founders of Caltex Medical, with
+      their family".
+    - Optionally, `s2 eyebrow` → "AED Programs starting at $68 per month
+      include:". No page renders it.
+
+    Paste the two paragraphs from Erik's Discord message
+    (`1556735086710235317`) or from here. Both keep his U+2011 non-breaking
+    hyphens:
+
+    > Boerne residents Ryan and Lacey Kohnen founded Caltex Medical, Inc. in 2025 with a mission to deliver cost‑effective, fully managed, life‑saving AED programs to schools, churches, youth sports organizations, and smaller organizations. Ryan’s experience working for an AED manufacturer from 2015–2017 introduced him to numerous survivors of Sudden Cardiac Arrest (SCA) whose lives were saved because an AED was accessible and properly maintained. He also saw firsthand how many organizations struggled to afford, manage, and keep their AED programs compliant.
+
+    > Driven by a commitment to strengthen the safety of the community they are active in, Ryan and Lacey built Caltex Medical to ensure that schools, churches, and families throughout San Antonio and the Texas Hill Country have reliable, ready‑to‑use AEDs — giving every SCA victim the best possible chance of survival.
+
+    Then publish, merge caltex-landing#71 (or let a session land it with
+    `land-prs`), and tell Erik. Merge order matters: if #71 goes live first,
+    `/our-story` shows the old "Interested in purchasing…" line under the
+    "Our Story" heading. Also open: #71 keeps the five purchase bullets and
+    the Request Info button under the story. Erik named them only as a size
+    reference. _Worker's pick:_ do the edits by hand. It is a five-minute
+    edit, and you are in Prismic to publish anyway. Activating MCP
+    (https://caltex-landing.prismic.io/builder/settings/mcp/) is the
+    durable fix for the next CalTex worker. Keep the bullets until Erik says
+    otherwise, and use 24px over the 20px alternative on the evidence page.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
