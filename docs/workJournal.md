@@ -8543,6 +8543,19 @@ injected. The lesson for any evidence screenshot taken in a cloud
 container: check the computed font against the font actually used before
 calling the picture a likeness.
 
+## 2026-10-05 — CalTex Our Story is live (caltex-landing#71, Operator decision 79 done)
+
+The operator published release `asQFsBIAABYMgAt2`, and #71 merged at 21:17Z.
+The live site was checked from outside right after the deploy:
+`/leasing`, `/purchases` and `/preview/leasing` return 301 to the new paths,
+`/our-story` carries the new title, Erik's first paragraph and the family
+photo with its alt text, and the sitemap lists `/aed-programs` and
+`/our-story`. Twice that evening a check never got a runner: it sat
+queued for 15 minutes and was cancelled with zero steps (`build` on #1175,
+`codegen` and `deploy-preview-comment` on #71). One re-run each passed. That
+is a GitHub runner-queue failure, not a test result, and the job metadata
+(`runner_name` empty, `steps` empty) is how to tell the two apart.
+
 ## 2026-10-05 — P1-27: the audits retry their server on a fresh port when the one they picked was taken (#1164, `9d9a11d`)
 
 This came from the morning report's brief. `findFreePort` binds :0, releases the port, and hands the number to a server that binds it later under `--strictPort`. On 09-30, #1066's `build` failed seven a11y-live-spec tests with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in docs. The verify step held: at 14:28Z, `grep EADDRINUSE` over free-port, a11y, lighthouse and smoke matched nothing. Issue #1156 was opened and claimed. No fresh branch touched these files.
