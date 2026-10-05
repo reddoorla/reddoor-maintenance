@@ -8284,3 +8284,7 @@ name its own scripts. In a container, with only the hook's env, `pnpm lint`,
 `check` and `test` passed: 694 unit tests (3 skipped) and 20 smoke tests.
 Revision 1243 was already on disk from the native run, so this run showed
 only the skip path. Existing sites still lack the hook.
+
+## 2026-10-05 — The Instagram post-kit proposal for Tim exists (`docs/proposals/2026-10-05-instagram-post-kit.md`)
+
+The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
