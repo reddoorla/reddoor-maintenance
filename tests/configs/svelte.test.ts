@@ -122,6 +122,8 @@ describe("configs/svelte", () => {
     expect(csp.directives?.["script-src"]).toEqual([
       "self",
       "https://static.cdn.prismic.io",
+      "https://prismic.io/prismic-toolbar/",
+      "https://html2canvas.hertzen.com/dist/html2canvas.min.js",
       "https://player.vimeo.com",
       "unsafe-hashes",
       SVELTE_EVENT_REPLAY_HASH,
@@ -162,6 +164,8 @@ describe("configs/svelte", () => {
     expect((b.kit as Kit).csp!.directives!["script-src"]).toEqual([
       "self",
       "https://static.cdn.prismic.io",
+      "https://prismic.io/prismic-toolbar/",
+      "https://html2canvas.hertzen.com/dist/html2canvas.min.js",
       "https://player.vimeo.com",
       "unsafe-hashes",
       SVELTE_EVENT_REPLAY_HASH,
@@ -343,5 +347,279 @@ describe("configs/svelte — the analytics CSP fold", () => {
     (a["script-src"] as string[]).push("https://evil.test");
     const b = directivesOf(createSvelteConfig({ csp: true }));
     expect(b["script-src"]).not.toContain("https://evil.test");
+  });
+});
+
+describe("configs/svelte — the Prismic toolbar and previews", () => {
+  const directivesOf = (cfg: ReturnType<typeof createSvelteConfig>) =>
+    ((cfg.kit as Record<string, unknown>).csp as { directives: Record<string, string[]> })
+      .directives;
+  const matching = (list: string[] | undefined, needle: string) =>
+    (list ?? []).filter((source) => source.includes(needle));
+
+  it("lets the toolbar script load from prismic.io's toolbar path, and nothing else on that host", () => {
+    const d = directivesOf(createSvelteConfig({ csp: true }));
+    expect(matching(d["script-src"], "prismic.io")).toEqual([
+      "https://static.cdn.prismic.io",
+      "https://prismic.io/prismic-toolbar/",
+    ]);
+  });
+
+  it("lets the toolbar's Share button load html2canvas, that one file only, with no eval or blob", () => {
+    const d = directivesOf(createSvelteConfig({ csp: true }));
+    expect(matching(d["script-src"], "hertzen.com")).toEqual([
+      "https://html2canvas.hertzen.com/dist/html2canvas.min.js",
+    ]);
+    expect(d["script-src"]).not.toContain("unsafe-eval");
+    expect(d["script-src"]).not.toContain("blob:");
+  });
+
+  it("frames no Prismic host when no repository is named", () => {
+    const d = directivesOf(createSvelteConfig({ csp: true }));
+    expect(matching(d["frame-src"], "prismic.io")).toEqual([]);
+    expect(d["frame-src"]).toEqual(["self", "https://player.vimeo.com"]);
+  });
+
+  it("frames exactly the named repository, keeping the baseline's Vimeo", () => {
+    const d = directivesOf(
+      createSvelteConfig({ csp: true, prismicRepository: "williamson-homes" }),
+    );
+    expect(d["frame-src"]).toEqual([
+      "self",
+      "https://player.vimeo.com",
+      "https://williamson-homes.prismic.io",
+    ]);
+  });
+
+  it("folds the repository into a site's own frame-src without restoring what the site dropped", () => {
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: { directives: { "frame-src": ["self", "https://challenges.cloudflare.com"] } },
+        prismicRepository: "williamson-homes",
+      }),
+    );
+    expect(d["frame-src"]).toEqual([
+      "self",
+      "https://challenges.cloudflare.com",
+      "https://williamson-homes.prismic.io",
+    ]);
+  });
+
+  it("keeps a site's frame-src override as written when no repository is named", () => {
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: {
+          directives: { "frame-src": ["self", "https://player.vimeo.com", "https://x.test"] },
+        },
+      }),
+    );
+    expect(d["frame-src"]).toEqual(["self", "https://player.vimeo.com", "https://x.test"]);
+  });
+
+  it("does not list the repository host twice when the site already has it by hand", () => {
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: { directives: { "frame-src": ["self", "https://acme.prismic.io"] } },
+        prismicRepository: "acme",
+      }),
+    );
+    expect(d["frame-src"]).toEqual(["self", "https://acme.prismic.io"]);
+  });
+
+  it("leaves a frame-src the site wrote as a string alone", () => {
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: { directives: { "frame-src": "self" as unknown as string[] } },
+        prismicRepository: "acme",
+      }),
+    );
+    expect(d["frame-src"]).toBe("self");
+  });
+
+  it.each([
+    "acme.prismic.io; script-src *",
+    "acme prismic",
+    "-acme",
+    "",
+    "*",
+    "acme/x",
+    "acme.evil",
+  ])("refuses %j as a repository name, since it is written into frame-src", (name) => {
+    expect(() => createSvelteConfig({ csp: true, prismicRepository: name })).toThrow(
+      /prismicRepository/,
+    );
+  });
+
+  it.each([null, ["acme"], 42])("refuses the non-string %j rather than coercing it", (name) => {
+    expect(() =>
+      createSvelteConfig({ csp: true, prismicRepository: name as unknown as string }),
+    ).toThrow(/prismicRepository/);
+  });
+
+  it("refuses a bad name even when no CSP is requested", () => {
+    expect(() => createSvelteConfig({ prismicRepository: "a;b" })).toThrow(/prismicRepository/);
+  });
+
+  it("frames the repository alongside the analytics fold", () => {
+    const d = directivesOf(
+      createSvelteConfig({ csp: { analytics: true }, prismicRepository: "acme" }),
+    );
+    expect(d["frame-src"]).toEqual(["self", "https://player.vimeo.com", "https://acme.prismic.io"]);
+    expect(d["script-src"]).toContain("https://www.googletagmanager.com");
+  });
+
+  // A browser with no frame-src uses child-src, then default-src. Seeding from
+  // anything else (a bare 'self') would block frames the site already allowed.
+  const unsetFrameSrc = (directives: Record<string, unknown>) =>
+    directivesOf(
+      createSvelteConfig({
+        csp: {
+          directives: { "frame-src": undefined, ...directives } as unknown as Record<
+            string,
+            string[]
+          >,
+        },
+        prismicRepository: "acme",
+      }),
+    );
+
+  it("seeds an unset frame-src from default-src, keeping the frames it allowed", () => {
+    const d = unsetFrameSrc({ "default-src": ["self", "https://www.youtube.com"] });
+    expect(d["frame-src"]).toEqual(["self", "https://www.youtube.com", "https://acme.prismic.io"]);
+    expect(d["default-src"]).toEqual(["self", "https://www.youtube.com"]);
+  });
+
+  it("seeds an unset frame-src from child-src before default-src", () => {
+    const d = unsetFrameSrc({
+      "child-src": ["self", "https://x.test"],
+      "default-src": ["self", "https://www.youtube.com"],
+    });
+    expect(d["frame-src"]).toEqual(["self", "https://x.test", "https://acme.prismic.io"]);
+  });
+
+  it("leaves frame-src unset when nothing restricts frames, since the host is already allowed", () => {
+    const d = unsetFrameSrc({ "default-src": undefined });
+    expect(d["frame-src"]).toBeUndefined();
+  });
+
+  it("drops 'none' from the seed, which would otherwise read as the only source", () => {
+    const d = unsetFrameSrc({ "default-src": ["none"] });
+    expect(d["frame-src"]).toEqual(["https://acme.prismic.io"]);
+  });
+
+  it("leaves frame-src unset when the fallback directive is a string it cannot extend", () => {
+    const d = unsetFrameSrc({ "default-src": "self" });
+    expect(d["frame-src"]).toBeUndefined();
+  });
+
+  // SvelteKit's config validation refuses any directive that is not an array of
+  // strings. A non-array value is the site's error and must reach that check
+  // unchanged, rather than being replaced by a valid list only when a
+  // repository happens to be named.
+  it.each([null, false, "", "self"])(
+    "leaves a frame-src of %j for SvelteKit to refuse",
+    (value) => {
+      const d = unsetFrameSrc({ "frame-src": value, "default-src": ["self", "https://x.test"] });
+      expect(d["frame-src"]).toBe(value);
+    },
+  );
+
+  it.each([null, false, "self"])(
+    "stops at a child-src of %j rather than seeding from default-src",
+    (value) => {
+      const d = unsetFrameSrc({ "child-src": value, "default-src": ["self", "https://x.test"] });
+      expect(d["frame-src"]).toBeUndefined();
+      expect(d["child-src"]).toBe(value);
+    },
+  );
+
+  it("keeps a site's empty frame-src as a block on everything but the repository", () => {
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: { directives: { "frame-src": [], "default-src": ["self", "https://x.test"] } },
+        prismicRepository: "acme",
+      }),
+    );
+    expect(d["frame-src"]).toEqual(["https://acme.prismic.io"]);
+  });
+
+  it("seeds from an empty child-src rather than skipping it", () => {
+    const d = unsetFrameSrc({ "child-src": [], "default-src": ["self", "https://x.test"] });
+    expect(d["frame-src"]).toEqual(["https://acme.prismic.io"]);
+  });
+
+  it("does not alias the fallback array when it already lists the repository host", () => {
+    const d = unsetFrameSrc({ "default-src": ["self", "https://acme.prismic.io"] });
+    expect(d["frame-src"]).toEqual(["self", "https://acme.prismic.io"]);
+    expect(d["frame-src"]).not.toBe(d["default-src"]);
+  });
+
+  it("drops a hand-quoted 'none', which SvelteKit emits verbatim", () => {
+    const d = unsetFrameSrc({ "default-src": ["'none'"] });
+    expect(d["frame-src"]).toEqual(["https://acme.prismic.io"]);
+  });
+
+  it("drops 'none' from a site's own frame-src when adding the host", () => {
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: { directives: { "frame-src": ["none"] } },
+        prismicRepository: "acme",
+      }),
+    );
+    expect(d["frame-src"]).toEqual(["https://acme.prismic.io"]);
+  });
+
+  it("does not share the seed array with the fallback directive", () => {
+    const d = unsetFrameSrc({ "default-src": ["self"] });
+    d["frame-src"]!.push("https://evil.test");
+    expect(d["default-src"]).toEqual(["self"]);
+  });
+
+  it("names the option when refusing a value JSON cannot serialise", () => {
+    expect(() =>
+      createSvelteConfig({ csp: true, prismicRepository: 1n as unknown as string }),
+    ).toThrow(/prismicRepository/);
+  });
+
+  it("accepts a 63-character name and refuses what cannot be a DNS label", () => {
+    const longest = "a".repeat(63);
+    expect(
+      directivesOf(createSvelteConfig({ csp: true, prismicRepository: longest }))["frame-src"],
+    ).toContain(`https://${longest}.prismic.io`);
+    for (const name of ["acme-", "a".repeat(64)]) {
+      expect(() => createSvelteConfig({ csp: true, prismicRepository: name })).toThrow(
+        /prismicRepository/,
+      );
+    }
+  });
+
+  it("does not apply the repository when no CSP is requested, and never leaks the option", () => {
+    const config = createSvelteConfig({ prismicRepository: "acme" });
+    expect((config.kit as Record<string, unknown>).csp).toBeUndefined();
+    expect("prismicRepository" in config).toBe(false);
+    const withCsp = createSvelteConfig({ csp: true, prismicRepository: "acme" });
+    expect("prismicRepository" in withCsp).toBe(false);
+    expect("prismicRepository" in ((withCsp.kit as Record<string, unknown>).csp as object)).toBe(
+      false,
+    );
+  });
+
+  it("an explicit kit.csp still wins over the repository fold", () => {
+    const config = createSvelteConfig({
+      csp: true,
+      prismicRepository: "acme",
+      kit: { csp: { mode: "hash" } },
+    });
+    expect((config.kit as Record<string, unknown>).csp).toEqual({ mode: "hash" });
+  });
+
+  it("shares no frame-src array with the baseline", () => {
+    directivesOf(createSvelteConfig({ csp: true, prismicRepository: "acme" }))["frame-src"]!.push(
+      "https://evil.test",
+    );
+    expect(directivesOf(createSvelteConfig({ csp: true }))["frame-src"]).toEqual([
+      "self",
+      "https://player.vimeo.com",
+    ]);
   });
 });

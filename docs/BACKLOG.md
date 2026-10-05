@@ -155,10 +155,9 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                       | Done when                                                                                                          |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164 | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                  | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                         | Tier | Effort | Start here                                                      | Done when                                                                  |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57 | Starter PR and central recipe PR landed; the recipe's test pins the marker |
 
 ### Blocked behind another PR (do not start early)
 
@@ -2549,6 +2548,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     handling, fix the docstring and tests, and land. Or (c) a fifth round
     after (a). _Worker's pick:_ (a), so a bad config fails the same way
     whether or not the site names a repository.
+    **Answered 2026-10-05 ~22:50Z: (a). Done in #1157.** Only a missing key
+    counts as unset, and a non-array directive is left for SvelteKit to
+    refuse. `[]` and aliasing are pinned. 73 tests pass, and 19 mutations
+    all go red. Landed without a fifth round, as answered.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
@@ -2809,6 +2812,14 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
+- 2026-10-05 — P1-25, the Prismic toolbar under the shared CSP baseline
+  (#1157, issue #1155). `BASELINE_CSP` admits `https://prismic.io/prismic-toolbar/`
+  and the one html2canvas file in `script-src`; a new `prismicRepository`
+  option on `createSvelteConfig` frames exactly `https://<name>.prismic.io`,
+  folded after any site override, and refuses a name that is not letters,
+  digits and hyphens. No `unsafe-eval` or `blob:` was needed. The fleet
+  rollout (each site passing `prismicRepository`) is per-repo PRs, not done
+  here.
 - 2026-10-05 — P1-27, the audits' port race (#1156): #1164. The a11y,
   lighthouse and smoke audits start their server again on a fresh port when
   the server's own output names one of the audit's ports as taken (Node's
