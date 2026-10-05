@@ -2672,6 +2672,48 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
 
     **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
 
+80. **Publish Roalson release `asP91BIAAH8K23X-` ("2026-10-05 final round:
+    map pin corrections") after linking two files (new 2026-10-05, Erik's
+    final-round list).** The release holds 23 documents:
+    - **Pins.** 8 pins moved onto their parcels. Each was checked against
+      the parcel outline in its own package aerial and against Esri
+      imagery. The before and after coordinates are in the roalson PRs and
+      the journal. The other 14 pins were already on their parcels.
+    - **Aerial crops.** 14 feature-image crops keep the whole outlined
+      parcel visible in every frame the site draws them in, measured at
+      1440, 834 and 390: aspect 0.81 (the 834 carousel) to 1.71 (the
+      homepage band).
+    - **New listing.** `hwy-46-at-spencer-ranch-blvd`, 61.81 acres, built
+      from Matt Howard's intake form.
+
+    _Before publishing:_ upload `hwy-46-at-spencer-ranch-feature.jpg` and
+    `hwy-46-at-spencer-ranch-package.pdf` to the Roalson media library
+    (they are in the session scratchpad's `for-prismic/`), or tell a
+    session where they are. The session links them and crops the aerial at
+    (0, 688, 900×710). The listing's open questions for Erik (transaction
+    type; flood plain, where the survey says part is in zone A; Tract 2;
+    and others) are in the package PR. _Pick:_ publish once the two files
+    are linked; the questions don't block it.
+
+81. **Two Roalson aerials cannot show the whole parcel in the existing card
+    frames (new 2026-10-05, stop condition).** Loop 1604 at Dove Canyon
+    needs a crop 1,371 px wide from a 1,200 px source, and 5930 Bandera Road
+    needs 1,318 px. Both are tall parcels on portrait map pages. They don't
+    fit even if only the landscape frames (1.06–1.71) count. _Ask:_ (a)
+    ask Matt for a landscape aerial of each; (b) letterbox these two
+    (`object-contain` on the card's ground), which is a design change;
+    (c) accept a crop that trims the top and bottom of the outline.
+    _Pick:_ (a); it is content only, and both stay as they are until then.
+82. **The Roalson map rework waits on Nicole's design (new 2026-10-05).**
+    Erik's list: a bigger map, a smaller list, and "the map dictates the
+    listings" (panning or zooming filters the list). Nicole said at 19:12Z
+    that she would adjust the design that day. Nothing had arrived in the
+    channel by the end of this session, so nothing was built. Erik's
+    10-02 hover-to-select already shipped as roalson-interests#253 (200 ms
+    rest), so the brief's "will look Monday" is stale. Fold any change to
+    it into the rework. _Ask:_ none until the frame exists; then a worker
+    builds it as its own PR.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
