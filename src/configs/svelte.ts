@@ -192,18 +192,17 @@ function prismicFrameHost(repository: unknown): string {
  * exactly its own list plus this one host. A string directive is left alone.
  *
  * A site that unset `frame-src` has its frames governed by `child-src`, then
- * `default-src`, as a browser reads it. "Unset" is whatever SvelteKit omits
- * from the header: a missing key or any falsy value (`null`, `false`, `""`).
- * The new `frame-src` is seeded from the first directive that is set, so every
- * frame it allowed still loads. `'none'` is dropped from the list, since beside
- * a host it would mean nothing. With nothing set, frames are already
- * unrestricted; with a string set, there is no list to extend and the string
- * governs: either way `frame-src` is left as it is.
+ * `default-src`, as a browser reads it. The new `frame-src` is seeded from the
+ * first of those the site defines, so every frame it allowed still loads.
+ * `'none'` is dropped from the list, since beside a host it would mean nothing.
+ * Only a missing key counts as unset. Anything else that is not an array
+ * (`null`, `false`, a string) is left exactly as written, so SvelteKit's own
+ * config validation refuses it whether or not a repository is named.
  */
 function withPrismicFrame(directives: CspDirectives, host: string): CspDirectives {
   const governing = (["frame-src", "child-src", "default-src"] as const)
     .map((name) => directives[name] as unknown)
-    .find(Boolean);
+    .find((value) => value !== undefined);
   if (!Array.isArray(governing)) return directives;
   const list = governing.filter((source) => source !== "none" && source !== "'none'");
   return { ...directives, "frame-src": list.includes(host) ? list : [...list, host] };
