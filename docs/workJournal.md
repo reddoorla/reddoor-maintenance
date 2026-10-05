@@ -8419,6 +8419,8 @@ At about 18:45Z the operator answered all seven open decisions in one message: 7
 
 ## 2026-10-05 — P1-25 round 3: the fallback seed landed, the review is dirty again (#1157, Operator decision 75)
 
+> Superseded in part by 2026-10-05 — P1-25 round 4: SvelteKit refuses what round 3 called "unset".
+
 The operator answered decision 75 with (a), in this session as well as in
 #1167. `51e56b1a` now seeds an unset
 `frame-src` from `child-src`, then `default-src`, which is the order CSP
@@ -8556,6 +8558,27 @@ queued for 15 minutes and was cancelled with zero steps (`build` on #1175,
 is a GitHub runner-queue failure, not a test result, and the job metadata
 (`runner_name` empty, `steps` empty) is how to tell the two apart.
 
-## 2026-10-05 — One Routine, two fires: the morning and evening passes share "Reddoor Project Manager"
+## 2026-10-05 — P1-25 round 4: SvelteKit refuses what round 3 called "unset" (#1157, Operator decision 75)
 
-The operator wanted one chat to click as the cockpit rather than two Routines, so the evening pass (#1162) did not become a second Routine. The existing Routine now fires at `CRON_TZ=America/Los_Angeles 48 4,17 * * 1-4` and picks its pass from the Pacific clock. The zone written into the cron also retires the 11-01 drift that item 77 named. Monday to Thursday stays, by the operator's answer to 77. `docs/pm-pass.md` now carries the combined prompt. The evening pass moved from 17:18 to 17:48 PT, because one cron line needs one minute for both fires. Whether a Routine can reuse a single session across fires was not checked from here. Each fire is a fresh session, and the newest one is the cockpit.
+The operator answered (a) again, and `d5d1b1d7` built what round 3 asked
+for. It treats `null`, `false` and `""` as unset at each step of
+`frame-src`, `child-src`, `default-src`. It stops at a string, and drops
+`'none'` on every path. 69 tests pass, and 18 mutations all go red.
+
+Round 4 corrected round 3's belief, and my journal entry above repeats that
+belief. Round 3 fed the config straight into SvelteKit's `Csp` class and read
+`get_header`'s `if (!value) continue`. But a real build reaches `Csp` only
+after `validate_config`, and its `string_array` check
+(`options.js:445-452`) throws "must be an array of strings, if specified" on
+`null`, `false`, `""` or a string. So those values never reach the browser:
+SvelteKit refuses them. The new handling is harmless to the policy. Round 4
+ran every input through both stages, and each emitted header was right. But
+it rests on an unreachable state, and it hides a site's error when a
+repository is named. That is now the ask under decision 75: the worker's
+pick is to go back to "missing key only", and land.
+
+The lesson extends the round-3 one. "Unset" means whatever the consumer
+treats as unset, and the consumer is the whole pipeline, not the last class
+in it. Round 3 ran a negative control against one stage and called it the
+system. The read that corrected it came from a different authority: the
+validator, which round 3 skipped.
