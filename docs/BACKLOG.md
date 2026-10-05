@@ -1377,6 +1377,14 @@ failed=0 total=15`.
     this item waits any more: the GA4 installs (items 49, roalson's launch)
     still wait on the `/privacy` page only, which the `analytics-tag` recipe
     now enforces.
+    **Since this item was written [read 2026-10-05, law-firm alerts, not legal
+    advice]:** SB 690, signed 2026-09-30, ends private suits under Penal Code
+    § 638.51 (pen register / trap and trace) for websites and apps. Only the
+    Attorney General can bring those now, and it applies to pending claims
+    filed within two years. That is the theory the GA4 demand letters used.
+    §§ 631/632 (wiretapping) are untouched, and plaintiffs say they will
+    recast claims there. Those claims lean on session replay, chat and ad
+    pixels more than on a plain GA4 pageview.
 47. **williamson-homes#9 (Homes visual polish): which head to merge.** Two
     adversarial rounds, and round 2 still found a real defect, so it stopped
     under "two dirty rounds". Round 1 (major: steps flickered at hydration;
