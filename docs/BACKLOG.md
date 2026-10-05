@@ -2364,7 +2364,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     host is counted, because `initAnalytics` gates on the hostname alone, and
     that affects every tagged site.
 
-73. **#1162, the evening pass: held after two dirty review rounds (new
+74. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
     `claude/great-johnson-mwzrbr`) adds a 17:18 PT "evening pass" to
     `docs/pm-pass.md`, ending in one push notification. It also adds the
@@ -2388,7 +2388,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       direction of over-reporting or a wrong date, and the date is fixed and
       reviewed. The one unreviewed fix is a small change with its own test
       and mutation, and the pass never acts on what it flags.
-74. **The two Routines' schedules (new 2026-10-05, from the evening-pass
+75. **The two Routines' schedules (new 2026-10-05, from the evening-pass
     worker; nothing waits on it).** The morning Routine ("Reddoor Project
     Manager") runs `48 11 * * 1-4`, a bare UTC cron, so it fires at 03:48 PT
     from 11-02. Its stored prompt also tells it to call `list_sessions` /
