@@ -2672,7 +2672,27 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
 
     **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
 
-80. **Publish Roalson release `asP91BIAAH8K23X-` ("2026-10-05 final round:
+80. **mantis-landscaping#29, matching round 1 chrome: held after two dirty
+    review rounds (new 2026-10-05, P1-30 / #1107).** #29 (branch
+    `claude/p5-matching-r1-chrome`, head `15b1fc4`, CI green on `7578ef1`)
+    puts the nav in flow and sticky at 70px, gives the footer the
+    reference's box, and makes the gate countable: `top` passes at all four
+    widths.
+    - Round 1 found one major, fixed and confirmed in round 2. With
+      `scroll-padding-top: 70px` on `html`, every focus inside the stuck nav
+      scrolled the page (1500 → 1078 tapping Close at 390). It also found
+      two wrong citations (the offset and the gutter evidence) and four
+      unguarded behaviours, all fixed or ledgered.
+    - Round 2 found one minor, now fixed but unreviewed. The skip link
+      targets `<main id="main-content">`, which `main [id]` did not cover,
+      so main landed under the nav. The rule is now `main, main [id]`, with
+      a skip-link smoke test at 1440/390. Mutations M8 and M9 both go red.
+    - _Ask:_ (a) land #29 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). The unreviewed change is one selector, with its
+      own red-on-mutation test. The carousels batch (branch
+      `claude/p5-matching-r1-carousels`) is the next round either way.
+
+81. **Publish Roalson release `asP91BIAAH8K23X-` ("2026-10-05 final round:
     map pin corrections") after linking two files (new 2026-10-05, Erik's
     final-round list).** The release holds 23 documents:
     - **Pins.** 8 pins moved onto their parcels. Each was checked against
@@ -2695,7 +2715,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     and others) are in the package PR. _Pick:_ publish once the two files
     are linked; the questions don't block it.
 
-81. **Two Roalson aerials cannot show the whole parcel in the existing card
+82. **Two Roalson aerials cannot show the whole parcel in the existing card
     frames (new 2026-10-05, stop condition).** Loop 1604 at Dove Canyon
     needs a crop 1,371 px wide from a 1,200 px source, and 5930 Bandera Road
     needs 1,318 px. Both are tall parcels on portrait map pages. They don't
@@ -2704,7 +2724,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     (`object-contain` on the card's ground), which is a design change;
     (c) accept a crop that trims the top and bottom of the outline.
     _Pick:_ (a); it is content only, and both stay as they are until then.
-82. **The Roalson map rework waits on Nicole's design (new 2026-10-05).**
+83. **The Roalson map rework waits on Nicole's design (new 2026-10-05).**
     Erik's list: a bigger map, a smaller list, and "the map dictates the
     listings" (panning or zooming filters the list). Nicole said at 19:12Z
     that she would adjust the design that day. Nothing had arrived in the
@@ -2713,6 +2733,22 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     rest), so the brief's "will look Monday" is stale. Fold any change to
     it into the rework. _Ask:_ none until the frame exists; then a worker
     builds it as its own PR.
+
+84. **roalson-interests#263 (Improved Properties, and the menu with ABOUT
+    US): held after two dirty review rounds (new 2026-10-05).**
+    - Round 1 found three things: choosing ABOUT US sent focus back to the
+      menu button (major), the no-script bar grew a third chip, and nits.
+    - Round 2 found that focus still touched the menu button for one frame
+      before reaching the band (minor).
+    - Both are fixed at the PR's head. The focus order is traced as: menu,
+      close, the About Us link, then the band. `menu-about.spec.ts` is red
+      when the landing is disabled.
+
+    ABOUT US links to `/#about`, the homepage's "Our legacy" band, because
+    the site has no About page. That reading of the client's menu is the
+    worker's own. _Ask:_ (a) land without a third round; (b) a third round;
+    (c) the menu should point somewhere else. _Pick:_ (a), with
+    `land-prs 263 --repo reddoorla/roalson-interests`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
