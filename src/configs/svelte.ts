@@ -99,6 +99,10 @@ export const SVELTE_EVENT_REPLAY_HASH = "sha256-7dQwUgLau1NFCCGjfn9FsYptB6ZtWxJi
  * NOTE: a site overriding `script-src` replaces this entry wholesale, so it must
  * carry `'unsafe-hashes'` + SVELTE_EVENT_REPLAY_HASH itself or it reintroduces
  * the violation above.
+ *
+ * The toolbar also frames `https://<repo>.prismic.io`. That host is not here:
+ * it is added by the `prismicRepository` option, so a site frames its own
+ * repository and no other.
  */
 const BASELINE_CSP = {
   mode: "auto",
@@ -107,6 +111,12 @@ const BASELINE_CSP = {
     "script-src": [
       "self",
       "https://static.cdn.prismic.io",
+      // The Prismic toolbar (previews, edit button) loads toolbar.js from this
+      // path and, for its Share button, this one html2canvas file. Both are
+      // path-scoped so neither host is allowed wholesale for a direct load (CSP
+      // ignores paths after a redirect) (williamson-homes#7, reddoor-starter#164).
+      "https://prismic.io/prismic-toolbar/",
+      "https://html2canvas.hertzen.com/dist/html2canvas.min.js",
       "https://player.vimeo.com",
       "unsafe-hashes",
       SVELTE_EVENT_REPLAY_HASH,
@@ -158,11 +168,52 @@ function withAnalytics(directives: CspDirectives): CspDirectives {
   return out;
 }
 
+/**
+ * A Prismic repository name is written verbatim into `frame-src`, so anything
+ * beyond letters, digits and hyphens (a `;`, a space, a `*`) could widen or
+ * inject a directive. Same rule as the starter's svelte.config.js, narrowed to
+ * one DNS label: at most 63 characters, no hyphen at either end.
+ */
+const PRISMIC_REPOSITORY_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+function prismicFrameHost(repository: unknown): string {
+  if (typeof repository !== "string" || !PRISMIC_REPOSITORY_NAME.test(repository)) {
+    throw new Error(
+      `prismicRepository ${typeof repository === "string" ? JSON.stringify(repository) : `(a ${typeof repository})`} is not a Prismic repository name; ` +
+        "it is written into the CSP frame-src, so it must be letters, digits and hyphens only.",
+    );
+  }
+  return `https://${repository}.prismic.io`;
+}
+
+/**
+ * Append the repository's toolbar host to `frame-src`, after the merge for the
+ * same reason as {@link withAnalytics}: a site that overrides `frame-src` keeps
+ * exactly its own list plus this one host. A string directive is left alone.
+ *
+ * A site that unset `frame-src` has its frames governed by `child-src`, then
+ * `default-src`, as a browser reads it. The new `frame-src` is seeded from the
+ * first of those the site defines, so every frame it allowed still loads.
+ * `'none'` is dropped from the list, since beside a host it would mean nothing.
+ * Only a missing key counts as unset. Anything else that is not an array
+ * (`null`, `false`, a string) is left exactly as written, so SvelteKit's own
+ * config validation refuses it whether or not a repository is named.
+ */
+function withPrismicFrame(directives: CspDirectives, host: string): CspDirectives {
+  const governing = (["frame-src", "child-src", "default-src"] as const)
+    .map((name) => directives[name] as unknown)
+    .find((value) => value !== undefined);
+  if (!Array.isArray(governing)) return directives;
+  const list = governing.filter((source) => source !== "none" && source !== "'none'");
+  return { ...directives, "frame-src": list.includes(host) ? list : [...list, host] };
+}
+
 /** Build a `kit.csp` block from the `csp` option, layering over the baseline. */
-function buildCsp(option: true | CspObject): CspObject {
+function buildCsp(option: true | CspObject, prismicHost?: string): CspObject {
   const baseDirectives = BASELINE_CSP.directives ?? {};
+  const withRepository = (d: CspDirectives) => (prismicHost ? withPrismicFrame(d, prismicHost) : d);
   if (option === true) {
-    return { mode: BASELINE_CSP.mode, directives: cloneDirectives(baseDirectives) };
+    return { mode: BASELINE_CSP.mode, directives: withRepository(cloneDirectives(baseDirectives)) };
   }
   // `analytics` is a reddoor option, not a CSP field: destructured out here so
   // it can never leak into the emitted policy object as a stray key.
@@ -174,7 +225,7 @@ function buildCsp(option: true | CspObject): CspObject {
     // Applied LAST, on purpose. A site that overrides `script-src` replaces the
     // baseline entry wholesale, so folding the analytics hosts in before the
     // merge would lose them on exactly the sites most likely to need them.
-    directives: analytics === true ? withAnalytics(merged) : merged,
+    directives: withRepository(analytics === true ? withAnalytics(merged) : merged),
   };
 }
 
@@ -241,6 +292,9 @@ export type ReddoorSvelteOptions = {
   csp?: true | CspObject;
   /** Tolerate 404s during prerender — for un-wired placeholder clones only. */
   placeholder?: boolean;
+  /** The site's Prismic repository name. With `csp`, frames
+   *  `https://<name>.prismic.io` for the toolbar; unset, no Prismic host is framed. */
+  prismicRepository?: string;
 };
 
 /**
@@ -260,6 +314,8 @@ export type ReddoorSvelteOptions = {
  *    extends it per-directive. A CSP is breakage-prone, so it is opt-in — a site
  *    that wants the starter's CSP parity must pass `csp`. An explicit `kit.csp`
  *    always wins as an escape hatch.
+ *  - `prismicRepository: "<name>"` adds that repository's toolbar iframe host
+ *    to `frame-src` when `csp` is on; it is validated whether or not it is used.
  *  - `placeholder: true` tolerates 404s during prerender (for an un-wired
  *    placeholder clone only) — like `csp`, a site that wants the starter's
  *    prerender-tolerance parity must pass it; the site computes the signal itself.
@@ -271,6 +327,7 @@ export type ReddoorSvelteOptions = {
  *   export default createSvelteConfig({
  *     kit: { adapter: adapter() },
  *     csp: true,
+ *     prismicRepository: "williamson-homes",
  *     placeholder: process.env.VITE_PRISMIC_ENVIRONMENT === "your-prismic-repo-name",
  *   });
  */
@@ -281,7 +338,9 @@ export function createSvelteConfig(
   compilerOptions: NonNullable<SvelteConfigLike["compilerOptions"]>;
 } {
   // Strip the reddoor-only options so they never leak onto the returned config.
-  const { csp, placeholder, ...rest } = siteConfig;
+  const { csp, placeholder, prismicRepository, ...rest } = siteConfig;
+  const prismicHost =
+    prismicRepository === undefined ? undefined : prismicFrameHost(prismicRepository);
 
   const siteCompiler = rest.compilerOptions ?? {};
   const siteFilter = siteCompiler.warningFilter;
@@ -300,7 +359,7 @@ export function createSvelteConfig(
   if (siteKit.csp !== undefined) {
     kit.csp = siteKit.csp;
   } else if (csp) {
-    kit.csp = buildCsp(csp);
+    kit.csp = buildCsp(csp, prismicHost);
   }
 
   // Prerender placeholder tolerance: opt-in. A site-provided handler wins.

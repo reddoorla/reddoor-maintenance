@@ -155,10 +155,9 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                       | Done when                                                                                                          |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164 | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                  | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                         | Tier | Effort | Start here                                                      | Done when                                                                  |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57 | Starter PR and central recipe PR landed; the recipe's test pins the marker |
 
 ### Blocked behind another PR (do not start early)
 
@@ -2549,6 +2548,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     handling, fix the docstring and tests, and land. Or (c) a fifth round
     after (a). _Worker's pick:_ (a), so a bad config fails the same way
     whether or not the site names a repository.
+    **Answered 2026-10-05 ~22:50Z: (a). Done in #1157.** Only a missing key
+    counts as unset, and a non-array directive is left for SvelteKit to
+    refuse. `[]` and aliasing are pinned. 73 tests pass, and 19 mutations
+    all go red. Landed without a fifth round, as answered.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
@@ -2692,6 +2695,64 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       own red-on-mutation test. The carousels batch (branch
       `claude/p5-matching-r1-carousels`) is the next round either way.
 
+81. **Publish Roalson release `asP91BIAAH8K23X-` ("2026-10-05 final round:
+    map pin corrections") after linking two files (new 2026-10-05, Erik's
+    final-round list).** The release holds 23 documents:
+    - **Pins.** 8 pins moved onto their parcels. Each was checked against
+      the parcel outline in its own package aerial and against Esri
+      imagery. The before and after coordinates are in the roalson PRs and
+      the journal. The other 14 pins were already on their parcels.
+    - **Aerial crops.** 14 feature-image crops keep the whole outlined
+      parcel visible in every frame the site draws them in, measured at
+      1440, 834 and 390: aspect 0.81 (the 834 carousel) to 1.71 (the
+      homepage band).
+    - **New listing.** `hwy-46-at-spencer-ranch-blvd`, 61.81 acres, built
+      from Matt Howard's intake form.
+
+    _Before publishing:_ upload `hwy-46-at-spencer-ranch-feature.jpg` and
+    `hwy-46-at-spencer-ranch-package.pdf` to the Roalson media library
+    (they are in the session scratchpad's `for-prismic/`), or tell a
+    session where they are. The session links them and crops the aerial at
+    (0, 688, 900×710). The listing's open questions for Erik (transaction
+    type; flood plain, where the survey says part is in zone A; Tract 2;
+    and others) are in the package PR. _Pick:_ publish once the two files
+    are linked; the questions don't block it.
+
+82. **Two Roalson aerials cannot show the whole parcel in the existing card
+    frames (new 2026-10-05, stop condition).** Loop 1604 at Dove Canyon
+    needs a crop 1,371 px wide from a 1,200 px source, and 5930 Bandera Road
+    needs 1,318 px. Both are tall parcels on portrait map pages. They don't
+    fit even if only the landscape frames (1.06–1.71) count. _Ask:_ (a)
+    ask Matt for a landscape aerial of each; (b) letterbox these two
+    (`object-contain` on the card's ground), which is a design change;
+    (c) accept a crop that trims the top and bottom of the outline.
+    _Pick:_ (a); it is content only, and both stay as they are until then.
+83. **The Roalson map rework waits on Nicole's design (new 2026-10-05).**
+    Erik's list: a bigger map, a smaller list, and "the map dictates the
+    listings" (panning or zooming filters the list). Nicole said at 19:12Z
+    that she would adjust the design that day. Nothing had arrived in the
+    channel by the end of this session, so nothing was built. Erik's
+    10-02 hover-to-select already shipped as roalson-interests#253 (200 ms
+    rest), so the brief's "will look Monday" is stale. Fold any change to
+    it into the rework. _Ask:_ none until the frame exists; then a worker
+    builds it as its own PR.
+
+84. **roalson-interests#263 (Improved Properties, and the menu with ABOUT
+    US): held after two dirty review rounds (new 2026-10-05).**
+    - Round 1 found three things: choosing ABOUT US sent focus back to the
+      menu button (major), the no-script bar grew a third chip, and nits.
+    - Round 2 found that focus still touched the menu button for one frame
+      before reaching the band (minor).
+    - Both are fixed at the PR's head. The focus order is traced as: menu,
+      close, the About Us link, then the band. `menu-about.spec.ts` is red
+      when the landing is disabled.
+
+    ABOUT US links to `/#about`, the homepage's "Our legacy" band, because
+    the site has no About page. That reading of the client's menu is the
+    worker's own. _Ask:_ (a) land without a third round; (b) a third round;
+    (c) the menu should point somewhere else. _Pick:_ (a), with
+    `land-prs 263 --repo reddoorla/roalson-interests`.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
@@ -2751,6 +2812,14 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
+- 2026-10-05 — P1-25, the Prismic toolbar under the shared CSP baseline
+  (#1157, issue #1155). `BASELINE_CSP` admits `https://prismic.io/prismic-toolbar/`
+  and the one html2canvas file in `script-src`; a new `prismicRepository`
+  option on `createSvelteConfig` frames exactly `https://<name>.prismic.io`,
+  folded after any site override, and refuses a name that is not letters,
+  digits and hyphens. No `unsafe-eval` or `blob:` was needed. The fleet
+  rollout (each site passing `prismicRepository`) is per-repo PRs, not done
+  here.
 - 2026-10-05 — P1-27, the audits' port race (#1156): #1164. The a11y,
   lighthouse and smoke audits start their server again on a fresh port when
   the server's own output names one of the audit's ports as taken (Node's
