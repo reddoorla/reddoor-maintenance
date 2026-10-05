@@ -116,7 +116,7 @@
     "@lhci/cli": "^0.15.1",
     "@libsql/client": "^0.8.1",
     "@libsql/kysely-libsql": "^0.4.1",
-    "@netlify/functions": "^5.2.2",
+    "@netlify/functions": "^6.0.0",
     "@prismicio/client": "^7.21.8",
     "@prismicio/migrate": "^0.0.2",
     "@sveltejs/kit": "^2.70.1",
