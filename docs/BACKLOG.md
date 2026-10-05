@@ -2423,6 +2423,46 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         session. Whether to rotate it is yours (🔴). Its first probe also
         created a local user `probeu` in the container. Removing it was
         refused, and it dies with the container.
+    - **Answered 2026-10-05 ~22:45Z: (a), split the workflow.** Built on
+      #1143 (draft, unmerged), head `5a46bd67`. The nightly is now three
+      jobs. **fetch** holds the Prismic tokens and a read-only App token
+      and runs no site code. **build** is one leg per site, with no token,
+      and runs the site's install, prettier and codegen only inside
+      `docker run --rm`. **publish** holds the write token, runs no site
+      code, and builds each commit itself from `baseHead` plus the plan's
+      named paths. It takes a formatted model only when it still equals
+      Prismic's. Round 3's three majors are addressed (HEAD-move gone by
+      construction, "Update with rebase" accepted, `held`/`declined` warn).
+      19 of 19 named mutations go red. The split's one review (security,
+      correctness, operations) at `06207ce2` was **dirty: 2 blockers, 0
+      majors**:
+      - a link the container left in its output would be followed by the
+        host's `upload-artifact`, carrying another site's tree or the
+        upload step's `ACTIONS_RUNTIME_TOKEN` into the artifact and then
+        into the attacker's own PR;
+      - on a night with exactly one site to build, `download-artifact` v8
+        extracts straight into `path`, so publish found no result and
+        failed that site every night.
+
+      Both are fixed in `5a46bd67`, unreviewed. The host deletes anything
+      in the output that is not a plain file or a directory before the
+      upload, and each leg keeps only its own site's tree. Legs upload
+      `built/`, and publish downloads with `merge-multiple`. MB1–MB3 go
+      red; MB4 is a second layer. The 13 minors (CRLF and mode on
+      committed files, key order, one failed leg stops the whole publish,
+      the rebase committer identity, and others) are listed in #1143's
+      body. Nothing has run live; the first scheduled run is the
+      instrument.
+      - _Ask:_ (a) authorise one narrow review of `5a46bd67` alone (the
+        two fixes); land #1143 if it is clean, else back here. Or (b) land
+        #1143 now, with the first scheduled run as the instrument. _Pick:_
+        (a). The security fix closes a route to other clients' source and
+        a runner token, which is the class this PR exists to remove, and
+        a review of two small workflow steps is cheap. When the answer
+        comes, this session lands it, with
+        `node scripts/land-prs.mjs 1143` from a worktree detached at
+        `origin/main`. Adding `fleet-prismic-sync.yml` adds a scheduled
+        workflow whose first run is the instrument still to prove.
 
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
