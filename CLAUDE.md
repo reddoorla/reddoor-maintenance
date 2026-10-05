@@ -114,25 +114,36 @@ work:
 Individual site repos generally get **one** agent session at a time; the
 worktree rule is mandatory here in the central repo and best practice there.
 
-## Worker sessions never ask mid-flight
+## Worker sessions ask a blocking question once, with all its context
 
 Since 2026-09-30 the operator reads one morning report and spends 15–20 minutes
 on it (`docs/operating-model-review-2026-09-29.md` §R3, `docs/pm-pass.md`). A
 question asked in the middle of a worker session waits hours for an answer
 nobody is watching for, and the session that asked it has usually ended by
-then. So a worker started from a backlog item or a brief
+then. A question that does reach the operator gets buried if it is one line in
+a long status message. So a worker started from a backlog item or a brief
 (`docs/worker-brief.md`) follows three rules:
 
-- **At a stop condition, write the question down and end.** Any of
-  `AUTONOMY.md`'s stop conditions, or a fork the brief did not settle, becomes
-  one line under "Operator decisions" in `docs/BACKLOG.md`: the exact ask, what
-  you would pick and why, and the branch or PR that holds the work so far.
+- **At a stop condition, ask with the AskUserQuestion tool, and write the
+  question down.** The operator asked for this on 2026-10-05: a blocking
+  decision goes through AskUserQuestion, not the closing message, so it
+  cannot be buried. The question must stand alone, because the operator reads
+  it without scrolling back. Name the item and its PR or branch, and say what
+  was built. State the finding with a concrete input and what it does, give
+  each option with its consequence, and put your pick first with the reason.
+  Ask only what is genuinely the operator's: a product or design fork, a stop
+  condition, or a red action. Never ask for permission to do what the brief
+  already settled. Write the same question down as well, in case nobody is
+  there to answer: any of `AUTONOMY.md`'s stop conditions, or a fork the brief
+  did not settle, becomes one line under "Operator decisions" in
+  `docs/BACKLOG.md`. That line holds the exact ask, what you would pick and
+  why, and the branch or PR that holds the work so far.
   Land that line on `main` as its own docs-only PR, never only on the work's
   own branch: #1143's worker wrote its ask on its held PR's branch, and `main`
   asked the operator nothing for 13 hours (2026-10-05). Push the work branch
-  too, then end the session. The evening pass and the next morning's PM pass
-  put the line in front of the operator. Do not wait in the session for a
-  reply.
+  too. If the AskUserQuestion answer does not come, or the tool is not
+  available, end the session. The evening pass and the next morning's PM pass
+  then put the line in front of the operator.
 - **Two dirty review rounds, then stop.** If the second adversarial review of
   the same PR still finds a real defect, the PR goes to "Operator decisions"
   with the findings of both rounds, not into a third round. #918 and #920
