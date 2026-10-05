@@ -127,9 +127,12 @@ then. So a worker started from a backlog item or a brief
   `AUTONOMY.md`'s stop conditions, or a fork the brief did not settle, becomes
   one line under "Operator decisions" in `docs/BACKLOG.md`: the exact ask, what
   you would pick and why, and the branch or PR that holds the work so far.
-  Land that line (a docs-only PR is fine), push the branch, and end the
-  session. The next morning's PM pass puts it in front of the operator. Do not
-  wait in the session for a reply.
+  Land that line on `main` as its own docs-only PR, never only on the work's
+  own branch: #1143's worker wrote its ask on its held PR's branch, and `main`
+  asked the operator nothing for 13 hours (2026-10-05). Push the work branch
+  too, then end the session. The evening pass and the next morning's PM pass
+  put the line in front of the operator. Do not wait in the session for a
+  reply.
 - **Two dirty review rounds, then stop.** If the second adversarial review of
   the same PR still finds a real defect, the PR goes to "Operator decisions"
   with the findings of both rounds, not into a third round. #918 and #920
@@ -192,7 +195,9 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   clones `--depth 50` with no tags, which `check-match-harness-snapshots.mjs`
   refuses), puts `.nvmrc`'s Node on `PATH` (the image ships 22), runs
   `pnpm install`, writes the GA key from `GA_SA_KEY_B64`, installs the pinned
-  Playwright browsers and `gh`, and adds the egress proxy's CA to Chromium's
+  Playwright browsers and `gh`, exports Playwright's Chromium as `CHROME_PATH`
+  when no Chrome is on `PATH` (lhci cannot find one otherwise; the lighthouse
+  audit adds `--no-sandbox` itself when it runs as root), and adds the egress proxy's CA to Chromium's
   NSS store. It is silent when all of that worked; anything it could not do
   arrives as a `cloud-session-setup:` message (unless the 900 s hook timeout
   killed it first). It installs into the main
@@ -222,7 +227,12 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   there. A branch name is percent-encoded only where it must be (`#`, `%`), so
   only such a branch's delete and check hit the proxy's 400. Attach a fleet
   repo with `add_repo` before landing in it, or its first `gh api` call stops
-  on the 403.
+  on the 403. Since 2026-10-04 it picks the merge method per base branch: squash
+  where the repo flags and every ruleset on the base allow it, else merge, else
+  rebase (`required_linear_history` rules out merge), and stops before watching
+  any check when none is allowed. A ruleset can forbid squash on a repo whose
+  `allow_squash_merge` is true: reddoor-website's `main` allows only `merge`.
+  `--dry-run` prints the method.
 - **`scripts/fleet-repos.sh` has nothing to enumerate**: the other checkouts
   are not here. For a sweep, list the org through the API and clone each repo
   after attaching it.
@@ -233,6 +243,19 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   `~/.claude` memory or plugins, not the other checkouts. `.session-logs/` dies
   with the container, so the journal entry has to be committed and pushed
   before the session ends.
+- **When the task is done, tell the operator it is safe to archive the
+  session.** Archiving reclaims the container, so say so only when nothing is
+  left that lives only in it. That means:
+  - every commit is pushed, in every repo the session touched (the stop hook
+    checks only the checkout it runs in);
+  - the PRs are merged, or handed off with the blocker written down;
+  - the journal entry has landed;
+  - no background command, agent or `send_later` check-in is still pending.
+
+  End the final message with one line, "Safe to archive this session.", or
+  name what still holds it open: "Not yet safe to archive: #1234 is waiting
+  on CI." The operator reads many sessions, and archives on that line rather
+  than re-reading the transcript.
 
 ## The work journal
 

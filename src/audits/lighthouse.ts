@@ -8,7 +8,8 @@ import { defaultSpawn } from "./util/spawn.js";
 import type { SpawnFn, SpawnResult } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { readSiteConfig } from "./util/site-config.js";
-import { findFreePort, withFreePort } from "../util/free-port.js";
+import { withFreePort } from "../util/free-port.js";
+import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 
 type ManifestEntry = {
   url: string;
@@ -106,6 +107,33 @@ function messageForAssertion(a: AssertionResult): string {
   return `${a.name} ${a.operator} ${a.expected} (actual: ${actual})`;
 }
 
+function describeLhciFailure(raw: SpawnResult): string {
+  const output = `${raw.stdout}\n${raw.stderr}`;
+  const rootRefusal = /(Running as root without --no-sandbox is not supported\.?)/.exec(
+    output,
+  )?.[1];
+  if (rootRefusal) return rootRefusal;
+  const runtime = /^Runtime error encountered: (.+)$/m.exec(output)?.[1]?.trim();
+  if (runtime) return runtime.slice(0, 200);
+  const healthcheck = [...output.matchAll(/^❌\s+(.+)$/gm)].map((m) => m[1]!.trim());
+  if (healthcheck.length > 0) return healthcheck.join(" / ").slice(0, 200);
+  return raw.stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !/\bnpm warn\b/i.test(line))
+    .join(" / ")
+    .slice(0, 200);
+}
+
+function chromeFlags(): string | undefined {
+  return process.getuid?.() === 0 ? "--no-sandbox" : undefined;
+}
+
+function withChromeFlags<T extends object>(settings: T): T & { chromeFlags?: string } {
+  const flags = chromeFlags();
+  return flags ? { ...settings, chromeFlags: flags } : settings;
+}
+
 /** Shared tail: scan `.lighthouseci/` for lhr-*.json + assertion-results.json and
  *  build the AuditResult. Identical for the checkout and deployed paths. */
 async function parseLhciResults(
@@ -116,13 +144,12 @@ async function parseLhciResults(
   const manifest = await readLhrEntries(resultsDir);
 
   if (manifest.length === 0) {
+    const detail = describeLhciFailure(raw);
     return {
       audit: "lighthouse",
       site: label,
       status: "fail",
-      summary: `lighthouse: no lhr-*.json written (exit ${raw.code})${
-        raw.stderr ? ` — ${raw.stderr.slice(0, 200)}` : ""
-      }`,
+      summary: `lighthouse: no lhr-*.json written (exit ${raw.code})${detail ? ` — ${detail}` : ""}`,
     };
   }
 
@@ -158,11 +185,28 @@ async function parseLhciResults(
  *  pinned free port and audit the local fixtures/override URL. */
 async function checkoutLighthouse(spawn: SpawnFn, site: Site, label: string): Promise<AuditResult> {
   const siteCfg = await readSiteConfig(site.path);
+  const baseUrl = siteCfg.lighthouseUrl ?? lighthouseConfig.ci.collect.url[0];
+  const resultsDir = join(site.path, ".lighthouseci");
   // Allocate a free port + force vite to `--strictPort` so the spawned dev
   // server either binds the port we picked or fails loudly (caltex 2026-05-28
-  // zombie-vite incident).
-  const port = await findFreePort();
-  const baseUrl = siteCfg.lighthouseUrl ?? lighthouseConfig.ci.collect.url[0];
+  // zombie-vite incident). A port taken between the pick and the bind is
+  // retried on a fresh one (P1-27).
+  const { result } = await withPortRetry(
+    1,
+    async ([port]) => runCheckoutLhci(spawn, site, label, baseUrl, resultsDir, port!),
+    ({ raw }, [port]) => raw !== undefined && raw.code !== 0 && portInUse(spawnOutput(raw), port!),
+  );
+  return result;
+}
+
+async function runCheckoutLhci(
+  spawn: SpawnFn,
+  site: Site,
+  label: string,
+  baseUrl: string,
+  resultsDir: string,
+  port: number,
+): Promise<{ result: AuditResult; raw?: SpawnResult }> {
   const resolvedConfig = {
     ...lighthouseConfig,
     ci: {
@@ -170,6 +214,7 @@ async function checkoutLighthouse(spawn: SpawnFn, site: Site, label: string): Pr
       collect: {
         ...lighthouseConfig.ci.collect,
         url: [withFreePort(baseUrl, port)],
+        settings: withChromeFlags(lighthouseConfig.ci.collect.settings),
         startServerCommand: `npm run vite:dev -- --port ${port} --strictPort`,
       },
     },
@@ -179,7 +224,6 @@ async function checkoutLighthouse(spawn: SpawnFn, site: Site, label: string): Pr
   const configPath = join(configDir, "lighthouserc.json");
   await writeFile(configPath, JSON.stringify(resolvedConfig), "utf-8");
 
-  const resultsDir = join(site.path, ".lighthouseci");
   await rm(resultsDir, { recursive: true, force: true });
 
   let raw: SpawnResult;
@@ -193,17 +237,19 @@ async function checkoutLighthouse(spawn: SpawnFn, site: Site, label: string): Pr
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
       return {
-        audit: "lighthouse",
-        site: label,
-        status: "skip",
-        summary: "npx/@lhci/cli not available",
+        result: {
+          audit: "lighthouse",
+          site: label,
+          status: "skip",
+          summary: "npx/@lhci/cli not available",
+        },
       };
     }
     throw err;
   }
   await rm(configDir, { recursive: true, force: true });
 
-  return parseLhciResults(resultsDir, label, raw);
+  return { result: await parseLhciResults(resultsDir, label, raw), raw };
 }
 
 /** Deployed mode: audit a production URL directly — no checkout, no dev server.
@@ -233,7 +279,11 @@ async function deployedLighthouse(
         // devtools reads the real LCP paint event from the throttled trace
         // instead. Trade-off: slightly noisier run-to-run, damped by the
         // numberOfRuns:3 average above.
-        settings: { preset: "desktop", throttlingMethod: "devtools", skipAudits: ["uses-http2"] },
+        settings: withChromeFlags({
+          preset: "desktop",
+          throttlingMethod: "devtools",
+          skipAudits: ["uses-http2"],
+        }),
       },
       assert: lighthouseConfig.ci.assert,
       upload: { target: "filesystem", outputDir: join(workDir, "lhci-report") },

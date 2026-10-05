@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-09-29 ~06:00Z; state updated 2026-10-04 ~17:40Z** (P1-26 un-parked by the operator and moved into P1, `claude/awesome-bardeen-llz7v7`; earlier the same day the Sunday PM pass, `claude/youthful-turing-o7qpdl`; a diff, not a full re-rank).
+**Last full re-rank: 2026-10-05 ~12:00Z** (the Monday PM pass, `claude/youthful-turing-ad6g2n`: P1 re-ordered from scratch, Fleet snapshot rewritten from live Turso, the week's morning-report claims put through `refute-claims`). Before that: 2026-09-29 ~06:00Z; state updated 2026-10-04 ~17:40Z.
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -112,13 +112,13 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ----- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Sent 2026-10-01 16:34:12Z, delivered** [M, daily-reports run 36892838203 `✓ sent`, live row]. Approved by the operator 09-30 21:18:16Z.                                                                                                                                                                                                                                                                                                                                                                                                  |
-| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window.                                                                                                                                                                                                        |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; they draft in the 10-05 `daily-reports` run (~15:00Z) and each needs the operator's approve. **10-04 16:03Z [M]:** `nextDueDate` = 2026-10-05 for all five, `preflightSite` returns no finding for any of them (its negative control, Espada with recipients and contact blanked, returns `recipients-missing`), and fleet-lighthouse re-stamped evidence 10-04 13:48Z (`wrote=21 failed=0`). **Corrected:** Data Dynamiq now has `ga4_property_id` 556916505, so it is no longer the one without GA4; all five are enrolled. |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----- | --------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Sent 2026-10-01 16:34:12Z, delivered** [M, daily-reports run 36892838203 `✓ sent`, live row]. Approved by the operator 09-30 21:18:16Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; they draft in the 10-05 `daily-reports` run (~15:00Z) and each needs the operator's approve. **10-04 16:03Z [M]:** `nextDueDate` = 2026-10-05 for all five, `preflightSite` returns no finding for any of them (its negative control, Espada with recipients and contact blanked, returns `recipients-missing`), and fleet-lighthouse re-stamped evidence 10-04 13:48Z (`wrote=21 failed=0`). **Corrected:** Data Dynamiq now has `ga4_property_id` 556916505, so it is no longer the one without GA4; all five are enrolled. **10-05 11:55Z [M]:** unchanged — `nextDueDate` 2026-10-05 for all five, no preflight fail or warn (control: Espada with recipients and contact blanked → `no recipients`), and all five carry a `ga4_property_id` (Data Dynamiq's tag is not installed yet, item 49, so its analytics section is likely empty [I]). Still no rows; they draft in today's run. |
 
 **Settled — do not flag again (operator, 2026-09-29, after being asked
 several times):** the report recipients are correct as they are. MSOT and
@@ -127,7 +127,12 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ### P0-5 · Show Williamson Construction to Tim (2026-10-05) 🔴
 
-- **First, publish the HD video restore.** Prismic release
+- **10-05 11:58Z [M]: the HD restore is published.** `list_releases` on
+  `williamson-construction` returns no release, and the live Content API's
+  `home` (published 10-04 16:50Z), `about-us` and `services` (19:22Z) carry
+  the `-1080`, `-720` and phone renditions. What is left is showing Tim and
+  the three launch facts below.
+- ~~**First, publish the HD video restore.**~~ Prismic release
   `asKDcBIAAMSpTvwK` ("Restore HD background videos") puts the 1080p
   videos, phone renditions and posters back on home, about-us and services:
   21 deltas, the same fields decision 63's release set. The SEO release
@@ -137,6 +142,11 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 - **Then show Tim** <https://williamson-construction-co.netlify.app>: all 14
   pages, fidelity gate passing or ledgered (`matching/LEDGER.md`), favicon,
   descriptions and share cards live. Webflow still serves `www` until 10-19.
+- **10-05 [M]: hero poster and fade-in landed (williamson-construction-co#21, `b23efd1`).**
+  The phone LCP element is now the poster `IMG`; Lighthouse mobile LCP
+  median went 3025 → 2888 ms. The video fades in over 700 ms on `playing`.
+  Phone bytes with the hero playing are 1.89 MB in 8 s. The sharper poster
+  waits on Operator decisions 74: three frames to upload, one release.
 - **Ask him for the launch facts** still open in the plan: D6 (who receives
   `/join-the-team`), D7 (who holds GoDaddy for the domain), D0 (Webflow
   billing). Cutover is planned for Wed 10-14.
@@ -145,11 +155,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                                       | Done when                                                                                                          |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                                  | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
-| P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164                 | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
-| P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries                                                                                                                                                                                                                                                                                                                 | 🟢   | S      | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed                  |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                       | Done when                                                                                                          |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164 | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
+| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                  | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
 
 ### Blocked behind another PR (do not start early)
 
@@ -215,6 +224,36 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       builds from it** (#10, `8a005df`). The `prismic-ci` install (#13) waits
       on the site secret, Operator decisions 69. **Next:** P4, the form on
       `/contact-us`. It also retires the starter's `/contact` (issue #11).
+    - **10-04 ~23:45Z: P4a landed** as mantis-landscaping#15 (`ab2fd86`),
+      after two review rounds; the second was clean. The form lives on
+      `/contact-us`, and `/contact` 301s there. Round 1 caught a 500 during a
+      Prismic outage, which also turned a received POST into an error page.
+      Live form-e2e passes against production. Its `re-filled once` note
+      turned out to be the probe's own pre-hydration injection, not a site
+      defect (#17 closed with the measurement; reddoor-maintenance#1148).
+      Also filed: #16 (the preview route shows no form). **Next:** P4b (newsletter) waits on
+      Operator decisions 71. The real-submission trace into Turso needs a
+      human-minted Turnstile token, because a `testMode` probe persists
+      nothing. Then P5.
+    - **10-05 ~02:43Z: P4b landed** as mantis-landscaping#18 (`9ea17a1`).
+      The newsletter signup on `/contact-us` posts `formType: "newsletter"`
+      to central ingest: the row is stored, notified through Resend, and
+      counted in the digest. No Mailchimp (OD 71, answered). Round 1 caught
+      lost UTMs, a lost first confirmation, and pre-deploy tabs answered
+      with 404. Round 2 caught a lowercase `%2f` action key. The operator
+      chose to fix that and land on green CI rather than run a third round.
+      Live: both forms render with the visitor's query in their actions,
+      and form-e2e passes. **Next:** P5. The real-submission trace still
+      waits on 71's human submit.
+    - **10-05 ~16:30Z: P5 four of five done** (mantis-landscaping#19, #20,
+      #24, #25; journal #26). Lighthouse on production `f636d3d`, mobile,
+      3-run medians, against Blux measured the same day: perf 98/98/100
+      vs 97/74/92 on `/`, a project page and `/contact-us`; a11y 100 vs
+      76–79. A non-mirror build scores SEO and best practices 100; the
+      mirror's 69 is its own `noindex`. A full axe run (all rules, 5 pages
+      at 1440 and 390) found 0 violations, with a positive control. The
+      matching gate is the fifth, and needs the laptop: Operator
+      decisions 78. **Next:** P6 (DNS, OD 61) and 78.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -266,6 +305,19 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
     at 16:04Z, also during this pass.
   - PR #1116, `claude/video-encode-command` (`5715a32c`, 15:59Z): the `video`
     encode command (item 63), review round 1 folded in. Still open.
+- **Worker branches, 10-05 ~11:50Z [M, `git for-each-ref` on fresh
+  `claude/*` and `fix/*`; `list_sessions` is still not available to the PM
+  Routine].** Rank, do not take.
+  - `claude/wizardly-brown-2ylvcv` = #1143, draft, held: item 72.
+  - `claude/jolly-keller-9h8tzh` (last commit 10-05 01:32:35Z): five
+    commits not on `main`, docs only (`docs/prismic-migration-plan-2026-10.md`,
+    `docs/workJournal.md`, +83/−32 against `main`), and no PR. Its subjects
+    are the phase-4 simulator-bundle follow-up and "williamson-construction-co
+    carries the simulator follow-up". #1149 landed from the same session at
+    01:30Z, two minutes before this branch's last commit, so this is likely
+    an unlanded tail [I]. Its owner lands it or drops it.
+  - GOLA, `claude/practical-ride-kbipzv`: unchanged, 13 commits, last
+    2026-10-01 02:25:59Z, no PR. Four and a half days idle.
 - **#754, new repos below the posture floor (10-04 nightly [M]).**
   `mantis-landscaping`, `williamson-homes` and `williamson-construction-co`
   have no repo ruleset, and secret scanning and push protection are off. For
@@ -1333,6 +1385,19 @@ failed=0 total=15`.
     first-party analytics that needs no consent. _Pick:_ put (b) or (c) to
     counsel alongside item 45, since the same review answers both. Not legal
     advice; the law here was moving through 2025–26.
+    **Answered 2026-10-05 ~14:05Z: (a), keep D3.** No consent gate; GA4 loads
+    as designed, and the residual CIPA risk is accepted. Nothing that waited on
+    this item waits any more: the GA4 installs (items 49, roalson's launch)
+    still wait on the `/privacy` page only, which the `analytics-tag` recipe
+    now enforces.
+    **Since this item was written [read 2026-10-05, law-firm alerts, not legal
+    advice]:** SB 690, signed 2026-09-30, ends private suits under Penal Code
+    § 638.51 (pen register / trap and trace) for websites and apps. Only the
+    Attorney General can bring those now, and it applies to pending claims
+    filed within two years. That is the theory the GA4 demand letters used.
+    §§ 631/632 (wiretapping) are untouched, and plaintiffs say they will
+    recast claims there. Those claims lean on session replay, chat and ad
+    pixels more than on a plain GA4 pageview.
 47. **williamson-homes#9 (Homes visual polish): which head to merge.** Two
     adversarial rounds, and round 2 still found a real defect, so it stopped
     under "two dirty rounds". Round 1 (major: steps flickered at hydration;
@@ -1385,6 +1450,16 @@ analytics"]`). The operator creates properties for the other three. When the
     (`https://www.datadynamiq.com/`). These are the measurement IDs that go in
     each repo's `src/lib/site-config.json` (design D5) when the tags are
     installed. That install is still P1-26's (privacy page first).
+    **Data Dynamiq, 2026-10-05: built, green, held for item 45.**
+    reddoorla/data-dynamiq#59 carries the DRAFT `/privacy` page, the footer link,
+    the contact-dialog notice, `@reddoorla/maintenance` ^0.104.0 and the
+    `analytics-tag` hook for `G-V11LZYNMY2` on `www.datadynamiq.com`. CI is
+    green, and on the deploy preview the page renders and the tag is inert
+    (no gtag request, no `dataLayer`; the control request was caught) [M].
+    It is not merged, because the site is live and item 45 is open; the ask
+    is item 73. The site collects nothing until it merges, and GA does not
+    backfill, so the 10-05 report's analytics section stays empty either way.
+    1836dig and 29 Navy are not started.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
@@ -1628,32 +1703,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     PR is the operator's). Phase 1 now stands at 5 of 7: reddoor-website's
     workflow landed as reddoor-website#240 on 10-04, so only Ask (a) below
     remains. Still to build in phase 3: the D1 nightly pull-sync PR.
-    **10-04 22:20Z: the D1 pull-sync is built and HELD after two dirty
-    review rounds** (#1143, draft, branch `claude/wizardly-brown-2ylvcv`).
-    It adds a separate `refreshChangedModel` capability, `prismic-sync`
-    (one working tree, or `--fleet --open-prs`: one `prismic-sync` branch
-    and PR per site, fast-forward only), and `fleet-prismic-sync.yml` after
-    the drift sweep as the `reddoor-renovate` App. 27 mutations, 26 red; the
-    survivor is a redundant second layer. Round 1 found 4 majors (all
-    fixed). Round 2 found 2 safety blockers (both fixed on the branch,
-    unreviewed) and 2 correctness majors (not fixed): `declined` is keyed
-    on the commit sha, so any commit to `main` reopens a declined PR; and
-    GitHub's "Update branch" makes a site `held` forever with the run green.
-    - _Ask:_ (a) split the workflow: a job with NO App token clones,
-      syncs, installs and runs codegen and uploads a patch per site; a
-      second job with the token runs no site code, applies the patch,
-      pushes and opens the PR; then fix the two majors and review once
-      more. (b) Keep one job: fix the two majors and run a third review
-      round on #1143 as it is. _Pick:_ (a). Both blockers came from running
-      a client's own toolchain (`pnpm install`, prettier, the `prismic` CLI)
-      beside an org-wide write token, and round 2 broke round 1's isolation
-      by a route nobody listed; a split removes the class instead of a
-      third instance. Details: the round-2 comment on #1143.
-      **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
-      `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
-      the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
-      repos already held `PRISMIC_WRITE_TOKEN` (four since 2026-08-14,
-      williamson-homes since 09-30), so two tokens are owed, not seven.
+    **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
+    `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
+    the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
+    repos already held `PRISMIC_WRITE_TOKEN` (four since 2026-08-14,
+    williamson-homes since 09-30), so two tokens are owed, not seven.
     - _Ask (a), 🔴:_ mint a Custom Types write token and set
       `PRISMIC_WRITE_TOKEN` for **the-tower-burbank** (Prismic repository
       `the-tower-burbank`) and **vida-legacy-foundation** (`vida-legacy`).
@@ -1679,6 +1733,42 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       The other five are `launching` (alamo-anatomy, hedloc) or `building`
       (the two Burbank sites, williamson-homes), which the sweep excludes by
       design. The Williamson Homes row also has a null `git_repo`.
+    - **10-04 23:10Z: phase 4, 13 site repos landed** (cloud worker
+      session, plan §9; one reviewed PR each, merged on green per the
+      operator's "merge on green" at ~21:50Z). Each still needs phase 5's
+      dashboard step. _Ask:_ per row, "Switch to type builder" in that
+      Prismic repository and set its simulator URL (a `curl -sSI` of the URL
+      should show no `x-frame-options`; every PR's deploy preview did):
+      - espada#79 (`69eebc1`): `espada`, `https://espadarealestate.com/slice-simulator`
+      - caltex-landing#69 (`83b2076`): `caltex-landing`, `https://www.caltexmedical.com/slice-simulator`
+      - 29-navy#60 (`6f0a505`): `29-navy`, `https://29navy.com/slice-simulator`
+      - revogen#90 (`34f1da0`): `revogen`, `https://revogen.com/slice-simulator`
+      - medical-solutions-of-texas#71 (`70e905a`): `msot`, `https://medicalsolutionsoftx.com/slice-simulator`
+      - gallerysonder#107 (`6508598`): `gallerysonder`, `https://gallerysonder.com/slice-simulator`
+      - vineyard-custom-homes#71 (`c038d41`): `vineyard-custom-homes`, `https://www.vineyardconstruction.com/slice-simulator`
+      - vida-legacy-foundation#89 (`244e97d`): `vida-legacy`, `https://vidalegacy.org/slice-simulator`
+      - beachfront-dentistry#71 (`459c64c`): `48bb12d1`, `https://beachfrontdentistry.com/slice-simulator`
+      - alamo-anatomy#63 (`9260a09`): `alamo-anatomy`, `https://alamo-anatomy.netlify.app/slice-simulator` (change at launch)
+      - erp-industrial#66 (`41cf5ad`, `@prismicio/svelte` 2.2) and #67 (`930fab5`): `erp-industrial`, `https://www.erpfunds.com/slice-simulator`
+      - data-dynamiq#57 (`76cfcae`): code only, no switch; `reddoor-wireframer` is shared.
+      - williamson-homes#20 (`ab39401`): `williamson-homes`, `https://williamson-homes.netlify.app/slice-simulator` (move to `www.williamson-homes.com` at cutover)
+      - williamson-construction-co#19 (`f1c3a6c`): `williamson-construction`, `https://williamson-construction-co.netlify.app/slice-simulator` (the www domain is still the old Webflow site)
+    - _Ask (d), phase 4:_ activate Prismic MCP for `hedloc`,
+      `the-tower-burbank` and `the-pointe-burbank`
+      (`https://<repo>.prismic.io/builder/settings/mcp/`). None is in the
+      nightly drift sweep and the connector refuses all three ("Prismic MCP
+      is not activated for repository …"), so the brief's stop condition,
+      models proven in sync before the change, cannot be met. hedloc#53 is
+      open and held; both Burbank migrations are pushed as
+      `claude/prismic-cli` (the-tower-burbank `a3f9aeb`, the-pointe-burbank
+      `dcc9701`) with no PR. _Pick:_ activate; a later session runs the
+      connector comparison, opens their PRs and lands all three.
+      **Answered 10-05 ~01:05Z: "dont worry about non maintenance sites".**
+      hedloc and both Burbank sites are left as they are (hedloc#53 open,
+      the Burbank branches unmerged), not pursued.
+    - _Ask (e), phase 4:_ the refused push of williamson-construction-co's
+      migration. **Answered 10-05 ~01:05Z: "push approved"**; it landed as
+      williamson-construction-co#19 (`f1c3a6c`, pinned `6d86b0c`), row above.
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:
@@ -1916,19 +2006,19 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     content players (ERP's "Who We Are" overlay 939250244, reddoorla.com's
     portfolio players, `loopvideo=false` on reddoor-la) stay on Vimeo.
 
-    | site                         | clips (background)                                                                                                                                                                  | masters (Dropbox)                                                                                                                                               | token                              | MCP     | PR              | published | 390px MB                                                                          | hero | console | BP  | note                                                              |
-    | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------- | --------------- | --------- | --------------------------------------------------------------------------------- | ---- | ------- | --- | ----------------------------------------------------------------- |
-    | williamson-construction-co   | 6 (done 10-01/10-04)                                                                                                                                                                | `WC_website 2020/08_Art/`                                                                                                                                       | yes                                | yes     | #13 #12 #16 #18 | yes       | home 1.30–1.52; about-us 1.62 / 2.89; services 4.30 / 3.78 (after step 0, 20:06Z) | yes  | 0       | 100 | step 0 done; services over the line by clip length, kept by 67(c) |
-    | erp-industrial               | 1: Hero `video_embed` 939245404 (42 s) on home + investors                                                                                                                          | candidate `Energy Related Properties/Website/02_Images/0_Final Website Images/Homepage/Intro-compressed.mp4` (98 MB), unverified by frame                       | unknown (listing refused by proxy) | **no**  | —               | —         | —                                                                                 | —    | —       | —   | MCP off; 939250244 is content                                     |
-    | espada                       | 1: hardcoded `vimeoId="1031277602"` (30 s) in `routes/[[preview]]/+page.svelte` via `ScreenWidthImage`                                                                              | `Espada/Website/02_images/Masthead Video/Final Masthead Video/Espada Mastehead.mp4` (39 MB)                                                                     | unknown                            | unknown | —               | —         | —                                                                                 | —    | —       | —   | needs a home-type field, nothing in Prismic today                 |
-    | vineyard-custom-homes        | 4 hardcoded (home 1092191048 + 1092190178, about 1082670713, contact 1082715167) + 4 in `project` slices (1091059805, 1091893644, 1091063240, 1091063267; two are portrait 240×426) | `Vineyard Custom Homes/02_VCH_images/VCH_video/` (VCH_Homepage_LOOP_060925.mp4 210 MB, reel, Houser Shop, Pacific Ridge, Bosie river) + stock; unmatched per id | unknown                            | **no**  | —               | —         | —                                                                                 | —    | —       | —   | heaviest; MCP off                                                 |
-    | medical-solutions-of-texas   | 4 hardcoded: home 1019997263 + 1019997302, process 1025187591, about 1022236757 (10–14 s each)                                                                                      | none found under `ZZ_Archived Clients/MSOT`                                                                                                                     | unknown                            | unknown | —               | —         | —                                                                                 | —    | —       | —   |                                                                   |
-    | alamo-anatomy (launching)    | 3: `s2_vimeo_id` on home 1176738170, about 1191294127, facility 1191301158                                                                                                          | `Alamo Anatomy Training Institute/Video/` (4 .mov, 230–364 MB), unmatched                                                                                       | yes (08-14)                        | **no**  | —               | —         | —                                                                                 | —    | —       | —   | MCP off                                                           |
-    | revogen                      | 13 distinct across 10 pages: HomeHero 1111691463; ScreenWidthMedia ×12; TwoCol (ocular) 1112062744                                                                                  | `RevoGen/02_Images/…` (Rev_web_ocular-01_DrChandler.mp4, Blue Gradient.mp4, stock); unmatched per id                                                            | unknown                            | yes     | —               | —         | —                                                                                 | —    | —       | —   | busiest video site; idle-loaded iframes                           |
-    | vida-legacy-foundation       | 1: HeartHero `vimeo_id` 1226003530 (en + es)                                                                                                                                        | none found under `Vida Legacy Foundation/`                                                                                                                      | **none** (2026-10-01 entry)        | yes     | —               | —         | —                                                                                 | —    | —       | —   | no `prismic-models.yml`; RED stop                                 |
-    | roalson-interests (building) | 1: HomeHero `vimeo_id` 1229048743                                                                                                                                                   | none found                                                                                                                                                      | unknown                            | yes     | —               | —         | —                                                                                 | —    | —       | —   | site in build                                                     |
-    | gallerysonder                | 12 distinct in `video_block` cards across 18 docs                                                                                                                                   | not searched                                                                                                                                                    | unknown                            | yes     | —               | —         | —                                                                                 | —    | —       | —   | card previews, click-to-open                                      |
-    | reddoor-website              | 26 `loopvideo=true` fills across 13 docs + 3 hardcoded (home 1082293395, portfolio 1205996665, twenty-for-twenty 1125997849)                                                        | Marketing/, not searched                                                                                                                                        | unknown                            | yes     | —               | —         | —                                                                                 | —    | —       | —   | Reddoor's own site                                                |
+    | site                         | clips (background)                                                                                                                                                                  | masters (Dropbox)                                                                                                                                               | token                                  | MCP     | PR              | published          | 390px MB                                                                          | hero | console | BP  | note                                                                                        |
+    | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ------- | --------------- | ------------------ | --------------------------------------------------------------------------------- | ---- | ------- | --- | ------------------------------------------------------------------------------------------- |
+    | williamson-construction-co   | 6 (done 10-01/10-04)                                                                                                                                                                | `WC_website 2020/08_Art/`                                                                                                                                       | yes                                    | yes     | #13 #12 #16 #18 | yes                | home 1.30–1.52; about-us 1.62 / 2.89; services 4.30 / 3.78 (after step 0, 20:06Z) | yes  | 0       | 100 | step 0 done; services over the line by clip length, kept by 67(c)                           |
+    | erp-industrial               | 1: Hero 939245404 (42 s) on home + investors                                                                                                                                        | `Energy Related Properties/Website/02_Images/0_Final Website Images/Homepage/Intro-compressed.mp4` (2560×1440, matched by duration + frame)                     | yes (proven by upload run 37238403106) | yes     | #65 #68         | yes, 10-04 ~23:03Z | home 2.72 / 4.33; investors 3.60 / 3.57 (1440: 8.27–8.75, 5.05–5.87)              | yes  | 0       | 74  | BP 74 is Typekit CORS + Prismic toolbar cookies, not video; 939250244 (content) stays Vimeo |
+    | espada                       | 1: hardcoded `vimeoId="1031277602"` (30 s) in `routes/[[preview]]/+page.svelte` via `ScreenWidthImage`                                                                              | `Espada/Website/02_images/Masthead Video/Final Masthead Video/Espada Mastehead.mp4` (39 MB)                                                                     | unknown                                | unknown | —               | —                  | —                                                                                 | —    | —       | —   | needs a home-type field, nothing in Prismic today                                           |
+    | vineyard-custom-homes        | 4 hardcoded (home 1092191048 + 1092190178, about 1082670713, contact 1082715167) + 4 in `project` slices (1091059805, 1091893644, 1091063240, 1091063267; two are portrait 240×426) | `Vineyard Custom Homes/02_VCH_images/VCH_video/` (VCH_Homepage_LOOP_060925.mp4 210 MB, reel, Houser Shop, Pacific Ridge, Bosie river) + stock; unmatched per id | unknown                                | **no**  | —               | —                  | —                                                                                 | —    | —       | —   | heaviest; MCP off                                                                           |
+    | medical-solutions-of-texas   | 4 hardcoded: home 1019997263 + 1019997302, process 1025187591, about 1022236757 (10–14 s each)                                                                                      | none found under `ZZ_Archived Clients/MSOT`                                                                                                                     | unknown                                | unknown | —               | —                  | —                                                                                 | —    | —       | —   |                                                                                             |
+    | alamo-anatomy (launching)    | 3: `s2_vimeo_id` on home 1176738170, about 1191294127, facility 1191301158                                                                                                          | `Alamo Anatomy Training Institute/Video/` (4 .mov, 230–364 MB), unmatched                                                                                       | yes (08-14)                            | **no**  | —               | —                  | —                                                                                 | —    | —       | —   | MCP off                                                                                     |
+    | revogen                      | 13 distinct across 10 pages: HomeHero 1111691463; ScreenWidthMedia ×12; TwoCol (ocular) 1112062744                                                                                  | `RevoGen/02_Images/…` (Rev_web_ocular-01_DrChandler.mp4, Blue Gradient.mp4, stock); unmatched per id                                                            | unknown                                | yes     | —               | —                  | —                                                                                 | —    | —       | —   | busiest video site; idle-loaded iframes                                                     |
+    | vida-legacy-foundation       | 1: HeartHero `vimeo_id` 1226003530 (en + es)                                                                                                                                        | none found under `Vida Legacy Foundation/`                                                                                                                      | **none** (2026-10-01 entry)            | yes     | —               | —                  | —                                                                                 | —    | —       | —   | no `prismic-models.yml`; RED stop                                                           |
+    | roalson-interests (building) | 1: HomeHero `vimeo_id` 1229048743                                                                                                                                                   | none found                                                                                                                                                      | unknown                                | yes     | —               | —                  | —                                                                                 | —    | —       | —   | site in build                                                                               |
+    | gallerysonder                | 12 distinct in `video_block` cards across 18 docs                                                                                                                                   | not searched                                                                                                                                                    | unknown                                | yes     | —               | —                  | —                                                                                 | —    | —       | —   | card previews, click-to-open                                                                |
+    | reddoor-website              | 26 `loopvideo=true` fills across 13 docs + 3 hardcoded (home 1082293395, portfolio 1205996665, twenty-for-twenty 1125997849)                                                        | Marketing/, not searched                                                                                                                                        | unknown                                | yes     | —               | —                  | —                                                                                 | —    | —       | —   | Reddoor's own site                                                                          |
 
     Not Vimeo sites: caltex-landing and hedloc (model fields, no reader),
     data-dynamiq (prop, no caller), 29-navy, mantis-landscaping,
@@ -2178,6 +2268,252 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     BACKLOG 33's central `PRISMIC_TOKEN_MANTIS_LANDSCAPING` (P1) is a
     separate secret and still unverified from the cloud. (#13's comment
     calls this item 67; 67 and 68 had already landed, so it is 69.)
+    **Answered 2026-10-04 ~21:30Z: the operator set the secret.** #13's
+    re-run `prismic-models / dry` went green, which proves the secret reads
+    the models. `land-prs` merged it as `be8addf`. The workflow's `push`
+    trigger is path-filtered to models, so the merge ran no apply job; the
+    first apply comes with the next model change. Not an ask any more.
+
+70. **Site checkouts in a cloud session cannot run the axe audit (#1132,
+    new 2026-10-04).** Cause, measured: mantis-landscaping (native starter)
+    resolves `@playwright/test` 1.63.0, which launches
+    `chromium_headless_shell-1243`; the cloud image's `/opt/pw-browsers` has
+    only 1194 and 1234, and no site repo has a cloud setup hook to install
+    the right one (this repo's `.claude/hooks/cloud-session-setup.sh` does it
+    for its lockfile's 1.62.1, revision 1234). Pointing
+    `PLAYWRIGHT_BROWSERS_PATH` at a scratch
+    dir that aliases 1243 to 1234 passed with 0 violations across 2 routes and
+    the hydration smoke, so nothing else is wrong; `main`'s audit already
+    names the missing executable (0.97.0, the site's pin, buried it behind
+    an npm warning; Renovate brings the fix). _Ask:_ may
+    `reddoorla/reddoor-starter` gain a `CLAUDE_CODE_REMOTE`-gated
+    SessionStart hook that runs `pnpm install` and
+    `playwright install chromium chromium-headless-shell` when the pinned
+    revision is missing (no effect on CI, new sites only; existing sites
+    would need a per-repo PR each)? _Pick:_ yes, as a starter PR modelled
+    on this repo's hook; the fleet backfill is a separate decision.
+    - **10-04 ~21:58Z: answered yes; landed** as reddoor-starter#167
+      (`9fb434b`). In a container on that branch, the hook installed
+      revision 1243 in 33 s, and then `pnpm verify` passed in full: axe
+      found 0 violations across 2 routes, and 562 unit and 13 smoke tests
+      passed. The starter's `.gitignore` now tracks `.claude/settings.json`
+      and `.claude/hooks/` only (narrowing #32), so a laptop checkout with
+      #32's untracked `settings.json` must move it to `settings.local.json`
+      before pulling. Still open: backfilling existing sites (one PR each).
+    - **10-05 ~14:27Z: the Blux track has it too**, cherry-picked as
+      reddoor-starter-blux#40 (`0d7290c`). There, `pnpm lint`, `check`
+      and `test` passed in a container using only the hook's env: 694
+      unit tests (3 skipped) and 20 smoke tests.
+
+71. **Mantis P4b: the client's Mailchimp API key (#1107, new 2026-10-04).**
+    The newsletter signup (62(d)) posts `formType: "newsletter"` to central
+    ingest, and `form-ingest.mts` forwards it to Mailchimp using the site
+    row's `mailchimp_api_key` and `mailchimp_audience_id`. A read-only
+    SELECT on `site_01M3WA8PZXD4Q8N7P234MNYJNB` found both NULL. The same
+    predicate finds a key on 1 of 47 sites, so the query can return
+    positive. The key is the client's credential. _Ask:_ supply the key,
+    or have it set on the row. _Pick:_ set the key together with audience
+    `1c9fde2079`, taken from the Blux embed (`u=5db33f711cc60af4607539cf5`).
+    Then one test signup with an address of ours, unsubscribed afterwards.
+    A worker can build the form before the key arrives, but cannot prove it
+    end to end. Also, form-e2e fills the first `[name="email"]` on the page
+    and marks the first `<form>`, so the signup must not sit above the
+    contact form on `/contact-us`.
+    The same session left the real-submission trace for P4a. A real POST
+    needs a Turnstile token that automation cannot mint (600010).
+    _Ask:_ submit the live `/contact-us` once from an ordinary browser, as
+    the operator. The worker then traces the row in Turso and the
+    notification.
+    - **10-05: Mailchimp half answered.** The client does not use
+      Mailchimp, and signups go through our Resend notify and the digest.
+      Central ingest already did that for any `newsletter` row, so no
+      credential was needed. Landed as mantis-landscaping#18.
+    - **10-05 14:02Z: human submit done; 71 closed.** The operator's live
+      contact submission is Turso row `sub_f892e464…` (`contact`,
+      `status new`, spam score 0, `notify_status sent` with a Resend id).
+      "New contact from Mantis Landscaping" reached the operator's inbox
+      at 14:02:43Z. The site is `building`, so the pre-launch guard routes
+      notifications to the operator only. A live newsletter signup is not
+      yet proven; that is optional.
+
+72. **#1143, the D1 nightly Prismic pull-sync: held after two dirty
+    review rounds (#1090, written by its worker on 10-04 22:20Z, carried
+    here by the 10-05 PM pass).** The worker wrote this ask into item 57 on
+    its own branch, `claude/wizardly-brown-2ylvcv` (`dee49526`), and that
+    branch is #1143 itself, so the ask never reached `main`. Round 2 found
+    two safety blockers (fixed on the branch, unreviewed) and two
+    correctness majors (not fixed): `declined` is keyed on the commit sha,
+    so any commit to a site's `main` reopens a PR you declined; and GitHub's
+    "Update branch" leaves a site `held` forever while the run stays green.
+    _Ask:_ (a) split the workflow, so a job with no App token clones,
+    installs and runs codegen and uploads a patch, and a second job with
+    the token applies it, pushes and opens the PR; then fix the two majors
+    and review once more. Or (b) keep one job, fix the two majors, and run
+    a third round on #1143 as it is. _Worker's pick:_ (a). Both blockers
+    came from running a client's own toolchain beside an org-wide write
+    token, and a split removes that class of bug rather than patching a
+    third instance. The held-for-the-operator comment on #1143 (10-04
+    22:19Z; the PR is a draft) has the details. Nothing else waits on it,
+    because the nightly drift sweep still reports model drift [I].
+    **Answered 2026-10-05 ~18:45Z: (b)** — keep one job, fix the two correctness majors, and run a third review round on #1143 as it is. A worker session is queued for it.
+
+73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
+    45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
+    through review. Round 1 (three lenses) found one major, an every-page
+    Vimeo script the policy misdescribed, fixed by removing the dead script;
+    round 2 found no blocker or major. Item 45 says the
+    DRAFT page goes to no client's live site until the lawyer's review, and
+    Data Dynamiq is live, so the worker did not merge it. Roalson was the
+    pre-launch precedent, so it never met this rule.
+    _Ask:_ merge data-dynamiq#59 (DRAFT /privacy + GA4) before item 45, yes or
+    no. _Worker's pick:_ yes. The page is marked DRAFT and `noindex`, and its
+    disclosures are derived from the site's own code. Without a posted policy
+    the site cannot run GA4 under Google's terms, and every day without the tag is data
+    the quarterly report can never recover. The remaining exposure is wording,
+    and item 45 reviews that wording once for every site. If yes, any session
+    lands it with `node scripts/land-prs.mjs` after attaching data-dynamiq.
+    Missing either way: the legal name, privacy contact email and effective
+    date render as placeholders (none is in the repo or on the Turso row).
+    Two follow-ups are recorded in the PR and the journal and are not built:
+    editor traffic (Prismic previews, `/slice-simulator`) on the production
+    host is counted, because `initAnalytics` gates on the hostname alone, and
+    that affects every tagged site.
+    **Answered 2026-10-05 ~18:45Z: yes, merge before item 45.** The PM session's `land-prs` on data-dynamiq#59 was refused by the cloud session's permission policy as a production deploy, so the merge itself is the operator's click (or a laptop `land-prs`).
+
+74. **Williamson Construction hero: upload three poster frames and publish
+    a release (williamson-construction-co#21, new 2026-10-05).** The code
+    half landed: the hero poster is now an `<img>` with a capped imgix
+    srcset, preloaded as the LCP image, and the video fades in on its first
+    `playing`. The poster itself is still the old Webflow still (home and
+    about-us 854×480, services 640×360). Frame 0 of each hero video matches
+    that still's shot and framing exactly, so this is a resolution fix, not
+    a design call. The session could not upload the frames: the Prismic
+    connector's `upload_asset` fetches only a public URL, and the session's
+    permission policy refused both a temp host and `prismic-media-upload.yml`
+    as public uploads. _Ask:_ (a) make the three frames and upload them, or
+    (b) allow this kind of upload for a worker session and re-dispatch it.
+    The frames are reproducible from the published files, with no master
+    needed:
+    `ffmpeg -i https://williamson-construction.cdn.prismic.io/williamson-construction/LZ8LHeWvz0PJscct_wc-teacher-1080.mp4 -frames:v 1 -q:v 1 wc-teacher-poster-1080.jpg`,
+    then the same for `yiKYtvDqi9GC3AAn_wc-first-day-1080.mp4` and
+    `phNtqvqI9BXXgKlF_wc-services-720.mp4` (services is 1280×720 at the
+    master). Set them as `page_hero.background_image` on home, about-us and
+    services in one release, three deltas, and publish it. No code change is
+    needed. The srcset reaches 1920w from the field's dimensions, and
+    desktop LCP should move from the video's first frame to the poster.
+    _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
+    permission change that outlives this one task.
+    **Answered 2026-10-05 ~18:45Z: (a)** — the operator makes the three frames, uploads them and publishes the release by hand.
+
+75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
+    #1155): held after two dirty review rounds (new 2026-10-05).** The
+    branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
+    It adds `https://prismic.io/prismic-toolbar/` and the one html2canvas
+    file to `BASELINE_CSP`'s `script-src` (no `unsafe-eval`, no `blob:`), and
+    an optional `prismicRepository` that frames exactly
+    `https://<name>.prismic.io`. All four of the brief's mutations go red, and
+    so do five more that round 1 found. Round 1 found three minors, all fixed.
+    Round 2 found one more minor, which round 1's own fix introduced. When a
+    site unsets `frame-src`, the fold seeds it with `'self'` plus the host,
+    but browsers fall back to `child-src`, then `default-src`. So a site with
+    `default-src: ['self', 'https://www.youtube.com']` and no `frame-src`
+    loses YouTube frames once it names a repository. It is only reachable by
+    unsetting `frame-src` on purpose, because the baseline always defines it.
+    _Ask:_ (a) seed from `child-src`, else `default-src`, else `['self']`,
+    and land on a clean third review. Or (b) merge #1157 as it is and file
+    the seed as a follow-up. Or (c) refuse `prismicRepository` when the site
+    has unset `frame-src`. _Worker's pick:_ (a). It is a five-line fix with a
+    test, and it makes the JSDoc's claim true. Two nits from round 2 ride the
+    same push: `JSON.stringify` throws on a BigInt in the error message, and
+    the regex accepts a trailing hyphen and labels over 63 characters.
+    Separately, the security lens noted that the two script sources could be
+    gated on `prismicRepository`, as `analytics` gates GA. Without a framed
+    repository the toolbar never loads them. The brief puts them in the
+    baseline, so they stay there unless you say otherwise.
+    **Answered 2026-10-05 ~18:45Z: (a)** — seed from `child-src`, else `default-src`, else `['self']`, carry round 2's two nits, and land on a clean third review. A worker session is queued for it.
+    **Round 3 (this session, which was still open when the answer came; the
+    queued worker is not needed for the build): dirty too, so held again
+    (new ask below).** `51e56b1a` on the same branch seeds an
+    unset `frame-src` from `child-src`, then `default-src` (dropping
+    `'none'`). It also limits names to one DNS label and makes the error
+    message survive a BigInt. 61 tests pass, and 14 mutations all go red,
+    the brief's four included. Round 3 (`createSvelteConfig` output fed to
+    SvelteKit 2.70.2's own `Csp` class) found two minors. First, a site that
+    writes `frame-src: null` or `false`, or `child-src: false`, is treated as
+    a hand-written value, but SvelteKit drops falsy values, so the browser
+    sees no `frame-src` and the toolbar's host is blocked with no warning.
+    Second, no test pins that a string `child-src` (which blocks every
+    frame) stops the chain: a mutant that skips it and seeds from
+    `default-src` passes all 61 tests and would widen the policy. One nit:
+    an explicit `frame-src: ["none"]` emits `'none'` beside the host, which
+    browsers ignore but warn about. _Ask:_ (a) fix both (treat
+    `null`/`false` as unset at both steps, add the string-`child-src` test,
+    drop `'none'` on the explicit path too) and land on a clean fourth
+    round. Or (b) fix both and land without another round, since each fix
+    is a test plus a one-line condition. Or (c) merge `51e56b1a` as it is
+    and file both as a follow-up. _Worker's pick:_ (a). The round-3 defects
+    are in the same small function, and a fourth review is cheap.
+
+76. **#1162, the evening pass: held after two dirty review rounds (new
+    2026-10-05, from its worker).** #1162 (draft, branch
+    `claude/great-johnson-mwzrbr`) adds a 17:18 PT "evening pass" to
+    `docs/pm-pass.md`, ending in one push notification. It also adds the
+    stored Routine prompt for you to paste, and
+    `scripts/evening-branches.mjs`, which flags a question that sits only on
+    a branch (#1143's miss) and commits with no PR (`jolly-keller`'s). Both
+    were proven on today's state, with two negative controls, and 25
+    mutations all go red.
+    - Round 1 found four majors, all fixed: the UTC date at 00:18Z,
+      squash-merged reused branches, substring branch matching, and a
+      case-sensitive ask pattern.
+    - Round 2 found one major, fixed on the branch but unreviewed. A branch
+      reused after its PR merged, and then merged with `main`, read `main`'s
+      commits as its own and was flagged stale. That is a false alarm, not a
+      miss. The fix is `git cherry origin/main <ref> <merged head>`,
+      reproduced in a scratch repo.
+    - _Ask:_ (a) merge #1162 as it is, then paste the Routine prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt"; or (b) run
+      a third review round first.
+    - _Worker's pick:_ (a). Every defect either round found was in the
+      direction of over-reporting or a wrong date, and the date is fixed and
+      reviewed. The one unreviewed fix is a small change with its own test
+      and mutation, and the pass never acts on what it flags.
+    - **Answered 2026-10-05 ~18:23Z: (a), merge #1162 as it is.** The operator
+      merged it at 18:38Z (`2849ba4d`), while `land-prs.mjs` was still gating
+      it. What remains is yours: paste the stored prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt" into a new
+      Routine (cron `CRON_TZ=America/Los_Angeles 18 17 * * 1-4`, push on, a
+      fresh session per fire). Until then no evening pass runs, though the
+      morning pass already runs the branch check (step 5).
+
+77. **The two Routines' schedules (new 2026-10-05, from the evening-pass
+    worker; nothing waits on it).** The morning Routine ("Reddoor Project
+    Manager") runs `48 11 * * 1-4`, a bare UTC cron, so it fires at 03:48 PT
+    from 11-02. Its stored prompt also tells it to call `list_sessions` /
+    `get_session`, which a Routine does not have. The evening Routine in
+    #1162 runs on the same Monday-to-Thursday days.
+    - _Ask:_ (a) extend both Routines to Friday (`1-5`), write the morning
+      cron as `CRON_TZ=America/Los_Angeles 48 4 * * 1-5`, and drop the
+      `list_sessions` line from its prompt; or (b) leave both at Monday to
+      Thursday.
+    - _Pick:_ (a). Otherwise workers started on a Friday morning end with
+      nobody reading them until Monday's pass. Either way, these are edits
+      in the Routines' settings, not a repo change.
+      **Answered 2026-10-05 ~18:45Z: (b), Monday to Thursday** — that is the operator's work week. Still open inside it, not re-asked: the morning cron is bare UTC, so it fires an hour earlier in PT after 11-02 [I], and its prompt names `list_sessions`, which a Routine lacks.
+
+78. **Mantis P5: run the matching gate from the laptop (#1107, new
+    2026-10-05).** P5's last "done when" is the matching gate at
+    1440/834/390 for `/`, one project page and `/contact-us`. It cannot run
+    in a cloud container: `matching/harness.json` points at
+    `~/.claude/skills/matching-a-page/page-diff.mjs`, a user-level skill
+    that is not in the container. No page has a `matching/SPEC.md` section
+    yet, and the matching rules refuse a geometry round without one (Phase
+    1 first). Everything else in P5 is done and measured (see P1-30).
+    _Ask:_ run Phase 1 and the gate in a laptop session, or waive the gate
+    for launch. _Pick:_ run it, starting with `/`; the Blux capture under
+    `matching/spec/` is already in the repo, so a laptop session can begin
+    at Phase 1 with no new capture.
+    **Answered 2026-10-05 ~18:45Z: run it** — Phase 1 and the gate in a laptop session, starting with `/`. A worker card is queued (laptop only).
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -2204,35 +2540,44 @@ verdict is its only input, because no client and no check sees the email.
 | ---------------- | ------- | ---------------------- | ------- |
 | 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | clean   |
 
-## Fleet snapshot (2026-09-29 05:36Z, live Turso, SELECT-only) [M]
+## Fleet snapshot (2026-10-05 ~11:55Z, live Turso, SELECT-only) [M]
 
-- 46 site rows: 14 maintained, 2 launching, 7 building, 9 external, 2
-  hosted-only, 12 archived.
-- Cockpit: 1 attention, 13 watch, **0 healthy**, 2 pre-launch.
-  - Attention: Reddoor (destructive Prismic drift, acknowledgement expired
-    08-30).
-  - Watch: every other maintained site has "Search Console property not
-    recorded" (#939, a day old). For 8 of them it is the only reason. Five also
-    lack GA4: 1836dig, 29 Navy, Data Dynamiq, LAHI and Revogen.
-- No vulnerabilities, no Lighthouse scores below the floor, no CI red on sites,
-  no delivery failures, 0 dead letters.
-- Staleness: the newest smoke and form-e2e results are from 09-26 (63 h). The
-  newest Lighthouse, security and function-health results are from 09-27. There
-  was no sweep at all on 09-28. a11y has data for 1 of 16 sites.
-- Forms: 554 submissions (43 in the last 7 days).
-  - **327 unread**. The cockpit caps its list at 200, so it shows 200. Sonder
-    alone has 245 unread, back to 06-15.
-  - 3 notification bounces not acknowledged (Espada ×2, ERP ×1).
-- `digest_state.cockpit_rollup` is dated 2026-09-17 09:00Z. That is a test's
-  fixed clock, written by a cloud test run before #933 stripped credentials from
-  the suite. The next completed digest rewrites it.
-- Certificates as of 09-27: Sonder 30 days, 1836dig 32, Espada 38, Beachfront
-  39, ERP 40. These should auto-renew [I]; re-check after the next sweep.
-- Oddities: `links_ok=0` alongside `broken_links=0` on four sites; Sonder
-  `titles_meta_ok=fail`; `reddoorla/composition-hospitality` is active but the
-  roster lists it as external with no repo.
+Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
+(its control, `UPDATE sites SET name = name WHERE 0`, was refused first).
+
+- 47 site rows: 15 maintained, 2 launching, 6 building, 9 external, 2
+  hosted-only, 13 archived. Since 09-29: Mantis Landscaping added
+  (`building`), Domaru archived.
+- Cockpit (`buildCockpitModel` over the live rows, with an empty prior
+  snapshot and none of the bounce or dead-letter inputs, so this is a lower
+  bound on attention): **1 attention, 0 watch, 14 healthy**, 2 pre-launch.
+  On 09-29 it was 1 / 13 / 0; the Search Console watch that put every site on
+  Watch (#939) no longer fires.
+  - Attention: Reddoor, "1 Renovate PR failing CI".
+- Sweep freshness: Lighthouse 10-04 14:07Z, function health and browser
+  10-04 14:06Z, smoke 10-04 15:23Z, security 10-04 11:34Z, Prismic models
+  10-04 10:51Z, GitHub signals 10-04 14:08Z. Today's sweeps had not run yet.
+- Forms: 583 submissions, 38 since 09-28. **339 unread** (`status = 'new'`),
+  Sonder 249 of them, then Beachfront 46, ERP 13, Espada 10, Vineyard 6.
+  238 spam (38 marked, 200 auto). 3 rows with a bounced notification. The
+  dead-letter table is empty.
+- Certificates under 35 days: Espada 31, Beachfront Dentistry 32, ERP 33.
+  On 09-27 they read 38, 39 and 40, so none has renewed in eight days.
+  Sonder (30) and 1836dig (32) were the low ones on 09-27 and are not under
+  35 now, so they did renew [M for the numbers; the renewal threshold is I].
+  Re-read on 10-08; a figure under 25 is an ask.
 
 ## Done (move items here when they land)
+
+- 2026-10-05 — P1-27, the audits' port race (#1156): #1164. The a11y,
+  lighthouse and smoke audits start their server again on a fresh port when
+  the server's own output names one of the audit's ports as taken (Node's
+  `EADDRINUSE`, vite's `Port N is already in use`, Playwright's "is already
+  used"), up to three tries; any other failure is reported at once, and
+  `--strictPort` is unchanged. The helper is `src/util/port-retry.ts`. A
+  live test in `tests/audits/a11y-live-spec.test.ts` squats the preview
+  port, then the dev port, and still gets a passing scan; the four named
+  mutations each turn a test red (table in the PR).
 
 - 2026-10-04 — P1-26, the fleet `/privacy` page (#1055, option A): landed in
   three PRs.

@@ -14,6 +14,7 @@ import {
   resolveRepo,
   isReadOnlyApiCall,
   isTransientReadFailure,
+  chooseMergeMethod,
   type RunResult,
 } from "../../scripts/land-prs.mjs";
 
@@ -129,6 +130,7 @@ const GREEN = runs(
 type Route = [RegExp, RunResult[]];
 
 const SHA = "[0-9a-f]{40}";
+const ANY_BRANCH = "[\\w./-]+";
 const VIEW = (n: number) => new RegExp(`^gh api ${P}/pulls/${n}$`);
 const RUNS = (sha = SHA) => new RegExp(`^gh api ${P}/commits/${sha}/check-runs\\?`);
 const STATUSES = (sha = SHA) => new RegExp(`^gh api ${P}/commits/${sha}/status\\?`);
@@ -138,6 +140,40 @@ const MERGE_CMD = (n: number) => new RegExp(`^gh api ${P}/pulls/${n}/merge `);
 const DELETE = (branch = "feat/something") =>
   new RegExp(`^gh api ${P}/git/refs/heads/${branch} --method DELETE$`);
 const REF = (branch = "feat/something") => new RegExp(`^gh api ${P}/git/ref/heads/${branch}$`);
+const REPO_META = new RegExp(`^gh api ${P}$`);
+const RULES = (branch = "main") =>
+  new RegExp(`^gh api ${P}/rules/branches/${branch}\\?per_page=100&page=\\d+$`);
+
+const repoMeta = (over: Record<string, boolean> = {}): RunResult =>
+  ok(
+    JSON.stringify({
+      full_name: REPO,
+      allow_squash_merge: true,
+      allow_merge_commit: true,
+      allow_rebase_merge: true,
+      ...over,
+    }),
+  );
+
+type Rule = { type: string; ruleset_id?: number; parameters?: Record<string, unknown> };
+const pullRequestRule = (methods: string[], ruleset_id = 20165612): Rule => ({
+  type: "pull_request",
+  ruleset_id,
+  parameters: { required_approving_review_count: 0, allowed_merge_methods: methods },
+});
+const rules = (...rs: Rule[]): RunResult => ok(JSON.stringify(rs));
+
+// This repo's own `main` as GET rules/branches/main answered on 2026-10-04: linear history
+// required and the pull_request rule allowing all three methods.
+const MAINTENANCE_MAIN_RULES = rules(
+  { type: "deletion", ruleset_id: 1 },
+  { type: "required_linear_history", ruleset_id: 1 },
+  pullRequestRule(["merge", "squash", "rebase"], 1),
+);
+const methodRoutes: Route[] = [
+  [REPO_META, [repoMeta()]],
+  [RULES(ANY_BRANCH), [MAINTENANCE_MAIN_RULES]],
+];
 
 // What Netlify posts on this repo's heads, about 2 s before Actions registers `build`
 // (#953's head, 2026-09-29: the three neutral runs at 05:48:56Z, `build` at 05:48:58Z).
@@ -175,9 +211,15 @@ function fakeRunner(routes: Route[]) {
 async function land(
   prs: number[],
   routes: Route[],
-  extra: { dryRun?: boolean; cleanup?: boolean; cwd?: string; checksTimeoutMin?: number } = {},
+  extra: {
+    dryRun?: boolean;
+    cleanup?: boolean;
+    cwd?: string;
+    checksTimeoutMin?: number;
+    base?: string;
+  } = {},
 ) {
-  const { run, calls } = fakeRunner(routes);
+  const { run, calls } = fakeRunner([...routes, ...methodRoutes]);
   const lines: string[] = [];
   const sleeps: number[] = [];
   let clock = T0;
@@ -196,8 +238,13 @@ async function land(
     ...(extra.dryRun === undefined ? {} : { dryRun: extra.dryRun }),
     ...(extra.cleanup === undefined ? {} : { cleanup: extra.cleanup }),
     ...(extra.checksTimeoutMin === undefined ? {} : { checksTimeoutMin: extra.checksTimeoutMin }),
+    ...(extra.base === undefined ? {} : { base: extra.base }),
   });
-  expect(calls.filter((c) => c.startsWith("gh ") && !c.startsWith(`gh api ${P}/`))).toEqual([]);
+  expect(
+    calls.filter(
+      (c) => c.startsWith("gh ") && !c.startsWith(`gh api ${P}/`) && c !== `gh api ${P}`,
+    ),
+  ).toEqual([]);
   return { ...out, calls, lines, sleeps };
 }
 
@@ -551,7 +598,7 @@ describe("land-prs: refusals and skips", () => {
     );
     expect(r.code).toBe(0);
     expect(r.lines).toContain("LAND #852 skipped reason=already merged");
-    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A}`);
+    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A} method=squash`);
     expect(r.calls.filter((c) => c.includes("/pulls/852/"))).toEqual([]);
   });
 
@@ -643,7 +690,7 @@ describe("land-prs: the head-SHA gate", () => {
     expect(mergeCall).toBe(
       `gh api ${P}/pulls/5/merge --method PUT -f merge_method=squash -f sha=${B}`,
     );
-    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${B}`);
+    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${B} method=squash`);
   });
 
   it("head moves during the checks wait: re-gates on the newer sha before merging", async () => {
@@ -842,7 +889,7 @@ describe("land-prs: the head-SHA gate", () => {
       ],
     );
     expect(r.code).toBe(0);
-    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A}`);
+    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A} method=squash`);
     expect(r.lines).toContain(
       "LAND #5 note: the merge call failed but the PR is MERGED: timed out with no output",
     );
@@ -1191,7 +1238,7 @@ describe("land-prs: deleting the head branch", () => {
     expect(r.code).toBe(0);
     expect(r.calls.filter((c) => REF().test(c))).toHaveLength(2);
     expect(r.lines.some((l) => l.includes("note:"))).toBe(false);
-    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A}`);
+    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A} method=squash`);
   });
 
   it("a refused delete that leaves the branch is a note, not a stop", async () => {
@@ -1207,7 +1254,7 @@ describe("land-prs: deleting the head branch", () => {
     expect(r.lines).toContain(
       "LAND #5 note: branch feat/something is still on GitHub: delete failed: gh: Write access to this GitHub API path is not permitted through this proxy. (HTTP 403)",
     );
-    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A}`);
+    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A} method=squash`);
   });
 
   it("422 on the delete means the branch is already gone, as gh treated it", async () => {
@@ -1324,12 +1371,260 @@ describe("land-prs: --cleanup", () => {
   it("leaves a dirty worktree alone and says why", async () => {
     const r = await land([5], routesThrough(ok(" M src/a.ts\n?? notes.md\n")), { cleanup: true });
     expect(r.code).toBe(0);
-    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A}`);
+    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A} method=squash`);
     expect(r.lines).toContain(
       "LAND #5 cleanup left /repo/.claude/worktrees/mine: 2 uncommitted changes",
     );
     expect(r.calls.some((c) => c.startsWith("git worktree remove"))).toBe(false);
     expect(r.calls.some((c) => c.startsWith("git branch"))).toBe(false);
+  });
+});
+
+/**
+ * 2026-10-04: reddoor-website#240 could not land on that repo's `main`. The merge answered
+ * 405 "Squash merges are not allowed on this repository" with `allow_squash_merge: true`,
+ * because ruleset 20165612's pull_request rule allows only `merge`. The method is now read
+ * from the repo flags AND the rules in force on the base; squash stays the first choice.
+ */
+describe("land-prs: merge method", () => {
+  // reddoor-website's `main` as GET rules/branches/main answered on 2026-10-04.
+  const WEBSITE_MAIN_RULES = rules(
+    { type: "deletion", ruleset_id: 20165612 },
+    { type: "non_fast_forward", ruleset_id: 20165612 },
+    pullRequestRule(["merge"]),
+    {
+      type: "required_status_checks",
+      ruleset_id: 20165612,
+      parameters: { strict_required_status_checks_policy: true },
+    },
+  );
+  const mergedWith = (n = 5) =>
+    `gh api ${P}/pulls/${n}/merge --method PUT -f merge_method=merge -f sha=${A}`;
+
+  it("a ruleset allowing only merge lands with a merge commit, pinned to the gated head", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view(), view(), merged()]],
+        [RULES(), [WEBSITE_MAIN_RULES]],
+        ...green,
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.calls.filter((c) => MERGE_CMD(5).test(c))).toEqual([mergedWith()]);
+    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A} method=merge`);
+    expect(r.lines.some((l) => l.startsWith("LAND #5 open") && l.includes("method=merge"))).toBe(
+      true,
+    );
+    expect(kinds(r.calls)).toEqual(["checks", "merge", "delete"]);
+  });
+
+  it("no ruleset restriction keeps squash", async () => {
+    for (const none of [
+      rules(),
+      rules({ type: "deletion", ruleset_id: 22843978 }),
+      rules({
+        type: "pull_request",
+        ruleset_id: 3,
+        parameters: { required_approving_review_count: 1 },
+      }),
+    ]) {
+      const r = await land(
+        [5],
+        [[VIEW(5), [view(), view(), merged()]], [RULES(), [none]], ...green, ...landed()],
+      );
+      expect(r.code).toBe(0);
+      expect(r.calls.filter((c) => MERGE_CMD(5).test(c))).toEqual([
+        `gh api ${P}/pulls/5/merge --method PUT -f merge_method=squash -f sha=${A}`,
+      ]);
+    }
+  });
+
+  it("a ruleset allowing nothing the repo allows refuses before any check is watched", async () => {
+    const r = await land(
+      [5, 6],
+      [
+        [VIEW(5), [view()]],
+        [REPO_META, [repoMeta({ allow_squash_merge: false })]],
+        [RULES(), [rules(pullRequestRule(["squash"]))]],
+      ],
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=no merge method is allowed: repo allows merge/rebase; ruleset 20165612 allows squash (base main)",
+    );
+    expect(pastTheRefusal(r.calls)).toEqual([]);
+    expect(r.calls.some((c) => /\/pulls\/6\b/.test(c))).toBe(false);
+  });
+
+  it("a rules read that fails stops the run before any check is watched", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [httpError(500, "Server Error")]],
+      ],
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=gh api rules/branches/main?per_page=100&page=1 failed: gh: Server Error (HTTP 500)",
+    );
+    expect(pastTheRefusal(r.calls)).toEqual([]);
+  });
+
+  it("a 403 or 404 on the rules is read as no rulesets: a note, and the repo flags decide", async () => {
+    for (const refused of [
+      httpError(
+        403,
+        "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+      ),
+      httpError(404, "Not Found"),
+    ]) {
+      const r = await land(
+        [5],
+        [
+          [VIEW(5), [view()]],
+          [REPO_META, [repoMeta({ allow_squash_merge: false })]],
+          [RULES(), [refused]],
+        ],
+        { dryRun: true },
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain(
+        `LAND #5 note: no rules read for main, choosing from the repo flags alone: ${firstLineOf(refused)}`,
+      );
+      expect(r.lines.some((l) => l.includes(`merge --merge pinned to sha=${A}`))).toBe(true);
+    }
+  });
+
+  it("a rules read that fails in transport is retried, then decides", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [
+          RULES(),
+          [{ code: 1, stdout: "", stderr: "gh: HTTP 502\n" }, rules(pullRequestRule(["merge"]))],
+        ],
+      ],
+      { dryRun: true },
+    );
+    expect(r.code).toBe(0);
+    expect(r.calls.filter((c) => RULES().test(c))).toHaveLength(2);
+    expect(r.lines.some((l) => l.includes(`merge --merge pinned to sha=${A}`))).toBe(true);
+  });
+
+  it("a rules endpoint that never stops paging stops the run after ten pages", async () => {
+    const full = rules(
+      ...Array.from({ length: 100 }, (_, i) => ({ type: "deletion", ruleset_id: i })),
+    );
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [full]],
+      ],
+      { dryRun: true },
+    );
+    expect(r.code).toBe(1);
+    expect(r.calls.filter((c) => RULES().test(c))).toHaveLength(10);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=gh api rules/branches/main still had rules after 10 pages",
+    );
+  });
+
+  it("reads every page of the rules: a merge-only rule on page 2 still decides", async () => {
+    const filler = Array.from({ length: 100 }, (_, i) => ({ type: "deletion", ruleset_id: i }));
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [rules(...filler), WEBSITE_MAIN_RULES]],
+      ],
+      { dryRun: true },
+    );
+    expect(r.calls.filter((c) => RULES().test(c))).toEqual([
+      `gh api ${P}/rules/branches/main?per_page=100&page=1`,
+      `gh api ${P}/rules/branches/main?per_page=100&page=2`,
+    ]);
+    expect(r.lines.some((l) => l.includes(`merge --merge pinned to sha=${A}`))).toBe(true);
+  });
+
+  it("--dry-run names the method it would merge with", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [WEBSITE_MAIN_RULES]],
+      ],
+      {
+        dryRun: true,
+      },
+    );
+    expect(r.lines).toContain(
+      `LAND #5 dry-run would: wait for checks (≤ 20 min); require CLEAN; merge --merge pinned to sha=${A}; delete branch feat/something`,
+    );
+  });
+
+  it("the rules are read for the PR's own base", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view({ baseRefName: "staging" })]],
+        [RULES("staging"), [rules({ type: "deletion", ruleset_id: 22843978 })]],
+        [RULES(), [WEBSITE_MAIN_RULES]],
+      ],
+      { dryRun: true, base: "staging" },
+    );
+    expect(r.calls.some((c) => RULES("staging").test(c))).toBe(true);
+    expect(r.calls.some((c) => RULES().test(c))).toBe(false);
+    expect(r.lines.some((l) => l.includes("merge --squash pinned"))).toBe(true);
+  });
+
+  describe("chooseMergeMethod", () => {
+    const all = { allow_squash_merge: true, allow_merge_commit: true, allow_rebase_merge: true };
+    it("prefers squash, then merge, then rebase", () => {
+      expect(chooseMergeMethod(all, [])).toEqual({ method: "squash" });
+      expect(chooseMergeMethod({ ...all, allow_squash_merge: false }, [])).toEqual({
+        method: "merge",
+      });
+      expect(
+        chooseMergeMethod({ ...all, allow_squash_merge: false, allow_merge_commit: false }, []),
+      ).toEqual({ method: "rebase" });
+    });
+
+    it("intersects every pull_request rule, from every ruleset", () => {
+      expect(
+        chooseMergeMethod(all, [
+          pullRequestRule(["merge", "rebase"], 1),
+          pullRequestRule(["rebase", "squash"], 2),
+        ]),
+      ).toEqual({ method: "rebase" });
+    });
+
+    it("a required_linear_history rule rules out a merge commit", () => {
+      expect(
+        chooseMergeMethod(all, [
+          { type: "required_linear_history", ruleset_id: 7 },
+          pullRequestRule(["merge"]),
+        ]),
+      ).toEqual({
+        error:
+          "no merge method is allowed: repo allows squash/merge/rebase; ruleset 7 requires linear history; ruleset 20165612 allows merge",
+      });
+    });
+
+    it("an absent repo flag is not read as false; an explicit false is", () => {
+      expect(chooseMergeMethod({}, [pullRequestRule(["merge"])])).toEqual({ method: "merge" });
+      expect(chooseMergeMethod(null, [])).toEqual({ method: "squash" });
+      expect(
+        chooseMergeMethod(
+          { allow_squash_merge: false, allow_merge_commit: false, allow_rebase_merge: false },
+          [],
+        ),
+      ).toEqual({ error: "no merge method is allowed: repo allows nothing" });
+    });
   });
 });
 
@@ -1344,7 +1639,11 @@ describe("land-prs: --dry-run", () => {
       { dryRun: true },
     );
     expect(r.code).toBe(0);
-    expect(r.calls.every((c) => /^gh api \S+\/pulls\/\d+$/.test(c))).toBe(true);
+    expect(
+      r.calls.every(
+        (c) => VIEW(852).test(c) || VIEW(5).test(c) || REPO_META.test(c) || RULES().test(c),
+      ),
+    ).toBe(true);
     expect(r.lines).toContain("LAND #852 skipped reason=already merged");
     expect(r.lines.some((l) => l.startsWith("LAND #5 dry-run would: update-branch"))).toBe(true);
     expect(r.sleeps).toEqual([]);
@@ -1462,7 +1761,7 @@ describe("land-prs: a read that fails in transport is retried; an answer or a wr
       ],
     );
     expect(r.code).toBe(0);
-    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A}`);
+    expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A} method=squash`);
     expect(r.calls.filter((c) => RUNS(A).test(c))).toHaveLength(2);
     expect(r.sleeps[0]).toBe(2_000);
     expect(r.lines).toContain(

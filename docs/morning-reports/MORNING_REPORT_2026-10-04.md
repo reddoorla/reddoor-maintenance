@@ -1,5 +1,7 @@
 # Morning brief — 2026-10-04 (scheduled PM pass, Sunday, 15:59Z)
 
+> Superseded in part by 2026-10-05 — Monday PM pass ("so all five now carry an analytics section": Data Dynamiq's GA4 tag is not installed yet, BACKLOG 49).
+
 ## One-line verdict
 
 **A quiet weekend: every scheduled nightly from 10-01 to 10-04 is green with `failed=0`, nothing landed on `main` after 10-01 19:20Z, and tomorrow's five Maintenance drafts preflight clean. Your one new ask is Mantis P2a, decision 64, which landed on `main` during this pass (#1118).**
