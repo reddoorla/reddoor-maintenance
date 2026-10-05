@@ -8352,5 +8352,6 @@ with `'self'` ignores the browser's fallback to `child-src` and then
 `default-src`, so naming a repository can block frames that used to load.
 Under the two-dirty-rounds rule, the PR is held, not given a third round. The
 ask is Operator decision 74: the worker's pick is to seed from the fallback
-chain and review once more. #1157 is unmerged, its CI `build` was still
-running on `b2592187` at 14:56Z, and the fleet rollout has not started.
+chain and review once more. #1157 is unmerged; its CI `build` passed on `b2592187` at 15:01Z
+(it was still running at 14:56Z, when this entry was first drafted), and
+the fleet rollout has not started.

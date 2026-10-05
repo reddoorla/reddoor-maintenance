@@ -2365,7 +2365,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     that affects every tagged site.
 74. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
-    branch is `claude/great-turing-v374rg`, head `b2592187`, CI re-running.
+    branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
     It adds `https://prismic.io/prismic-toolbar/` and the one html2canvas
     file to `BASELINE_CSP`'s `script-src` (no `unsafe-eval`, no `blob:`), and
     an optional `prismicRepository` that frames exactly
