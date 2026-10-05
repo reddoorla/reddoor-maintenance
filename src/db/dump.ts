@@ -35,11 +35,13 @@ export function sqlLiteral(v: unknown): string {
   // round-trip form: SQLite's own text-to-double parse misreads about one
   // shortest-form value in ten thousand by one ULP (0.3118957494450251 loads
   // back as 0.31189574944502513), so the restored row differed from the origin
-  // and the per-table content hash reddened on it. Integers keep `String`, so
-  // an INTEGER cell never gains a decimal point.
+  // and the per-table content hash reddened on it. Integers below 2^63 keep
+  // `String`, so an INTEGER cell never gains a decimal point; at 2^63 and
+  // above SQLite cannot read the digits as an int64 and falls back to that
+  // same float parse (1.576466077749328e298 came back one ULP off).
   if (typeof v === "number") {
     if (!Number.isFinite(v)) return "NULL";
-    return Number.isInteger(v) ? String(v) : v.toPrecision(17);
+    return Number.isInteger(v) && Math.abs(v) < 2 ** 63 ? String(v) : v.toPrecision(17);
   }
   if (typeof v === "bigint") return v.toString();
   if (v instanceof Uint8Array || v instanceof ArrayBuffer) {

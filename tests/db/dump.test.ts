@@ -92,7 +92,14 @@ describe("db/dump", () => {
   it("restores a fractional REAL bit-exactly, including one SQLite misparses in shortest form", async () => {
     const client = await seeded();
     await client.execute("CREATE TABLE reals (x REAL)");
-    const values = [0.3118957494450251, 0.1, -2.5e-300, 1 / 3];
+    const values = [
+      0.3118957494450251,
+      0.1,
+      -2.5e-300,
+      1 / 3,
+      1.576466077749328e298,
+      -5.832970865081373e110,
+    ];
     for (const v of values)
       await client.execute({ sql: "INSERT INTO reals VALUES (?)", args: [v] });
     const sql = await dumpDatabase(wrap(client), "2026-08-26T00:00:00.000Z");
