@@ -8198,6 +8198,7 @@ Next in order: Espada (one hardcoded clip, 1031277602, 30 s; master
 candidate `Espada Mastehead.mp4`, 39 MB). It needs a Prismic home field,
 because nothing about the clip lives in Prismic today.
 
+<<<<<<< HEAD
 ## 2026-10-04 — The simulator leaves every public bundle, and an encoded path is framed: starter, blux and 12 sites (reddoor-starter#168 `da084ba`, reddoor-starter-blux#39 `907a3bf`, #1090)
 
 > Follows 2026-10-04 — Both starters off Slice Machine; the baseline follows.
@@ -8260,3 +8261,42 @@ The no-header case was inert, because `@prismicio/simulator` checks message orig
 - Five sites import the plugin without an extension because their `checkJs` or tsconfig refuses a `.ts` one. Vite logs a warning for each, and they will need the extension if Vite makes `configLoader: 'native'` the default.
 - The site specs' `/` control can only fail under `vite dev`, because `/` is prerendered.
 - The 29-navy and williamson-homes branches remain on GitHub, because the proxy refuses branch deletes.
+=======
+## 2026-10-04 — Mantis P4a: the contact form is live on /contact-us (mantis-landscaping#15, `ab2fd86`)
+
+The Prismic `contact-us` page and the starter's `/contact` form were two routes for one job (mantis-landscaping#11). They are now one route: `/contact-us` renders the page's slices, then the form. `/contact` 301s there from both the hook and `netlify.toml`, so form-e2e's `goto('/contact')` still arrives at the form.
+
+**The belief corrected on contact.** I made the per-request load throw on any Prismic error other than a 404, reasoning that a fallback would hide an outage. The reviewer turned Prismic off and found the cost I had not counted. Every other Mantis page is prerendered, so this one route became the site's only request-time dependency on Prismic. During an outage `/` answered 200 and `/contact-us` answered 500. Worse, a no-JS POST reached ingest and then the post-action reload threw, so a visitor whose message was received saw an error page and would send it again. Round 1 changed the load to serve the form on any error and log anything that is not a 404. Round 2 reproduced the outage, with a negative control (the old line back gives a 500), and found the fix clean. Its instrument note is worth keeping: on Node 24, `HTTPS_PROXY=http://127.0.0.1:9` alone does NOT make Prismic unreachable, because built-in fetch ignores it. `/health` stays `prismic:"ok"` until `NODE_USE_ENV_PROXY=1` is added. An outage test without that variable passes whatever the code does.
+
+**Mutations the old tests let through.** These had no test until round 1:
+
+- `_reply` taken from the visitor, which would make the autoresponder a phishing relay. This gap was already on `main`.
+- `testMode` from `form.has`.
+- The 404 check loosened.
+
+Each now has a test, and each mutation was applied and went red (N1 to N6 in the PR body).
+
+**Live.** The production deploy of `ab2fd86` serves `/contact-us` at 200, and `/contact?x=1` 301s to `/contact-us?x=1`. Its `/health` reports `prismic:"ok"`, with ingest, token, Turnstile and testMode all declared. form-e2e, armed with `REDDOOR_FORM_E2E_LIVE=1` against a one-site inventory and no write-back, passed. It also reported `fields were wiped by a client re-render and re-filled once`. I filed that as a visitor-facing hydration defect (mantis-landscaping#17), then measured it and was wrong.
+
+I reproduced it against production by filling at `domcontentloaded`, with a MutationObserver counting `<form>` removals. Appending a hidden `<input name="testMode">` before hydration, as the probe's `injectExpr` does, re-mounted the whole tree 5 times out of 5, each with `hydration_mismatch`. Plain fills re-mounted 0 times out of 19. Svelte 5 treats a node it did not render as a mismatch. Typing changes values, not nodes, so visitors are unaffected. The probe wipes its own fills and then repairs them, and the comment beside the `refilled` field calls that "production proof the wipe happens". #17 is closed with the table, and the instrument fix is reddoor-maintenance#1148.
+
+This is the CLAUDE.md rule in small: the first and only FAIL-shaped signal from a probe was taken as a finding before anyone asked what the probe itself does to the page. What settled it was a control the probe could not influence, the same fills without the injection. I also filed mantis-landscaping#16: a Prismic preview of `contact-us` shows no form.
+
+**Not done, and why.** A `testMode` probe persists nothing and notifies no one by design (`src/forms/ingest.ts`), and automation cannot mint a Turnstile token (600010). So the real submission traced into Turso needs one human submit. That is now in Operator decisions 71, together with P4b's blocker: the Mantis site row has neither `mailchimp_api_key` nor `mailchimp_audience_id`. The read-only SELECT that showed this finds a key on 1 of 47 sites, so the absence is a measured result.
+
+## 2026-10-05 — williamson-construction-co lands; the non-maintenance sites stop here (williamson-construction-co#19, `f1c3a6c`)
+
+> Follows "Phase 4: thirteen site repos off Slice Machine" above.
+
+The operator approved the push the permission system had refused twice ("push approved do it"). The branch had been sitting only in the cloud container, which restarted twice during the rollout and kept it on disk both times. It was pushed at `6d86b0c` and landed green as #19. Its two extra hook tests came from williamson-homes's port, whose worker found that deleting the hook's X-Frame-Options removal, or narrowing the framer list, passed every test the starter ships. Each of the two mutations turned one test red on construction before the push.
+
+The same message settled ask (d): "dont worry about non maintenance sites". hedloc (#53, held) and both Burbank proofs of concept (`claude/prismic-cli`, pushed, no PR) stay unmerged. Their sync with Prismic is unproven, because MCP isn't activated for those repositories. Phase 4 therefore ends at 14 landed site repos, and the session following up on reddoor-starter#168 has each one.
+>>>>>>> origin/main
+
+## 2026-10-05 — The simulator follow-up reaches williamson-construction-co (williamson-construction-co#20, `d4c6e09`)
+
+williamson-construction-co landed its Prismic CLI migration as #19 (`f1c3a6c`) after the night's rollout. That left one more site in template shape, and it got the reddoor-starter#168 follow-up, taken from williamson-homes#21. Before the fix, seven nodes reached the simulator chunk. Home and `[uid]`, for example, went from 73,917 to 69,487 B gzipped. After the fix only `/slice-simulator` reaches it.
+
+This port made one deliberate change from the williamson-homes pattern. Its smoke control asks a server-rendered route, `/join-the-team`, and requires `SAMEORIGIN` plus a `frame-ancestors` directive. `/` is prerendered, so under `vite preview` it carries no headers and a control there passes whatever the hook does. The review confirmed the control goes red when every route is framed, under both `vite dev` and `vite preview`. The starter and williamson-homes controls still ask `/`. They do bite under CI's `vite dev`, so this one is better but theirs is not broken.
+
+hedloc, the-tower-burbank and the-pointe-burbank stay without the follow-up. The operator said not to worry about the sites outside maintenance; this was relayed by the phase 4 session. This entry follows 2026-10-04 — The simulator leaves every public bundle, and an encoded path is framed.

@@ -215,6 +215,17 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       builds from it** (#10, `8a005df`). The `prismic-ci` install (#13) waits
       on the site secret, Operator decisions 69. **Next:** P4, the form on
       `/contact-us`. It also retires the starter's `/contact` (issue #11).
+    - **10-04 ~23:45Z: P4a landed** as mantis-landscaping#15 (`ab2fd86`),
+      after two review rounds; the second was clean. The form lives on
+      `/contact-us`, and `/contact` 301s there. Round 1 caught a 500 during a
+      Prismic outage, which also turned a received POST into an error page.
+      Live form-e2e passes against production. Its `re-filled once` note
+      turned out to be the probe's own pre-hydration injection, not a site
+      defect (#17 closed with the measurement; reddoor-maintenance#1148).
+      Also filed: #16 (the preview route shows no form). **Next:** P4b (newsletter) waits on
+      Operator decisions 71. The real-submission trace into Turso needs a
+      human-minted Turnstile token, because a `testMode` probe persists
+      nothing. Then P5.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -1677,6 +1688,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       - erp-industrial#66 (`41cf5ad`, `@prismicio/svelte` 2.2) and #67 (`930fab5`): `erp-industrial`, `https://www.erpfunds.com/slice-simulator`
       - data-dynamiq#57 (`76cfcae`): code only, no switch; `reddoor-wireframer` is shared.
       - williamson-homes#20 (`ab39401`): `williamson-homes`, `https://williamson-homes.netlify.app/slice-simulator` (move to `www.williamson-homes.com` at cutover)
+      - williamson-construction-co#19 (`f1c3a6c`): `williamson-construction`, `https://williamson-construction-co.netlify.app/slice-simulator` (the www domain is still the old Webflow site)
     - _Ask (d), phase 4:_ activate Prismic MCP for `hedloc`,
       `the-tower-burbank` and `the-pointe-burbank`
       (`https://<repo>.prismic.io/builder/settings/mcp/`). None is in the
@@ -1687,6 +1699,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       `claude/prismic-cli` (the-tower-burbank `a3f9aeb`, the-pointe-burbank
       `dcc9701`) with no PR. _Pick:_ activate; a later session runs the
       connector comparison, opens their PRs and lands all three.
+<<<<<<< HEAD
     - _Ask (e), phase 4:_ williamson-construction-co is migrated and proven
       in sync (connector, 0 differences over 3 types and 29 slices), but the
       permission system refused the worker's `git push` of `claude/prismic-cli`
@@ -1701,9 +1714,18 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       bundle, and the framing hook matches `event.route.id`, so
       `/slice%2Dsimulator` is framed. It landed in 12 of the 13 sites above.
       espada needed nothing: its build already kept the simulator in its own
-      node. hedloc, both Burbank proofs and williamson-construction-co
-      migrated without it. Each needs the plan §9 step 3 and step 6 additions
-      on top of its migration, in the same PR or straight after.
+      node. williamson-construction-co got it after its own migration
+      (#19 `f1c3a6c`) as #20 (`d4c6e09`), 10-05 01:3xZ. hedloc and both
+      Burbank proofs stay as they are: the operator said not to worry about
+      the non-maintenance sites (relayed by the phase 4 session, 10-05).
+=======
+      **Answered 10-05 ~01:05Z: "dont worry about non maintenance sites".**
+      hedloc and both Burbank sites are left as they are (hedloc#53 open,
+      the Burbank branches unmerged), not pursued.
+    - _Ask (e), phase 4:_ the refused push of williamson-construction-co's
+      migration. **Answered 10-05 ~01:05Z: "push approved"**; it landed as
+      williamson-construction-co#19 (`f1c3a6c`, pinned `6d86b0c`), row above.
+>>>>>>> origin/main
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:
@@ -2236,6 +2258,26 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       #32's untracked `settings.json` must move it to `settings.local.json`
       before pulling. Still open: backfilling existing sites (one PR each)
       and cherry-picking the hook into `reddoor-starter-blux`.
+
+71. **Mantis P4b: the client's Mailchimp API key (#1107, new 2026-10-04).**
+    The newsletter signup (62(d)) posts `formType: "newsletter"` to central
+    ingest, and `form-ingest.mts` forwards it to Mailchimp using the site
+    row's `mailchimp_api_key` and `mailchimp_audience_id`. A read-only
+    SELECT on `site_01M3WA8PZXD4Q8N7P234MNYJNB` found both NULL. The same
+    predicate finds a key on 1 of 47 sites, so the query can return
+    positive. The key is the client's credential. _Ask:_ supply the key,
+    or have it set on the row. _Pick:_ set the key together with audience
+    `1c9fde2079`, taken from the Blux embed (`u=5db33f711cc60af4607539cf5`).
+    Then one test signup with an address of ours, unsubscribed afterwards.
+    A worker can build the form before the key arrives, but cannot prove it
+    end to end. Also, form-e2e fills the first `[name="email"]` on the page
+    and marks the first `<form>`, so the signup must not sit above the
+    contact form on `/contact-us`.
+    The same session left the real-submission trace for P4a. A real POST
+    needs a Turnstile token that automation cannot mint (600010).
+    _Ask:_ submit the live `/contact-us` once from an ordinary browser, as
+    the operator. The worker then traces the row in Turso and the
+    notification.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
