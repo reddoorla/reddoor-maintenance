@@ -512,6 +512,39 @@ describe("configs/svelte — the Prismic toolbar and previews", () => {
     expect(d["frame-src"]).toBeUndefined();
   });
 
+  // SvelteKit's header builder skips falsy values (`if (!value) continue`), so
+  // a site writing null or false has, as far as the browser is concerned, no
+  // such directive: the chain must carry on past it.
+  it.each([null, false, ""])("treats a frame-src of %j as unset", (value) => {
+    const d = unsetFrameSrc({ "frame-src": value, "default-src": ["self", "https://x.test"] });
+    expect(d["frame-src"]).toEqual(["self", "https://x.test", "https://acme.prismic.io"]);
+  });
+
+  it.each([null, false])("skips a child-src of %j on the way to default-src", (value) => {
+    const d = unsetFrameSrc({ "child-src": value, "default-src": ["self", "https://x.test"] });
+    expect(d["frame-src"]).toEqual(["self", "https://x.test", "https://acme.prismic.io"]);
+  });
+
+  it("stops at a string child-src, which blocks frames, rather than seeding from default-src", () => {
+    const d = unsetFrameSrc({ "child-src": "self", "default-src": ["self", "https://x.test"] });
+    expect(d["frame-src"]).toBeUndefined();
+  });
+
+  it("drops a hand-quoted 'none', which SvelteKit emits verbatim", () => {
+    const d = unsetFrameSrc({ "default-src": ["'none'"] });
+    expect(d["frame-src"]).toEqual(["https://acme.prismic.io"]);
+  });
+
+  it("drops 'none' from a site's own frame-src when adding the host", () => {
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: { directives: { "frame-src": ["none"] } },
+        prismicRepository: "acme",
+      }),
+    );
+    expect(d["frame-src"]).toEqual(["https://acme.prismic.io"]);
+  });
+
   it("does not share the seed array with the fallback directive", () => {
     const d = unsetFrameSrc({ "default-src": ["self"] });
     d["frame-src"]!.push("https://evil.test");
