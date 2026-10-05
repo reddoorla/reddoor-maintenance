@@ -8721,7 +8721,46 @@ with a concrete input, each option's consequence, and the pick and why. The
 BACKLOG line stays, because AskUserQuestion only reaches someone who is there
 to answer it, and the evening and PM passes read the file.
 
-## 2026-10-05 — The backup's restore rehearsal never compared blob contents; #1195 makes it, held at Operator decisions 85
+## 2026-10-05 — CalTex moved onto Prismic slices, held on `staging` (caltex-landing#73, #74, Operator decision 85)
+
+The operator asked for the hand-built CalTex site to become a slice-based
+Prismic site, with the work on a `staging` branch instead of `main`, and the
+output checked against `main` at the end. One piece could not follow that
+literally: `prismic-models` pushes models only on a merge to `main`. The
+operator chose a models-only PR to `main` (#73). It was proven inert: 11
+prerendered files equal to `main`'s after normalising hashes, with a
+one-word negative control.
+
+I first told the operator that publishing the slice content would be
+inert. Then I second-guessed it: I thought a `page` doc with uid
+`aed-programs` would trip SvelteKit's entry-generator mismatch check against
+main's static route. A build with a fake colliding entry passed. SvelteKit's
+`enqueue` dedupes by path and queues static routes first, so the colliding
+entry is never visited. A throwing `entries()` failed the build, which
+proved the hook runs. The publish (release `asQvEBIAAHEPgEox`, which the
+operator authorized) then left the live site byte-for-byte unchanged in
+everything rendered: 14 screenshots, the DOM and the sitemap. That held
+even though every page's hydration payload now carries the new `home`
+fields. Prismic's webhook rebuilds production on every content change,
+release edits included, so the release's drafts alone triggered six
+production builds of unchanged content.
+
+Staging (#74, `23763ef`) is pixel-identical to live `main` on all 14
+screenshots, with the same text, images, links, ids, metadata and nav
+hrefs, and the same sitemap URLs. Netlify deploys neither the `staging`
+branch nor previews for PRs into it. The `deploy-preview-74` link the bot
+posted returns 404, so the final comparison is a clean worktree build of
+`origin/staging`. Merging `staging` to `main` is Operator decision 85.
+
+Two process notes. `pkill -f <pattern>` run from the same Bash call matches
+its own command line and kills the shell; that ended a step twice. Once it
+skipped a `git checkout -- <file>` that would have restored a placeholder
+from HEAD over uncommitted work. Kill by a PID captured first. And the
+parity check needs fonts: the container has no Impact and no Helvetica, and
+every earlier evidence shot set headings in a default serif until Impact
+(Microsoft corefonts) and Nimbus Sans were installed.
+
+## 2026-10-05 — The backup's restore rehearsal never compared blob contents; #1195 makes it, held at Operator decisions 86
 
 The refute-claims critic asked whether `fleet-db-backup`'s `mismatches=0` covers blob contents, since `blob_bytes=11437644` held from 10-02 to 10-05 while the row counts moved. Reading `verify-dump` answered the first half: it compared per-table row counts and one number, `SUM(LENGTH(sites.header_image))`. A blob whose bytes change and whose length does not is invisible to both. The negative control proved it on a real production dump of 51 MB, 11 tables and 1111 rows. One hex digit flipped inside a header image left exactly one byte different and the same length, and `main` printed `DUMP_VERIFY loaded=true tables=11 rows=1111 blob_bytes=11433275 mismatches=0` and exited 0.
 
@@ -8733,6 +8772,6 @@ Every Turso read went through a client-side guard that accepts one statement beg
 
 The control first went red on two tables, `sites` and `submissions`, and the second was the instrument's fault. Python's text-mode `read()` had turned every `\r\n` in 18 spam messages into `\n`. Redone in binary mode, one byte differed and one table went red. The side result is that the hash also catches a line-ending rewrite, which counts could not.
 
-Review round 1 found that SQLite's text-to-double parse misreads about one shortest-form double in ten thousand by one ULP: 0.3118957494450251 loads as 0.31189574944502513. That predates this change. It was a quiet fidelity loss in the backup, and the hash would have turned it into a permanent nightly red. Writing fractional REALs with `toPrecision(17)` fixed it. Round 2 found that integer-valued doubles of 2^63 or more take the same parse path (59 misreads in 300k at 1e16–1e305). The bound is fixed on the branch, but the fix is unreviewed. Neither path is reachable today, because every REAL the fleet writes is rounded or an integer sum. The two-dirty-rounds rule still holds the PR, so it waits on Operator decisions 85, and the worker's pick is to land it as it is.
+Review round 1 found that SQLite's text-to-double parse misreads about one shortest-form double in ten thousand by one ULP: 0.3118957494450251 loads as 0.31189574944502513. That predates this change. It was a quiet fidelity loss in the backup, and the hash would have turned it into a permanent nightly red. Writing fractional REALs with `toPrecision(17)` fixed it. Round 2 found that integer-valued doubles of 2^63 or more take the same parse path (59 misreads in 300k at 1e16–1e305). The bound is fixed on the branch, but the fix is unreviewed. Neither path is reachable today, because every REAL the fleet writes is rounded or an integer sum. The two-dirty-rounds rule still holds the PR, so it waits on Operator decisions 86, and the worker's pick is to land it as it is.
 
 Seven mutations, each red: hashes never compared, blob bytes unhashed, text bytes unhashed, absent hashes tolerated, manifest written without hashes, REALs back to `String`, and the 2^63 bound dropped. Adding two comment lines to the workflow shifted `continuity.md`'s citation of `overages: false` from line 176 to 178, and `runbook-anchors` caught it.
