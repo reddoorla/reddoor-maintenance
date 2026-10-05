@@ -8265,6 +8265,10 @@ This was the Monday pass, the heavier one. It started at 11:49Z and was a full r
 
 **Re-rank.** P1 now runs P1-27, then P1-25, then P1-24. P1-25 moved up because phase 4 put 13 sites on the Type Builder and simulator, so the toolbar and previews the baseline CSP blocks are now used fleet-wide, not on one site. Measuring the brief's lines this morning moved one of them: lighthouse's port is at `:190` now, not `:164`, after #1136.
 
+## 2026-10-05 — Mantis: the first real lead, traced end to end (Operator decisions 71)
+
+The operator sent one message through the live `/contact-us` from an ordinary browser, which is the one thing automation cannot do, because it cannot mint a Turnstile token. Three separate sources agree. Turso holds `sub_f892e464…` at 14:02:42.535Z: `contact`, `status new`, spam score 0, `notify_status sent` with a Resend message id. Gmail shows "New contact from Mantis Landscaping" from `forms@reddoorla.com` reaching the operator's inbox at 14:02:43Z. It is the site's first row. Because the site row is `building`, the pre-launch guard sent the notification to the operator only, which is the intended state until launch.
+
 ## 2026-10-05 — Operator decision 46 answered: (a), keep analytics design D3, no consent gate
 
 Asked in the P1-26 session after the privacy page landed, which is why it gets its own line. The operator picked (a): GA4 keeps loading without a consent gate on every site, California clients included, and the residual CIPA demand-letter risk is accepted. The recommendation in the item had been to put (b) or (c) to counsel along with item 45. That is now moot for 46, and item 45 (the lawyer's review of the policy wording) stays open on its own. Nothing was built for it, because `initAnalytics`' optional gate predicate already exists if the answer ever changes.

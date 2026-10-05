@@ -2301,8 +2301,14 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - **10-05: Mailchimp half answered.** The client does not use
       Mailchimp, and signups go through our Resend notify and the digest.
       Central ingest already did that for any `newsletter` row, so no
-      credential was needed. Landed as mantis-landscaping#18. The human
-      submit is still open.
+      credential was needed. Landed as mantis-landscaping#18.
+    - **10-05 14:02Z: human submit done; 71 closed.** The operator's live
+      contact submission is Turso row `sub_f892e464…` (`contact`,
+      `status new`, spam score 0, `notify_status sent` with a Resend id).
+      "New contact from Mantis Landscaping" reached the operator's inbox
+      at 14:02:43Z. The site is `building`, so the pre-launch guard routes
+      notifications to the operator only. A live newsletter signup is not
+      yet proven; that is optional.
 
 72. **#1143, the D1 nightly Prismic pull-sync: held after two dirty
     review rounds (#1090, written by its worker on 10-04 22:20Z, carried
