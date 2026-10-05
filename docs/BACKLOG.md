@@ -2471,6 +2471,14 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       direction of over-reporting or a wrong date, and the date is fixed and
       reviewed. The one unreviewed fix is a small change with its own test
       and mutation, and the pass never acts on what it flags.
+    - **Answered 2026-10-05 ~18:23Z: (a), merge #1162 as it is.** The operator
+      merged it at 18:38Z (`2849ba4d`), while `land-prs.mjs` was still gating
+      it. What remains is yours: paste the stored prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt" into a new
+      Routine (cron `CRON_TZ=America/Los_Angeles 18 17 * * 1-4`, push on, a
+      fresh session per fire). Until then no evening pass runs, though the
+      morning pass already runs the branch check (step 5).
+
 77. **The two Routines' schedules (new 2026-10-05, from the evening-pass
     worker; nothing waits on it).** The morning Routine ("Reddoor Project
     Manager") runs `48 11 * * 1-4`, a bare UTC cron, so it fires at 03:48 PT

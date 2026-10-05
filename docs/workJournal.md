@@ -8409,6 +8409,10 @@ The site-side record is mantis-landscaping's journal entry (#26). What belongs h
 
 **Still open:** the matching gate (Operator decisions 78) and P6's DNS (61).
 
+## 2026-10-05 — Operator decision answered: (a), the evening pass (#1162) merged as it is
+
+The operator picked (a) at ~18:23Z: merge #1162 without a third review round, round 2's fixes unreviewed. It was marked ready, and `land-prs.mjs` updated the branch. The operator then merged it by hand at 18:38:15Z (`2849ba4d`) while the script was still waiting on checks, and the script reported "merged elsewhere" and skipped it. The only step left is the operator's paste of the stored prompt into a new Routine. Until that Routine exists, no evening pass runs. The morning pass already runs `scripts/evening-branches.mjs` in step 5, so an ask that sits only on a branch reaches the morning report either way.
+
 ## 2026-10-05 — P1-25 round 3: the fallback seed landed, the review is dirty again (#1157, Operator decision 75)
 
 The operator answered decision 75 with (a). `51e56b1a` now seeds an unset
