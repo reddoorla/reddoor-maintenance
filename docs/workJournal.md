@@ -8543,6 +8543,19 @@ injected. The lesson for any evidence screenshot taken in a cloud
 container: check the computed font against the font actually used before
 calling the picture a likeness.
 
+## 2026-10-05 — CalTex Our Story is live (caltex-landing#71, Operator decision 79 done)
+
+The operator published release `asQFsBIAABYMgAt2`, and #71 merged at 21:17Z.
+The live site was checked from outside right after the deploy:
+`/leasing`, `/purchases` and `/preview/leasing` return 301 to the new paths,
+`/our-story` carries the new title, Erik's first paragraph and the family
+photo with its alt text, and the sitemap lists `/aed-programs` and
+`/our-story`. Twice that evening a check never got a runner: it sat
+queued for 15 minutes and was cancelled with zero steps (`build` on #1175,
+`codegen` and `deploy-preview-comment` on #71). One re-run each passed. That
+is a GitHub runner-queue failure, not a test result, and the job metadata
+(`runner_name` empty, `steps` empty) is how to tell the two apart.
+
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72)
 
 The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.

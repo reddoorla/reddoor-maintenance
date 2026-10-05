@@ -2620,6 +2620,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     serves the JPEG as `application/json`, and Prismic believed the label.
     Nothing references it, and deleting it from the library is safe.
 
+    **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
