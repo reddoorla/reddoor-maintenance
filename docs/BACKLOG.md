@@ -142,6 +142,11 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 - **Then show Tim** <https://williamson-construction-co.netlify.app>: all 14
   pages, fidelity gate passing or ledgered (`matching/LEDGER.md`), favicon,
   descriptions and share cards live. Webflow still serves `www` until 10-19.
+- **10-05 [M]: hero poster and fade-in landed (williamson-construction-co#21, `b23efd1`).**
+  The phone LCP element is now the poster `IMG`; Lighthouse mobile LCP
+  median went 3025 → 2888 ms. The video fades in over 700 ms on `playing`.
+  Phone bytes with the hero playing are 1.89 MB in 8 s. The sharper poster
+  waits on Operator decisions 74: three frames to upload, one release.
 - **Ask him for the launch facts** still open in the plan: D6 (who receives
   `/join-the-team`), D7 (who holds GoDaddy for the domain), D0 (Webflow
   billing). Cutover is planned for Wed 10-14.
@@ -240,6 +245,15 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       Live: both forms render with the visitor's query in their actions,
       and form-e2e passes. **Next:** P5. The real-submission trace still
       waits on 71's human submit.
+    - **10-05 ~16:30Z: P5 four of five done** (mantis-landscaping#19, #20,
+      #24, #25; journal #26). Lighthouse on production `f636d3d`, mobile,
+      3-run medians, against Blux measured the same day: perf 98/98/100
+      vs 97/74/92 on `/`, a project page and `/contact-us`; a11y 100 vs
+      76–79. A non-mirror build scores SEO and best practices 100; the
+      mirror's 69 is its own `noindex`. A full axe run (all rules, 5 pages
+      at 1440 and 390) found 0 violations, with a positive control. The
+      matching gate is the fifth, and needs the laptop: Operator
+      decisions 78. **Next:** P6 (DNS, OD 61) and 78.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -1436,6 +1450,16 @@ analytics"]`). The operator creates properties for the other three. When the
     (`https://www.datadynamiq.com/`). These are the measurement IDs that go in
     each repo's `src/lib/site-config.json` (design D5) when the tags are
     installed. That install is still P1-26's (privacy page first).
+    **Data Dynamiq, 2026-10-05: built, green, held for item 45.**
+    reddoorla/data-dynamiq#59 carries the DRAFT `/privacy` page, the footer link,
+    the contact-dialog notice, `@reddoorla/maintenance` ^0.104.0 and the
+    `analytics-tag` hook for `G-V11LZYNMY2` on `www.datadynamiq.com`. CI is
+    green, and on the deploy preview the page renders and the tag is inert
+    (no gtag request, no `dataLayer`; the control request was caught) [M].
+    It is not merged, because the site is live and item 45 is open; the ask
+    is item 73. The site collects nothing until it merges, and GA does not
+    backfill, so the 10-05 report's analytics section stays empty either way.
+    1836dig and 29 Navy are not started.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
@@ -2331,6 +2355,210 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     third instance. The held-for-the-operator comment on #1143 (10-04
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
+    **Answered 2026-10-05 ~18:45Z: (b)** — keep one job, fix the two correctness majors, and run a third review round on #1143 as it is. A worker session is queued for it.
+
+73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
+    45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
+    through review. Round 1 (three lenses) found one major, an every-page
+    Vimeo script the policy misdescribed, fixed by removing the dead script;
+    round 2 found no blocker or major. Item 45 says the
+    DRAFT page goes to no client's live site until the lawyer's review, and
+    Data Dynamiq is live, so the worker did not merge it. Roalson was the
+    pre-launch precedent, so it never met this rule.
+    _Ask:_ merge data-dynamiq#59 (DRAFT /privacy + GA4) before item 45, yes or
+    no. _Worker's pick:_ yes. The page is marked DRAFT and `noindex`, and its
+    disclosures are derived from the site's own code. Without a posted policy
+    the site cannot run GA4 under Google's terms, and every day without the tag is data
+    the quarterly report can never recover. The remaining exposure is wording,
+    and item 45 reviews that wording once for every site. If yes, any session
+    lands it with `node scripts/land-prs.mjs` after attaching data-dynamiq.
+    Missing either way: the legal name, privacy contact email and effective
+    date render as placeholders (none is in the repo or on the Turso row).
+    Two follow-ups are recorded in the PR and the journal and are not built:
+    editor traffic (Prismic previews, `/slice-simulator`) on the production
+    host is counted, because `initAnalytics` gates on the hostname alone, and
+    that affects every tagged site.
+    **Answered 2026-10-05 ~18:45Z: yes, merge before item 45.** The PM session's `land-prs` on data-dynamiq#59 was refused by the cloud session's permission policy as a production deploy, so the merge itself is the operator's click (or a laptop `land-prs`).
+
+74. **Williamson Construction hero: upload three poster frames and publish
+    a release (williamson-construction-co#21, new 2026-10-05).** The code
+    half landed: the hero poster is now an `<img>` with a capped imgix
+    srcset, preloaded as the LCP image, and the video fades in on its first
+    `playing`. The poster itself is still the old Webflow still (home and
+    about-us 854×480, services 640×360). Frame 0 of each hero video matches
+    that still's shot and framing exactly, so this is a resolution fix, not
+    a design call. The session could not upload the frames: the Prismic
+    connector's `upload_asset` fetches only a public URL, and the session's
+    permission policy refused both a temp host and `prismic-media-upload.yml`
+    as public uploads. _Ask:_ (a) make the three frames and upload them, or
+    (b) allow this kind of upload for a worker session and re-dispatch it.
+    The frames are reproducible from the published files, with no master
+    needed:
+    `ffmpeg -i https://williamson-construction.cdn.prismic.io/williamson-construction/LZ8LHeWvz0PJscct_wc-teacher-1080.mp4 -frames:v 1 -q:v 1 wc-teacher-poster-1080.jpg`,
+    then the same for `yiKYtvDqi9GC3AAn_wc-first-day-1080.mp4` and
+    `phNtqvqI9BXXgKlF_wc-services-720.mp4` (services is 1280×720 at the
+    master). Set them as `page_hero.background_image` on home, about-us and
+    services in one release, three deltas, and publish it. No code change is
+    needed. The srcset reaches 1920w from the field's dimensions, and
+    desktop LCP should move from the video's first frame to the poster.
+    _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
+    permission change that outlives this one task.
+    **Answered 2026-10-05 ~18:45Z: (a)** — the operator makes the three frames, uploads them and publishes the release by hand.
+
+75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
+    #1155): held after two dirty review rounds (new 2026-10-05).** The
+    branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
+    It adds `https://prismic.io/prismic-toolbar/` and the one html2canvas
+    file to `BASELINE_CSP`'s `script-src` (no `unsafe-eval`, no `blob:`), and
+    an optional `prismicRepository` that frames exactly
+    `https://<name>.prismic.io`. All four of the brief's mutations go red, and
+    so do five more that round 1 found. Round 1 found three minors, all fixed.
+    Round 2 found one more minor, which round 1's own fix introduced. When a
+    site unsets `frame-src`, the fold seeds it with `'self'` plus the host,
+    but browsers fall back to `child-src`, then `default-src`. So a site with
+    `default-src: ['self', 'https://www.youtube.com']` and no `frame-src`
+    loses YouTube frames once it names a repository. It is only reachable by
+    unsetting `frame-src` on purpose, because the baseline always defines it.
+    _Ask:_ (a) seed from `child-src`, else `default-src`, else `['self']`,
+    and land on a clean third review. Or (b) merge #1157 as it is and file
+    the seed as a follow-up. Or (c) refuse `prismicRepository` when the site
+    has unset `frame-src`. _Worker's pick:_ (a). It is a five-line fix with a
+    test, and it makes the JSDoc's claim true. Two nits from round 2 ride the
+    same push: `JSON.stringify` throws on a BigInt in the error message, and
+    the regex accepts a trailing hyphen and labels over 63 characters.
+    Separately, the security lens noted that the two script sources could be
+    gated on `prismicRepository`, as `analytics` gates GA. Without a framed
+    repository the toolbar never loads them. The brief puts them in the
+    baseline, so they stay there unless you say otherwise.
+    **Answered 2026-10-05 ~18:45Z: (a)** — seed from `child-src`, else `default-src`, else `['self']`, carry round 2's two nits, and land on a clean third review. A worker session is queued for it.
+    **Round 3 (this session, which was still open when the answer came; the
+    queued worker is not needed for the build): dirty too, so held again
+    (new ask below).** `51e56b1a` on the same branch seeds an
+    unset `frame-src` from `child-src`, then `default-src` (dropping
+    `'none'`). It also limits names to one DNS label and makes the error
+    message survive a BigInt. 61 tests pass, and 14 mutations all go red,
+    the brief's four included. Round 3 (`createSvelteConfig` output fed to
+    SvelteKit 2.70.2's own `Csp` class) found two minors. First, a site that
+    writes `frame-src: null` or `false`, or `child-src: false`, is treated as
+    a hand-written value, but SvelteKit drops falsy values, so the browser
+    sees no `frame-src` and the toolbar's host is blocked with no warning.
+    Second, no test pins that a string `child-src` (which blocks every
+    frame) stops the chain: a mutant that skips it and seeds from
+    `default-src` passes all 61 tests and would widen the policy. One nit:
+    an explicit `frame-src: ["none"]` emits `'none'` beside the host, which
+    browsers ignore but warn about. _Ask:_ (a) fix both (treat
+    `null`/`false` as unset at both steps, add the string-`child-src` test,
+    drop `'none'` on the explicit path too) and land on a clean fourth
+    round. Or (b) fix both and land without another round, since each fix
+    is a test plus a one-line condition. Or (c) merge `51e56b1a` as it is
+    and file both as a follow-up. _Worker's pick:_ (a). The round-3 defects
+    are in the same small function, and a fourth review is cheap.
+
+76. **#1162, the evening pass: held after two dirty review rounds (new
+    2026-10-05, from its worker).** #1162 (draft, branch
+    `claude/great-johnson-mwzrbr`) adds a 17:18 PT "evening pass" to
+    `docs/pm-pass.md`, ending in one push notification. It also adds the
+    stored Routine prompt for you to paste, and
+    `scripts/evening-branches.mjs`, which flags a question that sits only on
+    a branch (#1143's miss) and commits with no PR (`jolly-keller`'s). Both
+    were proven on today's state, with two negative controls, and 25
+    mutations all go red.
+    - Round 1 found four majors, all fixed: the UTC date at 00:18Z,
+      squash-merged reused branches, substring branch matching, and a
+      case-sensitive ask pattern.
+    - Round 2 found one major, fixed on the branch but unreviewed. A branch
+      reused after its PR merged, and then merged with `main`, read `main`'s
+      commits as its own and was flagged stale. That is a false alarm, not a
+      miss. The fix is `git cherry origin/main <ref> <merged head>`,
+      reproduced in a scratch repo.
+    - _Ask:_ (a) merge #1162 as it is, then paste the Routine prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt"; or (b) run
+      a third review round first.
+    - _Worker's pick:_ (a). Every defect either round found was in the
+      direction of over-reporting or a wrong date, and the date is fixed and
+      reviewed. The one unreviewed fix is a small change with its own test
+      and mutation, and the pass never acts on what it flags.
+    - **Answered 2026-10-05 ~18:23Z: (a), merge #1162 as it is.** The operator
+      merged it at 18:38Z (`2849ba4d`), while `land-prs.mjs` was still gating
+      it. What remains is yours: paste the stored prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt" into a new
+      Routine (cron `CRON_TZ=America/Los_Angeles 18 17 * * 1-4`, push on, a
+      fresh session per fire). Until then no evening pass runs, though the
+      morning pass already runs the branch check (step 5).
+
+77. **The two Routines' schedules (new 2026-10-05, from the evening-pass
+    worker; nothing waits on it).** The morning Routine ("Reddoor Project
+    Manager") runs `48 11 * * 1-4`, a bare UTC cron, so it fires at 03:48 PT
+    from 11-02. Its stored prompt also tells it to call `list_sessions` /
+    `get_session`, which a Routine does not have. The evening Routine in
+    #1162 runs on the same Monday-to-Thursday days.
+    - _Ask:_ (a) extend both Routines to Friday (`1-5`), write the morning
+      cron as `CRON_TZ=America/Los_Angeles 48 4 * * 1-5`, and drop the
+      `list_sessions` line from its prompt; or (b) leave both at Monday to
+      Thursday.
+    - _Pick:_ (a). Otherwise workers started on a Friday morning end with
+      nobody reading them until Monday's pass. Either way, these are edits
+      in the Routines' settings, not a repo change.
+      **Answered 2026-10-05 ~18:45Z: (b), Monday to Thursday** — that is the operator's work week. Still open inside it, not re-asked: the morning cron is bare UTC, so it fires an hour earlier in PT after 11-02 [I], and its prompt names `list_sessions`, which a Routine lacks.
+
+78. **Mantis P5: run the matching gate from the laptop (#1107, new
+    2026-10-05).** P5's last "done when" is the matching gate at
+    1440/834/390 for `/`, one project page and `/contact-us`. It cannot run
+    in a cloud container: `matching/harness.json` points at
+    `~/.claude/skills/matching-a-page/page-diff.mjs`, a user-level skill
+    that is not in the container. No page has a `matching/SPEC.md` section
+    yet, and the matching rules refuse a geometry round without one (Phase
+    1 first). Everything else in P5 is done and measured (see P1-30).
+    _Ask:_ run Phase 1 and the gate in a laptop session, or waive the gate
+    for launch. _Pick:_ run it, starting with `/`; the Blux capture under
+    `matching/spec/` is already in the repo, so a laptop session can begin
+    at Phase 1 with no new capture.
+    **Answered 2026-10-05 ~18:45Z: run it** — Phase 1 and the gate in a laptop session, starting with `/`. A worker card is queued (laptop only).
+
+79. **CalTex: put Erik's Our Story copy and family photo in Prismic, publish,
+    then merge caltex-landing#71 (new 2026-10-05, Erik in #caltex 18:29Z).**
+    The code half is ready and unmerged:
+    [caltex-landing#71](https://github.com/reddoorla/caltex-landing/pull/71).
+    It renames `/leasing` to `/aed-programs` and `/purchases` to `/our-story`,
+    with 301s (all four old paths, `/preview/…` included, proven on the
+    deploy preview). It also changes the nav labels, titles and sitemap, sets
+    the story copy at 24px (18px under 1024), and frames the photo
+    `object-cover object-right`. The content half could not be staged: the
+    Prismic connector answers "Prismic MCP is not activated for repository
+    caltex-landing" to every call, `list_releases` and `upload_asset`
+    included. So no release exists. Before and after at 1440 and 390, with
+    the copy injected in the browser:
+    https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix (private to you).
+    _Ask:_ in Prismic, open the `home` document (`Z38tQRIAACcALhJe`) and
+    make these edits:
+    - `s3 title`: replace the text with paragraph 1.
+    - `s3 closing text`: replace the text with paragraph 2. It was not
+      rendered before #71, which renders it as the second paragraph.
+    - `s3 image`: upload `Kohnen-Family_crop.jpg` from
+      `https://www.dropbox.com/scl/fi/sswmsdq01iaycppg02x8k/Kohnen-Family_crop.jpg?rlkey=0s1a4uc3ohgw9q0xk99uob4sp&dl=1`.
+      Set its alt to "Ryan and Lacey Kohnen, founders of Caltex Medical, with
+      their family".
+    - Optionally, `s2 eyebrow` → "AED Programs starting at $68 per month
+      include:". No page renders it.
+
+    Paste the two paragraphs from Erik's Discord message
+    (`1556735086710235317`) or from here. Both keep his U+2011 non-breaking
+    hyphens:
+
+    > Boerne residents Ryan and Lacey Kohnen founded Caltex Medical, Inc. in 2025 with a mission to deliver cost‑effective, fully managed, life‑saving AED programs to schools, churches, youth sports organizations, and smaller organizations. Ryan’s experience working for an AED manufacturer from 2015–2017 introduced him to numerous survivors of Sudden Cardiac Arrest (SCA) whose lives were saved because an AED was accessible and properly maintained. He also saw firsthand how many organizations struggled to afford, manage, and keep their AED programs compliant.
+
+    > Driven by a commitment to strengthen the safety of the community they are active in, Ryan and Lacey built Caltex Medical to ensure that schools, churches, and families throughout San Antonio and the Texas Hill Country have reliable, ready‑to‑use AEDs — giving every SCA victim the best possible chance of survival.
+
+    Then publish, merge caltex-landing#71 (or let a session land it with
+    `land-prs`), and tell Erik. Merge order matters: if #71 goes live first,
+    `/our-story` shows the old "Interested in purchasing…" line under the
+    "Our Story" heading. Also open: #71 keeps the five purchase bullets and
+    the Request Info button under the story. Erik named them only as a size
+    reference. _Worker's pick:_ do the edits by hand. It is a five-minute
+    edit, and you are in Prismic to publish anyway. Activating MCP
+    (https://caltex-landing.prismic.io/builder/settings/mcp/) is the
+    durable fix for the next CalTex worker. Keep the bullets until Erik says
+    otherwise, and use 24px over the 20px alternative on the evidence page.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 

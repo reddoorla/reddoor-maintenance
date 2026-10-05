@@ -30,6 +30,10 @@ one out, so a missing part reads as a decision and not an oversight.
 - **Stop conditions.** `AUTONOMY.md`'s six always apply. This part adds the
   item's own: the fork that would change what the feature is, the file owned by
   another session, the RED step that follows.
+  Whatever the stop, its "Operator decisions" line lands on `main` as its own
+  docs-only PR. #1143 (2026-10-05) is why: its worker held the PR after two
+  dirty rounds and wrote the ask on the PR's own branch, so `main`, which is
+  what the PM pass reads, asked the operator nothing for 13 hours.
 - **Landing.** The same every time, so it is short.
 
 ## Template
@@ -62,6 +66,9 @@ on two consecutive days, and a test pins it">
 - <the product fork this item could hit, stated as the question>
 - <files owned by another session today: do not edit>
 - Two dirty review rounds → "Operator decisions", not a third round.
+- At any stop condition: the "Operator decisions" line lands on `main` as its
+  own docs-only PR (`land-prs.mjs`), never only on this work's branch or held
+  PR. Then push the work branch and end.
 
 **Landing.**
 
@@ -73,6 +80,10 @@ on two consecutive days, and a test pins it">
 4. Move the item to BACKLOG's Done section in the same PR.
 5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
 6. Journal entry in `docs/workJournal.md`, landed before the session ends.
+7. Stopped instead of landing? The "Operator decisions" line still lands on
+   `main` as a docs-only PR (step 5), and the work branch is pushed. A
+   branch with no PR, or a question only on a branch, is what the evening
+   pass flags.
 ```
 
 ## An example

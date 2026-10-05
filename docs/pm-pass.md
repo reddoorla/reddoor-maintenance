@@ -1,7 +1,10 @@
 # The daily PM pass
 
-A scheduled Routine ("Daily PM pass", 04:48 America/Los_Angeles, every day)
-starts a fresh cloud session and gives it this file. The session's job is to
+A scheduled Routine ("Reddoor Project Manager", Monday to Thursday) starts a
+fresh cloud session and gives it this file. Its cron is `48 11 * * 1-4` with no
+time zone, which is UTC: 04:48 PDT, and 03:48 PST once daylight saving ends on
+2026-11-01 (read from `list_triggers` 2026-10-05; this line said "every day"
+until then). The evening pass, below, is a second Routine on the same file. The session's job is to
 **prioritize, not build**: it re-checks `docs/BACKLOG.md` against the live
 state of the fleet and this repo, re-ranks it, writes the day's morning
 report, and lands one docs-only PR. It does not write code, dispatch fleet
@@ -70,7 +73,11 @@ The prompt lives here so it can be changed by PR, like everything else.
    added under "Operator decisions" since the last report: workers write their
    stop-condition questions there instead of asking (`CLAUDE.md` → "Worker
    sessions never ask mid-flight"), so each new line goes into the morning
-   report's top of stack with the branch or PR it names.
+   report's top of stack with the branch or PR it names. Then run
+   `node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance`
+   (see "The evening pass") and lift every ask it finds only on a branch, in
+   the same way. A worker that writes its ask only on its own branch is
+   invisible to a read of `main` (#1143, 2026-10-05).
 
    **[H] items** are the ones the operator builds by hand. Rank them with
    everything else, but list them in their own "Yours to build [H]" section of
@@ -121,6 +128,175 @@ minutes instead of 45:
   today's.
 - **Full re-rank.** Re-order P0/P1 from scratch rather than editing the
   previous order, and say so in the header's "Last full re-rank" line.
+
+## The evening pass
+
+A second Routine ("Reddoor evening pass", 17:18 America/Los_Angeles, Monday to
+Thursday) starts a fresh cloud session at dinnertime and gives it this file.
+The operator reads its one notification, then at most the day's `## Evening`
+section, then stops: ten to fifteen minutes. The morning pass ranks the day;
+the evening pass answers one question, **what needs the operator before
+tomorrow morning that the morning report could not see?** Most of the day's
+nightlies, the `daily-reports` drafts (about 15:00Z) and every worker
+session's ending all happen after the morning pass has finished.
+
+It exists because of three misses on 2026-10-05. A worker held #1143 and
+wrote its question only on its own branch (`claude/wizardly-brown-2ylvcv`),
+so `main` asked the operator nothing for 13 hours. Another session left
+docs commits on `claude/jolly-keller-9h8tzh` with no PR. And at 12:00Z every
+nightly was still pending, so the morning pass could not report any of them.
+
+### Rules that bind the evening pass
+
+0. **"Today" is the America/Los_Angeles date**, `TZ=America/Los_Angeles date +%F`,
+   everywhere in this section. The pass fires at 17:18 PT, which is 00:18Z
+   (01:18Z in winter), so the UTC date has already moved on. Read the clock
+   with `date -u` beside it, as `CLAUDE.md` asks.
+
+1. Everything under "Rules that bind this session" above applies, except
+   that the pass is **read-only** apart from one docs-only PR. That PR may
+   touch only today's `docs/morning-reports/MORNING_REPORT_<date>.md`, where
+   it appends a `## Evening` section, and `docs/workJournal.md`, where it
+   adds one line, not a full entry. It never edits `docs/BACKLOG.md`: it
+   lifts what it finds into the report, and the next morning pass re-ranks.
+2. **It never acts on what it finds.** It does not open a PR for an
+   unprotected branch, comment on a worker's PR, re-run a job or merge
+   anything. Each finding becomes an exact ask in the evening section, and
+   the next morning pass carries any that are still open. If no morning
+   report exists for today (a holiday, or a morning pass that failed), it writes
+   `MORNING_REPORT_<date>.md` containing only the `## Evening` section and a
+   first line saying so.
+3. **Time budget: about 20 minutes.** It reads, it does not investigate. A red
+   nightly gets its name, its `FLEET_WRITE_SUMMARY` line and its tracking
+   issue, not a diagnosis.
+4. **The branch and decision checks are a script, not a reading.** Use
+   `scripts/evening-branches.mjs`. It was proven on 2026-10-05: it flags both
+   branches above, and it passes a squash-merged branch (#1153) and a fully
+   merged one (#1151). Do not replace it with a grep: a literal
+   `Operator decisions` grep of #1143's diff hits the phrase only in its
+   journal lines. The held ask sits in item 57's sub-bullets and never names
+   the section it is in.
+
+### The evening pass, in order
+
+`<since>` is the time today's morning PR merged: the `merged_at`, in UTC with
+its `Z`, of the PR that added `MORNING_REPORT_<today>.md`. If no morning PR
+merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
+`date -u`. A later `<since>` means the date is wrong, so stop and fix it.
+
+1. **Branches and decisions.** From a worktree detached at `origin/main`:
+
+   ```sh
+   node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance --main-since <since>
+   ```
+
+   It fetches every `claude/*` and `fix/*` branch whose last commit is within
+   seven days, and prints one `EVENING_BRANCHES_SUMMARY` line followed by
+   these sections:
+   - **Lines added under "Operator decisions" on `main` since `<since>`.** These
+     are every decision line workers landed today. Each new ask goes in the
+     evening section, with the PR it came from.
+   - **Asks only on a branch.** A branch that is neither merged nor at the
+     head of a merged PR, and that adds an `_Ask:_`, `_Pick:_` or question
+     line under "Operator decisions" which `main` lacks. This is failure 1.
+     Lift each ask into the evening section word for word, with its branch
+     and PR. When the script adds "already names this branch", `main`
+     already carries the ask, usually paraphrased by an earlier pass. Write
+     "already item N" and leave it at that.
+   - **Other lines under "Operator decisions" only on a branch.** These are
+     usually status notes. The script prints them only for branches whose
+     last commit is under 36 h old, and names older ones once on a single
+     line. Read the listed ones when their branch has a draft PR or is
+     unprotected: a question written without `Ask:`, `Pick:` or a closing `?`
+     lands here. Lift any you judge to be an ask.
+   - **Unprotected branches.** Commits not on `main` (`git cherry`, so a
+     rebase-merged commit does not count), no open PR, no merged PR at the
+     tip, and a last commit at least 2 h old. This is failure 2. `NEW` means
+     the last commit is under 36 h old. List each `NEW` one with its commit
+     subject and the ask "open a PR from it, or say it can go". The `older`
+     ones are known residue: give their count and names in one line, and do
+     not repeat the ask nightly.
+
+   **Prove it first, every run.** The summary line must show `scanned` > 0. A
+   `gh api` failure stops the script with an error; it never reads a failure
+   as "no PR". If the script errors, the evening section says so, and the
+   notification headline is "evening branch check failed: <error>", never
+   "nothing needs you".
+
+2. **Nightlies.** As in the morning pass, step 1: every
+   `event == "schedule"` run created in the 24 hours before `date -u`
+   (`created=>=<that time>`), with each fleet run's
+   `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line read from its job log,
+   and every tracking issue opened or closed since `<since>`. List any run still
+   pending by name. A green run with `failed>0` is not green.
+3. **Today's `daily-reports` drafts.** Read today's `daily-reports` run log.
+   Then, SELECT only, the reports that are pending approval (draft ready, not
+   approved, not sent, not withdrawn: `isPendingApproval` in
+   `src/reports/report-row.ts`). Write one exact ask per draft: "approve on
+   `/s/<slug>`; it sends with tomorrow's run", plus any preflight warning it
+   carries. If the run has not finished yet, say "drafts pending" and give
+   the run's state.
+4. **PRs merged since `<since>`**, as one line each: number, title, author.
+   This is the "what got done" list, so keep it short.
+5. **Open PRs that are red or held.** Read every open PR through REST
+   (`pulls?state=open`). List each one that has a failing check on its head,
+   is a draft, or is a release PR (`chore(release): version packages`, which
+   is always the operator's), with its age. A green, unmerged Renovate PR is
+   a rule working: name the rule rather than listing it.
+6. **The `## Evening` section.** Append it to today's morning report, in this
+   order: the headline; the asks, numbered and ordered by date (each one
+   exact: what to click or answer, and where); then the evidence (the
+   summary line, the nightlies table, merged PRs, open red or held PRs). Tag
+   every claim [M] or [I] as the morning report does.
+7. **Journal line, PR, land.** Add one line to `docs/workJournal.md` under a
+   heading of the form `## <date> — Evening pass`, giving the
+   headline and the summary line. Open the docs-only PR and land it with
+   `node scripts/land-prs.mjs <pr>`.
+8. **The notification.** The session's last message is the notification. Its
+   first line is the single most important thing for tonight, or exactly
+   `nothing needs you tonight`. Then at most three more lines, one per other
+   ask, most urgent first. Use "nothing needs you tonight" only when step 1
+   ran cleanly, no asks were found on a branch or added on `main`, there is
+   no `NEW` unprotected branch, no draft is waiting, no nightly is red, and
+   no release PR is open. Any other result goes in the headline.
+
+### The evening Routine's stored prompt
+
+The operator pastes this into a new scheduled Routine with these settings:
+
+- **Name:** "Reddoor evening pass".
+- **Repository:** `reddoorla/reddoor-maintenance`.
+- **Schedule:** `CRON_TZ=America/Los_Angeles 18 17 * * 1-4`. That is 17:18 PT
+  all year: the zone is written into the cron, unlike the morning pass's
+  bare UTC cron, and the minute is moved off :30 because the scheduler runs
+  late on round minutes.
+- **Model:** the morning pass's.
+- **Notifications:** push on.
+- **Session:** a fresh session for each fire.
+
+```text
+Evening pass for reddoorla/reddoor-maintenance. It runs Monday to Thursday at 17:18 America/Los_Angeles, each run in a fresh session.
+
+Set up first:
+1. This Routine has reddoorla/reddoor-maintenance selected as its repository, so it should already be checked out. If it is not (no checkout of that repo in the working directory), call add_repo (owner reddoorla, repo reddoor-maintenance, access push) and clone it exactly as the result says. If neither is possible, stop and make your final message: "NO REPOSITORY: the evening Routine needs reddoorla/reddoor-maintenance selected as its repository."
+2. In the checkout, run:
+   - git fetch origin main
+   - git status (the checkout must be clean; if it is not, say so and do not discard anything)
+   - git checkout --detach origin/main
+   - CLAUDE_CODE_REMOTE=true bash .claude/hooks/cloud-session-setup.sh
+
+If any of that fails, stop, and make your final message the exact command and its error.
+
+Then read docs/pm-pass.md, section "The evening pass", and follow it exactly; it is the full instruction set. In short:
+- "Today" is the America/Los_Angeles date (TZ=America/Los_Angeles date +%F). The UTC date has already rolled over when this runs.
+- Run node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance --main-since <the UTC time, with Z, that today's morning PR merged>. Lift every ask it finds, on a branch or newly on main, into tonight's asks word for word, and list every NEW unprotected branch.
+- Read the last 24 hours of scheduled runs with each FLEET_WRITE_SUMMARY line, today's daily-reports drafts waiting for approval with the exact /s/<slug> ask, PRs merged since the morning pass, and open PRs that are red, draft or release.
+- Append "## Evening" to today's docs/morning-reports/MORNING_REPORT_<today>.md, add one docs/workJournal.md line, open one docs-only PR from a new worktree, and land it with node scripts/land-prs.mjs once CI is green.
+
+Read-only otherwise: do not write code, do not edit docs/BACKLOG.md, do not open PRs for other branches, do not comment on other PRs, do not re-run or dispatch any workflow, and never post to Discord. You cannot see live sessions; worker state comes from branches and PRs only. Stop after about 20 minutes and list whatever is still pending as pending.
+
+Your last message is the push notification. Its first line is the single most important thing for tonight, or exactly "nothing needs you tonight" when the pass found nothing (the section defines when that is allowed). Then up to three more lines, one per remaining ask, most urgent first.
+```
 
 ## What the operator wants to see
 

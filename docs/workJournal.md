@@ -8307,6 +8307,207 @@ checkout would have misread it.
 
 The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
 
+## 2026-10-05 — Data Dynamiq: DRAFT `/privacy` and GA4 built, green, held for item 45 (data-dynamiq#59, #1160)
+
+The brief was BACKLOG 49's Data Dynamiq line. The property and stream already existed, and the tag was parked behind P1-26's privacy page. All three "verify first" checks held: no `src/routes/privacy`, no tag in `src/`, and the recipe's refusal at `index.ts:171-187`. data-dynamiq#59 now carries the starter page, a footer link, a contact-dialog notice, the `@reddoorla/maintenance` bump to ^0.104.0 that `initAnalytics` needs, and the recipe's own hook for `G-V11LZYNMY2` on `www.datadynamiq.com`. CI is green. On the deploy preview's built output, in a real browser, the tag is inert (no gtag request, no `dataLayer`), and a hand-injected gtag request was caught by the same recorder. The PR is not merged. The brief's stop condition applies: item 45 is open, the site is live, and the operator's message carried no waiver. The ask is Operator decisions 73. Item 46 was answered (a) mid-session (#1153), which matches what was built: no consent gate.
+
+**The mutation the brief named found a bug in this repo, not in the site.** Mutation 2 was to pass the numeric property ID as `--measurement-id` and expect a refusal. The command crashed instead: cac coerces `556916505` to a number, and `.trim()` threw a TypeError with exit 1. The friendly refusal written for exactly that confusion never ran. The unit tests had always passed strings, so they could not see it, and only running the real binary could. #1160 coerces with `String()`, as `match-harness` already did. It adds two tests, and the first was red before the fix. The same crash applied to a numeric `--production-host`.
+
+**Review was dirty once, on accuracy rather than code.** Round 1 ran three lenses: the tag gate, policy accuracy, and regressions. The accuracy lens found that `app.html` loaded Vimeo's `player.js` on every page while nothing used it. So the starter's line "Vimeo receives your IP address when the video loads" was false for this site. The fix was to remove the dead script, not to reword the template. Round 2 was clean. Its one minor (Vimeo is still disclosed, through a component branch no page uses) was left: over-disclosure is the safe direction.
+
+**Two follow-ups, recorded and not built.** `initAnalytics` gates on the hostname alone, so a Prismic preview or `/slice-simulator` opened on a production host counts as a visit. That holds for every tagged site, and the right fix belongs in the package (the `gate` predicate, or a path rule), not in one site's generated hook. And no fleet Lighthouse or smoke run against a production URL blocks `googletagmanager.com`, according to the tag lens's grep of `src/`. I have not verified that those runs actually reach the tag.
+
+**Environment notes.** This cloud image's Chromium is build 1234, and data-dynamiq's Playwright 1.63 wants 1243. Symlinking the 1243 directories to 1234 under `/opt/pw-browsers` let both the site's suite and the a11y audit run; a `launchOptions.executablePath` override covered only the site's own specs. The 10-05 Data Dynamiq report was drafted before any tag existed, so its analytics section stays empty whatever happens next. GA does not backfill. No GA hit has been measured, because the tag is not deployed.
+
+## 2026-10-05 — Williamson hero: the poster becomes the LCP image, the video fades in on `playing`; the sharper poster is Operator decisions 74 (williamson-construction-co#21, `b23efd1`)
+
+A worker brief from the operator's 10-05 ask: a better hero placeholder and a fade-in once the video starts. The code half landed, after two review rounds, the second clean. The content half stopped at a permission refusal and is now Operator decisions 74. The site's journal entry for #21 carries the per-number detail; this one keeps what the fleet should know.
+
+**The world against the brief.** Two claims were checked before any work began. The home poster is 854×480, as the brief said. About-us is 854×480 too. Services' poster is 640×360, and its video is 720p, not 1080p: its master is 1280×720, so a 1280 frame is the sharpest honest poster there. Frame 0 of each hero video matches the old Webflow poster's shot and framing exactly, so the placeholder fix is a resolution change and not the design call the brief's stop condition guards against. The 1920 "posters" already in the library (`wc-school`, `wc-doctor`, `wc-scan-poster-1080`) belong to the video bands and serve as share images. None is a hero frame.
+
+**Two design beliefs the review overturned, both fleet-relevant.**
+
+- `srcset()` in the site's `image.ts`, which the starter's sites share, always advertises 480–2560w. imgix's default `fit=clip` **upscales**: an 854-wide poster asked for at `w=2560` came back 2560×1439, 57 KB of AVIF against 19 KB for the original. That is bytes with no detail. `cappedWidths` from `@reddoorla/maintenance/images` exists for exactly this and was not used here. `HeroBackgroundImage` on the same site has the same uncapped ladder, so any site whose hero image is smaller than 2560 pays for it.
+- `sizes="100vw"` is wrong for any image under `object-cover` in a fixed-height box narrower than the image's aspect. Williamson's hero is 500 px tall below 992 px, so a 16:9 poster is 889 px wide on a 390 px phone. The phone was told 390 and upscaled its pick 1.74×.
+
+**The LCP result is split, and the reason is worth keeping.** On the phone the LCP element moved from the `VIDEO` (via its poster attribute) to the poster `IMG`, and Lighthouse mobile LCP fell from 3025 to 2888 ms. At 1440 the LCP is still the video. Chrome scores an image by its natural pixel area, so an 854×480 poster (0.41 MP) loses to the 1440×700 first frame of a 1080p webm however early it paints. That is why decision 74 matters beyond looks: a 1920 poster ties the frame, and only then is the poster the LCP everywhere.
+
+**Instruments, each proved before it was read.** The first byte counter waited 30 s for a hero `<img>` that production does not have and summed bytes over the whole wait. The second froze the sum at 8 s and split it by file, which showed the two video bands also start loading on the phone. Before and after, video plus every poster at 390 is 2.20 / 2.13 MB before and 1.89 / 1.90 MB after, under the 3 MB line. The fidelity gate's `page-diff` lives in the operator's user-level skills and does not reach a cloud session. Its substitute, the SSIM of hero stills under emulated reduced motion, scored 0.989–0.995 before against after on nine page×width pairs, and 0.519 on a deliberate mismatch.
+
+**What a cloud worker cannot do, measured.** The auto-mode classifier refused an upload to a temporary file host, and then refused even reading the site's `prismic-media-upload.yml`, as "Public Data-Sharing Upload". So a worker that needs a new Prismic image asset cannot finish one from a cloud session today unless the frames already sit at a public URL. Decision 74 offers the fifteen-minute manual path and the policy alternative, and picks the manual one.
+
+**Accounting.** One CI red was this session's own: two tests added without regenerating the site's generated `docs/COMPONENTS.md`. It was reproduced locally and fixed. The local `/projects` hover smoke timed out at 30 s on both the branch and a clean `main` worktree and passed in CI, so it is the container's speed, not a regression.
+
+## 2026-10-05 — P1-25: the toolbar fits the CSP baseline; held after round 2 (#1157, Operator decision 75)
+
+The shared `BASELINE_CSP` had the same gap williamson-homes#7 found per site.
+It blocked the Prismic toolbar's `toolbar.js`, the html2canvas file its Share
+button loads, and the `<repo>.prismic.io` iframe. #1157 adds the two script
+sources with exactly the starter's path and file scoping (reddoor-starter#164),
+plus an optional `prismicRepository` on `createSvelteConfig`. That option
+frames one repository host, folded in after site overrides the way the
+analytics fold is.
+
+The brief's html2canvas stop condition did not fire. The security lens fetched
+html2canvas 1.4.1 from hertzen.com (198 KB) and found no `eval`,
+`new Function`, `blob:`, `createObjectURL` or `Worker`. Its rendering goes
+through `data:` images, which `img-src` already allows. `toolbar.js` contains
+a `Function('return this')()`, but only as the core-js global fallback, which a
+browser never reaches. One belief was corrected on contact: the brief named
+toolbar 4.1.10, and `prismic.js` now pins 4.1.12. The prefix-scoped source
+covers both.
+
+The brief's four mutations each turned tests red. The round-1 tests lens found
+three survivors: the repository fold skipped under `analytics: true`, lazy
+validation, and dots in the name. It also found two coercion and seed minors,
+and all of these were fixed in `b2592187`. That lens edited the shared
+worktree while I was editing it. Its `git checkout --` restore wiped my
+in-progress `svelte.ts` fix, and my test run then showed failures that were its
+mutant, not my code. The round-2 reviewer worked on a `git archive` copy
+instead, and that is the way to run a mutation-running reviewer from now on.
+
+Round 2 found that round 1's own fix was wrong. Seeding an unset `frame-src`
+with `'self'` ignores the browser's fallback to `child-src` and then
+`default-src`, so naming a repository can block frames that used to load.
+Under the two-dirty-rounds rule, the PR is held, not given a third round. The
+ask is Operator decision 75: the worker's pick is to seed from the fallback
+chain and review once more. #1157 is unmerged; its CI `build` passed on `b2592187` at 15:01Z
+(it was still running at 14:56Z, when this entry was first drafted), and
+the fleet rollout has not started.
+
+## 2026-10-05 — The evening pass, researched and built, then held after two review rounds (#1162, held in Operator decisions)
+
+October is a book month: the operator touches the system twice a day, at the morning report and at ~17:30 PT. The day's own misses showed what the morning touch cannot see. #1143's worker held its PR and wrote the ask on that PR's branch, so `main` asked nothing for 13 hours. `claude/jolly-keller-9h8tzh` carried three docs commits and no PR. And every nightly was still pending at 12:00Z. This session researched how others run unattended agent days, then built the pick.
+
+**The research confirmed (A), with one change.** The three options were: (A) a second LLM Routine at 17:30 PT; (B) a deterministic GitHub Actions digest, plus a push from each worker; (C) the digest, with an LLM pass only when it is non-empty. Ranked first on catching failures 1–3, the deciding fact was that the coverage comes from the deterministic checks, not from who runs them. So the checks became `scripts/evening-branches.mjs`, and (A) runs it. (B)'s per-worker push turned out weak. A `Stop` hook fires every turn. Whether `SessionEnd` fires when a cloud VM is reclaimed is unverified. Push services are off the egress allowlist. And a worker that crashed or forgot, which is failure 2, never pushes. GitHub Mobile pushes only on mentions, assignments and review requests, so a bot-filed digest issue reaches the inbox, not the phone, and an assignment by `github-actions[bot]` is unverified. The morning Routine's push is the one notification channel already proven. That leaves (A) tied with (B) and (C) on failures 1–3, and ahead on operator minutes: the operator gets one ranked headline with exact `/s/<slug>` asks, not a table to interpret. Its token cost is one ~20-minute session per weekday. That is the cost (C) would have saved, and (C) needs an API token as an Actions secret, which is 🔴.
+
+**A literal grep would have missed failure 1.** The brief said to grep the unmerged branches' diffs for `Operator decisions`. On #1143's branch that phrase appears only in the journal lines. The held ask itself sits in item 57's sub-bullets (lines 1631–1656 of the branch's BACKLOG) and never names the section it is in. The script instead parses the `-U0` hunk headers and keeps the added lines that fall between the `## Operator decisions` heading and the next `##`. A second limit came out of the live run: the morning pass had already lifted the ask as item 72 in its own words, so exact-line dedupe against `main` cannot see the lift. The script now marks a branch that `main`'s section already names, and the pass writes "already item N" for it.
+
+**Proved before trusted.** On today's state (14:44Z) it flags `claude/wizardly-brown-2ylvcv` as an ASK (open draft #1143) and `claude/jolly-keller-9h8tzh` as NEW and unprotected (no PR, last commit 13.2 h old). Both negative controls read `ok`: #1151's head (fully merged) and #1153's head, which is squash-merged, has two commits not on `main`, and edits Operator decisions. `--main-since 12:08Z` lists the 26 decision lines that #1152, #1153 and #1154 landed, and `--main-since now` lists 0. 14 mutations were named and run, and every one turned a test red. Three survived the first draft, and each exposed a hole that was then fixed. M1 survived because a redundant timestamp fallback covered merged PRs, so the fallback was removed. M9 (a closed, unmerged PR counted as cover) and M11 (`fresh` always true) survived for want of an e2e case, so both cases were added.
+
+**Also corrected on contact.** `pm-pass.md` said the morning Routine runs "every day". `list_triggers` shows `48 11 * * 1-4`, Monday to Thursday, in bare UTC, so it will fire at 03:48 PT from 11-02. Its stored prompt still asks for `list_sessions`, which a Routine lacks. The doc line is fixed. The Routine's own settings are the operator's (the Operator decisions item "The two Routines' schedules", with Friday). The evening cron writes its zone in (`CRON_TZ=America/Los_Angeles 18 17 * * 1-4`). This session could have created the Routine, since `create_trigger` was in its toolset, but the brief kept that for the operator, so the prompt is a paste. Seven branches with week-old unique commits and no PR exist today (`older` in the output). They are left alone, as other sessions' work, and listed by name once a night rather than asked about.
+
+Review round 1 found four real defects and three smaller ones. All seven were fixed, and each fix has its own mutation (M15–M21, all red).
+
+- **The date (major).** The Routine fires at 00:18Z, so every "today" in the first draft was the UTC tomorrow. The Monday-evening run would have written a fresh Tuesday report, holding only an Evening section, that collided with Tuesday's morning pass. Its `<since>` would have sat in the future, so `--main-since` returned nothing, and the pass would have sent a false "nothing needs you tonight". Every "today" in the section is now `TZ=America/Los_Angeles date +%F`, and `<since>` must be earlier than `date -u`.
+- **Reused branches (major).** A branch reused after a squash-merged PR re-reported everything that PR had landed. Live, `claude/a11y-blend-mode-unmeasured` read `ahead=6` and showed four "Answered 09-30" lines. One commit actually came after #1014. When the merged PR's head is an ancestor of the branch, it is now the base, and the branch reads `ahead=1` with no lines.
+- **"Names this branch" (major).** The check matched substrings, so `…-csp` counted as named by `…-csp-r3`. It now needs a boundary on both sides of the name.
+- **Ask pattern (major).** It was case-sensitive, and `main` already carries a `_pick:_`. A question with no marker, on a draft-PR branch, would have fallen through, so the doc now has the pass read those lines.
+- **Smaller.** `--main-since` failed silently when `main` had no earlier commit, and accepted zone-less times. The PR query did not encode the branch name. And no test added a line at the section's last line, where new items go.
+
+Review round 2 found a real major in round 1's own fix. That fix had made the merged PR's head the `git cherry` upstream, so a reused branch that later merged `main` back in read `main`'s incoming commits as its own: a scratch repo counted 2 where the truth is 0. The limit form, `git cherry origin/main <ref> <merged head>`, counts 0, and 1 after one real commit. It is fixed on the branch along with round 2's minor and three nits (M22–M25, all red), but not reviewed. By the two-dirty-rounds rule, #1162 is held as a draft, and the ask is the Operator decisions item "#1162, the evening pass". The worker's pick is to merge as it is: both rounds' defects were over-reporting or the date, and the pass never acts on what it flags. So the operator gets one decision, not zero, and the brief's "one paste and nothing else" waits on it. This entry and both items land on `main` in their own docs-only PR, from the sibling branch `claude/great-johnson-mwzrbr-od74`. That follows the rule #1162 adds: an ask written only on its own PR's branch is #1143's miss again.
+
+## 2026-10-05 — Mantis P5: four of five "done when" met; the matching gate needs the laptop (mantis-landscaping#19, #20, #24, #25)
+
+The site-side record is mantis-landscaping's journal entry (#26). What belongs here is about method.
+
+**Lighthouse baselines must be re-measured on the same day, as medians.** The plan's 10-01 Blux table was one run per page. Re-measured today, 3 runs each, Blux's project page scored 92, 74 and 66. Against that one-run baseline, the new site's first numbers looked like a regression on `/` (89 against 96). A same-day median showed the real gap, and then that #20 closed it (98 against 97).
+
+**Two scores were artifacts of the instrument, not the site.** SEO 69 is the `netlify.app` mirror's deliberate `noindex` (`is-crawlable`); the same build served from a non-mirror host scores 100. Best Practices 96 on `/contact-us` is headless Chrome drawing Turnstile error 600010. Both were checked against a source the instrument could not influence before being set aside.
+
+**The pre-hydration trap struck a third time.** Mantis#25's first smoke test mutated the DOM before Svelte hydrated. Svelte then re-mounted the strip and the test measured the original. This is the same mechanism as form-e2e's "refilled" (#1148) and #17's probe. The mutation that restores the old code exposed it, by passing on one run and failing on the next. Any probe that writes to a SvelteKit page must wait for hydration, or not write to the page at all. This belongs in #1148's fix, and probably in the matching-a-page skill too.
+
+**Still open:** the matching gate (Operator decisions 78) and P6's DNS (61).
+
+## 2026-10-05 — Operator decision answered: (a), the evening pass (#1162) merged as it is
+
+The operator picked (a) at ~18:23Z: merge #1162 without a third review round, round 2's fixes unreviewed. It was marked ready, and `land-prs.mjs` updated the branch. The operator then merged it by hand at 18:38:15Z (`2849ba4d`) while the script was still waiting on checks, and the script reported "merged elsewhere" and skipped it. The only step left is the operator's paste of the stored prompt into a new Routine. Until that Routine exists, no evening pass runs. The morning pass already runs `scripts/evening-branches.mjs` in step 5, so an ask that sits only on a branch reaches the morning report either way.
+
+## 2026-10-05 — The operator's evening answers to 72–78, and a merge the cloud would not make (data-dynamiq#59)
+
+At about 18:45Z the operator answered all seven open decisions in one message: 72 (b), 73 yes, 74 (a), 75 (a), 76 (a), 77 Monday to Thursday, and 78 "run it". #1162, the evening pass, was already merged at 18:38Z (`2849ba4d`); the operator merged it while `land-prs` was gating it, as that worker's entry below records, and this session's `land-prs` run reported the same merge. It also tried to land data-dynamiq#59, the DRAFT `/privacy` page with GA4, but the cloud session's permission policy refused that merge as a production deploy to a live client site. The refusal was correct on its own terms: merging that PR deploys to a live client site. The operator's yes stands, and the click is theirs. Worker cards are queued for 72, 75 and 78 (78 runs on the laptop only, because the matching skill lives there), plus the CalTex copy-and-photo asks Erik posted in #caltex at 18:29Z. No worker card is queued for 74, which the operator does by hand.
+
+## 2026-10-05 — P1-25 round 3: the fallback seed landed, the review is dirty again (#1157, Operator decision 75)
+
+The operator answered decision 75 with (a), in this session as well as in
+#1167. `51e56b1a` now seeds an unset
+`frame-src` from `child-src`, then `default-src`, which is the order CSP
+Level 3 uses. It drops `'none'`, and it leaves `frame-src` unset when no
+directive restricts frames (the host is already allowed) or when the
+fallback is a string it cannot extend. It also takes round 2's two nits: one
+DNS label of at most 63 characters, and an error message that does not throw
+on a BigInt. All 14 mutations went red: the brief's four, round 1's seed
+put back, the fallback order swapped, `'none'` kept, the array shared, and
+the regex and message changes undone.
+
+Round 3 checked against a different authority than the code itself. It fed
+the config into SvelteKit 2.70.2's own `Csp` class and read the header that
+class emits. That is how it found the defect. `get_header` skips falsy
+directive values (`if (!value) continue`), so `frame-src: null` and `false`
+are "unset" to the browser. My code treated them as a value the site had
+written by hand, and added nothing. It also found a mutant that survives
+all 61 tests (skipping a string `child-src`, which blocks every frame, and
+seeding from `default-src`), so that behaviour is unpinned. Two lessons:
+"unset" means whatever the consumer of the config treats as unset, and a
+fallback chain has to stop at a non-array entry as well as start from an
+array one.
+
+The two-dirty-rounds rule held for the third round as well. The fixes are
+small, but the operator approved one re-review, not open-ended rounds, so the
+new ask went under decision 75 and #1157 is still unmerged.
+
+## 2026-10-05 — CalTex: AED Programs and Our Story, code ready, content blocked on the Prismic connector (caltex-landing#71, Operator decision 79)
+
+Worker for Erik's #caltex ask of 18:29Z. I read the message from Discord (GET
+only) and his 3446×2090 screenshot. Neither "AED Leasing" nor "AED
+Purchases" is Prismic content. Both are hard-coded page names: the nav, the
+h1s and the `<title>`s of two static routes that read their content from the
+`home` singleton. The "section" Erik wants renamed is the whole `/purchases`
+page. The leasing hero (`s5_title`) is an outlined SVG that already says
+"LIFE-SAVING AED PROGRAMS", and the footer holds no section names, so
+neither needed a change.
+
+I renamed the routes, not just the labels, because a page called Our Story at
+`/purchases` tells search the wrong thing, and a 301 carries the old URL's
+standing. The adversarial review said the netlify.toml redirects would
+never fire, because adapter-netlify's `/*` function would answer first. It
+argued that from Netlify's request-order doc, and it was wrong. Read on the
+deploy preview, `/leasing` and `/purchases` return 301 and `/no-such-page`
+still returns 404. The same probe found the review's real point:
+`/preview/leasing` and `/preview/purchases` are 200 on live, prerendered by
+the optional `[[preview]]` segment, and the rename made them 404. Two more
+301s fixed it. The lesson again: a doc about request order is a different
+authority from the server, and only the server settles it.
+
+On type size, the site has no step between the old headline (h3, 28px) and
+the bullets (`p`, 16px), so the copy uses Tailwind's own tokens:
+`text-lg! lg:text-2xl!`, 24px on desktop and 18px below 1024. The `!` is
+not decoration. `app.css` sets `p { font-size: 16px }` unlayered, which
+beats every layered Tailwind utility. Without the `!` the class compiles and
+does nothing. I measured the computed sizes in Chromium (24/16 and 18/16)
+rather than trusting the class names. A Key Text field cannot hold a
+paragraph break, so the two paragraphs go in `s3_title` and the unrendered
+`s3_closing_text`, with no model change. The photo is 2073×1930, 1.074:1, in
+a square frame, so `object-cover object-right` crops from the left, where
+Erik left room.
+
+The content half stopped at the first call. The Prismic connector refuses
+every call for this repository, including `list_releases`: "Prismic MCP is
+not activated for repository caltex-landing". This is a different failure
+from Operator decision 74 (that was a permission policy on the upload; this
+is a per-repository switch in Prismic's builder settings). The Dropbox `dl=1`
+link downloads fine from the container. So there is no release to name, and
+decision 79 asks for the five-minute edit by hand.
+
+I held #71 unmerged on purpose, not because a merge was refused. Merging
+before the content is published would put "Our Story" over the old purchase
+sentence on a live client site. The evidence page with before/after at
+1440/390 (copy injected in the browser, labelled as such) is
+https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix. One mutation went red as
+it should: moving `our-story` back to `purchases` failed the new smoke
+entry. Redirects are Netlify-only and were proven on the preview instead.
+The container could not run `pnpm test:smoke` as written: Playwright 1.60
+wants `chromium_headless_shell-1243`, and the image has 1234. A symlink
+under a private `PLAYWRIGHT_BROWSERS_PATH` ran it.
+
+## 2026-10-05 — The queued decision-75 worker found its work already done (no code change)
+
+This worker was queued at ~18:45Z to build decision 75's answer (a) on #1157 and run one more review. At 19:29Z, by `date -u`, `origin/main` was already at `02fa4b94` (#1169). The session that was still open when the answer came had pushed `51e56b1a` to `claude/great-turing-v374rg`, which holds the fallback seed, the one-DNS-label regex and the BigInt-safe message. It had also run the third review, found it dirty (falsy `frame-src`/`child-src` read as hand-written values, and the string-`child-src` stop unpinned), and written the new ask under item 75. My brief says that a dirty third round means no fourth round, the findings go into item 75, and the session ends. All three steps had already happened, so this session changed no code, ran no review, and left #1157 unmerged. P1-25 stays in the table until the operator answers the round-3 ask. Before acting on a queued brief, re-read `main`: a decision answered in a live session can be carried out by that session before the queued worker starts.
+
+## 2026-10-05 — "Safe to archive" now also means "no clear next step" (CLAUDE.md)
+
+The Data Dynamiq session above ended with "Safe to archive this session." It had pushed everything, landed its journal, and handed data-dynamiq#59 off as Operator decisions 73. That met the rule as #1158 wrote it. The operator corrected the meaning: archiving also clears the session's arc of context, so the line is only true when nothing would send the session straight back to work. A held PR whose likely answer is "yes, merge it" is such a thing. A handed-off blocker makes a session resumable, not finished. The rule in CLAUDE.md now names both conditions. As it happened, 73 was answered yes the same afternoon, and the merge stayed with the operator only because the cloud permission policy refuses a client-site merge as a production deploy.
+
 ## 2026-10-05 — P1-27: the audits retry their server on a fresh port when the one they picked was taken (#1164, `9d9a11d`)
 
 This came from the morning report's brief. `findFreePort` binds :0, releases the port, and hands the number to a server that binds it later under `--strictPort`. On 09-30, #1066's `build` failed seven a11y-live-spec tests with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in docs. The verify step held: at 14:28Z, `grep EADDRINUSE` over free-port, a11y, lighthouse and smoke matched nothing. Issue #1156 was opened and claimed. No fresh branch touched these files.

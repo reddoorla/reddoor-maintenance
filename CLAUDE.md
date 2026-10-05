@@ -127,9 +127,12 @@ then. So a worker started from a backlog item or a brief
   `AUTONOMY.md`'s stop conditions, or a fork the brief did not settle, becomes
   one line under "Operator decisions" in `docs/BACKLOG.md`: the exact ask, what
   you would pick and why, and the branch or PR that holds the work so far.
-  Land that line (a docs-only PR is fine), push the branch, and end the
-  session. The next morning's PM pass puts it in front of the operator. Do not
-  wait in the session for a reply.
+  Land that line on `main` as its own docs-only PR, never only on the work's
+  own branch: #1143's worker wrote its ask on its held PR's branch, and `main`
+  asked the operator nothing for 13 hours (2026-10-05). Push the work branch
+  too, then end the session. The evening pass and the next morning's PM pass
+  put the line in front of the operator. Do not wait in the session for a
+  reply.
 - **Two dirty review rounds, then stop.** If the second adversarial review of
   the same PR still finds a real defect, the PR goes to "Operator decisions"
   with the findings of both rounds, not into a third round. #918 and #920
@@ -241,18 +244,27 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   with the container, so the journal entry has to be committed and pushed
   before the session ends.
 - **When the task is done, tell the operator it is safe to archive the
-  session.** Archiving reclaims the container, so say so only when nothing is
-  left that lives only in it. That means:
-  - every commit is pushed, in every repo the session touched (the stop hook
-    checks only the checkout it runs in);
-  - the PRs are merged, or handed off with the blocker written down;
-  - the journal entry has landed;
-  - no background command, agent or `send_later` check-in is still pending.
+  session.** Archiving reclaims the container and ends the session's arc of
+  work: the operator archives on that line instead of re-reading the
+  transcript. So "safe" means two things, and both must hold:
+  - **Nothing lives only in the container.**
+    - Every commit is pushed, in every repo the session touched. The stop
+      hook checks only the checkout it runs in.
+    - The PRs are merged, or handed off with the blocker written down.
+    - The journal entry has landed.
+    - No background command, agent or `send_later` check-in is still
+      pending.
+  - **The session has no clear next step.** A PR held on an operator answer
+    is still this session's when the answer would send it straight back to
+    work, such as "yes, merge it" leading to a land. Handing that to a fresh
+    session throws away the context. The same goes for a follow-up the
+    session itself started and is best placed to finish.
 
   End the final message with one line, "Safe to archive this session.", or
   name what still holds it open: "Not yet safe to archive: #1234 is waiting
-  on CI." The operator reads many sessions, and archives on that line rather
-  than re-reading the transcript.
+  on CI." For a decision, the line is like "Not yet safe to archive: if
+  Operator decisions 73 is yes, this session lands data-dynamiq#59." A
+  handed-off blocker makes the session resumable, not finished.
 
 ## The work journal
 
