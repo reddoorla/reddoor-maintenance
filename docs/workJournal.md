@@ -8413,9 +8413,14 @@ The site-side record is mantis-landscaping's journal entry (#26). What belongs h
 
 The operator picked (a) at ~18:23Z: merge #1162 without a third review round, round 2's fixes unreviewed. It was marked ready, and `land-prs.mjs` updated the branch. The operator then merged it by hand at 18:38:15Z (`2849ba4d`) while the script was still waiting on checks, and the script reported "merged elsewhere" and skipped it. The only step left is the operator's paste of the stored prompt into a new Routine. Until that Routine exists, no evening pass runs. The morning pass already runs `scripts/evening-branches.mjs` in step 5, so an ask that sits only on a branch reaches the morning report either way.
 
+## 2026-10-05 — The operator's evening answers to 72–78, and a merge the cloud would not make (data-dynamiq#59)
+
+At about 18:45Z the operator answered all seven open decisions in one message: 72 (b), 73 yes, 74 (a), 75 (a), 76 (a), 77 Monday to Thursday, and 78 "run it". #1162, the evening pass, was already merged at 18:38Z (`2849ba4d`); the operator merged it while `land-prs` was gating it, as that worker's entry below records, and this session's `land-prs` run reported the same merge. It also tried to land data-dynamiq#59, the DRAFT `/privacy` page with GA4, but the cloud session's permission policy refused that merge as a production deploy to a live client site. The refusal was correct on its own terms: merging that PR deploys to a live client site. The operator's yes stands, and the click is theirs. Worker cards are queued for 72, 75 and 78 (78 runs on the laptop only, because the matching skill lives there), plus the CalTex copy-and-photo asks Erik posted in #caltex at 18:29Z. No worker card is queued for 74, which the operator does by hand.
+
 ## 2026-10-05 — P1-25 round 3: the fallback seed landed, the review is dirty again (#1157, Operator decision 75)
 
-The operator answered decision 75 with (a). `51e56b1a` now seeds an unset
+The operator answered decision 75 with (a), in this session as well as in
+#1167. `51e56b1a` now seeds an unset
 `frame-src` from `child-src`, then `default-src`, which is the order CSP
 Level 3 uses. It drops `'none'`, and it leaves `frame-src` unset when no
 directive restricts frames (the host is already allowed) or when the
