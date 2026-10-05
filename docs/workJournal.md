@@ -8272,3 +8272,15 @@ The operator sent one message through the live `/contact-us` from an ordinary br
 ## 2026-10-05 — Operator decision 46 answered: (a), keep analytics design D3, no consent gate
 
 Asked in the P1-26 session after the privacy page landed, which is why it gets its own line. The operator picked (a): GA4 keeps loading without a consent gate on every site, California clients included, and the residual CIPA demand-letter risk is accepted. The recommendation in the item had been to put (b) or (c) to counsel along with item 45. That is now moot for 46, and item 45 (the lawyer's review of the policy wording) stays open on its own. Nothing was built for it, because `initAnalytics`' optional gate predicate already exists if the answer ever changes.
+
+## 2026-10-05 — The cloud-session hook reaches the Blux track (reddoor-starter-blux#40, `0d7290c`)
+
+The hook from decision 70 was picked into `reddoor-starter-blux` with a
+cherry-pick, never a merge. Two parts of the native commit did not apply
+as they were. Blux's CLAUDE.md has none of the native sections the commit
+edits, so it got its own paragraph instead. The hook's failure messages
+named `pnpm verify` and `test:a11y`, which Blux does not have, so they now
+name its own scripts. In a container, with only the hook's env, `pnpm lint`,
+`check` and `test` passed: 694 unit tests (3 skipped) and 20 smoke tests.
+Revision 1243 was already on disk from the native run, so this run showed
+only the skip path. Existing sites still lack the hook.
