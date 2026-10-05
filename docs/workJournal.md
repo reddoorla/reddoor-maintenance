@@ -8508,6 +8508,41 @@ This worker was queued at ~18:45Z to build decision 75's answer (a) on #1157 and
 
 The Data Dynamiq session above ended with "Safe to archive this session." It had pushed everything, landed its journal, and handed data-dynamiq#59 off as Operator decisions 73. That met the rule as #1158 wrote it. The operator corrected the meaning: archiving also clears the session's arc of context, so the line is only true when nothing would send the session straight back to work. A held PR whose likely answer is "yes, merge it" is such a thing. A handed-off blocker makes a session resumable, not finished. The rule in CLAUDE.md now names both conditions. As it happened, 73 was answered yes the same afternoon, and the merge stayed with the operator only because the cloud permission policy refuses a client-site merge as a production deploy.
 
+## 2026-10-05 — CalTex release staged; the evidence fonts were wrong (Operator decision 79, release `asQFsBIAABYMgAt2`)
+
+The operator activated Prismic MCP for `caltex-landing`, and the release
+went in: four deltas on `home`. The first upload of the family photo became
+a "document" with no dimensions. Dropbox's `dl=1` redirect target serves the
+JPEG as `application/json`, and `upload_asset` trusts the response's
+content type, not the bytes. The bytes were right: the stored file was
+byte-identical to the Dropbox one. imgix serves the same object as
+`image/jpeg`, so re-uploading from
+`images.prismic.io/caltex-landing/<id>_…jpg` produced a proper image
+(2073×1930, same 2,662,063 bytes). The stray document asset is left for the
+operator to delete. The publication card (`present_release`) was refused by
+the session's permission classifier as an unrequested commit. That is fine:
+staging was the ask.
+
+The operator pointed out that the evidence page had the wrong fonts. It
+did. The site loads no webfont for headings or body. It names Impact and
+"Helvetica Neue LT Std", then helvetica, and leans on the visitor's system
+fonts, which every Mac has and this container did not. So every "before"
+and "after" shot from the first session set headings in a default serif,
+and nothing in the shots said so; my note blamed only the logo. The fix was
+to install the shots' missing fonts, not to change the site: Impact from
+Microsoft's original `impact32.exe` (corefonts; the Debian installer failed
+inside the container), plus `fonts-urw-base35`, whose Nimbus Sans is the
+metric-compatible alias fontconfig serves for helvetica. `document.fonts.check("16px Impact")` now
+returns true on every page shot. The broken desktop logo was a second,
+container-only failure: Chromium reports `ERR_BLOCKED_BY_ORB` on the
+`%2B`-named SVG, while a browser-headered curl to the same URL gets a 200
+`image/svg+xml`. The re-shoot serves the CDN's own bytes to the page and
+says so. The "after" shots now come from the deploy preview (Netlify's
+drawer removed), with the release's copy and the real Prismic asset
+injected. The lesson for any evidence screenshot taken in a cloud
+container: check the computed font against the font actually used before
+calling the picture a likeness.
+
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72)
 
 The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.

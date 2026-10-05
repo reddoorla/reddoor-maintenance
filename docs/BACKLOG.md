@@ -2606,6 +2606,20 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     durable fix for the next CalTex worker. Keep the bullets until Erik says
     otherwise, and use 24px over the 20px alternative on the evidence page.
 
+    **Staged 2026-10-05 ~20:25Z, after the operator activated Prismic MCP:
+    publish CalTex release `asQFsBIAABYMgAt2` ("Our Story + AED Programs
+    (Erik 2026-10-05)"), then merge caltex-landing#71, then tell Erik.** The
+    release holds one document (`home`) with four deltas: `s3_title` and
+    `s3_closing_text` (Erik's paragraphs, U+2011 kept), `s3_image` (the
+    family photo, asset `L7bvh5WEjejahKwq`, 2073×1930, with the alt text
+    above), and `s2_eyebrow`. The manual steps above are no longer needed.
+    Preview at 1440/390, now in the site's real fonts:
+    https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix. One cleanup is
+    yours: the asset library has a stray copy of the same photo,
+    `_t3eeXeDKfYMiE5v`, filed as a "document". Dropbox's download host
+    serves the JPEG as `application/json`, and Prismic believed the label.
+    Nothing references it, and deleting it from the library is safe.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
