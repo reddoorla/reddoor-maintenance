@@ -2425,6 +2425,27 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     gated on `prismicRepository`, as `analytics` gates GA. Without a framed
     repository the toolbar never loads them. The brief puts them in the
     baseline, so they stay there unless you say otherwise.
+    **Answered 2026-10-05 by the operator: (a). Round 3 is dirty too, so this
+    is held again (new ask below).** `51e56b1a` on the same branch seeds an
+    unset `frame-src` from `child-src`, then `default-src` (dropping
+    `'none'`). It also limits names to one DNS label and makes the error
+    message survive a BigInt. 61 tests pass, and 14 mutations all go red,
+    the brief's four included. Round 3 (`createSvelteConfig` output fed to
+    SvelteKit 2.70.2's own `Csp` class) found two minors. First, a site that
+    writes `frame-src: null` or `false`, or `child-src: false`, is treated as
+    a hand-written value, but SvelteKit drops falsy values, so the browser
+    sees no `frame-src` and the toolbar's host is blocked with no warning.
+    Second, no test pins that a string `child-src` (which blocks every
+    frame) stops the chain: a mutant that skips it and seeds from
+    `default-src` passes all 61 tests and would widen the policy. One nit:
+    an explicit `frame-src: ["none"]` emits `'none'` beside the host, which
+    browsers ignore but warn about. _Ask:_ (a) fix both (treat
+    `null`/`false` as unset at both steps, add the string-`child-src` test,
+    drop `'none'` on the explicit path too) and land on a clean fourth
+    round. Or (b) fix both and land without another round, since each fix
+    is a test plus a one-line condition. Or (c) merge `51e56b1a` as it is
+    and file both as a follow-up. _Worker's pick:_ (a). The round-3 defects
+    are in the same small function, and a fourth review is cheap.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch

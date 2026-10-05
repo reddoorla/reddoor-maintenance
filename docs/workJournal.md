@@ -8408,3 +8408,31 @@ The site-side record is mantis-landscaping's journal entry (#26). What belongs h
 **The pre-hydration trap struck a third time.** Mantis#25's first smoke test mutated the DOM before Svelte hydrated. Svelte then re-mounted the strip and the test measured the original. This is the same mechanism as form-e2e's "refilled" (#1148) and #17's probe. The mutation that restores the old code exposed it, by passing on one run and failing on the next. Any probe that writes to a SvelteKit page must wait for hydration, or not write to the page at all. This belongs in #1148's fix, and probably in the matching-a-page skill too.
 
 **Still open:** the matching gate (Operator decisions 78) and P6's DNS (61).
+
+## 2026-10-05 — P1-25 round 3: the fallback seed landed, the review is dirty again (#1157, Operator decision 75)
+
+The operator answered decision 75 with (a). `51e56b1a` now seeds an unset
+`frame-src` from `child-src`, then `default-src`, which is the order CSP
+Level 3 uses. It drops `'none'`, and it leaves `frame-src` unset when no
+directive restricts frames (the host is already allowed) or when the
+fallback is a string it cannot extend. It also takes round 2's two nits: one
+DNS label of at most 63 characters, and an error message that does not throw
+on a BigInt. All 14 mutations went red: the brief's four, round 1's seed
+put back, the fallback order swapped, `'none'` kept, the array shared, and
+the regex and message changes undone.
+
+Round 3 checked against a different authority than the code itself. It fed
+the config into SvelteKit 2.70.2's own `Csp` class and read the header that
+class emits. That is how it found the defect. `get_header` skips falsy
+directive values (`if (!value) continue`), so `frame-src: null` and `false`
+are "unset" to the browser. My code treated them as a value the site had
+written by hand, and added nothing. It also found a mutant that survives
+all 61 tests (skipping a string `child-src`, which blocks every frame, and
+seeding from `default-src`), so that behaviour is unpinned. Two lessons:
+"unset" means whatever the consumer of the config treats as unset, and a
+fallback chain has to stop at a non-array entry as well as start from an
+array one.
+
+The two-dirty-rounds rule held for the third round as well. The fixes are
+small, but the operator approved one re-review, not open-ended rounds, so the
+new ask went under decision 75 and #1157 is still unmerged.
