@@ -8284,3 +8284,20 @@ name its own scripts. In a container, with only the hook's env, `pnpm lint`,
 `check` and `test` passed: 694 unit tests (3 skipped) and 20 smoke tests.
 Revision 1243 was already on disk from the native run, so this run showed
 only the skip path. Existing sites still lack the hook.
+
+## 2026-10-05 — Cloud sessions end by saying whether they are safe to archive (CLAUDE.md)
+
+The operator asked for this. A finished cloud session now ends its last
+message with "Safe to archive this session.", or names what still holds it
+open. Archiving reclaims the container, so the checklist covers state that
+lives only there:
+- unpushed commits in every repo touched, not only the one the stop hook
+  watches;
+- PRs that are neither merged nor handed off;
+- an unlanded journal entry;
+- background commands, agents and `send_later` check-ins still pending.
+
+The first item came from this very session. Its stop hook flagged a branch
+in a second clone, the native starter, as unpushed. That branch had already
+been squash-merged and its remote deleted, so a state check scoped to one
+checkout would have misread it.
