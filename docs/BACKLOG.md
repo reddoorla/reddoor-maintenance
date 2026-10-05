@@ -2417,6 +2417,44 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     repository the toolbar never loads them. The brief puts them in the
     baseline, so they stay there unless you say otherwise.
 
+76. **#1162, the evening pass: held after two dirty review rounds (new
+    2026-10-05, from its worker).** #1162 (draft, branch
+    `claude/great-johnson-mwzrbr`) adds a 17:18 PT "evening pass" to
+    `docs/pm-pass.md`, ending in one push notification. It also adds the
+    stored Routine prompt for you to paste, and
+    `scripts/evening-branches.mjs`, which flags a question that sits only on
+    a branch (#1143's miss) and commits with no PR (`jolly-keller`'s). Both
+    were proven on today's state, with two negative controls, and 25
+    mutations all go red.
+    - Round 1 found four majors, all fixed: the UTC date at 00:18Z,
+      squash-merged reused branches, substring branch matching, and a
+      case-sensitive ask pattern.
+    - Round 2 found one major, fixed on the branch but unreviewed. A branch
+      reused after its PR merged, and then merged with `main`, read `main`'s
+      commits as its own and was flagged stale. That is a false alarm, not a
+      miss. The fix is `git cherry origin/main <ref> <merged head>`,
+      reproduced in a scratch repo.
+    - _Ask:_ (a) merge #1162 as it is, then paste the Routine prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt"; or (b) run
+      a third review round first.
+    - _Worker's pick:_ (a). Every defect either round found was in the
+      direction of over-reporting or a wrong date, and the date is fixed and
+      reviewed. The one unreviewed fix is a small change with its own test
+      and mutation, and the pass never acts on what it flags.
+77. **The two Routines' schedules (new 2026-10-05, from the evening-pass
+    worker; nothing waits on it).** The morning Routine ("Reddoor Project
+    Manager") runs `48 11 * * 1-4`, a bare UTC cron, so it fires at 03:48 PT
+    from 11-02. Its stored prompt also tells it to call `list_sessions` /
+    `get_session`, which a Routine does not have. The evening Routine in
+    #1162 runs on the same Monday-to-Thursday days.
+    - _Ask:_ (a) extend both Routines to Friday (`1-5`), write the morning
+      cron as `CRON_TZ=America/Los_Angeles 48 4 * * 1-5`, and drop the
+      `list_sessions` line from its prompt; or (b) leave both at Monday to
+      Thursday.
+    - _Pick:_ (a). Otherwise workers started on a Friday morning end with
+      nobody reading them until Monday's pass. Either way, these are edits
+      in the Routines' settings, not a repo change.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
