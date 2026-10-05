@@ -8690,6 +8690,25 @@ The operator asked to see test emails for the reports ready to approve. There we
 
 Process slip, recorded so it is not repeated: this session ran `git checkout origin/main -- .` in the main checkout rather than its worktree, which staged origin/main's files over the main checkout's older HEAD. The main checkout had been clean, so it was restored exactly: the 7 added files were removed and the 17 modified files were restored to HEAD, giving a clean `git status`. Nothing was committed from it.
 
+## 2026-10-05 — P1-25 lands: only a missing key is unset (#1157, Operator decision 75 done)
+
+The operator answered round 4 with (a). The fold in `withPrismicFrame` now
+takes the first of `frame-src`, `child-src` and `default-src` that the site
+defines. It extends that entry if it is an array, and leaves anything else
+as written. So `frame-src: null` with a repository now fails the build the
+same way it does without one. That is SvelteKit's `string_array` check
+doing the refusing, not this config. New tests pin that `[]` is a
+definition and not unset (round 4's surviving mutant). They also pin that
+the seed never aliases `default-src` (its nit). 73 tests pass, and all 19
+mutations go red. Those are the brief's four, every survivor from rounds 1
+to 4, and a mutant that puts back `d78d2d80`'s falsy-as-unset rule.
+
+Accounting for the arc: four review rounds. Two of them found defects that
+my own previous fix had introduced. The round-3 one also rested on a
+premise that only a second authority could refute. The code that landed is
+round 3's reviewed shape plus tests. The fleet rollout, where each site
+passes `prismicRepository`, is still per-repo PRs, and none of them has been
+opened.
 ## 2026-10-05 — Roalson's final round: 8 pins moved, 14 aerials cropped, a new listing packaged, three PRs (roalson-interests#263, #264, #265; Operator decisions 81–84, #1185)
 
 A worker brief from Erik's 19:11Z list. Items 1 and 2 (pins and aerials) are Prismic content, staged in release `asP91BIAAH8K23X-`. Items 3–6 are code:
