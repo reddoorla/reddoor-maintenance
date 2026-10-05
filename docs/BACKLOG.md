@@ -1460,6 +1460,28 @@ analytics"]`). The operator creates properties for the other three. When the
     is item 73. The site collects nothing until it merges, and GA does not
     backfill, so the 10-05 report's analytics section stays empty either way.
     1836dig and 29 Navy are not started.
+    **Live 2026-10-05 [M]:** the operator merged data-dynamiq#59 at ~21:02Z,
+    and `/privacy` answered 200 on `www.datadynamiq.com` at 21:03Z. One real
+    browser visit loaded `gtag/js?id=G-V11LZYNMY2` and sent `g/collect`.
+    GA4 Realtime on property 556916505 read 0 rows before that visit and
+    `minutesAgo 00: 1 user, 3 events` at 21:04:37Z. That user is the
+    verification visit from a cloud IP, not organic traffic. Data Dynamiq is
+    done; 1836dig and 29 Navy still wait, on the same question.
+    **1836dig and 29 Navy, 2026-10-05: built, green, cleared to merge.** The
+    operator extended 73's "yes, before item 45" to both. reddoorla/1836dig#24
+    (`G-1ZYB95TKC1` on `1836dig.com`) and reddoorla/29-navy#73 (`G-MSYB9MQGRV`
+    on `29navy.com`) carry the page, the tag and, unlike Data Dynamiq, GA's
+    hosts added by hand to SvelteKit's own `kit.csp`, which the recipe does
+    not edit. 29 Navy has neither a footer nor a form, so its link is a row in
+    the contact block (cost measured in that repo's `matching/LEDGER.md`).
+    29 Navy's install first hit a recipe bug, fixed in #1178: the `src/` scan
+    read the starter's `services.test.ts` as an existing tag. Both merges are
+    the operator's click, like Data Dynamiq's; a live hit is read after each.
+    Review found one gap for item 45, in the template rather than either port:
+    the policy names no image CDN, yet a Prismic site's pages load
+    `images.prismic.io` (about 99 URLs on 29 Navy's home), so Prismic/imgix
+    receives every visitor's IP. The same holds on every Prismic site in the
+    fleet.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
@@ -2425,6 +2447,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     host is counted, because `initAnalytics` gates on the hostname alone, and
     that affects every tagged site.
     **Answered 2026-10-05 ~18:45Z: yes, merge before item 45.** The PM session's `land-prs` on data-dynamiq#59 was refused by the cloud session's permission policy as a production deploy, so the merge itself is the operator's click (or a laptop `land-prs`).
+    **Extended 2026-10-05 ~21:05Z: "yes, do 1836dig and 29 Navy too"** (the
+    operator, in the Data Dynamiq session). Built as 1836dig#24 and
+    29-navy#73; see item 49.
 
 74. **Williamson Construction hero: upload three poster frames and publish
     a release (williamson-construction-co#21, new 2026-10-05).** The code
