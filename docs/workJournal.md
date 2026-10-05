@@ -8303,6 +8303,10 @@ in a second clone, the native starter, as unpushed. That branch had already
 been squash-merged and its remote deleted, so a state check scoped to one
 checkout would have misread it.
 
+## 2026-10-05 — The Instagram post-kit proposal for Tim exists (`docs/proposals/2026-10-05-instagram-post-kit.md`)
+
+The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
+
 ## 2026-10-05 — The evening pass, researched and built, then held after two review rounds (#1162, Operator decisions 73)
 
 October is a book month: the operator touches the system twice a day, at the morning report and at ~17:30 PT. The day's own misses showed what the morning touch cannot see. #1143's worker held its PR and wrote the ask on that PR's branch, so `main` asked nothing for 13 hours. `claude/jolly-keller-9h8tzh` carried three docs commits and no PR. And every nightly was still pending at 12:00Z. This session researched how others run unattended agent days, then built the pick.
