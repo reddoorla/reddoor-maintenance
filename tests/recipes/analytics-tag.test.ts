@@ -416,7 +416,7 @@ describe("reddoor-maint analytics-tag", () => {
   it("refuses the numeric property ID, which cac hands over as a number, with exit 2", async () => {
     const cwd = await site();
     const out = await runAnalyticsTagCommand(cwd, {
-      measurementId: 556916505 as unknown as string,
+      measurementId: 556916505,
       productionHost: HOST,
     });
     expect(out.code).toBe(2);
@@ -429,7 +429,7 @@ describe("reddoor-maint analytics-tag", () => {
     const cwd = await site();
     const out = await runAnalyticsTagCommand(cwd, {
       measurementId: ID,
-      productionHost: 8080 as unknown as string,
+      productionHost: 8080,
     });
     expect(out.code).toBe(2);
     expect(out.output).toContain('"8080"');

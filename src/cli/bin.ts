@@ -394,7 +394,12 @@ cli
   .action(
     async (
       site,
-      opts: { measurementId?: string; productionHost?: string; cwd?: string; verbose?: boolean },
+      opts: {
+        measurementId?: string | number;
+        productionHost?: string | number;
+        cwd?: string;
+        verbose?: boolean;
+      },
     ) =>
       runOrExit(
         async () =>
