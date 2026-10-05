@@ -8291,6 +8291,7 @@ The operator asked for this. A finished cloud session now ends its last
 message with "Safe to archive this session.", or names what still holds it
 open. Archiving reclaims the container, so the checklist covers state that
 lives only there:
+
 - unpushed commits in every repo touched, not only the one the stop hook
   watches;
 - PRs that are neither merged nor handed off;
