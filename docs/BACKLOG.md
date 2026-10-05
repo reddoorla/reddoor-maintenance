@@ -2561,6 +2561,51 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     at Phase 1 with no new capture.
     **Answered 2026-10-05 ~18:45Z: run it** — Phase 1 and the gate in a laptop session, starting with `/`. A worker card is queued (laptop only).
 
+79. **CalTex: put Erik's Our Story copy and family photo in Prismic, publish,
+    then merge caltex-landing#71 (new 2026-10-05, Erik in #caltex 18:29Z).**
+    The code half is ready and unmerged:
+    [caltex-landing#71](https://github.com/reddoorla/caltex-landing/pull/71).
+    It renames `/leasing` to `/aed-programs` and `/purchases` to `/our-story`,
+    with 301s (all four old paths, `/preview/…` included, proven on the
+    deploy preview). It also changes the nav labels, titles and sitemap, sets
+    the story copy at 24px (18px under 1024), and frames the photo
+    `object-cover object-right`. The content half could not be staged: the
+    Prismic connector answers "Prismic MCP is not activated for repository
+    caltex-landing" to every call, `list_releases` and `upload_asset`
+    included. So no release exists. Before and after at 1440 and 390, with
+    the copy injected in the browser:
+    https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix (private to you).
+    _Ask:_ in Prismic, open the `home` document (`Z38tQRIAACcALhJe`) and
+    make these edits:
+    - `s3 title`: replace the text with paragraph 1.
+    - `s3 closing text`: replace the text with paragraph 2. It was not
+      rendered before #71, which renders it as the second paragraph.
+    - `s3 image`: upload `Kohnen-Family_crop.jpg` from
+      `https://www.dropbox.com/scl/fi/sswmsdq01iaycppg02x8k/Kohnen-Family_crop.jpg?rlkey=0s1a4uc3ohgw9q0xk99uob4sp&dl=1`.
+      Set its alt to "Ryan and Lacey Kohnen, founders of Caltex Medical, with
+      their family".
+    - Optionally, `s2 eyebrow` → "AED Programs starting at $68 per month
+      include:". No page renders it.
+
+    Paste the two paragraphs from Erik's Discord message
+    (`1556735086710235317`) or from here. Both keep his U+2011 non-breaking
+    hyphens:
+
+    > Boerne residents Ryan and Lacey Kohnen founded Caltex Medical, Inc. in 2025 with a mission to deliver cost‑effective, fully managed, life‑saving AED programs to schools, churches, youth sports organizations, and smaller organizations. Ryan’s experience working for an AED manufacturer from 2015–2017 introduced him to numerous survivors of Sudden Cardiac Arrest (SCA) whose lives were saved because an AED was accessible and properly maintained. He also saw firsthand how many organizations struggled to afford, manage, and keep their AED programs compliant.
+
+    > Driven by a commitment to strengthen the safety of the community they are active in, Ryan and Lacey built Caltex Medical to ensure that schools, churches, and families throughout San Antonio and the Texas Hill Country have reliable, ready‑to‑use AEDs — giving every SCA victim the best possible chance of survival.
+
+    Then publish, merge caltex-landing#71 (or let a session land it with
+    `land-prs`), and tell Erik. Merge order matters: if #71 goes live first,
+    `/our-story` shows the old "Interested in purchasing…" line under the
+    "Our Story" heading. Also open: #71 keeps the five purchase bullets and
+    the Request Info button under the story. Erik named them only as a size
+    reference. _Worker's pick:_ do the edits by hand. It is a five-minute
+    edit, and you are in Prismic to publish anyway. Activating MCP
+    (https://caltex-landing.prismic.io/builder/settings/mcp/) is the
+    durable fix for the next CalTex worker. Keep the bullets until Erik says
+    otherwise, and use 24px over the 20px alternative on the evidence page.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have

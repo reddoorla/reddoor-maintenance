@@ -8446,6 +8446,60 @@ The two-dirty-rounds rule held for the third round as well. The fixes are
 small, but the operator approved one re-review, not open-ended rounds, so the
 new ask went under decision 75 and #1157 is still unmerged.
 
+## 2026-10-05 — CalTex: AED Programs and Our Story, code ready, content blocked on the Prismic connector (caltex-landing#71, Operator decision 79)
+
+Worker for Erik's #caltex ask of 18:29Z. I read the message from Discord (GET
+only) and his 3446×2090 screenshot. Neither "AED Leasing" nor "AED
+Purchases" is Prismic content. Both are hard-coded page names: the nav, the
+h1s and the `<title>`s of two static routes that read their content from the
+`home` singleton. The "section" Erik wants renamed is the whole `/purchases`
+page. The leasing hero (`s5_title`) is an outlined SVG that already says
+"LIFE-SAVING AED PROGRAMS", and the footer holds no section names, so
+neither needed a change.
+
+I renamed the routes, not just the labels, because a page called Our Story at
+`/purchases` tells search the wrong thing, and a 301 carries the old URL's
+standing. The adversarial review said the netlify.toml redirects would
+never fire, because adapter-netlify's `/*` function would answer first. It
+argued that from Netlify's request-order doc, and it was wrong. Read on the
+deploy preview, `/leasing` and `/purchases` return 301 and `/no-such-page`
+still returns 404. The same probe found the review's real point:
+`/preview/leasing` and `/preview/purchases` are 200 on live, prerendered by
+the optional `[[preview]]` segment, and the rename made them 404. Two more
+301s fixed it. The lesson again: a doc about request order is a different
+authority from the server, and only the server settles it.
+
+On type size, the site has no step between the old headline (h3, 28px) and
+the bullets (`p`, 16px), so the copy uses Tailwind's own tokens:
+`text-lg! lg:text-2xl!`, 24px on desktop and 18px below 1024. The `!` is
+not decoration. `app.css` sets `p { font-size: 16px }` unlayered, which
+beats every layered Tailwind utility. Without the `!` the class compiles and
+does nothing. I measured the computed sizes in Chromium (24/16 and 18/16)
+rather than trusting the class names. A Key Text field cannot hold a
+paragraph break, so the two paragraphs go in `s3_title` and the unrendered
+`s3_closing_text`, with no model change. The photo is 2073×1930, 1.074:1, in
+a square frame, so `object-cover object-right` crops from the left, where
+Erik left room.
+
+The content half stopped at the first call. The Prismic connector refuses
+every call for this repository, including `list_releases`: "Prismic MCP is
+not activated for repository caltex-landing". This is a different failure
+from Operator decision 74 (that was a permission policy on the upload; this
+is a per-repository switch in Prismic's builder settings). The Dropbox `dl=1`
+link downloads fine from the container. So there is no release to name, and
+decision 79 asks for the five-minute edit by hand.
+
+I held #71 unmerged on purpose, not because a merge was refused. Merging
+before the content is published would put "Our Story" over the old purchase
+sentence on a live client site. The evidence page with before/after at
+1440/390 (copy injected in the browser, labelled as such) is
+https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix. One mutation went red as
+it should: moving `our-story` back to `purchases` failed the new smoke
+entry. Redirects are Netlify-only and were proven on the preview instead.
+The container could not run `pnpm test:smoke` as written: Playwright 1.60
+wants `chromium_headless_shell-1243`, and the image has 1234. A symlink
+under a private `PLAYWRIGHT_BROWSERS_PATH` ran it.
+
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72)
 
 The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.
