@@ -153,7 +153,7 @@ nightly was still pending, so the morning pass could not report any of them.
 
 0. **"Today" is the America/Los_Angeles date**, `TZ=America/Los_Angeles date +%F`,
    everywhere in this section. The pass fires at 17:48 PT, which is 00:48Z
-   (01:18Z in winter), so the UTC date has already moved on. Read the clock
+   (01:48Z in winter), so the UTC date has already moved on. Read the clock
    with `date -u` beside it, as `CLAUDE.md` asks.
 
 1. Everything under "Rules that bind this session" above applies, except
