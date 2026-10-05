@@ -8776,6 +8776,63 @@ Review round 1 found that SQLite's text-to-double parse misreads about one short
 
 Seven mutations, each red: hashes never compared, blob bytes unhashed, text bytes unhashed, absent hashes tolerated, manifest written without hashes, REALs back to `String`, and the 2^63 bound dropped. Adding two comment lines to the workflow shifted `continuity.md`'s citation of `overages: false` from line 176 to 178, and `runbook-anchors` caught it.
 
+## 2026-10-05 — Roalson's final round: 8 pins moved, 14 aerials cropped, a new listing packaged, three PRs (roalson-interests#263, #264, #265; Operator decisions 81–84, #1185)
+
+A worker brief from Erik's 19:11Z list. Items 1 and 2 (pins and aerials) are Prismic content, staged in release `asP91BIAAH8K23X-`. Items 3–6 are code:
+
+- roalson-interests#263: Improved Properties, and the menu with ABOUT US.
+- roalson-interests#264: the package opens in the browser, with no size line.
+- roalson-interests#265: the whole card is one link.
+
+The map rework waits on Nicole's design (decision 83). Mid-session the operator added a 61.81-acre listing from Gmail, and that became the release's 23rd document.
+
+**Pins were checked against the listing's own outline, not an address.** The property model has no address field, and the packages describe sites as corners ("the southwest corner of IH-35 and Wonderworld"). Nominatim reverse geocoding put every pin on the right road. That was useless as a check, because a pin on the wrong side of an interchange still sits on the right road. The authority turned out to be the feature images themselves: 16 of 22 are the package's own aerial, with the parcel outlined in red or yellow. Overpass was unreachable from the container; Esri World Imagery tiles loaded. So each pin was rendered on Esri at z17/z18 and set beside its outline. Eight were off the parcel:
+
+- San Marcos: about 250 m away, on a warehouse.
+- Seguin: about 350 m away, in a field.
+- Scenic Loop: on the Bill Miller pad next door.
+- Kingsville: on the Chili's.
+- IH-10 E at 1604: east of the parcel.
+- Perrin Beitel: on the wrong side of the road.
+- IH 10 at Menger Springs: on a building between its two tracts. It now sits on Tract 2, the larger at 6.4 of 10.2 acres.
+- Menger Springs Road: on the Methodist campus.
+
+Census address geocoding landed 35–75 m from correct pins. That is interpolation noise, and it would have moved good pins.
+
+**Aerials: the frames vary more than the CSS says.** The card is `aspect-[423.5/267.5]`, but measured in a browser it is 1.06–1.58 at 1440 (the photo stretches to the text beside it), 0.81 and 0.96 at 834 (the carousel photo spans the slide), and 1.71 on the homepage band. A crop has to keep the outline inside every centred `object-cover` view from 0.81 to 1.71. An outline detector plus a brute-force crop search found 14 feasible. Two are not: Dove Canyon and 5930 Bandera need 1,371 and 1,318 px of a 1,200 px source, even if only the landscape frames count (decision 82). The first detector chose yellow "SITE" arrows and red brick. Filtering components by fill ratio (an outline is hollow) fixed it, and a contact sheet confirmed all 16 by eye. One write nearly went wrong: Prismic asset ids are a filename's first 16 characters, and six contain an underscore, so splitting on `_` would have pointed six crops at assets that do not exist. That was caught by comparing against the ids `get_document` returned, before the writes.
+
+**The new listing.** The Gmail connector lists attachment ids but has no tool that returns their bytes. Per the operator's instruction I stopped and asked, and the operator dropped the files in.
+
+- All six image boxes in the intake form are the template's empty placeholders.
+- The flood-plain box still holds the template's example ("FEMA maps do not indicate any floodplain"), and the survey says part of the tract is in zone A.
+- Nothing missing was invented. Nine questions for Erik are in #264, along with what was probably meant for Matt's "second email": photos, maps, demographics and comments.
+- The package copies the existing packages' letterhead from a rendered page, with the content area masked. The text pages are printed through Chromium, and the disclosure and IABS pages are copied byte-for-byte from a current package.
+- No Century Schoolbook clone was reachable (both CTAN mirrors failed TLS), so the text is Liberation Serif.
+- The pin is the outline's centroid. The traced outline came to about 64 acres against 61.81 stated, which is a positive check on the scale.
+- The operator chose to upload the two files to Prismic themselves, because the connector only fetches public URLs. So the release is not publishable until they are linked (decision 81).
+
+**Defects the changes introduced, all found before merge.**
+
+- The whole-card link broke the carousel swipe: a mouse drag on a link starts a native link drag. A completed swipe could also end in a click that opened the listing. Both `draggable="false"` and a 500 ms post-swipe click guard are needed: removing either turns the new spec red in 3 of 3 runs.
+- Under reduced motion, an off-stage card's title stayed `visibility: visible` for about 20–45 ms after hydration. The base rule gives every element a 0.01 ms `all` transition, and visibility is in "all". The off-stage @smoke failed 3–4 of 20 runs on the branch and 0 of 20 on main. `in-[[inert]]:invisible` made it 20 of 20. Without reduced motion the transient never appeared, which is why it looked like a flake until the two runs were compared.
+- ABOUT US is `/#about`; the site has no About page. It sent focus back to the menu button.
+
+**Instrument failures, mine.**
+
+- A background `pnpm verify; grep …` reports grep's exit code. The package branch was pushed once with its own new spec red.
+- That spec had asserted "no download", which headless Chromium can never satisfy: it has no PDF viewer, so any PDF navigation downloads, even in a new tab. The spec now asserts the new tab, the CDN request and the unchanged page, and it is red against main's save-on-click code.
+- An unquoted heredoc ran the Markdown backticks of a PR body as shell commands. None was destructive.
+
+**Review.** Package and card: round 1 found minors and nits, and round 2 was clean. Labels: both rounds found something (round 1 a major on focus, round 2 a one-frame focus touch on the menu button). It is fixed and held for decision 84 rather than taking a third round.
+
+Corrected beliefs:
+
+- The brief's "hover-to-select, will look Monday" was stale: roalson-interests#253 had shipped it.
+- Item 5 reverses decision 55(iii) (#245, download) at the client's request.
+- The 2026-10-05 MarkUp boards had 0 unresolved pins, so this round was only Erik's list.
+
+**Decision 84 answered the same evening:** the operator chose (a), "your about us thought is right". #263 lands without a third round, and ABOUT US stays on `/#about`.
+
 ## 2026-10-05 — P1-24: the starter writes `html[data-hydrated]` and the smoke recipe scaffolds it (reddoor-starter#184 `2209aa0`, #1194)
 
 The smoke recipe's marker was `footer`. It is server-rendered, so it was visible with scripting off and with the bundle missing: every scaffolded route proved the page painted, never that it hydrated (#947). Roalson had already fixed this for itself as #57. The template now has the same fix (reddoor-starter#184): the root layout's `onMount` writes the attribute, and the template's own smoke routes wait on it. The recipe here scaffolds `hydrationMarker: "html[data-hydrated]"`.
