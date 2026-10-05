@@ -204,9 +204,11 @@ merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
      already carries the ask, usually paraphrased by an earlier pass. Write
      "already item N" and leave it at that.
    - **Other lines under "Operator decisions" only on a branch.** These are
-     usually status notes. Read them anyway when their branch has a draft PR
-     or is unprotected: a question written without `Ask:`, `Pick:` or a
-     closing `?` lands here. Lift any you judge to be an ask.
+     usually status notes. The script prints them only for branches whose
+     last commit is under 36 h old, and names older ones once on a single
+     line. Read the listed ones when their branch has a draft PR or is
+     unprotected: a question written without `Ask:`, `Pick:` or a closing `?`
+     lands here. Lift any you judge to be an ask.
    - **Unprotected branches.** Commits not on `main` (`git cherry`, so a
      rebase-merged commit does not count), no open PR, no merged PR at the
      tip, and a last commit at least 2 h old. This is failure 2. `NEW` means
@@ -247,7 +249,7 @@ merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
    summary line, the nightlies table, merged PRs, open red or held PRs). Tag
    every claim [M] or [I] as the morning report does.
 7. **Journal line, PR, land.** Add one line to `docs/workJournal.md` under a
-   heading of the form `## <date> — Evening pass (#<pr>)`, giving the
+   heading of the form `## <date> — Evening pass`, giving the
    headline and the summary line. Open the docs-only PR and land it with
    `node scripts/land-prs.mjs <pr>`.
 8. **The notification.** The session's last message is the notification. Its

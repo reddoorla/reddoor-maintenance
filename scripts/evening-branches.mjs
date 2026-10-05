@@ -99,7 +99,7 @@ export function decisionLines(branchText, diffU0, mainText) {
 
 export function namedInSection(text, branch) {
   const esc = branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const named = new RegExp(`(^|[^\\w.-])${esc}($|[^\\w/-])`);
+  const named = new RegExp(`(^|[^\\w.-])${esc}($|\\.(?!\\w)|[^\\w./-])`);
   const range = sectionRange(text);
   if (!range) return false;
   return text
@@ -192,7 +192,9 @@ export async function eveningBranches(o, deps = {}) {
       const anc = await git(ctx, ["merge-base", "--is-ancestor", coverage.headSha, r.ref]);
       if (anc.code === 0) base = coverage.headSha;
     }
-    const cherry = await gitOut(ctx, ["cherry", base, r.ref]);
+    const cherryArgs = ["cherry", remoteBase, r.ref];
+    if (base !== remoteBase) cherryArgs.push(base);
+    const cherry = await gitOut(ctx, cherryArgs);
     const ahead = cherry.split("\n").filter((l) => l.startsWith("+")).length;
     let decisions = { onlyOnBranch: [], alreadyOnMain: [] };
     if (ahead > 0) {
@@ -217,7 +219,7 @@ export async function eveningBranches(o, deps = {}) {
   let mainDecisions = null;
   if (o.mainSince) {
     const rev = (
-      await gitOut(ctx, ["rev-list", "-1", `--before=${o.mainSince}`, remoteBase])
+      await gitOut(ctx, ["rev-list", "-1", "--first-parent", `--before=${o.mainSince}`, remoteBase])
     ).trim();
     if (!rev) throw new Error(`--main-since ${o.mainSince}: ${remoteBase} has no commit before it`);
     {
@@ -289,7 +291,13 @@ export function formatReport(rep) {
       rep.base,
     asks,
   );
-  lines('Other lines under "Operator decisions" only on a branch', questions);
+  lines(
+    `Other lines under "Operator decisions" only on a branch, last commit under ${rep.freshHours} h`,
+    questions.filter((b) => b.fresh),
+  );
+  const oldLines = questions.filter((b) => !b.fresh);
+  if (oldLines.length)
+    out.push(`  older, not repeated: ${oldLines.map((b) => b.branch).join(", ")}`);
   out.push("");
   out.push(
     `## Unprotected branches: commits not on ${rep.base}, no open or merged PR, last commit ≥ ${rep.minAgeHours} h old (${stale.length}, ${freshStale.length} under ${rep.freshHours} h)`,

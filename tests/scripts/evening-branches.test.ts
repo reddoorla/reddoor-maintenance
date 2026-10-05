@@ -112,6 +112,8 @@ describe("namedInSection", () => {
     const r3 = withDecision(["70. Held on `claude/a11y-browser-missing-csp-r3`."]);
     expect(namedInSection(r3, "claude/a11y-browser-missing-csp")).toBe(false);
     expect(namedInSection(r3, "claude/a11y-browser-missing-csp-r3")).toBe(true);
+    const dotted = withDecision(["70. Held on `claude/a11y-browser-missing-csp.v2`."]);
+    expect(namedInSection(dotted, "claude/a11y-browser-missing-csp")).toBe(false);
     const sentence = withDecision(["70. Held on claude/a11y-browser-missing-csp."]);
     expect(namedInSection(sentence, "claude/a11y-browser-missing-csp")).toBe(true);
   });
@@ -271,7 +273,7 @@ function fakeRun(
     }
     if (sub === "cherry") {
       const b = branches.find((x) => `origin/${x.name}` === rest[1]);
-      const n = b?.cherryFrom?.[rest[0]!] ?? b?.cherryPlus ?? 0;
+      const n = (rest[2] ? b?.cherryFrom?.[rest[2]] : undefined) ?? b?.cherryPlus ?? 0;
       const plus = Array.from({ length: n }, (_, i) => `+ p${i}`);
       const minus = Array.from({ length: b?.cherryMinus ?? 0 }, (_, i) => `- m${i}`);
       return ok([...minus, ...plus].join("\n"));
@@ -392,7 +394,7 @@ describe("eveningBranches, end to end on a fake runner", () => {
     await eveningBranches(OPTS, { run, now: NOW });
     for (const c of calls) {
       expect(c).toMatch(
-        /^(git (fetch -q --prune origin|for-each-ref|show|cherry|diff -U0|rev-list -1|merge-base --is-ancestor) |gh api repos\/)/,
+        /^(git (fetch -q --prune origin|for-each-ref|show|cherry|diff -U0|rev-list -1 --first-parent|merge-base --is-ancestor) |gh api repos\/)/,
       );
       expect(c).not.toMatch(/--method|-X |push|DELETE/);
     }
@@ -417,7 +419,9 @@ describe("eveningBranches, end to end on a fake runner", () => {
       { ...OPTS, mainSince: "2026-10-05T12:07:00Z" },
       { run, now: NOW },
     );
-    expect(calls).toContain("git rev-list -1 --before=2026-10-05T12:07:00Z origin/main");
+    expect(calls).toContain(
+      "git rev-list -1 --first-parent --before=2026-10-05T12:07:00Z origin/main",
+    );
     expect(rep.mainDecisions?.lines).toEqual([{ line: 6, text: TODAY_ASK[0] }]);
     const text = formatReport(rep);
     expect(text.split("\n")[0]).toMatch(/^EVENING_BRANCHES_SUMMARY main_decision_lines=1 asks=1 /);
@@ -462,8 +466,64 @@ describe("eveningBranches, end to end on a fake runner", () => {
     ];
     const { run, calls } = fakeRun(reused);
     const rep = await eveningBranches(OPTS, { run, now: NOW });
-    expect(calls).toContain(`git cherry ${head} origin/claude/a11y-blend-mode-unmeasured`);
+    expect(calls).toContain(
+      `git cherry origin/main origin/claude/a11y-blend-mode-unmeasured ${head}`,
+    );
     expect(rep.branches[0]).toMatchObject({ ahead: 1, question: false, ask: false, stale: true });
+  });
+
+  it("a reused branch that only merged main back in has nothing of its own", async () => {
+    const head = "c".repeat(40);
+    const remerged: FakeBranch[] = [
+      {
+        name: "claude/reused-then-merged-main",
+        sha: "f".repeat(40),
+        tipHoursAgo: 10,
+        cherryPlus: 2,
+        cherryFrom: { [head]: 0 },
+        ancestor: head,
+        prs: [
+          { number: 7, state: "closed", merged_at: "2026-10-01T00:00:00Z", head: { sha: head } },
+        ],
+      },
+    ];
+    const rep = await eveningBranches(OPTS, { run: fakeRun(remerged).run, now: NOW });
+    expect(rep.branches[0]).toMatchObject({ ahead: 0, stale: false, question: false });
+  });
+
+  it("collapses status lines on an old branch into one name list", () => {
+    const old = { onlyOnBranch: [{ line: 9, text: "- **09-30: answered.**" }], alreadyOnMain: [] };
+    const mk = (branch: string, fresh: boolean) => ({
+      ref: `origin/${branch}`,
+      branch,
+      sha: "a".repeat(40),
+      subject: "s",
+      tipTime: 0,
+      ahead: 1,
+      coverage: { kind: "none" as const },
+      decisions: old,
+      namedOnMain: false,
+      ageHours: fresh ? 3 : 130,
+      fresh,
+      stale: true,
+      question: true,
+      ask: false,
+    });
+    const text = formatReport({
+      repo: REPO,
+      base: "main",
+      now: "x",
+      minAgeHours: 2,
+      freshHours: 36,
+      sinceDays: 7,
+      scanned: 2,
+      olderSkipped: 0,
+      mainDecisions: null,
+      branches: [mk("claude/new-one", true), mk("claude/old-one", false)],
+    });
+    expect(text).toContain("- claude/new-one (no PR, 1 line(s)");
+    expect(text).not.toContain("- claude/old-one (no PR, 1 line(s)");
+    expect(text).toContain("older, not repeated: claude/old-one");
   });
 
   it("puts the branch name into the PR query percent-encoded", async () => {
