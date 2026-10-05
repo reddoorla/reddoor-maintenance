@@ -8689,3 +8689,14 @@ The rerun used committed work and reverted with `checkout HEAD`. Mutation 4 (unl
 The operator asked to see test emails for the reports ready to approve. There were five unsent, unwithdrawn, `draft_ready` drafts: Data Dynamiq, Espada, LA Homelessness Initiative, Revogen and Vineyard Custom Homes (Maintenance, 2026-10). `selftest email` was the wrong instrument, because it rebuilds from the roster with today's data. A one-off script in the session scratchpad, not committed, instead ran each draft through `renderReportFromRow`, the same assembly the real send uses: the stored row, the Turso header plate, the inline attachment and the subject. It sent the result to `operatorEmail()` alone (the fallback `tucker@reddoorla.com`; `OPERATOR_EMAIL` is unset in the cloud environment), with `[TEST] ` prefixed to the subject and no CC. All five passed the health gate. Resend returned five message IDs, and Gmail shows all five in the operator's inbox at 22:47Z. Database access was SELECT only, and nothing was stamped. Data Dynamiq's and LAHI's GA user counts are 0. Data Dynamiq's draft predates today's tag, which went live at 21:03Z, and GA does not backfill. The rows are in the clean-send table as `awaiting`.
 
 Process slip, recorded so it is not repeated: this session ran `git checkout origin/main -- .` in the main checkout rather than its worktree, which staged origin/main's files over the main checkout's older HEAD. The main checkout had been clean, so it was restored exactly: the 7 added files were removed and the 17 modified files were restored to HEAD, giving a clean `git status`. Nothing was committed from it.
+
+## 2026-10-05 — Blocking questions go through AskUserQuestion, with all their context (CLAUDE.md)
+
+The operator asked for this during P1-25 (#1157). That PR went through four
+review rounds and three decision asks. Each ask reached the operator as the
+last paragraph of a long status message, and as a line in `docs/BACKLOG.md`.
+The rule is now in CLAUDE.md's worker-session section. A blocking decision is
+asked with AskUserQuestion. The question names the item, the PR, the finding
+with a concrete input, each option's consequence, and the pick and why. The
+BACKLOG line stays, because AskUserQuestion only reaches someone who is there
+to answer it, and the evening and PM passes read the file.
