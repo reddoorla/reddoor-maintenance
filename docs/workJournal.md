@@ -8307,7 +8307,19 @@ checkout would have misread it.
 
 The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
 
-## 2026-10-05 — P1-25: the toolbar fits the CSP baseline; held after round 2 (#1157, Operator decision 73)
+## 2026-10-05 — Data Dynamiq: DRAFT `/privacy` and GA4 built, green, held for item 45 (data-dynamiq#59, #1160)
+
+The brief was BACKLOG 49's Data Dynamiq line. The property and stream already existed, and the tag was parked behind P1-26's privacy page. All three "verify first" checks held: no `src/routes/privacy`, no tag in `src/`, and the recipe's refusal at `index.ts:171-187`. data-dynamiq#59 now carries the starter page, a footer link, a contact-dialog notice, the `@reddoorla/maintenance` bump to ^0.104.0 that `initAnalytics` needs, and the recipe's own hook for `G-V11LZYNMY2` on `www.datadynamiq.com`. CI is green. On the deploy preview's built output, in a real browser, the tag is inert (no gtag request, no `dataLayer`), and a hand-injected gtag request was caught by the same recorder. The PR is not merged. The brief's stop condition applies: item 45 is open, the site is live, and the operator's message carried no waiver. The ask is Operator decisions 73. Item 46 was answered (a) mid-session (#1153), which matches what was built: no consent gate.
+
+**The mutation the brief named found a bug in this repo, not in the site.** Mutation 2 was to pass the numeric property ID as `--measurement-id` and expect a refusal. The command crashed instead: cac coerces `556916505` to a number, and `.trim()` threw a TypeError with exit 1. The friendly refusal written for exactly that confusion never ran. The unit tests had always passed strings, so they could not see it, and only running the real binary could. #1160 coerces with `String()`, as `match-harness` already did. It adds two tests, and the first was red before the fix. The same crash applied to a numeric `--production-host`.
+
+**Review was dirty once, on accuracy rather than code.** Round 1 ran three lenses: the tag gate, policy accuracy, and regressions. The accuracy lens found that `app.html` loaded Vimeo's `player.js` on every page while nothing used it. So the starter's line "Vimeo receives your IP address when the video loads" was false for this site. The fix was to remove the dead script, not to reword the template. Round 2 was clean. Its one minor (Vimeo is still disclosed, through a component branch no page uses) was left: over-disclosure is the safe direction.
+
+**Two follow-ups, recorded and not built.** `initAnalytics` gates on the hostname alone, so a Prismic preview or `/slice-simulator` opened on a production host counts as a visit. That holds for every tagged site, and the right fix belongs in the package (the `gate` predicate, or a path rule), not in one site's generated hook. And no fleet Lighthouse or smoke run against a production URL blocks `googletagmanager.com`, according to the tag lens's grep of `src/`. I have not verified that those runs actually reach the tag.
+
+**Environment notes.** This cloud image's Chromium is build 1234, and data-dynamiq's Playwright 1.63 wants 1243. Symlinking the 1243 directories to 1234 under `/opt/pw-browsers` let both the site's suite and the a11y audit run; a `launchOptions.executablePath` override covered only the site's own specs. The 10-05 Data Dynamiq report was drafted before any tag existed, so its analytics section stays empty whatever happens next. GA does not backfill. No GA hit has been measured, because the tag is not deployed.
+
+## 2026-10-05 — P1-25: the toolbar fits the CSP baseline; held after round 2 (#1157, Operator decision 74)
 
 The shared `BASELINE_CSP` had the same gap williamson-homes#7 found per site.
 It blocked the Prismic toolbar's `toolbar.js`, the html2canvas file its Share
@@ -8339,6 +8351,6 @@ Round 2 found that round 1's own fix was wrong. Seeding an unset `frame-src`
 with `'self'` ignores the browser's fallback to `child-src` and then
 `default-src`, so naming a repository can block frames that used to load.
 Under the two-dirty-rounds rule, the PR is held, not given a third round. The
-ask is Operator decision 73: the worker's pick is to seed from the fallback
+ask is Operator decision 74: the worker's pick is to seed from the fallback
 chain and review once more. #1157 is unmerged, its CI `build` was still
 running on `b2592187` at 14:56Z, and the fleet rollout has not started.

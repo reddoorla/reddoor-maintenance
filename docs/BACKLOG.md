@@ -1436,6 +1436,16 @@ analytics"]`). The operator creates properties for the other three. When the
     (`https://www.datadynamiq.com/`). These are the measurement IDs that go in
     each repo's `src/lib/site-config.json` (design D5) when the tags are
     installed. That install is still P1-26's (privacy page first).
+    **Data Dynamiq, 2026-10-05: built, green, held for item 45.**
+    reddoorla/data-dynamiq#59 carries the DRAFT `/privacy` page, the footer link,
+    the contact-dialog notice, `@reddoorla/maintenance` ^0.104.0 and the
+    `analytics-tag` hook for `G-V11LZYNMY2` on `www.datadynamiq.com`. CI is
+    green, and on the deploy preview the page renders and the tag is inert
+    (no gtag request, no `dataLayer`; the control request was caught) [M].
+    It is not merged, because the site is live and item 45 is open; the ask
+    is item 73. The site collects nothing until it merges, and GA does not
+    backfill, so the 10-05 report's analytics section stays empty either way.
+    1836dig and 29 Navy are not started.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
@@ -2332,7 +2342,28 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
 
-73. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
+73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
+    45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
+    through review. Round 1 (three lenses) found one major, an every-page
+    Vimeo script the policy misdescribed, fixed by removing the dead script;
+    round 2 found no blocker or major. Item 45 says the
+    DRAFT page goes to no client's live site until the lawyer's review, and
+    Data Dynamiq is live, so the worker did not merge it. Roalson was the
+    pre-launch precedent, so it never met this rule.
+    _Ask:_ merge data-dynamiq#59 (DRAFT /privacy + GA4) before item 45, yes or
+    no. _Worker's pick:_ yes. The page is marked DRAFT and `noindex`, and its
+    disclosures are derived from the site's own code. Without a posted policy
+    the site cannot run GA4 under Google's terms, and every day without the tag is data
+    the quarterly report can never recover. The remaining exposure is wording,
+    and item 45 reviews that wording once for every site. If yes, any session
+    lands it with `node scripts/land-prs.mjs` after attaching data-dynamiq.
+    Missing either way: the legal name, privacy contact email and effective
+    date render as placeholders (none is in the repo or on the Turso row).
+    Two follow-ups are recorded in the PR and the journal and are not built:
+    editor traffic (Prismic previews, `/slice-simulator`) on the production
+    host is counted, because `initAnalytics` gates on the hostname alone, and
+    that affects every tagged site.
+74. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
     branch is `claude/great-turing-v374rg`, head `b2592187`, CI re-running.
     It adds `https://prismic.io/prismic-toolbar/` and the one html2canvas
