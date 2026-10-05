@@ -2772,7 +2772,6 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     old `home` fields `s1`–`s8` are unrendered; deleting them is a manual
     model edit in Prismic, optional and not urgent.
 
-
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
