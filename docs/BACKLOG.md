@@ -2368,7 +2368,6 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     editor traffic (Prismic previews, `/slice-simulator`) on the production
     host is counted, because `initAnalytics` gates on the hostname alone, and
     that affects every tagged site.
-
 74. **Williamson Construction hero: upload three poster frames and publish
     a release (williamson-construction-co#21, new 2026-10-05).** The code
     half landed: the hero poster is now an `<img>` with a capped imgix
@@ -2392,6 +2391,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     desktop LCP should move from the video's first frame to the poster.
     _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
     permission change that outlives this one task.
+75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
+    #1155): held after two dirty review rounds (new 2026-10-05).** The
+    branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
+    It adds `https://prismic.io/prismic-toolbar/` and the one html2canvas
+    file to `BASELINE_CSP`'s `script-src` (no `unsafe-eval`, no `blob:`), and
+    an optional `prismicRepository` that frames exactly
+    `https://<name>.prismic.io`. All four of the brief's mutations go red, and
+    so do five more that round 1 found. Round 1 found three minors, all fixed.
+    Round 2 found one more minor, which round 1's own fix introduced. When a
+    site unsets `frame-src`, the fold seeds it with `'self'` plus the host,
+    but browsers fall back to `child-src`, then `default-src`. So a site with
+    `default-src: ['self', 'https://www.youtube.com']` and no `frame-src`
+    loses YouTube frames once it names a repository. It is only reachable by
+    unsetting `frame-src` on purpose, because the baseline always defines it.
+    _Ask:_ (a) seed from `child-src`, else `default-src`, else `['self']`,
+    and land on a clean third review. Or (b) merge #1157 as it is and file
+    the seed as a follow-up. Or (c) refuse `prismicRepository` when the site
+    has unset `frame-src`. _Worker's pick:_ (a). It is a five-line fix with a
+    test, and it makes the JSDoc's claim true. Two nits from round 2 ride the
+    same push: `JSON.stringify` throws on a BigInt in the error message, and
+    the regex accepts a trailing hyphen and labels over 63 characters.
+    Separately, the security lens noted that the two script sources could be
+    gated on `prismicRepository`, as `analytics` gates GA. Without a framed
+    repository the toolbar never loads them. The brief puts them in the
+    baseline, so they stay there unless you say otherwise.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
