@@ -8545,6 +8545,19 @@ injected. The lesson for any evidence screenshot taken in a cloud
 container: check the computed font against the font actually used before
 calling the picture a likeness.
 
+## 2026-10-05 — CalTex Our Story is live (caltex-landing#71, Operator decision 79 done)
+
+The operator published release `asQFsBIAABYMgAt2`, and #71 merged at 21:17Z.
+The live site was checked from outside right after the deploy:
+`/leasing`, `/purchases` and `/preview/leasing` return 301 to the new paths,
+`/our-story` carries the new title, Erik's first paragraph and the family
+photo with its alt text, and the sitemap lists `/aed-programs` and
+`/our-story`. Twice that evening a check never got a runner: it sat
+queued for 15 minutes and was cancelled with zero steps (`build` on #1175,
+`codegen` and `deploy-preview-comment` on #71). One re-run each passed. That
+is a GitHub runner-queue failure, not a test result, and the job metadata
+(`runner_name` empty, `steps` empty) is how to tell the two apart.
+
 ## 2026-10-05 — The post-kit PDF exists after all: `rd-md-pdf` is `reddoorla/reddoor-md-pdf`
 
 This corrects the entry above, which said `rd-md-pdf` was not on a cloud container and that no PDF was made. The tool is the public repo `reddoorla/reddoor-md-pdf`. My search was for the literal string `rd-md-pdf`, and `reddoor-md-pdf` does not contain it. `docs/meta-week/_research/inv-04-site-fleet-composition.md` already lists it as the "md→pdf tool", so one read of the org's repo list (`list_repos` with `pdf`) would have found it. The operator pointed it out.
