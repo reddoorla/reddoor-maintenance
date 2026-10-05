@@ -8690,6 +8690,26 @@ The operator asked to see test emails for the reports ready to approve. There we
 
 Process slip, recorded so it is not repeated: this session ran `git checkout origin/main -- .` in the main checkout rather than its worktree, which staged origin/main's files over the main checkout's older HEAD. The main checkout had been clean, so it was restored exactly: the 7 added files were removed and the 17 modified files were restored to HEAD, giving a clean `git status`. Nothing was committed from it.
 
+## 2026-10-05 — P1-25 lands: only a missing key is unset (#1157, Operator decision 75 done)
+
+The operator answered round 4 with (a). The fold in `withPrismicFrame` now
+takes the first of `frame-src`, `child-src` and `default-src` that the site
+defines. It extends that entry if it is an array, and leaves anything else
+as written. So `frame-src: null` with a repository now fails the build the
+same way it does without one. That is SvelteKit's `string_array` check
+doing the refusing, not this config. New tests pin that `[]` is a
+definition and not unset (round 4's surviving mutant). They also pin that
+the seed never aliases `default-src` (its nit). 73 tests pass, and all 19
+mutations go red. Those are the brief's four, every survivor from rounds 1
+to 4, and a mutant that puts back `d78d2d80`'s falsy-as-unset rule.
+
+Accounting for the arc: four review rounds. Two of them found defects that
+my own previous fix had introduced. The round-3 one also rested on a
+premise that only a second authority could refute. The code that landed is
+round 3's reviewed shape plus tests. The fleet rollout, where each site
+passes `prismicRepository`, is still per-repo PRs, and none of them has been
+opened.
+
 ## 2026-10-05 — The post-kit proposal now covers every channel from one place
 
 At the operator's ask, the proposal in `docs/proposals/2026-10-05-instagram-post-kit.md` (path kept) now covers Instagram, Facebook and LinkedIn instead of Instagram alone. reddoorla.com links only Instagram and LinkedIn; Facebook comes in through the Page that Tim's Meta ads need. The target, also the operator's, is under an hour from idea to "live everywhere and looks right", and the budget comes to 30–40 minutes. The kit now carries a caption for each channel, a 1080×1080 square of each image for LinkedIn, and tracked links. The recommended way to publish to all three at once is a third-party scheduler, which is already approved by Meta and LinkedIn, so we skip both app reviews. Whether a scheduler can take drafts from our own command is marked "to verify", not promised. One crop defect turned up: the square crop of the Design Series cover cut off its title, so that square is now set on white.
