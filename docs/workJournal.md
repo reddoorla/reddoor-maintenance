@@ -8306,3 +8306,58 @@ checkout would have misread it.
 ## 2026-10-05 — The Instagram post-kit proposal for Tim exists (`docs/proposals/2026-10-05-instagram-post-kit.md`)
 
 The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
+
+## 2026-10-05 — P1-27: the audits retry their server on a fresh port when the one they picked was taken (#1164, `9d9a11d`)
+
+This came from the morning report's brief. `findFreePort` binds :0, releases the port, and hands the number to a server that binds it later under `--strictPort`. On 09-30, #1066's `build` failed seven a11y-live-spec tests with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in docs. The verify step held: at 14:28Z, `grep EADDRINUSE` over free-port, a11y, lighthouse and smoke matched nothing. Issue #1156 was opened and claimed. No fresh branch touched these files.
+
+**What changed.** A new helper, `src/util/port-retry.ts`, now drives the server spawn in all three audits.
+
+- It runs the server up to three times, on freshly picked ports each time.
+- It retries only when the server's own output names one of the audit's ports as taken.
+- Any other outcome, success or failure, returns at once.
+- `--strictPort` is untouched.
+
+**The stop condition did not fire.** The brief's stop condition was "the collision cannot be told apart from other failures without parsing localized output". All three signals are fixed strings, read from the installed sources:
+
+- Node's `EADDRINUSE` errno name.
+- vite 8.2.0's `Port ${port} is already in use` (`chunks/node.js:11627`).
+- Playwright 1.62.1's `… is already used, make sure that nothing is running on the port` (`runner/index.js:851`). This is the case where something answers HTTP on the port before the webServer starts.
+
+These signals reach the audit's output by two routes. Playwright forwards webServer stderr. lhci attaches the server's stdout and stderr to its `Command exited with code N` error and prints them (`cli.js:134-137`).
+
+The match is anchored to the audit's own port. vite also prints `WebSocket server error: Port 24678 is already in use` for its HMR port. That is the site's failure, and a fresh audit port would not cure it.
+
+**Smaller changes.**
+
+- a11y needed two ports when the smoke runs on dev. `findFreePorts(n)` replaces `allocateDistinctPort`.
+- Each attempt rewrites the spec and config and clears the results directory, so an earlier attempt's artifact cannot be read as a later one's.
+- The ENOENT catch in a11y is now narrowed to the spawn. Wrapping the whole attempt would have turned a writeFile ENOENT into "npx/playwright not available".
+
+**The instrument lied first, and the shape is worth naming.** The first mutation loop reverted each mutation with `git checkout -q -- src` over uncommitted work.
+
+- That left the new untracked `port-retry.ts` alone, so mutation 1 stacked under 2, 3 and 4.
+- It also reverted the tracked audit edits to `main`, so all four "mutations" ran against unpatched audits.
+- All four produced the same six red tests. Identical results from four different mutations were the tell.
+
+The rerun used committed work and reverted with `checkout HEAD`. Mutation 4 (unlimited tries) then hung `withPortRetry`'s own test instead of failing it: an infinite loop of resolved promises starves Vitest's timer. The test now throws past ten runs.
+
+**Final mutation result.**
+
+| Mutation             | Red tests |
+| -------------------- | --------- |
+| Retry removed        | 6         |
+| Retry on every error | 4         |
+| Same port            | 6         |
+| Unlimited tries      | 2         |
+
+**Review and landing.**
+
+- One adversarial pass found no blocker or major. Its minor findings are recorded in the PR and left as they are:
+  - A collision in a11y is found only after `npm run build`, so a retry repeats the build.
+  - After three collisions the summary does not say that retries happened.
+  - The live test proves only Node's string. The vite and Playwright strings were checked against their source.
+- Full suite before push: 8567 passed, 5 skipped.
+- Landed with `land-prs.mjs`, which ran update-branch to `644b8cc`, waited for green, and squashed.
+
+**Landing the journal.** After the merge, `claude/focused-davinci-yhbv0g` was restarted from `main`. Pushing this entry there needed a force-push over the merged PR's commits, and the session's permission classifier refused it. At the operator's word, the entry went to a fresh branch, `claude/p1-27-journal`, as its own docs-only PR.
