@@ -15,11 +15,11 @@ import { createServer } from "node:net";
  * and caltex itself. Allocating a free port up front + `--strictPort`
  * makes the audit immune to port collisions.
  *
- * TOCTOU note: the small window between close() and the spawned vite
- * binding is theoretically racy, but in practice we run one audit at a
- * time and the OS keeps the port free for re-use. If vite still fails to
- * bind under `--strictPort`, the audit fails loudly — that's the correct
- * outcome (vs. silently auditing the wrong server).
+ * TOCTOU note: the window between close() and the spawned server binding
+ * is racy, and parallel tests hit it (#1066's `build`, 2026-09-30:
+ * `EADDRINUSE … port: 40937`). `--strictPort` stays: a server that cannot
+ * bind fails, never silently audits the wrong one. The audits start it
+ * again on a fresh port through `withPortRetry` (`./port-retry.ts`, P1-27).
  */
 export async function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
