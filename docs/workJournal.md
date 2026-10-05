@@ -8305,6 +8305,8 @@ checkout would have misread it.
 
 ## 2026-10-05 — The Instagram post-kit proposal for Tim exists (`docs/proposals/2026-10-05-instagram-post-kit.md`)
 
+> Superseded in part by 2026-10-05 — The post-kit PDF exists after all: `rd-md-pdf` is `reddoorla/reddoor-md-pdf`.
+
 The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
 
 ## 2026-10-05 — Data Dynamiq: DRAFT `/privacy` and GA4 built, green, held for item 45 (data-dynamiq#59, #1160)
@@ -8419,6 +8421,8 @@ At about 18:45Z the operator answered all seven open decisions in one message: 7
 
 ## 2026-10-05 — P1-25 round 3: the fallback seed landed, the review is dirty again (#1157, Operator decision 75)
 
+> Superseded in part by 2026-10-05 — P1-25 round 4: SvelteKit refuses what round 3 called "unset".
+
 The operator answered decision 75 with (a), in this session as well as in
 #1167. `51e56b1a` now seeds an unset
 `frame-src` from `child-src`, then `default-src`, which is the order CSP
@@ -8507,6 +8511,93 @@ This worker was queued at ~18:45Z to build decision 75's answer (a) on #1157 and
 ## 2026-10-05 — "Safe to archive" now also means "no clear next step" (CLAUDE.md)
 
 The Data Dynamiq session above ended with "Safe to archive this session." It had pushed everything, landed its journal, and handed data-dynamiq#59 off as Operator decisions 73. That met the rule as #1158 wrote it. The operator corrected the meaning: archiving also clears the session's arc of context, so the line is only true when nothing would send the session straight back to work. A held PR whose likely answer is "yes, merge it" is such a thing. A handed-off blocker makes a session resumable, not finished. The rule in CLAUDE.md now names both conditions. As it happened, 73 was answered yes the same afternoon, and the merge stayed with the operator only because the cloud permission policy refuses a client-site merge as a production deploy.
+
+## 2026-10-05 — CalTex release staged; the evidence fonts were wrong (Operator decision 79, release `asQFsBIAABYMgAt2`)
+
+The operator activated Prismic MCP for `caltex-landing`, and the release
+went in: four deltas on `home`. The first upload of the family photo became
+a "document" with no dimensions. Dropbox's `dl=1` redirect target serves the
+JPEG as `application/json`, and `upload_asset` trusts the response's
+content type, not the bytes. The bytes were right: the stored file was
+byte-identical to the Dropbox one. imgix serves the same object as
+`image/jpeg`, so re-uploading from
+`images.prismic.io/caltex-landing/<id>_…jpg` produced a proper image
+(2073×1930, same 2,662,063 bytes). The stray document asset is left for the
+operator to delete. The publication card (`present_release`) was refused by
+the session's permission classifier as an unrequested commit. That is fine:
+staging was the ask.
+
+The operator pointed out that the evidence page had the wrong fonts. It
+did. The site loads no webfont for headings or body. It names Impact and
+"Helvetica Neue LT Std", then helvetica, and leans on the visitor's system
+fonts, which every Mac has and this container did not. So every "before"
+and "after" shot from the first session set headings in a default serif,
+and nothing in the shots said so; my note blamed only the logo. The fix was
+to install the shots' missing fonts, not to change the site: Impact from
+Microsoft's original `impact32.exe` (corefonts; the Debian installer failed
+inside the container), plus `fonts-urw-base35`, whose Nimbus Sans is the
+metric-compatible alias fontconfig serves for helvetica. `document.fonts.check("16px Impact")` now
+returns true on every page shot. The broken desktop logo was a second,
+container-only failure: Chromium reports `ERR_BLOCKED_BY_ORB` on the
+`%2B`-named SVG, while a browser-headered curl to the same URL gets a 200
+`image/svg+xml`. The re-shoot serves the CDN's own bytes to the page and
+says so. The "after" shots now come from the deploy preview (Netlify's
+drawer removed), with the release's copy and the real Prismic asset
+injected. The lesson for any evidence screenshot taken in a cloud
+container: check the computed font against the font actually used before
+calling the picture a likeness.
+
+## 2026-10-05 — CalTex Our Story is live (caltex-landing#71, Operator decision 79 done)
+
+The operator published release `asQFsBIAABYMgAt2`, and #71 merged at 21:17Z.
+The live site was checked from outside right after the deploy:
+`/leasing`, `/purchases` and `/preview/leasing` return 301 to the new paths,
+`/our-story` carries the new title, Erik's first paragraph and the family
+photo with its alt text, and the sitemap lists `/aed-programs` and
+`/our-story`. Twice that evening a check never got a runner: it sat
+queued for 15 minutes and was cancelled with zero steps (`build` on #1175,
+`codegen` and `deploy-preview-comment` on #71). One re-run each passed. That
+is a GitHub runner-queue failure, not a test result, and the job metadata
+(`runner_name` empty, `steps` empty) is how to tell the two apart.
+
+## 2026-10-05 — P1-25 round 4: SvelteKit refuses what round 3 called "unset" (#1157, Operator decision 75)
+
+The operator answered (a) again, and `d5d1b1d7` built what round 3 asked
+for. It treats `null`, `false` and `""` as unset at each step of
+`frame-src`, `child-src`, `default-src`. It stops at a string, and drops
+`'none'` on every path. 69 tests pass, and 18 mutations all go red.
+
+Round 4 corrected round 3's belief, and my journal entry above repeats that
+belief. Round 3 fed the config straight into SvelteKit's `Csp` class and read
+`get_header`'s `if (!value) continue`. But a real build reaches `Csp` only
+after `validate_config`, and its `string_array` check
+(`options.js:445-452`) throws "must be an array of strings, if specified" on
+`null`, `false`, `""` or a string. So those values never reach the browser:
+SvelteKit refuses them. The new handling is harmless to the policy. Round 4
+ran every input through both stages, and each emitted header was right. But
+it rests on an unreachable state, and it hides a site's error when a
+repository is named. That is now the ask under decision 75: the worker's
+pick is to go back to "missing key only", and land.
+
+The lesson extends the round-3 one. "Unset" means whatever the consumer
+treats as unset, and the consumer is the whole pipeline, not the last class
+in it. Round 3 ran a negative control against one stage and called it the
+system. The read that corrected it came from a different authority: the
+validator, which round 3 skipped.
+
+## 2026-10-05 — The post-kit PDF exists after all: `rd-md-pdf` is `reddoorla/reddoor-md-pdf`
+
+This corrects the entry above, which said `rd-md-pdf` was not on a cloud container and that no PDF was made. The tool is the public repo `reddoorla/reddoor-md-pdf`. My search was for the literal string `rd-md-pdf`, and `reddoor-md-pdf` does not contain it. `docs/meta-week/_research/inv-04-site-fleet-composition.md` already lists it as the "md→pdf tool", so one read of the org's repo list (`list_repos` with `pdf`) would have found it. The operator pointed it out.
+
+From a cloud session the tool works without its hosted app. Clone it, run `pnpm install`, then call `md-to-pdf` with the repo's `src/lib/server/pdf-config.ts` (Node 24 strips the types) and `CHROME_PATH` as the executable. Pass `--proxy-server=$HTTPS_PROXY`, or Chromium cannot fetch the Typekit and Google fonts. With the proxy set, `pdffonts` shows PragmaticaWeb and Besley embedded.
+
+The PDF is four pages, not the brief's two at most: at that config's 14px body and 0.85in margins, the text alone fills three. The PDF copy differs from the committed Markdown in three ways:
+
+- it shows the three feed crops inline;
+- its image table drops the file-name column;
+- it adds `break-inside: avoid` on the caption, because the first render left the "Caption" label stranded at the foot of page 1.
+
+The first version also proposed a weekly kit on a schedule, emailed every Monday. That followed the brief, not the operator, who had said on 10-02 that "the impetus should come from a person." The operator caught it in the PDF. Now a person starts each kit with a project and a one-line seed (why this one, why now), and nothing runs on a timer. The only schedule left is the separate reminder digest, which Tim asked for himself.
 
 ## 2026-10-05 — Data Dynamiq's GA4 tag is live and the property receives it (data-dynamiq#59)
 

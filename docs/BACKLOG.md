@@ -2378,6 +2378,52 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
     **Answered 2026-10-05 ~18:45Z: (b)** — keep one job, fix the two correctness majors, and run a third review round on #1143 as it is. A worker session is queued for it.
+    - **10-05 ~20:00Z: round 3 is dirty; #1143 is still a draft and
+      unmerged.** Branch `claude/wizardly-brown-2ylvcv`, head `f765c982`:
+      `origin/main` merged in (`68382a43`), then both round-2 majors fixed.
+      `declined` is now keyed on a sha256 of the written model files, which
+      the PR body carries. The sync strips that key before closing a PR
+      itself. A clean "Update branch" merge of `main` counts as the bot's.
+      Mutations 28–33 go red; M34 survives as a second layer. Round 3
+      (security, correctness, operations) found:
+      - **Blocker (security):** the site's own prettier and `prismic` CLI
+        run as the same user as the CLI, so they can read
+        `/proc/$PPID/environ`: the App token and every `PRISMIC_TOKEN_*`.
+        `siteProcessEnv` strips only the child's environment. The reviewer
+        demonstrated the read in this container. Also, a process left
+        running by a site's install can read later git commands' auth
+        header from `/proc/<pid>/cmdline`, or rewrite a later clone's
+        `.git/config` between the fingerprint check and the push.
+      - **Major (security):** site code can move `HEAD`/the index, so a
+        commit carrying its own files passes the stray-file check (which
+        is checked against HEAD) and is pushed. _Fix:_ diff against
+        `baseHead`.
+      - **Major (correctness):** "Update with rebase" still holds the site
+        forever.
+      - **Major (operations):** `held` is green with no warning. A human
+        commit on a branch that survives a squash merge parks the site
+        silently.
+      - **Likely major (operations; needs a live check):** the App token
+        has no `workflows` permission. A rebuild whose new parent
+        `baseHead` carries a newer `.github/workflows/*` may be refused.
+      - **Minors:** a declined site still pushes a new commit every night;
+        a decline never expires; the key is not canonical; only 30 closed
+        PRs are read.
+      - _Ask:_ (a) split the workflow as first proposed: a job with no
+        token runs install, format and codegen and uploads a patch; a job
+        with the token runs no site code. Then fix the three majors and
+        review once. Or (b) keep one job, but run all site code as a
+        separate unprivileged user, fix the majors, and review once. _Pick:_
+        (a). The blocker is the class round 2's pick predicted, and a
+        third patch inside one job would leave `/proc` and leftover
+        processes as the next route. Under a split, no site process ever
+        shares a job with the token.
+      - **For the operator, outside #1143:** the security reviewer's demo
+        printed this cloud container's real `PRISMIC_WRITE_TOKEN`
+        (the-pointe-burbank) into its own transcript, which stays in this
+        session. Whether to rotate it is yours (🔴). Its first probe also
+        created a local user `probeu` in the container. Removing it was
+        refused, and it dies with the container.
 
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
@@ -2478,6 +2524,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     is a test plus a one-line condition. Or (c) merge `51e56b1a` as it is
     and file both as a follow-up. _Worker's pick:_ (a). The round-3 defects
     are in the same small function, and a fourth review is cheap.
+    **Answered 2026-10-05 ~21:00Z: (a). Round 4 is not clean, so this is held
+    again (new ask below).** `d5d1b1d7` takes the first truthy entry of
+    `frame-src`, `child-src` and `default-src`. An array is extended, minus
+    `'none'` and a hand-quoted `"'none'"`. A string is left as it is. 69
+    tests pass, and 18 mutations all go red. Round 4 ran the config through
+    SvelteKit 2.70.2's `validate_config` as well as its `Csp` class. The
+    emitted policy was right for every input it tried. But round 3's premise
+    was wrong. SvelteKit's validator (`string_array`,
+    `@sveltejs/kit/src/core/config/options.js:445`) rejects `null`, `false`,
+    `""` or a string in any CSP directive, so the header builder's
+    `if (!value) continue` that round 3 read is never reached. That leaves
+    the falsy-as-unset handling, its docstring and two tests resting on
+    inputs a real build refuses. It also hides a site's error when a
+    repository is named: `frame-src: null` builds, because the fold
+    replaces it with a valid list, but the same config without a repository
+    fails the build. Separately, nothing pins that `frame-src: []` blocks
+    every frame: a mutant that treats `[]` as unset survives and would seed
+    from `default-src`. _Ask:_ (a) go back to treating only a missing key as
+    unset (SvelteKit then refuses `null`/`false`/strings loudly, with or
+    without a repository), fix the docstring, add the `[]` and aliasing
+    tests, and land without a fifth round. The code returns to round 3's
+    reviewed shape, with only tests added. Or (b) keep `d5d1b1d7`'s
+    handling, fix the docstring and tests, and land. Or (c) a fifth round
+    after (a). _Worker's pick:_ (a), so a bad config fails the same way
+    whether or not the site names a repository.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
@@ -2584,6 +2655,22 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     (https://caltex-landing.prismic.io/builder/settings/mcp/) is the
     durable fix for the next CalTex worker. Keep the bullets until Erik says
     otherwise, and use 24px over the 20px alternative on the evidence page.
+
+    **Staged 2026-10-05 ~20:25Z, after the operator activated Prismic MCP:
+    publish CalTex release `asQFsBIAABYMgAt2` ("Our Story + AED Programs
+    (Erik 2026-10-05)"), then merge caltex-landing#71, then tell Erik.** The
+    release holds one document (`home`) with four deltas: `s3_title` and
+    `s3_closing_text` (Erik's paragraphs, U+2011 kept), `s3_image` (the
+    family photo, asset `L7bvh5WEjejahKwq`, 2073×1930, with the alt text
+    above), and `s2_eyebrow`. The manual steps above are no longer needed.
+    Preview at 1440/390, now in the site's real fonts:
+    https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix. One cleanup is
+    yours: the asset library has a stray copy of the same photo,
+    `_t3eeXeDKfYMiE5v`, filed as a "document". Dropbox's download host
+    serves the JPEG as `application/json`, and Prismic believed the label.
+    Nothing references it, and deleting it from the library is safe.
+
+    **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
