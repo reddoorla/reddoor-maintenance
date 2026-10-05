@@ -3,10 +3,18 @@ import { buildSiteAlarmContext, buildCockpitModel } from "../../src/dashboard/fl
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { NotifyBounceCounts } from "../../src/db/submissions.js";
+import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
 const BASE = "https://reddoor-maintenance.netlify.app";
+const NO_BOUNCES = new Map<string, NotifyBounceCounts>();
+const NO_DEADLETTERS = new Map<string, number>();
+
+/** Dates a site's vuln key past DIRECT_VULN_WAIT_DAYS, so the vuln has stopped waiting. */
+function escalated(id: string): DigestSnapshot {
+  return { [`vuln:${id}`]: { metric: 99, firstFlaggedAt: "2026-05-01" } };
+}
 
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
@@ -35,8 +43,12 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
 }
 
 /** The keys the cockpit surfaces for one site — the parity yardstick. */
-function cockpitItemKeys(s: WebsiteRow, notify = new Map<string, NotifyBounceCounts>()): string[] {
-  const m = buildCockpitModel([s], [], {}, BASE, NOW, [], null, [], 0, notify);
+function cockpitItemKeys(
+  s: WebsiteRow,
+  notify = new Map<string, NotifyBounceCounts>(),
+  prior: DigestSnapshot = {},
+): string[] {
+  const m = buildCockpitModel([s], [], prior, BASE, NOW, [], null, [], 0, notify);
   const card = m.cards.find((c) => c.site.id === s.id)!;
   return card.items.map((i) => i.key).sort();
 }
@@ -52,10 +64,41 @@ describe("buildSiteAlarmContext", () => {
 
   it("surfaces a critical vuln as an attention item", () => {
     const s = site({ id: "a", name: "Bad", securityVulnsCritical: 2, securityVulnsHigh: 1 });
-    const alarm = buildSiteAlarmContext(s, [], BASE, NOW);
+    const alarm = buildSiteAlarmContext(
+      s,
+      [],
+      BASE,
+      NOW,
+      NO_BOUNCES,
+      NO_DEADLETTERS,
+      escalated("a"),
+    );
     expect(alarm.tier).toBe("attention");
     expect(alarm.items).toHaveLength(1);
     expect(alarm.items[0]!.kind).toBe("vuln");
+  });
+
+  it("keeps a waiting vuln on the page as information without raising the tier", () => {
+    const s = site({ id: "a", name: "Bad", securityVulnsCritical: 2, securityVulnsHigh: 1 });
+    const alarm = buildSiteAlarmContext(s, [], BASE, NOW);
+    expect(alarm.tier).toBe("healthy");
+    expect(alarm.items.map((i) => [i.kind, i.waiting])).toEqual([["vuln", true]]);
+    expect(cockpitItemKeys(s)).toEqual([]);
+    const html = renderSiteDashboardHtml(s, [], [], null, NOW, alarm);
+    expect(html).toContain("chip waiting");
+    expect(html).not.toContain("Needs attention");
+  });
+
+  it("escalates on the page the same day the cockpit does, from the same snapshot", () => {
+    const s = site({ id: "a", name: "Bad", securityVulnsCritical: 1 });
+    const prior: DigestSnapshot = { "vuln:a": { metric: 1, firstFlaggedAt: "2026-06-04" } };
+    const before = new Date("2026-06-10T23:59:59Z");
+    const after = new Date("2026-06-11T00:00:00Z");
+    const page = (now: Date) =>
+      buildSiteAlarmContext(s, [], BASE, now, NO_BOUNCES, NO_DEADLETTERS, prior).tier;
+    const cockpit = (now: Date) => buildCockpitModel([s], [], prior, BASE, now).cards[0]!.tier;
+    expect([page(before), cockpit(before)]).toEqual(["healthy", "healthy"]);
+    expect([page(after), cockpit(after)]).toEqual(["attention", "attention"]);
   });
 
   it("surfaces bounced lead notifications as a critical notify-bounce item", () => {
@@ -88,10 +131,10 @@ describe("buildSiteAlarmContext", () => {
 
     const vuln = site({ id: "b", name: "Bad", securityVulnsCritical: 2 });
     expect(
-      buildSiteAlarmContext(vuln, [], BASE, NOW)
+      buildSiteAlarmContext(vuln, [], BASE, NOW, NO_BOUNCES, NO_DEADLETTERS, escalated("b"))
         .items.map((i) => i.key)
         .sort(),
-    ).toEqual(cockpitItemKeys(vuln));
+    ).toEqual(cockpitItemKeys(vuln, NO_BOUNCES, escalated("b")));
 
     const bouncing = site({ id: "c", name: "Espada" });
     const notify = new Map([["c", { total: 4, permanent: 4 }]]);
@@ -120,7 +163,15 @@ describe("renderSiteDashboardHtml — alarm strip", () => {
 
   it("renders a Needs-attention chip carrying the item title", () => {
     const s = site({ id: "a", name: "Bad", securityVulnsCritical: 2 });
-    const alarm = buildSiteAlarmContext(s, [], BASE, NOW);
+    const alarm = buildSiteAlarmContext(
+      s,
+      [],
+      BASE,
+      NOW,
+      NO_BOUNCES,
+      NO_DEADLETTERS,
+      escalated("a"),
+    );
     const html = renderSiteDashboardHtml(s, [], [], null, NOW, alarm);
     expect(html).toContain('class="section alarm"');
     expect(html).toContain("Needs attention");

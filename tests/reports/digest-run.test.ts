@@ -850,6 +850,52 @@ describe("runDigest", () => {
     expect(captured[0]!.html).not.toMatch(/critical\/high vuln/);
   });
 
+  // ── waiting items stay out of the asks until waiting has failed (2026-10-05) ──
+
+  const TRANSITIVE_ADVISORIES = JSON.stringify([
+    {
+      module: "a",
+      severity: "critical",
+      title: "",
+      cves: [],
+      url: null,
+      relationship: "transitive",
+    },
+  ]);
+  const DIGEST_NOW = new Date("2026-10-05T09:23:00Z");
+
+  async function digestWithTransitiveVuln(firstFlaggedAt: string) {
+    const { client, captured } = captureClient();
+    await runDigest({
+      digestState: memoryDigestState({ "vuln:rec_site_acme": { metric: 1, firstFlaggedAt } }),
+      ...io({
+        Reports: [bouncedReport()],
+        Websites: [
+          vulnSiteRow({
+            "Security Auto-Fix Attempts": 0,
+            "Security advisories": TRANSITIVE_ADVISORIES,
+            "URL Checked At": DIGEST_NOW.toISOString(),
+          }),
+        ],
+      }),
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+      now: DIGEST_NOW,
+    });
+    expect(captured).toHaveLength(1);
+    return captured[0]!.html;
+  }
+
+  it("keeps a transitive-only vuln out while its lockfile window is still ahead", async () => {
+    const html = await digestWithTransitiveVuln("2026-10-02");
+    expect(html).not.toMatch(/critical\/high vuln/);
+  });
+
+  it("asks about a transitive-only vuln that outlived its lockfile window", async () => {
+    const html = await digestWithTransitiveVuln("2026-09-27");
+    expect(html).toContain("still present after the 2026-09-28 lockfile window");
+  });
+
   it("the exhausted flip alone (count unchanged) surfaces the vuln badged WORSE", async () => {
     // Yesterday: muted, key snapshotted without the flag. Today: attempts hit the
     // threshold → first time the operator hears about it, escalated, not unbadged.

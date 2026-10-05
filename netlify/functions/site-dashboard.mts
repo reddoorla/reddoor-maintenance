@@ -17,6 +17,7 @@ import {
 import { buildSiteAlarmContext } from "../../src/dashboard/fleet-cockpit.js";
 import type { SiteAlarmContext } from "../../src/dashboard/fleet-cockpit.js";
 import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../../src/alerts/digest-collectors.js";
+import { readDigestState } from "../../src/db/digest-state.js";
 
 // Register the customer-facing /s/:slug path on the function itself rather
 // than via a netlify.toml [[redirects]] rewrite. The rewrite approach (200
@@ -174,6 +175,14 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     } catch {
       // dead-letter chip simply absent
     }
+    // The digest snapshot dates each item's first flag, which decides whether a
+    // waiting item has escalated. A blip reads every item as first flagged today.
+    let prior: Awaited<ReturnType<typeof readDigestState>> = {};
+    try {
+      prior = await readDigestState(db);
+    } catch {
+      // waiting items simply read as new
+    }
     let alarm: SiteAlarmContext | null = null;
     try {
       alarm = buildSiteAlarmContext(
@@ -183,6 +192,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         new Date(),
         notifyBounces,
         deadLetters,
+        prior,
       );
     } catch (e) {
       console.error(`[site-dashboard] alarm context failed: ${String(e)}`);

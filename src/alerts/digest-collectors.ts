@@ -58,15 +58,14 @@ const AUTO_FIX_EXHAUSTED_CYCLES = 3;
  * nightly dispatches were green no-ops (no direct dep to bump — the fix rides the weekly
  * lockfile window), "auto-fix failed" would be a lie, and a stale pre-fix counter must not
  * escalate (Sonder said "auto-fix failed (5×)" on exactly this, 2026-08-10). Those sites get
- * an honest transitive-only title, keep count-based severity, and stay out of the digest
- * email (amber cockpit Watch still shows them). Unknown relationship data never mutes.
+ * an honest transitive-only title, keep count-based severity, and carry `transitiveOnly`.
+ * Unknown relationship data never mutes.
  *
- * Emission is UNCONDITIONAL — every surface applies its own policy on top:
- *   - digest email: includes a vuln only when `autoFixExhausted` (the operator hears
- *     about a vuln only after Renovate tried and failed; before that the fleet is
- *     still self-patching) — runDigest filters
- *   - cockpit: non-exhausted vuln → amber Watch; exhausted → hard break (assignTier),
- *     and only an exhausted vuln pierces the pre-launch mute (piercesPreLaunchMute)
+ * Emission is UNCONDITIONAL. `markWaiting` (src/alerts/waiting.ts) then decides, from
+ * the snapshot's `firstFlaggedAt`, whether a non-exhausted vuln is still waiting on
+ * Renovate; a waiting vuln reaches only the site page. Past its threshold it reaches
+ * the digest and the cockpit's amber Watch. An exhausted vuln is a hard break on the
+ * cockpit (assignTier), and only it pierces the pre-launch mute (piercesPreLaunchMute).
  */
 export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
   const items: AttentionItem[] = [];
@@ -92,6 +91,7 @@ export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): Attenti
       severity: exhausted || critical > 0 ? "critical" : "warning",
       metric,
       ...(exhausted ? { autoFixExhausted: true } : {}),
+      ...(transitiveOnly ? { transitiveOnly: true } : {}),
     });
   }
   return items;

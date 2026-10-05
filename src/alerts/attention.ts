@@ -78,6 +78,13 @@ export type AttentionItem = {
    *  exhaustion threshold without clearing the vuln. Drives a distinct "auto-fix
    *  failed" chip + filter token; absent on every other item and flavor. */
   autoFixExhausted?: boolean;
+  /** Set by collectVulnAlerts when every critical/high advisory is transitive, so the
+   *  fix rides Renovate's weekly lock-file window rather than a direct bump. */
+  transitiveOnly?: boolean;
+  /** Set by `markWaiting` (src/alerts/waiting.ts): a scheduled job is still fixing
+   *  this and its own threshold has not passed. Shown on the site page only; kept off
+   *  the cockpit's tiers, the Needs-you feed and the digest's asks. */
+  waiting?: boolean;
   ask?: string;
   askParts?: string[];
   ageDays?: number;

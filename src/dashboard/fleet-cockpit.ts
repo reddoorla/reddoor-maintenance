@@ -31,6 +31,7 @@ import {
   URL_NOT_DEPLOYED_KEYS,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
+import { markWaiting } from "../alerts/waiting.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { isNetlifyAppUrl } from "../util/url.js";
 import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../fleet/opt-outs.js";
@@ -126,7 +127,7 @@ export function piercesPreLaunchMute(item: AttentionItem): boolean {
 
 export function assignTier(
   site: WebsiteRow,
-  items: AttentionItem[],
+  allItems: AttentionItem[],
   now: Date,
 ): {
   tier: Tier;
@@ -137,6 +138,8 @@ export function assignTier(
   watchSignals: string[];
   acceptedReasons: string[];
 } {
+  // A waiting item is information, never a tier: a scheduled job is still fixing it.
+  const items = allItems.filter((it) => it.waiting !== true);
   // Lifecycle short-circuit (FIRST, before any alarm rule): a "launching" site
   // is PRE-LIVE prep, not a live site (Status flips to "maintained" at go-live).
   // Its expected pre-launch conditions — no GA4 property, early/absent Lighthouse,
@@ -502,9 +505,10 @@ const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = { broken: 0, watch: 
 
 /**
  * Collapse the cockpit model into a per-site "Needs you" feed — ONE row per site,
- * with every reason combined. PURE. A non-exhausted vuln is amber `watch` (the fleet
- * is auto-patching it); an exhausted vuln (`item.autoFixExhausted`) is a hard `broken`
- * break, as is any non-vuln attention item. The whole watch tier folds into `watch`.
+ * with every reason combined. PURE. A `waiting` item never enters (markWaiting: the
+ * fleet is still fixing it on schedule). A vuln whose wait has failed but whose
+ * auto-fix is not exhausted is amber `watch`; an exhausted vuln (`item.autoFixExhausted`)
+ * is a hard `broken` break, as is any non-vuln attention item. The whole watch tier folds into `watch`.
  * Order: broken → watch → approval; within broken, critical-first; then site name.
  */
 export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
@@ -542,6 +546,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     // (A launch-period site with a PIERCING alarm arrives as tier "attention" —
     // assignTier re-tiers it — so genuine pre-launch breaks do reach the feed.)
     if (card.tier === "attention") {
+      const live = card.items.filter((it) => it.waiting !== true);
       // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
       // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
       // break. A site with any hard break is broken and its self-patching vulns are not
@@ -549,8 +554,8 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
       // partitions can never drift out of lockstep.
       const isSelfPatchingVuln = (it: AttentionItem): boolean =>
         it.kind === "vuln" && it.autoFixExhausted !== true;
-      const hardBroken = card.items.filter((it) => !isSelfPatchingVuln(it));
-      const selfPatchingVulns = card.items.filter(isSelfPatchingVuln);
+      const hardBroken = live.filter((it) => !isSelfPatchingVuln(it));
+      const selfPatchingVulns = live.filter(isSelfPatchingVuln);
       if (hardBroken.length > 0) {
         const a = get(card.site.name);
         for (const it of hardBroken) {
@@ -681,10 +686,14 @@ export function buildSiteAlarmContext(
   now: Date,
   notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(),
   deadLetters: ReadonlyMap<string, number> = new Map(),
+  // The digest snapshot, read only for each key's `firstFlaggedAt`, so a waiting
+  // item escalates here on the same day it does on the cockpit. Absent, every item
+  // reads as first flagged today.
+  priorSnapshot: DigestSnapshot = {},
 ): SiteAlarmContext {
   const sites = [site];
   const sitesById = new Map([[site.id, site]]);
-  const items = collectFleetAttentionItems(
+  const raw = collectFleetAttentionItems(
     sites,
     sitesById,
     reports,
@@ -692,7 +701,11 @@ export function buildSiteAlarmContext(
     now,
     notifyBounces,
     deadLetters,
-  ).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  );
+  const { next } = diffAttention(raw, priorSnapshot, now.toISOString().slice(0, 10));
+  const items = markWaiting(raw, next, now).sort(
+    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
+  );
   const {
     tier,
     watchReasons,
@@ -795,14 +808,18 @@ export function buildCockpitModel(
     notifyBounces,
     deadLetters,
   );
-  // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
-  const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
+  // Read-only diff: tag NEW/WORSE exactly as the email does. `next` is never written;
+  // it only carries each key's `firstFlaggedAt` into markWaiting. A waiting item leaves
+  // the cards (tiers, chips, the Needs-you feed) and stays on the site's own page.
+  const diffed = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
+  const tagged = markWaiting(diffed.tagged, diffed.next, now);
 
   // Group by siteName (the collectors set siteName from the row). This relies on the
   // fleet-wide name→slug uniqueness invariant the /s/<slug> lookup already assumes; if
   // two visible sites ever shared a name they'd share a card. Acceptable for slice 1.
   const bySite = new Map<string, AttentionItem[]>();
   for (const it of tagged) {
+    if (it.waiting === true) continue;
     const bucket = bySite.get(it.siteName);
     if (bucket) bucket.push(it);
     else bySite.set(it.siteName, [it]);
@@ -885,7 +902,7 @@ export function buildCockpitModel(
   // so this is exactly the set that the siteName grouping above dropped on the
   // floor — today, the `(unknown site: <slug>)` dead letters.
   const cardedNames = new Set(cards.map((c) => c.site.name));
-  const cardless = tagged.filter((it) => !cardedNames.has(it.siteName));
+  const cardless = tagged.filter((it) => it.waiting !== true && !cardedNames.has(it.siteName));
 
   const summary: CockpitSummary = {
     attention: cards.filter((c) => c.tier === "attention").length,

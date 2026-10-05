@@ -25,8 +25,14 @@ const healthCleanEvidence = () =>
 function model(
   sites: Parameters<typeof buildCockpitModel>[0],
   reports: Parameters<typeof buildCockpitModel>[1] = [],
+  prior: Parameters<typeof buildCockpitModel>[2] = {},
 ) {
-  return buildCockpitModel(sites, reports, {}, BASE, NOW);
+  return buildCockpitModel(sites, reports, prior, BASE, NOW);
+}
+
+/** Dates a site's vuln key past DIRECT_VULN_WAIT_DAYS, so its vuln has stopped waiting. */
+function escalated(id: string, metric = 99) {
+  return { [`vuln:${id}`]: { metric, firstFlaggedAt: "2026-05-01" } };
 }
 
 function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
@@ -740,15 +746,19 @@ describe("renderCockpitHtml — inbox lane submissions cap", () => {
 describe("renderCockpitHtml — cockpit cards", () => {
   it("puts a status pill and the site's attention chips on the card, with data-signals", () => {
     const html = renderCockpitHtml(
-      model([
-        siteRow({
-          id: "a",
-          name: "Bad",
-          securityVulnsCritical: 2,
-          securityVulnsHigh: 1,
-          pScore: 60,
-        }),
-      ]),
+      model(
+        [
+          siteRow({
+            id: "a",
+            name: "Bad",
+            securityVulnsCritical: 2,
+            securityVulnsHigh: 1,
+            pScore: 60,
+          }),
+        ],
+        [],
+        escalated("a"),
+      ),
     );
     expect(html).toMatch(/class="pill attention"/);
     expect(html).toContain('data-signals="'); // present on the card
@@ -798,14 +808,14 @@ describe("renderCockpitHtml — cockpit cards", () => {
 
   it("renders a NEW badge for a freshly-flagged item and WORSE for a risen metric", () => {
     const newHtml = renderCockpitHtml(
-      model([siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1 })]), // prior {} → NEW
+      model([siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1, pScore: 60 })]), // prior {} → NEW
     );
     expect(newHtml).toMatch(/class="badge">NEW/);
 
     const worse = buildCockpitModel(
       [siteRow({ id: "a", name: "Bad", securityVulnsCritical: 3 })],
       [],
-      { "vuln:a": { metric: 1, firstFlaggedAt: "2026-06-01" } },
+      escalated("a", 1),
       BASE,
       NOW,
     );
@@ -954,13 +964,25 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).not.toContain("✓ All clear");
   });
 
-  it("surfaces a self-patching vuln as the amber watch verdict (the blind spot this closes)", () => {
-    // A non-exhausted vuln (Renovate still auto-patching) must NOT read as "All clear":
-    // it lands in the amber watch band — not green, and not the red broken band either.
+  it("keeps a vuln Renovate is still inside its wait for off the verdict (2026-10-05)", () => {
+    // The operator's rule: a "just wait" item is not a watch item until waiting fails.
     const html = renderCockpitHtml(
       model([
         siteRow({ id: "v", name: "Patch", securityVulnsHigh: 1, securityAutoFixAttempts: 1 }),
       ]),
+    );
+    expect(html).toContain("✓ All clear");
+    expect(html).not.toContain('class="verdict watch"');
+  });
+
+  it("surfaces a vuln whose wait failed, short of exhaustion, as the amber watch verdict", () => {
+    // Past its threshold but not exhausted: amber, not green, and not the red broken band.
+    const html = renderCockpitHtml(
+      model(
+        [siteRow({ id: "v", name: "Patch", securityVulnsHigh: 1, securityAutoFixAttempts: 1 })],
+        [],
+        escalated("v", 1),
+      ),
     );
     expect(html).toContain('class="verdict watch"');
     expect(html).toContain("1 site to watch");
