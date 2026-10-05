@@ -2330,22 +2330,6 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
 
-73. **The two Routines' schedules (new 2026-10-05, from the evening-pass
-    worker; nothing waits on it).** The morning Routine ("Reddoor Project
-    Manager") runs `48 11 * * 1-4`, a bare UTC cron. Its stored prompt also
-    tells it to call `list_sessions` / `get_session`, which a Routine does not
-    have. `docs/pm-pass.md` → "The evening pass" defines a 17:18 PT evening
-    Routine for the same Monday-to-Thursday days, and its stored prompt is the
-    one paste that turns it on.
-    _Ask:_ (a) extend both Routines to Friday (`1-5`), write the morning cron
-    as `CRON_TZ=America/Los_Angeles 48 4 * * 1-5` so it stays at 04:48 after
-    DST ends on 11-01, and drop the `list_sessions` line from its prompt; or
-    (b) leave both at Monday to Thursday. _Pick:_ (a). Workers started on a
-    Friday morning otherwise end with nobody reading them until Monday's
-    pass. The bare UTC cron moves the morning pass to 03:48 PT on 11-02.
-    Either way, it is three edits in the Routines' settings, not a repo
-    change.
-
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
