@@ -211,9 +211,7 @@ function harness(opts: { secret?: string } = {}): Harness {
     github: () => github,
     cloneUrl: () => origin,
     redact: (t) => (opts.secret ? t.split(opts.secret).join("***") : t),
-    archive: async (root, tarFile) => {
-      await run("tar", ["--exclude=./.git", "-cf", tarFile, "-C", root, "."]);
-    },
+    archive: defaultSyncDeps({}).archive,
   };
   return { deps, github, setRemote: (m) => (remote = m), codegen, install, format };
 }
