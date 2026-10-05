@@ -8721,6 +8721,45 @@ with a concrete input, each option's consequence, and the pick and why. The
 BACKLOG line stays, because AskUserQuestion only reaches someone who is there
 to answer it, and the evening and PM passes read the file.
 
+## 2026-10-05 — CalTex moved onto Prismic slices, held on `staging` (caltex-landing#73, #74, Operator decision 85)
+
+The operator asked for the hand-built CalTex site to become a slice-based
+Prismic site, with the work on a `staging` branch instead of `main`, and the
+output checked against `main` at the end. One piece could not follow that
+literally: `prismic-models` pushes models only on a merge to `main`. The
+operator chose a models-only PR to `main` (#73). It was proven inert: 11
+prerendered files equal to `main`'s after normalising hashes, with a
+one-word negative control.
+
+I first told the operator that publishing the slice content would be
+inert. Then I second-guessed it: I thought a `page` doc with uid
+`aed-programs` would trip SvelteKit's entry-generator mismatch check against
+main's static route. A build with a fake colliding entry passed. SvelteKit's
+`enqueue` dedupes by path and queues static routes first, so the colliding
+entry is never visited. A throwing `entries()` failed the build, which
+proved the hook runs. The publish (release `asQvEBIAAHEPgEox`, which the
+operator authorized) then left the live site byte-for-byte unchanged in
+everything rendered: 14 screenshots, the DOM and the sitemap. That held
+even though every page's hydration payload now carries the new `home`
+fields. Prismic's webhook rebuilds production on every content change,
+release edits included, so the release's drafts alone triggered six
+production builds of unchanged content.
+
+Staging (#74, `23763ef`) is pixel-identical to live `main` on all 14
+screenshots, with the same text, images, links, ids, metadata and nav
+hrefs, and the same sitemap URLs. Netlify deploys neither the `staging`
+branch nor previews for PRs into it. The `deploy-preview-74` link the bot
+posted returns 404, so the final comparison is a clean worktree build of
+`origin/staging`. Merging `staging` to `main` is Operator decision 85.
+
+Two process notes. `pkill -f <pattern>` run from the same Bash call matches
+its own command line and kills the shell; that ended a step twice. Once it
+skipped a `git checkout -- <file>` that would have restored a placeholder
+from HEAD over uncommitted work. Kill by a PID captured first. And the
+parity check needs fonts: the container has no Impact and no Helvetica, and
+every earlier evidence shot set headings in a default serif until Impact
+(Microsoft corefonts) and Nimbus Sans were installed.
+
 ## 2026-10-05 — Roalson's final round: 8 pins moved, 14 aerials cropped, a new listing packaged, three PRs (roalson-interests#263, #264, #265; Operator decisions 81–84, #1185)
 
 A worker brief from Erik's 19:11Z list. Items 1 and 2 (pins and aerials) are Prismic content, staged in release `asP91BIAAH8K23X-`. Items 3–6 are code:
