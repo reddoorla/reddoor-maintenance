@@ -1,14 +1,14 @@
-# A weekly Instagram post kit
+# An Instagram post kit, started by a person
 
 For Tim, for Monday's conversation (2026-10-05). Follows the #rd-marketing thread from Friday.
 
 ## The idea in two lines
 
-Every week an agent drafts one **post kit** from a project we've already done. You approve or edit it, then schedule it yourself in Meta Business Suite, which is free and already does scheduling. A person decides what goes out and nothing posts on its own, so each post takes an hour of work instead of a day.
+When one of us has a reason to post, we hand an agent a project and a one-line seed (why this one, why now), and it comes back with a finished **post kit**. You approve or edit it, then schedule it yourself in Meta Business Suite, which is free and already does scheduling. Nothing runs on a timer and nothing posts on its own: a person starts every kit, so each post takes an hour of work instead of a day.
 
 ## What's in a kit
 
-One portfolio project per week, with:
+You start one with a project and a seed, for example "Progress Lighting, because the ads this month are about print". The kit comes back with:
 
 - **A caption in three beats**: the problem, what we did, and the outcome. It's written in sales language you approve once, up front, and every kit after that follows it.
 - **2–3 images** from the project's portfolio page, already cropped: 1080×1350 for the feed and 1080×1920 for stories.
@@ -21,7 +21,7 @@ A lucky find makes this cheaper than it sounds. Every project linked from reddoo
 
 ## A real one: Progress Lighting
 
-Built from reddoorla.com/portfolio/progress-lighting. Every fact below is on that page.
+Built from reddoorla.com/portfolio/progress-lighting. Every fact below is on that page. This one had no seed, since it was built cold as proof that the format works; a real kit would lead with whatever the seed says.
 
 **Caption**
 
@@ -54,12 +54,12 @@ Most of the time went to choosing and checking the crops. Writing the caption wa
 As I said Friday, "good" costs more than "working." These estimates assume good.
 
 - **An afternoon:** the first kit (done above), plus a short checklist and prompt so anyone can build the next one the same way. That's the next one or two kits, made by hand with an agent.
-- **A few days (2–4):** a repeatable kit. A script picks the week's project, pulls its text and images, crops the images, drafts the caption in the approved voice, and emails it to you every Monday. Still no posting. Most of the time goes to getting the voice right, not to the plumbing.
-- **Days to weeks, and only if the kit proves itself:** posting automatically through Meta's API. That means a Meta business app, access tokens and Meta's app review, which are setup steps only I can do, and the wait for review is out of our hands. It would save you about five minutes a week over scheduling in Business Suite. **I'd recommend against starting here.**
+- **A few days (2–4):** a repeatable kit. You (or I) run one command with a project and a seed; it pulls the project's text and images, crops the images, drafts the caption in the approved voice around the seed, and emails you the kit a few minutes later. No schedule and no posting. Most of the time goes to getting the voice right, not to the plumbing.
+- **Days to weeks, and only if the kit proves itself:** posting automatically through Meta's API. That means a Meta business app, access tokens and Meta's app review, which are setup steps only I can do, and the wait for review is out of our hands. It would save you about five minutes a post over scheduling in Business Suite. **I'd recommend against starting here.**
 
 ## Who does what
 
-**You, each week (about 15 minutes):** open the email, edit the caption until it sounds right, pick the images, paste them into Business Suite and schedule the post.
+**You, each time you want a post (about 15 minutes):** name the project and the seed, then edit the caption that comes back until it sounds right, pick the images, paste them into Business Suite and schedule the post. Choosing the seed is the intention part; the kit takes the production off your plate.
 
 **Once, up front:**
 
@@ -72,8 +72,8 @@ One example of why the approval step matters: the 1-800-DENTIST page says "15x G
 
 ## How we'll know in 8 weeks
 
-Your Meta ads should send people to the profile, so we watch **profile visits, link-in-bio taps and inbound DMs that turn into a real conversation**, not follower count. If eight weeks of posts don't move any of those, we stop, and we've spent about a day. That also gets at my question from Friday: has a client ever found us through social?
+Your Meta ads should send people to the profile, so we watch **profile visits, link-in-bio taps and inbound DMs that turn into a real conversation**, not follower count. If the posts we make over eight weeks don't move any of those, we stop, and we've spent about a day. That also gets at my question from Friday: has a client ever found us through social?
 
 ## Separately: "systems to help me do the maintaining"
 
-This is a different conversation, but the smallest useful version is small. Every Monday morning you'd get one email listing your recurring tasks for the week (the post kit, follow-ups and anything else you name), with last week's open items carried over. No new app to learn. If it helps after a month, we turn it into a real task system. Making the list of recurring tasks is the work, so that's where we'd start.
+This is a different conversation, but the smallest useful version is small. Every Monday morning you'd get one email listing your recurring tasks for the week (follow-ups and anything else you name), with last week's open items carried over. No new app to learn. If it helps after a month, we turn it into a real task system. Making the list of recurring tasks is the work, so that's where we'd start.

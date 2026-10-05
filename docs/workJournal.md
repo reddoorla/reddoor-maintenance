@@ -8305,6 +8305,8 @@ checkout would have misread it.
 
 ## 2026-10-05 — The Instagram post-kit proposal for Tim exists (`docs/proposals/2026-10-05-instagram-post-kit.md`)
 
+> Superseded in part by 2026-10-05 — The post-kit PDF exists after all: `rd-md-pdf` is `reddoorla/reddoor-md-pdf`.
+
 The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
 
 ## 2026-10-05 — Data Dynamiq: DRAFT `/privacy` and GA4 built, green, held for item 45 (data-dynamiq#59, #1160)
@@ -8582,6 +8584,20 @@ treats as unset, and the consumer is the whole pipeline, not the last class
 in it. Round 3 ran a negative control against one stage and called it the
 system. The read that corrected it came from a different authority: the
 validator, which round 3 skipped.
+
+## 2026-10-05 — The post-kit PDF exists after all: `rd-md-pdf` is `reddoorla/reddoor-md-pdf`
+
+This corrects the entry above, which said `rd-md-pdf` was not on a cloud container and that no PDF was made. The tool is the public repo `reddoorla/reddoor-md-pdf`. My search was for the literal string `rd-md-pdf`, and `reddoor-md-pdf` does not contain it. `docs/meta-week/_research/inv-04-site-fleet-composition.md` already lists it as the "md→pdf tool", so one read of the org's repo list (`list_repos` with `pdf`) would have found it. The operator pointed it out.
+
+From a cloud session the tool works without its hosted app. Clone it, run `pnpm install`, then call `md-to-pdf` with the repo's `src/lib/server/pdf-config.ts` (Node 24 strips the types) and `CHROME_PATH` as the executable. Pass `--proxy-server=$HTTPS_PROXY`, or Chromium cannot fetch the Typekit and Google fonts. With the proxy set, `pdffonts` shows PragmaticaWeb and Besley embedded.
+
+The PDF is four pages, not the brief's two at most: at that config's 14px body and 0.85in margins, the text alone fills three. The PDF copy differs from the committed Markdown in three ways:
+
+- it shows the three feed crops inline;
+- its image table drops the file-name column;
+- it adds `break-inside: avoid` on the caption, because the first render left the "Caption" label stranded at the foot of page 1.
+
+The first version also proposed a weekly kit on a schedule, emailed every Monday. That followed the brief, not the operator, who had said on 10-02 that "the impetus should come from a person." The operator caught it in the PDF. Now a person starts each kit with a project and a one-line seed (why this one, why now), and nothing runs on a timer. The only schedule left is the separate reminder digest, which Tim asked for himself.
 
 ## 2026-10-05 — P1-27: the audits retry their server on a fresh port when the one they picked was taken (#1164, `9d9a11d`)
 
