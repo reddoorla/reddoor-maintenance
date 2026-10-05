@@ -224,6 +224,31 @@ describe("recipes/smoke-suite", () => {
     );
   });
 
+  it.each([
+    [
+      "a comment that names the write",
+      '<!-- TODO: document.documentElement.dataset.hydrated = "" -->\n<footer>© site</footer>\n',
+    ],
+    [
+      "a script comment that names the write",
+      '<script>\n  // document.documentElement.dataset.hydrated = "";\n</script>\n<footer>© site</footer>\n',
+    ],
+    [
+      "the same write on another element",
+      '<script>\n  let el;\n  $effect(() => { el.dataset.hydrated = "true"; });\n</script>\n<footer bind:this={el}>© site</footer>\n',
+    ],
+  ])("does not take %s for the root layout's marker", async (_label, source) => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await mkdir(join(cwd, "src/routes"), { recursive: true });
+    await writeFile(join(cwd, "src/routes/+layout.svelte"), source);
+    commitSetup(cwd);
+
+    await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    expect(await readFile(join(cwd, SMOKE_ROUTES_RELATIVE), "utf-8")).toContain(
+      'hydrationMarker: "footer"',
+    );
+  });
+
   it("falls back to `footer` when the site renders one but nothing writes the hydration marker", async () => {
     // The site has not taken the starter's root-layout marker yet (the fleet
     // rollout is per-repo PRs). `html[data-hydrated]` would false-fail every

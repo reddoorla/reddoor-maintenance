@@ -254,6 +254,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       matching gate is the fifth, and needs the laptop: Operator
       decisions 78. **Next:** P6 (DNS, OD 61) and 78.
 
+- **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
+
+### Watching (owned elsewhere, or parked)
+
 - **#948's residual race and the fleet half of #947: what P1-24 left open (2026-10-05).**
   P1-24 landed the starter's marker (reddoor-starter#184) and the recipe's
   scaffold (see Done). Still open, none of it ranked yet: (1) the a11y audit's
@@ -263,10 +267,6 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   and their `tests/smoke/routes.ts` keeps `footer` until then; (3)
   `reddoor-starter-blux` takes reddoor-starter#184 by cherry-pick; (4) #1148,
   form-e2e can wait on the marker before it injects.
-- **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
-
-### Watching (owned elsewhere, or parked)
-
 - **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
   - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
     Nothing for an agent until the client answers.
@@ -2761,7 +2761,7 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   `tests/recipes/smoke-suite.test.ts` pins the marker; the brief's three
   mutations and four more each turn a test red (tables in both PRs). The
   a11y spec's wait, the fleet rollout, the blux cherry-pick and #1148 stay
-  open under "Blocked behind another PR".
+  open under "Watching", unranked.
 
 - 2026-10-05 — P1-27, the audits' port race (#1156): #1164. The a11y,
   lighthouse and smoke audits start their server again on a fresh port when

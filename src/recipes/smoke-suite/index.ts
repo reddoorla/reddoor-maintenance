@@ -90,9 +90,23 @@ function fallbackMarkerSentence(marker: FallbackMarker): string {
 
 type FallbackMarker = "footer" | "main" | "body";
 
-/** A Svelte source line that writes the marker: the starter's
- *  `document.documentElement.dataset.hydrated = …`, or a `setAttribute` of it. */
-const WRITES_HYDRATED_MARKER = /dataset\.hydrated\s*=[^=]|setAttribute\(\s*["'`]data-hydrated["'`]/;
+/** A Svelte source line that writes the marker on the document root: the
+ *  starter's `document.documentElement.dataset.hydrated = …`, or a
+ *  `setAttribute` of it. Anchored on `documentElement`, because the same write
+ *  on any other element (a carousel's own `data-hydrated`) leaves `<html>`
+ *  bare. A writer this misses (a `.ts` file, `dataset["hydrated"]`) falls back
+ *  to a server-rendered marker, which proves less but never false-fails. */
+const WRITES_HYDRATED_MARKER =
+  /documentElement\s*\.\s*(?:dataset\.hydrated\s*=[^=]|setAttribute\(\s*["'`]data-hydrated["'`])/;
+
+/** Svelte source with its markup, block and line comments blanked, so a
+ *  comment that names the write is not taken for one. */
+function withoutComments(text: string): string {
+  return text
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+}
 
 /** The template's `html[data-hydrated]` marker needs the site's root layout to
  *  write it, or EVERY route check false-fails, as `footer` once did on a site
@@ -119,7 +133,7 @@ async function detectHydrationMarker(
   let sawMain = false;
   for (const rel of svelteFiles) {
     const text = (await readIfExists(join(cwd, "src", rel))) ?? "";
-    if (WRITES_HYDRATED_MARKER.test(text)) return HYDRATED_MARKER;
+    if (WRITES_HYDRATED_MARKER.test(withoutComments(text))) return HYDRATED_MARKER;
     if (/<footer[\s>/]/.test(text)) sawFooter = true;
     if (/<main[\s>/]/.test(text)) sawMain = true;
   }
