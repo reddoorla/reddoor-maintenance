@@ -2355,6 +2355,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     third instance. The held-for-the-operator comment on #1143 (10-04
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
+    **Answered 2026-10-05 ~18:45Z: (b)** — keep one job, fix the two correctness majors, and run a third review round on #1143 as it is. A worker session is queued for it.
 
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
@@ -2377,6 +2378,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     editor traffic (Prismic previews, `/slice-simulator`) on the production
     host is counted, because `initAnalytics` gates on the hostname alone, and
     that affects every tagged site.
+    **Answered 2026-10-05 ~18:45Z: yes, merge before item 45.** The PM session's `land-prs` on data-dynamiq#59 was refused by the cloud session's permission policy as a production deploy, so the merge itself is the operator's click (or a laptop `land-prs`).
+
 74. **Williamson Construction hero: upload three poster frames and publish
     a release (williamson-construction-co#21, new 2026-10-05).** The code
     half landed: the hero poster is now an `<img>` with a capped imgix
@@ -2400,6 +2403,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     desktop LCP should move from the video's first frame to the poster.
     _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
     permission change that outlives this one task.
+    **Answered 2026-10-05 ~18:45Z: (a)** — the operator makes the three frames, uploads them and publishes the release by hand.
+
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
     branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
@@ -2425,6 +2430,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     gated on `prismicRepository`, as `analytics` gates GA. Without a framed
     repository the toolbar never loads them. The brief puts them in the
     baseline, so they stay there unless you say otherwise.
+    **Answered 2026-10-05 ~18:45Z: (a)** — seed from `child-src`, else `default-src`, else `['self']`, carry round 2's two nits, and land on a clean third review. A worker session is queued for it.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
@@ -2450,6 +2456,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       direction of over-reporting or a wrong date, and the date is fixed and
       reviewed. The one unreviewed fix is a small change with its own test
       and mutation, and the pass never acts on what it flags.
+      **Answered 2026-10-05 ~18:45Z: (a)** — #1162 landed as `2849ba4d` (PM session, `land-prs`). The operator pastes the evening Routine prompt from `docs/pm-pass.md`.
+
 77. **The two Routines' schedules (new 2026-10-05, from the evening-pass
     worker; nothing waits on it).** The morning Routine ("Reddoor Project
     Manager") runs `48 11 * * 1-4`, a bare UTC cron, so it fires at 03:48 PT
@@ -2463,6 +2471,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - _Pick:_ (a). Otherwise workers started on a Friday morning end with
       nobody reading them until Monday's pass. Either way, these are edits
       in the Routines' settings, not a repo change.
+      **Answered 2026-10-05 ~18:45Z: (b), Monday to Thursday** — that is the operator's work week. Still open inside it, not re-asked: the morning cron is bare UTC, so it fires an hour earlier in PT after 11-02 [I], and its prompt names `list_sessions`, which a Routine lacks.
 
 78. **Mantis P5: run the matching gate from the laptop (#1107, new
     2026-10-05).** P5's last "done when" is the matching gate at
@@ -2476,6 +2485,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     for launch. _Pick:_ run it, starting with `/`; the Blux capture under
     `matching/spec/` is already in the repo, so a laptop session can begin
     at Phase 1 with no new capture.
+    **Answered 2026-10-05 ~18:45Z: run it** — Phase 1 and the gate in a laptop session, starting with `/`. A worker card is queued (laptop only).
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
