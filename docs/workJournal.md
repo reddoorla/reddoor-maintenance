@@ -8302,3 +8302,40 @@ The first item came from this very session. Its stop hook flagged a branch
 in a second clone, the native starter, as unpushed. That branch had already
 been squash-merged and its remote deleted, so a state check scoped to one
 checkout would have misread it.
+
+## 2026-10-05 — P1-25: the toolbar fits the CSP baseline; held after round 2 (#1157, Operator decision 73)
+
+The shared `BASELINE_CSP` had the same gap williamson-homes#7 found per site.
+It blocked the Prismic toolbar's `toolbar.js`, the html2canvas file its Share
+button loads, and the `<repo>.prismic.io` iframe. #1157 adds the two script
+sources with exactly the starter's path and file scoping (reddoor-starter#164),
+plus an optional `prismicRepository` on `createSvelteConfig`. That option
+frames one repository host, folded in after site overrides the way the
+analytics fold is.
+
+The brief's html2canvas stop condition did not fire. The security lens fetched
+html2canvas 1.4.1 from hertzen.com (198 KB) and found no `eval`,
+`new Function`, `blob:`, `createObjectURL` or `Worker`. Its rendering goes
+through `data:` images, which `img-src` already allows. `toolbar.js` contains
+a `Function('return this')()`, but only as the core-js global fallback, which a
+browser never reaches. One belief was corrected on contact: the brief named
+toolbar 4.1.10, and `prismic.js` now pins 4.1.12. The prefix-scoped source
+covers both.
+
+The brief's four mutations each turned tests red. The round-1 tests lens found
+three survivors: the repository fold skipped under `analytics: true`, lazy
+validation, and dots in the name. It also found two coercion and seed minors,
+and all of these were fixed in `b2592187`. That lens edited the shared
+worktree while I was editing it. Its `git checkout --` restore wiped my
+in-progress `svelte.ts` fix, and my test run then showed failures that were its
+mutant, not my code. The round-2 reviewer worked on a `git archive` copy
+instead, and that is the way to run a mutation-running reviewer from now on.
+
+Round 2 found that round 1's own fix was wrong. Seeding an unset `frame-src`
+with `'self'` ignores the browser's fallback to `child-src` and then
+`default-src`, so naming a repository can block frames that used to load.
+Under the two-dirty-rounds rule, the PR is held, not given a third round. The
+ask is Operator decision 73: the worker's pick is to seed from the fallback
+chain and review once more. #1157 is unmerged, its CI `build` was still running on `b2592187` at
+14:56Z, and the fleet
+rollout has not started.
