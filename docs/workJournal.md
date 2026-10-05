@@ -8396,3 +8396,15 @@ Review round 1 found four real defects and three smaller ones. All seven were fi
 - **Smaller.** `--main-since` failed silently when `main` had no earlier commit, and accepted zone-less times. The PR query did not encode the branch name. And no test added a line at the section's last line, where new items go.
 
 Review round 2 found a real major in round 1's own fix. That fix had made the merged PR's head the `git cherry` upstream, so a reused branch that later merged `main` back in read `main`'s incoming commits as its own: a scratch repo counted 2 where the truth is 0. The limit form, `git cherry origin/main <ref> <merged head>`, counts 0, and 1 after one real commit. It is fixed on the branch along with round 2's minor and three nits (M22–M25, all red), but not reviewed. By the two-dirty-rounds rule, #1162 is held as a draft, and the ask is the Operator decisions item "#1162, the evening pass". The worker's pick is to merge as it is: both rounds' defects were over-reporting or the date, and the pass never acts on what it flags. So the operator gets one decision, not zero, and the brief's "one paste and nothing else" waits on it. This entry and both items land on `main` in their own docs-only PR, from the sibling branch `claude/great-johnson-mwzrbr-od74`. That follows the rule #1162 adds: an ask written only on its own PR's branch is #1143's miss again.
+
+## 2026-10-05 — Mantis P5: four of five "done when" met; the matching gate needs the laptop (mantis-landscaping#19, #20, #24, #25)
+
+The site-side record is mantis-landscaping's journal entry (#26). What belongs here is about method.
+
+**Lighthouse baselines must be re-measured on the same day, as medians.** The plan's 10-01 Blux table was one run per page. Re-measured today, 3 runs each, Blux's project page scored 92, 74 and 66. Against that one-run baseline, the new site's first numbers looked like a regression on `/` (89 against 96). A same-day median showed the real gap, and then that #20 closed it (98 against 97).
+
+**Two scores were artifacts of the instrument, not the site.** SEO 69 is the `netlify.app` mirror's deliberate `noindex` (`is-crawlable`); the same build served from a non-mirror host scores 100. Best Practices 96 on `/contact-us` is headless Chrome drawing Turnstile error 600010. Both were checked against a source the instrument could not influence before being set aside.
+
+**The pre-hydration trap struck a third time.** Mantis#25's first smoke test mutated the DOM before Svelte hydrated. Svelte then re-mounted the strip and the test measured the original. This is the same mechanism as form-e2e's "refilled" (#1148) and #17's probe. The mutation that restores the old code exposed it, by passing on one run and failing on the next. Any probe that writes to a SvelteKit page must wait for hydration, or not write to the page at all. This belongs in #1148's fix, and probably in the matching-a-page skill too.
+
+**Still open:** the matching gate (Operator decisions 78) and P6's DNS (61).

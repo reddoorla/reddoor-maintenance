@@ -245,6 +245,15 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       Live: both forms render with the visitor's query in their actions,
       and form-e2e passes. **Next:** P5. The real-submission trace still
       waits on 71's human submit.
+    - **10-05 ~16:30Z: P5 four of five done** (mantis-landscaping#19, #20,
+      #24, #25; journal #26). Lighthouse on production `f636d3d`, mobile,
+      3-run medians, against Blux measured the same day: perf 98/98/100
+      vs 97/74/92 on `/`, a project page and `/contact-us`; a11y 100 vs
+      76–79. A non-mirror build scores SEO and best practices 100; the
+      mirror's 69 is its own `noindex`. A full axe run (all rules, 5 pages
+      at 1440 and 390) found 0 violations, with a positive control. The
+      matching gate is the fifth, and needs the laptop: Operator
+      decisions 78. **Next:** P6 (DNS, OD 61) and 78.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -2454,6 +2463,19 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - _Pick:_ (a). Otherwise workers started on a Friday morning end with
       nobody reading them until Monday's pass. Either way, these are edits
       in the Routines' settings, not a repo change.
+
+78. **Mantis P5: run the matching gate from the laptop (#1107, new
+    2026-10-05).** P5's last "done when" is the matching gate at
+    1440/834/390 for `/`, one project page and `/contact-us`. It cannot run
+    in a cloud container: `matching/harness.json` points at
+    `~/.claude/skills/matching-a-page/page-diff.mjs`, a user-level skill
+    that is not in the container. No page has a `matching/SPEC.md` section
+    yet, and the matching rules refuse a geometry round without one (Phase
+    1 first). Everything else in P5 is done and measured (see P1-30).
+    _Ask:_ run Phase 1 and the gate in a laptop session, or waive the gate
+    for launch. _Pick:_ run it, starting with `/`; the Blux capture under
+    `matching/spec/` is already in the repo, so a laptop session can begin
+    at Phase 1 with no new capture.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
