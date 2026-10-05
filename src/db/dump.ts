@@ -12,6 +12,8 @@
  * so two dumps of an unchanged database are byte-identical — a diffable backup.
  */
 
+import { createHash } from "node:crypto";
+
 /** Minimal execute surface: the @libsql/client `execute` we need. Injectable so
  *  tests run against :memory: without the real network client. */
 export type SqlExecutor = {
@@ -29,7 +31,16 @@ function quoteIdent(name: string): string {
 
 export function sqlLiteral(v: unknown): string {
   if (v === null || v === undefined) return "NULL";
-  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "NULL";
+  // A fractional REAL goes out with 17 significant digits, not JS's shortest
+  // round-trip form: SQLite's own text-to-double parse misreads about one
+  // shortest-form value in ten thousand by one ULP (0.3118957494450251 loads
+  // back as 0.31189574944502513), so the restored row differed from the origin
+  // and the per-table content hash reddened on it. Integers keep `String`, so
+  // an INTEGER cell never gains a decimal point.
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) return "NULL";
+    return Number.isInteger(v) ? String(v) : v.toPrecision(17);
+  }
   if (typeof v === "bigint") return v.toString();
   if (v instanceof Uint8Array || v instanceof ArrayBuffer) {
     const bytes = v instanceof ArrayBuffer ? new Uint8Array(v) : v;
@@ -130,8 +141,12 @@ const BLOB_COLUMN = "header_image";
  * table and the same window cancel out the same way. So a dump still is NOT a
  * point-in-time snapshot of the whole database — what it now is, provably, is a
  * dump whose manifest describes the rows it carries, which is the only property
- * the nightly `verify-dump` actually checks. A checksum per table is what would
- * close the rest, at a cost this does not currently earn.
+ * the nightly `verify-dump` actually checks. The per-table hashes added on
+ * 2026-10-05 do not close this: they are taken from the rows as this dump read
+ * them, so they describe the dump, not a single instant of the origin. What they
+ * close is the step after — a value that changed between the driver and the
+ * restored engine (serialisation, the file, the load) with no change in row
+ * count or blob length.
  *
  * This is NOT the self-comparison MANIFEST_PREFIX warns against. The EXPECTED
  * side is still measured on the LIVE database before a single row is
@@ -176,14 +191,18 @@ async function dumpOnce(
   // Read the ORIGIN's own numbers BEFORE serialising anything. This is the
   // whole point: it is the only measurement that does not come from the dump,
   // so it is the only one that can notice the dump is short.
+  const hashes: Record<string, string> = {};
   const manifest: DumpManifest = {
     tables: await tableCounts(db),
     blobBytes: await headerImageBytes(db),
+    hashes,
     generatedAt,
   };
   const out: string[] = [
     // First line, so a truncated dump still carries what it CLAIMED to hold.
-    `${MANIFEST_PREFIX}${JSON.stringify(manifest)}`,
+    // Filled in once the rows are read: the content hashes are taken from the
+    // values the driver handed back, before any of them became SQL text.
+    "",
     "PRAGMA foreign_keys=OFF;",
     "BEGIN TRANSACTION;",
   ];
@@ -210,6 +229,7 @@ async function dumpOnce(
   for (const table of tables) {
     const data = await db.execute(`SELECT * FROM ${quoteIdent(table)} ORDER BY rowid`);
     dumped[table] = data.rows.length;
+    hashes[table] = hashRows(data.columns, data.rows);
     if (table === BLOB_TABLE) {
       for (const row of data.rows) dumpedBlobBytes += storedLength(row[BLOB_COLUMN]);
     }
@@ -243,6 +263,7 @@ async function dumpOnce(
   }
   if (moved.length > 0) return { sql: null, moved };
 
+  out[0] = `${MANIFEST_PREFIX}${JSON.stringify(manifest)}`;
   out.push("COMMIT;");
   return { sql: out.join("\n") + "\n", moved: [] };
 }
@@ -283,8 +304,58 @@ export const MANIFEST_PREFIX = "-- REDDOOR_DUMP_MANIFEST ";
 export type DumpManifest = {
   tables: Record<string, number>;
   blobBytes: number;
+  /** sha256 per table over every cell of its rows in rowid order, as read from
+   *  the origin. Absent on dumps taken before 2026-10-05. */
+  hashes?: Record<string, string>;
   generatedAt: string;
 };
+
+/** A typed, length-prefixed encoding of one cell, so no two different values
+ *  (a blob and its hex as text, `'1'` and `1`, a NULL and the empty string)
+ *  ever feed the hash the same bytes. Integer and real are not told apart: the
+ *  driver hands both back as a JS number. */
+function hashCell(h: ReturnType<typeof createHash>, v: unknown): void {
+  if (v === null || v === undefined) {
+    h.update("n;");
+  } else if (v instanceof Uint8Array || v instanceof ArrayBuffer) {
+    const bytes = v instanceof ArrayBuffer ? new Uint8Array(v) : v;
+    h.update(`b${bytes.byteLength}:`);
+    h.update(bytes);
+  } else if (typeof v === "number" || typeof v === "bigint") {
+    h.update(`d${String(v)};`);
+  } else {
+    const bytes = Buffer.from(String(v), "utf-8");
+    h.update(`s${bytes.byteLength}:`);
+    h.update(bytes);
+  }
+}
+
+/** sha256 over a table's column names and every cell of its rows, in the order
+ *  given. Both sides of the rehearsal read with `ORDER BY rowid`, which a
+ *  restore preserves: rows are re-inserted in that same order. */
+export function hashRows(columns: string[], rows: Array<Record<string, unknown>>): string {
+  const h = createHash("sha256");
+  h.update(`c${columns.length}:${JSON.stringify(columns)}`);
+  for (const row of rows) {
+    h.update("r");
+    for (const c of columns) hashCell(h, row[c]);
+  }
+  return h.digest("hex");
+}
+
+/** Per-table content hashes, read the same way `dumpDatabase` reads them. */
+export async function tableHashes(db: SqlExecutor): Promise<Record<string, string>> {
+  const schema = await db.execute(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+  );
+  const hashes: Record<string, string> = {};
+  for (const row of schema.rows) {
+    const name = String(row.name);
+    const data = await db.execute(`SELECT * FROM ${quoteIdent(name)} ORDER BY rowid`);
+    hashes[name] = hashRows(data.columns, data.rows);
+  }
+  return hashes;
+}
 
 /** Total stored header-image bytes, the one content signal cheap enough to
  *  check on every nightly run. */
