@@ -1477,6 +1477,11 @@ analytics"]`). The operator creates properties for the other three. When the
     29 Navy's install first hit a recipe bug, fixed in #1178: the `src/` scan
     read the starter's `services.test.ts` as an existing tag. Both merges are
     the operator's click, like Data Dynamiq's; a live hit is read after each.
+    Review found one gap for item 45, in the template rather than either port:
+    the policy names no image CDN, yet a Prismic site's pages load
+    `images.prismic.io` (about 99 URLs on 29 Navy's home), so Prismic/imgix
+    receives every visitor's IP. The same holds on every Prismic site in the
+    fleet.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only

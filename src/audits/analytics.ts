@@ -952,7 +952,10 @@ export type CheckoutScan = {
   complete: boolean;
 };
 
-const NOT_SHIPPED = /\.(test|spec)\.[cm]?[jt]sx?$|\.d\.[cm]?ts$/;
+/** Test, spec and declaration files, by NAME. This trusts the convention: a
+ *  module a page imports but names `*.test.ts` would be skipped too. Nothing in
+ *  the fleet names a shipped file that way. */
+const NOT_SHIPPED = /\.(test|spec)\.[cm]?[jt]s$|\.d\.[cm]?ts$/;
 
 /**
  * Walk `src/` once: every `initAnalytics` reference, wherever it is (the
