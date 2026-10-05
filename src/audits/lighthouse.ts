@@ -8,7 +8,8 @@ import { defaultSpawn } from "./util/spawn.js";
 import type { SpawnFn, SpawnResult } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { readSiteConfig } from "./util/site-config.js";
-import { findFreePort, withFreePort } from "../util/free-port.js";
+import { withFreePort } from "../util/free-port.js";
+import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 
 type ManifestEntry = {
   url: string;
@@ -184,11 +185,28 @@ async function parseLhciResults(
  *  pinned free port and audit the local fixtures/override URL. */
 async function checkoutLighthouse(spawn: SpawnFn, site: Site, label: string): Promise<AuditResult> {
   const siteCfg = await readSiteConfig(site.path);
+  const baseUrl = siteCfg.lighthouseUrl ?? lighthouseConfig.ci.collect.url[0];
+  const resultsDir = join(site.path, ".lighthouseci");
   // Allocate a free port + force vite to `--strictPort` so the spawned dev
   // server either binds the port we picked or fails loudly (caltex 2026-05-28
-  // zombie-vite incident).
-  const port = await findFreePort();
-  const baseUrl = siteCfg.lighthouseUrl ?? lighthouseConfig.ci.collect.url[0];
+  // zombie-vite incident). A port taken between the pick and the bind is
+  // retried on a fresh one (P1-27).
+  const { result } = await withPortRetry(
+    1,
+    async ([port]) => runCheckoutLhci(spawn, site, label, baseUrl, resultsDir, port!),
+    ({ raw }, [port]) => raw !== undefined && raw.code !== 0 && portInUse(spawnOutput(raw), port!),
+  );
+  return result;
+}
+
+async function runCheckoutLhci(
+  spawn: SpawnFn,
+  site: Site,
+  label: string,
+  baseUrl: string,
+  resultsDir: string,
+  port: number,
+): Promise<{ result: AuditResult; raw?: SpawnResult }> {
   const resolvedConfig = {
     ...lighthouseConfig,
     ci: {
@@ -206,7 +224,6 @@ async function checkoutLighthouse(spawn: SpawnFn, site: Site, label: string): Pr
   const configPath = join(configDir, "lighthouserc.json");
   await writeFile(configPath, JSON.stringify(resolvedConfig), "utf-8");
 
-  const resultsDir = join(site.path, ".lighthouseci");
   await rm(resultsDir, { recursive: true, force: true });
 
   let raw: SpawnResult;
@@ -220,17 +237,19 @@ async function checkoutLighthouse(spawn: SpawnFn, site: Site, label: string): Pr
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
       return {
-        audit: "lighthouse",
-        site: label,
-        status: "skip",
-        summary: "npx/@lhci/cli not available",
+        result: {
+          audit: "lighthouse",
+          site: label,
+          status: "skip",
+          summary: "npx/@lhci/cli not available",
+        },
       };
     }
     throw err;
   }
   await rm(configDir, { recursive: true, force: true });
 
-  return parseLhciResults(resultsDir, label, raw);
+  return { result: await parseLhciResults(resultsDir, label, raw), raw };
 }
 
 /** Deployed mode: audit a production URL directly — no checkout, no dev server.

@@ -12,7 +12,7 @@ import {
 import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.js";
 import { defaultSpawn, type SpawnResult } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
-import { findFreePort } from "../util/free-port.js";
+import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
 import { freezeMotion } from "./util/freeze-motion.js";
 import {
@@ -401,21 +401,6 @@ export default defineConfig({
   webServer: ${webServer},
 });
 `;
-}
-
-/**
- * A second free port, guaranteed different from `taken`. `findFreePort`
- * releases its socket before returning, so two calls can legitimately hand back
- * the same ephemeral port — and two webServers cannot share one: under
- * `--strictPort` the second dies with "port already in use" and the failure
- * reads as the site's rather than the allocator's.
- */
-async function allocateDistinctPort(taken: number): Promise<number> {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const candidate = await findFreePort();
-    if (candidate !== taken) return candidate;
-  }
-  throw new Error(`a11y: could not allocate a second free port distinct from ${taken}`);
 }
 
 // The spec the audit writes runs all configured routes through axe in a single
@@ -1269,55 +1254,71 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // #948: the axe scan always runs on the production preview. #700's
     // `package.json#reddoor.gateServer: "preview"` now decides only where the
     // hydration smoke runs; absent or unrecognized, it keeps the dev server.
-    const previewPort = await findFreePort();
-    const devPort = gateServer === "preview" ? undefined : await allocateDistinctPort(previewPort);
-
+    const smokeOnDev = gateServer !== "preview";
     const specPath = join(specDir, "a11y.spec.ts");
-    await writeFile(
-      specPath,
-      buildSpec(axePages, devPort === undefined ? "" : `http://localhost:${devPort}`),
-      "utf-8",
-    );
-
     const configPath = join(specDir, "playwright.config.ts");
-    await writeFile(configPath, buildPlaywrightConfig(previewPort, site.path, devPort), "utf-8");
-
     const resultsPath = join(site.path, RESULTS_REL);
-    // Clear stale artifacts so a failed spawn never reports old data.
-    await rm(join(site.path, RESULTS_DIR), { recursive: true, force: true });
 
-    let raw;
-    try {
-      raw = await spawn(
-        "npx",
-        ["--yes", "playwright", "test", `--config=${configPath}`, "--reporter=line", specPath],
-        {
-          cwd: site.path,
-          env: { ...process.env, REDDOOR_A11Y_OUTPUT: resultsPath },
-          // playwright on a cold tree downloads Chrome, boots the site's dev
-          // server, and runs axe over every configured route. The shared 30 s
-          // default in runAudits is fine for deps/lint/security but starves
-          // playwright (mirrors the lighthouse fix shipped earlier).
-          // Every run pays for a production build before the first navigation
-          // (#948), so the budget sized for "boot vite, then axe" would
-          // SIGKILL it mid-build and report it as an audit failure.
-          timeoutMs: PLAYWRIGHT_PREVIEW_TIMEOUT_MS,
-        },
-      );
-    } catch (err) {
-      const e = err as NodeJS.ErrnoException;
-      if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
-        return {
-          audit: "a11y",
-          site: label,
-          status: "skip",
-          summary: "npx/playwright not available",
-        };
-      }
-      throw err;
+    // A port taken between the pick and the webServer's `--strictPort` bind is
+    // retried on fresh ones (P1-27): the second server, or one that answers on
+    // the port first, is how #1066's `build` went red on a docs-only head.
+    const attempt = await withPortRetry(
+      smokeOnDev ? 2 : 1,
+      async ([previewPort, devPort]): Promise<{
+        raw?: SpawnResult;
+        artifact?: NormalizedA11y | null;
+      }> => {
+        await writeFile(
+          specPath,
+          buildSpec(axePages, devPort === undefined ? "" : `http://localhost:${devPort}`),
+          "utf-8",
+        );
+        await writeFile(
+          configPath,
+          buildPlaywrightConfig(previewPort!, site.path, devPort),
+          "utf-8",
+        );
+        // Clear stale artifacts so a failed spawn never reports old data.
+        await rm(join(site.path, RESULTS_DIR), { recursive: true, force: true });
+        let raw: SpawnResult;
+        try {
+          raw = await spawn(
+            "npx",
+            ["--yes", "playwright", "test", `--config=${configPath}`, "--reporter=line", specPath],
+            {
+              cwd: site.path,
+              env: { ...process.env, REDDOOR_A11Y_OUTPUT: resultsPath },
+              // playwright on a cold tree downloads Chrome, boots the site's dev
+              // server, and runs axe over every configured route. The shared 30 s
+              // default in runAudits is fine for deps/lint/security but starves
+              // playwright (mirrors the lighthouse fix shipped earlier).
+              // Every run pays for a production build before the first navigation
+              // (#948), so the budget sized for "boot vite, then axe" would
+              // SIGKILL it mid-build and report it as an audit failure.
+              timeoutMs: PLAYWRIGHT_PREVIEW_TIMEOUT_MS,
+            },
+          );
+        } catch (err) {
+          const e = err as NodeJS.ErrnoException;
+          if (e.code === "ENOENT" || /ENOENT/.test(String(err))) return {};
+          throw err;
+        }
+        return { raw, artifact: await readJsonMaybe<NormalizedA11y>(resultsPath) };
+      },
+      ({ raw, artifact }, ports) =>
+        raw !== undefined && !artifact && ports.some((port) => portInUse(spawnOutput(raw), port)),
+    );
+    if (attempt.raw === undefined) {
+      return {
+        audit: "a11y",
+        site: label,
+        status: "skip",
+        summary: "npx/playwright not available",
+      };
     }
 
-    const artifact = await readJsonMaybe<NormalizedA11y>(resultsPath);
+    const { raw } = attempt;
+    const artifact = attempt.artifact ?? null;
 
     if (!artifact) {
       return {
@@ -1419,10 +1420,9 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // which does not visibly take effect gets reverted as broken — and this one
     // costs a build per run, so "did it actually do the expensive thing?" is
     // the first question an operator asks.
-    const smokeNote =
-      devPort === undefined
-        ? `+${smokeRoutes.length} hydration smoke on a production preview`
-        : `+${smokeRoutes.length} hydration smoke`;
+    const smokeNote = !smokeOnDev
+      ? `+${smokeRoutes.length} hydration smoke on a production preview`
+      : `+${smokeRoutes.length} hydration smoke`;
     const named = describeViolations(artifact.violations ?? []);
     const guardNote = describeFixtures404(artifact.violations ?? [], axePages);
     const summary =
