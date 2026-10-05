@@ -113,8 +113,8 @@ const BASELINE_CSP = {
       "https://static.cdn.prismic.io",
       // The Prismic toolbar (previews, edit button) loads toolbar.js from this
       // path and, for its Share button, this one html2canvas file. Both are
-      // path-scoped so neither host is allowed wholesale (williamson-homes#7,
-      // reddoor-starter#164).
+      // path-scoped so neither host is allowed wholesale for a direct load (CSP
+      // ignores paths after a redirect) (williamson-homes#7, reddoor-starter#164).
       "https://prismic.io/prismic-toolbar/",
       "https://html2canvas.hertzen.com/dist/html2canvas.min.js",
       "https://player.vimeo.com",
@@ -175,8 +175,8 @@ function withAnalytics(directives: CspDirectives): CspDirectives {
  */
 const PRISMIC_REPOSITORY_NAME = /^[a-z0-9][a-z0-9-]*$/i;
 
-function prismicFrameHost(repository: string): string {
-  if (!PRISMIC_REPOSITORY_NAME.test(repository)) {
+function prismicFrameHost(repository: unknown): string {
+  if (typeof repository !== "string" || !PRISMIC_REPOSITORY_NAME.test(repository)) {
     throw new Error(
       `prismicRepository ${JSON.stringify(repository)} is not a Prismic repository name; ` +
         "it is written into the CSP frame-src, so it must be letters, digits and hyphens only.",
@@ -188,12 +188,14 @@ function prismicFrameHost(repository: string): string {
 /**
  * Append the repository's toolbar host to `frame-src`, after the merge for the
  * same reason as {@link withAnalytics}: a site that overrides `frame-src` keeps
- * exactly its own list plus this one host. A string directive is left alone.
+ * exactly its own list plus this one host. A string directive is left alone. A
+ * site that unset `frame-src` (so frames fell back to `default-src`) gets
+ * `'self'` with the host, not the host alone, so same-origin frames still load.
  */
 function withPrismicFrame(directives: CspDirectives, host: string): CspDirectives {
   const existing = directives["frame-src"];
   if (existing !== undefined && !Array.isArray(existing)) return directives;
-  const list = existing ?? [];
+  const list = existing ?? ["self"];
   return { ...directives, "frame-src": list.includes(host) ? list : [...list, host] };
 }
 

@@ -436,14 +436,47 @@ describe("configs/svelte — the Prismic toolbar and previews", () => {
     expect(d["frame-src"]).toBe("self");
   });
 
-  it.each(["acme.prismic.io; script-src *", "acme prismic", "-acme", "", "*", "acme/x"])(
-    "refuses %j as a repository name, since it is written into frame-src",
-    (name) => {
-      expect(() => createSvelteConfig({ csp: true, prismicRepository: name })).toThrow(
-        /prismicRepository/,
-      );
-    },
-  );
+  it.each([
+    "acme.prismic.io; script-src *",
+    "acme prismic",
+    "-acme",
+    "",
+    "*",
+    "acme/x",
+    "acme.evil",
+  ])("refuses %j as a repository name, since it is written into frame-src", (name) => {
+    expect(() => createSvelteConfig({ csp: true, prismicRepository: name })).toThrow(
+      /prismicRepository/,
+    );
+  });
+
+  it.each([null, ["acme"], 42])("refuses the non-string %j rather than coercing it", (name) => {
+    expect(() =>
+      createSvelteConfig({ csp: true, prismicRepository: name as unknown as string }),
+    ).toThrow(/prismicRepository/);
+  });
+
+  it("refuses a bad name even when no CSP is requested", () => {
+    expect(() => createSvelteConfig({ prismicRepository: "a;b" })).toThrow(/prismicRepository/);
+  });
+
+  it("frames the repository alongside the analytics fold", () => {
+    const d = directivesOf(
+      createSvelteConfig({ csp: { analytics: true }, prismicRepository: "acme" }),
+    );
+    expect(d["frame-src"]).toEqual(["self", "https://player.vimeo.com", "https://acme.prismic.io"]);
+    expect(d["script-src"]).toContain("https://www.googletagmanager.com");
+  });
+
+  it("keeps same-origin frames when the site unset frame-src", () => {
+    const d = directivesOf(
+      createSvelteConfig({
+        csp: { directives: { "frame-src": undefined as unknown as string[] } },
+        prismicRepository: "acme",
+      }),
+    );
+    expect(d["frame-src"]).toEqual(["self", "https://acme.prismic.io"]);
+  });
 
   it("does not apply the repository when no CSP is requested, and never leaks the option", () => {
     const config = createSvelteConfig({ prismicRepository: "acme" });
