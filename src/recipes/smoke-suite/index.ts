@@ -60,42 +60,70 @@ async function readIfExists(path: string): Promise<string | null> {
   }
 }
 
-/** The template sentence explaining the default `footer` marker — swapped for a
- *  fallback explanation when the marker deviates. Must match template.ts. */
-const FOOTER_MARKER_SENTENCE =
-  "The hydration marker `footer` is the shared\n// layout footer, present on every page including the error page.";
+/** The template's default hydration marker, and the sentence explaining it —
+ *  swapped for a fallback explanation when the marker deviates. Must match
+ *  template.ts. */
+const HYDRATED_MARKER = "html[data-hydrated]";
+const HYDRATED_MARKER_SENTENCE =
+  "The hydration marker `html[data-hydrated]`\n" +
+  "// is written only by the root layout's onMount, so it matches only once script\n" +
+  "// has taken the page over (a server-rendered element such as `footer` is\n" +
+  "// visible with the bundle missing).";
 
-function fallbackMarkerSentence(marker: string): string {
+const ADD_MARKER_HINT =
+  'set `document.documentElement.dataset.hydrated = ""` in the root layout\'s onMount ' +
+  "and point the marker at `html[data-hydrated]`";
+
+function fallbackMarkerSentence(marker: FallbackMarker): string {
+  const why =
+    marker === "footer"
+      ? "nothing in this site's Svelte source writes\n// `html[data-hydrated]`"
+      : "nothing in this site's Svelte source writes\n// `html[data-hydrated]` and no <footer> element exists";
   return (
     `The hydration marker \`${marker}\` is a\n` +
-    "// fallback: no <footer> element exists in this site's Svelte source. Add a\n" +
-    "// semantic <footer> landmark and point the marker back at it when possible."
+    `// fallback: ${why}. It is server-rendered, so it\n` +
+    "// proves paint, not hydration. To prove hydration, set\n" +
+    '// `document.documentElement.dataset.hydrated = ""` in the root layout\'s onMount\n' +
+    "// and point the marker at `html[data-hydrated]`."
   );
 }
 
-/** The starter's default `footer` hydration marker needs the element to exist,
- *  or EVERY route check false-fails (la-homelessness-initiative red'd the first
- *  fleet-smoke run exactly this way). Deviate only on positive evidence of a
- *  bespoke build: svelte files exist under src/ and none renders a literal
- *  lowercase `<footer` element (a capital-F `<Footer` component tag proves
- *  nothing — the element the browser paints lives inside that component). No
- *  svelte files at all → no signal → keep the starter default. */
-async function detectHydrationMarker(cwd: string): Promise<"footer" | "main" | "body"> {
+type FallbackMarker = "footer" | "main" | "body";
+
+/** A Svelte source line that writes the marker: the starter's
+ *  `document.documentElement.dataset.hydrated = …`, or a `setAttribute` of it. */
+const WRITES_HYDRATED_MARKER = /dataset\.hydrated\s*=[^=]|setAttribute\(\s*["'`]data-hydrated["'`]/;
+
+/** The template's `html[data-hydrated]` marker needs the site's root layout to
+ *  write it, or EVERY route check false-fails, as `footer` once did on a site
+ *  with no footer (la-homelessness-initiative red'd the first fleet-smoke run
+ *  exactly this way). The fleet takes the starter's marker as per-repo PRs, so
+ *  most sites do not write it yet. Keep the default only on positive evidence
+ *  that some Svelte file writes it; otherwise prove paint with the first
+ *  server-rendered element the site has: a literal lowercase `<footer` (a
+ *  capital-F `<Footer` component tag proves nothing — the element the browser
+ *  paints lives inside that component), then `<main`, then `body`. No svelte
+ *  files at all → no signal → keep the template default. */
+async function detectHydrationMarker(
+  cwd: string,
+): Promise<typeof HYDRATED_MARKER | FallbackMarker> {
   let entries: string[];
   try {
     entries = (await readdir(join(cwd, "src"), { recursive: true })) as string[];
   } catch {
-    return "footer";
+    return HYDRATED_MARKER;
   }
   const svelteFiles = entries.filter((p) => p.endsWith(".svelte"));
-  if (svelteFiles.length === 0) return "footer";
+  if (svelteFiles.length === 0) return HYDRATED_MARKER;
+  let sawFooter = false;
   let sawMain = false;
   for (const rel of svelteFiles) {
     const text = (await readIfExists(join(cwd, "src", rel))) ?? "";
-    if (/<footer[\s>/]/.test(text)) return "footer";
+    if (WRITES_HYDRATED_MARKER.test(text)) return HYDRATED_MARKER;
+    if (/<footer[\s>/]/.test(text)) sawFooter = true;
     if (/<main[\s>/]/.test(text)) sawMain = true;
   }
-  return sawMain ? "main" : "body";
+  return sawFooter ? "footer" : sawMain ? "main" : "body";
 }
 
 /**
@@ -142,20 +170,23 @@ export async function smokeSuite(
       const before = new Map<string, string | null>();
 
       // 1. Spec files — write if absent (never clobber operator edits). The
-      //    routes manifest ships the starter-verbatim `footer` marker only when
-      //    the site actually renders one; bespoke builds fall back to `main`,
-      //    then `body`, so the suite proves paint instead of false-failing.
+      //    routes manifest ships the starter's `html[data-hydrated]` marker only
+      //    when the site's source writes it; otherwise it falls back to `footer`,
+      //    `main`, then `body`, so the suite proves paint instead of
+      //    false-failing.
       let routesTemplate = SMOKE_ROUTES_TEMPLATE;
       if (!(await fileExists(join(cwd, SMOKE_ROUTES_RELATIVE)))) {
         const marker = await detectHydrationMarker(cwd);
-        if (marker !== "footer") {
+        if (marker !== HYDRATED_MARKER) {
           routesTemplate = SMOKE_ROUTES_TEMPLATE.replace(
-            'hydrationMarker: "footer"',
+            `hydrationMarker: "${HYDRATED_MARKER}"`,
             `hydrationMarker: "${marker}"`,
-          ).replace(FOOTER_MARKER_SENTENCE, fallbackMarkerSentence(marker));
+          ).replace(HYDRATED_MARKER_SENTENCE, fallbackMarkerSentence(marker));
           notes.push(
-            `no <footer> element in src/**/*.svelte — hydration marker set to "${marker}" ` +
-              "(add a semantic <footer> landmark to restore the default)",
+            `nothing in src/**/*.svelte writes html[data-hydrated]` +
+              (marker === "footer" ? "" : " and no <footer> element renders") +
+              ` — hydration marker set to "${marker}", which proves paint, not hydration ` +
+              `(${ADD_MARKER_HINT})`,
           );
         }
       }

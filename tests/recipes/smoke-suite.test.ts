@@ -165,7 +165,69 @@ describe("recipes/smoke-suite", () => {
     expect(after.scripts?.["test:unit"]).toBeUndefined();
   });
 
-  it("keeps the verbatim starter manifest when the site's svelte source renders a <footer>", async () => {
+  it("scaffolds the bundle-only `html[data-hydrated]` marker, never a server-rendered element", () => {
+    // `footer` is in the server HTML: it is visible with scripting off and with
+    // the bundle missing, so it cannot prove hydration (#947). The marker is
+    // the attribute a mounted root layout writes, and the attribute is the
+    // whole proof: a bare `html` matches before any script has run.
+    expect(SMOKE_ROUTES_TEMPLATE).toContain(
+      '{ path: "/", name: "home", hydrationMarker: "html[data-hydrated]" }',
+    );
+    expect(SMOKE_ROUTES_TEMPLATE).not.toMatch(/hydrationMarker: "(footer|main|body|html)"/);
+    // It waits on the client bundle, which a cold dev server takes 5–7s to
+    // serve: longer than Playwright's 5s default.
+    expect(SMOKE_SPEC_TEMPLATE).toContain("toBeVisible({ timeout: HYDRATION_TIMEOUT })");
+    expect(SMOKE_SPEC_TEMPLATE).toContain("const HYDRATION_TIMEOUT = 20_000;");
+  });
+
+  it("keeps the verbatim starter manifest when the site's root layout writes the hydration marker", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await mkdir(join(cwd, "src/routes"), { recursive: true });
+    await writeFile(
+      join(cwd, "src/routes/+layout.svelte"),
+      '<script>\n  import { onMount } from "svelte";\n  onMount(() => {\n    document.documentElement.dataset.hydrated = "";\n  });\n</script>\n<footer>© site</footer>\n',
+    );
+    commitSetup(cwd);
+
+    const result = await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    expect(result.status).toBe("applied");
+    expect(await readFile(join(cwd, SMOKE_ROUTES_RELATIVE), "utf-8")).toBe(SMOKE_ROUTES_TEMPLATE);
+    expect(result.notes ?? "").not.toMatch(/hydration marker/);
+  });
+
+  it("keeps the marker when a component writes it with setAttribute", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await mkdir(join(cwd, "src/routes"), { recursive: true });
+    await writeFile(
+      join(cwd, "src/routes/+layout.svelte"),
+      '<script>\n  import { onMount } from "svelte";\n  onMount(() => document.documentElement.setAttribute("data-hydrated", ""));\n</script>\n<main>hi</main>\n',
+    );
+    commitSetup(cwd);
+
+    const result = await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    expect(await readFile(join(cwd, SMOKE_ROUTES_RELATIVE), "utf-8")).toBe(SMOKE_ROUTES_TEMPLATE);
+    expect(result.notes ?? "").not.toMatch(/hydration marker/);
+  });
+
+  it("does not take a read of the marker for a write", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await mkdir(join(cwd, "src/routes"), { recursive: true });
+    await writeFile(
+      join(cwd, "src/routes/+layout.svelte"),
+      '<script>\n  const ready = document.documentElement.dataset.hydrated === "";\n</script>\n<footer>{ready}</footer>\n',
+    );
+    commitSetup(cwd);
+
+    await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    expect(await readFile(join(cwd, SMOKE_ROUTES_RELATIVE), "utf-8")).toContain(
+      'hydrationMarker: "footer"',
+    );
+  });
+
+  it("falls back to `footer` when the site renders one but nothing writes the hydration marker", async () => {
+    // The site has not taken the starter's root-layout marker yet (the fleet
+    // rollout is per-repo PRs). `html[data-hydrated]` would false-fail every
+    // route there, so the manifest proves paint instead and says so.
     const cwd = await copyFixtureToTmp(pristine);
     await mkdir(join(cwd, "src/lib/components"), { recursive: true });
     await writeFile(
@@ -176,8 +238,12 @@ describe("recipes/smoke-suite", () => {
 
     const result = await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
     expect(result.status).toBe("applied");
-    expect(await readFile(join(cwd, SMOKE_ROUTES_RELATIVE), "utf-8")).toBe(SMOKE_ROUTES_TEMPLATE);
-    expect(result.notes ?? "").not.toMatch(/hydration marker/);
+    const routes = await readFile(join(cwd, SMOKE_ROUTES_RELATIVE), "utf-8");
+    expect(routes).toContain('hydrationMarker: "footer"');
+    expect(routes).not.toContain('html[data-hydrated]"');
+    expect(routes).toContain("proves paint, not hydration");
+    expect(result.notes).toMatch(/hydration marker set to "footer"/);
+    expect(result.notes).toMatch(/dataset\.hydrated/);
   });
 
   it("falls back to a `main` hydration marker when svelte source exists but renders no <footer>", async () => {
