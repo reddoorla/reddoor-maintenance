@@ -14,8 +14,17 @@ import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 type ManifestEntry = {
   url: string;
   summary: Record<string, number>;
+  failing: Array<{ category: string; id: string; weight: number }>;
   htmlPath?: string;
   jsonPath?: string;
+};
+
+export type FailingAudit = {
+  category: string;
+  id: string;
+  weight: number;
+  runs: number;
+  of: number;
 };
 
 type AssertionResult = {
@@ -32,7 +41,14 @@ type AssertionResult = {
 type NormalizedLhciResult = {
   summary: Record<string, number>;
   assertionsFailed: number;
-  assertions: Array<{ category: string; level: "warn" | "error"; message: string }>;
+  assertions: Array<{
+    category: string;
+    level: "warn" | "error";
+    message: string;
+    actual: number | null;
+    expected: number;
+  }>;
+  failingAudits: FailingAudit[];
 };
 
 async function readJsonMaybe<T>(path: string): Promise<T | null> {
@@ -47,8 +63,46 @@ async function readJsonMaybe<T>(path: string): Promise<T | null> {
 type LhrFile = {
   requestedUrl: string;
   finalUrl?: string;
-  categories: Record<string, { score: number | null }>;
+  categories: Record<
+    string,
+    { score: number | null; auditRefs?: Array<{ id: string; weight: number }> }
+  >;
+  audits?: Record<string, { score: number | null }>;
 };
+
+function failingAuditsOf(lhr: LhrFile): ManifestEntry["failing"] {
+  const out: ManifestEntry["failing"] = [];
+  for (const [category, c] of Object.entries(lhr.categories)) {
+    for (const ref of c?.auditRefs ?? []) {
+      if (!(ref.weight > 0)) continue;
+      const score = lhr.audits?.[ref.id]?.score;
+      if (typeof score === "number" && score < 1) {
+        out.push({ category, id: ref.id, weight: ref.weight });
+      }
+    }
+  }
+  return out;
+}
+
+function failingAuditsFor(categories: Set<string>, entries: ManifestEntry[]): FailingAudit[] {
+  const byKey = new Map<string, FailingAudit>();
+  for (const e of entries) {
+    for (const f of e.failing) {
+      if (!categories.has(f.category)) continue;
+      const key = `${f.category}/${f.id}`;
+      const prior = byKey.get(key);
+      if (prior) prior.runs += 1;
+      else byKey.set(key, { ...f, runs: 1, of: entries.length });
+    }
+  }
+  return [...byKey.values()].sort(
+    (a, b) =>
+      a.category.localeCompare(b.category) ||
+      b.weight - a.weight ||
+      b.runs - a.runs ||
+      a.id.localeCompare(b.id),
+  );
+}
 
 /**
  * Build manifest-equivalent entries by scanning the `.lighthouseci/` dir
@@ -68,7 +122,7 @@ async function readLhrEntries(resultsDir: string): Promise<ManifestEntry[]> {
     for (const [k, v] of Object.entries(lhr.categories)) {
       if (typeof v?.score === "number") summary[k] = v.score;
     }
-    entries.push({ url: lhr.requestedUrl, summary });
+    entries.push({ url: lhr.requestedUrl, summary, failing: failingAuditsOf(lhr) });
   }
   return entries;
 }
@@ -161,7 +215,13 @@ async function parseLhciResults(
     category: categoryFromAssertion(a),
     level: a.level,
     message: messageForAssertion(a),
+    actual: typeof a.actual === "number" ? a.actual : null,
+    expected: a.expected,
   }));
+  const failingAudits = failingAuditsFor(
+    new Set(failed.filter((a) => a.name.startsWith("categories:")).map(categoryFromAssertion)),
+    manifest,
+  );
 
   const anyError = assertions.some((a) => a.level === "error");
   const anyWarn = assertions.some((a) => a.level === "warn");
@@ -171,12 +231,14 @@ async function parseLhciResults(
     summary: averageSummaries(manifest),
     assertionsFailed: failed.length,
     assertions,
+    failingAudits,
   };
 
+  const named = failingAudits.map((f) => `${f.category}/${f.id} (${f.runs}/${f.of})`).join(", ");
   const summary =
     status === "pass"
       ? "lighthouse: all categories passing"
-      : `lighthouse: ${failed.length} assertion(s) failed`;
+      : `lighthouse: ${failed.length} assertion(s) failed${named ? ` — ${named}` : ""}`;
 
   return { audit: "lighthouse", site: label, status, summary, details: normalized };
 }

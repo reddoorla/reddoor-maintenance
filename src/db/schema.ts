@@ -138,6 +138,7 @@ export interface SiteHealthTable {
   bp_score: number | null;
   seo_score: number | null;
   lighthouse_at: string | null;
+  lighthouse_failing_audits: string | null;
   a11y_violations: number | null;
   a11y_routes_scanned: number | null;
   a11y_routes_total: number | null;

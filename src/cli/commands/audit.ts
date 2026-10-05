@@ -337,6 +337,12 @@ export async function runAuditCommand(
     output += `\n\n${formatUnmeasuredSmokeSummary(results)}`;
   }
 
+  if (which.includes("lighthouse") && !opts.json) {
+    const { formatLighthouseFailureLines } = await import("../../audits/lighthouse-fields.js");
+    const lines = formatLighthouseFailureLines(results);
+    if (lines) output += `\n\n${lines}`;
+  }
+
   // Did any site fail to write back? The fleet writer collects
   // per-site failures instead of throwing, so without this the command would
   // exit 0 while rows silently failed to persist — automation keying on `$?`

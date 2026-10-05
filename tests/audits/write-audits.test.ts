@@ -366,6 +366,7 @@ describe("writeBackOneSite", () => {
       "bpScore",
       "seoScore",
       "Last lighthouse audit at",
+      "Lighthouse failing audits",
       "Deps Drifted",
       "Deps Major Behind",
     ]);

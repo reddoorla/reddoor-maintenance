@@ -107,6 +107,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     bpScore: (f["bpScore"] as number | undefined) ?? null,
     seoScore: (f["seoScore"] as number | undefined) ?? null,
     lastLighthouseAuditAt: (f["Last lighthouse audit at"] as string | undefined) ?? null,
+    lighthouseFailingAudits: (f["Lighthouse failing audits"] as string | undefined) ?? null,
     a11yViolations: (f["A11y Violations"] as number | undefined) ?? null,
     a11yRoutesScanned: (f["A11y Routes Scanned"] as number | undefined) ?? null,
     a11yRoutesTotal: (f["A11y Routes Total"] as number | undefined) ?? null,
@@ -446,6 +447,7 @@ export type CellValue = string | boolean | string[];
  */
 export type AuditFieldInputs = {
   scores?: LighthouseScoreWriteback;
+  lighthouseFailingAudits?: string | null;
   a11y?: A11yCounts;
   deps?: DepsCounts;
   security?: SecurityCounts;
@@ -461,6 +463,8 @@ export type AuditFieldInputs = {
 export function auditFields(audits: AuditFieldInputs): FieldSet {
   const fields: FieldSet = {};
   if (audits.scores) Object.assign(fields, scoreFields(audits.scores));
+  if (audits.lighthouseFailingAudits !== undefined)
+    fields["Lighthouse failing audits"] = audits.lighthouseFailingAudits;
   if (audits.a11y) Object.assign(fields, a11yFields(audits.a11y));
   if (audits.deps) Object.assign(fields, depsFields(audits.deps));
   if (audits.security) Object.assign(fields, securityFields(audits.security));
