@@ -8338,7 +8338,44 @@ A worker brief from the operator's 10-05 ask: a better hero placeholder and a fa
 
 **Accounting.** One CI red was this session's own: two tests added without regenerating the site's generated `docs/COMPONENTS.md`. It was reproduced locally and fixed. The local `/projects` hover smoke timed out at 30 s on both the branch and a clean `main` worktree and passed in CI, so it is the container's speed, not a regression.
 
-## 2026-10-05 — The evening pass, researched and built, then held after two review rounds (#1162, Operator decisions 75)
+## 2026-10-05 — P1-25: the toolbar fits the CSP baseline; held after round 2 (#1157, Operator decision 75)
+
+The shared `BASELINE_CSP` had the same gap williamson-homes#7 found per site.
+It blocked the Prismic toolbar's `toolbar.js`, the html2canvas file its Share
+button loads, and the `<repo>.prismic.io` iframe. #1157 adds the two script
+sources with exactly the starter's path and file scoping (reddoor-starter#164),
+plus an optional `prismicRepository` on `createSvelteConfig`. That option
+frames one repository host, folded in after site overrides the way the
+analytics fold is.
+
+The brief's html2canvas stop condition did not fire. The security lens fetched
+html2canvas 1.4.1 from hertzen.com (198 KB) and found no `eval`,
+`new Function`, `blob:`, `createObjectURL` or `Worker`. Its rendering goes
+through `data:` images, which `img-src` already allows. `toolbar.js` contains
+a `Function('return this')()`, but only as the core-js global fallback, which a
+browser never reaches. One belief was corrected on contact: the brief named
+toolbar 4.1.10, and `prismic.js` now pins 4.1.12. The prefix-scoped source
+covers both.
+
+The brief's four mutations each turned tests red. The round-1 tests lens found
+three survivors: the repository fold skipped under `analytics: true`, lazy
+validation, and dots in the name. It also found two coercion and seed minors,
+and all of these were fixed in `b2592187`. That lens edited the shared
+worktree while I was editing it. Its `git checkout --` restore wiped my
+in-progress `svelte.ts` fix, and my test run then showed failures that were its
+mutant, not my code. The round-2 reviewer worked on a `git archive` copy
+instead, and that is the way to run a mutation-running reviewer from now on.
+
+Round 2 found that round 1's own fix was wrong. Seeding an unset `frame-src`
+with `'self'` ignores the browser's fallback to `child-src` and then
+`default-src`, so naming a repository can block frames that used to load.
+Under the two-dirty-rounds rule, the PR is held, not given a third round. The
+ask is Operator decision 75: the worker's pick is to seed from the fallback
+chain and review once more. #1157 is unmerged; its CI `build` passed on `b2592187` at 15:01Z
+(it was still running at 14:56Z, when this entry was first drafted), and
+the fleet rollout has not started.
+
+## 2026-10-05 — The evening pass, researched and built, then held after two review rounds (#1162, held in Operator decisions)
 
 October is a book month: the operator touches the system twice a day, at the morning report and at ~17:30 PT. The day's own misses showed what the morning touch cannot see. #1143's worker held its PR and wrote the ask on that PR's branch, so `main` asked nothing for 13 hours. `claude/jolly-keller-9h8tzh` carried three docs commits and no PR. And every nightly was still pending at 12:00Z. This session researched how others run unattended agent days, then built the pick.
 
@@ -8348,7 +8385,7 @@ October is a book month: the operator touches the system twice a day, at the mor
 
 **Proved before trusted.** On today's state (14:44Z) it flags `claude/wizardly-brown-2ylvcv` as an ASK (open draft #1143) and `claude/jolly-keller-9h8tzh` as NEW and unprotected (no PR, last commit 13.2 h old). Both negative controls read `ok`: #1151's head (fully merged) and #1153's head, which is squash-merged, has two commits not on `main`, and edits Operator decisions. `--main-since 12:08Z` lists the 26 decision lines that #1152, #1153 and #1154 landed, and `--main-since now` lists 0. 14 mutations were named and run, and every one turned a test red. Three survived the first draft, and each exposed a hole that was then fixed. M1 survived because a redundant timestamp fallback covered merged PRs, so the fallback was removed. M9 (a closed, unmerged PR counted as cover) and M11 (`fresh` always true) survived for want of an e2e case, so both cases were added.
 
-**Also corrected on contact.** `pm-pass.md` said the morning Routine runs "every day". `list_triggers` shows `48 11 * * 1-4`, Monday to Thursday, in bare UTC, so it will fire at 03:48 PT from 11-02. Its stored prompt still asks for `list_sessions`, which a Routine lacks. The doc line is fixed. The Routine's own settings are the operator's (Operator decisions 76, with Friday). The evening cron writes its zone in (`CRON_TZ=America/Los_Angeles 18 17 * * 1-4`). This session could have created the Routine, since `create_trigger` was in its toolset, but the brief kept that for the operator, so the prompt is a paste. Seven branches with week-old unique commits and no PR exist today (`older` in the output). They are left alone, as other sessions' work, and listed by name once a night rather than asked about.
+**Also corrected on contact.** `pm-pass.md` said the morning Routine runs "every day". `list_triggers` shows `48 11 * * 1-4`, Monday to Thursday, in bare UTC, so it will fire at 03:48 PT from 11-02. Its stored prompt still asks for `list_sessions`, which a Routine lacks. The doc line is fixed. The Routine's own settings are the operator's (the Operator decisions item "The two Routines' schedules", with Friday). The evening cron writes its zone in (`CRON_TZ=America/Los_Angeles 18 17 * * 1-4`). This session could have created the Routine, since `create_trigger` was in its toolset, but the brief kept that for the operator, so the prompt is a paste. Seven branches with week-old unique commits and no PR exist today (`older` in the output). They are left alone, as other sessions' work, and listed by name once a night rather than asked about.
 
 Review round 1 found four real defects and three smaller ones. All seven were fixed, and each fix has its own mutation (M15–M21, all red).
 
@@ -8358,4 +8395,4 @@ Review round 1 found four real defects and three smaller ones. All seven were fi
 - **Ask pattern (major).** It was case-sensitive, and `main` already carries a `_pick:_`. A question with no marker, on a draft-PR branch, would have fallen through, so the doc now has the pass read those lines.
 - **Smaller.** `--main-since` failed silently when `main` had no earlier commit, and accepted zone-less times. The PR query did not encode the branch name. And no test added a line at the section's last line, where new items go.
 
-Review round 2 found a real major in round 1's own fix. That fix had made the merged PR's head the `git cherry` upstream, so a reused branch that later merged `main` back in read `main`'s incoming commits as its own: a scratch repo counted 2 where the truth is 0. The limit form, `git cherry origin/main <ref> <merged head>`, counts 0, and 1 after one real commit. It is fixed on the branch along with round 2's minor and three nits (M22–M25, all red), but not reviewed. By the two-dirty-rounds rule, #1162 is held as a draft, and the ask is Operator decisions 75. The worker's pick is to merge as it is: both rounds' defects were over-reporting or the date, and the pass never acts on what it flags. So the operator gets one decision, not zero, and the brief's "one paste and nothing else" waits on it. This entry, 75 and 76 land on `main` in their own docs-only PR, from the sibling branch `claude/great-johnson-mwzrbr-od74`. That follows the rule #1162 adds: an ask written only on its own PR's branch is #1143's miss again.
+Review round 2 found a real major in round 1's own fix. That fix had made the merged PR's head the `git cherry` upstream, so a reused branch that later merged `main` back in read `main`'s incoming commits as its own: a scratch repo counted 2 where the truth is 0. The limit form, `git cherry origin/main <ref> <merged head>`, counts 0, and 1 after one real commit. It is fixed on the branch along with round 2's minor and three nits (M22–M25, all red), but not reviewed. By the two-dirty-rounds rule, #1162 is held as a draft, and the ask is the Operator decisions item "#1162, the evening pass". The worker's pick is to merge as it is: both rounds' defects were over-reporting or the date, and the pass never acts on what it flags. So the operator gets one decision, not zero, and the brief's "one paste and nothing else" waits on it. This entry and both items land on `main` in their own docs-only PR, from the sibling branch `claude/great-johnson-mwzrbr-od74`. That follows the rule #1162 adds: an ask written only on its own PR's branch is #1143's miss again.
