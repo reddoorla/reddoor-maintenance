@@ -1372,6 +1372,11 @@ failed=0 total=15`.
     first-party analytics that needs no consent. _Pick:_ put (b) or (c) to
     counsel alongside item 45, since the same review answers both. Not legal
     advice; the law here was moving through 2025–26.
+    **Answered 2026-10-05 ~14:05Z: (a), keep D3.** No consent gate; GA4 loads
+    as designed, and the residual CIPA risk is accepted. Nothing that waited on
+    this item waits any more: the GA4 installs (items 49, roalson's launch)
+    still wait on the `/privacy` page only, which the `analytics-tag` recipe
+    now enforces.
 47. **williamson-homes#9 (Homes visual polish): which head to merge.** Two
     adversarial rounds, and round 2 still found a real defect, so it stopped
     under "two dirty rounds". Round 1 (major: steps flickered at hydration;
