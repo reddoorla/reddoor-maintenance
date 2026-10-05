@@ -2812,6 +2812,14 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
+- 2026-10-05 — "Just wait" leaves Watch (issue #1190). `markWaiting`
+  (`src/alerts/waiting.ts`) marks a vuln Renovate is still fixing as waiting:
+  a transitive-only one until two days after the first Monday lock-file
+  window that opens after it was first flagged, a direct one for seven days
+  or until auto-fix is exhausted. A waiting item stays on the site's own page
+  and leaves the cockpit's tiers, the Needs-you feed and the digest's asks;
+  the rule is under "Settled answers" in `docs/pm-pass.md`. ERP Industrials'
+  transitive-only vulns were the instance.
 - 2026-10-05 — P1-25, the Prismic toolbar under the shared CSP baseline
   (#1157, issue #1155). `BASELINE_CSP` admits `https://prismic.io/prismic-toolbar/`
   and the one html2canvas file in `script-src`; a new `prismicRepository`

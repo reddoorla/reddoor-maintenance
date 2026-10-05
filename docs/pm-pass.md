@@ -316,3 +316,14 @@ is written up as new evidence, never as the old ask.
   going to MatthewB@worthe.com.
 - **No Perplexity account** (2026-09-29). `PERPLEXITY_API_KEY` is not missing
   and is not an ask; it matters only if the audit is expanded to use it.
+- **"Just wait" is not an ask** (2026-10-05, verbatim: "anything where the
+  action is 'just wait' shouldn't be a watch item until it gets to a point where
+  it actually requires my intervention"). A signal that a scheduled job is
+  already fixing (Renovate's nightly dispatch, the Monday lock-file window, a
+  sweep that has not run yet, a draft waiting for the next run) is not listed
+  in the morning report, "Operator decisions" or a question until its own
+  threshold says the wait has failed. The cockpit and digest enforce this in
+  code (`src/alerts/waiting.ts`, #1190): a waiting item shows only on the
+  site's `/s/<slug>` page. If the cockpit's Needs-you feed does not list it,
+  neither does the PM pass. A deadline the operator owns (a report due date,
+  an expiring credential) is never a waiting item.
