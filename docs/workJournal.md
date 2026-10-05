@@ -8759,3 +8759,19 @@ from HEAD over uncommitted work. Kill by a PID captured first. And the
 parity check needs fonts: the container has no Impact and no Helvetica, and
 every earlier evidence shot set headings in a default serif until Impact
 (Microsoft corefonts) and Nimbus Sans were installed.
+
+## 2026-10-05 — The backup's restore rehearsal never compared blob contents; #1195 makes it, held at Operator decisions 86
+
+The refute-claims critic asked whether `fleet-db-backup`'s `mismatches=0` covers blob contents, since `blob_bytes=11437644` held from 10-02 to 10-05 while the row counts moved. Reading `verify-dump` answered the first half: it compared per-table row counts and one number, `SUM(LENGTH(sites.header_image))`. A blob whose bytes change and whose length does not is invisible to both. The negative control proved it on a real production dump of 51 MB, 11 tables and 1111 rows. One hex digit flipped inside a header image left exactly one byte different and the same length, and `main` printed `DUMP_VERIFY loaded=true tables=11 rows=1111 blob_bytes=11433275 mismatches=0` and exited 0.
+
+The constant number was nevertheless real, and a different authority showed it. `typeof()` over every column of every table finds blobs only in `sites.header_image` (17 rows). The newest `header_image_generated_at` before the 10-05 run was sonder's, at 09-30 21:02Z. The run logs agree. The 09-30 run (10:39Z, before sonder's write) printed 11146577, and the 10-01 run printed 11437644, a jump of 291067. Today's five regenerations at 18:37Z moved it again, to 11433275. The number tracks writes; there were simply none in those four days.
+
+Every Turso read went through a client-side guard that accepts one statement beginning `SELECT`. Its refusal was proven on a local file DB first, against INSERT, UPDATE, DELETE, `SELECT 1; DELETE` and `WITH … DELETE`, and then against production. libSQL's `transaction("read")` was not a usable second layer: on a local file it ran an INSERT without complaint (the transaction was never committed, so nothing persisted).
+
+#1195 puts a sha256 per table in the manifest. It hashes the column names and every cell in rowid order, using the driver's values, before they become SQL text, with a typed, length-prefixed encoding per cell. `verify-dump` hashes the restored tables the same way, and the corrupt dump now reports `✗ sites: content hash`. A fresh production dump verifies clean, at `hashed=11`.
+
+The control first went red on two tables, `sites` and `submissions`, and the second was the instrument's fault. Python's text-mode `read()` had turned every `\r\n` in 18 spam messages into `\n`. Redone in binary mode, one byte differed and one table went red. The side result is that the hash also catches a line-ending rewrite, which counts could not.
+
+Review round 1 found that SQLite's text-to-double parse misreads about one shortest-form double in ten thousand by one ULP: 0.3118957494450251 loads as 0.31189574944502513. That predates this change. It was a quiet fidelity loss in the backup, and the hash would have turned it into a permanent nightly red. Writing fractional REALs with `toPrecision(17)` fixed it. Round 2 found that integer-valued doubles of 2^63 or more take the same parse path (59 misreads in 300k at 1e16–1e305). The bound is fixed on the branch, but the fix is unreviewed. Neither path is reachable today, because every REAL the fleet writes is rounded or an integer sum. The two-dirty-rounds rule still holds the PR, so it waits on Operator decisions 86, and the worker's pick is to land it as it is.
+
+Seven mutations, each red: hashes never compared, blob bytes unhashed, text bytes unhashed, absent hashes tolerated, manifest written without hashes, REALs back to `String`, and the 2^63 bound dropped. Adding two comment lines to the workflow shifted `continuity.md`'s citation of `overages: false` from line 176 to 178, and `runbook-anchors` caught it.
