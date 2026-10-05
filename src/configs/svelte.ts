@@ -171,14 +171,15 @@ function withAnalytics(directives: CspDirectives): CspDirectives {
 /**
  * A Prismic repository name is written verbatim into `frame-src`, so anything
  * beyond letters, digits and hyphens (a `;`, a space, a `*`) could widen or
- * inject a directive. Same rule as the starter's svelte.config.js.
+ * inject a directive. Same rule as the starter's svelte.config.js, narrowed to
+ * one DNS label: at most 63 characters, no hyphen at either end.
  */
-const PRISMIC_REPOSITORY_NAME = /^[a-z0-9][a-z0-9-]*$/i;
+const PRISMIC_REPOSITORY_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 
 function prismicFrameHost(repository: unknown): string {
   if (typeof repository !== "string" || !PRISMIC_REPOSITORY_NAME.test(repository)) {
     throw new Error(
-      `prismicRepository ${JSON.stringify(repository)} is not a Prismic repository name; ` +
+      `prismicRepository ${typeof repository === "string" ? JSON.stringify(repository) : `(a ${typeof repository})`} is not a Prismic repository name; ` +
         "it is written into the CSP frame-src, so it must be letters, digits and hyphens only.",
     );
   }
@@ -188,14 +189,24 @@ function prismicFrameHost(repository: unknown): string {
 /**
  * Append the repository's toolbar host to `frame-src`, after the merge for the
  * same reason as {@link withAnalytics}: a site that overrides `frame-src` keeps
- * exactly its own list plus this one host. A string directive is left alone. A
- * site that unset `frame-src` (so frames fell back to `default-src`) gets
- * `'self'` with the host, not the host alone, so same-origin frames still load.
+ * exactly its own list plus this one host. A string directive is left alone.
+ *
+ * A site that unset `frame-src` has its frames governed by `child-src`, then
+ * `default-src`, as a browser reads it. The new `frame-src` is seeded from that
+ * directive so every frame it allowed still loads; `'none'` is dropped, since
+ * beside a host it would mean nothing. With no fallback at all, frames are
+ * already unrestricted, and with a string fallback there is no list to extend:
+ * either way `frame-src` stays unset.
  */
 function withPrismicFrame(directives: CspDirectives, host: string): CspDirectives {
   const existing = directives["frame-src"];
   if (existing !== undefined && !Array.isArray(existing)) return directives;
-  const list = existing ?? ["self"];
+  let list = existing;
+  if (list === undefined) {
+    const fallback = directives["child-src"] ?? directives["default-src"];
+    if (!Array.isArray(fallback)) return directives;
+    list = fallback.filter((source) => source !== "none");
+  }
   return { ...directives, "frame-src": list.includes(host) ? list : [...list, host] };
 }
 

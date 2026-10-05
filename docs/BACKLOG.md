@@ -2400,7 +2400,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
     permission change that outlives this one task.
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
-    #1155): held after two dirty review rounds (new 2026-10-05).** The
+    #1155): held after two dirty review rounds (new 2026-10-05).** **Answered
+    2026-10-05 by the operator: (a).** Built on #1157 (round 3); kept below
+    as asked. The
     branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
     It adds `https://prismic.io/prismic-toolbar/` and the one html2canvas
     file to `BASELINE_CSP`'s `script-src` (no `unsafe-eval`, no `blob:`), and
