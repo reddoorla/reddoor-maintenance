@@ -226,6 +226,16 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       Operator decisions 71. The real-submission trace into Turso needs a
       human-minted Turnstile token, because a `testMode` probe persists
       nothing. Then P5.
+    - **10-05 ~02:43Z: P4b landed** as mantis-landscaping#18 (`9ea17a1`).
+      The newsletter signup on `/contact-us` posts `formType: "newsletter"`
+      to central ingest: the row is stored, notified through Resend, and
+      counted in the digest. No Mailchimp (OD 71, answered). Round 1 caught
+      lost UTMs, a lost first confirmation, and pre-deploy tabs answered
+      with 404. Round 2 caught a lowercase `%2f` action key. The operator
+      chose to fix that and land on green CI rather than run a third round.
+      Live: both forms render with the visitor's query in their actions,
+      and form-e2e passes. **Next:** P5. The real-submission trace still
+      waits on 71's human submit.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -2257,6 +2267,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     _Ask:_ submit the live `/contact-us` once from an ordinary browser, as
     the operator. The worker then traces the row in Turso and the
     notification.
+    - **10-05: Mailchimp half answered.** The client does not use
+      Mailchimp, and signups go through our Resend notify and the digest.
+      Central ingest already did that for any `newsletter` row, so no
+      credential was needed. Landed as mantis-landscaping#18. The human
+      submit is still open.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
