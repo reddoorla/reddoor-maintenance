@@ -31,17 +31,17 @@ function quoteIdent(name: string): string {
 
 export function sqlLiteral(v: unknown): string {
   if (v === null || v === undefined) return "NULL";
-  // A fractional REAL goes out with 17 significant digits, not JS's shortest
-  // round-trip form: SQLite's own text-to-double parse misreads about one
-  // shortest-form value in ten thousand by one ULP (0.3118957494450251 loads
-  // back as 0.31189574944502513), so the restored row differed from the origin
-  // and the per-table content hash reddened on it. Integers below 2^63 keep
-  // `String`, so an INTEGER cell never gains a decimal point; at 2^63 and
-  // above SQLite cannot read the digits as an int64 and falls back to that
-  // same float parse (1.576466077749328e298 came back one ULP off).
+  // Any number that is not a safe integer goes out in exponent form with 17
+  // significant digits, not JS's shortest round-trip form. SQLite's own
+  // text-to-double parse misreads about one shortest-form value in ten
+  // thousand by one ULP (0.3118957494450251 loads back as 0.31189574944502513),
+  // and past 2^53 the shortest form is not the double's digits at all
+  // (String(2 ** 60) is "1152921504606847000", which SQLite reads as an int64
+  // 24 away). The exponent keeps the cell a REAL. Safe integers keep `String`,
+  // so an INTEGER cell never gains a decimal point.
   if (typeof v === "number") {
     if (!Number.isFinite(v)) return "NULL";
-    return Number.isInteger(v) && Math.abs(v) < 2 ** 63 ? String(v) : v.toPrecision(17);
+    return Number.isSafeInteger(v) ? String(v) : v.toExponential(16);
   }
   if (typeof v === "bigint") return v.toString();
   if (v instanceof Uint8Array || v instanceof ArrayBuffer) {

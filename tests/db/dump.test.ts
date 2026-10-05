@@ -111,6 +111,21 @@ describe("db/dump", () => {
     expect(back).toEqual(values);
   });
 
+  it("restores a whole-number REAL past 2^53 in an untyped column as the same double", async () => {
+    const client = await seeded();
+    await client.execute("CREATE TABLE loose (x)");
+    const values = [2 ** 60, 287954582613673664, 89508622084877072, -(2 ** 63)];
+    for (const v of values) {
+      await client.execute({ sql: "INSERT INTO loose VALUES (CAST(? AS REAL))", args: [v] });
+    }
+    const sql = await dumpDatabase(wrap(client), "2026-08-26T00:00:00.000Z");
+    const restored = createClient({ url: ":memory:" });
+    await restored.executeMultiple(sql);
+    const back = await restored.execute("SELECT x, typeof(x) AS t FROM loose ORDER BY rowid");
+    expect(back.rows.map((r) => r.x)).toEqual(values);
+    expect(back.rows.map((r) => r.t)).toEqual(["real", "real", "real", "real"]);
+  });
+
   it("escapes literals correctly, and round-trips a NUL byte", () => {
     expect(sqlLiteral(null)).toBe("NULL");
     expect(sqlLiteral(5)).toBe("5");
