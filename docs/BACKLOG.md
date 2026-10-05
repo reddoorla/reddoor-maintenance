@@ -2576,6 +2576,25 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
 
     **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
 
+80. **CalTex on Prismic slices: merge `staging` into `main` (new 2026-10-05,
+    operator's ask the same evening).** The site now renders every page from
+    slices on caltex-landing's `staging` branch
+    ([caltex-landing#74](https://github.com/reddoorla/caltex-landing/pull/74)).
+    The models went to `main` in caltex-landing#73, inert, because
+    `prismic-models` pushes only from `main`. The content is published as
+    release `asQvEBIAAHEPgEox`, and the live site was unchanged by it,
+    measured before and after. `staging` against live `main`: 14 screenshots
+    (five pages at 1440 and 390, plus the open nav) are pixel-identical, and
+    text, images and alt text, links, ids, titles, meta and nav hrefs match.
+    The sitemap lists the same five URLs, adding `lastmod`. That comparison
+    is a clean build of `staging` at `23763ef`: Netlify deploys neither the
+    `staging` branch nor previews for PRs into it, so there is no hosted
+    staging URL to look at. _Ask:_ merge
+    `staging` into `main` when you want editors working in slices; it is the
+    production deploy. _Worker's pick:_ merge it as is. After the merge, the
+    old `home` fields `s1`–`s8` are unrendered; deleting them is a manual
+    model edit in Prismic, optional and not urgent.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
