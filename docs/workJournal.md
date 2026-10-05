@@ -8305,6 +8305,8 @@ checkout would have misread it.
 
 ## 2026-10-05 — The Instagram post-kit proposal for Tim exists (`docs/proposals/2026-10-05-instagram-post-kit.md`)
 
+> Superseded in part by 2026-10-05 — The post-kit PDF exists after all: `rd-md-pdf` is `reddoorla/reddoor-md-pdf`.
+
 The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
 
 ## 2026-10-05 — Data Dynamiq: DRAFT `/privacy` and GA4 built, green, held for item 45 (data-dynamiq#59, #1160)
@@ -8418,6 +8420,8 @@ The operator picked (a) at ~18:23Z: merge #1162 without a third review round, ro
 At about 18:45Z the operator answered all seven open decisions in one message: 72 (b), 73 yes, 74 (a), 75 (a), 76 (a), 77 Monday to Thursday, and 78 "run it". #1162, the evening pass, was already merged at 18:38Z (`2849ba4d`); the operator merged it while `land-prs` was gating it, as that worker's entry below records, and this session's `land-prs` run reported the same merge. It also tried to land data-dynamiq#59, the DRAFT `/privacy` page with GA4, but the cloud session's permission policy refused that merge as a production deploy to a live client site. The refusal was correct on its own terms: merging that PR deploys to a live client site. The operator's yes stands, and the click is theirs. Worker cards are queued for 72, 75 and 78 (78 runs on the laptop only, because the matching skill lives there), plus the CalTex copy-and-photo asks Erik posted in #caltex at 18:29Z. No worker card is queued for 74, which the operator does by hand.
 
 ## 2026-10-05 — P1-25 round 3: the fallback seed landed, the review is dirty again (#1157, Operator decision 75)
+
+> Superseded in part by 2026-10-05 — P1-25 round 4: SvelteKit refuses what round 3 called "unset".
 
 The operator answered decision 75 with (a), in this session as well as in
 #1167. `51e56b1a` now seeds an unset
@@ -8556,7 +8560,157 @@ queued for 15 minutes and was cancelled with zero steps (`build` on #1175,
 is a GitHub runner-queue failure, not a test result, and the job metadata
 (`runner_name` empty, `steps` empty) is how to tell the two apart.
 
-## 2026-10-05 — CalTex moved onto Prismic slices, held on `staging` (caltex-landing#73, #74, Operator decision 80)
+## 2026-10-05 — P1-25 round 4: SvelteKit refuses what round 3 called "unset" (#1157, Operator decision 75)
+
+The operator answered (a) again, and `d5d1b1d7` built what round 3 asked
+for. It treats `null`, `false` and `""` as unset at each step of
+`frame-src`, `child-src`, `default-src`. It stops at a string, and drops
+`'none'` on every path. 69 tests pass, and 18 mutations all go red.
+
+Round 4 corrected round 3's belief, and my journal entry above repeats that
+belief. Round 3 fed the config straight into SvelteKit's `Csp` class and read
+`get_header`'s `if (!value) continue`. But a real build reaches `Csp` only
+after `validate_config`, and its `string_array` check
+(`options.js:445-452`) throws "must be an array of strings, if specified" on
+`null`, `false`, `""` or a string. So those values never reach the browser:
+SvelteKit refuses them. The new handling is harmless to the policy. Round 4
+ran every input through both stages, and each emitted header was right. But
+it rests on an unreachable state, and it hides a site's error when a
+repository is named. That is now the ask under decision 75: the worker's
+pick is to go back to "missing key only", and land.
+
+The lesson extends the round-3 one. "Unset" means whatever the consumer
+treats as unset, and the consumer is the whole pipeline, not the last class
+in it. Round 3 ran a negative control against one stage and called it the
+system. The read that corrected it came from a different authority: the
+validator, which round 3 skipped.
+
+## 2026-10-05 — The post-kit PDF exists after all: `rd-md-pdf` is `reddoorla/reddoor-md-pdf`
+
+This corrects the entry above, which said `rd-md-pdf` was not on a cloud container and that no PDF was made. The tool is the public repo `reddoorla/reddoor-md-pdf`. My search was for the literal string `rd-md-pdf`, and `reddoor-md-pdf` does not contain it. `docs/meta-week/_research/inv-04-site-fleet-composition.md` already lists it as the "md→pdf tool", so one read of the org's repo list (`list_repos` with `pdf`) would have found it. The operator pointed it out.
+
+From a cloud session the tool works without its hosted app. Clone it, run `pnpm install`, then call `md-to-pdf` with the repo's `src/lib/server/pdf-config.ts` (Node 24 strips the types) and `CHROME_PATH` as the executable. Pass `--proxy-server=$HTTPS_PROXY`, or Chromium cannot fetch the Typekit and Google fonts. With the proxy set, `pdffonts` shows PragmaticaWeb and Besley embedded.
+
+The PDF is four pages, not the brief's two at most: at that config's 14px body and 0.85in margins, the text alone fills three. The PDF copy differs from the committed Markdown in three ways:
+
+- it shows the three feed crops inline;
+- its image table drops the file-name column;
+- it adds `break-inside: avoid` on the caption, because the first render left the "Caption" label stranded at the foot of page 1.
+
+The first version also proposed a weekly kit on a schedule, emailed every Monday. That followed the brief, not the operator, who had said on 10-02 that "the impetus should come from a person." The operator caught it in the PDF. Now a person starts each kit with a project and a one-line seed (why this one, why now), and nothing runs on a timer. The only schedule left is the separate reminder digest, which Tim asked for himself.
+
+## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72, #1173)
+
+The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.
+
+**The two fixes (`f765c982`).** `declined` had been keyed on the head commit. The branch is rebuilt with the default branch's head as a parent, so any commit to `main` made a new commit, and the decline was forgotten. It is now keyed on a sha256 over the written model files and their paths. The hash is read after the model writes and before the site's prettier runs. The fleet's writes run with no spawner, so the bytes are `JSON.stringify(model, null, 2)` and a formatter bump does not move the key. The key rides in the PR body as an HTML comment. Content-keying turned one of round 2's minors into a real path: the bot's own close of a PR would later read as a human's decline of that same content. So `closePr` now strips the key from the body before it closes the PR. For "Update branch", a commit that is not the bot's is still accepted if it is a two-parent merge whose second parent is on the default branch and whose tree equals `git merge-tree --write-tree` of its parents. A merge that resolved a conflict by hand, or folded an edit in, still holds.
+
+**Mutations.** Six of seven went red. M34 (the second parent need not be on `main`) survived. Anything a non-default second parent brings in falls in `baseHead..prismic-sync` and is judged on its own author, so the check is a second layer. One instrument failure belongs here: M31's first run used a sed whose escaping did not match, so the file was never mutated and the run "passed". The rerun first checked the file against the original, and went red in two tests.
+
+**Round 3 was dirty, and the blocker is the one the split would have removed.** Security found that `siteProcessEnv` strips only the CHILD's environment. The site's own prettier and `prismic` CLI run as the same Linux user as the node process that holds the token, so `/proc/$PPID/environ` returns the App token and every client's Prismic token. Same-user access to `/proc/<pid>/environ` needs only the ptrace read check, and Yama does not apply to it. A process left running by an install can also read later git commands' auth header from `/proc/<pid>/cmdline`. It can also rewrite a later clone's `.git/config` after the fingerprint check. Round 2's `GIT_CONFIG_GLOBAL` fix and the fingerprint close neither route. A major also turned up: the stray-file check compares against `HEAD`, which site code can move. The other lenses found three more majors: "Update with rebase" holds the site forever; `held` is green and silent; and the App token may lack `workflows`, which a rebuild would need when `main` has a newer workflow file. That last one is unproven and needs a live push. The new ask is under item 72, and the pick is the split (a) the round-2 worker first proposed. Under the two-dirty-rounds rule, and the operator's one authorised re-review, there was no fourth round.
+
+**Belief corrected.** The round-2 framing was "two blockers, both fixed, one residual risk". In fact the environment-stripping that rounds 1 and 2 relied on never isolated anything from a same-user child. Each round closed the route it was shown, and the class stayed open.
+
+**What the review cost.** The security reviewer's demonstration printed this container's real `PRISMIC_WRITE_TOKEN` (the-pointe-burbank) into its own transcript. Its first probe also created a local user `probeu`, whose removal the permission policy refused. Both are written into item 72 for the operator. Rotation is 🔴, and the user dies with the container. Next time, a reviewer brief should forbid printing environment values and creating users.
+
+**Landing the ask was harder than the review.** The docs PR carrying item 72 and this entry (#1173) lost six `land-prs` attempts. Two runs died first on "The job was not acquired by Runner of type hosted", which a re-run fixed. Each later attempt reached green and then found `main` `DIRTY`. Between 19:51Z and 21:42Z, other sessions landed a journal append on `main` roughly every 10 minutes (#1172, #1170, #1176, decision 79's two, decision 75's round 4, the post kit), against CI's roughly 15. Each append conflicts with any other entry added at the end of the file. The way out was to split the PR: the item-72 line went alone (no one else edits that region), and this entry went separately. While several sessions are active, a docs PR whose purpose is to land an ask should carry the BACKLOG line on its own.
+
+## 2026-10-05 — Data Dynamiq's GA4 tag is live and the property receives it (data-dynamiq#59)
+
+The operator merged data-dynamiq#59 at about 21:02Z, after answering Operator decisions 73 "yes, before item 45". A cloud session cannot merge it: the permission policy refuses a client-site merge as a production deploy. `/privacy` went from 404 to 200 on `www.datadynamiq.com` within a minute. Measured in order: GA4 Realtime on 556916505 returned 0 rows. Then one real browser visit loaded `gtag/js?id=G-V11LZYNMY2` and sent a `g/collect` beacon, with `dataLayer` holding 4 entries. Realtime then read 1 user and 3 events at `minutesAgo 00` (21:04:37Z). The empty read before the visit is the negative control. The one user is the verification visit itself, from a cloud IP, so organic traffic is still unmeasured at the time of writing. That is the cost of proving the tag end to end, and it will sit in the property's first day. Vimeo's `player.js` is no longer on the live page.
+
+## 2026-10-05 — 1836dig and 29 Navy: the same page and tag, and a recipe bug the starter's own tests set off (#1178, 1836dig#24, 29-navy#73)
+
+The operator extended Operator decisions 73 to the other two maintained sites that had a GA4 stream and no tag. Both ports followed Data Dynamiq's, and both differed from it in the same way: each has a real `kit.csp`, and `analytics-tag` refuses to edit SvelteKit's own option. It extends only `createSvelteConfig`'s `csp` and says so, then prints the hosts. So on both, the gate spec was written first and was red, because the CSP refused the loader the hook injects. It went green once `ANALYTICS_CSP`'s hosts were added by hand. That is the silent failure the recipe's CSP note exists to prevent, and here it was caught by a test rather than by a property that never filled.
+
+**The recipe bug.** On 29 Navy, the released recipe refused with "src/lib/privacy/services.test.ts already calls initAnalytics with an ID this recipe cannot read". The starter ships that test file inside `src/`, and its fixtures call `initAnalytics`. Data Dynamiq and 1836dig ported the tests to `tests/`, which is why neither hit it. Every starter-derived site would have. The shared `src/` walk now skips `*.test.*`, `*.spec.*` and `*.d.ts`. That also corrects the analytics audit, which shares the walk and would have read the fixture as a tag. One test was red before the fix; a control proves the same call in a shipped file still refuses.
+
+**Site-specific calls.** 29 Navy has no footer by design and no form. Its link is a row in the contact block, which costs one 28px line box below 991px and nothing at 1440. That is recorded in its `matching/LEDGER.md` as a deviation, with the measurements. 1836dig's form sits below the fold at 1280×800, so the Data Dynamiq test "the notice is in view without scrolling" was the wrong claim there, and its test asserts adjacency to the button instead. A harness bug showed up only on 29 Navy, which loads far more assets: a request still proxied at teardown threw "Fetch response has been disposed". Both sites' gate specs now unroute after each test.
+
+**Measured on 1836dig#24's deploy preview** (built output, real browser): `/privacy` answers 200, and the CSP header carries the GA hosts in `script-src`, `img-src` and `connect-src`. `/` and `/privacy` make no gtag request and define no `dataLayer`, and a hand-injected gtag request was caught by the same recorder. The merges are the operator's click. A live hit is read after each.
+
+## 2026-10-05 — P1-27: the audits retry their server on a fresh port when the one they picked was taken (#1164, `9d9a11d`)
+
+This came from the morning report's brief. `findFreePort` binds :0, releases the port, and hands the number to a server that binds it later under `--strictPort`. On 09-30, #1066's `build` failed seven a11y-live-spec tests with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in docs. The verify step held: at 14:28Z, `grep EADDRINUSE` over free-port, a11y, lighthouse and smoke matched nothing. Issue #1156 was opened and claimed. No fresh branch touched these files.
+
+**What changed.** A new helper, `src/util/port-retry.ts`, now drives the server spawn in all three audits.
+
+- It runs the server up to three times, on freshly picked ports each time.
+- It retries only when the server's own output names one of the audit's ports as taken.
+- Any other outcome, success or failure, returns at once.
+- `--strictPort` is untouched.
+
+**The stop condition did not fire.** The brief's stop condition was "the collision cannot be told apart from other failures without parsing localized output". All three signals are fixed strings, read from the installed sources:
+
+- Node's `EADDRINUSE` errno name.
+- vite 8.2.0's `Port ${port} is already in use` (`chunks/node.js:11627`).
+- Playwright 1.62.1's `… is already used, make sure that nothing is running on the port` (`runner/index.js:851`). This is the case where something answers HTTP on the port before the webServer starts.
+
+These signals reach the audit's output by two routes. Playwright forwards webServer stderr. lhci attaches the server's stdout and stderr to its `Command exited with code N` error and prints them (`cli.js:134-137`).
+
+The match is anchored to the audit's own port. vite also prints `WebSocket server error: Port 24678 is already in use` for its HMR port. That is the site's failure, and a fresh audit port would not cure it.
+
+**Smaller changes.**
+
+- a11y needed two ports when the smoke runs on dev. `findFreePorts(n)` replaces `allocateDistinctPort`.
+- Each attempt rewrites the spec and config and clears the results directory, so an earlier attempt's artifact cannot be read as a later one's.
+- The ENOENT catch in a11y is now narrowed to the spawn. Wrapping the whole attempt would have turned a writeFile ENOENT into "npx/playwright not available".
+
+**The instrument lied first, and the shape is worth naming.** The first mutation loop reverted each mutation with `git checkout -q -- src` over uncommitted work.
+
+- That left the new untracked `port-retry.ts` alone, so mutation 1 stacked under 2, 3 and 4.
+- It also reverted the tracked audit edits to `main`, so all four "mutations" ran against unpatched audits.
+- All four produced the same six red tests. Identical results from four different mutations were the tell.
+
+The rerun used committed work and reverted with `checkout HEAD`. Mutation 4 (unlimited tries) then hung `withPortRetry`'s own test instead of failing it: an infinite loop of resolved promises starves Vitest's timer. The test now throws past ten runs.
+
+**Final mutation result.**
+
+| Mutation             | Red tests |
+| -------------------- | --------- |
+| Retry removed        | 6         |
+| Retry on every error | 4         |
+| Same port            | 6         |
+| Unlimited tries      | 2         |
+
+**Review and landing.**
+
+- One adversarial pass found no blocker or major. Its minor findings are recorded in the PR and left as they are:
+  - A collision in a11y is found only after `npm run build`, so a retry repeats the build.
+  - After three collisions the summary does not say that retries happened.
+  - The live test proves only Node's string. The vite and Playwright strings were checked against their source.
+- Full suite before push: 8567 passed, 5 skipped.
+- Landed with `land-prs.mjs`, which ran update-branch to `644b8cc`, waited for green, and squashed.
+
+**Landing the journal.** After the merge, `claude/focused-davinci-yhbv0g` was restarted from `main`. Pushing this entry there needed a force-push over the merged PR's commits, and the session's permission classifier refused it. At the operator's word, the entry went to a fresh branch, `claude/p1-27-journal`, as its own docs-only PR.
+
+## 2026-10-05 — [TEST] sends of the five ready October Maintenance reports
+
+The operator asked to see test emails for the reports ready to approve. There were five unsent, unwithdrawn, `draft_ready` drafts: Data Dynamiq, Espada, LA Homelessness Initiative, Revogen and Vineyard Custom Homes (Maintenance, 2026-10). `selftest email` was the wrong instrument, because it rebuilds from the roster with today's data. A one-off script in the session scratchpad, not committed, instead ran each draft through `renderReportFromRow`, the same assembly the real send uses: the stored row, the Turso header plate, the inline attachment and the subject. It sent the result to `operatorEmail()` alone (the fallback `tucker@reddoorla.com`; `OPERATOR_EMAIL` is unset in the cloud environment), with `[TEST] ` prefixed to the subject and no CC. All five passed the health gate. Resend returned five message IDs, and Gmail shows all five in the operator's inbox at 22:47Z. Database access was SELECT only, and nothing was stamped. Data Dynamiq's and LAHI's GA user counts are 0. Data Dynamiq's draft predates today's tag, which went live at 21:03Z, and GA does not backfill. The rows are in the clean-send table as `awaiting`.
+
+Process slip, recorded so it is not repeated: this session ran `git checkout origin/main -- .` in the main checkout rather than its worktree, which staged origin/main's files over the main checkout's older HEAD. The main checkout had been clean, so it was restored exactly: the 7 added files were removed and the 17 modified files were restored to HEAD, giving a clean `git status`. Nothing was committed from it.
+
+## 2026-10-05 — P1-25 lands: only a missing key is unset (#1157, Operator decision 75 done)
+
+The operator answered round 4 with (a). The fold in `withPrismicFrame` now
+takes the first of `frame-src`, `child-src` and `default-src` that the site
+defines. It extends that entry if it is an array, and leaves anything else
+as written. So `frame-src: null` with a repository now fails the build the
+same way it does without one. That is SvelteKit's `string_array` check
+doing the refusing, not this config. New tests pin that `[]` is a
+definition and not unset (round 4's surviving mutant). They also pin that
+the seed never aliases `default-src` (its nit). 73 tests pass, and all 19
+mutations go red. Those are the brief's four, every survivor from rounds 1
+to 4, and a mutant that puts back `d78d2d80`'s falsy-as-unset rule.
+
+Accounting for the arc: four review rounds. Two of them found defects that
+my own previous fix had introduced. The round-3 one also rested on a
+premise that only a second authority could refute. The code that landed is
+round 3's reviewed shape plus tests. The fleet rollout, where each site
+passes `prismicRepository`, is still per-repo PRs, and none of them has been
+opened.
+
+## 2026-10-05 — CalTex moved onto Prismic slices, held on `staging` (caltex-landing#73, #74, Operator decision 85)
 
 The operator asked for the hand-built CalTex site to become a slice-based
 Prismic site, with the work on a `staging` branch instead of `main`, and the
@@ -8585,7 +8739,7 @@ screenshots, with the same text, images, links, ids, metadata and nav
 hrefs, and the same sitemap URLs. Netlify deploys neither the `staging`
 branch nor previews for PRs into it. The `deploy-preview-74` link the bot
 posted returns 404, so the final comparison is a clean worktree build of
-`origin/staging`. Merging `staging` to `main` is Operator decision 80.
+`origin/staging`. Merging `staging` to `main` is Operator decision 85.
 
 Two process notes. `pkill -f <pattern>` run from the same Bash call matches
 its own command line and kills the shell; that ended a step twice. Once it

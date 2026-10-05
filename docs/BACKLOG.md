@@ -155,10 +155,9 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                       | Done when                                                                                                          |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164 | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                  | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                         | Tier | Effort | Start here                                                      | Done when                                                                  |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57 | Starter PR and central recipe PR landed; the recipe's test pins the marker |
 
 ### Blocked behind another PR (do not start early)
 
@@ -1460,6 +1459,28 @@ analytics"]`). The operator creates properties for the other three. When the
     is item 73. The site collects nothing until it merges, and GA does not
     backfill, so the 10-05 report's analytics section stays empty either way.
     1836dig and 29 Navy are not started.
+    **Live 2026-10-05 [M]:** the operator merged data-dynamiq#59 at ~21:02Z,
+    and `/privacy` answered 200 on `www.datadynamiq.com` at 21:03Z. One real
+    browser visit loaded `gtag/js?id=G-V11LZYNMY2` and sent `g/collect`.
+    GA4 Realtime on property 556916505 read 0 rows before that visit and
+    `minutesAgo 00: 1 user, 3 events` at 21:04:37Z. That user is the
+    verification visit from a cloud IP, not organic traffic. Data Dynamiq is
+    done; 1836dig and 29 Navy still wait, on the same question.
+    **1836dig and 29 Navy, 2026-10-05: built, green, cleared to merge.** The
+    operator extended 73's "yes, before item 45" to both. reddoorla/1836dig#24
+    (`G-1ZYB95TKC1` on `1836dig.com`) and reddoorla/29-navy#73 (`G-MSYB9MQGRV`
+    on `29navy.com`) carry the page, the tag and, unlike Data Dynamiq, GA's
+    hosts added by hand to SvelteKit's own `kit.csp`, which the recipe does
+    not edit. 29 Navy has neither a footer nor a form, so its link is a row in
+    the contact block (cost measured in that repo's `matching/LEDGER.md`).
+    29 Navy's install first hit a recipe bug, fixed in #1178: the `src/` scan
+    read the starter's `services.test.ts` as an existing tag. Both merges are
+    the operator's click, like Data Dynamiq's; a live hit is read after each.
+    Review found one gap for item 45, in the template rather than either port:
+    the policy names no image CDN, yet a Prismic site's pages load
+    `images.prismic.io` (about 99 URLs on 29 Navy's home), so Prismic/imgix
+    receives every visitor's IP. The same holds on every Prismic site in the
+    fleet.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
@@ -2356,6 +2377,52 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
     **Answered 2026-10-05 ~18:45Z: (b)** — keep one job, fix the two correctness majors, and run a third review round on #1143 as it is. A worker session is queued for it.
+    - **10-05 ~20:00Z: round 3 is dirty; #1143 is still a draft and
+      unmerged.** Branch `claude/wizardly-brown-2ylvcv`, head `f765c982`:
+      `origin/main` merged in (`68382a43`), then both round-2 majors fixed.
+      `declined` is now keyed on a sha256 of the written model files, which
+      the PR body carries. The sync strips that key before closing a PR
+      itself. A clean "Update branch" merge of `main` counts as the bot's.
+      Mutations 28–33 go red; M34 survives as a second layer. Round 3
+      (security, correctness, operations) found:
+      - **Blocker (security):** the site's own prettier and `prismic` CLI
+        run as the same user as the CLI, so they can read
+        `/proc/$PPID/environ`: the App token and every `PRISMIC_TOKEN_*`.
+        `siteProcessEnv` strips only the child's environment. The reviewer
+        demonstrated the read in this container. Also, a process left
+        running by a site's install can read later git commands' auth
+        header from `/proc/<pid>/cmdline`, or rewrite a later clone's
+        `.git/config` between the fingerprint check and the push.
+      - **Major (security):** site code can move `HEAD`/the index, so a
+        commit carrying its own files passes the stray-file check (which
+        is checked against HEAD) and is pushed. _Fix:_ diff against
+        `baseHead`.
+      - **Major (correctness):** "Update with rebase" still holds the site
+        forever.
+      - **Major (operations):** `held` is green with no warning. A human
+        commit on a branch that survives a squash merge parks the site
+        silently.
+      - **Likely major (operations; needs a live check):** the App token
+        has no `workflows` permission. A rebuild whose new parent
+        `baseHead` carries a newer `.github/workflows/*` may be refused.
+      - **Minors:** a declined site still pushes a new commit every night;
+        a decline never expires; the key is not canonical; only 30 closed
+        PRs are read.
+      - _Ask:_ (a) split the workflow as first proposed: a job with no
+        token runs install, format and codegen and uploads a patch; a job
+        with the token runs no site code. Then fix the three majors and
+        review once. Or (b) keep one job, but run all site code as a
+        separate unprivileged user, fix the majors, and review once. _Pick:_
+        (a). The blocker is the class round 2's pick predicted, and a
+        third patch inside one job would leave `/proc` and leftover
+        processes as the next route. Under a split, no site process ever
+        shares a job with the token.
+      - **For the operator, outside #1143:** the security reviewer's demo
+        printed this cloud container's real `PRISMIC_WRITE_TOKEN`
+        (the-pointe-burbank) into its own transcript, which stays in this
+        session. Whether to rotate it is yours (🔴). Its first probe also
+        created a local user `probeu` in the container. Removing it was
+        refused, and it dies with the container.
 
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
@@ -2379,6 +2446,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     host is counted, because `initAnalytics` gates on the hostname alone, and
     that affects every tagged site.
     **Answered 2026-10-05 ~18:45Z: yes, merge before item 45.** The PM session's `land-prs` on data-dynamiq#59 was refused by the cloud session's permission policy as a production deploy, so the merge itself is the operator's click (or a laptop `land-prs`).
+    **Extended 2026-10-05 ~21:05Z: "yes, do 1836dig and 29 Navy too"** (the
+    operator, in the Data Dynamiq session). Built as 1836dig#24 and
+    29-navy#73; see item 49.
 
 74. **Williamson Construction hero: upload three poster frames and publish
     a release (williamson-construction-co#21, new 2026-10-05).** The code
@@ -2453,6 +2523,35 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     is a test plus a one-line condition. Or (c) merge `51e56b1a` as it is
     and file both as a follow-up. _Worker's pick:_ (a). The round-3 defects
     are in the same small function, and a fourth review is cheap.
+    **Answered 2026-10-05 ~21:00Z: (a). Round 4 is not clean, so this is held
+    again (new ask below).** `d5d1b1d7` takes the first truthy entry of
+    `frame-src`, `child-src` and `default-src`. An array is extended, minus
+    `'none'` and a hand-quoted `"'none'"`. A string is left as it is. 69
+    tests pass, and 18 mutations all go red. Round 4 ran the config through
+    SvelteKit 2.70.2's `validate_config` as well as its `Csp` class. The
+    emitted policy was right for every input it tried. But round 3's premise
+    was wrong. SvelteKit's validator (`string_array`,
+    `@sveltejs/kit/src/core/config/options.js:445`) rejects `null`, `false`,
+    `""` or a string in any CSP directive, so the header builder's
+    `if (!value) continue` that round 3 read is never reached. That leaves
+    the falsy-as-unset handling, its docstring and two tests resting on
+    inputs a real build refuses. It also hides a site's error when a
+    repository is named: `frame-src: null` builds, because the fold
+    replaces it with a valid list, but the same config without a repository
+    fails the build. Separately, nothing pins that `frame-src: []` blocks
+    every frame: a mutant that treats `[]` as unset survives and would seed
+    from `default-src`. _Ask:_ (a) go back to treating only a missing key as
+    unset (SvelteKit then refuses `null`/`false`/strings loudly, with or
+    without a repository), fix the docstring, add the `[]` and aliasing
+    tests, and land without a fifth round. The code returns to round 3's
+    reviewed shape, with only tests added. Or (b) keep `d5d1b1d7`'s
+    handling, fix the docstring and tests, and land. Or (c) a fifth round
+    after (a). _Worker's pick:_ (a), so a bad config fails the same way
+    whether or not the site names a repository.
+    **Answered 2026-10-05 ~22:50Z: (a). Done in #1157.** Only a missing key
+    counts as unset, and a non-array directive is left for SvelteKit to
+    refuse. `[]` and aliasing are pinned. 73 tests pass, and 19 mutations
+    all go red. Landed without a fifth round, as answered.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
@@ -2576,7 +2675,85 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
 
     **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
 
-80. **CalTex on Prismic slices: merge `staging` into `main` (new 2026-10-05,
+80. **mantis-landscaping#29, matching round 1 chrome: held after two dirty
+    review rounds (new 2026-10-05, P1-30 / #1107).** #29 (branch
+    `claude/p5-matching-r1-chrome`, head `15b1fc4`, CI green on `7578ef1`)
+    puts the nav in flow and sticky at 70px, gives the footer the
+    reference's box, and makes the gate countable: `top` passes at all four
+    widths.
+    - Round 1 found one major, fixed and confirmed in round 2. With
+      `scroll-padding-top: 70px` on `html`, every focus inside the stuck nav
+      scrolled the page (1500 → 1078 tapping Close at 390). It also found
+      two wrong citations (the offset and the gutter evidence) and four
+      unguarded behaviours, all fixed or ledgered.
+    - Round 2 found one minor, now fixed but unreviewed. The skip link
+      targets `<main id="main-content">`, which `main [id]` did not cover,
+      so main landed under the nav. The rule is now `main, main [id]`, with
+      a skip-link smoke test at 1440/390. Mutations M8 and M9 both go red.
+    - _Ask:_ (a) land #29 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). The unreviewed change is one selector, with its
+      own red-on-mutation test. The carousels batch (branch
+      `claude/p5-matching-r1-carousels`) is the next round either way.
+
+81. **Publish Roalson release `asP91BIAAH8K23X-` ("2026-10-05 final round:
+    map pin corrections") after linking two files (new 2026-10-05, Erik's
+    final-round list).** The release holds 23 documents:
+    - **Pins.** 8 pins moved onto their parcels. Each was checked against
+      the parcel outline in its own package aerial and against Esri
+      imagery. The before and after coordinates are in the roalson PRs and
+      the journal. The other 14 pins were already on their parcels.
+    - **Aerial crops.** 14 feature-image crops keep the whole outlined
+      parcel visible in every frame the site draws them in, measured at
+      1440, 834 and 390: aspect 0.81 (the 834 carousel) to 1.71 (the
+      homepage band).
+    - **New listing.** `hwy-46-at-spencer-ranch-blvd`, 61.81 acres, built
+      from Matt Howard's intake form.
+
+    _Before publishing:_ upload `hwy-46-at-spencer-ranch-feature.jpg` and
+    `hwy-46-at-spencer-ranch-package.pdf` to the Roalson media library
+    (they are in the session scratchpad's `for-prismic/`), or tell a
+    session where they are. The session links them and crops the aerial at
+    (0, 688, 900×710). The listing's open questions for Erik (transaction
+    type; flood plain, where the survey says part is in zone A; Tract 2;
+    and others) are in the package PR. _Pick:_ publish once the two files
+    are linked; the questions don't block it.
+
+82. **Two Roalson aerials cannot show the whole parcel in the existing card
+    frames (new 2026-10-05, stop condition).** Loop 1604 at Dove Canyon
+    needs a crop 1,371 px wide from a 1,200 px source, and 5930 Bandera Road
+    needs 1,318 px. Both are tall parcels on portrait map pages. They don't
+    fit even if only the landscape frames (1.06–1.71) count. _Ask:_ (a)
+    ask Matt for a landscape aerial of each; (b) letterbox these two
+    (`object-contain` on the card's ground), which is a design change;
+    (c) accept a crop that trims the top and bottom of the outline.
+    _Pick:_ (a); it is content only, and both stay as they are until then.
+83. **The Roalson map rework waits on Nicole's design (new 2026-10-05).**
+    Erik's list: a bigger map, a smaller list, and "the map dictates the
+    listings" (panning or zooming filters the list). Nicole said at 19:12Z
+    that she would adjust the design that day. Nothing had arrived in the
+    channel by the end of this session, so nothing was built. Erik's
+    10-02 hover-to-select already shipped as roalson-interests#253 (200 ms
+    rest), so the brief's "will look Monday" is stale. Fold any change to
+    it into the rework. _Ask:_ none until the frame exists; then a worker
+    builds it as its own PR.
+
+84. **roalson-interests#263 (Improved Properties, and the menu with ABOUT
+    US): held after two dirty review rounds (new 2026-10-05).**
+    - Round 1 found three things: choosing ABOUT US sent focus back to the
+      menu button (major), the no-script bar grew a third chip, and nits.
+    - Round 2 found that focus still touched the menu button for one frame
+      before reaching the band (minor).
+    - Both are fixed at the PR's head. The focus order is traced as: menu,
+      close, the About Us link, then the band. `menu-about.spec.ts` is red
+      when the landing is disabled.
+
+    ABOUT US links to `/#about`, the homepage's "Our legacy" band, because
+    the site has no About page. That reading of the client's menu is the
+    worker's own. _Ask:_ (a) land without a third round; (b) a third round;
+    (c) the menu should point somewhere else. _Pick:_ (a), with
+    `land-prs 263 --repo reddoorla/roalson-interests`.
+
+85. **CalTex on Prismic slices: merge `staging` into `main` (new 2026-10-05,
     operator's ask the same evening).** The site now renders every page from
     slices on caltex-landing's `staging` branch
     ([caltex-landing#74](https://github.com/reddoorla/caltex-landing/pull/74)).
@@ -2594,6 +2771,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     production deploy. _Worker's pick:_ merge it as is. After the merge, the
     old `home` fields `s1`–`s8` are unrendered; deleting them is a manual
     model edit in Prismic, optional and not urgent.
+
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -2616,9 +2794,14 @@ verdict is its only input, because no client and no check sees the email.
   stopping at the first row that is not `clean`. An `awaiting` row stops it
   too, and becomes an ask in the morning report.
 
-| Sent (UTC)       | Site    | Report                 | Verdict |
-| ---------------- | ------- | ---------------------- | ------- |
-| 2026-09-28 22:54 | 29 Navy | Maintenance, Sept 2026 | clean   |
+| Sent (UTC)       | Site                       | Report                 | Verdict  |
+| ---------------- | -------------------------- | ---------------------- | -------- |
+| 2026-09-28 22:54 | 29 Navy                    | Maintenance, Sept 2026 | clean    |
+| 2026-10-05 22:47 | Data Dynamiq               | Maintenance, Oct 2026  | awaiting |
+| 2026-10-05 22:47 | Espada                     | Maintenance, Oct 2026  | awaiting |
+| 2026-10-05 22:47 | LA Homelessness Initiative | Maintenance, Oct 2026  | awaiting |
+| 2026-10-05 22:47 | Revogen                    | Maintenance, Oct 2026  | awaiting |
+| 2026-10-05 22:47 | Vineyard Custom Homes      | Maintenance, Oct 2026  | awaiting |
 
 ## Fleet snapshot (2026-10-05 ~11:55Z, live Turso, SELECT-only) [M]
 
@@ -2649,6 +2832,14 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
+- 2026-10-05 — P1-25, the Prismic toolbar under the shared CSP baseline
+  (#1157, issue #1155). `BASELINE_CSP` admits `https://prismic.io/prismic-toolbar/`
+  and the one html2canvas file in `script-src`; a new `prismicRepository`
+  option on `createSvelteConfig` frames exactly `https://<name>.prismic.io`,
+  folded after any site override, and refuses a name that is not letters,
+  digits and hyphens. No `unsafe-eval` or `blob:` was needed. The fleet
+  rollout (each site passing `prismicRepository`) is per-repo PRs, not done
+  here.
 - 2026-10-05 — P1-27, the audits' port race (#1156): #1164. The a11y,
   lighthouse and smoke audits start their server again on a fresh port when
   the server's own output names one of the audit's ports as taken (Node's
