@@ -87,7 +87,7 @@ pilot checks.
 **The CSP blocks the Type Builder's live preview.** The Type Builder loads
 slice previews from a deployed simulator URL, inside an iframe on
 prismic.io. Slice Machine used `localhost:9999`. Every site sends
-`frame-ancestors 'self'` (`BASELINE_CSP`, `src/configs/svelte.ts:122`) and
+`frame-ancestors 'self'` (`BASELINE_CSP`, `src/configs/svelte.ts:132`) and
 `X-Frame-Options: SAMEORIGIN` (williamson-homes sets it in both
 `netlify.toml` and `hooks.server.ts`). The fix is a framing exception for
 prismic.io on `/slice-simulator` only, in the shared config and each site's

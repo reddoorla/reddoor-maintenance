@@ -8690,6 +8690,76 @@ The operator asked to see test emails for the reports ready to approve. There we
 
 Process slip, recorded so it is not repeated: this session ran `git checkout origin/main -- .` in the main checkout rather than its worktree, which staged origin/main's files over the main checkout's older HEAD. The main checkout had been clean, so it was restored exactly: the 7 added files were removed and the 17 modified files were restored to HEAD, giving a clean `git status`. Nothing was committed from it.
 
+## 2026-10-05 — P1-25 lands: only a missing key is unset (#1157, Operator decision 75 done)
+
+The operator answered round 4 with (a). The fold in `withPrismicFrame` now
+takes the first of `frame-src`, `child-src` and `default-src` that the site
+defines. It extends that entry if it is an array, and leaves anything else
+as written. So `frame-src: null` with a repository now fails the build the
+same way it does without one. That is SvelteKit's `string_array` check
+doing the refusing, not this config. New tests pin that `[]` is a
+definition and not unset (round 4's surviving mutant). They also pin that
+the seed never aliases `default-src` (its nit). 73 tests pass, and all 19
+mutations go red. Those are the brief's four, every survivor from rounds 1
+to 4, and a mutant that puts back `d78d2d80`'s falsy-as-unset rule.
+
+Accounting for the arc: four review rounds. Two of them found defects that
+my own previous fix had introduced. The round-3 one also rested on a
+premise that only a second authority could refute. The code that landed is
+round 3's reviewed shape plus tests. The fleet rollout, where each site
+passes `prismicRepository`, is still per-repo PRs, and none of them has been
+opened.
+
+## 2026-10-05 — Blocking questions go through AskUserQuestion, with all their context (CLAUDE.md)
+
+The operator asked for this during P1-25 (#1157). That PR went through four
+review rounds and three decision asks. Each ask reached the operator as the
+last paragraph of a long status message, and as a line in `docs/BACKLOG.md`.
+The rule is now in CLAUDE.md's worker-session section. A blocking decision is
+asked with AskUserQuestion. The question names the item, the PR, the finding
+with a concrete input, each option's consequence, and the pick and why. The
+BACKLOG line stays, because AskUserQuestion only reaches someone who is there
+to answer it, and the evening and PM passes read the file.
+
+## 2026-10-05 — CalTex moved onto Prismic slices, held on `staging` (caltex-landing#73, #74, Operator decision 85)
+
+The operator asked for the hand-built CalTex site to become a slice-based
+Prismic site, with the work on a `staging` branch instead of `main`, and the
+output checked against `main` at the end. One piece could not follow that
+literally: `prismic-models` pushes models only on a merge to `main`. The
+operator chose a models-only PR to `main` (#73). It was proven inert: 11
+prerendered files equal to `main`'s after normalising hashes, with a
+one-word negative control.
+
+I first told the operator that publishing the slice content would be
+inert. Then I second-guessed it: I thought a `page` doc with uid
+`aed-programs` would trip SvelteKit's entry-generator mismatch check against
+main's static route. A build with a fake colliding entry passed. SvelteKit's
+`enqueue` dedupes by path and queues static routes first, so the colliding
+entry is never visited. A throwing `entries()` failed the build, which
+proved the hook runs. The publish (release `asQvEBIAAHEPgEox`, which the
+operator authorized) then left the live site byte-for-byte unchanged in
+everything rendered: 14 screenshots, the DOM and the sitemap. That held
+even though every page's hydration payload now carries the new `home`
+fields. Prismic's webhook rebuilds production on every content change,
+release edits included, so the release's drafts alone triggered six
+production builds of unchanged content.
+
+Staging (#74, `23763ef`) is pixel-identical to live `main` on all 14
+screenshots, with the same text, images, links, ids, metadata and nav
+hrefs, and the same sitemap URLs. Netlify deploys neither the `staging`
+branch nor previews for PRs into it. The `deploy-preview-74` link the bot
+posted returns 404, so the final comparison is a clean worktree build of
+`origin/staging`. Merging `staging` to `main` is Operator decision 85.
+
+Two process notes. `pkill -f <pattern>` run from the same Bash call matches
+its own command line and kills the shell; that ended a step twice. Once it
+skipped a `git checkout -- <file>` that would have restored a placeholder
+from HEAD over uncommitted work. Kill by a PID captured first. And the
+parity check needs fonts: the container has no Impact and no Helvetica, and
+every earlier evidence shot set headings in a default serif until Impact
+(Microsoft corefonts) and Nimbus Sans were installed.
+
 ## 2026-10-05 — P1-24: the starter writes `html[data-hydrated]` and the smoke recipe scaffolds it (reddoor-starter#184 `2209aa0`, #1194)
 
 The smoke recipe's marker was `footer`. It is server-rendered, so it was visible with scripting off and with the bundle missing: every scaffolded route proved the page painted, never that it hydrated (#947). Roalson had already fixed this for itself as #57. The template now has the same fix (reddoor-starter#184): the root layout's `onMount` writes the attribute, and the template's own smoke routes wait on it. The recipe here scaffolds `hydrationMarker: "html[data-hydrated]"`.
