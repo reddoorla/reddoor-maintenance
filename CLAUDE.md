@@ -127,9 +127,12 @@ then. So a worker started from a backlog item or a brief
   `AUTONOMY.md`'s stop conditions, or a fork the brief did not settle, becomes
   one line under "Operator decisions" in `docs/BACKLOG.md`: the exact ask, what
   you would pick and why, and the branch or PR that holds the work so far.
-  Land that line (a docs-only PR is fine), push the branch, and end the
-  session. The next morning's PM pass puts it in front of the operator. Do not
-  wait in the session for a reply.
+  Land that line on `main` as its own docs-only PR, never only on the work's
+  own branch: #1143's worker wrote its ask on its held PR's branch, and `main`
+  asked the operator nothing for 13 hours (2026-10-05). Push the work branch
+  too, then end the session. The evening pass and the next morning's PM pass
+  put the line in front of the operator. Do not wait in the session for a
+  reply.
 - **Two dirty review rounds, then stop.** If the second adversarial review of
   the same PR still finds a real defect, the PR goes to "Operator decisions"
   with the findings of both rounds, not into a third round. #918 and #920
