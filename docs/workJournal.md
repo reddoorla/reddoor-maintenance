@@ -8408,3 +8408,7 @@ The site-side record is mantis-landscaping's journal entry (#26). What belongs h
 **The pre-hydration trap struck a third time.** Mantis#25's first smoke test mutated the DOM before Svelte hydrated. Svelte then re-mounted the strip and the test measured the original. This is the same mechanism as form-e2e's "refilled" (#1148) and #17's probe. The mutation that restores the old code exposed it, by passing on one run and failing on the next. Any probe that writes to a SvelteKit page must wait for hydration, or not write to the page at all. This belongs in #1148's fix, and probably in the matching-a-page skill too.
 
 **Still open:** the matching gate (Operator decisions 78) and P6's DNS (61).
+
+## 2026-10-05 — Operator decision answered: (a), the evening pass (#1162) merged as it is
+
+The operator picked (a) at ~18:23Z: merge #1162 without a third review round, round 2's fixes unreviewed. It was marked ready, and `land-prs.mjs` updated the branch. The operator then merged it by hand at 18:38:15Z (`2849ba4d`) while the script was still waiting on checks, and the script reported "merged elsewhere" and skipped it. The only step left is the operator's paste of the stored prompt into a new Routine. Until that Routine exists, no evening pass runs. The morning pass already runs `scripts/evening-branches.mjs` in step 5, so an ask that sits only on a branch reaches the morning report either way.
