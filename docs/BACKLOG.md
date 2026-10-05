@@ -2368,6 +2368,29 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     editor traffic (Prismic previews, `/slice-simulator`) on the production
     host is counted, because `initAnalytics` gates on the hostname alone, and
     that affects every tagged site.
+74. **Williamson Construction hero: upload three poster frames and publish
+    a release (williamson-construction-co#21, new 2026-10-05).** The code
+    half landed: the hero poster is now an `<img>` with a capped imgix
+    srcset, preloaded as the LCP image, and the video fades in on its first
+    `playing`. The poster itself is still the old Webflow still (home and
+    about-us 854×480, services 640×360). Frame 0 of each hero video matches
+    that still's shot and framing exactly, so this is a resolution fix, not
+    a design call. The session could not upload the frames: the Prismic
+    connector's `upload_asset` fetches only a public URL, and the session's
+    permission policy refused both a temp host and `prismic-media-upload.yml`
+    as public uploads. _Ask:_ (a) make the three frames and upload them, or
+    (b) allow this kind of upload for a worker session and re-dispatch it.
+    The frames are reproducible from the published files, with no master
+    needed:
+    `ffmpeg -i https://williamson-construction.cdn.prismic.io/williamson-construction/LZ8LHeWvz0PJscct_wc-teacher-1080.mp4 -frames:v 1 -q:v 1 wc-teacher-poster-1080.jpg`,
+    then the same for `yiKYtvDqi9GC3AAn_wc-first-day-1080.mp4` and
+    `phNtqvqI9BXXgKlF_wc-services-720.mp4` (services is 1280×720 at the
+    master). Set them as `page_hero.background_image` on home, about-us and
+    services in one release, three deltas, and publish it. No code change is
+    needed. The srcset reaches 1920w from the field's dimensions, and
+    desktop LCP should move from the video's first frame to the poster.
+    _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
+    permission change that outlives this one task.
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
     branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
@@ -2393,30 +2416,6 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     gated on `prismicRepository`, as `analytics` gates GA. Without a framed
     repository the toolbar never loads them. The brief puts them in the
     baseline, so they stay there unless you say otherwise.
-
-74. **Williamson Construction hero: upload three poster frames and publish
-    a release (williamson-construction-co#21, new 2026-10-05).** The code
-    half landed: the hero poster is now an `<img>` with a capped imgix
-    srcset, preloaded as the LCP image, and the video fades in on its first
-    `playing`. The poster itself is still the old Webflow still (home and
-    about-us 854×480, services 640×360). Frame 0 of each hero video matches
-    that still's shot and framing exactly, so this is a resolution fix, not
-    a design call. The session could not upload the frames: the Prismic
-    connector's `upload_asset` fetches only a public URL, and the session's
-    permission policy refused both a temp host and `prismic-media-upload.yml`
-    as public uploads. _Ask:_ (a) make the three frames and upload them, or
-    (b) allow this kind of upload for a worker session and re-dispatch it.
-    The frames are reproducible from the published files, with no master
-    needed:
-    `ffmpeg -i https://williamson-construction.cdn.prismic.io/williamson-construction/LZ8LHeWvz0PJscct_wc-teacher-1080.mp4 -frames:v 1 -q:v 1 wc-teacher-poster-1080.jpg`,
-    then the same for `yiKYtvDqi9GC3AAn_wc-first-day-1080.mp4` and
-    `phNtqvqI9BXXgKlF_wc-services-720.mp4` (services is 1280×720 at the
-    master). Set them as `page_hero.background_image` on home, about-us and
-    services in one release, three deltas, and publish it. No code change is
-    needed. The srcset reaches 1920w from the field's dimensions, and
-    desktop LCP should move from the video's first frame to the poster.
-    _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
-    permission change that outlives this one task.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
