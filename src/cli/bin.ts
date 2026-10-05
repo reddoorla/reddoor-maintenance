@@ -333,10 +333,14 @@ cli
   )
   .option(
     "--fleet <inventory>",
-    'Inventory file, or "turso": clone each site fresh and sync it (dry unless --open-prs).',
+    'Inventory file, or "turso": clone each site fresh and sync it (a dry run without --stage).',
   )
   .option("--workdir <path>", "Fleet mode: where the fresh clones go")
-  .option("--open-prs", "Fleet mode: push the prismic-sync branch and open or update one PR")
+  .option("--open-prs", "--stage publish: push the prismic-sync branch and open or update one PR")
+  .option("--stage <stage>", "Fleet mode in the nightly's jobs: fetch, or publish")
+  .option("--out <dir>", "--stage fetch: where the plan and each site's build input go")
+  .option("--plan <dir>", "--stage publish: the fetch stage's --out")
+  .option("--built <dir>", "--stage publish: the build stage's outputs, one directory per site")
   .action(
     async (
       site,
@@ -344,6 +348,10 @@ cli
         fleet?: string;
         workdir?: string;
         openPrs?: boolean;
+        stage?: string;
+        out?: string;
+        plan?: string;
+        built?: string;
         cwd?: string;
         verbose?: boolean;
       },

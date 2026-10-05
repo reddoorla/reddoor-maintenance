@@ -1,15 +1,26 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   defaultSyncDeps,
   forPull,
   gitAuthArgs,
   makeSyncGitHub,
   modelsKeyOf,
+  runStagedFleet,
   siteProcessEnv,
   withoutModelsKey,
   prismicSync,
@@ -20,6 +31,7 @@ import {
   type SyncGitHub,
 } from "../../src/cli/commands/prismic-sync.js";
 import type { PrismicModelsDeps } from "../../src/cli/commands/prismic-models.js";
+import { buildSite, realSteps } from "../../scripts/prismic-sync-build.mjs";
 import type { RemoteEntry } from "../../src/prismic/models/types.js";
 
 const run = promisify(execFile);
@@ -146,8 +158,9 @@ type Harness = {
   deps: PrismicSyncDeps;
   github: ReturnType<typeof fakeGitHub>;
   setRemote: (models: RemoteEntry[]) => void;
-  codegen: ReturnType<typeof vi.fn>;
-  install: ReturnType<typeof vi.fn>;
+  codegen: Mock<(root: string) => Promise<void>>;
+  install: Mock<(root: string) => Promise<void>>;
+  format: Mock<(root: string, paths: string[]) => Promise<boolean>>;
 };
 
 const asRemote = (page: object, hero: object): RemoteEntry[] => [
@@ -163,7 +176,8 @@ function harness(opts: { secret?: string } = {}): Harness {
     await writeFile(join(root, "prismicio-types.d.ts"), `// label: ${page.label}\n`, "utf-8");
     await writeFile(join(root, "src/lib/slices/index.ts"), `// ${page.label}\n`, "utf-8");
   });
-  const install = vi.fn(async () => {});
+  const install = vi.fn(async (_root: string) => {});
+  const format = vi.fn(async (_root: string, _paths: string[]) => true);
   const models: PrismicModelsDeps = {
     remoteModels: async () => remote,
     sendModel: async () => {
@@ -197,15 +211,38 @@ function harness(opts: { secret?: string } = {}): Harness {
     github: () => github,
     cloneUrl: () => origin,
     redact: (t) => (opts.secret ? t.split(opts.secret).join("***") : t),
-    install,
-    codegen,
-    format: async () => true,
+    archive: async (root, tarFile) => {
+      await run("tar", ["--exclude=./.git", "-cf", tarFile, "-C", root, "."]);
+    },
   };
-  return { deps, github, setRemote: (m) => (remote = m), codegen, install };
+  return { deps, github, setRemote: (m) => (remote = m), codegen, install, format };
 }
 
-const fleet = (h: Harness, openPrs = true) =>
-  prismicSync(undefined, { fleet: "turso", workdir: join(tmp, "work"), openPrs }, h.deps);
+let night = 0;
+
+/** One night: fetch, then the real build runner per site with the harness's
+ *  site steps, then publish. */
+const fleet = (h: Harness, openPrs = true) => {
+  night += 1;
+  const stageRoot = join(tmp, `night-${night}`);
+  return runStagedFleet(
+    { fleet: "turso", workdir: join(tmp, "work"), openPrs, stageRoot },
+    h.deps,
+    async (inDir, outDir) => {
+      await buildSite({
+        inDir,
+        outDir,
+        work: join(outDir, "..", `work-${night}-${Math.random().toString(36).slice(2)}`),
+        steps: {
+          extract: realSteps.extract,
+          install: (w) => h.install(w),
+          format: (w, paths) => h.format(w, paths),
+          codegen: (w) => h.codegen(w),
+        },
+      });
+    },
+  );
+};
 
 const branchHead = async (): Promise<string | null> => {
   const out = await git(["ls-remote", "--heads", origin, SYNC_BRANCH], tmp);
@@ -372,18 +409,90 @@ describe("prismic-sync --fleet", () => {
     expect(h.github.prs).toEqual([]);
   });
 
-  it("commits nothing when anything other than models and generated files changed", async () => {
+  it("commits only the files the plan names, whatever else the site's tools change", async () => {
     await makeOrigin({ ...STANDARD, "package.json": "{}\n" });
     const h = harness();
     h.install.mockImplementation(async (root: string) => {
       await writeFile(join(root, "package.json"), '{"changed":true}\n', "utf-8");
+      await writeFile(join(root, "evil.txt"), "planted\n", "utf-8");
+    });
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^opened\s+Fixture/m);
+    const changed = (await git(["diff", "--name-only", "main", SYNC_BRANCH], origin)).split("\n");
+    expect(changed.sort()).toEqual(
+      ["customtypes/page/index.json", "prismicio-types.d.ts", "src/lib/slices/index.ts"].sort(),
+    );
+  });
+
+  it("never follows a link the site's tools leave in place of a named file", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    const outside = join(tmp, "outside.txt");
+    await writeFile(outside, "a file outside the site\n", "utf-8");
+    h.codegen.mockImplementation(async (root: string) => {
+      await symlink(outside, join(root, "prismicio-types.d.ts"));
+    });
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^opened\s+Fixture/m);
+    expect(await git(["ls-tree", SYNC_BRANCH, "prismicio-types.d.ts"], origin)).toBe("");
+  });
+
+  it("commits Prismic's own copy when the site's prettier changed a model's content", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.format.mockImplementation(async (root: string, paths: string[]) => {
+      for (const p of paths) {
+        const m = JSON.parse(await readFile(join(root, p), "utf-8"));
+        await writeFile(join(root, p), JSON.stringify({ ...m, injected: true }), "utf-8");
+      }
+      return true;
+    });
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^opened\s+Fixture/m);
+    const page = JSON.parse(await showOnBranch("customtypes/page/index.json"));
+    expect(page.injected).toBeUndefined();
+    expect(page.label).toBe("Landing page");
+    expect(h.github.prs[0]!.body).toContain("⚠");
+  });
+
+  it("keeps the site's formatting when the model's content is unchanged", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.format.mockImplementation(async (root: string, paths: string[]) => {
+      for (const p of paths) {
+        const m = JSON.parse(await readFile(join(root, p), "utf-8"));
+        await writeFile(join(root, p), JSON.stringify(m) + "\n", "utf-8");
+      }
+      return true;
+    });
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    await fleet(h);
+    expect(await showOnBranch("customtypes/page/index.json")).toBe(
+      JSON.stringify({ ...PAGE, label: "Landing page" }),
+    );
+    expect(h.github.prs[0]!.body).not.toContain("⚠");
+  });
+
+  it("reports a site whose build failed and still syncs the others", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.deps.resolveSites = async () => [
+      { name: "Fixture", path: "", gitRepo: "reddoorla/fixture" },
+      { name: "Second", path: "", gitRepo: "reddoorla/second" },
+    ];
+    let calls = 0;
+    h.install.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("lockfile out of date");
     });
     h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
     const res = await fleet(h);
     expect(res.code).toBe(1);
-    expect(res.output).toContain("files it does not own changed");
-    expect(res.output).toContain("package.json");
-    expect(await branchHead()).toBeNull();
+    expect(res.output).toMatch(/^failed\s+Fixture — the site's install or tools failed.*lockfile/m);
+    expect(res.output).toMatch(/^opened\s+Second/m);
   });
 
   it("leaves the branch alone once a human has committed to it", async () => {
@@ -557,6 +666,100 @@ describe("prismic-sync --fleet", () => {
     expect(await branchHead()).toBe(merged);
   });
 
+  /** GitHub's "Update with rebase": the branch's commits re-committed by
+   *  GitHub onto the default branch, then force-pushed. */
+  const rebaseUpdate = async (extra?: (work: string) => Promise<void>): Promise<string> => {
+    await writeFile(join(seedDir, "README.md"), "main moved\n", "utf-8");
+    await commitAll(seedDir, "move main");
+    await git(["push", "--quiet", "origin", "main"], seedDir);
+    const work = join(tmp, "rebase-update");
+    await git(["clone", "--quiet", "--branch", SYNC_BRANCH, origin, work], tmp);
+    const asGitHub = ["-c", "user.name=GitHub", "-c", "user.email=noreply@github.com"];
+    await git([...asGitHub, "rebase", "--quiet", "origin/main"], work);
+    if (extra) {
+      await extra(work);
+      await git(["add", "-A"], work);
+      await run(
+        "git",
+        [...asGitHub, "commit", "--quiet", "--amend", "--no-edit", "--reset-author"],
+        {
+          cwd: work,
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: SYNC_AUTHOR.name,
+            GIT_AUTHOR_EMAIL: SYNC_AUTHOR.email,
+          },
+        },
+      );
+    }
+    expect(await git(["log", "-1", "--format=%ae %ce", "HEAD"], work)).toBe(
+      `${SYNC_AUTHOR.email} noreply@github.com`,
+    );
+    await git(["config", "receive.denyNonFastForwards", "false"], origin);
+    await git(["push", "--quiet", "--force", "origin", SYNC_BRANCH], work);
+    await git(["config", "receive.denyNonFastForwards", "true"], origin);
+    return (await branchHead())!;
+  };
+
+  it("treats GitHub's Update with rebase as its own branch", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    await fleet(h);
+    const rebased = await rebaseUpdate();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, { ...HERO, name: "Big hero" }));
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^updated\s+Fixture/m);
+    await git(["merge-base", "--is-ancestor", rebased, (await branchHead())!], origin);
+    expect(JSON.parse(await showOnBranch("src/lib/slices/Hero/model.json")).name).toBe("Big hero");
+  });
+
+  it("still holds a rebased commit that touches a file the sync never writes", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    await fleet(h);
+    const rebased = await rebaseUpdate(async (work) =>
+      writeFile(join(work, "package.json"), '{"planted":true}\n', "utf-8"),
+    );
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, { ...HERO, name: "Big hero" }));
+    const res = await fleet(h);
+    expect(res.output).toMatch(
+      /^held\s+Fixture — prismic-sync carries commits .*noreply@github\.com/m,
+    );
+    expect(await branchHead()).toBe(rebased);
+  });
+
+  it("says to delete a held branch that outlived its PR", async () => {
+    await makeOrigin(STANDARD, false);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    await fleet(h);
+    const work = join(tmp, "human");
+    await git(["clone", "--quiet", "--branch", SYNC_BRANCH, origin, work], tmp);
+    await writeFile(join(work, "notes.md"), "by hand\n", "utf-8");
+    await commitAll(work, "by hand");
+    await git(["push", "--quiet", "origin", SYNC_BRANCH], work);
+    h.github.humanClose(1);
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^held\s+Fixture — .*No sync PR is open.*delete it to resume/m);
+  });
+
+  it("pushes nothing to a declined PR's branch, even when the default branch moves", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    await fleet(h);
+    const closedAt = await branchHead();
+    h.github.humanClose(1);
+    await writeFile(join(seedDir, "README.md"), "main moved\n", "utf-8");
+    await commitAll(seedDir, "move main");
+    await git(["push", "--quiet", "origin", "main"], seedDir);
+    const res = await fleet(h);
+    expect(res.output).toMatch(/^declined\s+Fixture/m);
+    expect(await branchHead()).toBe(closedAt);
+  });
+
   it("does not rewrite the PR's title or body when the branch did not move", async () => {
     await makeOrigin(STANDARD);
     const h = harness();
@@ -624,29 +827,50 @@ describe("prismic-sync --fleet", () => {
     await expect(readFile(marker, "utf-8")).rejects.toThrow(/ENOENT/);
   });
 
-  it("refuses a site whose own tools changed .git/config", async () => {
+  it("hands the build stage a tree with no .git, and a site's tools never see one", async () => {
     await makeOrigin(STANDARD);
     const h = harness();
+    const seen: string[] = [];
     h.install.mockImplementation(async (root: string) => {
-      await git(["config", "core.hooksPath", "/tmp/evil"], root);
+      seen.push(...(await readdir(root)));
     });
     h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
-    const res = await fleet(h);
-    expect(res.code).toBe(1);
-    expect(res.output).toMatch(/changed \.git\/config/);
-    expect(await branchHead()).toBeNull();
+    await fleet(h);
+    expect(seen).toContain("customtypes");
+    expect(seen).not.toContain(".git");
   });
 
-  it("without --open-prs reports what it would do and touches no remote", async () => {
+  it("without --open-prs runs every stage and pushes nothing", async () => {
     await makeOrigin(STANDARD);
     const h = harness();
-    const github = vi.fn(() => h.github);
-    h.deps.github = github;
     h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
     const res = await fleet(h, false);
     expect(res.code).toBe(0);
     expect(res.output).toMatch(/^would-open\s+Fixture/m);
-    expect(github).not.toHaveBeenCalled();
+    expect(h.github.prs).toEqual([]);
+    expect(await branchHead()).toBeNull();
+  });
+
+  it("--fleet alone is a dry run that runs no site code and refuses --open-prs", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    const dry = await prismicSync(
+      undefined,
+      { fleet: "turso", workdir: join(tmp, "work") },
+      h.deps,
+    );
+    expect(dry.code).toBe(0);
+    expect(dry.output).toMatch(/^would-open\s+Fixture — would push prismic-sync with 1 changed/m);
+    expect(h.install).not.toHaveBeenCalled();
+    expect(h.codegen).not.toHaveBeenCalled();
+    const refused = await prismicSync(
+      undefined,
+      { fleet: "turso", workdir: join(tmp, "work"), openPrs: true },
+      h.deps,
+    );
+    expect(refused.code).toBe(2);
+    expect(refused.output).toContain("--open-prs needs --stage publish");
     expect(await branchHead()).toBeNull();
   });
 

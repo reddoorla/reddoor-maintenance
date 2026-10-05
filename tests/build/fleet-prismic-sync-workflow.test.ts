@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
+import { load } from "js-yaml";
 import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +15,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 const STEP = "Sync each site's models from Prismic";
+const FETCH_STEP = "Read each site's models from Prismic";
 let wf: string;
 let gate: string;
 
@@ -67,7 +69,7 @@ describe("fleet-prismic-sync — the gate", () => {
     });
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("::error::");
-    expect(r.out).toContain("prismic-sync --fleet turso --open-prs --workdir");
+    expect(r.out).toContain("prismic-sync --fleet turso --stage publish --open-prs --plan");
   });
 
   it("never asks for PRs from a run on any ref but main", async () => {
@@ -77,7 +79,7 @@ describe("fleet-prismic-sync — the gate", () => {
       ref: "refs/heads/claude/wip",
     });
     expect(r.code).toBe(0);
-    expect(r.out).toContain("prismic-sync --fleet turso --workdir");
+    expect(r.out).toContain("prismic-sync --fleet turso --stage publish --plan");
     expect(r.out).not.toContain("--open-prs");
   });
 
@@ -88,6 +90,17 @@ describe("fleet-prismic-sync — the gate", () => {
     });
     expect(r.code).not.toBe(0);
     expect(r.out).toMatch(/::error::.*Hedloc/);
+  });
+
+  it("warns on the run for a held or declined site, and stays green", async () => {
+    const r = await runGate({
+      stdout: `held       Hedloc — prismic-sync carries commits\ndeclined   Espada — closed unmerged\nopened     Fixture — x\n${summary(0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/::warning::held\s+Hedloc/);
+    expect(r.out).toMatch(/::warning::declined\s+Espada/);
+    expect(r.out).not.toMatch(/::warning::opened/);
   });
 
   it("fails a green exit that printed no summary", async () => {
@@ -110,7 +123,7 @@ describe("fleet-prismic-sync — wiring", () => {
       Object.keys(env)
         .filter((k) => k.startsWith("PRISMIC_"))
         .sort();
-    const mine = names(stepEnv(wf, STEP));
+    const mine = names(stepEnv(wf, FETCH_STEP));
     expect(mine).toEqual(names(stepEnv(drift, "Sweep the fleet for Prismic model drift")));
     expect(mine.length).toBeGreaterThan(10);
     expect(mine).not.toContain("PRISMIC_WRITE_TOKEN");
@@ -136,5 +149,119 @@ describe("fleet-prismic-sync — wiring", () => {
     const src = withoutComments(wf);
     expect(src).toMatch(/workflow_run:\n\s+workflows: \[fleet-prismic-drift\]/);
     expect(src).toContain("github.event.workflow_run.head_branch == 'main'");
+  });
+});
+
+type Job = {
+  permissions?: unknown;
+  if?: string;
+  needs?: string | string[];
+  steps: Array<{
+    name?: string;
+    uses?: string;
+    run?: string;
+    with?: Record<string, unknown>;
+    env?: Record<string, string>;
+  }>;
+};
+const jobs = (): Record<string, Job> => (load(wf) as { jobs: Record<string, Job> }).jobs;
+const text = (j: Job): string => JSON.stringify(j);
+
+describe("fleet-prismic-sync — no site code beside a credential", () => {
+  it("has exactly the three jobs", () => {
+    expect(Object.keys(jobs()).sort()).toEqual(["build", "fetch", "publish"]);
+  });
+
+  it("gives the build job no permission, no secret and no token", () => {
+    const build = jobs().build!;
+    expect(build.permissions).toEqual({});
+    expect(text(build)).not.toMatch(/secrets\.|_TOKEN|github\.token|create-github-app-token/);
+  });
+
+  it("runs a site's own tools only in the build job, inside a container pinned by digest", () => {
+    const { fetch, build, publish } = jobs();
+    const site = build!.steps.find((s) => s.name === "Build the site in a container")!;
+    expect(site.run).toMatch(/docker run --rm\b/);
+    expect(site.run).toMatch(/node:24-bookworm@sha256:[0-9a-f]{64}/);
+    expect(site.run).toContain(":/runner/build.mjs:ro");
+    for (const j of [fetch!, publish!]) {
+      expect(text(j)).not.toMatch(/docker run|build\.mjs --in/);
+    }
+  });
+
+  it("restores and saves no cache in any job", () => {
+    for (const [name, j] of Object.entries(jobs())) {
+      expect({ name, cache: text(j).match(/"cache"|actions\/cache/) }).toEqual({
+        name,
+        cache: null,
+      });
+    }
+  });
+
+  it("mints a read-only token for fetch and the write token only in publish", () => {
+    const tokens = Object.entries(jobs()).flatMap(([name, j]) =>
+      j.steps
+        .filter((s) => s.uses?.startsWith("actions/create-github-app-token@"))
+        .map((s) => ({
+          name,
+          perms: Object.keys(s.with ?? {})
+            .filter((k) => k.startsWith("permission-"))
+            .map((k) => `${k}=${String(s.with![k])}`),
+        })),
+    );
+    expect(tokens).toEqual([
+      { name: "fetch", perms: ["permission-contents=read"] },
+      { name: "publish", perms: ["permission-contents=write", "permission-pull-requests=write"] },
+    ]);
+  });
+
+  it("gives the Prismic tokens to the fetch job alone", () => {
+    const { build, publish } = jobs();
+    expect(text(build!)).not.toContain("PRISMIC_");
+    expect(text(publish!)).not.toContain("PRISMIC_TOKEN_");
+  });
+
+  it("publishes nothing unless the fetch and every build leg succeeded", () => {
+    const publish = jobs().publish!;
+    expect(publish.needs).toEqual(["fetch", "build"]);
+    const first = publish.steps[0]!;
+    expect(first.name).toBe("Require the fetch and every build leg");
+    expect(first.env).toEqual({
+      FETCH: "${{ needs.fetch.result }}",
+      BUILD: "${{ needs.build.result }}",
+    });
+  });
+});
+
+describe("fleet-prismic-sync — the publish job's first step", () => {
+  const script = () => stepRunScript(wf, "Require the fetch and every build leg");
+  const runIt = async (fetchResult: string, buildResult: string) => {
+    try {
+      const { stdout } = await execFileAsync("bash", ["-e", "-c", script()], {
+        env: { ...process.env, FETCH: fetchResult, BUILD: buildResult },
+      });
+      return { code: 0, out: stdout };
+    } catch (e) {
+      const err = e as { code?: number; stdout?: string };
+      return { code: err.code ?? 1, out: err.stdout ?? "" };
+    }
+  };
+
+  it("passes a successful fetch with a successful or skipped build", async () => {
+    expect((await runIt("success", "success")).code).toBe(0);
+    expect((await runIt("success", "skipped")).code).toBe(0);
+  });
+
+  it("refuses a failed or cancelled fetch or build leg", async () => {
+    for (const [f, b] of [
+      ["failure", "skipped"],
+      ["cancelled", "skipped"],
+      ["success", "failure"],
+      ["success", "cancelled"],
+    ]) {
+      const r = await runIt(f!, b!);
+      expect({ f, b, code: r.code }).toEqual({ f, b, code: 1 });
+      expect(r.out).toContain("::error::");
+    }
   });
 });
