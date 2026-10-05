@@ -1460,6 +1460,28 @@ analytics"]`). The operator creates properties for the other three. When the
     is item 73. The site collects nothing until it merges, and GA does not
     backfill, so the 10-05 report's analytics section stays empty either way.
     1836dig and 29 Navy are not started.
+    **Live 2026-10-05 [M]:** the operator merged data-dynamiq#59 at ~21:02Z,
+    and `/privacy` answered 200 on `www.datadynamiq.com` at 21:03Z. One real
+    browser visit loaded `gtag/js?id=G-V11LZYNMY2` and sent `g/collect`.
+    GA4 Realtime on property 556916505 read 0 rows before that visit and
+    `minutesAgo 00: 1 user, 3 events` at 21:04:37Z. That user is the
+    verification visit from a cloud IP, not organic traffic. Data Dynamiq is
+    done; 1836dig and 29 Navy still wait, on the same question.
+    **1836dig and 29 Navy, 2026-10-05: built, green, cleared to merge.** The
+    operator extended 73's "yes, before item 45" to both. reddoorla/1836dig#24
+    (`G-1ZYB95TKC1` on `1836dig.com`) and reddoorla/29-navy#73 (`G-MSYB9MQGRV`
+    on `29navy.com`) carry the page, the tag and, unlike Data Dynamiq, GA's
+    hosts added by hand to SvelteKit's own `kit.csp`, which the recipe does
+    not edit. 29 Navy has neither a footer nor a form, so its link is a row in
+    the contact block (cost measured in that repo's `matching/LEDGER.md`).
+    29 Navy's install first hit a recipe bug, fixed in #1178: the `src/` scan
+    read the starter's `services.test.ts` as an existing tag. Both merges are
+    the operator's click, like Data Dynamiq's; a live hit is read after each.
+    Review found one gap for item 45, in the template rather than either port:
+    the policy names no image CDN, yet a Prismic site's pages load
+    `images.prismic.io` (about 99 URLs on 29 Navy's home), so Prismic/imgix
+    receives every visitor's IP. The same holds on every Prismic site in the
+    fleet.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
@@ -2356,6 +2378,52 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
     **Answered 2026-10-05 ~18:45Z: (b)** — keep one job, fix the two correctness majors, and run a third review round on #1143 as it is. A worker session is queued for it.
+    - **10-05 ~20:00Z: round 3 is dirty; #1143 is still a draft and
+      unmerged.** Branch `claude/wizardly-brown-2ylvcv`, head `f765c982`:
+      `origin/main` merged in (`68382a43`), then both round-2 majors fixed.
+      `declined` is now keyed on a sha256 of the written model files, which
+      the PR body carries. The sync strips that key before closing a PR
+      itself. A clean "Update branch" merge of `main` counts as the bot's.
+      Mutations 28–33 go red; M34 survives as a second layer. Round 3
+      (security, correctness, operations) found:
+      - **Blocker (security):** the site's own prettier and `prismic` CLI
+        run as the same user as the CLI, so they can read
+        `/proc/$PPID/environ`: the App token and every `PRISMIC_TOKEN_*`.
+        `siteProcessEnv` strips only the child's environment. The reviewer
+        demonstrated the read in this container. Also, a process left
+        running by a site's install can read later git commands' auth
+        header from `/proc/<pid>/cmdline`, or rewrite a later clone's
+        `.git/config` between the fingerprint check and the push.
+      - **Major (security):** site code can move `HEAD`/the index, so a
+        commit carrying its own files passes the stray-file check (which
+        is checked against HEAD) and is pushed. _Fix:_ diff against
+        `baseHead`.
+      - **Major (correctness):** "Update with rebase" still holds the site
+        forever.
+      - **Major (operations):** `held` is green with no warning. A human
+        commit on a branch that survives a squash merge parks the site
+        silently.
+      - **Likely major (operations; needs a live check):** the App token
+        has no `workflows` permission. A rebuild whose new parent
+        `baseHead` carries a newer `.github/workflows/*` may be refused.
+      - **Minors:** a declined site still pushes a new commit every night;
+        a decline never expires; the key is not canonical; only 30 closed
+        PRs are read.
+      - _Ask:_ (a) split the workflow as first proposed: a job with no
+        token runs install, format and codegen and uploads a patch; a job
+        with the token runs no site code. Then fix the three majors and
+        review once. Or (b) keep one job, but run all site code as a
+        separate unprivileged user, fix the majors, and review once. _Pick:_
+        (a). The blocker is the class round 2's pick predicted, and a
+        third patch inside one job would leave `/proc` and leftover
+        processes as the next route. Under a split, no site process ever
+        shares a job with the token.
+      - **For the operator, outside #1143:** the security reviewer's demo
+        printed this cloud container's real `PRISMIC_WRITE_TOKEN`
+        (the-pointe-burbank) into its own transcript, which stays in this
+        session. Whether to rotate it is yours (🔴). Its first probe also
+        created a local user `probeu` in the container. Removing it was
+        refused, and it dies with the container.
 
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
@@ -2379,6 +2447,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     host is counted, because `initAnalytics` gates on the hostname alone, and
     that affects every tagged site.
     **Answered 2026-10-05 ~18:45Z: yes, merge before item 45.** The PM session's `land-prs` on data-dynamiq#59 was refused by the cloud session's permission policy as a production deploy, so the merge itself is the operator's click (or a laptop `land-prs`).
+    **Extended 2026-10-05 ~21:05Z: "yes, do 1836dig and 29 Navy too"** (the
+    operator, in the Data Dynamiq session). Built as 1836dig#24 and
+    29-navy#73; see item 49.
 
 74. **Williamson Construction hero: upload three poster frames and publish
     a release (williamson-construction-co#21, new 2026-10-05).** The code
@@ -2600,6 +2671,26 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     Nothing references it, and deleting it from the library is safe.
 
     **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
+
+80. **mantis-landscaping#29, matching round 1 chrome: held after two dirty
+    review rounds (new 2026-10-05, P1-30 / #1107).** #29 (branch
+    `claude/p5-matching-r1-chrome`, head `15b1fc4`, CI green on `7578ef1`)
+    puts the nav in flow and sticky at 70px, gives the footer the
+    reference's box, and makes the gate countable: `top` passes at all four
+    widths.
+    - Round 1 found one major, fixed and confirmed in round 2. With
+      `scroll-padding-top: 70px` on `html`, every focus inside the stuck nav
+      scrolled the page (1500 → 1078 tapping Close at 390). It also found
+      two wrong citations (the offset and the gutter evidence) and four
+      unguarded behaviours, all fixed or ledgered.
+    - Round 2 found one minor, now fixed but unreviewed. The skip link
+      targets `<main id="main-content">`, which `main [id]` did not cover,
+      so main landed under the nav. The rule is now `main, main [id]`, with
+      a skip-link smoke test at 1440/390. Mutations M8 and M9 both go red.
+    - _Ask:_ (a) land #29 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). The unreviewed change is one selector, with its
+      own red-on-mutation test. The carousels batch (branch
+      `claude/p5-matching-r1-carousels`) is the next round either way.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 

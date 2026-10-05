@@ -336,6 +336,19 @@ describe("readTagConfig", () => {
     expect(cfg?.foreignAnalytics).toBe(true);
   });
 
+  it("reads no tag out of test fixtures or type declarations", async () => {
+    // The starter's src/lib/privacy/services.test.ts calls initAnalytics in its
+    // fixtures, and an app.d.ts may declare `dataLayer` on Window. Neither
+    // ships, so neither is a tag the site runs.
+    const dir = await siteWith({
+      "src/lib/privacy/services.test.ts": `initAnalytics({ measurementId: "G-CCCCCCCCCC" });`,
+      "src/app.d.ts": `interface Window { dataLayer: unknown[] }`,
+    });
+    const cfg = await readTagConfig(dir);
+    expect(cfg?.measurementId).toBeNull();
+    expect(cfg?.foreignAnalytics).toBe(false);
+  });
+
   it("distinguishes 'could not look' from 'looked, it declares nothing'", async () => {
     // No src/ at all is a bad path or a failed clone — the audit must say it
     // could not look. A readable checkout with no analytics anywhere is a real
