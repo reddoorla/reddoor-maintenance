@@ -8374,3 +8374,15 @@ ask is Operator decision 75: the worker's pick is to seed from the fallback
 chain and review once more. #1157 is unmerged; its CI `build` passed on `b2592187` at 15:01Z
 (it was still running at 14:56Z, when this entry was first drafted), and
 the fleet rollout has not started.
+
+## 2026-10-05 — Mantis P5: four of five "done when" met; the matching gate needs the laptop (mantis-landscaping#19, #20, #24, #25)
+
+The site-side record is mantis-landscaping's journal entry (#26). What belongs here is about method.
+
+**Lighthouse baselines must be re-measured on the same day, as medians.** The plan's 10-01 Blux table was one run per page. Re-measured today, 3 runs each, Blux's project page scored 92, 74 and 66. Against that one-run baseline, the new site's first numbers looked like a regression on `/` (89 against 96). A same-day median showed the real gap, and then that #20 closed it (98 against 97).
+
+**Two scores were artifacts of the instrument, not the site.** SEO 69 is the `netlify.app` mirror's deliberate `noindex` (`is-crawlable`); the same build served from a non-mirror host scores 100. Best Practices 96 on `/contact-us` is headless Chrome drawing Turnstile error 600010. Both were checked against a source the instrument could not influence before being set aside.
+
+**The pre-hydration trap struck a third time.** Mantis#25's first smoke test mutated the DOM before Svelte hydrated. Svelte then re-mounted the strip and the test measured the original. This is the same mechanism as form-e2e's "refilled" (#1148) and #17's probe. The mutation that restores the old code exposed it, by passing on one run and failing on the next. Any probe that writes to a SvelteKit page must wait for hydration, or not write to the page at all. This belongs in #1148's fix, and probably in the matching-a-page skill too.
+
+**Still open:** the matching gate (Operator decisions 76) and P6's DNS (61).
