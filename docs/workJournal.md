@@ -8227,3 +8227,22 @@ This is the CLAUDE.md rule in small: the first and only FAIL-shaped signal from 
 The operator approved the push the permission system had refused twice ("push approved do it"). The branch had been sitting only in the cloud container, which restarted twice during the rollout and kept it on disk both times. It was pushed at `6d86b0c` and landed green as #19. Its two extra hook tests came from williamson-homes's port, whose worker found that deleting the hook's X-Frame-Options removal, or narrowing the framer list, passed every test the starter ships. Each of the two mutations turned one test red on construction before the push.
 
 The same message settled ask (d): "dont worry about non maintenance sites". hedloc (#53, held) and both Burbank proofs of concept (`claude/prismic-cli`, pushed, no PR) stay unmerged. Their sync with Prismic is unproven, because MCP isn't activated for those repositories. Phase 4 therefore ends at 14 landed site repos, and the session following up on reddoor-starter#168 has each one.
+
+## 2026-10-05 — Mantis P4b: the newsletter signup, through Resend and the digest (mantis-landscaping#18, `9ea17a1`)
+
+Operator decisions 71 asked for the client's Mailchimp key. The operator answered that the client does not use Mailchimp, and that signups should go through our own Resend and the digest. Reading `src/forms/ingest.ts` showed that path already exists for every site. A `newsletter` row is stored, sent through the same Resend notify as a contact message, and counted as a signup in the digest. Mailchimp and the webhook are add-ons that run only when the site row names them. My question had assumed the plan's "Mailchimp-backed" wording described a requirement. It described what Blux did.
+
+The signup shares `/contact-us` with the contact form, using two named actions. Two review rounds found four real defects in a design I had believed was finished:
+
+- A relative `?/contact` replaces the page's query string, so no lead carried its UTMs. My own evidence that they survived came from a URL no browser sends.
+- One `form` prop meant using the second form brought the first back, empty.
+- An action-less POST from a tab opened before the deploy answered 404, and the lead was lost.
+- A lowercase `%2f` action key slipped past a filter that matched only `%2F`.
+
+The fixes are a live-query action builder, a success latch per form, a 307 from the hook (a 303 would drop the body), and keys decoded before filtering. After round 2 the operator chose to fix and land on green CI rather than run a third round. Mutations were named before each round's code. All went red, and the tables are in the PR body.
+
+**Live** (`9ea17a1`): `/contact-us?utm_source=live` renders `action="?utm_source=live&/contact"` and `…&/subscribe`, and form-e2e passes against production. Its `re-filled once` note is the probe artifact tracked in #1148.
+
+**Still open:** one human submit of the live form, for the Turso and notification trace (OD 71). After that, P5.
+
+**Process note:** round 1's reviewer overwrote my fake-ingest script in the shared session scratchpad and left its own server bound to another port. My next browser run showed a 502 on a correct page. Reviewers now get their own ports and are kept out of the scratchpad. Proving that the fake ingest answers, before each run, is now the first step of every probe.
