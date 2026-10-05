@@ -5,8 +5,10 @@ import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 
 export type AnalyticsTagCommandOptions = {
-  measurementId?: string;
-  productionHost?: string;
+  /** cac type-coerces a numeric option value, so `--measurement-id 556916505`,
+   *  the property ID this flag is most often confused with, arrives as a NUMBER. */
+  measurementId?: string | number;
+  productionHost?: string | number;
   cwd?: string;
 };
 
@@ -29,12 +31,13 @@ export async function runAnalyticsTagCommand(
   site: string | undefined,
   opts: AnalyticsTagCommandOptions,
 ): Promise<{ output: string; code: number }> {
-  const measurementId = opts.measurementId?.trim() ?? "";
+  const rawId = opts.measurementId === undefined ? "" : String(opts.measurementId);
+  const measurementId = rawId.trim();
   if (!MEASUREMENT_ID_RE.test(measurementId)) {
     return {
       output:
         `--measurement-id must be a GA4 web-stream ID (G- plus 10 characters); got ` +
-        `${JSON.stringify(opts.measurementId ?? "")}. That is not the numeric property ID on the ` +
+        `${JSON.stringify(rawId)}. That is not the numeric property ID on the ` +
         `site's Websites row — the two are different values and only one ships in the page.`,
       code: 2,
     };
@@ -43,7 +46,8 @@ export async function runAnalyticsTagCommand(
   // Required here, though the library call can derive it: this command resolves
   // a checkout PATH, which carries no fleet row and so no deployed URL. Without
   // it the recipe refused with a note that blamed a row it never read.
-  const productionHost = opts.productionHost?.trim() ?? "";
+  const rawHost = opts.productionHost === undefined ? "" : String(opts.productionHost);
+  const productionHost = rawHost.trim();
   if (productionHost === "") {
     return {
       output:
@@ -58,7 +62,7 @@ export async function runAnalyticsTagCommand(
     return {
       output:
         `--production-host must be a bare hostname such as www.example.com; got ` +
-        `${JSON.stringify(opts.productionHost)}. No scheme, port or path: initAnalytics compares ` +
+        `${JSON.stringify(rawHost)}. No scheme, port or path: initAnalytics compares ` +
         "it to location.hostname, so a URL here keeps the tag off on every host.",
       code: 2,
     };
