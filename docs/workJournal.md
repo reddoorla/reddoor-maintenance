@@ -8445,3 +8445,7 @@ array one.
 The two-dirty-rounds rule held for the third round as well. The fixes are
 small, but the operator approved one re-review, not open-ended rounds, so the
 new ask went under decision 75 and #1157 is still unmerged.
+
+## 2026-10-05 — The queued decision-75 worker found its work already done (no code change)
+
+This worker was queued at ~18:45Z to build decision 75's answer (a) on #1157 and run one more review. At 19:29Z, by `date -u`, `origin/main` was already at `02fa4b94` (#1169). The session that was still open when the answer came had pushed `51e56b1a` to `claude/great-turing-v374rg`, which holds the fallback seed, the one-DNS-label regex and the BigInt-safe message. It had also run the third review, found it dirty (falsy `frame-src`/`child-src` read as hand-written values, and the string-`child-src` stop unpinned), and written the new ask under item 75. My brief says that a dirty third round means no fourth round, the findings go into item 75, and the session ends. All three steps had already happened, so this session changed no code, ran no review, and left #1157 unmerged. P1-25 stays in the table until the operator answers the round-3 ask. Before acting on a queued brief, re-read `main`: a decision answered in a live session can be carried out by that session before the queued worker starts.
