@@ -1699,15 +1699,12 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       `claude/prismic-cli` (the-tower-burbank `a3f9aeb`, the-pointe-burbank
       `dcc9701`) with no PR. _Pick:_ activate; a later session runs the
       connector comparison, opens their PRs and lands all three.
-<<<<<<< HEAD
-    - _Ask (e), phase 4:_ williamson-construction-co is migrated and proven
-      in sync (connector, 0 differences over 3 types and 29 slices), but the
-      permission system refused the worker's `git push` of `claude/prismic-cli`
-      (head `9e18320`), and then the session's own push of `6d86b0c`, which
-      adds two hook tests. The branch exists only in the cloud container that
-      built it; if the container is gone, re-run the migration from the recipe
-      (`docs/prismic-migration-plan-2026-10.md` §9 and this session's
-      journal). _Pick:_ allow that push; the branch is ready for its PR.
+      **Answered 10-05 ~01:05Z: "dont worry about non maintenance sites".**
+      hedloc and both Burbank sites are left as they are (hedloc#53 open,
+      the Burbank branches unmerged), not pursued.
+    - _Ask (e), phase 4:_ the refused push of williamson-construction-co's
+      migration. **Answered 10-05 ~01:05Z: "push approved"**; it landed as
+      williamson-construction-co#19 (`f1c3a6c`, pinned `6d86b0c`), row above.
     - **10-04 23:42Z: follow-up landed** from caltex-landing#69's review
       (reddoor-starter#168 `da084ba`, reddoor-starter-blux#39 `907a3bf`). The
       barrel plugin keeps `@prismicio/simulator` out of every public page's
@@ -1716,16 +1713,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       espada needed nothing: its build already kept the simulator in its own
       node. williamson-construction-co got it after its own migration
       (#19 `f1c3a6c`) as #20 (`d4c6e09`), 10-05 01:3xZ. hedloc and both
-      Burbank proofs stay as they are: the operator said not to worry about
-      the non-maintenance sites (relayed by the phase 4 session, 10-05).
-=======
-      **Answered 10-05 ~01:05Z: "dont worry about non maintenance sites".**
-      hedloc and both Burbank sites are left as they are (hedloc#53 open,
-      the Burbank branches unmerged), not pursued.
-    - _Ask (e), phase 4:_ the refused push of williamson-construction-co's
-      migration. **Answered 10-05 ~01:05Z: "push approved"**; it landed as
-      williamson-construction-co#19 (`f1c3a6c`, pinned `6d86b0c`), row above.
->>>>>>> origin/main
+      Burbank proofs stay as they are, per the answer to ask (d).
 58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
     14 pages): held after two dirty review rounds.**
     - Round 1 found four majors, fixed in `7db29f3`:
