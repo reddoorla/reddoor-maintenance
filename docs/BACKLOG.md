@@ -2672,6 +2672,26 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
 
     **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
 
+80. **mantis-landscaping#29, matching round 1 chrome: held after two dirty
+    review rounds (new 2026-10-05, P1-30 / #1107).** #29 (branch
+    `claude/p5-matching-r1-chrome`, head `15b1fc4`, CI green on `7578ef1`)
+    puts the nav in flow and sticky at 70px, gives the footer the
+    reference's box, and makes the gate countable: `top` passes at all four
+    widths.
+    - Round 1 found one major, fixed and confirmed in round 2. With
+      `scroll-padding-top: 70px` on `html`, every focus inside the stuck nav
+      scrolled the page (1500 → 1078 tapping Close at 390). It also found
+      two wrong citations (the offset and the gutter evidence) and four
+      unguarded behaviours, all fixed or ledgered.
+    - Round 2 found one minor, now fixed but unreviewed. The skip link
+      targets `<main id="main-content">`, which `main [id]` did not cover,
+      so main landed under the nav. The rule is now `main, main [id]`, with
+      a skip-link smoke test at 1440/390. Mutations M8 and M9 both go red.
+    - _Ask:_ (a) land #29 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). The unreviewed change is one selector, with its
+      own red-on-mutation test. The carousels batch (branch
+      `claude/p5-matching-r1-carousels`) is the next round either way.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
