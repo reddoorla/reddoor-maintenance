@@ -226,6 +226,29 @@ describe("recipes/analytics-tag, run for real", () => {
     expect(res.notes).toContain("G-OLDOLDOLDX");
   });
 
+  it("does not count test, spec or declaration files as a tag the site already runs", async () => {
+    // The starter ships src/lib/privacy/services.test.ts, whose fixtures call
+    // initAnalytics and name a gtag loader. None of these files reaches the
+    // browser; counting them refused 29 Navy's install (2026-10-05).
+    const cwd = await site({
+      "src/lib/privacy/services.test.ts": `initAnalytics({ measurementId: "G-ABCDEFGHIJ" });\n`,
+      "src/lib/x.spec.ts": `const s = "https://www.googletagmanager.com/gtag/js?id=G-X";\n`,
+      "src/global.d.ts": `declare function initAnalytics(o: unknown): void; initAnalytics({});\n`,
+    });
+    const res = await run(cwd);
+    expect(res.status).toBe("applied");
+    expect(await exists(join(cwd, HOOKS_CLIENT_RELATIVE))).toBe(true);
+  });
+
+  it("still counts the same call in a shipped file", async () => {
+    const cwd = await site({
+      "src/lib/privacy/services.ts": `initAnalytics({ measurementId: "G-ABCDEFGHIJ" });\n`,
+    });
+    const res = await run(cwd);
+    expect(res.status).toBe("failed");
+    expect(res.notes).toContain("src/lib/privacy/services.ts");
+  });
+
   it("refuses a site that already loads a tag, names the file, and writes nothing", async () => {
     const rel = "src/lib/components/Analytics.svelte";
     const cwd = await site({

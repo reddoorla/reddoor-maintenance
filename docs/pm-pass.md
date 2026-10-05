@@ -1,10 +1,13 @@
 # The daily PM pass
 
-A scheduled Routine ("Reddoor Project Manager", Monday to Thursday) starts a
-fresh cloud session and gives it this file. Its cron is `48 11 * * 1-4` with no
-time zone, which is UTC: 04:48 PDT, and 03:48 PST once daylight saving ends on
-2026-11-01 (read from `list_triggers` 2026-10-05; this line said "every day"
-until then). The evening pass, below, is a second Routine on the same file. The session's job is to
+One scheduled Routine ("Reddoor Project Manager") fires twice a day, Monday to
+Thursday, the operator's work week: `CRON_TZ=America/Los_Angeles 48 4,17 * * 1-4`,
+so 04:48 and 17:48 PT all year. Each fire starts a fresh cloud session and gives
+it this file. Before 12:00 PT it runs the morning pass; from 12:00 PT it runs
+the evening pass, below. Either session then stays open as the operator's
+cockpit for the rest of that half-day (set up by the operator 2026-10-05; until
+then the morning cron was a bare UTC `48 11 * * 1-4`, and the evening pass was
+planned as a second Routine). The session's job is to
 **prioritize, not build**: it re-checks `docs/BACKLOG.md` against the live
 state of the fleet and this repo, re-ranks it, writes the day's morning
 report, and lands one docs-only PR. It does not write code, dispatch fleet
@@ -131,8 +134,8 @@ minutes instead of 45:
 
 ## The evening pass
 
-A second Routine ("Reddoor evening pass", 17:18 America/Los_Angeles, Monday to
-Thursday) starts a fresh cloud session at dinnertime and gives it this file.
+The Routine's 17:48 PT fire (Monday to Thursday) runs this pass, in a fresh
+cloud session at dinnertime.
 The operator reads its one notification, then at most the day's `## Evening`
 section, then stops: ten to fifteen minutes. The morning pass ranks the day;
 the evening pass answers one question, **what needs the operator before
@@ -149,8 +152,8 @@ nightly was still pending, so the morning pass could not report any of them.
 ### Rules that bind the evening pass
 
 0. **"Today" is the America/Los_Angeles date**, `TZ=America/Los_Angeles date +%F`,
-   everywhere in this section. The pass fires at 17:18 PT, which is 00:18Z
-   (01:18Z in winter), so the UTC date has already moved on. Read the clock
+   everywhere in this section. The pass fires at 17:48 PT, which is 00:48Z
+   (01:48Z in winter), so the UTC date has already moved on. Read the clock
    with `date -u` beside it, as `CLAUDE.md` asks.
 
 1. Everything under "Rules that bind this session" above applies, except
@@ -260,42 +263,36 @@ merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
    no `NEW` unprotected branch, no draft is waiting, no nightly is red, and
    no release PR is open. Any other result goes in the headline.
 
-### The evening Routine's stored prompt
+### The Routine's stored prompt (both passes)
 
-The operator pastes this into a new scheduled Routine with these settings:
+One Routine, set up by the operator on 2026-10-05:
 
-- **Name:** "Reddoor evening pass".
+- **Name:** "Reddoor Project Manager".
 - **Repository:** `reddoorla/reddoor-maintenance`.
-- **Schedule:** `CRON_TZ=America/Los_Angeles 18 17 * * 1-4`. That is 17:18 PT
-  all year: the zone is written into the cron, unlike the morning pass's
-  bare UTC cron, and the minute is moved off :30 because the scheduler runs
-  late on round minutes.
-- **Model:** the morning pass's.
-- **Notifications:** push on.
-- **Session:** a fresh session for each fire.
+- **Schedule:** `CRON_TZ=America/Los_Angeles 48 4,17 * * 1-4`. The zone is
+  written into the cron, so it does not drift when daylight saving ends on
+  11-01, and the minute stays off :00 and :30.
+- **Session:** a fresh session for each fire. The newest one is the cockpit.
+
+The text below is the prompt as written for the operator to paste. If the
+Routine's copy is edited, this one should be updated in a PR.
 
 ```text
-Evening pass for reddoorla/reddoor-maintenance. It runs Monday to Thursday at 17:18 America/Los_Angeles, each run in a fresh session.
+Daily PM pass for reddoorla/reddoor-maintenance. This Routine fires twice a day, Monday to Thursday, at 04:48 and 17:48 America/Los_Angeles, each run in a fresh session.
 
 Set up first:
-1. This Routine has reddoorla/reddoor-maintenance selected as its repository, so it should already be checked out. If it is not (no checkout of that repo in the working directory), call add_repo (owner reddoorla, repo reddoor-maintenance, access push) and clone it exactly as the result says. If neither is possible, stop and make your final message: "NO REPOSITORY: the evening Routine needs reddoorla/reddoor-maintenance selected as its repository."
-2. In the checkout, run:
-   - git fetch origin main
-   - git status (the checkout must be clean; if it is not, say so and do not discard anything)
-   - git checkout --detach origin/main
-   - CLAUDE_CODE_REMOTE=true bash .claude/hooks/cloud-session-setup.sh
+1. reddoorla/reddoor-maintenance should already be checked out. If not, call add_repo (owner reddoorla, repo reddoor-maintenance, access push) and clone it as the result says. If neither works, stop with: "NO REPOSITORY: the Routine needs reddoorla/reddoor-maintenance selected as its repository."
+2. In the checkout run: git fetch origin main; git status (must be clean; if not, say so and discard nothing); git checkout --detach origin/main; CLAUDE_CODE_REMOTE=true bash .claude/hooks/cloud-session-setup.sh. If any step fails, stop, and make your final message the exact command and its error.
 
-If any of that fails, stop, and make your final message the exact command and its error.
+Then read the clock (TZ=America/Los_Angeles date) and pick the pass:
+- Before 12:00 PT: the MORNING pass. Read docs/pm-pass.md and follow "The pass, in order" exactly (on Monday, also "Mondays: the heavier pass"). Budget about 45 minutes, or 75 on Monday.
+- 12:00 PT or later: the EVENING pass. Read docs/pm-pass.md and follow "The evening pass" exactly, including its rules. It appends to today's morning report rather than writing a new one.
 
-Then read docs/pm-pass.md, section "The evening pass", and follow it exactly; it is the full instruction set. In short:
-- "Today" is the America/Los_Angeles date (TZ=America/Los_Angeles date +%F). The UTC date has already rolled over when this runs.
-- Run node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance --main-since <the UTC time, with Z, that today's morning PR merged>. Lift every ask it finds, on a branch or newly on main, into tonight's asks word for word, and list every NEW unprotected branch.
-- Read the last 24 hours of scheduled runs with each FLEET_WRITE_SUMMARY line, today's daily-reports drafts waiting for approval with the exact /s/<slug> ask, PRs merged since the morning pass, and open PRs that are red, draft or release.
-- Append "## Evening" to today's docs/morning-reports/MORNING_REPORT_<today>.md, add one docs/workJournal.md line, open one docs-only PR from a new worktree, and land it with node scripts/land-prs.mjs once CI is green.
+Both passes: facts come from the repo, the APIs and the nightlies, never from memory. Do not write code. Do not dispatch daily-reports or fleet-security. Do not take items claimed by other sessions. Never post to Discord. Land exactly one docs-only PR with node scripts/land-prs.mjs once CI is green. List any nightly still pending at the time budget as pending.
 
-Read-only otherwise: do not write code, do not edit docs/BACKLOG.md, do not open PRs for other branches, do not comment on other PRs, do not re-run or dispatch any workflow, and never post to Discord. You cannot see live sessions; worker state comes from branches and PRs only. Stop after about 20 minutes and list whatever is still pending as pending.
+End with one push notification and a last message that is the one-line verdict, followed by the operator's top three dated items.
 
-Your last message is the push notification. Its first line is the single most important thing for tonight, or exactly "nothing needs you tonight" when the pass found nothing (the section defines when that is allowed). Then up to three more lines, one per remaining ask, most urgent first.
+After that, this session is the operator's cockpit and project manager for the rest of the day: answer questions, record decisions in docs/BACKLOG.md, and queue worker sessions with briefs. Do not do work that a worker should be assigned.
 ```
 
 ## What the operator wants to see

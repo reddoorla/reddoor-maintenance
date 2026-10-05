@@ -8331,6 +8331,8 @@ checkout would have misread it.
 
 ## 2026-10-05 — The Instagram post-kit proposal for Tim exists (`docs/proposals/2026-10-05-instagram-post-kit.md`)
 
+> Superseded in part by 2026-10-05 — The post-kit PDF exists after all: `rd-md-pdf` is `reddoorla/reddoor-md-pdf`.
+
 The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
 
 ## 2026-10-05 — Data Dynamiq: DRAFT `/privacy` and GA4 built, green, held for item 45 (data-dynamiq#59, #1160)
@@ -8445,6 +8447,8 @@ At about 18:45Z the operator answered all seven open decisions in one message: 7
 
 ## 2026-10-05 — P1-25 round 3: the fallback seed landed, the review is dirty again (#1157, Operator decision 75)
 
+> Superseded in part by 2026-10-05 — P1-25 round 4: SvelteKit refuses what round 3 called "unset".
+
 The operator answered decision 75 with (a), in this session as well as in
 #1167. `51e56b1a` now seeds an unset
 `frame-src` from `child-src`, then `default-src`, which is the order CSP
@@ -8471,3 +8475,182 @@ array one.
 The two-dirty-rounds rule held for the third round as well. The fixes are
 small, but the operator approved one re-review, not open-ended rounds, so the
 new ask went under decision 75 and #1157 is still unmerged.
+
+## 2026-10-05 — CalTex: AED Programs and Our Story, code ready, content blocked on the Prismic connector (caltex-landing#71, Operator decision 79)
+
+Worker for Erik's #caltex ask of 18:29Z. I read the message from Discord (GET
+only) and his 3446×2090 screenshot. Neither "AED Leasing" nor "AED
+Purchases" is Prismic content. Both are hard-coded page names: the nav, the
+h1s and the `<title>`s of two static routes that read their content from the
+`home` singleton. The "section" Erik wants renamed is the whole `/purchases`
+page. The leasing hero (`s5_title`) is an outlined SVG that already says
+"LIFE-SAVING AED PROGRAMS", and the footer holds no section names, so
+neither needed a change.
+
+I renamed the routes, not just the labels, because a page called Our Story at
+`/purchases` tells search the wrong thing, and a 301 carries the old URL's
+standing. The adversarial review said the netlify.toml redirects would
+never fire, because adapter-netlify's `/*` function would answer first. It
+argued that from Netlify's request-order doc, and it was wrong. Read on the
+deploy preview, `/leasing` and `/purchases` return 301 and `/no-such-page`
+still returns 404. The same probe found the review's real point:
+`/preview/leasing` and `/preview/purchases` are 200 on live, prerendered by
+the optional `[[preview]]` segment, and the rename made them 404. Two more
+301s fixed it. The lesson again: a doc about request order is a different
+authority from the server, and only the server settles it.
+
+On type size, the site has no step between the old headline (h3, 28px) and
+the bullets (`p`, 16px), so the copy uses Tailwind's own tokens:
+`text-lg! lg:text-2xl!`, 24px on desktop and 18px below 1024. The `!` is
+not decoration. `app.css` sets `p { font-size: 16px }` unlayered, which
+beats every layered Tailwind utility. Without the `!` the class compiles and
+does nothing. I measured the computed sizes in Chromium (24/16 and 18/16)
+rather than trusting the class names. A Key Text field cannot hold a
+paragraph break, so the two paragraphs go in `s3_title` and the unrendered
+`s3_closing_text`, with no model change. The photo is 2073×1930, 1.074:1, in
+a square frame, so `object-cover object-right` crops from the left, where
+Erik left room.
+
+The content half stopped at the first call. The Prismic connector refuses
+every call for this repository, including `list_releases`: "Prismic MCP is
+not activated for repository caltex-landing". This is a different failure
+from Operator decision 74 (that was a permission policy on the upload; this
+is a per-repository switch in Prismic's builder settings). The Dropbox `dl=1`
+link downloads fine from the container. So there is no release to name, and
+decision 79 asks for the five-minute edit by hand.
+
+I held #71 unmerged on purpose, not because a merge was refused. Merging
+before the content is published would put "Our Story" over the old purchase
+sentence on a live client site. The evidence page with before/after at
+1440/390 (copy injected in the browser, labelled as such) is
+https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix. One mutation went red as
+it should: moving `our-story` back to `purchases` failed the new smoke
+entry. Redirects are Netlify-only and were proven on the preview instead.
+The container could not run `pnpm test:smoke` as written: Playwright 1.60
+wants `chromium_headless_shell-1243`, and the image has 1234. A symlink
+under a private `PLAYWRIGHT_BROWSERS_PATH` ran it.
+
+## 2026-10-05 — The queued decision-75 worker found its work already done (no code change)
+
+This worker was queued at ~18:45Z to build decision 75's answer (a) on #1157 and run one more review. At 19:29Z, by `date -u`, `origin/main` was already at `02fa4b94` (#1169). The session that was still open when the answer came had pushed `51e56b1a` to `claude/great-turing-v374rg`, which holds the fallback seed, the one-DNS-label regex and the BigInt-safe message. It had also run the third review, found it dirty (falsy `frame-src`/`child-src` read as hand-written values, and the string-`child-src` stop unpinned), and written the new ask under item 75. My brief says that a dirty third round means no fourth round, the findings go into item 75, and the session ends. All three steps had already happened, so this session changed no code, ran no review, and left #1157 unmerged. P1-25 stays in the table until the operator answers the round-3 ask. Before acting on a queued brief, re-read `main`: a decision answered in a live session can be carried out by that session before the queued worker starts.
+
+## 2026-10-05 — "Safe to archive" now also means "no clear next step" (CLAUDE.md)
+
+The Data Dynamiq session above ended with "Safe to archive this session." It had pushed everything, landed its journal, and handed data-dynamiq#59 off as Operator decisions 73. That met the rule as #1158 wrote it. The operator corrected the meaning: archiving also clears the session's arc of context, so the line is only true when nothing would send the session straight back to work. A held PR whose likely answer is "yes, merge it" is such a thing. A handed-off blocker makes a session resumable, not finished. The rule in CLAUDE.md now names both conditions. As it happened, 73 was answered yes the same afternoon, and the merge stayed with the operator only because the cloud permission policy refuses a client-site merge as a production deploy.
+
+## 2026-10-05 — CalTex release staged; the evidence fonts were wrong (Operator decision 79, release `asQFsBIAABYMgAt2`)
+
+The operator activated Prismic MCP for `caltex-landing`, and the release
+went in: four deltas on `home`. The first upload of the family photo became
+a "document" with no dimensions. Dropbox's `dl=1` redirect target serves the
+JPEG as `application/json`, and `upload_asset` trusts the response's
+content type, not the bytes. The bytes were right: the stored file was
+byte-identical to the Dropbox one. imgix serves the same object as
+`image/jpeg`, so re-uploading from
+`images.prismic.io/caltex-landing/<id>_…jpg` produced a proper image
+(2073×1930, same 2,662,063 bytes). The stray document asset is left for the
+operator to delete. The publication card (`present_release`) was refused by
+the session's permission classifier as an unrequested commit. That is fine:
+staging was the ask.
+
+The operator pointed out that the evidence page had the wrong fonts. It
+did. The site loads no webfont for headings or body. It names Impact and
+"Helvetica Neue LT Std", then helvetica, and leans on the visitor's system
+fonts, which every Mac has and this container did not. So every "before"
+and "after" shot from the first session set headings in a default serif,
+and nothing in the shots said so; my note blamed only the logo. The fix was
+to install the shots' missing fonts, not to change the site: Impact from
+Microsoft's original `impact32.exe` (corefonts; the Debian installer failed
+inside the container), plus `fonts-urw-base35`, whose Nimbus Sans is the
+metric-compatible alias fontconfig serves for helvetica. `document.fonts.check("16px Impact")` now
+returns true on every page shot. The broken desktop logo was a second,
+container-only failure: Chromium reports `ERR_BLOCKED_BY_ORB` on the
+`%2B`-named SVG, while a browser-headered curl to the same URL gets a 200
+`image/svg+xml`. The re-shoot serves the CDN's own bytes to the page and
+says so. The "after" shots now come from the deploy preview (Netlify's
+drawer removed), with the release's copy and the real Prismic asset
+injected. The lesson for any evidence screenshot taken in a cloud
+container: check the computed font against the font actually used before
+calling the picture a likeness.
+
+## 2026-10-05 — CalTex Our Story is live (caltex-landing#71, Operator decision 79 done)
+
+The operator published release `asQFsBIAABYMgAt2`, and #71 merged at 21:17Z.
+The live site was checked from outside right after the deploy:
+`/leasing`, `/purchases` and `/preview/leasing` return 301 to the new paths,
+`/our-story` carries the new title, Erik's first paragraph and the family
+photo with its alt text, and the sitemap lists `/aed-programs` and
+`/our-story`. Twice that evening a check never got a runner: it sat
+queued for 15 minutes and was cancelled with zero steps (`build` on #1175,
+`codegen` and `deploy-preview-comment` on #71). One re-run each passed. That
+is a GitHub runner-queue failure, not a test result, and the job metadata
+(`runner_name` empty, `steps` empty) is how to tell the two apart.
+
+## 2026-10-05 — P1-25 round 4: SvelteKit refuses what round 3 called "unset" (#1157, Operator decision 75)
+
+The operator answered (a) again, and `d5d1b1d7` built what round 3 asked
+for. It treats `null`, `false` and `""` as unset at each step of
+`frame-src`, `child-src`, `default-src`. It stops at a string, and drops
+`'none'` on every path. 69 tests pass, and 18 mutations all go red.
+
+Round 4 corrected round 3's belief, and my journal entry above repeats that
+belief. Round 3 fed the config straight into SvelteKit's `Csp` class and read
+`get_header`'s `if (!value) continue`. But a real build reaches `Csp` only
+after `validate_config`, and its `string_array` check
+(`options.js:445-452`) throws "must be an array of strings, if specified" on
+`null`, `false`, `""` or a string. So those values never reach the browser:
+SvelteKit refuses them. The new handling is harmless to the policy. Round 4
+ran every input through both stages, and each emitted header was right. But
+it rests on an unreachable state, and it hides a site's error when a
+repository is named. That is now the ask under decision 75: the worker's
+pick is to go back to "missing key only", and land.
+
+The lesson extends the round-3 one. "Unset" means whatever the consumer
+treats as unset, and the consumer is the whole pipeline, not the last class
+in it. Round 3 ran a negative control against one stage and called it the
+system. The read that corrected it came from a different authority: the
+validator, which round 3 skipped.
+
+## 2026-10-05 — The post-kit PDF exists after all: `rd-md-pdf` is `reddoorla/reddoor-md-pdf`
+
+This corrects the entry above, which said `rd-md-pdf` was not on a cloud container and that no PDF was made. The tool is the public repo `reddoorla/reddoor-md-pdf`. My search was for the literal string `rd-md-pdf`, and `reddoor-md-pdf` does not contain it. `docs/meta-week/_research/inv-04-site-fleet-composition.md` already lists it as the "md→pdf tool", so one read of the org's repo list (`list_repos` with `pdf`) would have found it. The operator pointed it out.
+
+From a cloud session the tool works without its hosted app. Clone it, run `pnpm install`, then call `md-to-pdf` with the repo's `src/lib/server/pdf-config.ts` (Node 24 strips the types) and `CHROME_PATH` as the executable. Pass `--proxy-server=$HTTPS_PROXY`, or Chromium cannot fetch the Typekit and Google fonts. With the proxy set, `pdffonts` shows PragmaticaWeb and Besley embedded.
+
+The PDF is four pages, not the brief's two at most: at that config's 14px body and 0.85in margins, the text alone fills three. The PDF copy differs from the committed Markdown in three ways:
+
+- it shows the three feed crops inline;
+- its image table drops the file-name column;
+- it adds `break-inside: avoid` on the caption, because the first render left the "Caption" label stranded at the foot of page 1.
+
+The first version also proposed a weekly kit on a schedule, emailed every Monday. That followed the brief, not the operator, who had said on 10-02 that "the impetus should come from a person." The operator caught it in the PDF. Now a person starts each kit with a project and a one-line seed (why this one, why now), and nothing runs on a timer. The only schedule left is the separate reminder digest, which Tim asked for himself.
+
+## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72, #1173)
+
+The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.
+
+**The two fixes (`f765c982`).** `declined` had been keyed on the head commit. The branch is rebuilt with the default branch's head as a parent, so any commit to `main` made a new commit, and the decline was forgotten. It is now keyed on a sha256 over the written model files and their paths. The hash is read after the model writes and before the site's prettier runs. The fleet's writes run with no spawner, so the bytes are `JSON.stringify(model, null, 2)` and a formatter bump does not move the key. The key rides in the PR body as an HTML comment. Content-keying turned one of round 2's minors into a real path: the bot's own close of a PR would later read as a human's decline of that same content. So `closePr` now strips the key from the body before it closes the PR. For "Update branch", a commit that is not the bot's is still accepted if it is a two-parent merge whose second parent is on the default branch and whose tree equals `git merge-tree --write-tree` of its parents. A merge that resolved a conflict by hand, or folded an edit in, still holds.
+
+**Mutations.** Six of seven went red. M34 (the second parent need not be on `main`) survived. Anything a non-default second parent brings in falls in `baseHead..prismic-sync` and is judged on its own author, so the check is a second layer. One instrument failure belongs here: M31's first run used a sed whose escaping did not match, so the file was never mutated and the run "passed". The rerun first checked the file against the original, and went red in two tests.
+
+**Round 3 was dirty, and the blocker is the one the split would have removed.** Security found that `siteProcessEnv` strips only the CHILD's environment. The site's own prettier and `prismic` CLI run as the same Linux user as the node process that holds the token, so `/proc/$PPID/environ` returns the App token and every client's Prismic token. Same-user access to `/proc/<pid>/environ` needs only the ptrace read check, and Yama does not apply to it. A process left running by an install can also read later git commands' auth header from `/proc/<pid>/cmdline`. It can also rewrite a later clone's `.git/config` after the fingerprint check. Round 2's `GIT_CONFIG_GLOBAL` fix and the fingerprint close neither route. A major also turned up: the stray-file check compares against `HEAD`, which site code can move. The other lenses found three more majors: "Update with rebase" holds the site forever; `held` is green and silent; and the App token may lack `workflows`, which a rebuild would need when `main` has a newer workflow file. That last one is unproven and needs a live push. The new ask is under item 72, and the pick is the split (a) the round-2 worker first proposed. Under the two-dirty-rounds rule, and the operator's one authorised re-review, there was no fourth round.
+
+**Belief corrected.** The round-2 framing was "two blockers, both fixed, one residual risk". In fact the environment-stripping that rounds 1 and 2 relied on never isolated anything from a same-user child. Each round closed the route it was shown, and the class stayed open.
+
+**What the review cost.** The security reviewer's demonstration printed this container's real `PRISMIC_WRITE_TOKEN` (the-pointe-burbank) into its own transcript. Its first probe also created a local user `probeu`, whose removal the permission policy refused. Both are written into item 72 for the operator. Rotation is 🔴, and the user dies with the container. Next time, a reviewer brief should forbid printing environment values and creating users.
+
+**Landing the ask was harder than the review.** The docs PR carrying item 72 and this entry (#1173) lost six `land-prs` attempts. Two runs died first on "The job was not acquired by Runner of type hosted", which a re-run fixed. Each later attempt reached green and then found `main` `DIRTY`. Between 19:51Z and 21:42Z, other sessions landed a journal append on `main` roughly every 10 minutes (#1172, #1170, #1176, decision 79's two, decision 75's round 4, the post kit), against CI's roughly 15. Each append conflicts with any other entry added at the end of the file. The way out was to split the PR: the item-72 line went alone (no one else edits that region), and this entry went separately. While several sessions are active, a docs PR whose purpose is to land an ask should carry the BACKLOG line on its own.
+
+## 2026-10-05 — Data Dynamiq's GA4 tag is live and the property receives it (data-dynamiq#59)
+
+The operator merged data-dynamiq#59 at about 21:02Z, after answering Operator decisions 73 "yes, before item 45". A cloud session cannot merge it: the permission policy refuses a client-site merge as a production deploy. `/privacy` went from 404 to 200 on `www.datadynamiq.com` within a minute. Measured in order: GA4 Realtime on 556916505 returned 0 rows. Then one real browser visit loaded `gtag/js?id=G-V11LZYNMY2` and sent a `g/collect` beacon, with `dataLayer` holding 4 entries. Realtime then read 1 user and 3 events at `minutesAgo 00` (21:04:37Z). The empty read before the visit is the negative control. The one user is the verification visit itself, from a cloud IP, so organic traffic is still unmeasured at the time of writing. That is the cost of proving the tag end to end, and it will sit in the property's first day. Vimeo's `player.js` is no longer on the live page.
+
+## 2026-10-05 — 1836dig and 29 Navy: the same page and tag, and a recipe bug the starter's own tests set off (#1178, 1836dig#24, 29-navy#73)
+
+The operator extended Operator decisions 73 to the other two maintained sites that had a GA4 stream and no tag. Both ports followed Data Dynamiq's, and both differed from it in the same way: each has a real `kit.csp`, and `analytics-tag` refuses to edit SvelteKit's own option. It extends only `createSvelteConfig`'s `csp` and says so, then prints the hosts. So on both, the gate spec was written first and was red, because the CSP refused the loader the hook injects. It went green once `ANALYTICS_CSP`'s hosts were added by hand. That is the silent failure the recipe's CSP note exists to prevent, and here it was caught by a test rather than by a property that never filled.
+
+**The recipe bug.** On 29 Navy, the released recipe refused with "src/lib/privacy/services.test.ts already calls initAnalytics with an ID this recipe cannot read". The starter ships that test file inside `src/`, and its fixtures call `initAnalytics`. Data Dynamiq and 1836dig ported the tests to `tests/`, which is why neither hit it. Every starter-derived site would have. The shared `src/` walk now skips `*.test.*`, `*.spec.*` and `*.d.ts`. That also corrects the analytics audit, which shares the walk and would have read the fixture as a tag. One test was red before the fix; a control proves the same call in a shipped file still refuses.
+
+**Site-specific calls.** 29 Navy has no footer by design and no form. Its link is a row in the contact block, which costs one 28px line box below 991px and nothing at 1440. That is recorded in its `matching/LEDGER.md` as a deviation, with the measurements. 1836dig's form sits below the fold at 1280×800, so the Data Dynamiq test "the notice is in view without scrolling" was the wrong claim there, and its test asserts adjacency to the button instead. A harness bug showed up only on 29 Navy, which loads far more assets: a request still proxied at teardown threw "Fetch response has been disposed". Both sites' gate specs now unroute after each test.
+
+**Measured on 1836dig#24's deploy preview** (built output, real browser): `/privacy` answers 200, and the CSP header carries the GA hosts in `script-src`, `img-src` and `connect-src`. `/` and `/privacy` make no gtag request and define no `dataLayer`, and a hand-injected gtag request was caught by the same recorder. The merges are the operator's click. A live hit is read after each.

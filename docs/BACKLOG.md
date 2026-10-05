@@ -1460,6 +1460,28 @@ analytics"]`). The operator creates properties for the other three. When the
     is item 73. The site collects nothing until it merges, and GA does not
     backfill, so the 10-05 report's analytics section stays empty either way.
     1836dig and 29 Navy are not started.
+    **Live 2026-10-05 [M]:** the operator merged data-dynamiq#59 at ~21:02Z,
+    and `/privacy` answered 200 on `www.datadynamiq.com` at 21:03Z. One real
+    browser visit loaded `gtag/js?id=G-V11LZYNMY2` and sent `g/collect`.
+    GA4 Realtime on property 556916505 read 0 rows before that visit and
+    `minutesAgo 00: 1 user, 3 events` at 21:04:37Z. That user is the
+    verification visit from a cloud IP, not organic traffic. Data Dynamiq is
+    done; 1836dig and 29 Navy still wait, on the same question.
+    **1836dig and 29 Navy, 2026-10-05: built, green, cleared to merge.** The
+    operator extended 73's "yes, before item 45" to both. reddoorla/1836dig#24
+    (`G-1ZYB95TKC1` on `1836dig.com`) and reddoorla/29-navy#73 (`G-MSYB9MQGRV`
+    on `29navy.com`) carry the page, the tag and, unlike Data Dynamiq, GA's
+    hosts added by hand to SvelteKit's own `kit.csp`, which the recipe does
+    not edit. 29 Navy has neither a footer nor a form, so its link is a row in
+    the contact block (cost measured in that repo's `matching/LEDGER.md`).
+    29 Navy's install first hit a recipe bug, fixed in #1178: the `src/` scan
+    read the starter's `services.test.ts` as an existing tag. Both merges are
+    the operator's click, like Data Dynamiq's; a live hit is read after each.
+    Review found one gap for item 45, in the template rather than either port:
+    the policy names no image CDN, yet a Prismic site's pages load
+    `images.prismic.io` (about 99 URLs on 29 Navy's home), so Prismic/imgix
+    receives every visitor's IP. The same holds on every Prismic site in the
+    fleet.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
@@ -2356,6 +2378,52 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
     **Answered 2026-10-05 ~18:45Z: (b)** — keep one job, fix the two correctness majors, and run a third review round on #1143 as it is. A worker session is queued for it.
+    - **10-05 ~20:00Z: round 3 is dirty; #1143 is still a draft and
+      unmerged.** Branch `claude/wizardly-brown-2ylvcv`, head `f765c982`:
+      `origin/main` merged in (`68382a43`), then both round-2 majors fixed.
+      `declined` is now keyed on a sha256 of the written model files, which
+      the PR body carries. The sync strips that key before closing a PR
+      itself. A clean "Update branch" merge of `main` counts as the bot's.
+      Mutations 28–33 go red; M34 survives as a second layer. Round 3
+      (security, correctness, operations) found:
+      - **Blocker (security):** the site's own prettier and `prismic` CLI
+        run as the same user as the CLI, so they can read
+        `/proc/$PPID/environ`: the App token and every `PRISMIC_TOKEN_*`.
+        `siteProcessEnv` strips only the child's environment. The reviewer
+        demonstrated the read in this container. Also, a process left
+        running by a site's install can read later git commands' auth
+        header from `/proc/<pid>/cmdline`, or rewrite a later clone's
+        `.git/config` between the fingerprint check and the push.
+      - **Major (security):** site code can move `HEAD`/the index, so a
+        commit carrying its own files passes the stray-file check (which
+        is checked against HEAD) and is pushed. _Fix:_ diff against
+        `baseHead`.
+      - **Major (correctness):** "Update with rebase" still holds the site
+        forever.
+      - **Major (operations):** `held` is green with no warning. A human
+        commit on a branch that survives a squash merge parks the site
+        silently.
+      - **Likely major (operations; needs a live check):** the App token
+        has no `workflows` permission. A rebuild whose new parent
+        `baseHead` carries a newer `.github/workflows/*` may be refused.
+      - **Minors:** a declined site still pushes a new commit every night;
+        a decline never expires; the key is not canonical; only 30 closed
+        PRs are read.
+      - _Ask:_ (a) split the workflow as first proposed: a job with no
+        token runs install, format and codegen and uploads a patch; a job
+        with the token runs no site code. Then fix the three majors and
+        review once. Or (b) keep one job, but run all site code as a
+        separate unprivileged user, fix the majors, and review once. _Pick:_
+        (a). The blocker is the class round 2's pick predicted, and a
+        third patch inside one job would leave `/proc` and leftover
+        processes as the next route. Under a split, no site process ever
+        shares a job with the token.
+      - **For the operator, outside #1143:** the security reviewer's demo
+        printed this cloud container's real `PRISMIC_WRITE_TOKEN`
+        (the-pointe-burbank) into its own transcript, which stays in this
+        session. Whether to rotate it is yours (🔴). Its first probe also
+        created a local user `probeu` in the container. Removing it was
+        refused, and it dies with the container.
 
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
@@ -2379,6 +2447,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     host is counted, because `initAnalytics` gates on the hostname alone, and
     that affects every tagged site.
     **Answered 2026-10-05 ~18:45Z: yes, merge before item 45.** The PM session's `land-prs` on data-dynamiq#59 was refused by the cloud session's permission policy as a production deploy, so the merge itself is the operator's click (or a laptop `land-prs`).
+    **Extended 2026-10-05 ~21:05Z: "yes, do 1836dig and 29 Navy too"** (the
+    operator, in the Data Dynamiq session). Built as 1836dig#24 and
+    29-navy#73; see item 49.
 
 74. **Williamson Construction hero: upload three poster frames and publish
     a release (williamson-construction-co#21, new 2026-10-05).** The code
@@ -2453,6 +2524,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     is a test plus a one-line condition. Or (c) merge `51e56b1a` as it is
     and file both as a follow-up. _Worker's pick:_ (a). The round-3 defects
     are in the same small function, and a fourth review is cheap.
+    **Answered 2026-10-05 ~21:00Z: (a). Round 4 is not clean, so this is held
+    again (new ask below).** `d5d1b1d7` takes the first truthy entry of
+    `frame-src`, `child-src` and `default-src`. An array is extended, minus
+    `'none'` and a hand-quoted `"'none'"`. A string is left as it is. 69
+    tests pass, and 18 mutations all go red. Round 4 ran the config through
+    SvelteKit 2.70.2's `validate_config` as well as its `Csp` class. The
+    emitted policy was right for every input it tried. But round 3's premise
+    was wrong. SvelteKit's validator (`string_array`,
+    `@sveltejs/kit/src/core/config/options.js:445`) rejects `null`, `false`,
+    `""` or a string in any CSP directive, so the header builder's
+    `if (!value) continue` that round 3 read is never reached. That leaves
+    the falsy-as-unset handling, its docstring and two tests resting on
+    inputs a real build refuses. It also hides a site's error when a
+    repository is named: `frame-src: null` builds, because the fold
+    replaces it with a valid list, but the same config without a repository
+    fails the build. Separately, nothing pins that `frame-src: []` blocks
+    every frame: a mutant that treats `[]` as unset survives and would seed
+    from `default-src`. _Ask:_ (a) go back to treating only a missing key as
+    unset (SvelteKit then refuses `null`/`false`/strings loudly, with or
+    without a repository), fix the docstring, add the `[]` and aliasing
+    tests, and land without a fifth round. The code returns to round 3's
+    reviewed shape, with only tests added. Or (b) keep `d5d1b1d7`'s
+    handling, fix the docstring and tests, and land. Or (c) a fifth round
+    after (a). _Worker's pick:_ (a), so a bad config fails the same way
+    whether or not the site names a repository.
 
 76. **#1162, the evening pass: held after two dirty review rounds (new
     2026-10-05, from its worker).** #1162 (draft, branch
@@ -2514,6 +2610,87 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `matching/spec/` is already in the repo, so a laptop session can begin
     at Phase 1 with no new capture.
     **Answered 2026-10-05 ~18:45Z: run it** — Phase 1 and the gate in a laptop session, starting with `/`. A worker card is queued (laptop only).
+
+79. **CalTex: put Erik's Our Story copy and family photo in Prismic, publish,
+    then merge caltex-landing#71 (new 2026-10-05, Erik in #caltex 18:29Z).**
+    The code half is ready and unmerged:
+    [caltex-landing#71](https://github.com/reddoorla/caltex-landing/pull/71).
+    It renames `/leasing` to `/aed-programs` and `/purchases` to `/our-story`,
+    with 301s (all four old paths, `/preview/…` included, proven on the
+    deploy preview). It also changes the nav labels, titles and sitemap, sets
+    the story copy at 24px (18px under 1024), and frames the photo
+    `object-cover object-right`. The content half could not be staged: the
+    Prismic connector answers "Prismic MCP is not activated for repository
+    caltex-landing" to every call, `list_releases` and `upload_asset`
+    included. So no release exists. Before and after at 1440 and 390, with
+    the copy injected in the browser:
+    https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix (private to you).
+    _Ask:_ in Prismic, open the `home` document (`Z38tQRIAACcALhJe`) and
+    make these edits:
+    - `s3 title`: replace the text with paragraph 1.
+    - `s3 closing text`: replace the text with paragraph 2. It was not
+      rendered before #71, which renders it as the second paragraph.
+    - `s3 image`: upload `Kohnen-Family_crop.jpg` from
+      `https://www.dropbox.com/scl/fi/sswmsdq01iaycppg02x8k/Kohnen-Family_crop.jpg?rlkey=0s1a4uc3ohgw9q0xk99uob4sp&dl=1`.
+      Set its alt to "Ryan and Lacey Kohnen, founders of Caltex Medical, with
+      their family".
+    - Optionally, `s2 eyebrow` → "AED Programs starting at $68 per month
+      include:". No page renders it.
+
+    Paste the two paragraphs from Erik's Discord message
+    (`1556735086710235317`) or from here. Both keep his U+2011 non-breaking
+    hyphens:
+
+    > Boerne residents Ryan and Lacey Kohnen founded Caltex Medical, Inc. in 2025 with a mission to deliver cost‑effective, fully managed, life‑saving AED programs to schools, churches, youth sports organizations, and smaller organizations. Ryan’s experience working for an AED manufacturer from 2015–2017 introduced him to numerous survivors of Sudden Cardiac Arrest (SCA) whose lives were saved because an AED was accessible and properly maintained. He also saw firsthand how many organizations struggled to afford, manage, and keep their AED programs compliant.
+
+    > Driven by a commitment to strengthen the safety of the community they are active in, Ryan and Lacey built Caltex Medical to ensure that schools, churches, and families throughout San Antonio and the Texas Hill Country have reliable, ready‑to‑use AEDs — giving every SCA victim the best possible chance of survival.
+
+    Then publish, merge caltex-landing#71 (or let a session land it with
+    `land-prs`), and tell Erik. Merge order matters: if #71 goes live first,
+    `/our-story` shows the old "Interested in purchasing…" line under the
+    "Our Story" heading. Also open: #71 keeps the five purchase bullets and
+    the Request Info button under the story. Erik named them only as a size
+    reference. _Worker's pick:_ do the edits by hand. It is a five-minute
+    edit, and you are in Prismic to publish anyway. Activating MCP
+    (https://caltex-landing.prismic.io/builder/settings/mcp/) is the
+    durable fix for the next CalTex worker. Keep the bullets until Erik says
+    otherwise, and use 24px over the 20px alternative on the evidence page.
+
+    **Staged 2026-10-05 ~20:25Z, after the operator activated Prismic MCP:
+    publish CalTex release `asQFsBIAABYMgAt2` ("Our Story + AED Programs
+    (Erik 2026-10-05)"), then merge caltex-landing#71, then tell Erik.** The
+    release holds one document (`home`) with four deltas: `s3_title` and
+    `s3_closing_text` (Erik's paragraphs, U+2011 kept), `s3_image` (the
+    family photo, asset `L7bvh5WEjejahKwq`, 2073×1930, with the alt text
+    above), and `s2_eyebrow`. The manual steps above are no longer needed.
+    Preview at 1440/390, now in the site's real fonts:
+    https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix. One cleanup is
+    yours: the asset library has a stray copy of the same photo,
+    `_t3eeXeDKfYMiE5v`, filed as a "document". Dropbox's download host
+    serves the JPEG as `application/json`, and Prismic believed the label.
+    Nothing references it, and deleting it from the library is safe.
+
+    **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
+
+80. **mantis-landscaping#29, matching round 1 chrome: held after two dirty
+    review rounds (new 2026-10-05, P1-30 / #1107).** #29 (branch
+    `claude/p5-matching-r1-chrome`, head `15b1fc4`, CI green on `7578ef1`)
+    puts the nav in flow and sticky at 70px, gives the footer the
+    reference's box, and makes the gate countable: `top` passes at all four
+    widths.
+    - Round 1 found one major, fixed and confirmed in round 2. With
+      `scroll-padding-top: 70px` on `html`, every focus inside the stuck nav
+      scrolled the page (1500 → 1078 tapping Close at 390). It also found
+      two wrong citations (the offset and the gutter evidence) and four
+      unguarded behaviours, all fixed or ledgered.
+    - Round 2 found one minor, now fixed but unreviewed. The skip link
+      targets `<main id="main-content">`, which `main [id]` did not cover,
+      so main landed under the nav. The rule is now `main, main [id]`, with
+      a skip-link smoke test at 1440/390. Mutations M8 and M9 both go red.
+    - _Ask:_ (a) land #29 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). The unreviewed change is one selector, with its
+      own red-on-mutation test. The carousels batch (branch
+      `claude/p5-matching-r1-carousels`) is the next round either way.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 

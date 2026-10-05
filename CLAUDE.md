@@ -244,18 +244,27 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   with the container, so the journal entry has to be committed and pushed
   before the session ends.
 - **When the task is done, tell the operator it is safe to archive the
-  session.** Archiving reclaims the container, so say so only when nothing is
-  left that lives only in it. That means:
-  - every commit is pushed, in every repo the session touched (the stop hook
-    checks only the checkout it runs in);
-  - the PRs are merged, or handed off with the blocker written down;
-  - the journal entry has landed;
-  - no background command, agent or `send_later` check-in is still pending.
+  session.** Archiving reclaims the container and ends the session's arc of
+  work: the operator archives on that line instead of re-reading the
+  transcript. So "safe" means two things, and both must hold:
+  - **Nothing lives only in the container.**
+    - Every commit is pushed, in every repo the session touched. The stop
+      hook checks only the checkout it runs in.
+    - The PRs are merged, or handed off with the blocker written down.
+    - The journal entry has landed.
+    - No background command, agent or `send_later` check-in is still
+      pending.
+  - **The session has no clear next step.** A PR held on an operator answer
+    is still this session's when the answer would send it straight back to
+    work, such as "yes, merge it" leading to a land. Handing that to a fresh
+    session throws away the context. The same goes for a follow-up the
+    session itself started and is best placed to finish.
 
   End the final message with one line, "Safe to archive this session.", or
   name what still holds it open: "Not yet safe to archive: #1234 is waiting
-  on CI." The operator reads many sessions, and archives on that line rather
-  than re-reading the transcript.
+  on CI." For a decision, the line is like "Not yet safe to archive: if
+  Operator decisions 73 is yes, this session lands data-dynamiq#59." A
+  handed-off blocker makes the session resumable, not finished.
 
 ## The work journal
 
