@@ -243,6 +243,19 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   `~/.claude` memory or plugins, not the other checkouts. `.session-logs/` dies
   with the container, so the journal entry has to be committed and pushed
   before the session ends.
+- **When the task is done, tell the operator it is safe to archive the
+  session.** Archiving reclaims the container, so say so only when nothing is
+  left that lives only in it. That means:
+  - every commit is pushed, in every repo the session touched (the stop hook
+    checks only the checkout it runs in);
+  - the PRs are merged, or handed off with the blocker written down;
+  - the journal entry has landed;
+  - no background command, agent or `send_later` check-in is still pending.
+
+  End the final message with one line, "Safe to archive this session.", or
+  name what still holds it open: "Not yet safe to archive: #1234 is waiting
+  on CI." The operator reads many sessions, and archives on that line rather
+  than re-reading the transcript.
 
 ## The work journal
 

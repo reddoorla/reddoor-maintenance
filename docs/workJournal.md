@@ -8272,3 +8272,139 @@ The operator sent one message through the live `/contact-us` from an ordinary br
 ## 2026-10-05 — Operator decision 46 answered: (a), keep analytics design D3, no consent gate
 
 Asked in the P1-26 session after the privacy page landed, which is why it gets its own line. The operator picked (a): GA4 keeps loading without a consent gate on every site, California clients included, and the residual CIPA demand-letter risk is accepted. The recommendation in the item had been to put (b) or (c) to counsel along with item 45. That is now moot for 46, and item 45 (the lawyer's review of the policy wording) stays open on its own. Nothing was built for it, because `initAnalytics`' optional gate predicate already exists if the answer ever changes.
+
+## 2026-10-05 — The cloud-session hook reaches the Blux track (reddoor-starter-blux#40, `0d7290c`)
+
+The hook from decision 70 was picked into `reddoor-starter-blux` with a
+cherry-pick, never a merge. Two parts of the native commit did not apply
+as they were. Blux's CLAUDE.md has none of the native sections the commit
+edits, so it got its own paragraph instead. The hook's failure messages
+named `pnpm verify` and `test:a11y`, which Blux does not have, so they now
+name its own scripts. In a container, with only the hook's env, `pnpm lint`,
+`check` and `test` passed: 694 unit tests (3 skipped) and 20 smoke tests.
+Revision 1243 was already on disk from the native run, so this run showed
+only the skip path. Existing sites still lack the hook.
+
+## 2026-10-05 — Cloud sessions end by saying whether they are safe to archive (CLAUDE.md)
+
+The operator asked for this. A finished cloud session now ends its last
+message with "Safe to archive this session.", or names what still holds it
+open. Archiving reclaims the container, so the checklist covers state that
+lives only there:
+
+- unpushed commits in every repo touched, not only the one the stop hook
+  watches;
+- PRs that are neither merged nor handed off;
+- an unlanded journal entry;
+- background commands, agents and `send_later` check-ins still pending.
+
+The first item came from this very session. Its stop hook flagged a branch
+in a second clone, the native starter, as unpushed. That branch had already
+been squash-merged and its remote deleted, so a state check scoped to one
+checkout would have misread it.
+
+## 2026-10-05 — The Instagram post-kit proposal for Tim exists (`docs/proposals/2026-10-05-instagram-post-kit.md`)
+
+The proposal for Monday's conversation about the #rd-marketing thread from 10-02 is at `docs/proposals/2026-10-05-instagram-post-kit.md`. It proposes a weekly kit that Tim approves and schedules in Business Suite, with no auto-posting. It includes a real Progress Lighting sample whose five crops sit beside the file, uncommitted. Two beliefs in the brief turned out wrong. Prismic `reddoor` is not the site's repository; reddoorla.com reads `reddoor-la`, where 52 `project` documents sit behind 12 portfolio links, and each linked page already carries a "The Challenge" lead text and an "Our Solution" block of three columns. And `rd-md-pdf` is not on a cloud container: not in the repo, not in `~/.claude/skills`, not in the synced skills, and not anywhere on disk. So no PDF was made; the laptop has to render it. The 1-800-DENTIST page states "15x Growth in Web Traffic" next to "from hundreds to 773,000 unique visitors over the last twelve months", which do not agree.
+
+## 2026-10-05 — Data Dynamiq: DRAFT `/privacy` and GA4 built, green, held for item 45 (data-dynamiq#59, #1160)
+
+The brief was BACKLOG 49's Data Dynamiq line. The property and stream already existed, and the tag was parked behind P1-26's privacy page. All three "verify first" checks held: no `src/routes/privacy`, no tag in `src/`, and the recipe's refusal at `index.ts:171-187`. data-dynamiq#59 now carries the starter page, a footer link, a contact-dialog notice, the `@reddoorla/maintenance` bump to ^0.104.0 that `initAnalytics` needs, and the recipe's own hook for `G-V11LZYNMY2` on `www.datadynamiq.com`. CI is green. On the deploy preview's built output, in a real browser, the tag is inert (no gtag request, no `dataLayer`), and a hand-injected gtag request was caught by the same recorder. The PR is not merged. The brief's stop condition applies: item 45 is open, the site is live, and the operator's message carried no waiver. The ask is Operator decisions 73. Item 46 was answered (a) mid-session (#1153), which matches what was built: no consent gate.
+
+**The mutation the brief named found a bug in this repo, not in the site.** Mutation 2 was to pass the numeric property ID as `--measurement-id` and expect a refusal. The command crashed instead: cac coerces `556916505` to a number, and `.trim()` threw a TypeError with exit 1. The friendly refusal written for exactly that confusion never ran. The unit tests had always passed strings, so they could not see it, and only running the real binary could. #1160 coerces with `String()`, as `match-harness` already did. It adds two tests, and the first was red before the fix. The same crash applied to a numeric `--production-host`.
+
+**Review was dirty once, on accuracy rather than code.** Round 1 ran three lenses: the tag gate, policy accuracy, and regressions. The accuracy lens found that `app.html` loaded Vimeo's `player.js` on every page while nothing used it. So the starter's line "Vimeo receives your IP address when the video loads" was false for this site. The fix was to remove the dead script, not to reword the template. Round 2 was clean. Its one minor (Vimeo is still disclosed, through a component branch no page uses) was left: over-disclosure is the safe direction.
+
+**Two follow-ups, recorded and not built.** `initAnalytics` gates on the hostname alone, so a Prismic preview or `/slice-simulator` opened on a production host counts as a visit. That holds for every tagged site, and the right fix belongs in the package (the `gate` predicate, or a path rule), not in one site's generated hook. And no fleet Lighthouse or smoke run against a production URL blocks `googletagmanager.com`, according to the tag lens's grep of `src/`. I have not verified that those runs actually reach the tag.
+
+**Environment notes.** This cloud image's Chromium is build 1234, and data-dynamiq's Playwright 1.63 wants 1243. Symlinking the 1243 directories to 1234 under `/opt/pw-browsers` let both the site's suite and the a11y audit run; a `launchOptions.executablePath` override covered only the site's own specs. The 10-05 Data Dynamiq report was drafted before any tag existed, so its analytics section stays empty whatever happens next. GA does not backfill. No GA hit has been measured, because the tag is not deployed.
+
+## 2026-10-05 — Williamson hero: the poster becomes the LCP image, the video fades in on `playing`; the sharper poster is Operator decisions 74 (williamson-construction-co#21, `b23efd1`)
+
+A worker brief from the operator's 10-05 ask: a better hero placeholder and a fade-in once the video starts. The code half landed, after two review rounds, the second clean. The content half stopped at a permission refusal and is now Operator decisions 74. The site's journal entry for #21 carries the per-number detail; this one keeps what the fleet should know.
+
+**The world against the brief.** Two claims were checked before any work began. The home poster is 854×480, as the brief said. About-us is 854×480 too. Services' poster is 640×360, and its video is 720p, not 1080p: its master is 1280×720, so a 1280 frame is the sharpest honest poster there. Frame 0 of each hero video matches the old Webflow poster's shot and framing exactly, so the placeholder fix is a resolution change and not the design call the brief's stop condition guards against. The 1920 "posters" already in the library (`wc-school`, `wc-doctor`, `wc-scan-poster-1080`) belong to the video bands and serve as share images. None is a hero frame.
+
+**Two design beliefs the review overturned, both fleet-relevant.**
+
+- `srcset()` in the site's `image.ts`, which the starter's sites share, always advertises 480–2560w. imgix's default `fit=clip` **upscales**: an 854-wide poster asked for at `w=2560` came back 2560×1439, 57 KB of AVIF against 19 KB for the original. That is bytes with no detail. `cappedWidths` from `@reddoorla/maintenance/images` exists for exactly this and was not used here. `HeroBackgroundImage` on the same site has the same uncapped ladder, so any site whose hero image is smaller than 2560 pays for it.
+- `sizes="100vw"` is wrong for any image under `object-cover` in a fixed-height box narrower than the image's aspect. Williamson's hero is 500 px tall below 992 px, so a 16:9 poster is 889 px wide on a 390 px phone. The phone was told 390 and upscaled its pick 1.74×.
+
+**The LCP result is split, and the reason is worth keeping.** On the phone the LCP element moved from the `VIDEO` (via its poster attribute) to the poster `IMG`, and Lighthouse mobile LCP fell from 3025 to 2888 ms. At 1440 the LCP is still the video. Chrome scores an image by its natural pixel area, so an 854×480 poster (0.41 MP) loses to the 1440×700 first frame of a 1080p webm however early it paints. That is why decision 74 matters beyond looks: a 1920 poster ties the frame, and only then is the poster the LCP everywhere.
+
+**Instruments, each proved before it was read.** The first byte counter waited 30 s for a hero `<img>` that production does not have and summed bytes over the whole wait. The second froze the sum at 8 s and split it by file, which showed the two video bands also start loading on the phone. Before and after, video plus every poster at 390 is 2.20 / 2.13 MB before and 1.89 / 1.90 MB after, under the 3 MB line. The fidelity gate's `page-diff` lives in the operator's user-level skills and does not reach a cloud session. Its substitute, the SSIM of hero stills under emulated reduced motion, scored 0.989–0.995 before against after on nine page×width pairs, and 0.519 on a deliberate mismatch.
+
+**What a cloud worker cannot do, measured.** The auto-mode classifier refused an upload to a temporary file host, and then refused even reading the site's `prismic-media-upload.yml`, as "Public Data-Sharing Upload". So a worker that needs a new Prismic image asset cannot finish one from a cloud session today unless the frames already sit at a public URL. Decision 74 offers the fifteen-minute manual path and the policy alternative, and picks the manual one.
+
+**Accounting.** One CI red was this session's own: two tests added without regenerating the site's generated `docs/COMPONENTS.md`. It was reproduced locally and fixed. The local `/projects` hover smoke timed out at 30 s on both the branch and a clean `main` worktree and passed in CI, so it is the container's speed, not a regression.
+
+## 2026-10-05 — P1-25: the toolbar fits the CSP baseline; held after round 2 (#1157, Operator decision 75)
+
+The shared `BASELINE_CSP` had the same gap williamson-homes#7 found per site.
+It blocked the Prismic toolbar's `toolbar.js`, the html2canvas file its Share
+button loads, and the `<repo>.prismic.io` iframe. #1157 adds the two script
+sources with exactly the starter's path and file scoping (reddoor-starter#164),
+plus an optional `prismicRepository` on `createSvelteConfig`. That option
+frames one repository host, folded in after site overrides the way the
+analytics fold is.
+
+The brief's html2canvas stop condition did not fire. The security lens fetched
+html2canvas 1.4.1 from hertzen.com (198 KB) and found no `eval`,
+`new Function`, `blob:`, `createObjectURL` or `Worker`. Its rendering goes
+through `data:` images, which `img-src` already allows. `toolbar.js` contains
+a `Function('return this')()`, but only as the core-js global fallback, which a
+browser never reaches. One belief was corrected on contact: the brief named
+toolbar 4.1.10, and `prismic.js` now pins 4.1.12. The prefix-scoped source
+covers both.
+
+The brief's four mutations each turned tests red. The round-1 tests lens found
+three survivors: the repository fold skipped under `analytics: true`, lazy
+validation, and dots in the name. It also found two coercion and seed minors,
+and all of these were fixed in `b2592187`. That lens edited the shared
+worktree while I was editing it. Its `git checkout --` restore wiped my
+in-progress `svelte.ts` fix, and my test run then showed failures that were its
+mutant, not my code. The round-2 reviewer worked on a `git archive` copy
+instead, and that is the way to run a mutation-running reviewer from now on.
+
+Round 2 found that round 1's own fix was wrong. Seeding an unset `frame-src`
+with `'self'` ignores the browser's fallback to `child-src` and then
+`default-src`, so naming a repository can block frames that used to load.
+Under the two-dirty-rounds rule, the PR is held, not given a third round. The
+ask is Operator decision 75: the worker's pick is to seed from the fallback
+chain and review once more. #1157 is unmerged; its CI `build` passed on `b2592187` at 15:01Z
+(it was still running at 14:56Z, when this entry was first drafted), and
+the fleet rollout has not started.
+
+## 2026-10-05 — The evening pass, researched and built, then held after two review rounds (#1162, held in Operator decisions)
+
+October is a book month: the operator touches the system twice a day, at the morning report and at ~17:30 PT. The day's own misses showed what the morning touch cannot see. #1143's worker held its PR and wrote the ask on that PR's branch, so `main` asked nothing for 13 hours. `claude/jolly-keller-9h8tzh` carried three docs commits and no PR. And every nightly was still pending at 12:00Z. This session researched how others run unattended agent days, then built the pick.
+
+**The research confirmed (A), with one change.** The three options were: (A) a second LLM Routine at 17:30 PT; (B) a deterministic GitHub Actions digest, plus a push from each worker; (C) the digest, with an LLM pass only when it is non-empty. Ranked first on catching failures 1–3, the deciding fact was that the coverage comes from the deterministic checks, not from who runs them. So the checks became `scripts/evening-branches.mjs`, and (A) runs it. (B)'s per-worker push turned out weak. A `Stop` hook fires every turn. Whether `SessionEnd` fires when a cloud VM is reclaimed is unverified. Push services are off the egress allowlist. And a worker that crashed or forgot, which is failure 2, never pushes. GitHub Mobile pushes only on mentions, assignments and review requests, so a bot-filed digest issue reaches the inbox, not the phone, and an assignment by `github-actions[bot]` is unverified. The morning Routine's push is the one notification channel already proven. That leaves (A) tied with (B) and (C) on failures 1–3, and ahead on operator minutes: the operator gets one ranked headline with exact `/s/<slug>` asks, not a table to interpret. Its token cost is one ~20-minute session per weekday. That is the cost (C) would have saved, and (C) needs an API token as an Actions secret, which is 🔴.
+
+**A literal grep would have missed failure 1.** The brief said to grep the unmerged branches' diffs for `Operator decisions`. On #1143's branch that phrase appears only in the journal lines. The held ask itself sits in item 57's sub-bullets (lines 1631–1656 of the branch's BACKLOG) and never names the section it is in. The script instead parses the `-U0` hunk headers and keeps the added lines that fall between the `## Operator decisions` heading and the next `##`. A second limit came out of the live run: the morning pass had already lifted the ask as item 72 in its own words, so exact-line dedupe against `main` cannot see the lift. The script now marks a branch that `main`'s section already names, and the pass writes "already item N" for it.
+
+**Proved before trusted.** On today's state (14:44Z) it flags `claude/wizardly-brown-2ylvcv` as an ASK (open draft #1143) and `claude/jolly-keller-9h8tzh` as NEW and unprotected (no PR, last commit 13.2 h old). Both negative controls read `ok`: #1151's head (fully merged) and #1153's head, which is squash-merged, has two commits not on `main`, and edits Operator decisions. `--main-since 12:08Z` lists the 26 decision lines that #1152, #1153 and #1154 landed, and `--main-since now` lists 0. 14 mutations were named and run, and every one turned a test red. Three survived the first draft, and each exposed a hole that was then fixed. M1 survived because a redundant timestamp fallback covered merged PRs, so the fallback was removed. M9 (a closed, unmerged PR counted as cover) and M11 (`fresh` always true) survived for want of an e2e case, so both cases were added.
+
+**Also corrected on contact.** `pm-pass.md` said the morning Routine runs "every day". `list_triggers` shows `48 11 * * 1-4`, Monday to Thursday, in bare UTC, so it will fire at 03:48 PT from 11-02. Its stored prompt still asks for `list_sessions`, which a Routine lacks. The doc line is fixed. The Routine's own settings are the operator's (the Operator decisions item "The two Routines' schedules", with Friday). The evening cron writes its zone in (`CRON_TZ=America/Los_Angeles 18 17 * * 1-4`). This session could have created the Routine, since `create_trigger` was in its toolset, but the brief kept that for the operator, so the prompt is a paste. Seven branches with week-old unique commits and no PR exist today (`older` in the output). They are left alone, as other sessions' work, and listed by name once a night rather than asked about.
+
+Review round 1 found four real defects and three smaller ones. All seven were fixed, and each fix has its own mutation (M15–M21, all red).
+
+- **The date (major).** The Routine fires at 00:18Z, so every "today" in the first draft was the UTC tomorrow. The Monday-evening run would have written a fresh Tuesday report, holding only an Evening section, that collided with Tuesday's morning pass. Its `<since>` would have sat in the future, so `--main-since` returned nothing, and the pass would have sent a false "nothing needs you tonight". Every "today" in the section is now `TZ=America/Los_Angeles date +%F`, and `<since>` must be earlier than `date -u`.
+- **Reused branches (major).** A branch reused after a squash-merged PR re-reported everything that PR had landed. Live, `claude/a11y-blend-mode-unmeasured` read `ahead=6` and showed four "Answered 09-30" lines. One commit actually came after #1014. When the merged PR's head is an ancestor of the branch, it is now the base, and the branch reads `ahead=1` with no lines.
+- **"Names this branch" (major).** The check matched substrings, so `…-csp` counted as named by `…-csp-r3`. It now needs a boundary on both sides of the name.
+- **Ask pattern (major).** It was case-sensitive, and `main` already carries a `_pick:_`. A question with no marker, on a draft-PR branch, would have fallen through, so the doc now has the pass read those lines.
+- **Smaller.** `--main-since` failed silently when `main` had no earlier commit, and accepted zone-less times. The PR query did not encode the branch name. And no test added a line at the section's last line, where new items go.
+
+Review round 2 found a real major in round 1's own fix. That fix had made the merged PR's head the `git cherry` upstream, so a reused branch that later merged `main` back in read `main`'s incoming commits as its own: a scratch repo counted 2 where the truth is 0. The limit form, `git cherry origin/main <ref> <merged head>`, counts 0, and 1 after one real commit. It is fixed on the branch along with round 2's minor and three nits (M22–M25, all red), but not reviewed. By the two-dirty-rounds rule, #1162 is held as a draft, and the ask is the Operator decisions item "#1162, the evening pass". The worker's pick is to merge as it is: both rounds' defects were over-reporting or the date, and the pass never acts on what it flags. So the operator gets one decision, not zero, and the brief's "one paste and nothing else" waits on it. This entry and both items land on `main` in their own docs-only PR, from the sibling branch `claude/great-johnson-mwzrbr-od74`. That follows the rule #1162 adds: an ask written only on its own PR's branch is #1143's miss again.
+
+## 2026-10-05 — Mantis P5: four of five "done when" met; the matching gate needs the laptop (mantis-landscaping#19, #20, #24, #25)
+
+The site-side record is mantis-landscaping's journal entry (#26). What belongs here is about method.
+
+**Lighthouse baselines must be re-measured on the same day, as medians.** The plan's 10-01 Blux table was one run per page. Re-measured today, 3 runs each, Blux's project page scored 92, 74 and 66. Against that one-run baseline, the new site's first numbers looked like a regression on `/` (89 against 96). A same-day median showed the real gap, and then that #20 closed it (98 against 97).
+
+**Two scores were artifacts of the instrument, not the site.** SEO 69 is the `netlify.app` mirror's deliberate `noindex` (`is-crawlable`); the same build served from a non-mirror host scores 100. Best Practices 96 on `/contact-us` is headless Chrome drawing Turnstile error 600010. Both were checked against a source the instrument could not influence before being set aside.
+
+**The pre-hydration trap struck a third time.** Mantis#25's first smoke test mutated the DOM before Svelte hydrated. Svelte then re-mounted the strip and the test measured the original. This is the same mechanism as form-e2e's "refilled" (#1148) and #17's probe. The mutation that restores the old code exposed it, by passing on one run and failing on the next. Any probe that writes to a SvelteKit page must wait for hydration, or not write to the page at all. This belongs in #1148's fix, and probably in the matching-a-page skill too.
+
+**Still open:** the matching gate (Operator decisions 78) and P6's DNS (61).

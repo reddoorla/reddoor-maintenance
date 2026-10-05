@@ -4,7 +4,7 @@ import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
 import { defaultSpawn, isSpawnTimeout } from "./util/spawn.js";
 import { siteLabel } from "../util/site.js";
-import { findFreePort } from "../util/free-port.js";
+import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 
 /** Persisted smoke verdict: the site's own `test:smoke` suite passed or failed. */
 export type SmokeDetails = { ok: "pass" | "fail"; checkedAt: string };
@@ -237,17 +237,22 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
     // the real outcome, including its own ENOENT skip.
   }
 
-  const port = await findFreePort();
-
+  // A port taken between the pick and the site's `--strictPort` bind is retried
+  // on a fresh one (P1-27); any other failure is the suite's verdict.
   let raw;
   try {
-    raw = await spawn("pnpm", ["test:smoke"], {
-      cwd: site.path,
-      env: { ...process.env, REDDOOR_SMOKE_PORT: String(port) },
-      // Playwright on a cold tree installs chromium, boots the site's dev server,
-      // and runs the smoke specs — the shared 30s default starves it (mirrors a11y).
-      timeoutMs: SMOKE_TIMEOUT_MS,
-    });
+    raw = await withPortRetry(
+      1,
+      ([port]) =>
+        spawn("pnpm", ["test:smoke"], {
+          cwd: site.path,
+          env: { ...process.env, REDDOOR_SMOKE_PORT: String(port) },
+          // Playwright on a cold tree installs chromium, boots the site's dev server,
+          // and runs the smoke specs — the shared 30s default starves it (mirrors a11y).
+          timeoutMs: SMOKE_TIMEOUT_MS,
+        }),
+      (result, [port]) => result.code !== 0 && portInUse(spawnOutput(result), port!),
+    );
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {

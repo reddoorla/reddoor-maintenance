@@ -1,10 +1,23 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createServer, type Server } from "node:net";
 import { chromium, type Browser } from "@playwright/test";
+/** Ports the next `findFreePort` calls hand out before the real allocator
+ *  resumes. Empty everywhere but the P1-27 suite at the bottom. */
+const portPicks = vi.hoisted(() => [] as number[]);
+
+vi.mock("../../src/util/free-port.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/util/free-port.js")>();
+  return {
+    ...actual,
+    findFreePort: async () => portPicks.shift() ?? actual.findFreePort(),
+  };
+});
+
 import { a11yAudit } from "../../src/audits/a11y.js";
 import { freezeMotion } from "../../src/audits/util/freeze-motion.js";
 import { defaultSpawn, type SpawnFn } from "../../src/audits/util/spawn.js";
@@ -1995,4 +2008,85 @@ describe("audits/a11y — gateServer preview: one production build serves the sc
     expect(served).toContainEqual({ mode: "preview", path: "/", browser: true });
     expect(served).toContainEqual({ mode: "preview", path: "/dev/a11y-fixtures", browser: true });
   });
+});
+
+/**
+ * P1-27, run for real. `findFreePort` releases its port before the webServer
+ * binds it, and on 2026-09-30 #1066's `build` failed seven tests in this file
+ * with `EADDRINUSE … port: 40937` on a docs-only head. Here the first port the
+ * audit picks is already taken, the way a parallel test's server took it, and
+ * the real fixture server dies on the real EADDRINUSE.
+ */
+describe("audits/a11y — a port taken between the pick and the bind is retried on a fresh one (P1-27)", () => {
+  const squatters: Server[] = [];
+  const sites: string[] = [];
+
+  async function squat(): Promise<number> {
+    const s = createServer((socket) => socket.destroy());
+    await new Promise<void>((resolve, reject) => {
+      s.once("error", reject);
+      s.listen(0, () => resolve());
+    });
+    squatters.push(s);
+    return (s.address() as { port: number }).port;
+  }
+
+  function counting(): SpawnFn & { calls: number } {
+    const spawn = Object.assign(
+      (async (cmd, args, opts) => {
+        spawn.calls += 1;
+        return livePlaywright(cmd, args, opts);
+      }) as SpawnFn,
+      { calls: 0 },
+    );
+    return spawn;
+  }
+
+  afterAll(async () => {
+    portPicks.length = 0;
+    await Promise.all(squatters.map((s) => new Promise((r) => s.close(r))));
+    await Promise.all(sites.map((site) => rm(site, { recursive: true, force: true })));
+  });
+
+  it("still scans when the preview port was taken", async () => {
+    const site = await makeFixtureSite(SITE_948);
+    sites.push(site);
+    portPicks.push(await squat());
+    const spawn = counting();
+    const result = await a11yAudit({ site: { path: site }, spawn });
+    expect(result.status, result.summary).toBe("pass");
+    expect(spawn.calls).toBe(2);
+    expect(await readServed(site)).toContainEqual({
+      mode: "preview",
+      path: "/dev/a11y-fixtures",
+      browser: true,
+    });
+  }, 180_000);
+
+  it("still scans when the dev server's port was taken", async () => {
+    const site = await makeFixtureSite(SITE_948);
+    sites.push(site);
+    const free = await squat();
+    await new Promise((r) => squatters.pop()!.close(r));
+    portPicks.push(free, await squat());
+    const spawn = counting();
+    const result = await a11yAudit({ site: { path: site }, spawn });
+    expect(result.status, result.summary).toBe("pass");
+    expect(spawn.calls).toBe(2);
+    expect(await readServed(site)).toContainEqual({ mode: "dev", path: "/", browser: true });
+  }, 180_000);
+
+  it("fails at once, without a retry, when the server fails for any other reason", async () => {
+    const site = await makeFixtureSite(SITE_948);
+    sites.push(site);
+    await writeFile(
+      join(site, "build.mjs"),
+      'console.error("fixture: the build broke"); process.exit(1);',
+    );
+    const spawn = counting();
+    const result = await a11yAudit({ site: { path: site }, spawn });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toContain("no results written");
+    expect(spawn.calls).toBe(1);
+  }, 180_000);
 });

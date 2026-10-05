@@ -142,6 +142,11 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 - **Then show Tim** <https://williamson-construction-co.netlify.app>: all 14
   pages, fidelity gate passing or ledgered (`matching/LEDGER.md`), favicon,
   descriptions and share cards live. Webflow still serves `www` until 10-19.
+- **10-05 [M]: hero poster and fade-in landed (williamson-construction-co#21, `b23efd1`).**
+  The phone LCP element is now the poster `IMG`; Lighthouse mobile LCP
+  median went 3025 → 2888 ms. The video fades in over 700 ms on `playing`.
+  Phone bytes with the hero playing are 1.89 MB in 8 s. The sharper poster
+  waits on Operator decisions 74: three frames to upload, one release.
 - **Ask him for the launch facts** still open in the plan: D6 (who receives
   `/join-the-team`), D7 (who holds GoDaddy for the domain), D0 (Webflow
   billing). Cutover is planned for Wed 10-14.
@@ -150,11 +155,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                                       | Done when                                                                                                          |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| P1-27 | The audits' port picker races under parallel tests. `findFreePort` (`src/util/free-port.ts`) binds :0, closes, and hands the port to a server that binds it later; its own comment calls the window "theoretically racy". On 2026-09-30 it happened: #1066's `build` on `455d6db` failed 7 tests in `tests/audits/a11y-live-spec.test.ts` with `EADDRINUSE … port: 40937`, on a head that differed from a green one only in two docs files; it passed 60/60 locally and on the one re-run. Retry the spawn with a fresh port on `EADDRINUSE` (a11y, lighthouse, smoke), up to 3 tries                                                                                                                                                                                                                                                                                                                 | 🟢   | S      | `src/util/free-port.ts`, `src/audits/a11y.ts`, `src/audits/lighthouse.ts`, `src/audits/smoke.ts` | A test that squats the first port picked still gets a result, and goes red with the retry removed                  |
-| P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164                 | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                                  | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                       | Done when                                                                                                          |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| P1-25 | Prismic toolbar and previews under the shared CSP baseline. williamson-homes#7 found that on a wired site every preview opened `/` (routes-free client, `url: null`, and `redirectToPreviewURL` takes no `linkResolver`), and the CSP blocked the toolbar: `prismic.io/prismic-toolbar/4.1.10/toolbar.js`, the `<repo>.prismic.io` iframe, and html2canvas for Share. Fixed in williamson-homes (`ca6027f`) and the starter (reddoor-starter#164). `BASELINE_CSP` in `src/configs/svelte.ts:103` has the same `script-src`/`frame-src` gap for any site that does not override them. Scoping `frame-src` to one host needs the repository name, which `createSvelteConfig` does not take: pick an optional `prismicRepository` option over a `*.prismic.io` wildcard. Sites cloned before #164 carry both defects; rolling the fix to them is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | S      | `src/configs/svelte.ts:103`, `tests/configs/svelte.test.ts`, reddoor-starter#164 | The baseline admits the toolbar path, html2canvas and (given `prismicRepository`) that host, each pinned by a test |
+| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57                  | Starter PR and central recipe PR landed; the recipe's test pins the marker                                         |
 
 ### Blocked behind another PR (do not start early)
 
@@ -241,6 +245,15 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       Live: both forms render with the visitor's query in their actions,
       and form-e2e passes. **Next:** P5. The real-submission trace still
       waits on 71's human submit.
+    - **10-05 ~16:30Z: P5 four of five done** (mantis-landscaping#19, #20,
+      #24, #25; journal #26). Lighthouse on production `f636d3d`, mobile,
+      3-run medians, against Blux measured the same day: perf 98/98/100
+      vs 97/74/92 on `/`, a project page and `/contact-us`; a11y 100 vs
+      76–79. A non-mirror build scores SEO and best practices 100; the
+      mirror's 69 is its own `noindex`. A full axe run (all rules, 5 pages
+      at 1440 and 390) found 0 violations, with a positive control. The
+      matching gate is the fifth, and needs the laptop: Operator
+      decisions 78. **Next:** P6 (DNS, OD 61) and 78.
 
 - **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
   answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
@@ -1437,6 +1450,16 @@ analytics"]`). The operator creates properties for the other three. When the
     (`https://www.datadynamiq.com/`). These are the measurement IDs that go in
     each repo's `src/lib/site-config.json` (design D5) when the tags are
     installed. That install is still P1-26's (privacy page first).
+    **Data Dynamiq, 2026-10-05: built, green, held for item 45.**
+    reddoorla/data-dynamiq#59 carries the DRAFT `/privacy` page, the footer link,
+    the contact-dialog notice, `@reddoorla/maintenance` ^0.104.0 and the
+    `analytics-tag` hook for `G-V11LZYNMY2` on `www.datadynamiq.com`. CI is
+    green, and on the deploy preview the page renders and the tag is inert
+    (no gtag request, no `dataLayer`; the control request was caught) [M].
+    It is not merged, because the site is live and item 45 is open; the ask
+    is item 73. The site collects nothing until it merges, and GA does not
+    backfill, so the 10-05 report's analytics section stays empty either way.
+    1836dig and 29 Navy are not started.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
@@ -2276,8 +2299,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       passed. The starter's `.gitignore` now tracks `.claude/settings.json`
       and `.claude/hooks/` only (narrowing #32), so a laptop checkout with
       #32's untracked `settings.json` must move it to `settings.local.json`
-      before pulling. Still open: backfilling existing sites (one PR each)
-      and cherry-picking the hook into `reddoor-starter-blux`.
+      before pulling. Still open: backfilling existing sites (one PR each).
+    - **10-05 ~14:27Z: the Blux track has it too**, cherry-picked as
+      reddoor-starter-blux#40 (`0d7290c`). There, `pnpm lint`, `check`
+      and `test` passed in a container using only the hook's env: 694
+      unit tests (3 skipped) and 20 smoke tests.
 
 71. **Mantis P4b: the client's Mailchimp API key (#1107, new 2026-10-04).**
     The newsletter signup (62(d)) posts `formType: "newsletter"` to central
@@ -2329,6 +2355,127 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     third instance. The held-for-the-operator comment on #1143 (10-04
     22:19Z; the PR is a draft) has the details. Nothing else waits on it,
     because the nightly drift sweep still reports model drift [I].
+
+73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
+    45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
+    through review. Round 1 (three lenses) found one major, an every-page
+    Vimeo script the policy misdescribed, fixed by removing the dead script;
+    round 2 found no blocker or major. Item 45 says the
+    DRAFT page goes to no client's live site until the lawyer's review, and
+    Data Dynamiq is live, so the worker did not merge it. Roalson was the
+    pre-launch precedent, so it never met this rule.
+    _Ask:_ merge data-dynamiq#59 (DRAFT /privacy + GA4) before item 45, yes or
+    no. _Worker's pick:_ yes. The page is marked DRAFT and `noindex`, and its
+    disclosures are derived from the site's own code. Without a posted policy
+    the site cannot run GA4 under Google's terms, and every day without the tag is data
+    the quarterly report can never recover. The remaining exposure is wording,
+    and item 45 reviews that wording once for every site. If yes, any session
+    lands it with `node scripts/land-prs.mjs` after attaching data-dynamiq.
+    Missing either way: the legal name, privacy contact email and effective
+    date render as placeholders (none is in the repo or on the Turso row).
+    Two follow-ups are recorded in the PR and the journal and are not built:
+    editor traffic (Prismic previews, `/slice-simulator`) on the production
+    host is counted, because `initAnalytics` gates on the hostname alone, and
+    that affects every tagged site.
+74. **Williamson Construction hero: upload three poster frames and publish
+    a release (williamson-construction-co#21, new 2026-10-05).** The code
+    half landed: the hero poster is now an `<img>` with a capped imgix
+    srcset, preloaded as the LCP image, and the video fades in on its first
+    `playing`. The poster itself is still the old Webflow still (home and
+    about-us 854×480, services 640×360). Frame 0 of each hero video matches
+    that still's shot and framing exactly, so this is a resolution fix, not
+    a design call. The session could not upload the frames: the Prismic
+    connector's `upload_asset` fetches only a public URL, and the session's
+    permission policy refused both a temp host and `prismic-media-upload.yml`
+    as public uploads. _Ask:_ (a) make the three frames and upload them, or
+    (b) allow this kind of upload for a worker session and re-dispatch it.
+    The frames are reproducible from the published files, with no master
+    needed:
+    `ffmpeg -i https://williamson-construction.cdn.prismic.io/williamson-construction/LZ8LHeWvz0PJscct_wc-teacher-1080.mp4 -frames:v 1 -q:v 1 wc-teacher-poster-1080.jpg`,
+    then the same for `yiKYtvDqi9GC3AAn_wc-first-day-1080.mp4` and
+    `phNtqvqI9BXXgKlF_wc-services-720.mp4` (services is 1280×720 at the
+    master). Set them as `page_hero.background_image` on home, about-us and
+    services in one release, three deltas, and publish it. No code change is
+    needed. The srcset reaches 1920w from the field's dimensions, and
+    desktop LCP should move from the video's first frame to the poster.
+    _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
+    permission change that outlives this one task.
+75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
+    #1155): held after two dirty review rounds (new 2026-10-05).** The
+    branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
+    It adds `https://prismic.io/prismic-toolbar/` and the one html2canvas
+    file to `BASELINE_CSP`'s `script-src` (no `unsafe-eval`, no `blob:`), and
+    an optional `prismicRepository` that frames exactly
+    `https://<name>.prismic.io`. All four of the brief's mutations go red, and
+    so do five more that round 1 found. Round 1 found three minors, all fixed.
+    Round 2 found one more minor, which round 1's own fix introduced. When a
+    site unsets `frame-src`, the fold seeds it with `'self'` plus the host,
+    but browsers fall back to `child-src`, then `default-src`. So a site with
+    `default-src: ['self', 'https://www.youtube.com']` and no `frame-src`
+    loses YouTube frames once it names a repository. It is only reachable by
+    unsetting `frame-src` on purpose, because the baseline always defines it.
+    _Ask:_ (a) seed from `child-src`, else `default-src`, else `['self']`,
+    and land on a clean third review. Or (b) merge #1157 as it is and file
+    the seed as a follow-up. Or (c) refuse `prismicRepository` when the site
+    has unset `frame-src`. _Worker's pick:_ (a). It is a five-line fix with a
+    test, and it makes the JSDoc's claim true. Two nits from round 2 ride the
+    same push: `JSON.stringify` throws on a BigInt in the error message, and
+    the regex accepts a trailing hyphen and labels over 63 characters.
+    Separately, the security lens noted that the two script sources could be
+    gated on `prismicRepository`, as `analytics` gates GA. Without a framed
+    repository the toolbar never loads them. The brief puts them in the
+    baseline, so they stay there unless you say otherwise.
+
+76. **#1162, the evening pass: held after two dirty review rounds (new
+    2026-10-05, from its worker).** #1162 (draft, branch
+    `claude/great-johnson-mwzrbr`) adds a 17:18 PT "evening pass" to
+    `docs/pm-pass.md`, ending in one push notification. It also adds the
+    stored Routine prompt for you to paste, and
+    `scripts/evening-branches.mjs`, which flags a question that sits only on
+    a branch (#1143's miss) and commits with no PR (`jolly-keller`'s). Both
+    were proven on today's state, with two negative controls, and 25
+    mutations all go red.
+    - Round 1 found four majors, all fixed: the UTC date at 00:18Z,
+      squash-merged reused branches, substring branch matching, and a
+      case-sensitive ask pattern.
+    - Round 2 found one major, fixed on the branch but unreviewed. A branch
+      reused after its PR merged, and then merged with `main`, read `main`'s
+      commits as its own and was flagged stale. That is a false alarm, not a
+      miss. The fix is `git cherry origin/main <ref> <merged head>`,
+      reproduced in a scratch repo.
+    - _Ask:_ (a) merge #1162 as it is, then paste the Routine prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt"; or (b) run
+      a third review round first.
+    - _Worker's pick:_ (a). Every defect either round found was in the
+      direction of over-reporting or a wrong date, and the date is fixed and
+      reviewed. The one unreviewed fix is a small change with its own test
+      and mutation, and the pass never acts on what it flags.
+77. **The two Routines' schedules (new 2026-10-05, from the evening-pass
+    worker; nothing waits on it).** The morning Routine ("Reddoor Project
+    Manager") runs `48 11 * * 1-4`, a bare UTC cron, so it fires at 03:48 PT
+    from 11-02. Its stored prompt also tells it to call `list_sessions` /
+    `get_session`, which a Routine does not have. The evening Routine in
+    #1162 runs on the same Monday-to-Thursday days.
+    - _Ask:_ (a) extend both Routines to Friday (`1-5`), write the morning
+      cron as `CRON_TZ=America/Los_Angeles 48 4 * * 1-5`, and drop the
+      `list_sessions` line from its prompt; or (b) leave both at Monday to
+      Thursday.
+    - _Pick:_ (a). Otherwise workers started on a Friday morning end with
+      nobody reading them until Monday's pass. Either way, these are edits
+      in the Routines' settings, not a repo change.
+
+78. **Mantis P5: run the matching gate from the laptop (#1107, new
+    2026-10-05).** P5's last "done when" is the matching gate at
+    1440/834/390 for `/`, one project page and `/contact-us`. It cannot run
+    in a cloud container: `matching/harness.json` points at
+    `~/.claude/skills/matching-a-page/page-diff.mjs`, a user-level skill
+    that is not in the container. No page has a `matching/SPEC.md` section
+    yet, and the matching rules refuse a geometry round without one (Phase
+    1 first). Everything else in P5 is done and measured (see P1-30).
+    _Ask:_ run Phase 1 and the gate in a laptop session, or waive the gate
+    for launch. _Pick:_ run it, starting with `/`; the Blux capture under
+    `matching/spec/` is already in the repo, so a laptop session can begin
+    at Phase 1 with no new capture.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -2383,6 +2530,16 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   Re-read on 10-08; a figure under 25 is an ask.
 
 ## Done (move items here when they land)
+
+- 2026-10-05 — P1-27, the audits' port race (#1156): #1164. The a11y,
+  lighthouse and smoke audits start their server again on a fresh port when
+  the server's own output names one of the audit's ports as taken (Node's
+  `EADDRINUSE`, vite's `Port N is already in use`, Playwright's "is already
+  used"), up to three tries; any other failure is reported at once, and
+  `--strictPort` is unchanged. The helper is `src/util/port-retry.ts`. A
+  live test in `tests/audits/a11y-live-spec.test.ts` squats the preview
+  port, then the dev port, and still gets a passing scan; the four named
+  mutations each turn a test red (table in the PR).
 
 - 2026-10-04 — P1-26, the fleet `/privacy` page (#1055, option A): landed in
   three PRs.

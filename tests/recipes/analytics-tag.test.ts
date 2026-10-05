@@ -413,6 +413,29 @@ describe("reddoor-maint analytics-tag", () => {
     expect(await exists(join(cwd, HOOKS_CLIENT_RELATIVE))).toBe(false);
   });
 
+  it("refuses the numeric property ID, which cac hands over as a number, with exit 2", async () => {
+    const cwd = await site();
+    const out = await runAnalyticsTagCommand(cwd, {
+      measurementId: 556916505,
+      productionHost: HOST,
+    });
+    expect(out.code).toBe(2);
+    expect(out.output).toContain("--measurement-id must be a GA4 web-stream ID");
+    expect(out.output).toContain('"556916505"');
+    expect(await exists(join(cwd, HOOKS_CLIENT_RELATIVE))).toBe(false);
+  });
+
+  it("refuses a numeric --production-host with exit 2 rather than throwing", async () => {
+    const cwd = await site();
+    const out = await runAnalyticsTagCommand(cwd, {
+      measurementId: ID,
+      productionHost: 8080,
+    });
+    expect(out.code).toBe(2);
+    expect(out.output).toContain('"8080"');
+    expect(await exists(join(cwd, HOOKS_CLIENT_RELATIVE))).toBe(false);
+  });
+
   it("refuses a URL as --production-host with exit 2", async () => {
     const cwd = await site();
     const out = await runAnalyticsTagCommand(cwd, {
