@@ -6,7 +6,7 @@ import { realRunner, resolveRepo } from "./land-prs.mjs";
 export const DECISIONS_HEADING = "## Operator decisions";
 const BACKLOG = "docs/BACKLOG.md";
 const BRANCH_GLOBS = ["claude", "fix"];
-export const ASK_PATTERN = /_Ask:_|\*\*Ask:?\*\*|\bAsk:|_Pick:_|\?\s*$/;
+export const ASK_PATTERN = /_Ask:_|\*\*Ask:?\*\*|\bAsk:|_Pick:_|\?\s*$/i;
 
 const USAGE =
   "usage: node scripts/evening-branches.mjs [--repo owner/repo] [--base main] [--min-age-hours 2] [--fresh-hours 36] [--since-days 7] [--main-since <iso>] [--no-fetch] [--json]";
@@ -41,7 +41,8 @@ export function parseArgs(argv) {
     else if (a === "--fresh-hours") o.freshHours = num();
     else if (a === "--main-since") {
       const v = next();
-      if (Number.isNaN(Date.parse(v))) throw new Error(`${a} needs an ISO time`);
+      if (Number.isNaN(Date.parse(v)) || !/(Z|[+-]\d\d:?\d\d)$/.test(v))
+        throw new Error(`${a} needs an ISO time with Z or an offset`);
       o.mainSince = v;
     } else if (a === "--no-fetch") o.fetch = false;
     else if (a === "--json") o.json = true;
@@ -97,12 +98,14 @@ export function decisionLines(branchText, diffU0, mainText) {
 }
 
 export function namedInSection(text, branch) {
+  const esc = branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const named = new RegExp(`(^|[^\\w.-])${esc}($|[^\\w/-])`);
   const range = sectionRange(text);
   if (!range) return false;
   return text
     .split("\n")
     .slice(range.start, range.end)
-    .some((l) => l.includes(branch));
+    .some((l) => named.test(l));
 }
 
 export function prCoverage(prs, tipSha) {
@@ -113,7 +116,7 @@ export function prCoverage(prs, tipSha) {
     if (p.head?.sha === tipSha) return { kind: "merged", pr: p.number };
   }
   const latest = merged.sort((a, b) => Date.parse(b.merged_at) - Date.parse(a.merged_at))[0];
-  if (latest) return { kind: "after-merge", pr: latest.number };
+  if (latest) return { kind: "after-merge", pr: latest.number, headSha: latest.head?.sha };
   const closed = prs.find((p) => p.state === "closed");
   if (closed) return { kind: "closed", pr: closed.number };
   return { kind: "none" };
@@ -145,7 +148,7 @@ async function gitOut(ctx, args) {
 
 async function prsFor(ctx, branch) {
   const owner = ctx.repo.split("/")[0];
-  const path = `repos/${ctx.repo}/pulls?state=all&per_page=100&head=${owner}:${branch}`;
+  const path = `repos/${ctx.repo}/pulls?state=all&per_page=100&head=${owner}:${encodeURIComponent(branch)}`;
   const r = await ctx.run("gh", ["api", path], { timeoutMs: 60_000 });
   if (r.code !== 0) throw new Error(`gh api ${path} failed: ${(r.stderr || r.stdout).trim()}`);
   return JSON.parse(r.stdout);
@@ -182,13 +185,18 @@ export async function eveningBranches(o, deps = {}) {
   const mainBacklog = await gitOut(ctx, ["show", `${remoteBase}:${BACKLOG}`]);
   const results = [];
   for (const r of recent) {
-    const cherry = await gitOut(ctx, ["cherry", remoteBase, r.ref]);
-    const ahead = cherry.split("\n").filter((l) => l.startsWith("+")).length;
     const prs = await prsFor(ctx, r.branch);
     const coverage = prCoverage(prs, r.sha);
+    let base = remoteBase;
+    if (coverage.kind === "after-merge" && coverage.headSha) {
+      const anc = await git(ctx, ["merge-base", "--is-ancestor", coverage.headSha, r.ref]);
+      if (anc.code === 0) base = coverage.headSha;
+    }
+    const cherry = await gitOut(ctx, ["cherry", base, r.ref]);
+    const ahead = cherry.split("\n").filter((l) => l.startsWith("+")).length;
     let decisions = { onlyOnBranch: [], alreadyOnMain: [] };
     if (ahead > 0) {
-      const diff = await gitOut(ctx, ["diff", "-U0", `${remoteBase}...${r.ref}`, "--", BACKLOG]);
+      const diff = await gitOut(ctx, ["diff", "-U0", `${base}...${r.ref}`, "--", BACKLOG]);
       if (diff.trim()) {
         const shown = await git(ctx, ["show", `${r.ref}:${BACKLOG}`]);
         if (shown.code === 0) decisions = decisionLines(shown.stdout, diff, mainBacklog);
@@ -211,7 +219,8 @@ export async function eveningBranches(o, deps = {}) {
     const rev = (
       await gitOut(ctx, ["rev-list", "-1", `--before=${o.mainSince}`, remoteBase])
     ).trim();
-    if (rev) {
+    if (!rev) throw new Error(`--main-since ${o.mainSince}: ${remoteBase} has no commit before it`);
+    {
       const diff = await gitOut(ctx, ["diff", "-U0", `${rev}..${remoteBase}`, "--", BACKLOG]);
       const before = await gitOut(ctx, ["show", `${rev}:${BACKLOG}`]);
       mainDecisions = {

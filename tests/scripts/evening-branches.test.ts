@@ -86,6 +86,11 @@ describe("decisionLines", () => {
     expect(d.onlyOnBranch.map((l) => l.line)).toEqual([6]);
     expect(d.alreadyOnMain.map((l) => l.line)).toEqual([7]);
   });
+  it("keeps a line added as the section's last line, just before the next heading", () => {
+    const added = ["58. **Appended last.** _Ask:_ yes or no"];
+    const d = decisionLines(withDecision(added), diffAdding(6, added), MAIN_BACKLOG);
+    expect(d.onlyOnBranch.map((l) => l.line)).toEqual([6]);
+  });
   it("ignores lines added outside the section", () => {
     const branch = MAIN_BACKLOG.replace("- an item", "- an item\n- _Ask:_ not a decision");
     const diff = ["+++ b/docs/BACKLOG.md", "@@ -3,0 +4 @@", "+- _Ask:_ not a decision"].join("\n");
@@ -102,6 +107,13 @@ describe("namedInSection", () => {
       "- an item on claude/wizardly-brown-2ylvcv",
     );
     expect(namedInSection(elsewhere, "claude/wizardly-brown-2ylvcv")).toBe(false);
+  });
+  it("a longer branch name that starts with this one is not this one", () => {
+    const r3 = withDecision(["70. Held on `claude/a11y-browser-missing-csp-r3`."]);
+    expect(namedInSection(r3, "claude/a11y-browser-missing-csp")).toBe(false);
+    expect(namedInSection(r3, "claude/a11y-browser-missing-csp-r3")).toBe(true);
+    const sentence = withDecision(["70. Held on claude/a11y-browser-missing-csp."]);
+    expect(namedInSection(sentence, "claude/a11y-browser-missing-csp")).toBe(true);
   });
 });
 
@@ -129,7 +141,11 @@ describe("prCoverage", () => {
         head: { sha: "b".repeat(40) },
       },
     ];
-    expect(prCoverage(prs, tip)).toEqual({ kind: "after-merge", pr: 1014 });
+    expect(prCoverage(prs, tip)).toEqual({
+      kind: "after-merge",
+      pr: 1014,
+      headSha: "b".repeat(40),
+    });
   });
   it("a closed, unmerged PR is not cover", () => {
     expect(prCoverage([{ number: 9, state: "closed", merged_at: null }], tip)).toEqual({
@@ -167,6 +183,7 @@ describe("classify", () => {
     };
     expect(classify({ ...base, decisions: d("- _Ask:_ (a) or (b)") }, opts).ask).toBe(true);
     expect(classify({ ...base, decisions: d("which colour comes back?") }, opts).ask).toBe(true);
+    expect(classify({ ...base, decisions: d("   _pick:_ (a)") }, opts).ask).toBe(true);
     const status = classify({ ...base, decisions: d("- **10-05: landed.**") }, opts);
     expect(status.question).toBe(true);
     expect(status.ask).toBe(false);
@@ -186,6 +203,10 @@ describe("parseArgs", () => {
       "2026-10-05T12:07:00Z",
     );
     expect(() => parseArgs(["--main-since", "yesterday"])).toThrow(/ISO/);
+    expect(() => parseArgs(["--main-since", "2026-10-05T12:07:00"])).toThrow(/offset/);
+    expect(parseArgs(["--main-since", "2026-10-05T05:07:00-07:00"]).mainSince).toBe(
+      "2026-10-05T05:07:00-07:00",
+    );
   });
   it("refuses an unknown flag and a missing value", () => {
     expect(() => parseArgs(["--nope"])).toThrow(/unknown/);
@@ -200,6 +221,8 @@ interface FakeBranch {
   tipHoursAgo: number;
   cherryPlus: number;
   cherryMinus?: number;
+  ancestor?: string;
+  cherryFrom?: Record<string, number>;
   prs: PrLike[];
   backlog?: string;
   diff?: string;
@@ -208,17 +231,27 @@ interface FakeBranch {
 const MORNING_SHA = "9".repeat(40);
 const TODAY_ASK = ["58. **New today.** _Ask:_ keep or drop?"];
 
-function fakeRun(branches: FakeBranch[], mainNow = MAIN_BACKLOG, mainDiff = "") {
+function fakeRun(
+  branches: FakeBranch[],
+  mainNow = MAIN_BACKLOG,
+  mainDiff = "",
+  revList = MORNING_SHA + "\n",
+) {
   const calls: string[] = [];
   const run = async (cmd: string, args: string[]): Promise<RunResult> => {
     calls.push(`${cmd} ${args.join(" ")}`);
     if (cmd === "gh") {
-      const head = /head=reddoorla:(.+)$/.exec(args[1] ?? "")?.[1];
+      const raw = /head=reddoorla:(.+)$/.exec(args[1] ?? "")?.[1];
+      const head = raw === undefined ? undefined : decodeURIComponent(raw);
       return ok(JSON.stringify(branches.find((b) => b.name === head)?.prs ?? []));
     }
     const [sub, ...rest] = args;
     if (sub === "fetch") return ok();
-    if (sub === "rev-list") return ok(MORNING_SHA + "\n");
+    if (sub === "rev-list") return ok(revList);
+    if (sub === "merge-base") {
+      const b = branches.find((x) => `origin/${x.name}` === rest[2]);
+      return b?.ancestor === rest[1] ? ok() : { code: 1, stdout: "", stderr: "" };
+    }
     if (sub === "for-each-ref")
       return ok(
         branches
@@ -238,13 +271,15 @@ function fakeRun(branches: FakeBranch[], mainNow = MAIN_BACKLOG, mainDiff = "") 
     }
     if (sub === "cherry") {
       const b = branches.find((x) => `origin/${x.name}` === rest[1]);
-      const plus = Array.from({ length: b?.cherryPlus ?? 0 }, (_, i) => `+ p${i}`);
+      const n = b?.cherryFrom?.[rest[0]!] ?? b?.cherryPlus ?? 0;
+      const plus = Array.from({ length: n }, (_, i) => `+ p${i}`);
       const minus = Array.from({ length: b?.cherryMinus ?? 0 }, (_, i) => `- m${i}`);
       return ok([...minus, ...plus].join("\n"));
     }
     if (sub === "diff" && rest[1] === `${MORNING_SHA}..origin/main`) return ok(mainDiff);
     if (sub === "diff") {
-      const b = branches.find((x) => rest[1] === `origin/main...origin/${x.name}`);
+      const b = branches.find((x) => rest[1]!.endsWith(`...origin/${x.name}`));
+      if (b?.ancestor && rest[1]!.startsWith(b.ancestor)) return ok("");
       return ok(b?.diff ?? "");
     }
     return { code: 1, stdout: "", stderr: `unrouted: ${args.join(" ")}` };
@@ -357,7 +392,7 @@ describe("eveningBranches, end to end on a fake runner", () => {
     await eveningBranches(OPTS, { run, now: NOW });
     for (const c of calls) {
       expect(c).toMatch(
-        /^(git (fetch -q --prune origin|for-each-ref|show|cherry|diff -U0|rev-list -1) |gh api repos\/)/,
+        /^(git (fetch -q --prune origin|for-each-ref|show|cherry|diff -U0|rev-list -1|merge-base --is-ancestor) |gh api repos\/)/,
       );
       expect(c).not.toMatch(/--method|-X |push|DELETE/);
     }
@@ -399,6 +434,44 @@ describe("eveningBranches, end to end on a fake runner", () => {
     expect(
       plain.branches.find((x) => x.branch === "claude/wizardly-brown-2ylvcv")?.namedOnMain,
     ).toBe(false);
+  });
+
+  it("--main-since before main's first commit stops instead of reading as no lines", async () => {
+    const { run } = fakeRun(branches, MAIN_BACKLOG, "", "");
+    await expect(
+      eveningBranches({ ...OPTS, mainSince: "2001-01-01T00:00:00Z" }, { run, now: NOW }),
+    ).rejects.toThrow(/no commit before/);
+  });
+
+  it("a branch reused after its PR merged counts only the commits after that PR's head", async () => {
+    const head = "c".repeat(40);
+    const reused: FakeBranch[] = [
+      {
+        name: "claude/a11y-blend-mode-unmeasured",
+        sha: "d".repeat(40),
+        tipHoursAgo: 10,
+        cherryPlus: 6,
+        cherryFrom: { [head]: 1 },
+        ancestor: head,
+        prs: [
+          { number: 1014, state: "closed", merged_at: "2026-09-30T00:00:00Z", head: { sha: head } },
+        ],
+        backlog: withDecision(ask),
+        diff: diffAdding(6, ask),
+      },
+    ];
+    const { run, calls } = fakeRun(reused);
+    const rep = await eveningBranches(OPTS, { run, now: NOW });
+    expect(calls).toContain(`git cherry ${head} origin/claude/a11y-blend-mode-unmeasured`);
+    expect(rep.branches[0]).toMatchObject({ ahead: 1, question: false, ask: false, stale: true });
+  });
+
+  it("puts the branch name into the PR query percent-encoded", async () => {
+    const { run, calls } = fakeRun([
+      { name: "fix/a+b", sha: "e".repeat(40), tipHoursAgo: 5, cherryPlus: 1, prs: [] },
+    ]);
+    await eveningBranches(OPTS, { run, now: NOW });
+    expect(calls.some((c) => c.endsWith("head=reddoorla:fix%2Fa%2Bb"))).toBe(true);
   });
 
   it("without --main-since there is no main section", async () => {

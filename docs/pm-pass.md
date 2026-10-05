@@ -148,6 +148,11 @@ nightly was still pending, so the morning pass could not report any of them.
 
 ### Rules that bind the evening pass
 
+0. **"Today" is the America/Los_Angeles date**, `TZ=America/Los_Angeles date +%F`,
+   everywhere in this section. The pass fires at 17:18 PT, which is 00:18Z
+   (01:18Z in winter), so the UTC date has already moved on. Read the clock
+   with `date -u` beside it, as `CLAUDE.md` asks.
+
 1. Everything under "Rules that bind this session" above applies, except
    that the pass is **read-only** apart from one docs-only PR. That PR may
    touch only today's `docs/morning-reports/MORNING_REPORT_<date>.md`, where
@@ -158,7 +163,7 @@ nightly was still pending, so the morning pass could not report any of them.
    unprotected branch, comment on a worker's PR, re-run a job or merge
    anything. Each finding becomes an exact ask in the evening section, and
    the next morning pass carries any that are still open. If no morning
-   report exists for today (a Friday, or a pass that failed), it writes
+   report exists for today (a holiday, or a morning pass that failed), it writes
    `MORNING_REPORT_<date>.md` containing only the `## Evening` section and a
    first line saying so.
 3. **Time budget: about 20 minutes.** It reads, it does not investigate. A red
@@ -174,8 +179,10 @@ nightly was still pending, so the morning pass could not report any of them.
 
 ### The evening pass, in order
 
-`<since>` is the time today's morning PR merged (`merged_at` on the PR that
-added today's morning report). If no morning PR merged today, use 12:00Z.
+`<since>` is the time today's morning PR merged: the `merged_at`, in UTC with
+its `Z`, of the PR that added `MORNING_REPORT_<today>.md`. If no morning PR
+merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
+`date -u`. A later `<since>` means the date is wrong, so stop and fix it.
 
 1. **Branches and decisions.** From a worktree detached at `origin/main`:
 
@@ -195,8 +202,11 @@ added today's morning report). If no morning PR merged today, use 12:00Z.
      Lift each ask into the evening section word for word, with its branch
      and PR. When the script adds "already names this branch", `main`
      already carries the ask, usually paraphrased by an earlier pass. Write
-     "already item N" and leave it at that. Lines that sit only on a branch but carry no ask are status
-     notes. Mention them only if their branch is also unprotected.
+     "already item N" and leave it at that.
+   - **Other lines under "Operator decisions" only on a branch.** These are
+     usually status notes. Read them anyway when their branch has a draft PR
+     or is unprotected: a question written without `Ask:`, `Pick:` or a
+     closing `?` lands here. Lift any you judge to be an ask.
    - **Unprotected branches.** Commits not on `main` (`git cherry`, so a
      rebase-merged commit does not count), no open PR, no merged PR at the
      tip, and a last commit at least 2 h old. This is failure 2. `NEW` means
@@ -211,10 +221,11 @@ added today's morning report). If no morning PR merged today, use 12:00Z.
    notification headline is "evening branch check failed: <error>", never
    "nothing needs you".
 
-2. **Nightlies since `<since>`.** As in the morning pass, step 1: every
-   `event == "schedule"` run created today, each fleet run's
+2. **Nightlies.** As in the morning pass, step 1: every
+   `event == "schedule"` run created in the 24 hours before `date -u`
+   (`created=>=<that time>`), with each fleet run's
    `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line read from its job log,
-   and every tracking issue opened or closed today. List any run still
+   and every tracking issue opened or closed since `<since>`. List any run still
    pending by name. A green run with `failed>0` is not green.
 3. **Today's `daily-reports` drafts.** Read today's `daily-reports` run log.
    Then, SELECT only, the reports that are pending approval (draft ready, not
@@ -275,8 +286,9 @@ Set up first:
 If any of that fails, stop, and make your final message the exact command and its error.
 
 Then read docs/pm-pass.md, section "The evening pass", and follow it exactly; it is the full instruction set. In short:
-- Run node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance --main-since <the time today's morning PR merged>. Lift every ask it finds, on a branch or newly on main, into tonight's asks word for word, and list every NEW unprotected branch.
-- Read today's nightlies with each FLEET_WRITE_SUMMARY line, today's daily-reports drafts waiting for approval with the exact /s/<slug> ask, PRs merged since the morning pass, and open PRs that are red, draft or release.
+- "Today" is the America/Los_Angeles date (TZ=America/Los_Angeles date +%F). The UTC date has already rolled over when this runs.
+- Run node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance --main-since <the UTC time, with Z, that today's morning PR merged>. Lift every ask it finds, on a branch or newly on main, into tonight's asks word for word, and list every NEW unprotected branch.
+- Read the last 24 hours of scheduled runs with each FLEET_WRITE_SUMMARY line, today's daily-reports drafts waiting for approval with the exact /s/<slug> ask, PRs merged since the morning pass, and open PRs that are red, draft or release.
 - Append "## Evening" to today's docs/morning-reports/MORNING_REPORT_<today>.md, add one docs/workJournal.md line, open one docs-only PR from a new worktree, and land it with node scripts/land-prs.mjs once CI is green.
 
 Read-only otherwise: do not write code, do not edit docs/BACKLOG.md, do not open PRs for other branches, do not comment on other PRs, do not re-run or dispatch any workflow, and never post to Discord. You cannot see live sessions; worker state comes from branches and PRs only. Stop after about 20 minutes and list whatever is still pending as pending.

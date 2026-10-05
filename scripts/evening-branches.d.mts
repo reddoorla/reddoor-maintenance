@@ -36,7 +36,8 @@ export interface PrLike {
 
 export type Coverage =
   | { kind: "open"; pr: number; draft: boolean }
-  | { kind: "merged" | "after-merge" | "closed"; pr: number }
+  | { kind: "merged" | "closed"; pr: number }
+  | { kind: "after-merge"; pr: number; headSha: string | undefined }
   | { kind: "none" };
 
 export interface BranchInput {
