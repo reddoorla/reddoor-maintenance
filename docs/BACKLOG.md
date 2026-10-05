@@ -2276,8 +2276,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       passed. The starter's `.gitignore` now tracks `.claude/settings.json`
       and `.claude/hooks/` only (narrowing #32), so a laptop checkout with
       #32's untracked `settings.json` must move it to `settings.local.json`
-      before pulling. Still open: backfilling existing sites (one PR each)
-      and cherry-picking the hook into `reddoor-starter-blux`.
+      before pulling. Still open: backfilling existing sites (one PR each).
+    - **10-05 ~14:27Z: the Blux track has it too**, cherry-picked as
+      reddoor-starter-blux#40 (`0d7290c`). There, `pnpm lint`, `check`
+      and `test` passed in a container using only the hook's env: 694
+      unit tests (3 skipped) and 20 smoke tests.
 
 71. **Mantis P4b: the client's Mailchimp API key (#1107, new 2026-10-04).**
     The newsletter signup (62(d)) posts `formType: "newsletter"` to central
