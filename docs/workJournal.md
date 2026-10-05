@@ -8543,6 +8543,19 @@ injected. The lesson for any evidence screenshot taken in a cloud
 container: check the computed font against the font actually used before
 calling the picture a likeness.
 
+## 2026-10-05 — CalTex Our Story is live (caltex-landing#71, Operator decision 79 done)
+
+The operator published release `asQFsBIAABYMgAt2`, and #71 merged at 21:17Z.
+The live site was checked from outside right after the deploy:
+`/leasing`, `/purchases` and `/preview/leasing` return 301 to the new paths,
+`/our-story` carries the new title, Erik's first paragraph and the family
+photo with its alt text, and the sitemap lists `/aed-programs` and
+`/our-story`. Twice that evening a check never got a runner: it sat
+queued for 15 minutes and was cancelled with zero steps (`build` on #1175,
+`codegen` and `deploy-preview-comment` on #71). One re-run each passed. That
+is a GitHub runner-queue failure, not a test result, and the job metadata
+(`runner_name` empty, `steps` empty) is how to tell the two apart.
+
 ## 2026-10-05 — One Routine, two fires: the morning and evening passes share "Reddoor Project Manager"
 
 The operator wanted one chat to click as the cockpit rather than two Routines, so the evening pass (#1162) did not become a second Routine. The existing Routine now fires at `CRON_TZ=America/Los_Angeles 48 4,17 * * 1-4` and picks its pass from the Pacific clock. The zone written into the cron also retires the 11-01 drift that item 77 named. Monday to Thursday stays, by the operator's answer to 77. `docs/pm-pass.md` now carries the combined prompt. The evening pass moved from 17:18 to 17:48 PT, because one cron line needs one minute for both fires. Whether a Routine can reuse a single session across fires was not checked from here. Each fire is a fresh session, and the newest one is the cockpit.
