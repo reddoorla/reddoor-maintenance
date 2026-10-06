@@ -8627,6 +8627,8 @@ The first version also proposed a weekly kit on a schedule, emailed every Monday
 
 ## 2026-10-05 — The post-kit proposal now covers every channel from one place
 
+> Superseded in part by 2026-10-06 — Corrections from the two-touch review: CI was not 15–20 minutes.
+
 At the operator's ask, the proposal in `docs/proposals/2026-10-05-instagram-post-kit.md` (path kept) now covers Instagram, Facebook and LinkedIn instead of Instagram alone. reddoorla.com links only Instagram and LinkedIn; Facebook comes in through the Page that Tim's Meta ads need. The target, also the operator's, is under an hour from idea to "live everywhere and looks right", and the budget comes to 30–40 minutes. The kit now carries a caption for each channel, a 1080×1080 square of each image for LinkedIn, and tracked links. The recommended way to publish to all three at once is a third-party scheduler, which is already approved by Meta and LinkedIn, so we skip both app reviews. Whether a scheduler can take drafts from our own command is marked "to verify", not promised. One crop defect turned up: the square crop of the Design Series cover cut off its title, so that square is now set on white.
 
 This entry sits next to the other post-kit entries rather than at the end of the file, at the operator's choice. Its PR (#1187) passed checks four times and was blocked by a merge conflict every time. Other sessions were appending to this file every 10–15 minutes, while checks take 15–20, and two branches that both append at the end of the same file always conflict.
@@ -8634,6 +8636,18 @@ This entry sits next to the other post-kit entries rather than at the end of the
 ## 2026-10-06 — Non-code work moves to `reddoorla/reddoor-workspace`
 
 The operator created the private repo `reddoorla/reddoor-workspace`. Neither the Claude GitHub App nor the GitHub connector could: both got 403 on `POST /orgs/reddoorla/repos`. Its first commit, `1460f07`, holds the social post-kit proposal with its PDF and all eight crops, which this public repo could not carry. This PR deletes `docs/proposals/2026-10-05-instagram-post-kit.md` from here and adds a `CLAUDE.md` section pointing at the workspace. The 10-05 entries above that name the old path are left as they were. Whether to move more of the agent workspace (the backlog, journal and briefs) is an open question for the operator, because the backlog and journal are read by scripts here.
+
+## 2026-10-06 — Corrections from the two-touch review: CI was not 15–20 minutes
+
+A review of the operating model, written up in `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/`, measured several statements in this repo's directives and found them false. This entry corrects the ones the review owns.
+
+- **CI time.** The 10-05 entry above and `CLAUDE.md`'s workspace section said the checks took 15–20 minutes. CI's median run is about 7.5 minutes: 7.4 minutes over 364 runs measured by the review, and 7.7 over 99 runs since 10-03 measured separately. 15–20 minutes held only during one hour on 10-05 when GitHub's runners were starved. The landing loop came from the strict up-to-date rule: `main` took about 7 merges an hour, mostly journal and backlog appends.
+- **Two other `CLAUDE.md` lines.** "Two real collisions" has become at least ten on record. "Two weeks earlier" was about six days.
+- **Org repo creation.** It fails through the GitHub connector too, not only the app: 403 on 09-30 and again on 10-06.
+- **The asking rule.** Five files still cited "Worker sessions never ask mid-flight", a heading #1188 replaced on 10-05: `BACKLOG.md` rule 7, `pm-pass.md`, `worker-brief.md` and the Webflow plan now cite the current rule. `operating-model-rollout.md` is left as written: it is a dated record, and the review proposes a forward pointer for it once the 10-12 check absorbs its live items.
+- **`AUTONOMY.md`.** It said "squash-merge, delete the branch"; `land-prs` picks the method per base branch, and GitHub deletes the branch. Its sandbox paragraph is now marked as the laptop's.
+
+No rule changed here beyond lining up those citations with the operator's own #1188. The review's other recommendations wait for his answers.
 
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72, #1173)
 

@@ -30,10 +30,10 @@ Tags: **[M]** measured that morning (query, probe, log line or file:line),
    ranked like any other item, but the PM pass lists it separately, never
    recommends a worker for it and never writes a brief for it, and no agent
    starts it. Only the operator adds or removes the tag.
-7. **Workers never ask mid-flight.** A worker that reaches a stop condition
-   adds one line under _Operator decisions_ (the exact ask, its own pick, the
-   branch or PR) and ends; see `CLAUDE.md` → "Worker sessions never ask
-   mid-flight". Briefs for starting a worker are in `docs/worker-brief.md`.
+7. **Workers ask a blocking question once.** A worker that reaches a stop
+   condition asks with AskUserQuestion and also adds one line under _Operator
+   decisions_ (the exact ask, its own pick, the branch or PR); see `CLAUDE.md`
+   → "Worker sessions ask a blocking question once, with all its context" (the operator, 2026-10-05, #1188). Briefs for starting a worker are in `docs/worker-brief.md`.
 
 Ranking is (client impact × confidence) ÷ effort, with two overrides: an
 **external date** the fleet does not control, and **alarm integrity** (an alarm

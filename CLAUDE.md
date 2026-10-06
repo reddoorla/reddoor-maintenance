@@ -61,10 +61,10 @@ asked. Prefer producing a diff over asserting an inference.
 ## Concurrent sessions
 
 Multiple Claude sessions can be active on this repo and the fleet at the same
-time. Two real collisions have already happened (2026-07-08: a concurrent
-`/loop` clobbered the main checkout's HEAD; 2026-07-09: a paused session's
-checked-out branch received another session's commit, which rode into its
-PR's squash). These rules keep separate sessions from corrupting each other's
+time. At least ten collisions are on record. The first two came on 2026-07-08
+(a concurrent `/loop` clobbered the main checkout's HEAD) and 2026-07-09 (a
+paused session's checked-out branch received another session's commit, which
+rode into its PR's squash). These rules keep separate sessions from corrupting each other's
 work:
 
 - **Never commit from the main checkout.** Before your first commit, move to
@@ -116,9 +116,11 @@ worktree rule is mandatory here in the central repo and best practice there.
 
 ## Worker sessions ask a blocking question once, with all its context
 
-Since 2026-09-30 the operator reads one morning report and spends 15–20 minutes
-on it (`docs/operating-model-review-2026-09-29.md` §R3, `docs/pm-pass.md`). A
-question asked in the middle of a worker session waits hours for an answer
+Since 2026-09-30 the operator reads one morning report, budgeted at 15–20
+minutes (`docs/operating-model-review-2026-09-29.md` §R3, `docs/pm-pass.md`).
+The budget was never measured: in practice he answers most asks live, a median
+1.9 h after they reach `main` (2026-10-06 review). A question that is only
+asked in the middle of a worker session can still wait hours for an answer
 nobody is watching for, and the session that asked it has usually ended by
 then. A question that does reach the operator gets buried if it is one line in
 a long status message. So a worker started from a backlog item or a brief
@@ -148,8 +150,8 @@ a long status message. So a worker started from a backlog item or a brief
   the same PR still finds a real defect, the PR goes to "Operator decisions"
   with the findings of both rounds, not into a third round. #918 and #920
   reached a sixth round with majors before anyone asked whether the design was
-  right; this rule would have put them in front of the operator two weeks
-  earlier. Review finding bugs is the process working; the cost is the third
+  right; this rule would have put them in front of the operator about six days
+  earlier (#918's second round was on 09-23; it reached the backlog on 09-29). Review finding bugs is the process working; the cost is the third
   and fourth round.
 - **The mutations are named before the code.** A brief lists the mutations the
   worker commits to running against its own tests. Run each, record whether a
@@ -199,7 +201,9 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   Claude GitHub App, which cannot do some org-level things. That app got 403 on
   `POST /orgs/reddoorla/repos`. Fall back to the CLI only where no connector
   covers the step, such as generating a repo from a template, which the GitHub
-  connector's `create_repository` cannot do.
+  connector's `create_repository` cannot do. Creating an org repo fails by both
+  routes: the connector also got 403 (2026-09-30, #1033; 2026-10-06), so the
+  operator creates org repos by hand.
 
 - **Setup is `.claude/hooks/cloud-session-setup.sh`**, which runs on startup
   and resume, only when `CLAUDE_CODE_REMOTE=true`. It unshallows the clone (the harness
@@ -296,7 +300,7 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
 
 Proposals, briefs, client-facing drafts, sample deliverables, and their PDFs and images go to the private repo `reddoorla/reddoor-workspace`, not to `docs/` here. In a cloud session, attach it with `add_repo`. Push straight to its `main`: it has no CI, no landing and no journal, and its own `CLAUDE.md` gives the folder layout and how to render PDFs with `reddoorla/reddoor-md-pdf`.
 
-The reason is measured. On 2026-10-05 a one-page proposal for Tim took seven landing attempts across two PRs here (#1174, #1187). The checks took 15–20 minutes, and in that window other sessions appended to `docs/workJournal.md`, so the merge kept going stale. The repo is also public, so the proposal's images and PDF could not be committed. A session that writes something here which is not code or process should ask whether it belongs in the workspace instead.
+The reason is measured. On 2026-10-05 a one-page proposal for Tim took seven landing attempts across two PRs here (#1174, #1187). Other sessions appended to `docs/workJournal.md` about every 10–15 minutes, and `main`'s ruleset requires an up-to-date branch, so each landing went stale: first DIRTY at the end of the journal, then BEHIND. CI was not the slow part: its median run is about 7.5 minutes, and 15–20 minutes held only in one runner-starved hour on 10-05 (corrected 2026-10-06; this paragraph first said the checks took 15–20 minutes). The repo is also public, so the proposal's images and PDF could not be committed. A session that writes something here which is not code or process should ask whether it belongs in the workspace instead.
 
 In a cloud session, hand files to the operator as download cards (SendUserFile), not by email or Drive. The Gmail and Drive connectors make the whole file part of the request, which fails for anything bigger than a small text file.
 
