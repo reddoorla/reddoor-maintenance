@@ -240,7 +240,8 @@ async function parseLhciResults(
 
   const anyError = assertions.some((a) => a.level === "error");
   const anyWarn = assertions.some((a) => a.level === "warn");
-  const status: AuditResult["status"] = anyError ? "fail" : anyWarn ? "warn" : "pass";
+  const unasserted = !Array.isArray(assertionFile) && raw.code !== 0;
+  const status: AuditResult["status"] = anyError ? "fail" : anyWarn || unasserted ? "warn" : "pass";
 
   const normalized: NormalizedLhciResult = {
     summary: averageSummaries(manifest),
@@ -253,8 +254,9 @@ async function parseLhciResults(
   const named = failingAudits
     .map((f) => `${f.category}/${f.id} (${f.runs}/${f.of}${f.errored ? ", errored" : ""})`)
     .join(", ");
-  const summary =
-    status === "pass"
+  const summary = unasserted
+    ? `lighthouse: no assertion results (exit ${raw.code}) — scores from ${manifest.length} run(s) were not checked`
+    : status === "pass"
       ? "lighthouse: all categories passing"
       : `lighthouse: ${failed.length} assertion(s) failed${named ? ` — ${named}` : ""}`;
 
