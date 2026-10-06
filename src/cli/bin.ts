@@ -327,6 +327,42 @@ cli
   );
 
 cli
+  .command(
+    "prismic-sync [site]",
+    "Bring Prismic's changed and remote-only models into the repo (never deletes, never writes Prismic).",
+  )
+  .option(
+    "--fleet <inventory>",
+    'Inventory file, or "turso": clone each site fresh and sync it (a dry run without --stage).',
+  )
+  .option("--workdir <path>", "Fleet mode: where the fresh clones go")
+  .option("--open-prs", "--stage publish: push the prismic-sync branch and open or update one PR")
+  .option("--stage <stage>", "Fleet mode in the nightly's jobs: fetch, or publish")
+  .option("--out <dir>", "--stage fetch: where the plan and each site's build input go")
+  .option("--plan <dir>", "--stage publish: the fetch stage's --out")
+  .option("--built <dir>", "--stage publish: the build stage's outputs, one directory per site")
+  .action(
+    async (
+      site,
+      opts: {
+        fleet?: string;
+        workdir?: string;
+        openPrs?: boolean;
+        stage?: string;
+        out?: string;
+        plan?: string;
+        built?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/prismic-sync.js")).runPrismicSyncCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
   .command("upgrade <upgrade> [site]", "Run a named upgrade recipe (svelte-4-to-5).")
   .example("reddoor-maint upgrade svelte-4-to-5 ./my-site")
   .option(

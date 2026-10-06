@@ -18,11 +18,12 @@ import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vite
 import {
   writeModelFile,
   modelFilePath,
+  refreshChangedModel,
   type FormatModelFile,
 } from "../../../src/prismic/models/write.js";
 import { defaultSpawn } from "../../../src/audits/util/spawn.js";
 import { formatWithPrettier } from "../../../src/recipes/_prettier.js";
-import type { RemoteEntry } from "../../../src/prismic/models/types.js";
+import type { LocalEntry, RemoteEntry } from "../../../src/prismic/models/types.js";
 
 let dir: string;
 beforeEach(async () => {
@@ -698,3 +699,148 @@ describe("writeModelFile against a real prettier", () => {
 // callee's SPELLING is worth. Narrowing the signature was the fix; the sentinel
 // stays only as a tripwire on the way back. See the header of index.test.ts for
 // the full history and for the escape classes that guard does NOT close.
+
+describe("refreshChangedModel", () => {
+  const local = (
+    path: string,
+    model: Record<string, unknown> & { id: string },
+    kind: "slice" | "customtype" = "slice",
+  ): LocalEntry => ({ kind, id: model.id, model, path });
+  const remote = (
+    model: Record<string, unknown> & { id: string },
+    kind: "slice" | "customtype" = "slice",
+  ): RemoteEntry => ({ kind, id: model.id, model });
+
+  const seed = async (rel: string, body: unknown): Promise<void> => {
+    await mkdir(dirname(join(dir, rel)), { recursive: true });
+    await writeFile(join(dir, rel), JSON.stringify(body, null, 2) + "\n", "utf-8");
+  };
+
+  const OLD = { id: "content_width_media", type: "SharedSlice", name: "Old" };
+  const NEW = { id: "content_width_media", type: "SharedSlice", name: "New" };
+  const REL = "src/lib/slices/ContentWidth/model.json";
+
+  it("replaces the file local.ts read, at ITS path, with Prismic's body", async () => {
+    await seed(REL, OLD);
+    const res = await refreshChangedModel(okFormat(), dir, local(REL, OLD), remote(NEW));
+    expect(res).toEqual({ path: REL, formatted: true });
+    expect(JSON.parse(await readFile(join(dir, REL), "utf-8"))).toEqual(NEW);
+    expect(await present(join(dir, "src/lib/slices/ContentWidthMedia"))).toBe(false);
+    expect(await present(join(dir, `${REL}.tmp`))).toBe(false);
+  });
+
+  it("refreshes a custom type at customtypes/<id>/index.json", async () => {
+    const rel = "customtypes/page/index.json";
+    const before = { id: "page", label: "Page", json: { Main: { title: { type: "Text" } } } };
+    const after = { ...before, label: "Landing page" };
+    await seed(rel, before);
+    await refreshChangedModel(
+      okFormat(),
+      dir,
+      local(rel, before, "customtype"),
+      remote(after, "customtype"),
+    );
+    expect(JSON.parse(await readFile(join(dir, rel), "utf-8"))).toEqual(after);
+  });
+
+  it("refuses when the remote id differs from the local id, and writes nothing", async () => {
+    await seed(REL, OLD);
+    const other = { id: "video_block", type: "SharedSlice", name: "New" };
+    await expect(
+      refreshChangedModel(okFormat(), dir, local(REL, OLD), remote(other)),
+    ).rejects.toThrow(/video_block/);
+    expect(JSON.parse(await readFile(join(dir, REL), "utf-8"))).toEqual(OLD);
+  });
+
+  it("refuses when the remote body's id differs from its entry id", async () => {
+    await seed(REL, OLD);
+    const lying: RemoteEntry = { kind: "slice", id: OLD.id, model: { ...NEW, id: "video_block" } };
+    await expect(refreshChangedModel(okFormat(), dir, local(REL, OLD), lying)).rejects.toThrow(
+      /video_block/,
+    );
+    expect(JSON.parse(await readFile(join(dir, REL), "utf-8"))).toEqual(OLD);
+  });
+
+  it("refuses when the kinds differ", async () => {
+    await seed(REL, OLD);
+    await expect(
+      refreshChangedModel(okFormat(), dir, local(REL, OLD), remote(NEW, "customtype")),
+    ).rejects.toThrow(/kind/);
+  });
+
+  it("refuses when the file on disk now declares a different id", async () => {
+    await seed(REL, { ...OLD, id: "video_block" });
+    await expect(
+      refreshChangedModel(okFormat(), dir, local(REL, OLD), remote(NEW)),
+    ).rejects.toThrow(/video_block/);
+    expect(JSON.parse(await readFile(join(dir, REL), "utf-8")).id).toBe("video_block");
+  });
+
+  it("refuses when the models are the same model, and does not touch the file", async () => {
+    const raw = '{"id":"content_width_media","type":"SharedSlice","name":"Old"}\n';
+    await mkdir(dirname(join(dir, REL)), { recursive: true });
+    await writeFile(join(dir, REL), raw, "utf-8");
+    const format = okFormat();
+    await expect(
+      refreshChangedModel(format, dir, local(REL, OLD), remote({ ...OLD, imageUrl: "x" })),
+    ).rejects.toThrow(/same model/);
+    expect(await readFile(join(dir, REL), "utf-8")).toBe(raw);
+    expect(format).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the file changed since it was read", async () => {
+    await seed(REL, { ...OLD, name: "Edited by hand" });
+    await expect(
+      refreshChangedModel(okFormat(), dir, local(REL, OLD), remote(NEW)),
+    ).rejects.toThrow(/changed since/);
+    expect(JSON.parse(await readFile(join(dir, REL), "utf-8")).name).toBe("Edited by hand");
+  });
+
+  it("never creates a file: a path that is free is refused", async () => {
+    await expect(
+      refreshChangedModel(okFormat(), dir, local(REL, OLD), remote(NEW)),
+    ).rejects.toThrow(/no file/);
+    expect(await present(join(dir, REL))).toBe(false);
+    expect(await present(join(dir, "src"))).toBe(false);
+  });
+
+  it.each([
+    ["/etc/model.json"],
+    ["../sibling/src/lib/slices/X/model.json"],
+    ["src/lib/slices/../../../x/model.json"],
+    ["src/lib/slices/X/notes.json"],
+    ["customtypes/page/model.json"],
+  ])("refuses a local path that is not a plain model location: %s", async (rel) => {
+    await expect(
+      refreshChangedModel(okFormat(), dir, local(rel, OLD), remote(NEW)),
+    ).rejects.toThrow(/refusing/);
+  });
+
+  it("refuses to write through a symlinked component that leaves the repo", async () => {
+    const outside = await realpath(await mkdtemp(join(tmpdir(), "prismic-outside-")));
+    try {
+      await mkdir(join(outside, "ContentWidth"), { recursive: true });
+      await writeFile(join(outside, "ContentWidth", "model.json"), JSON.stringify(OLD), "utf-8");
+      await mkdir(join(dir, "src/lib"), { recursive: true });
+      await symlink(outside, join(dir, "src/lib/slices"));
+      await expect(
+        refreshChangedModel(okFormat(), dir, local(REL, OLD), remote(NEW)),
+      ).rejects.toThrow(/outside this repo/);
+      expect(
+        JSON.parse(await readFile(join(outside, "ContentWidth", "model.json"), "utf-8")),
+      ).toEqual(OLD);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("reports formatted:false when the target has no prettier, and still writes", async () => {
+    await rm(join(dir, "node_modules"), { recursive: true, force: true });
+    await seed(REL, OLD);
+    const format = okFormat();
+    const res = await refreshChangedModel(format, dir, local(REL, OLD), remote(NEW));
+    expect(res.formatted).toBe(false);
+    expect(format).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(join(dir, REL), "utf-8"))).toEqual(NEW);
+  });
+});
