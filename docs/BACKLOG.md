@@ -155,9 +155,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                         | Tier | Effort | Start here                                                      | Done when                                                                  |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57 | Starter PR and central recipe PR landed; the recipe's test pins the marker |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Tier | Effort | Start here                                                         | Done when                                                             |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------- |
 | P1-31 | `contrast-unmeasured`'s remedy misleads for Tailwind `black/<alpha>`, and the fleet will hit it on the 0.102+ bump. Tailwind v4 emits `color-mix(in oklab, #000 N%, transparent)`, and lightningcss 1.33.0 folds it to `oklab(0% none none/.N)`. The gate's advice is "write 0 for none in the oklab() token", but there is no such token: the fix is defining black as `oklab(0 0 0)`, as reddoor-website#260 did (renders byte-identical). (1) Teach `unparseableColourRemedy` the `oklab(0 none none / α)` shape and name its source. (2) List the fleet sites (starter and starter-blux first) that use `black/<n>` with sRGB black, and fix them as per-repo PRs. _Verify:_ `grep -rhoE 'oklab\(0% none none' build/` in a site's build | 🟢   | S      | `src/audits/util/contrast-unmeasured.ts` `unparseableColourRemedy` | Remedy test pins the shape; the fleet list is in this row or an issue |
 
 ### Blocked behind another PR (do not start early)
@@ -255,19 +254,19 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       matching gate is the fifth, and needs the laptop: Operator
       decisions 78. **Next:** P6 (DNS, OD 61) and 78.
 
-- **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
-  answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
-  scaffolds `hydrationMarker: "footer"`, which cannot prove hydration. Do it
-  together with the a11y spec waiting for a bundle-only marker
-  (`html[data-hydrated]`, set in the root layout's onMount as roalson #57 does)
-  before the reveal pass. Measured on roalson: preview alone 208 in 12 of 14
-  cold runs (217 twice, mid-hydration); preview + that wait 208 in 10 of 10.
-  Starter first, then the recipe, then the fleet. Blocked only on the 25 site
-  PRs for #948's guard flag landing first (see Done, #948).
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
 
+- **#948's residual race and the fleet half of #947: what P1-24 left open (2026-10-05).**
+  P1-24 landed the starter's marker (reddoor-starter#184) and the recipe's
+  scaffold (see Done). Still open, none of it ranked yet: (1) the a11y audit's
+  spec (`src/audits/a11y.ts`) does not wait for `html[data-hydrated]` before
+  its scan, so its 191-vs-208 race stays on sites that write the marker;
+  (2) existing sites get the marker only as per-repo PRs (🔴 as a mass push),
+  and their `tests/smoke/routes.ts` keeps `footer` until then; (3)
+  `reddoor-starter-blux` takes reddoor-starter#184 by cherry-pick; (4) #1148,
+  form-e2e can wait on the marker before it injects.
 - **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
   - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
     Nothing for an agent until the client answers.
@@ -2424,6 +2423,46 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         session. Whether to rotate it is yours (🔴). Its first probe also
         created a local user `probeu` in the container. Removing it was
         refused, and it dies with the container.
+    - **Answered 2026-10-05 ~22:45Z: (a), split the workflow.** Built on
+      #1143 (draft, unmerged), head `5a46bd67`. The nightly is now three
+      jobs. **fetch** holds the Prismic tokens and a read-only App token
+      and runs no site code. **build** is one leg per site, with no token,
+      and runs the site's install, prettier and codegen only inside
+      `docker run --rm`. **publish** holds the write token, runs no site
+      code, and builds each commit itself from `baseHead` plus the plan's
+      named paths. It takes a formatted model only when it still equals
+      Prismic's. Round 3's three majors are addressed (HEAD-move gone by
+      construction, "Update with rebase" accepted, `held`/`declined` warn).
+      19 of 19 named mutations go red. The split's one review (security,
+      correctness, operations) at `06207ce2` was **dirty: 2 blockers, 0
+      majors**:
+      - a link the container left in its output would be followed by the
+        host's `upload-artifact`, carrying another site's tree or the
+        upload step's `ACTIONS_RUNTIME_TOKEN` into the artifact and then
+        into the attacker's own PR;
+      - on a night with exactly one site to build, `download-artifact` v8
+        extracts straight into `path`, so publish found no result and
+        failed that site every night.
+
+      Both are fixed in `5a46bd67`, unreviewed. The host deletes anything
+      in the output that is not a plain file or a directory before the
+      upload, and each leg keeps only its own site's tree. Legs upload
+      `built/`, and publish downloads with `merge-multiple`. MB1–MB3 go
+      red; MB4 is a second layer. The 13 minors (CRLF and mode on
+      committed files, key order, one failed leg stops the whole publish,
+      the rebase committer identity, and others) are listed in #1143's
+      body. Nothing has run live; the first scheduled run is the
+      instrument.
+      - _Ask:_ (a) authorise one narrow review of `5a46bd67` alone (the
+        two fixes); land #1143 if it is clean, else back here. Or (b) land
+        #1143 now, with the first scheduled run as the instrument. _Pick:_
+        (a). The security fix closes a route to other clients' source and
+        a runner token, which is the class this PR exists to remove, and
+        a review of two small workflow steps is cheap. When the answer
+        comes, this session lands it, with
+        `node scripts/land-prs.mjs 1143` from a worktree detached at
+        `origin/main`. Adding `fleet-prismic-sync.yml` adds a scheduled
+        workflow whose first run is the instrument still to prove.
 
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
@@ -2753,6 +2792,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     worker's own. _Ask:_ (a) land without a third round; (b) a third round;
     (c) the menu should point somewhere else. _Pick:_ (a), with
     `land-prs 263 --repo reddoorla/roalson-interests`.
+    **Answered 2026-10-05 ~23:10Z (operator): (a), "your about us thought
+    is right".** #263 lands without a third round, and ABOUT US stays on
+    `/#about`.
 
 85. **CalTex on Prismic slices: merge `staging` into `main` (new 2026-10-05,
     operator's ask the same evening).** The site now renders every page from
@@ -2772,6 +2814,39 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     production deploy. _Worker's pick:_ merge it as is. After the merge, the
     old `home` fields `s1`–`s8` are unrendered; deleting them is a manual
     model edit in Prismic, optional and not urgent.
+
+86. **#1195, the backup verify now checks contents: held after two dirty
+    review rounds (new 2026-10-05, from the refute-claims critic's
+    `blob_bytes` question).** `verify-dump` compared row counts and summed
+    `header_image` length only. On a real production dump, one flipped blob
+    byte verified clean on `main` (`mismatches=0`, exit 0). #1195 (branch
+    `claude/compassionate-hypatia-jtydgw`, head `9a93374`) adds a sha256 per
+    table to the manifest and compares it on restore, and that same dump now
+    goes red. The unchanged `blob_bytes` from 10-01 to 10-05 was real: no
+    header image was written between sonder's (09-30 21:02Z) and today's
+    five (18:37Z).
+    - Round 1 found two latent minors, neither reachable with today's data.
+      SQLite misparses some shortest-form doubles by one ULP, which would red
+      the hash every night; fixed by writing fractional REALs with 17 digits.
+      A whole-number REAL of 2^53 or more in an untyped column would crash
+      the verify loudly; left as is, because the only such column holds
+      bytes.
+    - Round 2 found that the fix missed integer-valued doubles of 2^63 or
+      more. That is fixed in `9a93374` with a test that a mutation turns red,
+      but the fix is unreviewed.
+    - _Ask:_ (a) land #1195 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). Both rounds' defects are false-RED paths that
+      need REAL values the fleet does not store (every REAL is rounded or an
+      integer sum, and a fresh production dump verifies clean). The
+      unreviewed change is one bound with its own test. Land with
+      `node scripts/land-prs.mjs 1195`.
+    - **Answered 2026-10-05 ~23:40Z: (b), a third round.** Round 3 found no
+      blocker. Its one minor: past 2^53, `String(v)` is not the double's
+      digits (`String(2 ** 60)` is `1152921504606847000`), so a whole-number
+      REAL in an untyped column restored as a different INTEGER. **Answered
+      ~00:05Z: apply the fix, then land.** Every number that is not a safe
+      integer now goes out as `toExponential(16)` (`d1fa151`), pinned by a
+      test that three mutations turn red. Landed with `land-prs.mjs`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -2831,6 +2906,19 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   Re-read on 10-08; a figure under 25 is an ask.
 
 ## Done (move items here when they land)
+
+- 2026-10-05 — P1-24, a bundle-only hydration marker (#947, starter and
+  recipe half): landed in two PRs. reddoor-starter#184: the root layout's
+  `onMount` writes `html[data-hydrated]`, the template's smoke routes wait on
+  it for up to 20 s, and a no-JS `@smoke` control plus two unit tests prove it
+  is absent without script and not written before mount. This repo's smoke
+  recipe now scaffolds `hydrationMarker: "html[data-hydrated]"` where a
+  site's Svelte source writes the marker, and falls back to `footer`, `main`
+  or `body` otherwise, with a note that this proves paint, not hydration.
+  `tests/recipes/smoke-suite.test.ts` pins the marker; the brief's three
+  mutations and four more each turn a test red (tables in both PRs). The
+  a11y spec's wait, the fleet rollout, the blux cherry-pick and #1148 stay
+  open under "Watching", unranked.
 
 - 2026-10-05 — P1-25, the Prismic toolbar under the shared CSP baseline
   (#1157, issue #1155). `BASELINE_CSP` admits `https://prismic.io/prismic-toolbar/`

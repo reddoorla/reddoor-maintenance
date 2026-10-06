@@ -351,7 +351,8 @@ export async function runDbCommand(
     } catch (err) {
       return { output: `DUMP_VERIFY loaded=false error=${String(err)}`, code: 1 };
     }
-    const { tableCounts, headerImageBytes, parseDumpManifest } = await import("../../db/dump.js");
+    const { tableCounts, tableHashes, headerImageBytes, parseDumpManifest } =
+      await import("../../db/dump.js");
     const manifest = parseDumpManifest(sql);
     if (!manifest) {
       // Refuse rather than fall back to self-comparison. Falling back would
@@ -395,10 +396,25 @@ export async function runDbCommand(
         `header_image bytes: origin=${manifest.blobBytes} restored=${restoredBlobBytes}`,
       );
     }
+    // Content: counts and one byte total pass a dump in which a single blob byte
+    // or a single character of text changed in transit (2026-10-05, measured:
+    // a flipped header-image byte verified clean). Compare every table's rows.
+    let hashed = 0;
+    if (!manifest.hashes) {
+      mismatches.push("content hashes absent — dump predates them, contents unverified");
+    } else {
+      const restoredHashes = await tableHashes(exec);
+      for (const [table, want] of Object.entries(manifest.hashes)) {
+        const got = restoredHashes[table];
+        if (got === undefined) continue;
+        hashed++;
+        if (got !== want) mismatches.push(`${table}: content hash origin=${want} restored=${got}`);
+      }
+    }
     const total = Object.values(restored).reduce((a, b) => a + b, 0);
     const lines = [
       ...mismatches.map((m) => `✗ ${m}`),
-      `DUMP_VERIFY loaded=true tables=${Object.keys(restored).length} rows=${total} blob_bytes=${restoredBlobBytes} mismatches=${mismatches.length}`,
+      `DUMP_VERIFY loaded=true tables=${Object.keys(restored).length} rows=${total} blob_bytes=${restoredBlobBytes} hashed=${hashed} mismatches=${mismatches.length}`,
     ];
     return { output: lines.join("\n"), code: mismatches.length > 0 ? 1 : 0 };
   }

@@ -8760,7 +8760,104 @@ parity check needs fonts: the container has no Impact and no Helvetica, and
 every earlier evidence shot set headings in a default serif until Impact
 (Microsoft corefonts) and Nimbus Sans were installed.
 
-## 2026-10-05 — Reddoor's red Renovate PR was the new a11y rule seeing an old colour (reddoor-website#260, #208)
+## 2026-10-05 — The backup's restore rehearsal never compared blob contents; #1195 makes it, held at Operator decisions 86
+
+The refute-claims critic asked whether `fleet-db-backup`'s `mismatches=0` covers blob contents, since `blob_bytes=11437644` held from 10-02 to 10-05 while the row counts moved. Reading `verify-dump` answered the first half: it compared per-table row counts and one number, `SUM(LENGTH(sites.header_image))`. A blob whose bytes change and whose length does not is invisible to both. The negative control proved it on a real production dump of 51 MB, 11 tables and 1111 rows. One hex digit flipped inside a header image left exactly one byte different and the same length, and `main` printed `DUMP_VERIFY loaded=true tables=11 rows=1111 blob_bytes=11433275 mismatches=0` and exited 0.
+
+The constant number was nevertheless real, and a different authority showed it. `typeof()` over every column of every table finds blobs only in `sites.header_image` (17 rows). The newest `header_image_generated_at` before the 10-05 run was sonder's, at 09-30 21:02Z. The run logs agree. The 09-30 run (10:39Z, before sonder's write) printed 11146577, and the 10-01 run printed 11437644, a jump of 291067. Today's five regenerations at 18:37Z moved it again, to 11433275. The number tracks writes; there were simply none in those four days.
+
+Every Turso read went through a client-side guard that accepts one statement beginning `SELECT`. Its refusal was proven on a local file DB first, against INSERT, UPDATE, DELETE, `SELECT 1; DELETE` and `WITH … DELETE`, and then against production. libSQL's `transaction("read")` was not a usable second layer: on a local file it ran an INSERT without complaint (the transaction was never committed, so nothing persisted).
+
+#1195 puts a sha256 per table in the manifest. It hashes the column names and every cell in rowid order, using the driver's values, before they become SQL text, with a typed, length-prefixed encoding per cell. `verify-dump` hashes the restored tables the same way, and the corrupt dump now reports `✗ sites: content hash`. A fresh production dump verifies clean, at `hashed=11`.
+
+The control first went red on two tables, `sites` and `submissions`, and the second was the instrument's fault. Python's text-mode `read()` had turned every `\r\n` in 18 spam messages into `\n`. Redone in binary mode, one byte differed and one table went red. The side result is that the hash also catches a line-ending rewrite, which counts could not.
+
+Review round 1 found that SQLite's text-to-double parse misreads about one shortest-form double in ten thousand by one ULP: 0.3118957494450251 loads as 0.31189574944502513. That predates this change. It was a quiet fidelity loss in the backup, and the hash would have turned it into a permanent nightly red. Writing fractional REALs with `toPrecision(17)` fixed it. Round 2 found that integer-valued doubles of 2^63 or more take the same parse path (59 misreads in 300k at 1e16–1e305). The bound is fixed on the branch, but the fix is unreviewed. Neither path is reachable today, because every REAL the fleet writes is rounded or an integer sum. The two-dirty-rounds rule still holds the PR, so it waits on Operator decisions 86, and the worker's pick is to land it as it is.
+
+Seven mutations, each red: hashes never compared, blob bytes unhashed, text bytes unhashed, absent hashes tolerated, manifest written without hashes, REALs back to `String`, and the 2^63 bound dropped. Adding two comment lines to the workflow shifted `continuity.md`'s citation of `overages: false` from line 176 to 178, and `runbook-anchors` caught it.
+
+## 2026-10-05 — Roalson's final round: 8 pins moved, 14 aerials cropped, a new listing packaged, three PRs (roalson-interests#263, #264, #265; Operator decisions 81–84, #1185)
+
+A worker brief from Erik's 19:11Z list. Items 1 and 2 (pins and aerials) are Prismic content, staged in release `asP91BIAAH8K23X-`. Items 3–6 are code:
+
+- roalson-interests#263: Improved Properties, and the menu with ABOUT US.
+- roalson-interests#264: the package opens in the browser, with no size line.
+- roalson-interests#265: the whole card is one link.
+
+The map rework waits on Nicole's design (decision 83). Mid-session the operator added a 61.81-acre listing from Gmail, and that became the release's 23rd document.
+
+**Pins were checked against the listing's own outline, not an address.** The property model has no address field, and the packages describe sites as corners ("the southwest corner of IH-35 and Wonderworld"). Nominatim reverse geocoding put every pin on the right road. That was useless as a check, because a pin on the wrong side of an interchange still sits on the right road. The authority turned out to be the feature images themselves: 16 of 22 are the package's own aerial, with the parcel outlined in red or yellow. Overpass was unreachable from the container; Esri World Imagery tiles loaded. So each pin was rendered on Esri at z17/z18 and set beside its outline. Eight were off the parcel:
+
+- San Marcos: about 250 m away, on a warehouse.
+- Seguin: about 350 m away, in a field.
+- Scenic Loop: on the Bill Miller pad next door.
+- Kingsville: on the Chili's.
+- IH-10 E at 1604: east of the parcel.
+- Perrin Beitel: on the wrong side of the road.
+- IH 10 at Menger Springs: on a building between its two tracts. It now sits on Tract 2, the larger at 6.4 of 10.2 acres.
+- Menger Springs Road: on the Methodist campus.
+
+Census address geocoding landed 35–75 m from correct pins. That is interpolation noise, and it would have moved good pins.
+
+**Aerials: the frames vary more than the CSS says.** The card is `aspect-[423.5/267.5]`, but measured in a browser it is 1.06–1.58 at 1440 (the photo stretches to the text beside it), 0.81 and 0.96 at 834 (the carousel photo spans the slide), and 1.71 on the homepage band. A crop has to keep the outline inside every centred `object-cover` view from 0.81 to 1.71. An outline detector plus a brute-force crop search found 14 feasible. Two are not: Dove Canyon and 5930 Bandera need 1,371 and 1,318 px of a 1,200 px source, even if only the landscape frames count (decision 82). The first detector chose yellow "SITE" arrows and red brick. Filtering components by fill ratio (an outline is hollow) fixed it, and a contact sheet confirmed all 16 by eye. One write nearly went wrong: Prismic asset ids are a filename's first 16 characters, and six contain an underscore, so splitting on `_` would have pointed six crops at assets that do not exist. That was caught by comparing against the ids `get_document` returned, before the writes.
+
+**The new listing.** The Gmail connector lists attachment ids but has no tool that returns their bytes. Per the operator's instruction I stopped and asked, and the operator dropped the files in.
+
+- All six image boxes in the intake form are the template's empty placeholders.
+- The flood-plain box still holds the template's example ("FEMA maps do not indicate any floodplain"), and the survey says part of the tract is in zone A.
+- Nothing missing was invented. Nine questions for Erik are in #264, along with what was probably meant for Matt's "second email": photos, maps, demographics and comments.
+- The package copies the existing packages' letterhead from a rendered page, with the content area masked. The text pages are printed through Chromium, and the disclosure and IABS pages are copied byte-for-byte from a current package.
+- No Century Schoolbook clone was reachable (both CTAN mirrors failed TLS), so the text is Liberation Serif.
+- The pin is the outline's centroid. The traced outline came to about 64 acres against 61.81 stated, which is a positive check on the scale.
+- The operator chose to upload the two files to Prismic themselves, because the connector only fetches public URLs. So the release is not publishable until they are linked (decision 81).
+
+**Defects the changes introduced, all found before merge.**
+
+- The whole-card link broke the carousel swipe: a mouse drag on a link starts a native link drag. A completed swipe could also end in a click that opened the listing. Both `draggable="false"` and a 500 ms post-swipe click guard are needed: removing either turns the new spec red in 3 of 3 runs.
+- Under reduced motion, an off-stage card's title stayed `visibility: visible` for about 20–45 ms after hydration. The base rule gives every element a 0.01 ms `all` transition, and visibility is in "all". The off-stage @smoke failed 3–4 of 20 runs on the branch and 0 of 20 on main. `in-[[inert]]:invisible` made it 20 of 20. Without reduced motion the transient never appeared, which is why it looked like a flake until the two runs were compared.
+- ABOUT US is `/#about`; the site has no About page. It sent focus back to the menu button.
+
+**Instrument failures, mine.**
+
+- A background `pnpm verify; grep …` reports grep's exit code. The package branch was pushed once with its own new spec red.
+- That spec had asserted "no download", which headless Chromium can never satisfy: it has no PDF viewer, so any PDF navigation downloads, even in a new tab. The spec now asserts the new tab, the CDN request and the unchanged page, and it is red against main's save-on-click code.
+- An unquoted heredoc ran the Markdown backticks of a PR body as shell commands. None was destructive.
+
+**Review.** Package and card: round 1 found minors and nits, and round 2 was clean. Labels: both rounds found something (round 1 a major on focus, round 2 a one-frame focus touch on the menu button). It is fixed and held for decision 84 rather than taking a third round.
+
+Corrected beliefs:
+
+- The brief's "hover-to-select, will look Monday" was stale: roalson-interests#253 had shipped it.
+- Item 5 reverses decision 55(iii) (#245, download) at the client's request.
+- The 2026-10-05 MarkUp boards had 0 unresolved pins, so this round was only Erik's list.
+
+**Decision 84 answered the same evening:** the operator chose (a), "your about us thought is right". #263 lands without a third round, and ABOUT US stays on `/#about`.
+
+## 2026-10-05 — P1-24: the starter writes `html[data-hydrated]` and the smoke recipe scaffolds it (reddoor-starter#184 `2209aa0`, #1194)
+
+The smoke recipe's marker was `footer`. It is server-rendered, so it was visible with scripting off and with the bundle missing: every scaffolded route proved the page painted, never that it hydrated (#947). Roalson had already fixed this for itself as #57. The template now has the same fix (reddoor-starter#184): the root layout's `onMount` writes the attribute, and the template's own smoke routes wait on it. The recipe here scaffolds `hydrationMarker: "html[data-hydrated]"`.
+
+**The brief did not cover one case, and the code settled it.** The recipe writes `tests/smoke/routes.ts` only into sites that lack one. Those are mostly bespoke builds and sites cloned before today, and almost none of them write the marker. Scaffolding `html[data-hydrated]` there unconditionally would false-fail every route. That is what `footer` did to la-homelessness-initiative, a site with no footer, on the first fleet-smoke run, and it is why `detectHydrationMarker` exists. So the recipe keeps the new marker only when some `.svelte` file under `src/` writes it, as either `dataset.hydrated =` or `setAttribute("data-hydrated"`; a `===` read does not count. Otherwise it falls back to `footer`, then `main`, then `body`, and the manifest comment and the run's note both say that the fallback proves paint, not hydration, and how to add the marker. A site with no `.svelte` files gets the template default, as before. I judged this to be inside the brief, not a fork: it is the existing fallback rule pointed at a new default.
+
+**A 20 s wait, from the starter's review.** Round 1 on #184 found that the bundle-only marker waits on the client compile of a cold `vite dev` server. The old marker never did. Playwright's 5 s default is shorter than roalson's measured 5–7 s first transform, and roalson's 12-of-14 against 10-of-10 numbers were measured on preview, not on dev. The starter's waits, and the scaffolded spec here, now use 20 s. Round 1 also caught the starter journal claiming this recipe change had already landed. It was in progress then; the claim was corrected before merge. Round 2 was clean: one minor about diagnostics, left as it was, and a nit, folded into the journal.
+
+**Proved before trusted.** Before #184 merged, the recipe's generated `routes.ts` and `pages.spec.ts` ran inside the starter's worktree, with `/` swapped for `/privacy` because the placeholder home is a 404. With the marker, 2 of 2 passed. With the `onMount` write removed, the route failed on `hydration marker "html[data-hydrated]" … Timeout: 20000ms`. `html` passes `toBeVisible()`; this was measured, not assumed. The starter's mutation table is in #184. Here, seven mutations each turned a test red: the brief's three (scaffold `footer`, scaffold `html` in the template, and the same in the detector's constant), detection that ignores the writer, detection that never falls back, a regex that accepts `===`, and a spec without the timeout. Round 1 of #1194's review found the detector would take a comment naming the write, or the same write on a carousel `<div>`, for the marker, and false-fail every route; it now strips comments and anchors on `documentElement`, with a negative test for each.
+
+**What it does not do.** The a11y audit's spec (`src/audits/a11y.ts`) still scans without waiting on the marker, so #948's 191-vs-208 race remains even on sites that write it. Existing sites get the marker only through per-repo PRs. `reddoor-starter-blux` takes #184 by cherry-pick. #1148 can now wait on the marker before it injects. All four are listed in BACKLOG under "Watching", and none is ranked.
+
+The cloud container's Playwright browser build (1234) does not match the starter's pinned build (1243), so every browser run here used a `launchOptions.executablePath` override from an uncommitted local config. `rm -rf` of a probe directory was refused by the permission rules, and individual `rm` calls did the cleanup.
+
+Round 2 of #1194's review found no behavior defect. It found two text-only minors, both fixed before landing: this entry still named "Blocked" after the line moved, and the detector's comment did not list one fail-safe miss. A `/*` inside a string (an `import.meta.glob("/src/posts/*.md")`) blanks code up to a later `*/`, which can hide a real write. That falls back to `footer` and never false-fails. I read "two dirty rounds, then stop" as being about defects in what ships, and landed. If the operator reads it as any finding at all, this PR is the case to point at.
+
+## 2026-10-06 — #1195 landed after the third review round Operator decisions 86 asked for
+
+> Follow-up to 2026-10-05 — The backup's restore rehearsal never compared blob contents; #1195 makes it, held at Operator decisions 86.
+
+The operator answered AskUserQuestion with a third round. It found no blocker. Its one minor corrected a premise of round 2's fix. Past 2^53, JS's shortest form is not the double's digits: `String(2 ** 60)` is `1152921504606847000`, while the double is `1152921504606846976`. SQLite reads that text as the int64 it spells, so a whole-number REAL in an untyped column came back as a different INTEGER, up to 512 off in the reviewer's 20,000 samples. The verify reddened on it with a RangeError, never a false green, but an unverified `db restore` would have written the wrong number. The fix the operator chose writes every number that is not a safe integer as `toExponential(16)`. `toPrecision(17)` is not enough, because it prints a 17-digit integer such as `89508622084877072` without an exponent, and that lands as an INTEGER again. Three mutations go red: the old 2^63 bound, `toPrecision(17)` in place of `toExponential(16)`, and `String` for every number. The second only went red after `89508622084877072` was added to the test; the first version of the test had no 17-digit value and let it through. The fix also closes round 1's accepted F2 crash. A fresh production dump through the SELECT-only guard printed `DUMP_VERIFY loaded=true tables=11 rows=1113 blob_bytes=11433275 hashed=11 mismatches=0`, and the full suite passed 8652.
+
+Left as it is: `verify-dump` does not hash a table that is in the manifest but absent from the restore. The counts and the `DATABASE_TABLES` coverage check already catch every such table, except an empty one that the app does not own.
+
+## 2026-10-06 — Reddoor's red Renovate PR was the new a11y rule seeing an old colour (reddoor-website#260, #208)
 
 The cockpit's only "broken" item was Reddoor's "1 Renovate PR failing CI": reddoor-website#208, red on the a11y step with `contrast-unmeasured … (oklab(0 none none / 0.1))`. The brief guessed a bumped Tailwind or lightningcss had changed the emitted CSS. It had not.
 
