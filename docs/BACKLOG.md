@@ -1494,11 +1494,11 @@ analytics"]`). The operator creates properties for the other three. When the
     address the site already publishes, as its contact. No registry was
     read: CA bizfile's WAF refuses automated requests and OpenCorporates
     needs a token, so none of the three is confirmed as a registered entity
-    name. Two contact emails stay `[privacy contact email]`: Data Dynamiq's
-    only published address is a named person's (`rgreenquist@`), and
-    1836dig's only known address is a personal Gmail. _Ask:_ an address for
-    each from the client. _Pick:_ a role address (`privacy@` or `info@`) on
-    each client's own domain. The text is still DRAFT under item 45.
+    name. **Contacts, ruled 2026-10-06:** the operator set the contact to whoever
+    receives the report (`report_recipients_to`, falling back to
+    `point_of_contact`): `robbie.greenquist@gmail.com` (data-dynamiq#61),
+    `benhalbach@gmail.com` (1836dig#26) and `MatthewB@worthe.com`, which
+    replaces `29navy@worthe.com` (29-navy#75). The text is still DRAFT under item 45.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only

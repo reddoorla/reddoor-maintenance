@@ -8631,6 +8631,10 @@ At the operator's ask, the proposal in `docs/proposals/2026-10-05-instagram-post
 
 This entry sits next to the other post-kit entries rather than at the end of the file, at the operator's choice. Its PR (#1187) passed checks four times and was blocked by a merge conflict every time. Other sessions were appending to this file every 10–15 minutes, while checks take 15–20, and two branches that both append at the end of the same file always conflict.
 
+## 2026-10-06 — Non-code work moves to `reddoorla/reddoor-workspace`
+
+The operator created the private repo `reddoorla/reddoor-workspace`. Neither the Claude GitHub App nor the GitHub connector could: both got 403 on `POST /orgs/reddoorla/repos`. Its first commit, `1460f07`, holds the social post-kit proposal with its PDF and all eight crops, which this public repo could not carry. This PR deletes `docs/proposals/2026-10-05-instagram-post-kit.md` from here and adds a `CLAUDE.md` section pointing at the workspace. The 10-05 entries above that name the old path are left as they were. Whether to move more of the agent workspace (the backlog, journal and briefs) is an open question for the operator, because the backlog and journal are read by scripts here.
+
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72, #1173)
 
 The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.
@@ -9019,6 +9023,42 @@ The first scheduled backup with #1195's content hashes ran green with `hashed=11
 
 Overnight was otherwise quiet: four scheduled runs, all green; no branch-only asks; Discord has no open mention in 14 days (the 21-day positive control still finds Erik's 09-17 lines). Mantis #29 and Roalson #263 landed on their repos last night, closing items 80 and 84; CalTex's `staging` (item 85) and Roalson's release (item 81) are still the operator's. No re-rank: nothing in P1 moved but the evidence for P1-31, and #1148 became startable because its marker exists.
 
+## 2026-10-05 — "Just wait" leaves Watch: a vuln Renovate is still fixing waits off the cockpit and the digest (#1199, `24183c06`)
+
+The operator's rule, verbatim: "anything where the action is 'just wait' shouldn't be a watch item until it gets to a point where it actually requires my intervention." The instance was ERP Industrials on Watch with "3 critical/high vulns — transitive-only, fix rides the weekly lockfile window": the action the item names is to wait.
+
+**The inventory.** Of the 25-odd signals the cockpit and digest raise, two kinds turned out to be "just wait" and unthresholded.
+
+- **Vulns Renovate has not given up on.** A direct vuln before auto-fix exhaustion was amber Watch on the cockpit (the digest already muted it). A transitive-only vuln never escalated at all, on any surface.
+- **Dead letters.** `forms-deadletter-replay.yml` drains them every 6h, yet they alarm CRITICAL from the first row.
+
+Everything with a sweep behind it (Prismic, url-probe, GitHub signals, the Turnstile verdict) already had a staleness gate, which is this same idea under another name. The rest are roster gaps, deadlines or real breaks.
+
+**The design.** `markWaiting` runs after `diffAttention` and reads the snapshot's `firstFlaggedAt`, which the daily digest has been persisting per key all along. No new column was needed.
+
+- **Transitive-only.** It waits until two days after the first Monday 18:00 UTC lock-file window that opens after the flag day, read from `reddoorla/.github` `renovate-config.json`.
+- **Direct.** It waits `AUTO_FIX_EXHAUSTED_CYCLES + 1` = 4 nights.
+- **Where a waiting item goes.** It stays on `/s/<slug>` as a chip and leaves the cockpit's tiers, the Needs-you feed and the digest.
+- **Escalation.** Past its threshold it returns badged WORSE, and it now also reaches the digest email, which before showed only exhausted vulns.
+
+**Beliefs corrected on contact.**
+
+- **"Waiting" defaults to safe.** The first build did not. With an empty snapshot (a Turso blip, a missing row), every key reads as first flagged today, so every vuln waits, and an escalated vuln vanished on a read error. Both round-1 reviewers found it independently. The rule now is: nothing waits on an unread or empty snapshot.
+- **"7 days for a direct vuln."** That number came from nowhere. Vulnerability PRs ignore Renovate's Monday schedule and dispatch nightly, so exhaustion lands after 3 nights; 4 is the schedule's own answer.
+- **The settle-days comment.** It first said a lock-file PR is merged on Renovate's next run. That is false: the global Monday schedule also gates the merge, so a missed window waits a week. The 2 days covers only the Tuesday 06:00 security sweep re-measuring a merge that happened. A missed window is a failed wait, which is the point.
+- **The pm-pass text.** It first claimed the code enforced the rule for every kind of waiting. It does for vulns only.
+
+**Not done, and why.** Dead letters went to Operator decision 87 rather than into the code. A real threshold needs the oldest unreplayed row's `received_at`, which changes the query-plan-gated count queries. And muting a CRITICAL lost-lead alarm for 12h is the operator's call, not a worker's. Turnstile-unverified with a null verdict and prismic-unknown stay (i), each for a reason:
+
+- **Turnstile-unverified, null verdict:** nothing dates when Require Turnstile was switched on, so "overdue" has no clock.
+- **prismic-unknown:** it includes a dead write token, which is an expiring credential.
+
+**Unverified.** ERP's real `firstFlaggedAt` could not be read, because production reads were denied in this cloud session. If it is 09-27 or earlier, ERP stays on Watch today, now titled with the 09-28 window it outlived, and that is the rule working. If it is 09-28 to 10-04, ERP leaves Watch and returns at 10-07 18:00Z if the vuln is still present. The live cockpit could not be checked from here either.
+
+**Process slip.** The round-2 test reviewer mutated files in my worktree while I committed a docs fix, and `git add -A` swept its mutation (the WORSE badge switched off) into `3447fe91`. The reviewer caught it in its own report, and `9d8567a8` restored the file byte-for-byte from the reviewed commit. The lesson: a reviewer that mutates code gets its own worktree, or the author does not commit while one runs.
+
+**Mutations.** The brief's four (remove the threshold, invert it, reclassify CI-red as waiting, leak into the digest) plus three more each turned tests red; the table is in #1199. The reviewers ran 37 more across both rounds; the only survivors were two dead filters, since removed, and an untested handler path, since extracted and tested.
+
 ## 2026-10-06 — All three new GA4 sites collect, and their privacy pages name the business (1836dig#25, data-dynamiq#60, 29-navy#74; item 49)
 
 The operator merged 1836dig#24 and 29-navy#73 this morning, so all three tags that item 49 waited on are live. Each was read the same way as Data Dynamiq's on 10-05: GA4 Realtime returned 0 rows on the property before one browser visit, then `1 user, 3 events` at ~14:13Z on both 556936272 (1836dig) and 556907604 (29 Navy). Those users are my own verification visits from a cloud IP, not organic traffic. The 0-row read before each visit is the control that makes the 1 mean something.
@@ -9030,3 +9070,7 @@ The operator then asked for the policy's three placeholders to be filled from wh
 **Two contacts stay placeholders on purpose.** Data Dynamiq's only published address is Robert Greenquist's own `rgreenquist@datadynamiq.com`. 1836dig's only known address is a personal Gmail. Printing a person's inbox as the privacy contact on a public policy is a client decision, so both still render `[privacy contact email]`, and the ask is in item 49.
 
 Each repo's privacy test was rewritten to assert the name, the date and the remaining placeholder (29 Navy: the `mailto:` link). Each fails against the old config and passes against the new one. All three PRs were merged on green, pinned to their heads. 1836dig's live `/privacy` showed the name and "Effective October 6, 2026" within a minute of its merge.
+
+**Later the same day: the contacts were ruled on.** The operator ruled that the policy's contact is whoever receives the site's report. Resolved the way the sender resolves it (`report_recipients_to`, then `point_of_contact`, `src/reports/send/orchestrate.ts:216`), that gives `robbie.greenquist@gmail.com`, `benhalbach@gmail.com` and `MatthewB@worthe.com`, landed in data-dynamiq#61, 1836dig#26 and 29-navy#75. Two of the three are personal Gmail addresses, and Data Dynamiq's is not the `rgreenquist@datadynamiq.com` the site publishes. Both follow the ruling, not the site. 29 Navy's moves from the shared `29navy@worthe.com` to a named person.
+
+Search Console's verification meta also went onto la-homelessness-initiative (#49), the repo that owns `www.lahomelessnessawareness.org`. la-homelessness-youth has no custom domain to verify.
