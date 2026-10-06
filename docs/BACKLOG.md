@@ -2953,6 +2953,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       clearing a stored 78 takes a re-draft once the live score is right, for
       Data Dynamiq now and for the other three after their PRs deploy and a
       nightly re-stamps them. How to re-draft a held row is your call.
+    - **Answered 2026-10-06 ~14:05Z (operator, to the PM cockpit): (a).** A
+      worker card is queued with the brief from the 10-06 morning report
+      ("Roll out the two best-practices cookie fixes"). How to re-draft the
+      held rows is still open, and the sends stay held until the scores
+      improve.
 
 89. **#1205, the nightly names failing Lighthouse audits: held after two
     review rounds (new 2026-10-06, branch
@@ -2974,8 +2979,21 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     is older than this PR, the follow-up is a three-line change with its own
     test, and until #1205 lands the nightly cannot name the audits behind a
     score. Land with `node scripts/land-prs.mjs 1205`.
-    **Answered 2026-10-06 ~14:05Z: (a).** #1205 landed as `6728d61a`. The
-    status follow-up is on `claude/lh-no-assertions-warn`.
+    **Answered 2026-10-06 ~14:05Z (operator): land it.** The PM cockpit's
+    `land-prs.mjs 1205` updated the branch (`49cc013` → `c45c232`); the
+    operator merged it at 14:16:03Z (`6728d61a`) while the checks were
+    green. The follow-up is P1-32.
+
+90. **CalTex: Erik's orange-line fixes (new 2026-10-06, Discord #caltex
+    13:43Z, raised by the operator).** Erik asks for three changes to the
+    AED Programs icon labels: remove the double spaces
+    (`Life-Saving  AED Customized  to`, `Battery and  electrode`), put a hard
+    return after the comma in "No long-term commitment, 12-month terms.",
+    and keep "12-month" on one line. The double spaces are in the published
+    Home doc's `s2_icons` labels (Key Text), and in several other fields of
+    the same doc [M, Prismic `get_document`]. A worker card is queued ("Fix
+    CalTex double spaces and the 12-month line break"). The line break
+    touches code on `main` and on `staging` (item 85).
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -3007,6 +3025,10 @@ verdict is its only input, because no client and no check sees the email.
 | 2026-10-05 22:47 | Revogen                    | Maintenance, Oct 2026  | awaiting |
 | 2026-10-05 22:47 | Vineyard Custom Homes      | Maintenance, Oct 2026  | awaiting |
 
+The operator, 2026-10-06 ~14:05Z, on the five 10-05 rows: "waiting to improve
+bp score". No verdict yet. The rows stay `awaiting`, and the ask returns once
+item 88's fixes have deployed.
+
 ## Fleet snapshot (2026-10-05 ~11:55Z, live Turso, SELECT-only) [M]
 
 Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
@@ -3036,6 +3058,10 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
+- 2026-10-06 — P1-32: a Lighthouse run whose lhci exited non-zero without
+  writing assertion results reports `warn` ("no assertion results … were not
+  checked") instead of "all categories passing" (#1213, item 89's
+  follow-up).
 - 2026-10-05 — "Just wait" leaves Watch (issue #1190). `markWaiting`
   (`src/alerts/waiting.ts`) marks a vuln Renovate is still fixing as waiting:
   a transitive-only one until two days after the first Monday lock-file
