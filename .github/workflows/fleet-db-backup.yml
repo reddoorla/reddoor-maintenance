@@ -65,7 +65,9 @@ jobs:
 
           # Rehearse: load into a scratch engine and compare what came back
           # against the ORIGIN MANIFEST the dump carries — row counts per table,
-          # every table the app owns, and the total header-image BLOB bytes.
+          # every table the app owns, the total header-image BLOB bytes, and a
+          # sha256 per table over every cell (a flipped blob byte passed the
+          # counts and the byte total until 2026-10-05).
           #
           # This used to compare the dump against ITSELF (expected counts parsed
           # out of the dump text, actual counts from loading that same text), so

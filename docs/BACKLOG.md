@@ -2799,6 +2799,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       integer sum, and a fresh production dump verifies clean). The
       unreviewed change is one bound with its own test. Land with
       `node scripts/land-prs.mjs 1195`.
+    - **Answered 2026-10-05 ~23:40Z: (b), a third round.** Round 3 found no
+      blocker. Its one minor: past 2^53, `String(v)` is not the double's
+      digits (`String(2 ** 60)` is `1152921504606847000`), so a whole-number
+      REAL in an untyped column restored as a different INTEGER. **Answered
+      ~00:05Z: apply the fix, then land.** Every number that is not a safe
+      integer now goes out as `toExponential(16)` (`d1fa151`), pinned by a
+      test that three mutations turn red. Landed with `land-prs.mjs`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
