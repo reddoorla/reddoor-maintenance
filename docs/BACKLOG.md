@@ -2871,6 +2871,42 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       integer now goes out as `toExponential(16)` (`d1fa151`), pinned by a
       test that three mutations turn red. Landed with `land-prs.mjs`.
 
+87. **Best-practices 78 on five maintained sites: roll the starter's two
+    fixes out as five per-repo PRs (new 2026-10-06, from the bp-78 worker,
+    branch `claude/trusting-brahmagupta-413csl`).** Every 78 is the same two
+    audits: `third-party-cookies` (weight 5) and `inspector-issues` (weight
+    1), 6 of 27 points, failing in 3 of 3 runs [M: the branch's new
+    `LIGHTHOUSE_FAILURES` lines on fleet-lighthouse run 37393496930, and the
+    same result from a container run of the nightly's exact lhci config]. Two
+    third-party cookies set them, and the starter already fixes both:
+    - **Vimeo's Cloudflare `__cf_bm`** on Espada, MSOT, Revogen and
+      Vineyard. Their `ScreenWidthImage`/`ScreenWidthMedia`/`TwoCol`/
+      `ContentWidthMedia` render the `player.vimeo.com` iframe on load. The
+      starter's `VimeoBanner.svelte` (and Vida's `VimeoBackground.svelte`)
+      creates it only after a real pointer, wheel, key or touch event, which
+      no audit produces. 29 Navy and Vida were never controls for this: their
+      audited homepages request no Vimeo player at all.
+    - **The Prismic toolbar's `io.prismic.previewSession`** (about 21
+      cookies) on ERP and Vineyard. Both hard-code
+      `<script src="https://static.cdn.prismic.io/prismic.js?...">` in
+      `src/app.html`, outside the `isPreviewSession` gate that already wraps
+      `<PrismicPreview>` in their layouts. Deleting the tag is the fix; real
+      previews still get the toolbar through the gated component.
+    - **Data Dynamiq is already fixed.** data-dynamiq#59 (merged 21:02Z)
+      deleted `player.vimeo.com/api/player.js` from `app.html`; the branch's
+      dispatches and a direct run read 100. The PM pass ruled #59 out because
+      it merged after the 78 run; it was in fact the fix.
+    - _Ask:_ (a) a worker opens the five per-repo PRs (Espada, MSOT, Revogen:
+      Vimeo; Vineyard: Vimeo and the `app.html` tag; ERP: the `app.html`
+      tag), each checked by a deploy-preview Lighthouse run before merge; or
+      (b) leave them and accept "best practices" per site in the cockpit.
+      _Worker's pick:_ (a). Each change is one component swap or one deleted
+      tag, the starter's components are already proven in production on
+      Vida, and 78 sits only three points above the cockpit's floor of 75.
+      MSOT (`color-contrast`, `heading-order`) and Vineyard (`image-alt`,
+      `color-contrast`) also fail accessibility, which the same nightly now
+      names; that is separate work.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
