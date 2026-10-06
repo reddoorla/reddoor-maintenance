@@ -19,6 +19,7 @@ import {
   collectUrlResolveAlerts,
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
+import { markWaiting } from "../alerts/waiting.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import {
   ageLabel,
@@ -659,15 +660,16 @@ export async function runDigest(
     // #609: the prior snapshot is Turso's digest_state row.
     const prior = await (options.digestState?.read ?? readDigestStateFromDb)();
     const dayKey = digestDateKey(today);
-    const { tagged, next } = diffAttention(collected, prior, dayKey);
-    // The operator only HEARS about a vuln once Renovate's auto-fix is exhausted
-    // (tried and failed a couple of nightly cycles) — before that the fleet is
-    // still self-patching and the cockpit's amber Watch band is the only surface.
-    // Filter the EMAIL list only: `next` (written below) must keep every vuln key
-    // so the cockpit's diff against this same snapshot stays consistent, and so
-    // the exhausted-flip diffs as WORSE instead of arriving pre-badged-away.
-    const needsAttention = tagged
-      .filter((it) => it.kind !== "vuln" || it.autoFixExhausted === true)
+    const diffed = diffAttention(collected, prior, dayKey);
+    const next = diffed.next;
+    // The operator hears about an item only once waiting on its own fix has failed
+    // (markWaiting: a vuln Renovate exhausted, or one that outlived its lock-file
+    // window or its direct-fix week). Before that the fleet is still fixing it and
+    // only the site page shows it. Filter the EMAIL list only: `next` (written below)
+    // must keep every waiting key so its `firstFlaggedAt` keeps counting, and so the
+    // exhausted-flip diffs as WORSE instead of arriving pre-badged-away.
+    const needsAttention = markWaiting(diffed.tagged, next, today, Object.keys(prior).length > 0)
+      .filter((it) => it.waiting !== true)
       .map((it) => {
         const since = next[it.key]?.firstFlaggedAt;
         return since ? { ...it, ageDays: daysBetween(since, dayKey) } : it;

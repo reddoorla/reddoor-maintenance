@@ -20,6 +20,14 @@ import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
 
+/** A prior snapshot dating each site's vuln key well past DIRECT_VULN_WAIT_DAYS, so a
+ *  direct vuln on it is no longer waiting and reaches the tiers. */
+function escalated(...ids: string[]): DigestSnapshot {
+  return Object.fromEntries(
+    ids.map((id) => [`vuln:${id}`, { metric: 99, firstFlaggedAt: "2026-05-01" }]),
+  );
+}
+
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     pointOfContact: "Tucker",
@@ -669,7 +677,7 @@ describe("buildCockpitModel", () => {
         site({ id: "b", name: "Good" }),
       ],
       [],
-      {},
+      escalated("a"),
       BASE,
       NOW,
     );
@@ -876,7 +884,7 @@ describe("buildCockpitModel", () => {
         site({ id: "c", name: "CritHigh", securityVulnsCritical: 4, securityVulnsHigh: 0 }),
       ],
       [],
-      {},
+      escalated("a", "b", "c"),
       BASE,
       NOW,
     );
@@ -893,7 +901,7 @@ describe("buildCockpitModel", () => {
         site({ id: "a", name: "Bad", securityVulnsCritical: 1 }),
       ],
       [],
-      {},
+      escalated("a"),
       BASE,
       NOW,
     );

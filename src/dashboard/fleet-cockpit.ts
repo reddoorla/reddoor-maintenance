@@ -31,6 +31,7 @@ import {
   URL_NOT_DEPLOYED_KEYS,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
+import { markWaiting } from "../alerts/waiting.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { isNetlifyAppUrl } from "../util/url.js";
 import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../fleet/opt-outs.js";
@@ -126,7 +127,7 @@ export function piercesPreLaunchMute(item: AttentionItem): boolean {
 
 export function assignTier(
   site: WebsiteRow,
-  items: AttentionItem[],
+  allItems: AttentionItem[],
   now: Date,
 ): {
   tier: Tier;
@@ -137,6 +138,8 @@ export function assignTier(
   watchSignals: string[];
   acceptedReasons: string[];
 } {
+  // A waiting item is information, never a tier: a scheduled job is still fixing it.
+  const items = allItems.filter((it) => it.waiting !== true);
   // Lifecycle short-circuit (FIRST, before any alarm rule): a "launching" site
   // is PRE-LIVE prep, not a live site (Status flips to "maintained" at go-live).
   // Its expected pre-launch conditions — no GA4 property, early/absent Lighthouse,
@@ -502,9 +505,10 @@ const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = { broken: 0, watch: 
 
 /**
  * Collapse the cockpit model into a per-site "Needs you" feed — ONE row per site,
- * with every reason combined. PURE. A non-exhausted vuln is amber `watch` (the fleet
- * is auto-patching it); an exhausted vuln (`item.autoFixExhausted`) is a hard `broken`
- * break, as is any non-vuln attention item. The whole watch tier folds into `watch`.
+ * with every reason combined. PURE. A `waiting` item never enters (markWaiting: the
+ * fleet is still fixing it on schedule). A vuln whose wait has failed but whose
+ * auto-fix is not exhausted is amber `watch`; an exhausted vuln (`item.autoFixExhausted`)
+ * is a hard `broken` break, as is any non-vuln attention item. The whole watch tier folds into `watch`.
  * Order: broken → watch → approval; within broken, critical-first; then site name.
  */
 export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
@@ -681,10 +685,14 @@ export function buildSiteAlarmContext(
   now: Date,
   notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(),
   deadLetters: ReadonlyMap<string, number> = new Map(),
+  // The digest snapshot, read only for each key's `firstFlaggedAt`, so a waiting
+  // item escalates here on the same day it does on the cockpit. Absent or empty,
+  // nothing waits (markWaiting: missing data never mutes).
+  priorSnapshot: DigestSnapshot = {},
 ): SiteAlarmContext {
   const sites = [site];
   const sitesById = new Map([[site.id, site]]);
-  const items = collectFleetAttentionItems(
+  const raw = collectFleetAttentionItems(
     sites,
     sitesById,
     reports,
@@ -692,7 +700,11 @@ export function buildSiteAlarmContext(
     now,
     notifyBounces,
     deadLetters,
-  ).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  );
+  const { next } = diffAttention(raw, priorSnapshot, now.toISOString().slice(0, 10));
+  const items = markWaiting(raw, next, now, Object.keys(priorSnapshot).length > 0).sort(
+    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
+  );
   const {
     tier,
     watchReasons,
@@ -795,14 +807,23 @@ export function buildCockpitModel(
     notifyBounces,
     deadLetters,
   );
-  // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
-  const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
+  // Read-only diff: tag NEW/WORSE exactly as the email does. `next` is never written;
+  // it only carries each key's `firstFlaggedAt` into markWaiting. A waiting item leaves
+  // the cards (tiers, chips, the Needs-you feed) and stays on the site's own page.
+  const diffed = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
+  const tagged = markWaiting(
+    diffed.tagged,
+    diffed.next,
+    now,
+    Object.keys(priorSnapshot).length > 0,
+  );
 
   // Group by siteName (the collectors set siteName from the row). This relies on the
   // fleet-wide name→slug uniqueness invariant the /s/<slug> lookup already assumes; if
   // two visible sites ever shared a name they'd share a card. Acceptable for slice 1.
   const bySite = new Map<string, AttentionItem[]>();
   for (const it of tagged) {
+    if (it.waiting === true) continue;
     const bucket = bySite.get(it.siteName);
     if (bucket) bucket.push(it);
     else bySite.set(it.siteName, [it]);
