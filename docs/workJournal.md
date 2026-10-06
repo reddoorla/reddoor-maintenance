@@ -8625,6 +8625,12 @@ The PDF is four pages, not the brief's two at most: at that config's 14px body a
 
 The first version also proposed a weekly kit on a schedule, emailed every Monday. That followed the brief, not the operator, who had said on 10-02 that "the impetus should come from a person." The operator caught it in the PDF. Now a person starts each kit with a project and a one-line seed (why this one, why now), and nothing runs on a timer. The only schedule left is the separate reminder digest, which Tim asked for himself.
 
+## 2026-10-05 — The post-kit proposal now covers every channel from one place
+
+At the operator's ask, the proposal in `docs/proposals/2026-10-05-instagram-post-kit.md` (path kept) now covers Instagram, Facebook and LinkedIn instead of Instagram alone. reddoorla.com links only Instagram and LinkedIn; Facebook comes in through the Page that Tim's Meta ads need. The target, also the operator's, is under an hour from idea to "live everywhere and looks right", and the budget comes to 30–40 minutes. The kit now carries a caption for each channel, a 1080×1080 square of each image for LinkedIn, and tracked links. The recommended way to publish to all three at once is a third-party scheduler, which is already approved by Meta and LinkedIn, so we skip both app reviews. Whether a scheduler can take drafts from our own command is marked "to verify", not promised. One crop defect turned up: the square crop of the Design Series cover cut off its title, so that square is now set on white.
+
+This entry sits next to the other post-kit entries rather than at the end of the file, at the operator's choice. Its PR (#1187) passed checks four times and was blocked by a merge conflict every time. Other sessions were appending to this file every 10–15 minutes, while checks take 15–20, and two branches that both append at the end of the same file always conflict.
+
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72, #1173)
 
 The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.
