@@ -1,0 +1,5 @@
+---
+"@reddoorla/maintenance": minor
+---
+
+`prismic-sync` brings Prismic's copy of each changed and each remote-only model into a site's repo, so a Type Builder edit reaches the repo as a reviewed pull request. `prismic-sync <site>` writes into one working tree. In fleet mode it runs as three stages, so that no site's own code runs beside a credential. `--stage fetch` writes Prismic's models into fresh clones and runs no process. `scripts/prismic-sync-build.mjs` runs each site's install, prettier and codegen in a job with no secret. `--stage publish --open-prs` builds each commit itself from the default branch and the named files, commits to the fixed branch `prismic-sync`, and opens or updates one PR (fast-forward only, never forced; closed when the site is back in sync). `--fleet` with no stage is a dry run that runs no site code. The changed-model write is a new, separate capability, `refreshChangedModel`: it replaces only the file the repo already holds for that id, refuses an id or kind mismatch, an identical model and a file edited since it was read, and never creates or deletes a file. `--pull` is unchanged.

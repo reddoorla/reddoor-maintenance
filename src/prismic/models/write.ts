@@ -11,7 +11,8 @@
 // assumed, and the proof is what `occupantId` below is.
 import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
-import type { RemoteEntry } from "./types.js";
+import { sameModel } from "./canon.js";
+import type { LocalEntry, RemoteEntry } from "./types.js";
 
 /**
  * The ONLY capability this module takes for formatting — and it is deliberately
@@ -179,6 +180,12 @@ export type WriteResult = { path: string; formatted: boolean };
  * this file" that justifies replacing it.
  */
 async function occupantId(rel: string, full: string): Promise<string | null> {
+  return (await occupant(rel, full))?.id ?? null;
+}
+
+/** {@link occupantId}, keeping the parsed body: the changed-model refresh needs
+ *  to prove the file still holds the model it was handed, not only its id. */
+async function occupant(rel: string, full: string): Promise<{ id: string; model: unknown } | null> {
   let raw: string;
   try {
     raw = await readFile(full, "utf-8");
@@ -207,7 +214,7 @@ async function occupantId(rel: string, full: string): Promise<string | null> {
         `whether it is the model being pulled down. Refusing to overwrite it.`,
     );
   }
-  return id;
+  return { id, model: parsed };
 }
 
 /**
@@ -483,91 +490,213 @@ export async function writeModelFile(
       throw e;
     }
   } else {
-    // The sanctioned same-id refresh — the ONE path in this module that may
-    // legitimately destroy bytes in a live client repo, which is why it is the
-    // one path that must never destroy them by accident.
-    //
-    // A plain `w` opens with O_TRUNC: any failure between the truncate and the
-    // last byte — ENOSPC, EDQUOT, EIO, or the operator interrupting this
-    // human-invoked CLI — leaves the live model as a fragment that is not valid
-    // JSON. That wreckage is self-latching, because the fragment is exactly
-    // what `occupantId` reads on the retry, so the retry refuses too; and it is
-    // indistinguishable from this module's other failures, every one of which
-    // provably leaves the repo untouched.
-    //
-    // Writing a complete temp file first and renaming it over the target makes
-    // the replacement a single atomic step: the model path holds the old model
-    // or the new one, never a fragment. Same directory, so it is the same
-    // filesystem and `rename` cannot fail with EXDEV.
-    // ONE deterministic temp path per model, opened with `w`. Both halves of
-    // that are load-bearing, because this module has no delete verb and so can
-    // never tidy up after itself.
-    //
-    // Deterministic, because a per-run unique name (`…<pid>-<n>.tmp`) means every
-    // interrupted write leaves ANOTHER untracked file in a live client repo,
-    // forever — ten interruptions, ten files for a human to find. One name per
-    // model path bounds the mess at one file no matter how often it fails.
-    //
-    // `w` and NOT `wx`, and this must not be "hardened" later: with a
-    // deterministic name, `wx` would let a single leftover temp block this model
-    // from ever being pulled down again until a human intervened, converting an
-    // accumulation nuisance into a permanent hard stop. `w` overwrites the stale
-    // temp instead, so the next attempt heals the mess — and a SUCCEEDING attempt
-    // removes it outright, because `rename` consumes the source name. That is
-    // cleanup without a delete verb, which is the whole trick.
-    //
-    // The trade being made explicit: `wx` would also stop a concurrent run from
-    // clobbering an in-flight temp. That is not a real scenario here — this is a
-    // human-invoked CLI against a single checkout — and `rename` is atomic
-    // regardless, so the worst a concurrency loss could do is publish one of two
-    // complete models rather than a fragment.
-    const tmp = `${full}.tmp`;
-    const tmpRel = relative(repoRoot, tmp);
-    try {
-      await writeFile(tmp, body, { encoding: "utf-8", flag: "w" });
-    } catch (e) {
-      throw new Error(
-        `${rel}: could not stage the replacement model (${(e as Error).message}). ` +
-          `The model already in the repo is UNTOUCHED. A partial ${tmpRel} may be left ` +
-          `behind — the next pull-down of this model overwrites it, and nothing reads it.`,
-        { cause: e },
-      );
-    }
-    try {
-      // `rename` replaces the NAME, so if the model path is a symlink (to
-      // somewhere inside this repo — anywhere else was refused above) it is
-      // replaced by a regular file rather than written through. No entry under
-      // `customtypes/` or a slice library is a symlink in any in-scope repo
-      // (measured 2026-08-13), and were one to appear the swap shows up in
-      // `git diff` as a 120000→100644 mode change rather than silently.
-      await rename(tmp, full);
-    } catch (e) {
-      throw new Error(
-        `${rel}: could not replace the model with the staged copy ` +
-          `(${(e as Error).message}). The model already in the repo is UNTOUCHED and the ` +
-          `staged copy is at ${tmpRel} — the next pull-down of this model overwrites it, ` +
-          `and nothing reads it.`,
-        { cause: e },
-      );
-    }
+    await replaceAtomically(repoRoot, rel, full, body);
   }
 
+  return { path: rel, formatted: await formatWritten(format, repoRoot, rel) };
+}
+
+/** Format one model file already on disk, best-effort: `false`, never a throw. */
+async function formatWritten(
+  format: FormatModelFile,
+  repoRoot: string,
+  rel: string,
+): Promise<boolean> {
   // Resolved, never resolved-by-PATH: see targetPrettierBin. No prettier of its
   // own means the formatter is never invoked at all — this module refuses to
   // hand a path to something it did not find under the TARGET's root.
   const bin = await targetPrettierBin(repoRoot);
-  if (bin === null) return { path: rel, formatted: false };
+  if (bin === null) return false;
   try {
-    return {
-      path: rel,
-      formatted: await format(repoRoot, [rel], { bin, timeoutMs: PRETTIER_TIMEOUT_MS }),
-    };
+    return await format(repoRoot, [rel], { bin, timeoutMs: PRETTIER_TIMEOUT_MS });
   } catch {
     // {@link FormatModelFile} is best-effort BY CONTRACT, and this does not take
     // the injection site's word for it. The model is already on disk; rejecting
     // here would report a failed pull-down for a file that is sitting in the
     // repo — the silent-wrong-report failure this module is written against,
     // pointed at its own caller.
-    return { path: rel, formatted: false };
+    return false;
   }
+}
+
+/**
+ * Replace the model at `full` with `body` in one atomic step. Shared by the
+ * same-id refresh in {@link writeModelFile} and by {@link refreshChangedModel},
+ * so the two replacement paths cannot drift apart — and so this module still
+ * mutates the filesystem at exactly the call sites the capability guard pins.
+ */
+async function replaceAtomically(
+  repoRoot: string,
+  rel: string,
+  full: string,
+  body: string,
+): Promise<void> {
+  // The ONE operation in this module that may legitimately destroy bytes in a
+  // live client repo, which is why it must never destroy them by accident. Its
+  // two callers are the same-id refresh and the changed-model refresh.
+  //
+  // A plain `w` opens with O_TRUNC: any failure between the truncate and the
+  // last byte — ENOSPC, EDQUOT, EIO, or the operator interrupting this
+  // human-invoked CLI — leaves the live model as a fragment that is not valid
+  // JSON. That wreckage is self-latching, because the fragment is exactly
+  // what `occupantId` reads on the retry, so the retry refuses too; and it is
+  // indistinguishable from this module's other failures, every one of which
+  // provably leaves the repo untouched.
+  //
+  // Writing a complete temp file first and renaming it over the target makes
+  // the replacement a single atomic step: the model path holds the old model
+  // or the new one, never a fragment. Same directory, so it is the same
+  // filesystem and `rename` cannot fail with EXDEV.
+  // ONE deterministic temp path per model, opened with `w`. Both halves of
+  // that are load-bearing, because this module has no delete verb and so can
+  // never tidy up after itself.
+  //
+  // Deterministic, because a per-run unique name (`…<pid>-<n>.tmp`) means every
+  // interrupted write leaves ANOTHER untracked file in a live client repo,
+  // forever — ten interruptions, ten files for a human to find. One name per
+  // model path bounds the mess at one file no matter how often it fails.
+  //
+  // `w` and NOT `wx`, and this must not be "hardened" later: with a
+  // deterministic name, `wx` would let a single leftover temp block this model
+  // from ever being pulled down again until a human intervened, converting an
+  // accumulation nuisance into a permanent hard stop. `w` overwrites the stale
+  // temp instead, so the next attempt heals the mess — and a SUCCEEDING attempt
+  // removes it outright, because `rename` consumes the source name. That is
+  // cleanup without a delete verb, which is the whole trick.
+  //
+  // The trade being made explicit: `wx` would also stop a concurrent run from
+  // clobbering an in-flight temp. That is not a real scenario here — this is a
+  // human-invoked CLI against a single checkout — and `rename` is atomic
+  // regardless, so the worst a concurrency loss could do is publish one of two
+  // complete models rather than a fragment.
+  const tmp = `${full}.tmp`;
+  const tmpRel = relative(repoRoot, tmp);
+  try {
+    await writeFile(tmp, body, { encoding: "utf-8", flag: "w" });
+  } catch (e) {
+    throw new Error(
+      `${rel}: could not stage the replacement model (${(e as Error).message}). ` +
+        `The model already in the repo is UNTOUCHED. A partial ${tmpRel} may be left ` +
+        `behind — the next pull-down of this model overwrites it, and nothing reads it.`,
+      { cause: e },
+    );
+  }
+  try {
+    // `rename` replaces the NAME, so if the model path is a symlink (to
+    // somewhere inside this repo — anywhere else was refused above) it is
+    // replaced by a regular file rather than written through. No entry under
+    // `customtypes/` or a slice library is a symlink in any in-scope repo
+    // (measured 2026-08-13), and were one to appear the swap shows up in
+    // `git diff` as a 120000→100644 mode change rather than silently.
+    await rename(tmp, full);
+  } catch (e) {
+    throw new Error(
+      `${rel}: could not replace the model with the staged copy ` +
+        `(${(e as Error).message}). The model already in the repo is UNTOUCHED and the ` +
+        `staged copy is at ${tmpRel} — the next pull-down of this model overwrites it, ` +
+        `and nothing reads it.`,
+      { cause: e },
+    );
+  }
+}
+
+/** The file names a model may live under, by kind. local.ts reads exactly these. */
+const MODEL_FILE_NAME = { customtype: "index.json", slice: "model.json" } as const;
+
+/**
+ * The CHANGED-MODEL pull: replace a model the repo already holds with Prismic's
+ * copy, when the two are no longer the same model. This is how an edit made in
+ * the Type Builder reaches the repo (operator decision D1, 2026-10-01).
+ *
+ * It is a separate capability from {@link writeModelFile} on purpose, and it is
+ * narrower, not wider:
+ *
+ *  - It writes to `local.path`, the file local.ts actually read, and NEVER to a
+ *    derived path. A slice's directory and its id are independent (6 of the
+ *    fleet's 132 differ), so the derived path for an existing slice can be a
+ *    second, duplicate file, which local.ts would then refuse as a duplicate id.
+ *  - It never creates. A path that is free is refused, because a changed model
+ *    by definition already has a file; a free path means the checkout moved
+ *    under the caller.
+ *  - The ids must agree three ways (local entry, remote entry, remote body) and
+ *    so must the kinds, and the file on disk must still hold `local.model`.
+ *    A file edited since it was read is refused rather than overwritten.
+ *  - Two models that are the same model ({@link sameModel}) are refused: a
+ *    write there would put Prismic's serializer noise into a client repo as a
+ *    pull request with nothing in it.
+ *
+ * What it keeps from `writeModelFile`: the plain-relative-path proof, the
+ * resolve-inside-the-repo proof before anything is read or written, the atomic
+ * replacement, and best-effort formatting with the TARGET's own prettier. It
+ * has no delete path, and a model that exists only in the repo is not its
+ * business at all: it is handed one pair and touches one file.
+ */
+export async function refreshChangedModel(
+  format: FormatModelFile,
+  repoRoot: string,
+  local: LocalEntry,
+  remote: RemoteEntry,
+): Promise<WriteResult> {
+  if (local.kind !== remote.kind) {
+    throw new Error(
+      `refusing to refresh ${local.kind} "${local.id}" from a ${remote.kind}: the kinds differ.`,
+    );
+  }
+  const bodyId = (remote.model as { id?: unknown }).id;
+  if (local.id !== remote.id || bodyId !== remote.id) {
+    throw new Error(
+      `refusing to refresh ${local.kind} "${local.id}" (${local.path}) with Prismic's ` +
+        `"${remote.id}" (body id ${JSON.stringify(bodyId)}): a refresh replaces a model with ` +
+        `its own newer copy, never with a different model.`,
+    );
+  }
+  if (sameModel(local.model, remote.model)) {
+    throw new Error(
+      `refusing to refresh ${local.kind} "${local.id}": the repo and Prismic hold the same model, ` +
+        `so there is nothing to write.`,
+    );
+  }
+
+  const rel = local.path;
+  const segments = rel.split(posix.sep);
+  const bad = segments.filter((s) => !SEGMENT_ALLOWED.test(s));
+  const fileName = segments[segments.length - 1];
+  const inCustomTypes = segments.length === 3 && segments[0] === "customtypes";
+  if (
+    bad.length > 0 ||
+    segments.length < 2 ||
+    fileName !== MODEL_FILE_NAME[local.kind] ||
+    (local.kind === "customtype") !== inCustomTypes
+  ) {
+    throw new Error(
+      `refusing to refresh ${local.kind} "${local.id}" at ${JSON.stringify(rel)}: that is not a ` +
+        `plain relative ${MODEL_FILE_NAME[local.kind]} location for a ${local.kind} in this repo.`,
+    );
+  }
+  const full = join(repoRoot, rel);
+
+  await assertResolvesInsideRepo(repoRoot, rel, dirname(full));
+
+  const onDisk = await occupant(rel, full);
+  if (onDisk === null) {
+    throw new Error(
+      `refusing to refresh ${local.kind} "${local.id}": there is no file at ${rel}. ` +
+        `A changed model already has one, so the checkout moved since it was read.`,
+    );
+  }
+  if (onDisk.id !== local.id) {
+    throw new Error(
+      `refusing to refresh ${local.kind} "${local.id}" into ${rel}: that file now holds ` +
+        `"${onDisk.id}".`,
+    );
+  }
+  if (!sameModel(onDisk.model, local.model)) {
+    throw new Error(
+      `refusing to refresh ${local.kind} "${local.id}": ${rel} changed since it was read. ` +
+        `Re-run against the checkout as it is now.`,
+    );
+  }
+
+  await replaceAtomically(repoRoot, rel, full, JSON.stringify(remote.model, null, 2) + "\n");
+  return { path: rel, formatted: await formatWritten(format, repoRoot, rel) };
 }
