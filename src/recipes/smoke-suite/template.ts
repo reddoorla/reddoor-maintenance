@@ -14,22 +14,25 @@ export const SMOKE_ROUTES_TEMPLATE = `// Committed per-site smoke manifest. \`te
 // wired to a real Prismic repo (getByUID("page","home") resolves). On the bare
 // placeholder starter, \`/\` returns 404 (the Prismic lookup throws → error(404)),
 // so the \`/\` case only goes green after Prismic is wired — by design, since the
-// gate is about real site health. The hydration marker \`footer\` is the shared
-// layout footer, present on every page including the error page.
+// gate is about real site health. The hydration marker \`html[data-hydrated]\`
+// is written only by the root layout's onMount, so it matches only once script
+// has taken the page over (a server-rendered element such as \`footer\` is
+// visible with the bundle missing).
 
 export type SmokeRoute = {
   /** Route path to visit, e.g. "/" or "/about". */
   path: string;
   /** Human-readable label used in the test title. */
   name: string;
-  /** CSS selector asserted visible after load (hydration proof). Default: skip. */
+  /** CSS selector asserted visible after load. It is hydration proof only if
+   *  script alone can make it match. Default: skip. */
   hydrationMarker?: string;
   /** Expected HTTP status. Default: 200. */
   expectStatus?: number;
 };
 
 export const smokeRoutes: SmokeRoute[] = [
-  { path: "/", name: "home", hydrationMarker: "footer" },
+  { path: "/", name: "home", hydrationMarker: "html[data-hydrated]" },
 ];
 `;
 
@@ -60,6 +63,11 @@ const ALLOWED_CONSOLE_PATTERNS: RegExp[] = [
 // pattern above matched the throw's message and the run stayed green. Telemetry
 // that merely logs is noise; a widget that THROWS is the failure itself.
 const ALLOWED_PAGEERROR_PATTERNS: RegExp[] = [/vimeo/i];
+
+// The hydration marker waits on the client bundle, and a cold dev server's
+// first transform takes 5–7s (measured on roalson-interests): longer than
+// Playwright's 5s default. A green run returns the moment the marker matches.
+const HYDRATION_TIMEOUT = 20_000;
 
 function attachConsoleWatcher(page: Page, extraAllowed: RegExp[] = []) {
   const errors: string[] = [];
@@ -99,7 +107,7 @@ for (const route of smokeRoutes) {
       await expect(
         page.locator(route.hydrationMarker),
         \`hydration marker "\${route.hydrationMarker}" on \${route.path}\`,
-      ).toBeVisible();
+      ).toBeVisible({ timeout: HYDRATION_TIMEOUT });
     }
     expect(errors, \`console errors on \${route.path}\`).toEqual([]);
   });
