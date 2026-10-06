@@ -2998,6 +2998,14 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     the same doc [M, Prismic `get_document`]. A worker card is queued ("Fix
     CalTex double spaces and the 12-month line break"). The line break
     touches code on `main` and on `staging` (item 85).
+    **Note (2026-10-06 ~15:05Z, the slices session):** since item 85 went
+    live at 14:19Z, these cards render from the `aed-programs` page
+    document (`asQvOxIAAC0AgEpz`), Icon Grid slice, `cards[].label`, not
+    from Home's `s2_icons`; editing Home changes nothing on the site. The
+    "double spaces" are U+2028 line separators (`Life-Saving \u2028AED
+    Customized \u2028to your needs.`), copied byte for byte from Home, which
+    the browser draws as a gap. `staging` is merged, so the line break is
+    code on `main` only (`src/lib/slices/IconGrid/index.svelte`).
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
