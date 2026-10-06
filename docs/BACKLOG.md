@@ -2846,6 +2846,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     **10-06 ~11:58Z [M, `git ls-remote`]:** still open. `staging` is at
     `23763ef` and `main` at `f4d5291`, which does not contain it.
 
+    **Done 2026-10-06 14:19Z:** the operator merged caltex-landing#75 (`staging` → `main`), after a draft PR got Netlify to build a preview (deploy-preview-75, pixel-identical to live on all 14 shots). After the deploy, live is the slice version (`data-slice-type` markers), pixel-identical to the pre-merge capture on all 14 shots, with the same 301s, 404 and sitemap URLs.
+
 86. **#1195, the backup verify now checks contents: held after two dirty
     review rounds (new 2026-10-05, from the refute-claims critic's
     `blob_bytes` question).** `verify-dump` compared row counts and summed

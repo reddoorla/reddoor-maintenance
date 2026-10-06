@@ -9018,3 +9018,14 @@ The stored scores and the live ones now disagree in a way the operator has to re
 The first scheduled backup with #1195's content hashes ran green with `hashed=11`, and `blob_bytes` finally moved (11437644 → 11433275), as the five new header images of 10-05 predicted. That answers the critic's 10-05 question from the other side: the number was static because nothing changed, and it moves when something does.
 
 Overnight was otherwise quiet: four scheduled runs, all green; no branch-only asks; Discord has no open mention in 14 days (the 21-day positive control still finds Erik's 09-17 lines). Mantis #29 and Roalson #263 landed on their repos last night, closing items 80 and 84; CalTex's `staging` (item 85) and Roalson's release (item 81) are still the operator's. No re-rank: nothing in P1 moved but the evidence for P1-31, and #1148 became startable because its marker exists.
+
+## 2026-10-06 — CalTex's slice version is live (caltex-landing#75, Operator decision 85 done)
+
+The operator asked for a Netlify preview before merging. Netlify builds
+previews only for PRs into `main`, so a draft PR from `staging` to `main`
+(#75) produced deploy-preview-75, which was pixel-identical to live on all
+14 shots. The operator merged it at 14:19Z. Within a minute the live
+site carried the slice markers. Against the morning's capture of the
+hand-built version it stayed pixel-identical on all 14 shots, with the same
+301s, 404 and sitemap URLs. The old `home` fields `s1`–`s8` are now
+unrendered; deleting them is an optional manual Prismic edit.
