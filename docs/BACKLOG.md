@@ -159,6 +159,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------- |
 | P1-31 | `contrast-unmeasured`'s remedy misleads for Tailwind `black/<alpha>`, and the fleet will hit it on the 0.102+ bump. Tailwind v4 emits `color-mix(in oklab, #000 N%, transparent)`, and lightningcss 1.33.0 folds it to `oklab(0% none none/.N)`. The gate's advice is "write 0 for none in the oklab() token", but there is no such token: the fix is defining black as `oklab(0 0 0)`, as reddoor-website#260 did (renders byte-identical). (1) Teach `unparseableColourRemedy` the `oklab(0 none none / α)` shape and name its source. (2) List the fleet sites (starter and starter-blux first) that use `black/<n>` with sRGB black, and fix them as per-repo PRs. _Verify:_ `grep -rhoE 'oklab\(0% none none' build/` in a site's build | 🟢   | S      | `src/audits/util/contrast-unmeasured.ts` `unparseableColourRemedy` | Remedy test pins the shape; the fleet list is in this row or an issue |
 
+| P1-32 | The Lighthouse audit reports `pass` and "all categories passing" when lhci dies mid-collect, leaving one or two lhr files and no `assertion-results.json`, so nothing was asserted (item 89, round 2 of #1205). Return `warn` when no assertions were read and lhci exited non-zero, with a test a mutation turns red. _Verify:_ `grep -n "assertion-results" src/audits/lighthouse.ts` | 🟢 | S | `src/audits/lighthouse.ts` (the assertion-file read) | A test with lhr files and no assertion file gets `warn`, and goes red with the fix removed |
+
 ### Blocked behind another PR (do not start early)
 
 - **P1-30 · Mantis Landscaping: Blux → native Reddoor stack (#1107) 🟡/🔴.
@@ -2935,6 +2937,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       clearing a stored 78 takes a re-draft once the live score is right, for
       Data Dynamiq now and for the other three after their PRs deploy and a
       nightly re-stamps them. How to re-draft a held row is your call.
+    - **Answered 2026-10-06 ~14:05Z (operator, to the PM cockpit): (a).** A
+      worker card is queued with the brief from the 10-06 morning report
+      ("Roll out the two best-practices cookie fixes"). How to re-draft the
+      held rows is still open, and the sends stay held until the scores
+      improve.
 
 89. **#1205, the nightly names failing Lighthouse audits: held after two
     review rounds (new 2026-10-06, branch
@@ -2956,6 +2963,20 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     is older than this PR, the follow-up is a three-line change with its own
     test, and until #1205 lands the nightly cannot name the audits behind a
     score. Land with `node scripts/land-prs.mjs 1205`.
+    **Answered 2026-10-06 ~14:05Z (operator): land it.** The PM cockpit
+    ran `land-prs.mjs 1205` (update-branch `49cc013` → `c45c232`). The
+    follow-up is P1-32.
+
+90. **CalTex: Erik's orange-line fixes (new 2026-10-06, Discord #caltex
+    13:43Z, raised by the operator).** Erik asks for three changes to the
+    AED Programs icon labels: remove the double spaces
+    (`Life-Saving  AED Customized  to`, `Battery and  electrode`), put a hard
+    return after the comma in "No long-term commitment, 12-month terms.",
+    and keep "12-month" on one line. The double spaces are in the published
+    Home doc's `s2_icons` labels (Key Text), and in several other fields of
+    the same doc [M, Prismic `get_document`]. A worker card is queued ("Fix
+    CalTex double spaces and the 12-month line break"). The line break
+    touches code on `main` and on `staging` (item 85).
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -2986,6 +3007,10 @@ verdict is its only input, because no client and no check sees the email.
 | 2026-10-05 22:47 | LA Homelessness Initiative | Maintenance, Oct 2026  | awaiting |
 | 2026-10-05 22:47 | Revogen                    | Maintenance, Oct 2026  | awaiting |
 | 2026-10-05 22:47 | Vineyard Custom Homes      | Maintenance, Oct 2026  | awaiting |
+
+The operator, 2026-10-06 ~14:05Z, on the five 10-05 rows: "waiting to improve
+bp score". No verdict yet. The rows stay `awaiting`, and the ask returns once
+item 88's fixes have deployed.
 
 ## Fleet snapshot (2026-10-05 ~11:55Z, live Turso, SELECT-only) [M]
 
