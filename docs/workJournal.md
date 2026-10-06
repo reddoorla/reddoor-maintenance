@@ -9136,3 +9136,61 @@ in CLAUDE.md's archive section. First, a session is not finished until
 every original ask has been checked item by item against what a visitor
 sees, not against merged or staged work. Second, each session is one task:
 a new ask goes to its own session unless the operator folds it in.
+
+## 2026-10-06 — Item 88: best practices 78 → 100 on five sites (espada#80, medical-solutions-of-texas#73, revogen#92, vineyard-custom-homes#73, erp-industrial#70)
+
+The operator answered Operator decisions 88 with (a) at ~14:05Z. Five per-repo PRs went up. All five are merged, and live best practices reads 100 on each, 3 of 3 runs, between 15:57Z and 16:03Z.
+
+**The instrument was proved before it was trusted.**
+
+- **Turso:** a SELECT-only libSQL wrapper refused an `UPDATE`, a `select 1; delete …` and an `INSERT` before it read `site_health`. All five read `bp_score` 78, with `lighthouse_failing_audits` naming `third-party-cookies:w5:3/3` and `inspector-issues:w1:3/3`.
+- **Lighthouse:** the container's run of the nightly's deployed-mode settings (desktop preset, devtools throttling, 3 runs) read Data Dynamiq 100, 100, 100 first. Only then did its 78s on the five count. Those runs named the cookies exactly:
+  - `__cf_bm` from `player.vimeo.com/video/<id>` on Espada, MSOT, Revogen and Vineyard.
+  - `io.prismic.previewSession` from `<repo>.prismic.io/prismic-toolbar/4.1.14/iframe.html` on Vineyard and ERP.
+
+**The fix.**
+
+- **Vimeo:** each Vimeo repo got one `VimeoGate.svelte`, which wraps every live Vimeo iframe, not only the homepage's. It renders its children after the first `pointerdown`, `pointermove`, `wheel`, `keydown` or `touchstart`, the same set as the starter's `VimeoBanner`. It differs from `VimeoBanner` in two ways:
+  - It keeps each site's own iframe markup.
+  - Engagement is module-level `$state`, armed once per page, so a client-side navigation does not ask a touch visitor to touch again.
+- **Prismic:** Vineyard and ERP lost the `prismic.js` tag in `app.html`.
+- **Specs:** new Playwright specs ride the existing `tests/**/*.spec.ts` glob, so CI runs them (Espada's CI count went to 13, ERP's to 7).
+
+**Mutations, each red on a named test:**
+
+- iframe on load
+- a hover-only gate, which the key-press test catches. A tap still passes under hover-only, because a real tap fires `pointerover`.
+- `wheel` dropped
+- `pointermove` dropped
+- the `prismic.js` tag restored
+- the gated `<PrismicPreview>` removed, as the control for the preview test
+
+The `wheel` and `pointermove` tests came from the adversarial review. Before them, dropping `wheel` survived. The review found no blocker and no major.
+
+**Defects found on the way.**
+
+- **Revogen lost a key press.** Its `ScreenWidthMedia` defers the iframe to `requestIdleCallback`. My first wrap put the gate inside that `{#if videoSrc}`, so the gate only started listening once idle fired, and a key press before that was lost. The gate now sits outside, and the idle defer is kept inside it.
+- **MSOT's about page.** Its Vimeo iframe sits inside an HTML comment. eslint flagged the import as unused, and the wrap was reverted.
+
+**Belief corrected: the specs' early red was the dev server, not the gate.** The engage tests failed on Revogen with 2 workers and passed with 1, and also passed with the gate made page-wide. So the cause was two pages hydrating at once against one cold `vite dev`, not a lost listener. The engage tests now retry the interaction for up to 30 s. That cannot rescue a hover-only gate, which never mounts.
+
+**Belief corrected: a deploy preview does not read 100 even when the fix is right.** All five previews read 96, 96, 96. The one remaining `inspector-issues` item was a cookie from `app.netlify.com/cdp`: Netlify's preview drawer, injected through `/.netlify/scripts/cdp` on previews only. curl found 0 such tags in all five production pages.
+
+- With `blockedUrlPatterns: ["*/.netlify/scripts/cdp*", "*app.netlify.com/*"]`, every preview read 100, 100, 100.
+- The same config against production Espada and ERP still read 78, so the block hides nothing the PRs fixed.
+- My first pattern, `app.netlify.com/*`, matched nothing (the lhr still showed 21 drawer requests). The wildcard prefix is needed. "Best practices 100 on the deploy preview" is only reachable with the drawer blocked. A future brief should say so.
+
+**Behaviour on the built previews.** These were checked against the previews, not against `vite dev`.
+
+- **Vimeo:** 0 Vimeo iframes before any input on each site. After one key press, the inner `<video>` reached `currentTime` 0.19–0.84 s within seconds, including under Chromium's default autoplay policy.
+- **Prismic:** a plain visit made 0 toolbar requests. With `io.prismic.preview` set, `/preview` returned 200 and loaded `prismic.js` and the toolbar iframe.
+- **Real previews:** `/api/preview` redirects to `/preview/…`, which is SSR, never prerendered. So a real preview keeps the toolbar through the gated component. A real editor preview was not run, because it needs a Prismic preview token from a release, which is a write to the client's content.
+
+**Landing.** The operator merged espada#80, medical-solutions-of-texas#73 and revogen#92 at 15:51Z, while this session was preparing to land them. It waited, saw the other two still open after five minutes, and landed vineyard-custom-homes#73 and erp-industrial#70 with `land-prs.mjs --repo`, each pinned to its green head.
+
+**Left open.**
+
+- `site_health.bp_score` still reads 78 until tonight's nightly.
+- The held October drafts still store 78; re-drafting them is the operator's call.
+- ERP still renders Vimeo from `Hero` (via `@vimeo/player`) and `SlideOverlay` wherever a page uses them. Its home page does not, so its score is clean today. If it ever does, `__cf_bm` returns on that page.
+- Reduced motion is not honoured by `VimeoGate`, and was not before. The fleet Playwright config runs with `reducedMotion: "reduce"`, so adding the check would turn these specs red. That is worth knowing before anyone adds it.
