@@ -8631,6 +8631,10 @@ At the operator's ask, the proposal in `docs/proposals/2026-10-05-instagram-post
 
 This entry sits next to the other post-kit entries rather than at the end of the file, at the operator's choice. Its PR (#1187) passed checks four times and was blocked by a merge conflict every time. Other sessions were appending to this file every 10–15 minutes, while checks take 15–20, and two branches that both append at the end of the same file always conflict.
 
+## 2026-10-06 — Non-code work moves to `reddoorla/reddoor-workspace`
+
+The operator created the private repo `reddoorla/reddoor-workspace`. Neither the Claude GitHub App nor the GitHub connector could: both got 403 on `POST /orgs/reddoorla/repos`. Its first commit, `1460f07`, holds the social post-kit proposal with its PDF and all eight crops, which this public repo could not carry. This PR deletes `docs/proposals/2026-10-05-instagram-post-kit.md` from here and adds a `CLAUDE.md` section pointing at the workspace. The 10-05 entries above that name the old path are left as they were. Whether to move more of the agent workspace (the backlog, journal and briefs) is an open question for the operator, because the backlog and journal are read by scripts here.
+
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72, #1173)
 
 The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.
