@@ -277,6 +277,14 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   Operator decisions 73 is yes, this session lands data-dynamiq#59." A
   handed-off blocker makes the session resumable, not finished.
 
+## Non-code work lives in `reddoorla/reddoor-workspace`
+
+Proposals, briefs, client-facing drafts, sample deliverables, and their PDFs and images go to the private repo `reddoorla/reddoor-workspace`, not to `docs/` here. In a cloud session, attach it with `add_repo`. Push straight to its `main`: it has no CI, no landing and no journal, and its own `CLAUDE.md` gives the folder layout and how to render PDFs with `reddoorla/reddoor-md-pdf`.
+
+The reason is measured. On 2026-10-05 a one-page proposal for Tim took seven landing attempts across two PRs here (#1174, #1187). The checks took 15–20 minutes, and in that window other sessions appended to `docs/workJournal.md`, so the merge kept going stale. The repo is also public, so the proposal's images and PDF could not be committed. A session that writes something here which is not code or process should ask whether it belongs in the workspace instead.
+
+In a cloud session, hand files to the operator as download cards (SendUserFile), not by email or Drive. The Gmail and Drive connectors make the whole file part of the request, which fails for anything bigger than a small text file.
+
 ## The work journal
 
 **Every working session appends a dated entry to `docs/workJournal.md`** — what
