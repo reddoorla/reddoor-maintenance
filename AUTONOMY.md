@@ -86,7 +86,9 @@ clean — including behavior-changing `feat`s — **except**:
 - `chore(release): version packages` / any release PR → **always human**.
 - Any PR that itself performs a RED action → **always human**.
 
-Squash-merge, delete the branch, and append a journal entry. Patch/`fix` PRs need
+Land with `node scripts/land-prs.mjs`, which picks squash, merge or rebase per
+the base branch's rules (GitHub deletes the head branch; the cloud proxy
+refuses branch deletes), and append a journal entry. Patch/`fix` PRs need
 no separate sign-off; `feat`s get the 3-lens review before merge.
 
 ## Stop conditions — pause regardless of permissions
@@ -128,7 +130,7 @@ are in `ask` (publish / release / deploy / secrets — forces a prompt, so they
 pause for a human while the operator is away) or `deny` (force-push,
 `reset --hard`, `rm -rf`, credential reads — blocked).
 
-The OS-level **sandbox is enabled** (`sandbox.enabled: true`, macOS Seatbelt;
+On the laptop, the OS-level **sandbox is enabled** (`sandbox.enabled: true`, macOS Seatbelt;
 enabled purely via settings — the `/sandbox` panel is a terminal TUI the VS Code
 extension doesn't render, and isn't required). Sandboxed commands get filesystem
 access limited to the project + caches (`~/Library/pnpm`,

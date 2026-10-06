@@ -322,7 +322,8 @@ first. The 29 Navy lesson is in the fleet-composition research.
    `raw.githack.com` at runtime. The rebuild vendors it, and the bridge must not
    depend on it.
 9. **Deadline versus review.** "Two dirty review rounds, then stop" and "worker
-   sessions never ask mid-flight" both apply. A decision that comes late slips
+   sessions ask a blocking question once" (until 2026-10-05: "never ask
+   mid-flight") both apply. A decision that comes late slips
    the build day for day, which is why D3–D8 have a 10-05 deadline and Phase 0
    needs none.
 10. **Concurrent sessions.** Each site repo gets one worker at a time. Phases 1

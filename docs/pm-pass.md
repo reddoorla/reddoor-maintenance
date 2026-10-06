@@ -79,8 +79,8 @@ The prompt lives here so it can be changed by PR, like everything else.
    items to the Done section with the PR number. Add what the day's evidence
    surfaced. Re-rank. Update the "Last full re-rank" line. Read every line
    added under "Operator decisions" since the last report: workers write their
-   stop-condition questions there instead of asking (`CLAUDE.md` → "Worker
-   sessions never ask mid-flight"), so each new line goes into the morning
+   stop-condition questions there as well as asking (`CLAUDE.md` → "Worker
+   sessions ask a blocking question once, with all its context"), so each new line goes into the morning
    report's top of stack with the branch or PR it names. Then run
    `node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance`
    (see "The evening pass") and lift every ask it finds only on a branch, in

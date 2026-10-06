@@ -3,9 +3,10 @@
 A worker session is started by pasting one brief. The PM pass fills one in for
 each backlog item it recommends starting (`docs/pm-pass.md`, step 6), so the
 operator's part is copy and paste. A brief is complete enough that the worker
-never has to ask the operator anything mid-flight (`CLAUDE.md` → "Worker
-sessions never ask mid-flight"). If it is not, the worker writes the missing
-decision under "Operator decisions" and ends; that is the brief's defect, and
+rarely has to ask the operator anything mid-flight. If it must, it follows
+`CLAUDE.md` → "Worker sessions ask a blocking question once, with all its
+context": it asks with AskUserQuestion and writes the decision under "Operator
+decisions" too; that is the brief's defect, and
 the next PM pass fixes the template or the item.
 
 The template is below. Every part is required; write "none" rather than leaving
