@@ -8631,6 +8631,10 @@ At the operator's ask, the proposal in `docs/proposals/2026-10-05-instagram-post
 
 This entry sits next to the other post-kit entries rather than at the end of the file, at the operator's choice. Its PR (#1187) passed checks four times and was blocked by a merge conflict every time. Other sessions were appending to this file every 10–15 minutes, while checks take 15–20, and two branches that both append at the end of the same file always conflict.
 
+## 2026-10-06 — Non-code work moves to `reddoorla/reddoor-workspace`
+
+The operator created the private repo `reddoorla/reddoor-workspace`. Neither the Claude GitHub App nor the GitHub connector could: both got 403 on `POST /orgs/reddoorla/repos`. Its first commit, `1460f07`, holds the social post-kit proposal with its PDF and all eight crops, which this public repo could not carry. This PR deletes `docs/proposals/2026-10-05-instagram-post-kit.md` from here and adds a `CLAUDE.md` section pointing at the workspace. The 10-05 entries above that name the old path are left as they were. Whether to move more of the agent workspace (the backlog, journal and briefs) is an open question for the operator, because the backlog and journal are read by scripts here.
+
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72, #1173)
 
 The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.
@@ -9054,6 +9058,22 @@ Everything with a sweep behind it (Prismic, url-probe, GitHub signals, the Turns
 **Process slip.** The round-2 test reviewer mutated files in my worktree while I committed a docs fix, and `git add -A` swept its mutation (the WORSE badge switched off) into `3447fe91`. The reviewer caught it in its own report, and `9d8567a8` restored the file byte-for-byte from the reviewed commit. The lesson: a reviewer that mutates code gets its own worktree, or the author does not commit while one runs.
 
 **Mutations.** The brief's four (remove the threshold, invert it, reclassify CI-red as waiting, leak into the digest) plus three more each turned tests red; the table is in #1199. The reviewers ran 37 more across both rounds; the only survivors were two dead filters, since removed, and an untested handler path, since extracted and tested.
+
+## 2026-10-06 — All three new GA4 sites collect, and their privacy pages name the business (1836dig#25, data-dynamiq#60, 29-navy#74; item 49)
+
+The operator merged 1836dig#24 and 29-navy#73 this morning, so all three tags that item 49 waited on are live. Each was read the same way as Data Dynamiq's on 10-05: GA4 Realtime returned 0 rows on the property before one browser visit, then `1 user, 3 events` at ~14:13Z on both 556936272 (1836dig) and 556907604 (29 Navy). Those users are my own verification visits from a cloud IP, not organic traffic. The 0-row read before each visit is the control that makes the 1 mean something.
+
+The operator then asked for the policy's three placeholders to be filled from whatever could be found. They are the legal business name, the privacy contact and the effective date. Every value came from material the client already publishes or that Reddoor already holds. 29 Navy is "Worthe Real Estate Group", read from Worthe staff signatures in Gmail and the Harvest client record ("Worthe Real Estate"). Its contact is `29navy@worthe.com`, which the site's contact block already shows. "Data Dynamiq" and "1836 Digital Investment Group" are each site's own copyright line. The effective date is 2026-10-06 on all three.
+
+**No name was checked against a registry.** The CA bizfile search sits behind a WAF that refuses automated requests, and OpenCorporates' API needs a token. I did not work around either. So these are the names the clients present themselves under, not confirmed entity names, which is one more thing item 45's review should read.
+
+**Two contacts stay placeholders on purpose.** Data Dynamiq's only published address is Robert Greenquist's own `rgreenquist@datadynamiq.com`. 1836dig's only known address is a personal Gmail. Printing a person's inbox as the privacy contact on a public policy is a client decision, so both still render `[privacy contact email]`, and the ask is in item 49.
+
+Each repo's privacy test was rewritten to assert the name, the date and the remaining placeholder (29 Navy: the `mailto:` link). Each fails against the old config and passes against the new one. All three PRs were merged on green, pinned to their heads. 1836dig's live `/privacy` showed the name and "Effective October 6, 2026" within a minute of its merge.
+
+**Later the same day: the contacts were ruled on.** The operator ruled that the policy's contact is whoever receives the site's report. Resolved the way the sender resolves it (`report_recipients_to`, then `point_of_contact`, `src/reports/send/orchestrate.ts:216`), that gives `robbie.greenquist@gmail.com`, `benhalbach@gmail.com` and `MatthewB@worthe.com`, landed in data-dynamiq#61, 1836dig#26 and 29-navy#75. Two of the three are personal Gmail addresses, and Data Dynamiq's is not the `rgreenquist@datadynamiq.com` the site publishes. Both follow the ruling, not the site. 29 Navy's moves from the shared `29navy@worthe.com` to a named person.
+
+Search Console's verification meta also went onto la-homelessness-initiative (#49), the repo that owns `www.lahomelessnessawareness.org`. la-homelessness-youth has no custom domain to verify.
 
 ## 2026-10-06 — CalTex's slice version is live (caltex-landing#75, Operator decision 85 done)
 
