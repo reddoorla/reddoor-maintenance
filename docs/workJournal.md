@@ -9018,3 +9018,7 @@ The stored scores and the live ones now disagree in a way the operator has to re
 The first scheduled backup with #1195's content hashes ran green with `hashed=11`, and `blob_bytes` finally moved (11437644 → 11433275), as the five new header images of 10-05 predicted. That answers the critic's 10-05 question from the other side: the number was static because nothing changed, and it moves when something does.
 
 Overnight was otherwise quiet: four scheduled runs, all green; no branch-only asks; Discord has no open mention in 14 days (the 21-day positive control still finds Erik's 09-17 lines). Mantis #29 and Roalson #263 landed on their repos last night, closing items 80 and 84; CalTex's `staging` (item 85) and Roalson's release (item 81) are still the operator's. No re-rank: nothing in P1 moved but the evidence for P1-31, and #1148 became startable because its marker exists.
+
+## 2026-10-06 — Cockpit: four answers recorded, #1205 landed, CalTex ask queued
+
+The operator answered item 88 (a), which queued a worker card for the five cookie PRs, and deferred the [TEST] verdicts until the best-practices scores improve. They said to land #1205: `land-prs` updated its branch and watched it go green, and the operator merged it at 14:16Z (`6728d61a`). Its follow-up is P1-32. Erik's Discord ask on CalTex's orange lines is item 90, with a worker card. The double spaces are in the Prismic content (Key Text labels), so the requested line break also needs a code change on `main` and `staging`.

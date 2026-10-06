@@ -2963,9 +2963,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     is older than this PR, the follow-up is a three-line change with its own
     test, and until #1205 lands the nightly cannot name the audits behind a
     score. Land with `node scripts/land-prs.mjs 1205`.
-    **Answered 2026-10-06 ~14:05Z (operator): land it.** The PM cockpit
-    ran `land-prs.mjs 1205` (update-branch `49cc013` → `c45c232`). The
-    follow-up is P1-32.
+    **Answered 2026-10-06 ~14:05Z (operator): land it.** The PM cockpit's
+    `land-prs.mjs 1205` updated the branch (`49cc013` → `c45c232`); the
+    operator merged it at 14:16:03Z (`6728d61a`) while the checks were
+    green. The follow-up is P1-32.
 
 90. **CalTex: Erik's orange-line fixes (new 2026-10-06, Discord #caltex
     13:43Z, raised by the operator).** Erik asks for three changes to the
