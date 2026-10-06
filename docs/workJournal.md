@@ -8759,3 +8759,32 @@ from HEAD over uncommitted work. Kill by a PID captured first. And the
 parity check needs fonts: the container has no Impact and no Helvetica, and
 every earlier evidence shot set headings in a default serif until Impact
 (Microsoft corefonts) and Nimbus Sans were installed.
+
+## 2026-10-05 — Reddoor's red Renovate PR was the new a11y rule seeing an old colour (reddoor-website#260, #208)
+
+The cockpit's only "broken" item was Reddoor's "1 Renovate PR failing CI": reddoor-website#208, red on the a11y step with `contrast-unmeasured … (oklab(0 none none / 0.1))`. The brief guessed a bumped Tailwind or lightningcss had changed the emitted CSS. It had not.
+
+Built on both heads, the CSS carries the same nine `oklab(0% none none/.N)` values, with tailwindcss 4.3.3 and lightningcss 1.33.0 on both. #208's relevant bump was `@reddoorla/maintenance` 0.95.1 → 0.103.0. `git tag --contains c1410fa0` (#916, the `contrast-unmeasured` rule) starts at v0.102.0. So the colour had been on the live site all along, and the new gate was the first instrument able to see that axe never measured contrast there. The same will happen on every fleet site that uses `black/<alpha>` once Renovate brings it to 0.102+.
+
+The mechanism, probed directly against lightningcss 1.33.0: Tailwind v4 builds `black/10` as `color-mix(in oklab, #000 10%, transparent)`, and lightningcss folds that to a literal.
+
+- `#000`, `rgb(0 0 0)` and `oklch(0 0 0)` all fold to `oklab(0% none none/.1)`.
+- `oklab(0 0 0)` folds to `oklab(0% 0 0/.1)`.
+- `#fff` gives `oklab(100% 0 5.96e-8/.1)`, which is why white never showed up.
+
+The element was IndustryHero's ghost CTA, "Get Started": white 14px text on `bg-black/10` over the hero photo. It carries real text, so option (b), marking it decorative, was out.
+
+Option (a) was taken: `colors.black: "oklab(0 0 0)"` in reddoor-website's `tailwind.config.js` (#260, `bc5cfe7`).
+
+- **Pixels.** Chromium element and full-page screenshots on `staging` and the fix were byte-identical by sha256: the CTA at 112×40, plus `/dev/a11y-fixtures`, `/dev/animate-in` and `/`. The two servers were first shown to differ in the computed colour, so the comparison could have failed.
+- **axe on the CTA.** Its verdict moved from `colorParse` to `bgGradient`. That is the honest answer for text on a scrim over a photo, and the audit correctly does not report it.
+- **The gate.** Run locally on #208's own head with 0.103.0, it reproduced CI's exact line. With the one-line change it reported `0 violations across 2 routes`. Reverting the line is the mutation that turns it red.
+- **Review.** One adversarial review found no defects. Nothing reads the theme's black outside the generated utilities: the OG renderer hardcodes `#000`. Tailwind 4.3.3 already targets Chrome 111, Safari 16.4 and Firefox 128, so `oklab()` on the solid utilities sets no new browser floor.
+
+#260's own CI ran maintenance 0.95.1, which has no such rule, so its green was never the proof. The proof came when #208 was rebased onto it: `✔ a11y: 0 violations across 2 routes (+1 hydration smoke)` on CI, landed with `land-prs` as `e55072e` at 00:22Z on 10-06.
+
+Getting #208 onto the fix took one detour. By the time #260 merged, #208 was DIRTY against a `staging` that had moved under it (#259), so `land-prs` stopped. Renovate's schedule (`0 */12 * * *`) had actually fired at 04:53, 16:40 and 20:23Z. The 20:23Z run was marked failure, with its only job cancelled before any step ran, so no rebase was coming. The 00:00Z slot had not fired by 00:13Z. I dispatched `renovate.yml` once. It rebased #208 (`cd62125`) and merged nothing else.
+
+Option (c), resolving `none` inside `src/audits/a11y.ts`, was not done. The gate was right that the contrast was unmeasured, and the brief forbids softening it. But its remedy text, "write 0 for none in the oklab() token", points at a token no site has; the `none` here was synthesised from sRGB `#000`. That is BACKLOG P1-31, together with a fleet survey of who else turns red on the 0.102+ bump.
+
+Not verified here: the cockpit item clearing. That happens on the next sweep. The staging → main promotion is the operator's.
