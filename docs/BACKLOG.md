@@ -1481,6 +1481,24 @@ analytics"]`). The operator creates properties for the other three. When the
     `images.prismic.io` (about 99 URLs on 29 Navy's home), so Prismic/imgix
     receives every visitor's IP. The same holds on every Prismic site in the
     fleet.
+    **Live 2026-10-06 [M]:** the operator merged 1836dig#24 and 29-navy#73.
+    GA4 Realtime read 0 rows on each property before one verification visit,
+    then `1 user, 3 events` at ~14:13Z on both 556936272 (1836dig) and
+    556907604 (29 Navy). All three sites now collect.
+    **Privacy values filled 2026-10-06:** data-dynamiq#60, 1836dig#25 and
+    29-navy#74 replace the `[client legal name]` and effective-date
+    placeholders (effective October 6, 2026). Names: "Data Dynamiq" and
+    "1836 Digital Investment Group" from each site's own copyright line;
+    "Worthe Real Estate Group" for 29 Navy from Worthe staff signatures and
+    Harvest ("Client: Worthe Real Estate"), with `29navy@worthe.com`, the
+    address the site already publishes, as its contact. No registry was
+    read: CA bizfile's WAF refuses automated requests and OpenCorporates
+    needs a token, so none of the three is confirmed as a registered entity
+    name. Two contact emails stay `[privacy contact email]`: Data Dynamiq's
+    only published address is a named person's (`rgreenquist@`), and
+    1836dig's only known address is a personal Gmail. _Ask:_ an address for
+    each from the client. _Pick:_ a role address (`privacy@` or `info@`) on
+    each client's own domain. The text is still DRAFT under item 45.
 50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
     cockpit's only live-site attention item that has no ask yet [M]. The drift is
     `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
